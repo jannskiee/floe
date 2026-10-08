@@ -921,6 +921,30 @@ describe('sender: visitor options', () => {
         }
     });
 
+    it('under requireReceived later files wait ackTimeoutMs too (A3-03)', async () => {
+        vi.useFakeTimers();
+        try {
+            const failures: Failure[] = [];
+            // A host that commits file 1 slowly (a blocked rename retries for
+            // up to 5 minutes) acks file 2 late: the /r visitor must not give
+            // up at 120 s while the CLI visitor would still be waiting.
+            const v = visitorDeps({ ackFiles: 1 });
+            const p = sendFiles(v.deps, entries(2), {
+                onFailed: (f) => failures.push(f),
+            }, { ackTimeoutMs: 300_000, requireReceived: true, sendHashes: false });
+            await vi.advanceTimersByTimeAsync(0);
+
+            await vi.advanceTimersByTimeAsync(ACK_TIMEOUT_MS + 1);
+            expect(failures).toEqual([]);
+
+            await vi.advanceTimersByTimeAsync(300_000 - ACK_TIMEOUT_MS - 1);
+            await p;
+            expect(failures).toEqual([{ kind: 'ack-timeout', index: 2 }]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('requireReceived waits past drain for received', async () => {
         const v = visitorDeps();
         let settled = false;

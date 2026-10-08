@@ -136,7 +136,11 @@ export interface SendOptions {
     // decide passes a longer value. Later files keep ACK_TIMEOUT_MS: only the
     // first metadata waits for a human to answer a prompt, and after that the
     // receiver is already committed, so a long deadline there would only delay
-    // a dead transfer (spec 07 4.9).
+    // a dead transfer (spec 07 4.9). Under requireReceived (a request-link
+    // drop) every file waits ackTimeoutMs: the host acks a file only after it
+    // has synced and committed the one before, and E-36 lets that commit retry
+    // a blocked rename for 5 minutes, which the CLI visitor's deadline already
+    // covers for every file (deep QA A3-03).
     ackTimeoutMs?: number;
     // Whether each file's SHA-256 goes on its end frame. Defaults to
     // SEND_FILE_HASHES, the rollback lever.
@@ -233,7 +237,7 @@ export async function sendFiles(
             try {
                 ok = await sendSingleFile(
                     deps, entry, i + 1, files.length, totalBytes, cb, view, emitView,
-                    i === 0 ? (opts.ackTimeoutMs ?? ACK_TIMEOUT_MS) : ACK_TIMEOUT_MS, session,
+                    (i === 0 || opts.requireReceived) ? (opts.ackTimeoutMs ?? ACK_TIMEOUT_MS) : ACK_TIMEOUT_MS, session,
                     { enabled: opts.sendHashes ?? SEND_FILE_HASHES, hashBlob: deps.hashBlob ?? workerHashBlob, signal: hashAbort.signal }
                 );
             } finally {
