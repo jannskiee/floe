@@ -81,6 +81,17 @@ func quietPeerConnectionLog() {
 	quietPionScope("datachannel")
 }
 
+// quietMuxLog disables pion's "mux" scope for every command by the same rule
+// (deep QA QA-07). The data channel's packet mux logs at ERROR for each
+// datagram it cannot hand on, and in one stalled send out of 38 in the QA
+// runs it printed 174 lines of "mux ERROR: failed to read from
+// packetio.Buffer short buffer" over floe's own output before the stall
+// ended it. The lines go through the escaping factory, so they could not
+// write controls, but they are pion's internals and nothing the person
+// running floe can act on; floe's own message says what happened. Someone
+// debugging pion turns a level on and gets them back.
+func quietMuxLog() { quietPionScope("mux") }
+
 // quietPionScope disables pion's scope (lower case, as pion names its own)
 // unless the person running floe has turned a pion log level on, the rule
 // quietTURNClientLog states for turnc: nothing changes while a PION_LOG_ or
@@ -114,4 +125,7 @@ func quietPionScope(scope string) {
 
 // At process start, before main and so before any command can build a peer.
 // The test binary runs it too, which is what turnlog_test.go reads.
-func init() { quietTURNClientLog() }
+func init() {
+	quietTURNClientLog()
+	quietMuxLog()
+}
