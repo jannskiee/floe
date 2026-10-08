@@ -356,7 +356,10 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 		runtime.EventsEmit(a.ctx, event, payload)
 	}
 
-	if outputDir == "" {
+	if abs, err := resolveSaveDir(outputDir); err == nil && abs != "" {
+		outputDir = abs
+	}
+	if strings.TrimSpace(outputDir) == "" {
 		outputDir = defaultReceiveDir()
 	}
 	absOutput, err := filepath.Abs(outputDir)

@@ -675,6 +675,8 @@ func (a *App) MakeRequestLink(label string, saveDir string, lifetime string, aut
 	saveDir = strings.TrimSpace(saveDir)
 	if saveDir == "" {
 		saveDir = requestDefaultDirFn()
+	} else if abs, err := resolveSaveDir(saveDir); err == nil && abs != "" {
+		saveDir = abs
 	}
 
 	l := a.lane()
