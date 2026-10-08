@@ -4,6 +4,7 @@ package transfer
 // made on the sender's own files before any network (TL-30, TL-31).
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -45,11 +46,12 @@ func TestPrecheckDropMetadataBoundary(t *testing.T) {
 	}
 	// The measure is the escaped length, not the name's: one quote in place
 	// of a letter costs one more byte, one backslash one more, and one astral
-	// character three more.
+	// character three more. <, > and & cost no more than a letter: the wire
+	// does not HTML-escape them (T13-F2).
 	for _, c := range []struct {
 		swap  string
 		extra int
-	}{{`"`, 1}, {`\`, 1}, {"😀", 3}} {
+	}{{`"`, 1}, {`\`, 1}, {"😀", 3}, {"&", 0}, {"<", 0}, {">", 0}} {
 		if got := frame("a"+c.swap) - frame("aa"); got != c.extra {
 			t.Fatalf("%q costs %d bytes over a letter, want %d", c.swap, got, c.extra)
 		}
@@ -71,13 +73,28 @@ func TestPrecheckDropMetadataBoundary(t *testing.T) {
 	}
 
 	// The measure is what sendFile will put on the wire for that file: the
-	// same struct with a real uuid is the same length.
-	real, err := json.Marshal(metadataMsg{
+	// same struct with a real uuid is the same length, and it is JSON.
+	real := metadataJSON(metadataMsg{
 		Type: "metadata", ID: uuid.New().String(), FileName: at, FileSize: 4096, Index: 1, Total: 1,
 		TotalBytes: 4096, Pv: ProtocolVersion, PvMin: MinProtocolVersion, Ver: ver,
 	})
-	if err != nil || len(real) != controlMsgMax {
-		t.Fatalf("sendFile's own frame for the boundary name is %d bytes (%v), want %d", len(real), err, controlMsgMax)
+	var back metadataMsg
+	if err := json.Unmarshal(real, &back); err != nil || len(real) != controlMsgMax || back.FileName != at {
+		t.Fatalf("sendFile's own frame for the boundary name is %d bytes (%v, name back %q), want %d", len(real), err, back.FileName, controlMsgMax)
+	}
+
+	// A legal Windows name of 150 ampersands (T13 K3amp) fits now; with
+	// json.Marshal's six-byte escape for each & its frame was 1,075 bytes and
+	// the send refused it.
+	amp := strings.Repeat("&", 150) + ".txt"
+	if got := frame(amp); got > controlMsgMax {
+		t.Fatalf("the ampersand name's frame is %d bytes, over %d", got, controlMsgMax)
+	}
+	if _, err := precheckEntries([]fileEntry{{displayName: amp, size: 4096}}, ver); err != nil {
+		t.Fatalf("the ampersand name was refused: %v", err)
+	}
+	if w := metadataJSON(metadataMsg{Type: "metadata", FileName: amp}); bytes.Contains(w, []byte{92, 'u', '0', '0', '2', '6'}) {
+		t.Fatalf("the wire frame HTML-escapes &: %s", w)
 	}
 
 	// The widest index is the one measured: a name exactly at the cap as file

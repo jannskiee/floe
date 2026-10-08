@@ -1495,7 +1495,9 @@ func TestSendToPickTimeLimitsEndBeforeAnyNetwork(t *testing.T) {
 			return dir
 		}, []string{"This drop has more than 10,000 files. Zip them first."}},
 		{"a description over one control message (TL-31)", func(t *testing.T) string {
-			p, _ := oneFile(t, t.TempDir(), strings.Repeat("&", 150)+".bin", 16)
+			// U+2028, which the wire still writes as a six-byte escape; & is one
+			// byte there since the metadata frame dropped HTML escaping (T13-F2).
+			p, _ := oneFile(t, t.TempDir(), strings.Repeat(string(rune(0x2028)), 160)+".bin", 16)
 			return p
 		}, []string{"A folder path is too long to send. Zip deeply nested folders first."}},
 	} {
