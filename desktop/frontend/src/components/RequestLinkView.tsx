@@ -339,7 +339,7 @@ function LinkBlock({phase, snap, onClose}: {phase: Phase; snap: RequestLinkSnaps
                     every link phase (the prompt mounts below the hairline). */}
                 <Button id="floe-close-link" variant="secondary" className="min-w-24" onClick={onClose}>{copy.CLOSE_LINK}</Button>
             </div>
-            <p className={t2Class}>{copy.scopeLine(snap.expiresAt, Date.now(), autoAcceptShown({autoAccept: snap.autoAccept, state: phase}))}</p>
+            <p className={t2Class}>{copy.scopeLine(snap.expiresAt, Date.now(), autoAcceptShown({autoAccept: snap.autoAccept, state: phase}), snap.autoAsks, snap.saveDir)}</p>
         </div>
     );
 }
@@ -487,7 +487,7 @@ function Prompt({snap, onAnswer, onGuardLift, onPromptVisible}: RequestLinkViewP
                 <p className={t2Class}>{copy.INTO} <span className={intoClass}>{prompt.folder}</span></p>
                 {prompt.warnings.map((w) => {
                     const line = copy.warningLine(w, prompt, snap.saveDir);
-                    return line ? <p key={w} className={warnClass}>{line}</p> : null;
+                    return line ? <p key={w} className={w.startsWith('auto-') ? t2Class : warnClass}>{line}</p> : null;
                 })}
             </div>
             {/* scroll-mb-4: Review's scrollIntoView stops 16 px short of the

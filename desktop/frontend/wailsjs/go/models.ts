@@ -66,6 +66,7 @@ export namespace main {
 	    folder: string;
 	    freeBytes: number;
 	    warnings: string[];
+	    floorBytes?: number;
 	    answerBy: number;
 	
 	    static createFrom(source: any = {}) {
@@ -79,6 +80,7 @@ export namespace main {
 	        this.folder = source["folder"];
 	        this.freeBytes = source["freeBytes"];
 	        this.warnings = source["warnings"];
+	        this.floorBytes = source["floorBytes"];
 	        this.answerBy = source["answerBy"];
 	    }
 	}
@@ -93,6 +95,7 @@ export namespace main {
 	    saveDir: string;
 	    expiresAt: number;
 	    autoAccept: boolean;
+	    autoAsks?: string;
 	    route: string;
 	    reconnectUntil?: number;
 	    missedAt?: number;
@@ -117,6 +120,7 @@ export namespace main {
 	        this.saveDir = source["saveDir"];
 	        this.expiresAt = source["expiresAt"];
 	        this.autoAccept = source["autoAccept"];
+	        this.autoAsks = source["autoAsks"];
 	        this.route = source["route"];
 	        this.reconnectUntil = source["reconnectUntil"];
 	        this.missedAt = source["missedAt"];
