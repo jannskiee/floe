@@ -122,6 +122,15 @@ func WithLiveness(ping, readDeadline time.Duration) Option {
 	}
 }
 
+// maxServerMessage bounds one frame from the signaling server. gorilla's
+// default is no limit, and ReadMessage buffers a whole frame, so one huge
+// frame from a hostile server, or from anyone on a plain ws:// path, could
+// exhaust the memory of floe send, floe receive or a desktop holding a request
+// link for days (deep QA A3-06). The server caps what a peer may relay at
+// 1 MB, so 2 MiB leaves room for its own wrapping; a frame over it ends the
+// connection the way a drop does.
+const maxServerMessage = 2 << 20
+
 // Connect opens a WebSocket connection to serverURL/ws.
 // serverURL may start with http://, https://, ws://, or wss://.
 func Connect(serverURL string, opts ...Option) (*Client, error) {
@@ -140,6 +149,7 @@ func Connect(serverURL string, opts ...Option) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot connect to signaling server at %s: %w", wsURL, err)
 	}
+	conn.SetReadLimit(maxServerMessage)
 
 	c := newClient(conn, cfg)
 
