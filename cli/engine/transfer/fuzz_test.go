@@ -264,6 +264,11 @@ func safeJoinSeeds() []fuzzSeed {
 		{name: "traversal-40-deep", text: strings.Repeat("../", 40) + "x.txt"},
 		{name: "mac-finder-slash-name", text: "P:L 2025.xlsx"},
 		{name: "drive-anchored-forward", text: "c:/evil"},
+		// e8d5668 (deep QA A3-04): a name that starts with one backslash is a
+		// name, not a rooted path, unless another separator follows (W3 R1-06).
+		{name: "leading-backslash-name", text: `\notes.txt`},
+		{name: "lone-backslash", text: `\`},
+		{name: "leading-backslash-folder", text: `\dir/a.txt`},
 	}
 }
 
