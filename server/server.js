@@ -1430,27 +1430,32 @@ function handleJoinRoom(peer, roomId) {
 // the server build a 40 MB frame for a /ws target, stalling it for about
 // 350 ms and taking 170 MB. A signal is relayed only when it is plain JSON
 // (objects, arrays, strings, finite numbers, booleans, null), at most
-// SIGNAL_MAX_DEPTH deep and at most SIGNAL_MAX_CHARS long as the target
-// receives it; anything else is dropped, silently, like any undeliverable
-// signal. The walk stops at the first level or character past a bound, so a
-// refused signal costs no more than the bound to look at.
+// SIGNAL_MAX_DEPTH deep and at most SIGNAL_MAX_CHARS characters (UTF-16
+// units) long as JSON.stringify writes it for the target, keys and escapes
+// included; anything else is dropped, silently, like any undeliverable
+// signal. A character is at most three bytes on the wire, so a relayed
+// signal is at most 192 KiB, far inside the 2 MiB a Go peer reads. The walk
+// stops at the first level or character past a bound, so a refused signal
+// costs no more than the bound to look at.
 const SIGNAL_MAX_CHARS = 64 * 1024;
 const SIGNAL_MAX_DEPTH = 8;
 
 function signalFits(signal) {
     let left = SIGNAL_MAX_CHARS;
+    // A string, value or key, with its quotes. An escape is at most six
+    // characters as JSON.stringify writes it (C1-09: keys were counted raw).
+    const text = (value) => {
+        left -= 2;
+        for (let i = 0; i < value.length && left >= 0; i++) {
+            const c = value.charCodeAt(i);
+            left -= c < 0x20 || c === 0x22 || c === 0x5c || (c >= 0xd800 && c <= 0xdfff) ? 6 : 1;
+        }
+        return left >= 0;
+    };
     const fits = (value, depth) => {
         if (value === null || typeof value === 'boolean') return (left -= 5) >= 0;
         if (typeof value === 'number') return Number.isFinite(value) && (left -= String(value).length) >= 0;
-        if (typeof value === 'string') {
-            left -= 2;
-            // An escape is at most six characters as JSON.stringify writes it.
-            for (let i = 0; i < value.length && left >= 0; i++) {
-                const c = value.charCodeAt(i);
-                left -= c < 0x20 || c === 0x22 || c === 0x5c || (c >= 0xd800 && c <= 0xdfff) ? 6 : 1;
-            }
-            return left >= 0;
-        }
+        if (typeof value === 'string') return text(value);
         if (typeof value !== 'object' || depth >= SIGNAL_MAX_DEPTH) return false;
         if (Array.isArray(value)) {
             left -= 2;
@@ -1465,8 +1470,8 @@ function signalFits(signal) {
         if (proto !== Object.prototype && proto !== null) return false;
         left -= 2;
         for (const key of Object.keys(value)) {
-            left -= key.length + 4;
-            if (left < 0 || !fits(value[key], depth + 1)) return false;
+            // The key, then its colon and a comma.
+            if (!text(key) || (left -= 2) < 0 || !fits(value[key], depth + 1)) return false;
         }
         return left >= 0;
     };

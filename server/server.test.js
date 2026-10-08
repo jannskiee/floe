@@ -665,6 +665,18 @@ describe('handleSignal', () => {
         assert.equal(pB.msgs.length, 1);
     });
 
+    it('counts a key as the target receives it, escapes included (C1-09)', () => {
+        const { pA, pB } = pairInRoom();
+        // A control character is six characters once written as an escape:
+        // 11,000 of them in a key are 66,000, past the bound.
+        const key = String.fromCharCode(1).repeat(11_000);
+        assert.ok(JSON.stringify({ [key]: 1 }).length > SIGNAL_MAX_CHARS);
+        handleSignal(pA, { type: 'offer', [key]: 1 }, null);
+        assert.equal(pB.msgs.length, 0);
+        handleSignal(pA, { type: 'offer', [String.fromCharCode(1).repeat(10_000)]: 1 }, null);
+        assert.equal(pB.msgs.length, 1, '60,000 characters as written still fit');
+    });
+
     it('drops a signal holding binary, as a Socket.IO attachment arrives, or any object that is not plain JSON', () => {
         const { pA, pB } = pairInRoom();
         for (const signal of [
