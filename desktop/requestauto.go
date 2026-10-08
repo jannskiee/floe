@@ -151,8 +151,9 @@ func autoFloor(capacity int64) int64 {
 // autoAskReason names why a drop that carried no warning still asked on a
 // link that accepts automatically (D-176): the volume could not be read (G5,
 // G13 without its size, or G6 without an answer, W3 R2-08), it cannot keep the
-// downloaded-file mark (G6), or the floor (G13). The prompt draws one gray line for it, so an owner who
-// turned Auto-accept on learns why this drop waits for them.
+// downloaded-file mark (G6), or the floor (G13). The prompt draws one gray
+// line for it, so an owner who turned Auto-accept on learns why this drop
+// waits for them.
 func autoAskReason(sp requestSpace) string {
 	switch {
 	case !sp.freeKnown || sp.capacity <= 0 || !sp.markKnown:

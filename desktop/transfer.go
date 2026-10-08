@@ -753,9 +753,10 @@ func (a *App) requestDecide(rg uint64, p requestPairing, d *requestDrop, in tran
 	l.mu.Unlock()
 	at := now()
 	// The window runs from here, where answerBy is taken, not from after
-	// openPrompt's flash, title and toast (go-toast can fall back to a
-	// PowerShell run), so their time never comes out of the margin before the
-	// visitor's own ack timer (review 2a N3). The wall clock, not the lane's
+	// openPrompt's flash, title and toast (on Windows the toast is only queued
+	// since A2-02; the flash and title are still calls), so their time never
+	// comes out of the margin before the visitor's own ack timer (review 2a
+	// N3). The wall clock, not the lane's
 	// clock seam, times it.
 	opened := time.Now()
 	pr := requestPromptFor(p, in, d.route, at)

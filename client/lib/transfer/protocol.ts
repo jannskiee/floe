@@ -35,7 +35,8 @@ export const REQUEST_ACK_GRACE_MS = 15_000;
 /**
  * How long a digest may take for a file of this many bytes before the side
  * waiting on it gives up: a floor rate of 10 MB/s plus 30 s, so a 2 GB file
- * gets 230 s.
+ * gets 230 s. The base bound only: the sender caps it at END_DIGEST_WAIT_MS,
+ * and a receiver at POST_END_HASH_WAIT_MS for every file but the last.
  *
  * One formula for both sides, which is why it lives here and not in
  * fileHash.ts (the Worker boundary, which holds no caller policy). A hasher

@@ -82,8 +82,8 @@ type App struct {
 	// from the transfer goroutine, so it is guarded by mu like everything else here.
 	cfg appConfig
 
-	// notifyFn is the test seam for OS notifications; nil means the real Wails
-	// runtime notification (see notify).
+	// notifyFn is the test seam for OS notifications; nil means the real
+	// delivery: pushFn, or pushToast when that is nil too (see notify).
 	notifyFn func(title, body string)
 
 	// pushFn is the second test seam: delivery with the sound flag, reached
@@ -264,9 +264,10 @@ var floeInFrontFn = floeInFront
 // and the in-app notice are not here and never turn off.
 //
 // The preferences are read now, under mu, and mu is released before delivery:
-// the toast can take a while, and no caller of notify holds mu or the lane's
-// lock. notifyFn and pushFn are the test seams; with neither set the toast
-// goes to pushToast, with the sound preference as its silent flag.
+// delivery only queues the toast (Windows) or calls the Wails runtime, and no
+// caller of notify holds mu or the lane's lock. notifyFn and pushFn are the
+// test seams; with neither set the toast goes to pushToast, with the sound
+// preference as its silent flag.
 func (a *App) notify(title, body string) {
 	a.mu.Lock()
 	off, silent, ctx := a.cfg.NoToasts, a.cfg.SilentToasts, a.ctx

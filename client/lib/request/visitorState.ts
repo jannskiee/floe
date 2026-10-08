@@ -7,7 +7,7 @@
 // rules the reviews carried into it, be a unit test.
 //
 // State ids follow the spec: V1 to V13, plus the sub-states it names (V3c,
-// V5a to V5c, V6a to V6d, V8a, V8b, V11a, V11b, V12a) and 'load' before the
+// V5a to V5d, V6a to V6d, V8a, V8b, V11a, V11b, V12a) and 'load' before the
 // link has been read. V3a (no folder picking) and V3b (Hide my IP over 2 GB)
 // are facts about the Ready view, computed where it renders; V3b's one rule
 // that is a decision, Send refused, lives in sendBlock below.

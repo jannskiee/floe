@@ -537,7 +537,7 @@ func requestJoin(sc *signaling.Client, roomID string) signaling.RequestJoinResul
 	}
 }
 
-// setupWatched answers the host's offer while it watches for the three
+// setupWatched answers the host's offer while it watches for the four
 // answers that take the seat away during setup: room-full (the host reopened
 // the link, evicting this visitor, E-03), host-absent (the host left before
 // the room sealed: the server sends that, and not peer-disconnected, to an

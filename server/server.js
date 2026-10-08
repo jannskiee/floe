@@ -590,10 +590,12 @@ function destroyRoom(roomId) {
 // otherwise have answered host-absent, and a host join is refused; then the
 // sweep ends the marker for good (it never re-arms), and a restart forgets it
 // (memory only). Every other end (an unsealed close, which is Close link while
-// waiting; the grace; the age ceiling; a lazy expiry) still goes outright,
-// sealed or not (review 1 F1): a room is sealed from its pairing through the
-// prompt and a Decline, so a sealed room whose host went away may have
-// delivered nothing, and its host must be able to re-create it. A request-close
+// waiting or the desktop's own end of the link's life; the grace; the age
+// ceiling; a lazy expiry) still forgets the reservation outright, sealed or not
+// (review 1 F1): a room is sealed from its pairing through the prompt and a
+// Decline, so a sealed room whose host went away may have delivered nothing,
+// and its host must be able to re-create it. An unsealed close alone leaves an
+// ended link behind, outside roomMeta (endedLinks, D-176). A request-close
 // lost with its socket therefore falls back to host-absent (OD-28).
 //
 // E-15 with the marker (W3 R1-01): a marker holds no MAX_REQUEST_ROOMS slot.
@@ -718,8 +720,9 @@ function releaseLivePlace(meta) {
 // an attacker holding many keys (IPv6 /64s, or any X-Forwarded-For on a
 // self-host exposed directly), and a reservation frees its MAX_REQUEST_ROOMS
 // slot as soon as it ends (a sealed request-close too: its used marker holds
-// none), so without a ceiling the log grows by one entry per key per day. Past the ceiling the least recently created key is
-// dropped (an expired one first, since the Map is kept in last-create order):
+// none), so without a ceiling the log grows by one entry per key per day.
+// Past the ceiling the least recently created key is dropped (an expired one
+// first, since the Map is kept in last-create order):
 // never a limited answer to a new key, which would let one many-key caller
 // stop every request link for a day. Dropping a key's history can only give
 // that key a fresh budget; MAX_REQUEST_ROOMS stays the global bound on live
@@ -973,7 +976,8 @@ function recordSeating(meta, now) {
 // creates a room and never takes seat 0. Precedence (spec 04 5.6.4): the
 // budget, the id's shape, the kill switch (which wins over every other
 // answer), then host-absent for an unknown or ordinary id alike (no existence
-// oracle), an idempotent re-join, room-full for a sealed link (the truthful
+// oracle), or link-ended for a day after its host closed it unused (D-176), an
+// idempotent re-join, room-full for a sealed link (the truthful
 // answer while its host is briefly away) and for a used one (its marker is
 // sealed, D-130), host-absent for an empty seat 0,
 // room-full for a full room, room-full past the link's seating budget, and
@@ -1049,14 +1053,15 @@ function handleRequestJoin(peer, roomId, now = Date.now()) {
 // reopen: after a Decline the owner chose to keep waiting on, or a failed
 // setup. A seated visitor (a squatter, or a declined page that never leaves:
 // there is no leave message) is evicted with room-full, and the room unseals.
-// close: the room is gone. An unsealed room's reservation goes with it, and a
-// later request-join answers host-absent (Close link while waiting). A sealed
-// room has been used, so its reservation becomes a used marker for
-// REQUEST_USED_MARKER_MS (D-130): a later request-join answers room-full, and
-// a host join is refused. This is the only end that leaves a marker. An
-// unsealed visitor hears host-absent; a sealed one is left to its data
-// channel. Nobody is seated in a marker and it has no host, so no control
-// frame reaches one: a reopen can never unseal a used link.
+// close: the room is gone. An unsealed room's reservation goes with it, and
+// for REQUEST_ENDED_MARKER_MS a later request-join answers link-ended (Close
+// link while waiting, or the link's own end; D-176). A sealed room has been
+// used, so its reservation becomes a used marker for REQUEST_USED_MARKER_MS
+// (D-130): a later request-join answers room-full, and a host join is refused.
+// These are the only ends that leave a marker. An unsealed visitor hears
+// link-ended; a sealed one is left to its data channel. Nobody is seated in
+// a marker and it has no host, so no control frame reaches one: a reopen can
+// never unseal a used link.
 function handleRequestControl(peer, type, roomId, now = Date.now()) {
     if (typeof roomId !== 'string' || roomId.length !== 36) return;
     const id = roomId.toLowerCase();
