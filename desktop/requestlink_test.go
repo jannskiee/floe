@@ -2217,6 +2217,25 @@ func isStringLit(e ast.Expr) bool {
 	return ok && lit.Kind == token.STRING
 }
 
+// TestCloseHintOnTheSecondEnd (deep QA A5-05): the second prompt that ends
+// without Accept sets the close hint at once, so the reopened link shows W13;
+// it used to wait for the next prompt, which then hid it.
+func TestCloseHintOnTheSecondEnd(t *testing.T) {
+	clock := time.Unix(1_800_000_000, 0)
+	a, _ := attentionApp(t, &clock)
+	a.openPrompt(1, RequestPrompt{})
+	a.endPrompt(1)
+	if a.GetRequestLink().SuggestClose {
+		t.Fatal("one unanswered end suggests closing")
+	}
+	clock = clock.Add(time.Minute)
+	a.openPrompt(1, RequestPrompt{})
+	a.endPrompt(1)
+	if !a.GetRequestLink().SuggestClose {
+		t.Fatal("the second unanswered end did not suggest closing as the link reopens")
+	}
+}
+
 // TestPromptSpamSuppressesToastKeepsFlashAndTitle (E-40): after two prompts
 // end without Accept within 10 minutes, the next prompt sends no toast but
 // still flashes and sets the title, and suggests closing the link; once those

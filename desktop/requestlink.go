@@ -1390,13 +1390,16 @@ func (a *App) openPrompt(rg uint64, p RequestPrompt) uint64 {
 
 // endPrompt is the end of a prompt that was not accepted: declined, timed
 // out, or the visitor left while the owner decided. The flash stops, the title
-// is Floe again, and the end is counted for E-40.
+// is Floe again, and the end is counted for E-40. The close hint (W13) is set
+// here too, so the second ended prompt suggests closing the link as the link
+// reopens; set only at the next openPrompt, it came one prompt late, and the
+// prompt it then sat on hid it (deep QA A5-05).
 func (a *App) endPrompt(rg uint64) {
 	l := a.lane()
 	l.mu.Lock()
 	if rg == l.gen {
 		l.promptEnds = append(l.promptEnds, l.now())
-		l.pruneEndsLocked()
+		l.suggestClose = l.pruneEndsLocked()
 	}
 	l.mu.Unlock()
 	a.attentionOff()
