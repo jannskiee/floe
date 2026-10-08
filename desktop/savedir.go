@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 )
 
@@ -68,13 +69,17 @@ func resolveSaveDir(dir string) (string, error) {
 	return filepath.Join(home, dir), nil
 }
 
-// saveDirUsable reports whether an absolute save folder can be made: the
-// nearest part of it that exists is a folder. A missing drive, an offline
-// share or a path through a file has none, and a link made there would only
-// fail at Accept, spending the link on a refusal that blames the sender.
-// Stat can stall for an offline share's network timeout, so callers ask it
-// off the UI's path.
+// saveDirUsable reports whether an absolute save folder can be made: no name
+// in it holds a character Windows refuses, and the nearest part of it that
+// exists is a folder. A missing drive, an offline share, a path through a file
+// or a name like a|b has none, and a link made there would only fail at
+// Accept, spending the link on a refusal that blames the sender. Stat can
+// stall for an offline share's network timeout, so callers ask it off the
+// UI's path.
 func saveDirUsable(dir string) bool {
+	if runtime.GOOS == "windows" && strings.ContainsFunc(dir[len(filepath.VolumeName(dir)):], badNameRune) {
+		return false
+	}
 	for p := filepath.Clean(dir); ; {
 		if fi, err := os.Stat(p); err == nil {
 			return fi.IsDir()
@@ -85,4 +90,11 @@ func saveDirUsable(dir string) bool {
 		}
 		p = parent
 	}
+}
+
+// badNameRune is a character Windows refuses in a file or folder name: one of
+// < > : " | ? * or a control character (W3 R2-02). The volume (C:, a share's
+// \\server\share) is left to the Stat walk.
+func badNameRune(r rune) bool {
+	return r < 0x20 || strings.ContainsRune(`<>:"|?*`, r)
 }

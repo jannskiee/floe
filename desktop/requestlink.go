@@ -707,6 +707,10 @@ func (a *App) MakeRequestLink(label string, saveDir string, lifetime string, aut
 		folderOK = false
 	} else if abs != "" {
 		saveDir = abs
+	} else {
+		// Only quotes, or a %NAME% set to nothing: the default, as for an
+		// empty field, never the raw text kept as a relative folder (W3 R2-02).
+		saveDir = requestDefaultDirFn()
 	}
 
 	l := a.lane()
