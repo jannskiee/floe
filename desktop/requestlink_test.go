@@ -12,6 +12,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1654,6 +1655,22 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 		{"notifyTransferFailed", "transfer.go:(*App).ReceiveByCode"}:   false,
 		{"notify", "transfer.go:(*App).receiveByCode"}:                 false,
 		{"notify", "requestlink.go:(*App).notifyRequest"}:              false,
+		// The Windows delivery line (deep QA A2-02, W3 R2-03): its
+		// declarations, the one line built from comToast, and pushToast's one
+		// send. Naming any of them anywhere else is a toast that skips notify.
+		{"comToast", "toast_windows.go:comToast"}:           false,
+		{"comToast", "toast_windows.go:toasts"}:             false,
+		{"toasts", "toast_windows.go:toasts"}:               false,
+		{"toastLine", "toast_windows.go:toasts"}:            false,
+		{"toastJob", "toast_windows.go:toasts"}:             false,
+		{"toastLine", "toast_windows.go:toastLine"}:         false,
+		{"toastJob", "toast_windows.go:toastLine"}:          false,
+		{"toastJob", "toast_windows.go:toastJob"}:           false,
+		{"toastLine", "toast_windows.go:(*toastLine).send"}: false,
+		{"toastJob", "toast_windows.go:(*toastLine).send"}:  false,
+		{"toastLine", "toast_windows.go:(*toastLine).run"}:  false,
+		{"toasts", "toast_windows.go:pushToast"}:            false,
+		{"toastJob", "toast_windows.go:pushToast"}:          false,
 	}
 	// The app's own names, and every identifier naming a Wails notification
 	// symbol: SendNotificationWithActions and RegisterNotificationCategory
@@ -1661,6 +1678,7 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 	named := map[string]bool{
 		"notify": true, "notifyFn": true, "notifyTransferFailed": true,
 		"pushToast": true, "pushFn": true, "toastXML": true,
+		"comToast": true, "toasts": true, "toastLine": true, "toastJob": true,
 	}
 	watched := func(name string) bool { return named[name] || strings.Contains(name, "Notification") }
 	keys := map[string]bool{"toastRequestArrived": true, "toastDropDone": true, "toastDropFailed": true, "toastDropAutoAccepted": true}
@@ -1671,6 +1689,37 @@ func TestNoDirectNotifyInRequestLane(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
+	}
+	// The glob reads this package only; a helper package in the module that
+	// imported go-toast (whose root package always passes the PowerShell
+	// fallback) would never be read. Every Go file in the module, then, may
+	// import go-toast only as toast_windows.go does (W3 R2-03).
+	walkErr := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if path != "." && (d.Name() == "frontend" || d.Name() == "build" || strings.HasPrefix(d.Name(), ".")) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+		for _, imp := range f.Imports {
+			if strings.Contains(strings.ToLower(imp.Path.Value), "toast") && (path != "toast_windows.go" || imp.Path.Value != toastImport) {
+				t.Errorf("%s imports %s: only toast_windows.go may import go-toast, and only its wintoast", path, imp.Path.Value)
+			}
+		}
+		return nil
+	})
+	if walkErr != nil {
+		t.Fatal(walkErr)
 	}
 	fset := token.NewFileSet()
 	parsed, laneNotify, pushCalls, comPushes := 0, 0, 0, 0
