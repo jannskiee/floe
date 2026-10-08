@@ -82,6 +82,9 @@ const {
     REQUEST_CREATE_KEYS_MAX,
     requestRoomIds,
     REQUEST_USED_MARKER_MS,
+    REQUEST_USED_MAX,
+    usedMarkers,
+    countUsedMarkers,
     endedLinks,
     liveByKey,
     REQUEST_LIVE_PER_KEY,
@@ -2267,6 +2270,7 @@ function resetRequestState(on = true) {
     rooms.clear();
     roomMeta.clear();
     if (requestRoomIds) requestRoomIds.clear();
+    if (usedMarkers) usedMarkers.clear();
     if (endedLinks) endedLinks.clear();
     if (liveByKey) liveByKey.clear();
     requestCreates.clear();
@@ -3898,47 +3902,77 @@ describe('request rooms: a used link (D-130)', () => {
         // First in the Map, a planted marker whose room array makes
         // endReservation throw; the real marker after it must still go.
         roomMeta.set('planted-used', { kind: 'request', sealed: true, used: true, closedAt: 0 });
-        requestRoomIds.add('planted-used');
+        usedMarkers.set('planted-used', 0);
         rooms.set('planted-used', [null]);
         const { id } = usedRequestLink(CLOSED);
         assert.equal(roomMeta.get(id).used, true);
         assert.doesNotThrow(() => cleanupTick(CLOSED + REQUEST_USED_MARKER_MS + 1));
         assert.equal(roomMeta.has(id), false, 'the sweep went on past the bad entry');
         roomMeta.delete('planted-used');
-        requestRoomIds.delete('planted-used');
+        usedMarkers.delete('planted-used');
         rooms.delete('planted-used');
     });
 
-    it('the request-room count stays exact across mark, sweep and cap, and a marker counts toward MAX_REQUEST_ROOMS', () => {
-        const check = (what) => assert.equal(requestRoomIds.size, countRequestRooms(), what);
+    it('the request-room and marker counts stay exact across mark, sweep and cap, and a marker holds no MAX_REQUEST_ROOMS slot (W3 R1-01)', () => {
+        const check = (what) => {
+            assert.equal(requestRoomIds.size, countRequestRooms(), `${what}: live`);
+            assert.equal(usedMarkers.size, countUsedMarkers(), `${what}: markers`);
+        };
         const used = usedRequestLink(CLOSED, 'k1', 'k1v');
         check('a sealed close');
-        assert.ok(requestRoomIds.has(used.id), 'the marker keeps its slot');
-        assert.equal(requestRoomIds.size, 1);
+        assert.equal(requestRoomIds.has(used.id), false, 'the marker gives its slot back');
+        assert.equal(usedMarkers.get(used.id), CLOSED);
         const waiting = pairedRequestRoom('k2', 'k2v');
         handleRequestControl(waiting.host, 'request-close', waiting.id, CLOSED);
         check('an unsealed close');
-        assert.equal(requestRoomIds.size, 1);
+        assert.equal(requestRoomIds.size, 0);
+        assert.equal(usedMarkers.size, 1);
 
         // The cap: planted live reservations (host seated, young, so no sweep
-        // ends them) and the one marker fill it exactly.
-        for (let i = 1; i < MAX_REQUEST_ROOMS; i++) {
+        // ends them) fill it exactly, beside the marker.
+        for (let i = 0; i < MAX_REQUEST_ROOMS; i++) {
             roomMeta.set(`fill-${i}`, { keys: new Set(), kind: 'request', hostPeerId: `planted-${i}`, hostAbsentSince: null, createdAt: CLOSED, sealed: false });
             requestRoomIds.add(`fill-${i}`);
         }
         check('full');
-        assert.equal(requestRoomIds.size, MAX_REQUEST_ROOMS);
         const t = newToken();
         assert.deepEqual(hostJoin(makePeer('late', 'k3'), t, CLOSED + 1), { type: 'refused', data: { code: 'busy' } });
         assert.equal(roomMeta.has(roomIdFromToken(t)), false);
 
-        // The sweep frees the marker's slot, and only that one.
+        // The marker's sweep frees no slot; a live end does.
         cleanupTick(CLOSED + REQUEST_USED_MARKER_MS + 1);
         check('the marker sweep');
-        assert.equal(requestRoomIds.size, MAX_REQUEST_ROOMS - 1);
-        assert.deepEqual(hostJoin(makePeer('later', 'k3'), t, CLOSED + REQUEST_USED_MARKER_MS + 2), { type: 'room-joined', data: { role: 'host' } });
+        assert.equal(roomMeta.has(used.id), false);
+        assert.equal(usedMarkers.size, 0);
+        assert.equal(requestRoomIds.size, MAX_REQUEST_ROOMS);
+        endReservation('fill-0', CLOSED + REQUEST_USED_MARKER_MS + 2);
+        check('a live end');
+        assert.deepEqual(hostJoin(makePeer('later', 'k3'), t, CLOSED + REQUEST_USED_MARKER_MS + 3), { type: 'room-joined', data: { role: 'host' } });
         check('a create into the freed slot');
         assert.equal(requestRoomIds.size, MAX_REQUEST_ROOMS);
+    });
+
+    it('used markers stay bounded: past REQUEST_USED_MAX the oldest is forgotten, answers host-absent and can be made again (W3 R1-01)', () => {
+        assert.equal(REQUEST_USED_MAX, 2 * MAX_REQUEST_ROOMS);
+        const oldest = usedRequestLink(CLOSED, 'k-old', 'k-old-v');
+        for (let i = 1; i < REQUEST_USED_MAX; i++) {
+            roomMeta.set(`marker-${i}`, { kind: 'request', sealed: true, used: true, closedAt: CLOSED + 1 });
+            usedMarkers.set(`marker-${i}`, CLOSED + 1);
+        }
+        assert.equal(usedMarkers.size, REQUEST_USED_MAX);
+        const newest = usedRequestLink(CLOSED + 2, 'k-new', 'k-new-v');
+        assert.equal(usedMarkers.size, REQUEST_USED_MAX);
+        assert.equal(countUsedMarkers(), REQUEST_USED_MAX);
+        assert.equal(roomMeta.has(oldest.id), false, 'the oldest is forgotten');
+        assert.equal(usedMarkers.has(oldest.id), false);
+        assert.equal(roomMeta.get('marker-1').used, true, 'and only the oldest');
+        assert.equal(roomMeta.get(newest.id).used, true);
+        const v = makePeer('v', 'k-v');
+        handleRequestJoin(v, oldest.id, CLOSED + 3);
+        assert.deepEqual(v.msgs.pop(), { type: 'host-absent', data: {} });
+        handleRequestJoin(v, newest.id, CLOSED + 4);
+        assert.deepEqual(v.msgs.pop(), { type: 'room-full', data: {} });
+        assert.deepEqual(hostJoin(makePeer('back', 'k-old'), oldest.token, CLOSED + 5), { type: 'room-joined', data: { role: 'host' } });
     });
 
     // A pair that has signaled both ways, so its room is sealed (D-116), with
@@ -4260,6 +4294,22 @@ describe('request rooms: ended links, the per-network cap and squatters (D-176)'
         const fresh = waitingLink('k-fresh', T);
         assert.deepEqual(fresh.reply, { type: 'refused', data: { code: 'busy' } });
         assert.equal(createsInWindow('k-fresh', T), 0);
+    });
+
+    it('used links hold no MAX_REQUEST_ROOMS slot: 250 networks spending their day on used links leave room for a new one (W3 R1-01)', () => {
+        // Each network makes its 20, seats its own visitor, signals both ways
+        // and closes: no socket held, every link a used marker for a day.
+        const networks = MAX_REQUEST_ROOMS / REQUEST_CREATES_PER_DAY;
+        let last;
+        for (let k = 0; k < networks; k++) {
+            for (let i = 0; i < REQUEST_CREATES_PER_DAY; i++) last = usedRequestLink(T + 5_000, `k-flood-${k}`, `k-flood-${k}-v`);
+        }
+        assert.equal(liveByKey.size, 0, 'nobody holds a live link');
+        assert.equal(requestRoomIds.size, countRequestRooms());
+        const v = makePeer('v', 'k-v');
+        handleRequestJoin(v, last.id, T + 6_000);
+        assert.deepEqual(v.msgs.pop(), { type: 'room-full', data: {} }, 'a used link still says so');
+        assert.deepEqual(waitingLink('k-fresh', T + 7_000).reply, { type: 'room-joined', data: { role: 'host' } });
     });
 
     it('the token holder wins its derived id back from an ordinary room squatting on it', () => {

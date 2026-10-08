@@ -569,15 +569,16 @@ function destroyRoom(roomId) {
 //
 // A reservation is a bounded exception to "no room metadata outliving its
 // room": created only by a token join, at most REQUEST_CREATES_PER_DAY per rate
-// key per rolling 24 h and MAX_REQUEST_ROOMS live, and ended REQUEST_GRACE_MS
-// after its host socket closes or REQUEST_MAX_AGE_MS after its creation,
-// whichever comes first. Live reservations are NOT bounded by live host
-// sockets: a reservation in grace needs no socket, and one socket can keep a
-// key's reservations alive by reclaiming each inside its grace. So the bound
-// per key is the daily budget across the age ceiling (about 160: 20 a day on
-// each of the 8 days a 7 d + 10 min window can touch), and the global bound is
-// MAX_REQUEST_ROOMS. A flood of the cap refuses only new request links
-// (limited), never ordinary rooms, codes or the room seal.
+// key per rolling 24 h, REQUEST_LIVE_PER_KEY live per key and MAX_REQUEST_ROOMS
+// live in all, and ended REQUEST_GRACE_MS after its host socket closes or
+// REQUEST_MAX_AGE_MS after its creation, whichever comes first. Live
+// reservations are NOT bounded by live host sockets: a reservation in grace
+// needs no socket, and one socket can keep a key's reservations alive by
+// reclaiming each inside its grace. So filling MAX_REQUEST_ROOMS takes
+// MAX_REQUEST_ROOMS / REQUEST_LIVE_PER_KEY = 500 keys, each keeping its links
+// alive (D-176; used markers hold no slot, W3 R1-01). A flood of the cap
+// refuses only new request links (busy), never ordinary rooms, codes or the
+// room seal.
 //
 // A used link (D-130, deciding spec 04 5.16 c, gap G5). When the host sends
 // request-close for a SEALED room (Floe Desktop does at every end it knows:
@@ -595,16 +596,17 @@ function destroyRoom(roomId) {
 // delivered nothing, and its host must be able to re-create it. A request-close
 // lost with its socket therefore falls back to host-absent (OD-28).
 //
-// E-15 with the marker: a marker keeps its reservation's MAX_REQUEST_ROOMS
-// slot, so the cap bounds reservations and markers together and stays 5000.
-// Per key, a live entry can now be as old as the age ceiling plus the
-// marker's day, each ended at most one sweep tick late: 7 d 10 min + 1 min +
-// 24 h + 1 min = 8 d 12 min from its create. Those creates fit in 9 day-long
-// windows (8 whole days and 12 minutes), 20 each, so that bound is 180 (it was
-// 160). A key whose history was dropped at REQUEST_CREATE_KEYS_MAX can exceed
-// it; MAX_REQUEST_ROOMS still holds. A marker holds its slot for its day with
-// no socket and no traffic, where a sealed reservation whose host left gave it
-// up after the grace; the create budget and the cap still bound both.
+// E-15 with the marker (W3 R1-01): a marker holds no MAX_REQUEST_ROOMS slot.
+// It gives its key's live place back and takes one of REQUEST_USED_MAX places
+// instead, so the cap bounds live reservations alone. Had markers kept their
+// slots, 250 keys spending their 20 daily creates on links they used
+// themselves (create, seat their own visitor, one signal each way, close)
+// would fill the cap for a day with no socket held, the bound
+// REQUEST_LIVE_PER_KEY is there to raise. Markers are bounded by count: past
+// REQUEST_USED_MAX the oldest is forgotten, which only turns its answer from
+// room-full into host-absent, as a restart does, and lets its own host make the
+// link again. A key whose history was dropped at REQUEST_CREATE_KEYS_MAX gets a
+// fresh daily budget; both ceilings still hold.
 //
 // Privacy: the record holds a digest of the host's rate key (sealDigest), never
 // the key, and requestCreates is keyed the same way; a reservation can live for
@@ -652,12 +654,25 @@ const REQUEST_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000 + 10 * 60 * 1000;
 // from the close, not from the create. The sweep's 60 s interval makes it 24 h
 // to 24 h and one minute.
 const REQUEST_USED_MARKER_MS = 24 * 60 * 60 * 1000;
-// At most this many live reservations per rate key (D-176). Holding sockets
-// open, one network could otherwise keep MAX_REQUEST_ROOMS alone across a
-// link's seven days, and about 250 keys could fill it for everyone. Ten keeps
-// an office behind one address making links; filling the cap now takes 500
-// keys. Like the global cap, a refusal here answers busy, which names no
-// policy of the joiner's own (limited is its daily create budget).
+// At most this many used markers at once (W3 R1-01). A marker holds no
+// MAX_REQUEST_ROOMS slot, so it needs a bound of its own; past it the oldest is
+// forgotten (noteUsedMarker). Twice MAX_REQUEST_ROOMS: forgetting a real marker
+// early takes 500 keys spending a whole day's creates on used links, the same
+// 500 that could fill the cap. Measured cost at the ceiling (Node 22, heapUsed
+// after gc, both maps): about 6.7 MB, 666 B a marker.
+const REQUEST_USED_MAX = 10000;
+// roomId -> closedAt of every used marker in roomMeta, oldest first: the
+// ceiling's order. Kept in step at the swap (endReservation) and the one end
+// (forgetReservation).
+const usedMarkers = new Map();
+// At most this many live reservations per rate key (D-176). The create budget
+// alone let a network hold 20 links a day and about 160 across a link's seven
+// days, so 250 networks could fill MAX_REQUEST_ROOMS for everyone on the first
+// day and about 30 within a week. Ten keeps an office behind one address
+// making links; filling the cap now takes 500 keys, each keeping its links
+// alive (a used marker holds no slot, W3 R1-01). Like the global cap, a refusal
+// here answers busy, which names no policy of the joiner's own (limited is its
+// daily create budget).
 const REQUEST_LIVE_PER_KEY = 10;
 // sealDigest(rate key) -> live reservations made from it. Kept in step at the
 // one create and the two ends (forgetReservation, the used-marker swap), so the
@@ -702,14 +717,13 @@ function releaseLivePlace(meta) {
 // At most REQUEST_CREATE_KEYS_MAX keys (D-116). The per-key budget cannot bind
 // an attacker holding many keys (IPv6 /64s, or any X-Forwarded-For on a
 // self-host exposed directly), and a reservation frees its MAX_REQUEST_ROOMS
-// slot as soon as it ends (one ended by a sealed request-close a day later,
-// with its used marker), so without a ceiling the log grows by one
-// entry per key per day. Past the ceiling the least recently created key is
+// slot as soon as it ends (a sealed request-close too: its used marker holds
+// none), so without a ceiling the log grows by one entry per key per day. Past the ceiling the least recently created key is
 // dropped (an expired one first, since the Map is kept in last-create order):
 // never a limited answer to a new key, which would let one many-key caller
 // stop every request link for a day. Dropping a key's history can only give
 // that key a fresh budget; MAX_REQUEST_ROOMS stays the global bound on live
-// reservations and used markers.
+// reservations, and REQUEST_USED_MAX on used markers.
 // Measured cost at the ceiling (Node 22, heapUsed after gc): about 3.0 MB with
 // one timestamp per key (299 B a key) and about 5.0 MB with the full 20.
 const REQUEST_CREATE_KEYS_MAX = 10000;
@@ -740,16 +754,22 @@ function recordCreate(key, now = Date.now()) {
 // handleHostJoin is one size read: a refused create at a full cap would
 // otherwise walk every room (ordinary ones too) on every frame, and it spends
 // no budget, so one socket could repeat it. A request meta enters roomMeta
-// only in handleHostJoin and leaves only through forgetReservation. A sealed
-// request-close (endReservation with markUsed) swaps it in place for its used
-// marker and leaves the id here: the marker counts toward the cap like the
-// reservation it replaced.
+// only in handleHostJoin and leaves through forgetReservation, or as a marker
+// past REQUEST_USED_MAX (noteUsedMarker). A sealed request-close
+// (endReservation with markUsed) swaps it in place for its used marker and
+// takes the id out of here: a marker holds no slot (W3 R1-01).
 const requestRoomIds = new Set();
 
-// A walk, kept as the test oracle for requestRoomIds.
+// Walks, kept as the test oracles for requestRoomIds and usedMarkers.
 function countRequestRooms() {
     let n = 0;
-    for (const meta of roomMeta.values()) if (meta.kind === 'request') n++;
+    for (const meta of roomMeta.values()) if (meta.kind === 'request' && !meta.used) n++;
+    return n;
+}
+
+function countUsedMarkers() {
+    let n = 0;
+    for (const meta of roomMeta.values()) if (meta.kind === 'request' && meta.used) n++;
     return n;
 }
 
@@ -757,6 +777,20 @@ function forgetReservation(roomId) {
     releaseLivePlace(roomMeta.get(roomId));
     roomMeta.delete(roomId);
     requestRoomIds.delete(roomId);
+    usedMarkers.delete(roomId);
+}
+
+// Makes room for one more used marker: past REQUEST_USED_MAX the oldest goes
+// from both maps.
+function noteUsedMarker(roomId, now) {
+    usedMarkers.delete(roomId);
+    while (usedMarkers.size >= REQUEST_USED_MAX) {
+        const oldest = usedMarkers.keys().next().value;
+        usedMarkers.delete(oldest);
+        const meta = roomMeta.get(oldest);
+        if (meta && meta.kind === 'request' && meta.used) roomMeta.delete(oldest);
+    }
+    usedMarkers.set(roomId, now);
 }
 
 // Silent: a sealed visitor's drop runs on its data channel and needs nothing
@@ -778,9 +812,11 @@ function endReservation(roomId, now = Date.now(), { markUsed = false } = {}) {
     const meta = roomMeta.get(roomId);
     if (markUsed && meta && meta.kind === 'request' && meta.sealed && !meta.used) {
         // A fresh object, not the reservation with fields deleted, so nothing
-        // personal can ride along. The id stays in requestRoomIds, so the
-        // marker counts toward MAX_REQUEST_ROOMS.
+        // personal can ride along. The id leaves requestRoomIds: a marker holds
+        // a REQUEST_USED_MAX place, not a MAX_REQUEST_ROOMS slot (W3 R1-01).
         releaseLivePlace(meta);
+        requestRoomIds.delete(roomId);
+        noteUsedMarker(roomId, now);
         roomMeta.set(roomId, { kind: 'request', sealed: true, used: true, closedAt: now });
     } else {
         forgetReservation(roomId);
@@ -1779,6 +1815,9 @@ module.exports = {
     handleRequestControl,
     REQUEST_MAX_AGE_MS,
     REQUEST_USED_MARKER_MS,
+    REQUEST_USED_MAX,
+    usedMarkers,
+    countUsedMarkers,
     endedLinks,
     liveByKey,
     REQUEST_LIVE_PER_KEY,
