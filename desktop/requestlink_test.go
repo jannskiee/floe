@@ -2811,3 +2811,35 @@ func TestReopenAfterAcceptClearsOwnerStop(t *testing.T) {
 		t.Fatalf("the next drop's failure sent %d failure toasts, want 1", n)
 	}
 }
+
+// TestDeclinedLinkPairsNobody (D-176, deep QA A1-02): after Decline only the
+// owner's Keep waiting reopens a link (T17). The server's seal keeps a new
+// visitor out, but a room re-created after a server restart or an absence past
+// the grace comes back unsealed, and a visitor seated there must not reach the
+// prompt: the lane leaves it with no offer, stays declined, and Keep waiting
+// still reopens it.
+func TestDeclinedLinkPairsNobody(t *testing.T) {
+	f := newFakeSignalServer(t)
+	a, _ := laneApp(t, f)
+	l := a.lane()
+	l.backoffBase, l.backoffCap = 20*time.Millisecond, 80*time.Millisecond
+	var calls atomic.Int32
+	l.pairFn = func(uint64, *signaling.Client) { calls.Add(1) }
+	s := makeWaiting(t, a)
+	forceState(a, "declined", 5)
+	f.dropAll()
+	waitFor(t, 5*time.Second, "the re-join to settle", func() bool {
+		return len(f.tokenJoins()) == 2 && stateOf(a).State != "reconnecting"
+	})
+	f.userConnected()
+	time.Sleep(300 * time.Millisecond)
+	if n := calls.Load(); n != 0 {
+		t.Fatalf("a visitor seated on a declined link reached pairFn %d time(s)", n)
+	}
+	if now := stateOf(a); now.State != "declined" || now.Link != s.Link {
+		t.Fatalf("after a visitor was seated while declined: %q, same link %v", now.State, now.Link == s.Link)
+	}
+	if out := a.AnswerRequest(5, "keep-waiting"); out.State != "waiting" {
+		t.Fatalf("keep-waiting: %q", out.State)
+	}
+}

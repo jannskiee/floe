@@ -918,6 +918,14 @@ func (a *App) waitRequest(rg uint64, stop <-chan struct{}, sc *signaling.Client,
 				a.expireRequest(rg, sc)
 				return waitEnded
 			}
+			// Declined pairs nobody until the owner's Keep waiting (T17). The
+			// server's seal keeps a visitor out, but a room re-created after a
+			// restart or an absence past the grace comes back unsealed; a
+			// visitor seated there gets no offer, and its own setup timer ends
+			// it.
+			if a.requestInState(rg, "declined") {
+				continue
+			}
 			l.pairFn(rg, sc)
 			if !a.requestActive(rg) || !a.requestWaiting(rg) {
 				return waitEnded
