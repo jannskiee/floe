@@ -1486,10 +1486,12 @@ func (l *requestLane) pruneEndsLocked() bool {
 }
 
 // requestToast names one of the four fixed notifications the lane may send.
-// Nothing else can reach a Windows toast from this lane: go-toast falls back
-// to a PowerShell script on any COM error, where a visitor string could run
-// a command (spec 05 section 10, L14), so the text is a closed set of
-// constants and never the label, a name, a count or engine text.
+// Nothing else can reach a Windows toast from this lane: the text is a closed
+// set of constants and never the label, a name, a count or engine text (spec
+// 05 section 10, L14). The rule was born of go-toast's PowerShell fallback,
+// where a visitor string could have run a command; toast_windows.go never
+// engages that fallback now (deep QA A2-02), and the rule stands anyway: a
+// toast is no place for a stranger's words.
 type requestToast int
 
 const (
