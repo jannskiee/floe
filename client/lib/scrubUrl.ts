@@ -149,7 +149,8 @@ export function scrubTransactionEvent<T extends ScrubbableTransaction>(event: T)
 export interface ScrubbableErrorEvent {
     request?: { url?: string };
     transaction?: string;
-    exception?: { values?: { stacktrace?: { frames?: { filename?: string; abs_path?: string }[] } }[] };
+    exception?: { values?: { value?: string; stacktrace?: { frames?: { filename?: string; abs_path?: string }[] } }[] };
+    breadcrumbs?: unknown;
 }
 
 // Scrubs the room secret and the request-link id out of an error event, in
@@ -160,7 +161,11 @@ export interface ScrubbableErrorEvent {
 // not the parameterized name a pageload gets, so it takes the transaction-name
 // rule. V8 names an inline script's frames after the document URL without its
 // fragment, so a frame thrown from one on /r carries the path too; frames from
-// bundle chunks hold no /r segment and come back as they were.
+// bundle chunks hold no /r segment and come back as they were. An exception's
+// value and the event's breadcrumbs are text anything on the page can write
+// (a third-party or extension script that logs location.href, socket.io's
+// debug output of ["join-room", "<roomId>"]), so the value takes the
+// description rule and each breadcrumb scrubBreadcrumb's (deep QA A4-06).
 //
 // It never throws, whatever the shape: beforeSend drops an event whose hook
 // throws, and a scrub has no business losing an error report. A value, a
@@ -169,10 +174,13 @@ export interface ScrubbableErrorEvent {
 export function scrubErrorEvent<T extends ScrubbableErrorEvent>(event: T): T {
     if (typeof event.request?.url === 'string') event.request.url = scrubUrl(event.request.url);
     if (typeof event.transaction === 'string') event.transaction = scrubTransactionName(event.transaction);
+    if (Array.isArray(event.breadcrumbs)) event.breadcrumbs = event.breadcrumbs.map((crumb: unknown) => scrubBreadcrumb(crumb));
     const values: unknown = event.exception?.values;
     if (!Array.isArray(values)) return event;
     for (const value of values) {
-        if (!isObject(value) || !isObject(value.stacktrace)) continue;
+        if (!isObject(value)) continue;
+        if (typeof value.value === 'string') value.value = scrubDescription(value.value);
+        if (!isObject(value.stacktrace)) continue;
         const frames = value.stacktrace.frames;
         if (!Array.isArray(frames)) continue;
         for (const frame of frames) {
@@ -271,14 +279,29 @@ function scrubServerRequest(event: ScrubbableServerRequest): void {
 
 // The server and edge configs have no beforeBreadcrumb, and both event kinds
 // carry the scope's breadcrumbs: a console breadcrumb holds whatever was
-// logged, a Next render fault's stack included. url, to and from in data take
-// request.url's rule, as the browser's beforeBreadcrumb does; every other
-// string, the message and each console argument included, takes the
-// description rule. A breadcrumb list of a shape the SDK does not write is
-// deleted, and a value nested deeper than the SDK's own normalization leaves
-// one is dropped rather than walked.
+// logged, a Next render fault's stack included. The browser's beforeBreadcrumb
+// used to scrub only the URL keys, so a console breadcrumb's message and the
+// SDK's own sentry.event breadcrumb ("Type: value" of an earlier error) went
+// out as written (deep QA A4-06); it now takes this same rule. A breadcrumb
+// list of a shape the SDK does not write is deleted, and a value nested deeper
+// than the SDK's own normalization leaves one is dropped rather than walked.
 const BREADCRUMB_URL_KEYS = ['url', 'to', 'from'] as const;
 const MAX_BREADCRUMB_DEPTH = 8;
+
+/** One breadcrumb, in place: url, to and from in data take request.url's
+ *  rule; every other string, the message and each console argument included,
+ *  takes the description rule. Never throws. */
+export function scrubBreadcrumb<T>(crumb: T): T {
+    const data = isObject(crumb) ? crumb.data : undefined;
+    if (isObject(data) && !Array.isArray(data)) {
+        for (const key of BREADCRUMB_URL_KEYS) {
+            const value = data[key];
+            if (typeof value === 'string') data[key] = scrubUrl(value);
+        }
+    }
+    // The description rule leaves the URLs just scrubbed as they are.
+    return scrubStrings(crumb, 0) as T;
+}
 
 function scrubBreadcrumbs(event: ScrubbableServerRequest): void {
     const crumbs: unknown = event.breadcrumbs;
@@ -287,17 +310,7 @@ function scrubBreadcrumbs(event: ScrubbableServerRequest): void {
         delete event.breadcrumbs;
         return;
     }
-    event.breadcrumbs = crumbs.map((crumb: unknown) => {
-        const data = isObject(crumb) ? crumb.data : undefined;
-        if (isObject(data) && !Array.isArray(data)) {
-            for (const key of BREADCRUMB_URL_KEYS) {
-                const value = data[key];
-                if (typeof value === 'string') data[key] = scrubUrl(value);
-            }
-        }
-        // The description rule leaves the URLs just scrubbed as they are.
-        return scrubStrings(crumb, 0);
-    });
+    event.breadcrumbs = crumbs.map((crumb: unknown) => scrubBreadcrumb(crumb));
 }
 
 function scrubStrings(value: unknown, depth: number): unknown {

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
+    scrubBreadcrumb,
     scrubErrorEvent,
     scrubServerErrorEvent,
     scrubServerTransactionEvent,
@@ -293,6 +294,49 @@ describe('scrubUrl on a request link', () => {
         expect(scrubErrorEvent(bare)).toBe(bare);
         const nameless: { transaction?: string } = {};
         expect(scrubErrorEvent(nameless).transaction).toBeUndefined();
+    });
+
+    it('an exception value and the breadcrumbs that quote a share link carry no room id (A4-06)', () => {
+        // A third-party or extension script that logs location.href, or
+        // socket.io's debug output, puts the link into text the SDK keeps as
+        // is: a console breadcrumb's message and arguments, the sentry.event
+        // breadcrumb of an earlier error, and an exception's value.
+        const link = `https://floe.one/?s=n0nce#room=${ROOM_ID}`;
+        const event = {
+            exception: { values: [{ type: 'Error', value: `failed to load ${link}` }] },
+            breadcrumbs: [
+                { category: 'console', message: `page ${link}`, data: { arguments: ['page', link], logger: 'console' } },
+                { category: 'sentry.event', message: `Error: failed to load ${link}` },
+                { category: 'console', message: `42["join-room","x"] at /r/${LINK_ID}#${ROOM_ID}` },
+            ],
+        };
+        const json = JSON.stringify(scrubErrorEvent(event));
+        expect(json).not.toContain(ROOM_ID);
+        expect(json).not.toContain(LINK_ID);
+        expect(event.exception.values[0].value).toBe('failed to load https://floe.one/?s=n0nce');
+        expect(event.breadcrumbs[0].message).toBe('page https://floe.one/?s=n0nce');
+        // Text with no link shape stays byte for byte.
+        const plain = { exception: { values: [{ value: 'Cannot read properties of null (reading "x")' }] }, breadcrumbs: [{ message: 'div#main clicked' }] };
+        expect(scrubErrorEvent(structuredClone(plain))).toEqual(plain);
+    });
+
+    it('the browser breadcrumb hook scrubs the message and every string, as the server does (A4-06)', () => {
+        const crumb = {
+            category: 'console',
+            message: `href=https://floe.one/#room=${ROOM_ID}`,
+            data: { url: `/r/${LINK_ID}#${ROOM_ID}`, arguments: [{ nested: `https://floe.one/r/${LINK_ID}` }] },
+        };
+        const out = scrubBreadcrumb(crumb);
+        const json = JSON.stringify(out);
+        expect(json).not.toContain(ROOM_ID);
+        expect(json).not.toContain(LINK_ID);
+        expect(out.data.url).toBe('/r/redacted');
+        const nav = { category: 'navigation', data: { from: '/', to: '/download' } };
+        expect(scrubBreadcrumb(structuredClone(nav))).toEqual(nav);
+        // The config imports the SDK and cannot load here, so its wiring is read
+        // as text: the hook hands every breadcrumb to scrubBreadcrumb whole.
+        const src = readFileSync(fileURLToPath(new URL('../sentry.client.config.ts', import.meta.url)), 'utf8');
+        expect(src).toMatch(/beforeBreadcrumb\(breadcrumb\) \{\s*return scrubBreadcrumb\(breadcrumb\);\s*\},/);
     });
 
     it('a fragment-less /r URL wrapped, in a query value or percent-encoded is still redacted', () => {
