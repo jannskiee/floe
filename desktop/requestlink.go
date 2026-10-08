@@ -673,9 +673,12 @@ func (a *App) MakeRequestLink(label string, saveDir string, lifetime string, aut
 	// of Downloads, which a slow or offline redirected folder can stall), so
 	// it is worked out before the lane lock (review 1a F5).
 	saveDir = strings.TrimSpace(saveDir)
+	folderOK := true
 	if saveDir == "" {
 		saveDir = requestDefaultDirFn()
-	} else if abs, err := resolveSaveDir(saveDir); err == nil && abs != "" {
+	} else if abs, err := resolveSaveDir(saveDir); err != nil {
+		folderOK = false
+	} else if abs != "" {
 		saveDir = abs
 	}
 
@@ -729,6 +732,15 @@ func (a *App) MakeRequestLink(label string, saveDir string, lifetime string, aut
 	a.emitState(rg)
 	go func() {
 		defer l.wg.Done()
+		// A folder that names no usable place (a missing drive, an offline
+		// share, a path through a file) ends Make link before any server is
+		// asked (D-177); otherwise the link waits and its first Accept spends
+		// it on a refusal that blames the sender. Here, on the lane goroutine:
+		// a Stat of an offline share can stall for its network timeout.
+		if !folderOK || !saveDirUsable(saveDir) {
+			a.reqFail(rg, "save-folder")
+			return
+		}
 		a.runRequestLink(rg, stop, hideIP, lifetime)
 	}()
 	return snap

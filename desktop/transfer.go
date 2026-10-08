@@ -356,10 +356,12 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 		runtime.EventsEmit(a.ctx, event, payload)
 	}
 
-	if abs, err := resolveSaveDir(outputDir); err == nil && abs != "" {
-		outputDir = abs
+	abs, err := resolveSaveDir(outputDir)
+	if err != nil {
+		return "", fmt.Errorf("cannot create output directory: %w", err)
 	}
-	if strings.TrimSpace(outputDir) == "" {
+	outputDir = abs
+	if outputDir == "" {
 		outputDir = defaultReceiveDir()
 	}
 	absOutput, err := filepath.Abs(outputDir)

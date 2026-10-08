@@ -57,6 +57,7 @@ const ERROR_LINES: Record<string, string> = {
     'no-relay': "Hide my IP needs a relay this server doesn't have", // E5
     'relay-unknown': "Couldn't read this server's relay details for Hide my IP", // E6
     'already-open': 'Close your open link to make a new one', // E7
+    'save-folder': "Couldn't use that folder", // E9 (D-177): a Save to folder Floe cannot use, refused at Make link
 };
 
 function has(table: Record<string, unknown>, key: string): boolean {

@@ -38,6 +38,7 @@ describe('error codes', () => {
         ['already-open', 'Close your open link to make a new one'],
         ['no-relay', "Hide my IP needs a relay this server doesn't have"],
         ['relay-unknown', "Couldn't read this server's relay details for Hide my IP"],
+        ['save-folder', "Couldn't use that folder"],
     ])('maps %s to fixed copy', (code, want) => {
         expect(errorLine(code)).toBe(want);
     });
