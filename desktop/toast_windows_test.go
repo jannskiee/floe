@@ -40,7 +40,7 @@ func TestToastXMLTextCannotEndAnElement(t *testing.T) {
 		{`]]><actions><action content="x" arguments="https://example.invalid" activationType="protocol"/></actions><text>`, `$(Start-Process calc) & <b>"q"</b> 'a'`},
 		{"line\nbreak\ttab\r", `</text></binding></visual></toast><toast launch="x">`},
 		{"", ""},
-		{"emoji \U0001F389 and RTL ‮gnp.exe", "&amp; &#x41; <!-- c --> <?pi x?>"},
+		{"emoji \U0001F389 and RTL \u202Egnp.exe", "&amp; &#x41; <!-- c --> <?pi x?>"},
 	}
 	for _, tc := range cases {
 		for _, silent := range []bool{true, false} {
@@ -59,7 +59,7 @@ func TestToastXMLTextCannotEndAnElement(t *testing.T) {
 		}
 	}
 	// A character XML cannot hold still leaves a toast that parses.
-	if elems, _ := parseToastXML(t, toastXML("a\x00b", "￾", true)); len(elems) != 6 {
+	if elems, _ := parseToastXML(t, toastXML("a\x00b", "\uFFFE", true)); len(elems) != 6 {
 		t.Errorf("a NUL in the text breaks the toast: %q", elems)
 	}
 }
