@@ -429,10 +429,11 @@ function scrubDescription(description: string): string {
 // Free text (an exception's value, a breadcrumb's message, a logged string):
 // the description rule, except that a token that is only URL-shaped because
 // it starts with '#' is rewritten only when it is a fragment parameter
-// (#room=, #k=) or a room id (W3 R5-04). "React error #418", "member #peer"
-// and "token # in JSON" are not link fragments, and the description rule
-// turned each into "/".
-const FRAGMENT_SECRET = /^#(?:[a-z][a-z0-9_]*=|[0-9a-f]{8}-[0-9a-f]{4}-)/i;
+// (#room=, #k=), a room id (W3 R5-04) or a /r path, as a hash route writes a
+// request link (#/r/<linkId>, C1-05). "React error #418", "member #peer" and
+// "token # in JSON" are not link fragments, and the description rule turned
+// each into "/".
+const FRAGMENT_SECRET = /^#(?:[a-z][a-z0-9_]*=|[0-9a-f]{8}-[0-9a-f]{4}-|(?:\/|%2f)?(?:r|%72)(?:\/|%2f))/i;
 
 function scrubText(text: string): string {
     if (!mayHoldSecret(text)) return text;
