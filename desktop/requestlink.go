@@ -186,7 +186,7 @@ var requestDefaultDirFn = func() string {
 // joinWithTokenFn is the host join, a package var so tests can return any
 // result at once instead of waiting out the client's own 10 s reply timeout.
 // The lane arms no join timer of its own (M-04).
-var joinWithTokenFn = (*signaling.Client).JoinRoomWithToken
+var joinWithTokenFn = (*signaling.Client).JoinRoomWithTokenUntil
 
 // reqAnswer is one owner answer to one prompt, for the Decide callback.
 type reqAnswer struct {
@@ -859,7 +859,7 @@ func (a *App) runRequestLink(rg uint64, stop <-chan struct{}, hideIP bool, lifet
 	}
 
 	// g: the host join.
-	sc, res := a.hostJoin(rg, server, roomID, hostToken)
+	sc, res := a.hostJoin(rg, server, roomID, hostToken, expiresAt)
 	if sc == nil && res == 0 {
 		return // superseded while connecting
 	}
@@ -909,7 +909,11 @@ func (a *App) runRequestLink(rg uint64, stop <-chan struct{}, hideIP bool, lifet
 // during the join would write request-close while the join was still writing
 // the engine's room id: a data race, and a close frame naming no room that
 // leaves the reservation the join then takes for its grace (review 1a F4).
-func (a *App) hostJoin(rg uint64, server, roomID, hostToken string) (*signaling.Client, signaling.HostJoinResult) {
+//
+// The join names the time the link has left, so the server can tell a visitor
+// after expiresAt that the link has ended even when this PC is asleep, offline
+// or off then and sends no request-close (W3 R1-02).
+func (a *App) hostJoin(rg uint64, server, roomID, hostToken string, expiresAt time.Time) (*signaling.Client, signaling.HostJoinResult) {
 	sc, err := signaling.Connect(server, signaling.WithLiveness(requestPing, requestReadDeadline))
 	if err != nil {
 		if !a.requestActive(rg) {
@@ -921,7 +925,7 @@ func (a *App) hostJoin(rg uint64, server, roomID, hostToken string) (*signaling.
 		sc.Close()
 		return nil, 0
 	}
-	res, _ := joinWithTokenFn(sc, roomID, hostToken)
+	res, _ := joinWithTokenFn(sc, roomID, hostToken, time.Until(expiresAt))
 	if !a.setRequestSignaling(rg, sc) {
 		// rg ended during the join, which left the socket to this goroutine:
 		// free the reservation the join may have taken, then close it.
@@ -1104,7 +1108,7 @@ func (a *App) reconnect(rg uint64, stop <-chan struct{}, server, roomID, hostTok
 			a.reqUpdate(rg, func(l *requestLane) { l.endLocked("ended", "expired") })
 			return nil, attempt
 		}
-		sc, res := a.hostJoin(rg, server, roomID, hostToken)
+		sc, res := a.hostJoin(rg, server, roomID, hostToken, expiresAt)
 		if sc == nil && res == 0 {
 			return nil, attempt
 		}

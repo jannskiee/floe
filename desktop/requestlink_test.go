@@ -47,6 +47,8 @@ func (fc *fakeConn) send(v any) {
 // comparisons only.
 type fakeJoin struct {
 	roomID, token string
+	endsIn        float64 // the join's endsIn, when it named one
+	hasEndsIn     bool
 }
 
 // fakeControl is one request-seal, request-reopen or request-close frame, with
@@ -212,7 +214,8 @@ func (f *fakeSignalServer) read(fc *fakeConn) {
 				continue
 			}
 			f.mu.Lock()
-			f.joins = append(f.joins, fakeJoin{roomID: room, token: tok})
+			ends, hasEnds := m["endsIn"].(float64)
+			f.joins = append(f.joins, fakeJoin{roomID: room, token: tok, endsIn: ends, hasEndsIn: hasEnds})
 			if !silent && refuse == "" && role == "host" {
 				f.host = fc
 			}
@@ -457,7 +460,7 @@ func makeWaiting(t *testing.T, a *App) RequestLinkSnapshot {
 }
 
 // setJoin swaps joinWithTokenFn for the test.
-func setJoin(t *testing.T, fn func(*signaling.Client, string, string) (signaling.HostJoinResult, error)) {
+func setJoin(t *testing.T, fn func(*signaling.Client, string, string, time.Duration) (signaling.HostJoinResult, error)) {
 	t.Helper()
 	old := joinWithTokenFn
 	joinWithTokenFn = fn
@@ -644,9 +647,28 @@ func TestMakeRequestLinkAbortsOnNonHostRole(t *testing.T) {
 	}
 }
 
+// W3 R1-02: the host join names the link's remaining life, so the server can
+// answer link-ended to a visitor who comes after the link's end even when this
+// PC is asleep, offline or off then.
+func TestMakeRequestLinkJoinNamesTheLinksEnd(t *testing.T) {
+	f := newFakeSignalServer(t)
+	a, _ := laneApp(t, f)
+	a.MakeRequestLink("x", t.TempDir(), "24h", false)
+	waitState(t, a, 10*time.Second, "waiting")
+	joins := f.tokenJoins()
+	if len(joins) != 1 {
+		t.Fatalf("%d host joins, want 1", len(joins))
+	}
+	day := float64(24 * time.Hour / time.Millisecond)
+	if j := joins[0]; !j.hasEndsIn || j.endsIn > day || j.endsIn < day-60_000 {
+		t.Fatalf("the host join named endsIn %v (named: %v), want the link's 24 h in milliseconds", j.endsIn, j.hasEndsIn)
+	}
+	a.CloseRequestLink()
+}
+
 func TestMakeRequestLinkJoinTimeoutMapsToUnknown(t *testing.T) {
 	f := newFakeSignalServer(t)
-	setJoin(t, func(*signaling.Client, string, string) (signaling.HostJoinResult, error) {
+	setJoin(t, func(*signaling.Client, string, string, time.Duration) (signaling.HostJoinResult, error) {
 		return signaling.HostTimeout, nil
 	})
 	a, _ := laneApp(t, f)
@@ -759,7 +781,9 @@ func TestRequestJoinRefusalCodesMapToSnapshot(t *testing.T) {
 	} {
 		t.Run("result "+res.String(), func(t *testing.T) {
 			f := newFakeSignalServer(t)
-			setJoin(t, func(*signaling.Client, string, string) (signaling.HostJoinResult, error) { return res, nil })
+			setJoin(t, func(*signaling.Client, string, string, time.Duration) (signaling.HostJoinResult, error) {
+				return res, nil
+			})
 			a, _ := laneApp(t, f)
 			a.MakeRequestLink("x", "", "24h", false)
 			if s := waitState(t, a, 10*time.Second, "error"); s.Code != "unknown" {
@@ -905,7 +929,7 @@ func TestNoNewVisitorAfterLinkEnd(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			sc, res := a.hostJoin(rg, f.url(), signaling.RoomIDFromToken(tok), tok)
+			sc, res := a.hostJoin(rg, f.url(), signaling.RoomIDFromToken(tok), tok, time.Now().Add(time.Hour))
 			if res != signaling.HostJoined {
 				t.Fatalf("host join: %v", res)
 			}
@@ -2600,10 +2624,10 @@ func TestCloseDuringHostJoinSendsNoRoomlessClose(t *testing.T) {
 	var once, releaseOnce sync.Once
 	unblock := func() { releaseOnce.Do(func() { close(release) }) }
 	t.Cleanup(unblock)
-	setJoin(t, func(sc *signaling.Client, room, tok string) (signaling.HostJoinResult, error) {
+	setJoin(t, func(sc *signaling.Client, room, tok string, endsIn time.Duration) (signaling.HostJoinResult, error) {
 		once.Do(func() { close(entered) })
 		<-release
-		return sc.JoinRoomWithToken(room, tok)
+		return sc.JoinRoomWithTokenUntil(room, tok, endsIn)
 	})
 	a, _ := laneApp(t, f)
 	a.MakeRequestLink("x", t.TempDir(), "24h", false)

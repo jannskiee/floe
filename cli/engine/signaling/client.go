@@ -250,6 +250,9 @@ type hostJoinFrame struct {
 	Type      string `json:"type"`
 	RoomID    string `json:"roomId"`
 	HostToken string `json:"hostToken"`
+	// EndsIn is the link's remaining life in milliseconds, left out when not
+	// named (JoinRoomWithTokenUntil).
+	EndsIn int64 `json:"endsIn,omitempty"`
 }
 
 // HostJoinResult is the server's answer to JoinRoomWithToken. The zero value
@@ -335,6 +338,16 @@ func (r HostJoinResult) String() string {
 // error text contains the token. The token is not kept: it is written once
 // and dropped.
 func (c *Client) JoinRoomWithToken(roomId, hostToken string) (HostJoinResult, error) {
+	return c.JoinRoomWithTokenUntil(roomId, hostToken, 0)
+}
+
+// JoinRoomWithTokenUntil is JoinRoomWithToken naming the link's remaining
+// life, endsIn, in whole milliseconds (W3 R1-02). A server that reads it
+// answers a visitor who comes after the link's end with link-ended even when
+// this host is asleep, offline or off then and never sent request-close; a
+// server that predates it ignores the field. Under a millisecond names
+// nothing, and the frame is JoinRoomWithToken's.
+func (c *Client) JoinRoomWithTokenUntil(roomId, hostToken string, endsIn time.Duration) (HostJoinResult, error) {
 	derived := RoomIDFromToken(hostToken)
 	if derived == "" {
 		return HostInvalidToken, errHostTokenShape
@@ -344,7 +357,7 @@ func (c *Client) JoinRoomWithToken(roomId, hostToken string) (HostJoinResult, er
 	}
 
 	c.roomId = roomId
-	if err := c.writeJSON(hostJoinFrame{Type: "join-room", RoomID: roomId, HostToken: hostToken}); err != nil {
+	if err := c.writeJSON(hostJoinFrame{Type: "join-room", RoomID: roomId, HostToken: hostToken, EndsIn: max(endsIn.Milliseconds(), 0)}); err != nil {
 		return HostDown, fmt.Errorf("could not send the host join: %w", err)
 	}
 
