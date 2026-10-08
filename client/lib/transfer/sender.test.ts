@@ -914,6 +914,43 @@ describe('sender: visitor options', () => {
         v.close();
     });
 
+    it('an empty file inside a batch goes out with the files around it (W3 R3-02)', async () => {
+        const v = visitorDeps();
+        const failures: Failure[] = [];
+        await within(sendFiles(v.deps, [
+            { id: 'a', file: makeFile(16, 'a.bin') },
+            { id: 'b', file: makeFile(0, 'empty.txt') },
+            { id: 'c', file: makeFile(16, 'c.bin') },
+        ], { onFailed: (f) => failures.push(f) }, { sendHashes: false }));
+        expect(v.names()).toEqual(['a.bin', 'empty.txt', 'c.bin']);
+        expect(failures).toEqual([]);
+        v.close();
+    });
+
+    it('a dropped folder stops the batch at the folder, naming it (W3 R3-02)', async () => {
+        // Chromium on Windows hands a folder dropped on the main page over as
+        // a File of size 0 whose read throws NotFoundError (measured in
+        // Chromium 151). Since T13-F3 the files before it go, and the folder
+        // and every file after it do not; it used to go out as an empty file.
+        // Pinned on purpose: refusing a folder at drop time instead needs
+        // copy of its own (listed for the owner in the deep QA report).
+        const gone = () => Promise.reject(new Error('NotFoundError'));
+        const folder = { name: 'Photos', size: 0, type: '', arrayBuffer: gone, slice: () => ({ arrayBuffer: gone }) } as unknown as File;
+        const v = visitorDeps();
+        const failures: Failure[] = [];
+        const errors: string[] = [];
+        await within(sendFiles(v.deps, [
+            { id: 'a', file: makeFile(16, 'a.bin') },
+            { id: 'f', file: folder },
+            { id: 'b', file: makeFile(16, 'b.bin') },
+        ], { onFailed: (f) => failures.push(f), onError: (m) => errors.push(m) }, { sendHashes: false }));
+        expect(v.names()).toEqual(['a.bin']);
+        expect(failures).toEqual([{ kind: 'unreadable', index: 2 }]);
+        expect(errors).toHaveLength(1);
+        expect(errors[0]).toContain('Photos');
+        v.close();
+    });
+
     it('ackTimeoutMs applies to the first file only', async () => {
         vi.useFakeTimers();
         try {
