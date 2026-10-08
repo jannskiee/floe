@@ -49,6 +49,31 @@ func TestResolveSaveDir(t *testing.T) {
 	}
 }
 
+// W3 R2-01: a %NAME% set to nothing leaves nothing to resolve, which is the
+// caller's default as for an empty field. It indexed dir[0] and panicked inside
+// a Wails call, which never settles the promise: Make link sat on "Making
+// link..." until a restart.
+func TestResolveSaveDirEmptyExpansion(t *testing.T) {
+	t.Setenv("FLOE_QA_EMPTY", "")
+	for _, in := range []string{"%FLOE_QA_EMPTY%", `"%FLOE_QA_EMPTY%"`, " %FLOE_QA_EMPTY% "} {
+		got, err := resolveSaveDir(in)
+		if err != nil || got != "" {
+			t.Errorf("resolveSaveDir(%q) = %q, %v, want the caller's default (\"\", nil)", in, got, err)
+		}
+	}
+}
+
+// W3 R2-11: the home folder is read only when a typed path needs it, so an
+// unset USERPROFILE refuses no absolute folder.
+func TestResolveSaveDirAbsoluteNeedsNoHome(t *testing.T) {
+	abs := t.TempDir()
+	t.Setenv("USERPROFILE", "")
+	t.Setenv("HOME", "")
+	if got, err := resolveSaveDir(abs); err != nil || got != filepath.Clean(abs) {
+		t.Fatalf("resolveSaveDir(%q) with no home = %q, %v, want the folder itself", abs, got, err)
+	}
+}
+
 func TestSaveDirUsable(t *testing.T) {
 	dir := t.TempDir()
 	if !saveDirUsable(filepath.Join(dir, "new", "deeper")) {

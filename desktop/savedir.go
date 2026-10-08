@@ -40,11 +40,17 @@ func resolveSaveDir(dir string) (string, error) {
 		}
 		return ref
 	})
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
+	// A %NAME% set to nothing (or to blanks) leaves nothing to resolve: the
+	// caller's default, as for an empty field. It used to index dir[0] below
+	// and panic (W3 R2-01).
+	if strings.TrimSpace(dir) == "" {
+		return "", nil
 	}
 	if dir == "~" || strings.HasPrefix(dir, `~/`) || strings.HasPrefix(dir, `~\`) {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
 		dir = filepath.Join(home, dir[1:])
 	}
 	if filepath.IsAbs(dir) {
@@ -52,6 +58,12 @@ func resolveSaveDir(dir string) (string, error) {
 	}
 	if filepath.VolumeName(dir) != "" || os.IsPathSeparator(dir[0]) {
 		return "", errNotFullPath
+	}
+	// Read only here and for ~, so an unset USERPROFILE refuses no absolute
+	// folder (W3 R2-11).
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
 	}
 	return filepath.Join(home, dir), nil
 }
