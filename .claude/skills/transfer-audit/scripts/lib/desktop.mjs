@@ -1815,7 +1815,12 @@ export class UiaDriver {
         await this._waitShown(REQUEST_STRINGS.keepWaiting, 10_000, o);
         return r;
     }
-    /** Keep waiting (request-reopen, E-03): only from the declined view; the waiting view must come back. */
+    /**
+     * Keep waiting (request-reopen, E-03): only from the declined view; the
+     * waiting view must come back. The declined view's button ignores input
+     * for 1 s after it appears, like Accept and Decline (966eb3d, W3 R5-03),
+     * so it is answered the same way.
+     */
     async keepWaiting({ now = Date.now, nap = sleep } = {}) {
         await this._toRequestView();
         if (!(await this._visible(REQUEST_STRINGS.keepWaiting)))
@@ -1823,8 +1828,7 @@ export class UiaDriver {
                 'request',
                 'desktop uia: Keep waiting is not showing; decline first'
             );
-        await this.click(REQUEST_STRINGS.keepWaiting, { controlType: 'Button' });
-        await this._waitGone(REQUEST_STRINGS.keepWaiting, 10_000, { now, nap });
+        await this._answer(REQUEST_STRINGS.keepWaiting, { now, nap });
         const waitingAt = await this._waitShown(REQUEST_STRINGS.copyLink, 10_000, { now, nap });
         return { reopened: true, waitingAt };
     }
@@ -2435,7 +2439,9 @@ export class PlaywrightDriver {
     }
     /**
      * Keep waiting (sends request-reopen, E-03): only from the declined
-     * view, and the waiting view (Copy link) must come back.
+     * view, and the waiting view (Copy link) must come back. The button
+     * ignores input for 1 s after it appears, like Accept and Decline
+     * (966eb3d, W3 R5-03), so it is answered the same way.
      */
     async keepWaiting({ now = Date.now, nap = sleep } = {}) {
         await this._toRequestView();
@@ -2444,8 +2450,7 @@ export class PlaywrightDriver {
                 'request',
                 'desktop wailsdev: Keep waiting is not showing; decline first'
             );
-        await this._button(REQUEST_STRINGS.keepWaiting).first().click();
-        await this._waitGone(REQUEST_STRINGS.keepWaiting, 10_000, { now, nap });
+        await this._answer(REQUEST_STRINGS.keepWaiting, { now, nap });
         const waitingAt = await this._waitShown(
             REQUEST_STRINGS.copyLink,
             10_000,
