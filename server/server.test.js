@@ -2354,8 +2354,8 @@ function resetRequestState(on = true) {
     policyStore.apply({ requestLinks: on });
 }
 
-function hostJoin(peer, token, now) {
-    handleHostJoin(peer, roomIdFromToken(token), token, now);
+function hostJoin(peer, token, now, endsIn) {
+    handleHostJoin(peer, roomIdFromToken(token), token, now, endsIn);
     return peer.msgs[peer.msgs.length - 1];
 }
 
@@ -4137,7 +4137,13 @@ describe('request rooms: a used link (D-130)', () => {
         assert.equal(old.host.roomId, null);
         assert.equal(old.visitor.roomId, null);
         assert.equal(old.host.msgs.length + old.visitor.msgs.length, 0, 'silently');
-        assertEndedWithoutMarker(old, ageEnd, 'the age ceiling');
+        // No link outlives the age ceiling, so it answers link-ended (W3 R1-02):
+        // an ended link, never a used marker, and its token still re-creates it.
+        assert.equal(roomMeta.has(old.id), false, 'the age ceiling');
+        assert.equal(requestRoomIds.has(old.id), false, 'the age ceiling: its slot is free');
+        const probe = makePeer('probe-old', 'k-probe');
+        handleRequestJoin(probe, old.id, ageEnd + 1);
+        assert.deepEqual(probe.msgs, [{ type: 'link-ended', data: {} }], 'the age ceiling: request-join');
         assertRecreated(old, 'ko', ageEnd + 10, 'the age ceiling');
     });
 
@@ -4412,5 +4418,93 @@ describe('request rooms: ended links, the per-network cap and squatters (D-176)'
         const back = makePeer('back', 'k-host');
         assert.deepEqual(hostJoin(back, token, T + 10), { type: 'room-joined', data: { role: 'host' } });
         assert.equal(squatter.roomId, id.toUpperCase(), 'its own room is untouched');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// W3 R1-02: a link that ends while its host is away. Only request-close left an
+// ended link (D-176), so a desktop asleep, offline or off at its link's end
+// left visitors on host-absent ("They may have closed Floe") with a Try again
+// that could never work. The host join names the link's remaining life
+// (endsIn), and the server keeps that end past the reservation.
+// ---------------------------------------------------------------------------
+
+describe('request rooms: a link that ends while its host is away (W3 R1-02)', () => {
+    beforeEach(() => resetRequestState(true));
+    after(() => resetRequestState(false));
+
+    const T = RQ_T0;
+    const HOUR = 60 * 60 * 1000;
+
+    function link(key, endsIn, at = T) {
+        const token = newToken();
+        const id = roomIdFromToken(token);
+        const host = makePeer(`host-${randomUUID()}`, key);
+        const reply = hostJoin(host, token, at, endsIn);
+        return { token, id, host, reply };
+    }
+
+    function answer(id, at) {
+        const v = makePeer(`v-${randomUUID()}`, 'k-visitor');
+        handleRequestJoin(v, id, at);
+        return v.msgs.pop();
+    }
+
+    it('keeps the end it was given, in server time', () => {
+        const { id, reply } = link('k-host', HOUR);
+        assert.deepEqual(reply, { type: 'room-joined', data: { role: 'host' } });
+        assert.equal(roomMeta.get(id).endsAt, T + HOUR);
+    });
+
+    it('a reservation the grace forgot answers host-absent before its end and link-ended from it, for a day', () => {
+        const { id, host } = link('k-host', HOUR);
+        handleDisconnect(host, T + 1_000);
+        cleanupTick(T + 1_000 + REQUEST_GRACE_MS + 61_000);
+        assert.equal(roomMeta.has(id), false, 'the grace forgot the reservation');
+        assert.deepEqual(answer(id, T + HOUR - 1), { type: 'host-absent', data: {} }, 'before its end the host may come back');
+        assert.deepEqual(answer(id, T + HOUR), { type: 'link-ended', data: {} });
+        cleanupTick(T + HOUR + REQUEST_ENDED_MARKER_MS + 61_000);
+        assert.deepEqual(answer(id, T + HOUR + REQUEST_ENDED_MARKER_MS + 62_000), { type: 'host-absent', data: {} }, 'a day after its end');
+    });
+
+    it('a reservation still in its grace answers link-ended once its end has passed', () => {
+        const { id, host } = link('k-host', HOUR);
+        handleDisconnect(host, T + HOUR - 60_000);
+        assert.deepEqual(answer(id, T + HOUR - 1), { type: 'host-absent', data: {} });
+        assert.deepEqual(answer(id, T + HOUR + 1), { type: 'link-ended', data: {} });
+    });
+
+    it('its host coming back before the end makes it again, and nothing says ended', () => {
+        const { id, token, host } = link('k-host', HOUR);
+        handleDisconnect(host, T);
+        cleanupTick(T + REQUEST_GRACE_MS + 61_000);
+        const back = makePeer('back', 'k-host');
+        const at = T + REQUEST_GRACE_MS + 62_000;
+        assert.deepEqual(hostJoin(back, token, at, T + HOUR - at), { type: 'room-joined', data: { role: 'host' } });
+        assert.equal(endedLinks.has(id), false);
+        assert.deepEqual(answer(id, at + 1_000), { type: 'request-joined', data: { role: 'visitor' } });
+    });
+
+    it('past the age ceiling every link has ended, whether or not its host named an end', () => {
+        const named = link('k-one', HOUR);
+        const unnamed = link('k-two', undefined);
+        cleanupTick(T + REQUEST_MAX_AGE_MS + 61_000);
+        assert.deepEqual(answer(unnamed.id, T + REQUEST_MAX_AGE_MS + 62_000), { type: 'link-ended', data: {} });
+        // An end named long ago has had its day.
+        assert.deepEqual(answer(named.id, T + REQUEST_MAX_AGE_MS + 62_000), { type: 'host-absent', data: {} });
+    });
+
+    it('an endsIn the server cannot use is ignored, as an older desktop\'s missing one is', () => {
+        const bad = ['3600000', -1, 0, 1.5, NaN, Infinity, REQUEST_MAX_AGE_MS + 1, null, { valueOf: () => HOUR }, [HOUR]];
+        bad.forEach((endsIn, i) => {
+            const { id, reply } = link(`k-bad-${i}`, endsIn);
+            assert.deepEqual(reply, { type: 'room-joined', data: { role: 'host' } }, String(endsIn));
+            assert.equal(roomMeta.get(id).endsAt, null, String(endsIn));
+        });
+        // A reclaim never moves the end.
+        const { id, token, host } = link('k-host', HOUR);
+        handleDisconnect(host, T + 1_000);
+        assert.deepEqual(hostJoin(makePeer('back', 'k-host'), token, T + 2_000, 7 * 24 * HOUR), { type: 'room-joined', data: { role: 'host' } });
+        assert.equal(roomMeta.get(id).endsAt, T + HOUR);
     });
 });

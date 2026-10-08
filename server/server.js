@@ -473,11 +473,13 @@ function cleanupTick(now = Date.now()) {
     // A reservation ends here when its host has been gone for longer than the
     // grace, so the effective grace is 10 to 11 minutes (exactly 10 on a
     // reclaim attempt, the lazy check in handleHostJoin), or when it is older
-    // than the age ceiling, sealed or not, and leaves no marker (only
-    // request-close does, D-130). A marker ends REQUEST_USED_MARKER_MS after its
-    // closedAt and is read by nothing else here: it has no host to be absent
-    // and no creation time. Each entry in its own try/catch, so one bad entry
-    // can never stop the sweep of the rest.
+    // than the age ceiling, sealed or not, and leaves no used marker (only
+    // request-close does, D-130). It leaves an ended link instead from the
+    // link's own end when its host named one, and at once past the age ceiling,
+    // which no link outlives (lapseReservation, W3 R1-02). A marker ends
+    // REQUEST_USED_MARKER_MS after its closedAt and is read by nothing else
+    // here: it has no host to be absent and no creation time. Each entry in its
+    // own try/catch, so one bad entry can never stop the sweep of the rest.
     for (const [roomId, meta] of roomMeta) {
         try {
             if (meta.kind !== 'request') continue;
@@ -486,7 +488,8 @@ function cleanupTick(now = Date.now()) {
                 continue;
             }
             const graceOver = meta.hostPeerId === null && now - meta.hostAbsentSince > REQUEST_GRACE_MS;
-            if (graceOver || now - meta.createdAt > REQUEST_MAX_AGE_MS) endReservation(roomId, now);
+            const tooOld = now - meta.createdAt > REQUEST_MAX_AGE_MS;
+            if (graceOver || tooOld) lapseReservation(roomId, meta, now, tooOld);
         } catch { /* the next tick tries this entry again */ }
     }
     for (const [key, ts] of requestCreates) {
@@ -683,24 +686,51 @@ const liveByKey = new Map();
 // A link closed or ended before anyone used it (an unsealed request-close: Close
 // link while waiting, or the desktop's own end of the link's life) answers
 // link-ended for a day (D-176), instead of host-absent's promise that the host
-// may come back. In their own map, never roomMeta: an ended link holds no
+// may come back. So does a link whose host was away at its end, from that end
+// (W3 R1-02): such an entry can be noted before its end and starts answering
+// only once the end has passed. In their own map, never roomMeta: an ended link holds no
 // MAX_REQUEST_ROOMS slot, or a create-and-close loop could fill the cap with no
 // socket held. Bounded by count; past the ceiling the oldest is dropped, which
 // only turns its answer back into host-absent. Lost on a restart, like the used
 // markers.
 const REQUEST_ENDED_MARKER_MS = 24 * 60 * 60 * 1000;
 const REQUEST_ENDED_MAX = 20000;
-const endedLinks = new Map(); // roomId -> closedAt, oldest first
+const endedLinks = new Map(); // roomId -> when it ended, oldest noted first
 
-function noteEndedLink(roomId, now) {
+function noteEndedLink(roomId, at) {
     endedLinks.delete(roomId);
     while (endedLinks.size >= REQUEST_ENDED_MAX) endedLinks.delete(endedLinks.keys().next().value);
-    endedLinks.set(roomId, now);
+    endedLinks.set(roomId, at);
+}
+
+// The end a host join names for its link (endsIn, its remaining life in
+// milliseconds), as a server time so the host's clock cannot skew it, or null:
+// endsIn must be a whole number inside the longest link life. Anything else
+// is ignored, as an older desktop's missing field is (W3 R1-02).
+function linkEndsAt(endsIn, now) {
+    return Number.isSafeInteger(endsIn) && endsIn > 0 && endsIn <= REQUEST_MAX_AGE_MS ? now + endsIn : null;
+}
+
+// Whether a reservation's link has passed the end its host named.
+function linkOver(meta, now) {
+    return typeof meta.endsAt === 'number' && now >= meta.endsAt;
+}
+
+// A reservation ending without its host's request-close (the grace, the age
+// ceiling, a lazy expiry), with the end its link had (W3 R1-02). A host
+// asleep, offline or off at that end never sends request-close, and its link
+// used to answer host-absent, "They may have closed Floe", with a Try again
+// that could not work. Past the age ceiling every link has ended.
+function lapseReservation(roomId, meta, now, tooOld = false) {
+    const endsAt = meta.endsAt;
+    endReservation(roomId, now);
+    if (tooOld) noteEndedLink(roomId, Math.min(typeof endsAt === 'number' ? endsAt : now, now));
+    else if (typeof endsAt === 'number') noteEndedLink(roomId, endsAt);
 }
 
 function isEndedLink(roomId, now) {
     const at = endedLinks.get(roomId);
-    return at !== undefined && now - at <= REQUEST_ENDED_MARKER_MS;
+    return at !== undefined && now >= at && now - at <= REQUEST_ENDED_MARKER_MS;
 }
 
 // A live reservation's place on its key is given back when it ends or becomes
@@ -1008,7 +1038,8 @@ function handleRequestJoin(peer, roomId, now = Date.now()) {
         return;
     }
     if (meta.hostPeerId === null) {
-        peer.send('host-absent', {});
+        // In its grace: the host may come back, unless the link has ended.
+        peer.send(linkOver(meta, now) ? 'link-ended' : 'host-absent', {});
         return;
     }
     const room = rooms.get(id);
@@ -1102,8 +1133,9 @@ function handleRequestControl(peer, type, roomId, now = Date.now()) {
 // malformed or foreign token never learns the flag state, then the policy,
 // then the lookup with a constant-time compare of two 32-byte digests (a used
 // link's marker answers room-full before it), and the limits before anything
-// is created. Replies are server constants only.
-function handleHostJoin(peer, roomId, hostToken, now = Date.now()) {
+// is created. Replies are server constants only. endsIn, the link's remaining
+// life, is read only by a create (linkEndsAt); a reclaim keeps the end it has.
+function handleHostJoin(peer, roomId, hostToken, now = Date.now(), endsIn = undefined) {
     if (typeof roomId !== 'string' || !UUID_REGEX.test(roomId)) {
         peer.send('error', { message: 'Invalid room ID' });
         return;
@@ -1144,9 +1176,10 @@ function handleHostJoin(peer, roomId, hostToken, now = Date.now()) {
             return;
         }
         if (meta.hostPeerId === null && now - meta.hostAbsentSince > REQUEST_GRACE_MS) {
-            // Lazy expiry, sealed or not: the reservation goes (no marker; only
-            // request-close leaves one) and a fresh (counted) create follows.
-            endReservation(id, now);
+            // Lazy expiry, sealed or not: the reservation goes (no used marker;
+            // only request-close leaves one) and a fresh (counted) create
+            // follows, which forgets the end it keeps if it succeeds.
+            lapseReservation(id, meta, now);
         } else {
             reclaimHostSeat(peer, id, meta, now); // not counted against the daily budget
             return;
@@ -1187,6 +1220,7 @@ function handleHostJoin(peer, roomId, hostToken, now = Date.now()) {
         createdAt: now,
         hostAbsentSince: null,
         ownerDigest, // the creating key's digest, for REQUEST_LIVE_PER_KEY; never the key
+        endsAt: linkEndsAt(endsIn, now), // the link's own end, or null (W3 R1-02)
     });
     requestRoomIds.add(id);
     liveByKey.set(ownerDigest, (liveByKey.get(ownerDigest) || 0) + 1);
@@ -1705,7 +1739,7 @@ wss.on('connection', (ws, req) => {
                 // A dispatch, not a field read inside handleJoinRoom: a server
                 // that predates request links seats this frame by join order,
                 // which is why the host insists on role 'host' in the reply.
-                if (msg.hostToken !== undefined) handleHostJoin(peer, msg.roomId, msg.hostToken);
+                if (msg.hostToken !== undefined) handleHostJoin(peer, msg.roomId, msg.hostToken, undefined, msg.endsIn);
                 else handleJoinRoom(peer, msg.roomId);
                 break;
             case 'request-join':
