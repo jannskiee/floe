@@ -356,7 +356,7 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 		runtime.EventsEmit(a.ctx, event, payload)
 	}
 
-	abs, err := resolveSaveDir(outputDir)
+	abs, err := resolveReceiveDir(outputDir)
 	if err != nil {
 		return "", fmt.Errorf("cannot create output directory: %w", err)
 	}

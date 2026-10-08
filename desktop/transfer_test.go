@@ -168,6 +168,60 @@ func TestReceiveByCodeMapsRequestLink(t *testing.T) {
 	}
 }
 
+// W3 R2-05: Floe Desktop 0.2.12 took a code-receive folder written without
+// its drive, or relative to a drive's current folder, resolved it against the
+// current drive, and saved it. A code receive keeps taking both forms; only
+// Make link refuses them (D-177). The pasted request link makes the receive
+// stop after the folder is made and before any network call.
+func TestReceiveByCodeKeepsTheFolderForms0212Took(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("a folder without its drive is a Windows form")
+	}
+	server, hits := codeAPIStub(t)
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+	vol := filepath.VolumeName(tmp)
+	forms := []func(want string) string{
+		func(want string) string { return want[len(vol):] },
+		func(want string) string { return `"` + want[len(vol):] + `"` },
+		func(want string) string { return vol + filepath.Base(want) },
+	}
+	for i, form := range forms {
+		want := filepath.Join(tmp, fmt.Sprintf("Floe-%d", i))
+		in := form(want)
+		a := &App{wake: &wakeGuard{}, notifyFn: func(string, string) {}, cfg: appConfig{Server: server}}
+		_, err := a.ReceiveByCode(requestLinkPasteLinks[0], in, false, false)
+		if err == nil || strings.Contains(err.Error(), "not a full folder path") {
+			t.Errorf("%q: error %v, want the folder taken and the pasted link refused", in, err)
+		}
+		if fi, statErr := os.Stat(want); statErr != nil || !fi.IsDir() {
+			t.Errorf("%q: %s was not made (%v)", in, want, statErr)
+		}
+	}
+	if n := hits.Load(); n != 0 {
+		t.Errorf("made %d requests to the server, want 0", n)
+	}
+}
+
+// W3 R2-11, the code-receive half of 3045b89: a relative folder lands under
+// the home folder, never under the working directory (the install folder of
+// the installed build, which the uninstaller deletes).
+func TestReceiveByCodeResolvesARelativeFolderUnderHome(t *testing.T) {
+	server, _ := codeAPIStub(t)
+	home, cwd := t.TempDir(), t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+	t.Chdir(cwd)
+	a := &App{wake: &wakeGuard{}, notifyFn: func(string, string) {}, cfg: appConfig{Server: server}}
+	_, _ = a.ReceiveByCode(requestLinkPasteLinks[0], filepath.Join("Downloads", "Floe"), false, false)
+	if fi, err := os.Stat(filepath.Join(home, "Downloads", "Floe")); err != nil || !fi.IsDir() {
+		t.Errorf("the folder was not made under home: %v", err)
+	}
+	if entries, err := os.ReadDir(cwd); err != nil || len(entries) != 0 {
+		t.Errorf("the working directory holds %d entries (%v), want none", len(entries), err)
+	}
+}
+
 // TestReceiveByCodeRequestLinkSendsNoToast: a pasted request link is a mix-up
 // the status line explains, not a failed transfer, so the "receive failed"
 // toast must not fire for it.
