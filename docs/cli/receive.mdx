@@ -25,6 +25,26 @@ Receive using a full link:
 floe receive "https://floe.one/#room=abc123..."
 ```
 
+A request link, one with `/r/` in it, does not work here: it is for sending files to someone, from a
+browser or with `floe send --to`. `floe receive` refuses it in any shape it can be pasted (with `%23` for the `#`, or
+inside a mail-safety redirect, included) with this one line, with no `Error:` in front and without
+repeating the link back, and exits with status 1:
+
+```text Output
+  That is a request link for sending files to someone. Open it in a web browser.
+```
+
+See [Request links](/desktop/request-links) and
+[Send through a request link](/cli/send#send-through-a-request-link).
+
+A floe.one link while `--server` or `FLOE_SERVER` names another server is refused before any network call, so the
+room never reaches that server. Unset `FLOE_SERVER` or pass `--server https://api.floe.one` to receive it. The line
+has no `Error:` in front, and `floe receive` exits with status 1:
+
+```text Output
+  That link is for floe.one, but this Floe is set to use another server. Unset FLOE_SERVER or use --server https://api.floe.one, then try again.
+```
+
 Save to a specific directory:
 
 ```bash Terminal
@@ -55,6 +75,7 @@ Running `floe receive olive-tiger-castle -o ~/Downloads`:
 
   ─────────────────────────────────────────────────
   Received   2 files (2.3 MB)
+  Verified   SHA-256 matched
   Time       5s · avg 468.0 KB/s
   Saved to   /home/user/Downloads
   ─────────────────────────────────────────────────
@@ -82,6 +103,31 @@ When the first file's metadata arrives, Floe shows a summary of what is incoming
 
 Pass `-y` to skip this prompt and accept automatically.
 
+## Paths that are too deep or too long {#paths-too-deep-or-too-long}
+
+Before anything is written, `floe receive` checks where each file would go, and refuses a file whose
+path inside the transfer is more than 32 levels deep (31 folders and the file) or longer than 235
+UTF-16 code units (for most names, 235 characters), or that starts at a drive or a root instead of
+inside the output directory. It stops with:
+
+```text Output
+Error: receive stopped: a file's path is too deep or too long to save in this folder
+```
+
+The sender is told why, and files saved before that file are kept. When the first file is the one
+refused, that happens before the `Accept?` prompt, and nothing is saved. A file larger than the
+output drive can hold is refused the same way, with `receive stopped: a file is larger than the save
+drive can hold`.
+
+These limits apply to every receive, on every platform, and no flag turns them off. A size no drive
+could hold is refused before anything is written too. Older releases tried to save such paths; a
+sender can still get the files across by zipping deeply nested folders first.
+
+Floe Desktop holds a drop through a [request link](/desktop/request-links#limits) to stricter rules
+on top of these, and only there: at most 10,000 files, 2 GB kept free on the drive after each file,
+and file types that File Explorer opens by itself saved under a new name. `floe receive` applies
+none of them.
+
 ## Flags
 
 | Flag | Short | Default | Description |
@@ -95,10 +141,10 @@ See [CLI flags reference](/cli/flags) for the global flags that matter here (`--
 ## Notes
 
 - Received files are saved to the output directory. Existing files are never overwritten: if a name is already taken, the incoming file is saved with a numbered suffix before the extension (`report.pdf`, then `report (1).pdf`), the same way browsers de-duplicate downloads. The progress line shows the name actually written. On Windows the reserved characters `< > : " | ? *` are replaced with `_` first, so two names that differed only in one of those arrive as a name and its numbered twin. See [Known limitations](/how-it-works/known-limitations).
-- Each file is written under a temporary name ending in `.part` and takes its final name only once the bytes on disk match the size the sender announced, so nothing half-written can ever sit under a finished-looking name. The check is a byte count, not a checksum: Floe computes no hash of your files at any point. A transfer that fails or stalls partway deletes its `.part` file; files that completed earlier in the batch are kept, and retrying reuses the original name instead of a numbered one. Even if the process is killed outright or the machine loses power, the worst leftover is a `.part` file, which is safe to delete (until you do, a retry saves under a numbered name). On macOS and Linux a crash at the exact instant of completion can additionally leave an empty placeholder at the final name beside the intact `.part`; on Windows the final rename is atomic and no such instant exists.
+- Each file is written under a temporary name ending in `.part` and takes its final name only once the bytes on disk match the size the sender announced, so nothing half-written can ever sit under a finished-looking name. When the sender provides a SHA-256, each file is also hashed as it is written and must match before it takes its final name; a file that does not match is deleted and the transfer stops. A sender from `floe` 1.10.11, Floe Desktop 0.2.12, the web app before this release, or anything earlier sends none, and a browser sender sends none for a file whose SHA-256 it has not finished when it stops waiting, at most 45 seconds after the file's last byte, so those files are checked by byte count alone. The summary shows `Verified   SHA-256 matched` only when every file matched, and no file is ever read back from disk to check it. A transfer that fails or stalls partway deletes its `.part` file; files that completed earlier in the batch are kept, and retrying reuses the original name instead of a numbered one. Even if the process is killed outright or the machine loses power, the worst leftover is a `.part` file, which is safe to delete (until you do, a retry saves under a numbered name). On macOS and Linux a crash at the exact instant of completion can additionally leave an empty placeholder at the final name beside the intact `.part`; on Windows the final rename is atomic and no such instant exists.
 - Directory structure is preserved when the sender sends a folder. Files land at the same relative paths inside your output directory.
-- A name your system cannot represent is adjusted before the file is written, and the progress line shows the adjusted name. On Windows that means the characters `< > : " | ? *` become underscores, trailing dots and spaces are removed, and a name that is a reserved device name (such as `NUL`) gets an underscore in front. Names are left exactly as sent on macOS and Linux, where all of those are valid. Control characters and text-direction marks are replaced with underscores on every platform, since a file name is not a place for either. A browser receiver strips them instead of replacing them, so the same file can land under slightly different names on the two surfaces. The name shown in the Incoming box and the accept prompt is cleaned the same way and shortened to 200 characters with its extension kept, so a name cannot rewrite the prompt or disguise its extension before you answer.
+- A name your system cannot represent is adjusted before the file is written, and the progress line shows the adjusted name. On Windows that means the characters `< > : " | ? *` become underscores, trailing dots and spaces are removed, and a name that is a reserved device name (such as `NUL`) gets an underscore in front. A backslash, which macOS and Linux allow in a name, is a folder separator on Windows: `back\slash.txt` arrives as `slash.txt` in a folder named `back`, and a leading one is dropped. Names are left exactly as sent on macOS and Linux, where all of those are valid. Control characters and text-direction marks are replaced with underscores on every platform, since a file name is not a place for either. A browser receiver strips them instead of replacing them, so the same file can land under slightly different names on the two surfaces. The name shown in the Incoming box and the accept prompt is cleaned the same way and shortened to 200 characters with its extension kept, so a name cannot rewrite the prompt or disguise its extension before you answer.
 - On Windows, received files are tagged with the mark of the web (a `Zone.Identifier` stream), so SmartScreen and Office Protected View treat them like browser downloads when opened.
-- Press `Ctrl+C` to cancel the transfer at any time. The in-flight `.part` file is removed on the way out.
+- Press `Ctrl+C` to cancel the transfer at any time. The in-flight `.part` file is removed on the way out. If closing it stalls, `floe` exits after 5 seconds anyway and leaves the `.part` file, which is safe to delete. Once the transfer has started, the sender is told you stopped it: `floe send` from this release ends with `Error: They stopped the transfer.`
 - Short codes expire 10 minutes after the sender starts the session. After that, only the full link works (and only while the sender is still connected).
 - After the transfer completes, the receiver posts only the total byte count to the signaling server for the public global counter. No file names or contents are included. Use `--no-report` or `FLOE_NO_STATS=1` to skip this. The sender never reports.

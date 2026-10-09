@@ -9,6 +9,7 @@ import {
     sectionIndex,
 } from '@/components/legal/LegalShell';
 import { sharedOpenGraph, sharedTwitter } from '@/lib/socialMetadata';
+import { REQUEST_REPORT_ADDRESS } from '@/lib/request/report';
 
 export const metadata: Metadata = {
     // Bare title: the "%s - Floe" template in app/layout.tsx adds the suffix.
@@ -38,11 +39,14 @@ export default function TermsOfUse() {
             document="terms"
             title="Terms of use"
             // Effective when these terms were first published; the contact
-            // section arrived in August 2026 and the acceptable-use wording
-            // changed in September 2026, so both dates are shown.
+            // section arrived in August 2026, the acceptable-use wording
+            // changed in September 2026 and the request link terms in October
+            // 2026, so both dates are shown. F-13 checks that Last updated here
+            // and on the privacy page reads the month the request link terms
+            // publish (S1-REL-02, DOC-S1-33).
             dates={[
                 { label: 'Effective', iso: '2026-05', text: 'May 2026' },
-                { label: 'Last updated', iso: '2026-09', text: 'September 2026' },
+                { label: 'Last updated', iso: '2026-10', text: 'October 2026' },
             ]}
             historyHref="https://github.com/jannskiee/floe/commits/main/client/app/terms/page.tsx"
             toc={toc}
@@ -63,6 +67,7 @@ export default function TermsOfUse() {
                     items={[
                         'Transfer illegal content (e.g., malware, pirated software, child exploitation material).',
                         'Use the service for phishing or social engineering attacks.',
+                        'Use a request link to ask for files or documents under false pretenses, or to impersonate a person or an organization.',
                         'Disrupt, overload, or abuse the signaling server or the relay service behind floe.one.',
                     ]}
                 />
@@ -82,6 +87,11 @@ export default function TermsOfUse() {
                     you send. We do not (and cannot) moderate file contents. You agree to indemnify the
                     developers of Floe against any legal claims arising from your use of the service.
                 </p>
+                <p>
+                    If you make a request link, you are responsible for who you send it to and for
+                    what you ask them to send. Sending files through someone else&apos;s request link
+                    is sending, and the paragraph above applies to it in full.
+                </p>
             </LegalSection>
 
             <LegalSection id="license" index={sectionIndex(toc, 'license')} title="Copyright & license">
@@ -95,9 +105,9 @@ export default function TermsOfUse() {
             <LegalSection id="relay" index={sectionIndex(toc, 'relay')} title="Relay usage">
                 <p>
                     When your connection uses the TURN relay, transfers are limited to 2 GB per
-                    session. Excessive or automated use of the relay may result in rate limiting or
-                    restrictions on access to the signaling and relay infrastructure. These limits
-                    exist to keep Floe free for all users.
+                    session, which for a request link means per drop. Excessive or automated use of
+                    the relay may result in rate limiting or restrictions on access to the signaling
+                    and relay infrastructure. These limits exist to keep Floe free for all users.
                 </p>
             </LegalSection>
 
@@ -115,6 +125,13 @@ export default function TermsOfUse() {
                         security policy
                     </LegalLink>{' '}
                     rather than a public issue.
+                </p>
+                <p>
+                    To report a request link, use &quot;Report this link&quot; at the bottom of its page,
+                    or write to{' '}
+                    <LegalLink href={`mailto:${REQUEST_REPORT_ADDRESS}`}>{REQUEST_REPORT_ADDRESS}</LegalLink>{' '}
+                    with the part of the link before the #. Never post a whole request link in a public
+                    issue: the part after the # lets anyone use it.
                 </p>
                 <p>
                     Because transfers are peer-to-peer, we cannot inspect or remove content sent

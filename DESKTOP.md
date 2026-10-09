@@ -95,7 +95,10 @@ go.work                ties cli + desktop for local dev
       was stale). No Share button on Windows: WebView2 does not expose `navigator.share`,
       and the button is feature-gated on it.
 - [x] Folder sends, a "Browse..." save-folder picker, and "Show in folder" after receive
-- [x] OS notifications on transfer complete / failure (native Wails; auto toast AppUserModelID on Windows)
+- [x] OS notifications on transfer complete / failure (native Wails; auto toast AppUserModelID on Windows).
+      Settings > Notifications turns them off or silent and links to Windows' own notification
+      settings; no toast while Floe is in front and the PC was used in the last minute. A request
+      still flashes the taskbar, sets the `(1) Floe` title and shows the in-app notice with toasts off.
 - [x] Self-hosting: a Server section in Settings (server address plus an optional web address for share
       links) persisted to `os.UserConfigDir()/floe/desktop.json`, with a Test button that probes
       `/health`, `/ws` and `/api/turn-credentials` from Go. Leave both blank to use Floe's own servers.
@@ -355,7 +358,9 @@ full-speed same-network transfers, send to self across your own devices, transfe
 history (shipped in 0.1.0), resume of interrupted transfers, connection
 verification words (from the PAKE), and a global hotkey with screenshot or
 clipboard send (clipboard paste-to-send shipped in 0.1.0; the global hotkey
-remains).
+remains). Request links (Beta, 0.3.0): one-time links a browser or
+`floe send --to` can send through, with per-link Auto-accept; a reusable drop
+link (Stage 2) only with evidence.
 
 **Later:** saved contacts and devices, continuous folder sync, multi-peer send.
 

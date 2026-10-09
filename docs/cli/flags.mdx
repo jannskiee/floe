@@ -36,7 +36,7 @@ Floe reads five environment variables. If you run your own signaling server, set
 
 | Variable | Equivalent flag | Description |
 |----------|-----------------|-------------|
-| `FLOE_SERVER` | `--server` | Signaling server URL, used by every command. |
+| `FLOE_SERVER` | `--server` | Signaling server URL, used by every command. To send through a request link made on floe.one with `floe send --to`, or to receive a floe.one link with `floe receive`, unset it or pass `--server https://api.floe.one` (either one is refused before any network call otherwise); see [Send through a request link](/cli/send#send-through-a-request-link) and [`floe receive`](/cli/receive). |
 | `FLOE_WEB` | `--web` | Web app URL used for the browser link printed by `floe send`. |
 | `FLOE_RELAY_ONLY` | `--relay-only` | Set to `1` to route every transfer through the relay, hiding your IP address from the other side. A typed `--no-relay` overrides it for that one command, since the two can never both be on. |
 | `FLOE_NO_STATS` | `--no-report` | Set to `1` to never report byte counts. Applies to `floe receive`. See [Opting out of the global counter](#opting-out-of-the-global-counter). |
@@ -60,6 +60,14 @@ floe send photo.jpg
 Trailing slashes are trimmed, so `https://floe.example.com/` and `https://floe.example.com` behave the same.
 
 Set `FLOE_WEB` only when your web app runs on a different host from your signaling server. Leave it unset and share links point at the same host as your server, which is what you want when one domain serves both. The only exceptions are Floe's own deployment and the local dev pair, which are special-cased to their web hosts as described under `--web` above.
+
+## `floe send` flags
+
+Specific to the `send` command.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--to <link>` | _(none)_ | Send through a [request link](/desktop/request-links) made in Floe Desktop instead of creating a code. Put the whole link in quotes, including everything after the `#`. The command exits `0` only after the other side's Floe confirms every file arrived. `--web` has no effect with it, because no link is printed. A link made on floe.one needs the default server, `https://api.floe.one`: with `--server` or `FLOE_SERVER` naming another, it stops before Floe contacts any server. See [Send through a request link](/cli/send#send-through-a-request-link). |
 
 ## `floe receive` flags
 
@@ -106,9 +114,9 @@ In the desktop app the same choice is the **Contribute to global stats** toggle 
 
 | Code | Meaning |
 |------|---------|
-| `0` | Success. Also what `floe update` returns on a build compiled from source, which prints `Cannot update a dev build.` and stops. |
-| `1` | Any error: a transfer that failed, a code that would not resolve, a declined transfer, or a package-managed install refusing to self-update. |
-| `130` | Interrupted, by `Ctrl+C` or by `SIGTERM`. Floe prints `Canceled.` to stderr and removes the `.part` file it was writing. |
+| `0` | Success. Also what `floe update` returns on a build compiled from source, which prints `Cannot update a dev build.` and stops. `floe send --to` returns it only after the other side's Floe confirms every file arrived. |
+| `1` | Any error: a transfer that failed, a code that would not resolve, a declined transfer, or a package-managed install refusing to self-update. Every outcome of `floe send --to` other than success. |
+| `130` | Interrupted, by `Ctrl+C` or by `SIGTERM`. Floe prints `Canceled.` to stderr and removes the `.part` file it was writing, waiting at most 5 seconds for that before it exits. `floe send --to` prints its own line instead, `Canceled. Nothing was sent.` or `You stopped this drop.` with how many files were saved. |
 
 `floe` with no arguments prints help and exits `0`.
 
@@ -121,13 +129,15 @@ meet:
 |-------|-------|
 | Establishing the connection | 30 seconds, then `timed out establishing a connection` |
 | Receiver connected, sender never starts | 30 seconds, then `connected, but no data arrived from the sender within 30s` |
-| Sender waiting for the receiver to accept | 120 seconds, sized for a human answering the `Accept? [Y/n]` prompt |
+| Sender waiting for the receiver to accept | 120 seconds, sized for a human answering the `Accept? [Y/n]` prompt. With `--to`, just under 10 minutes, the request link's answer window |
 | A transfer that stops making progress | 60 seconds |
+| Sender waiting, after the last byte, for a current `floe receive` or Floe Desktop to say it saved everything | No limit while the connection lasts; about 30 seconds after the receiver goes silent, `the connection closed before the receiver confirmed delivery` |
 | The byte-count report after a transfer | 5 seconds, and it never affects the files |
 
 A `floe receive` can sit for up to about ten seconds after printing its summary. That is a five-second
-grace period so the final acknowledgment reaches the sender, plus the report. The full
-list is in the [transfer protocol reference](/reference/transfer-protocol#timeouts).
+grace period so the final acknowledgment reaches the sender, plus the report. When that
+acknowledgment is slow to reach the sender, it waits up to 35 seconds from sending it before the
+report. The full list is in the [transfer protocol reference](/reference/transfer-protocol#timeouts).
 
 ## Examples
 

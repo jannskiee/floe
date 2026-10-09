@@ -41,7 +41,13 @@ stopping the process ends it. [Receiving files](/web-app/receiving#the-sender-ha
 No. Nothing is stored on any server at any point, and once the session closes the server keeps no
 record of it, including the short code, which is dropped along with the room it pointed at. A code
 nobody uses lapses on its own ten minutes after it was made, and even then it maps to nothing but
-a random room id. [Security and privacy](/security-privacy)
+a random room id. A request link is the one exception: the server holds its room, with no file
+data, for about 10 minutes after the Floe Desktop that made it disconnects, so the app can come
+back to it. When a link that someone connected through is closed, a mark that it was used stays
+for a day, and for any other link a mark with its id and end time stays until a day after it ends.
+To limit new request links to 20 a day from one network, the server keeps their times for a day
+under a keyed hash of the network address, never the address itself, and under the same hash it
+counts the links each network has open, to hold it to 10 at a time. All of it is in memory only. [Security and privacy](/security-privacy#what-the-signaling-server-can-see)
 
 ### Why did a file not arrive?
 
@@ -54,8 +60,9 @@ you a file that looks whole and is not. Ask them to send it again.
 ### Which browsers work?
 
 Any modern browser with WebRTC: Chrome, Firefox, Safari, Edge, and most Chromium-based browsers. A
-secure context is required, which means HTTPS or localhost.
-[Sending files](/web-app/sending)
+secure context is required, which means HTTPS or localhost. Sending through a
+[request link](/desktop/request-links) is narrower during Beta: current Chrome and Edge on a
+computer. [Sending files](/web-app/sending)
 
 ### Why does Floe tell me to open the link in a different browser?
 
@@ -77,7 +84,8 @@ directions. A browser recipient always needs the link. [Which Floe to use](/choo
 ### Do both people need the same version?
 
 No. Peers on different releases interoperate, and the only time a transfer is blocked is a
-breaking wire-format change, which Floe detects before any data moves.
+breaking wire-format change, which Floe detects before any data moves. Request links are the
+exception: they need a current Floe Desktop and a server that offers them.
 [Protocol versioning](/reference/transfer-protocol#protocol-versioning)
 
 ### Which one should I use?

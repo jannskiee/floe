@@ -1,8 +1,8 @@
 ---
 title: "Desktop app settings"
 sidebarTitle: "Settings"
-description: "Every Floe Desktop setting: where received files are saved, Hide my IP, global stats, the File Explorer entry, and pointing the app at your own server."
-keywords: ["hide my ip", "server address", "right-click menu", "reset settings"]
+description: "Every Floe Desktop setting: where received files are saved, notifications and their sound, Hide my IP, global stats, the File Explorer entry, and pointing the app at your own server."
+keywords: ["notifications", "hide my ip", "server address", "right-click menu", "reset settings"]
 ---
 
 Open Settings with the gear in the title bar, or press `Ctrl` `,`. Press `Esc` to go back.
@@ -16,12 +16,68 @@ Changes save as you make them.
 
 ### Save received files to
 
-Where everything you receive is written. Leave it blank and Floe uses your **Downloads** folder, or
-your home folder if you do not have one.
-It never asks per transfer.
+Where everything you receive with a code or a link is written. Leave it blank and Floe uses your
+**Downloads** folder, or your home folder if you do not have one. A
+[request link](/desktop/request-links#make-a-link) has its own **Save to**, which defaults to
+`Downloads\Floe`.
+It never asks per transfer. A path you type is read the way
+[Receiving files](/desktop/receiving#choose-where-files-land) describes.
 
 An arriving file never replaces one you already have. See
 [Nothing is ever overwritten](/desktop/receiving#nothing-is-ever-overwritten).
+
+## Notifications {#notifications}
+
+When something finishes or needs you and you are not looking at Floe, Floe shows a Windows
+notification: a request on a [request link](/desktop/request-links#accept-or-decline), a drop that
+[Auto-accept](/desktop/request-links#auto-accept) starts by itself ("Receiving files through your request
+link"), a transfer that finishes, and a transfer that fails. Canceling a transfer yourself does not notify. The words
+are fixed, and a notification never carries a file name, your label, or anything the sender typed.
+
+### Show notifications {#show-notifications}
+
+On by default.
+
+Turn it off and Floe shows no Windows notification at all. A request still reaches you another
+way. See [With notifications off](#notifications-off).
+
+Windows keeps the last word. Do Not Disturb, Focus and the per-app switches in Windows settings
+decide whether a notification Floe sends is shown, whatever this switch says.
+
+### Play sound {#play-sound}
+
+On by default.
+
+Turn it off and notifications still appear, but silently. The switch is dimmed while **Show
+notifications** is off, and it keeps its setting, so turning notifications back on restores it.
+
+### Windows notification settings {#windows-notification-settings}
+
+**Open** takes you to Notifications in Windows Settings. That is where Windows lets you choose how
+Floe's notifications appear: as a banner, in Notification Center, on the lock screen, and with what
+priority. Windows lists the Microsoft Store build there as Floe Desktop, and the other builds as Floe.
+
+Windows decides where a banner appears, and Floe cannot move it. There is no setting here for a
+screen or a corner, because a program that sends standard Windows notifications cannot choose one.
+See [Known limitations](/how-it-works/known-limitations#notifications).
+
+### With notifications off {#notifications-off}
+
+A [request](/desktop/request-links#accept-or-decline) still gets to you without a notification.
+The taskbar button flashes, the window title reads `(1) Floe`, and, if you are on another screen
+in Floe, a notice with **Review** appears. These always stay, so turning notifications off never
+leaves a request with no sign at all. Windows can still hide the flash: its Focus feature and its
+taskbar settings both control whether a taskbar button flashes.
+
+A transfer that finishes or fails shows its result on the card, as it always does.
+
+### When Floe is in front {#when-floe-is-in-front}
+
+Floe sends no notification while its own window is the one in front and you have used the PC in
+the last minute, because the request or the result is already in front of you. If Floe is in
+front but you have not touched the PC for a minute, Floe treats you as away and notifies as usual.
+
+The flash, the `(1) Floe` title and the notice do not depend on this.
 
 ## Privacy
 
@@ -45,6 +101,11 @@ both are unavoidable rather than bugs:
 The setting applies to your side only, and the person on the other end does not need it on.
 Their app shows the connection as **Relay**, which is exactly what it shows whenever a direct
 path is impossible, so it does not single you out.
+
+It covers [request links](/desktop/request-links#what-each-side-can-see) too. With it on, every drop
+through your link goes through the relay and is capped at 2 GB per drop, and a request over 2 GB
+warns you before you accept. Floe reads the setting when a sender connects, so a change applies to
+the next sender.
 
 This is not the web app's **Network relay fallback** checkbox, despite the similar subject. That
 one lets you turn the relay **off**. This one makes the relay the **only** path. The desktop app
@@ -81,6 +142,9 @@ CLI. In the browser it is a checkbox on the receiver view, and for the CLI it is
 
 The report follows whichever server the app is set to, so pointing Floe at your own instance
 sends your byte counts to that server's counter rather than to floe.one.
+
+A [request link](/desktop/request-links) drop that stops after it was accepted reports too, once, with
+the bytes of the files it saved, and only with this switch on.
 
 ### Check for updates
 
@@ -166,9 +230,8 @@ seconds each, and the realtime stage is bounded by the WebSocket handshake timeo
 is longer. An address that swallows connections rather than refusing them can take the better part
 of a minute to come back. That is slow, not stuck.
 
-A pass starts with `Connected.` and carries no prefix. Every failure does, so the row below
-reading `That does not look like an address. Include https:// and the host name.` reaches the
-screen with `Error: ` in front of it.
+A pass reads `Connected` and carries no prefix. Every failure does, so the row below reading
+`Include https:// and the host name` reaches the screen with `Error: ` in front of it.
 
 A pass also reports whether the server offers a **relay**. A server without one still passes,
 because it works for any transfer that finds a direct path, and the message names the
@@ -178,20 +241,20 @@ reach each other directly.
 
 | Result | Meaning |
 |---|---|
-| Connected. | All three stages passed, and the server offers a TURN relay. |
-| Connected. This server has no TURN relay, so Hide my IP will not work. | All three stages passed. [Hide my IP](#hide-my-ip-address) cannot work at all, and ordinary transfers succeed only where a direct path exists. See [TURN relay](/self-hosting/turn-relay). |
-| Enter a server address. | The field is empty. |
-| That does not look like an address. Include https:// and the host name. | Missing scheme or host. |
-| The address must start with https:// or http://. | Some other scheme, such as `ftp://`. |
-| That host could not be found. Check the address for typos. | DNS did not resolve. |
-| Timed out reaching that address. | Nothing answered in time. |
-| Could not connect. Check that the server is running and reachable from this machine. | The address resolved but the connection was refused or dropped. |
-| The server's security certificate could not be verified. | A TLS problem, often a self-signed certificate. |
-| The address answered with HTTP ... This may be the web app rather than the signaling server. | Something answered, but not with a health check. Usually the website rather than the API. |
-| Something answered at that address, but it is not a Floe signaling server. | Something else is on that address. |
-| The server answered, but the realtime connection was refused. If it is behind a reverse proxy, check that /ws is being forwarded. | Stage two failed. |
-| The server is running, but its API answered with HTTP ... If it is behind a reverse proxy, check that /api/ is being forwarded. | Stage three failed. |
-| The server is running, but it did not return usable connection details. | Stage three answered, but with nothing in the list to connect with. |
+| Connected | All three stages passed, and the server offers a TURN relay. |
+| Connected, but there's no relay for Hide my IP | All three stages passed. [Hide my IP](#hide-my-ip-address) cannot work at all, and ordinary transfers succeed only where a direct path exists. See [TURN relay](/self-hosting/turn-relay). |
+| Enter a server address | The field is empty. |
+| Include https:// and the host name | Missing scheme or host. |
+| Start the address with https:// or http:// | Some other scheme, such as `ftp://`. |
+| Host not found | DNS did not resolve. |
+| Timed out reaching that address | Nothing answered in time. |
+| Couldn't connect to that server | The address resolved but the connection was refused or dropped. |
+| Couldn't verify the server's certificate | A TLS problem, often a self-signed certificate. |
+| That address answered HTTP ... (likely the web app, not the server) | Something answered, but not with a health check. Usually the website rather than the API. |
+| That address isn't a Floe server | Something else is on that address. |
+| The server refused the realtime connection (check that your proxy forwards /ws) | Stage two failed. |
+| The API answered HTTP ... (check that your proxy forwards /api/) | Stage three failed. |
+| The server didn't return usable connection details | Stage three answered, but with nothing in the list to connect with. |
 
 See [Run behind one domain](/self-hosting/reverse-proxy) for a proxy configuration that
 forwards all three.
@@ -241,8 +304,9 @@ details to include in a bug report.
 
 ## Reset
 
-**Reset** at the top of Settings restores the save folder, the privacy switches, and both
-server addresses to the way Floe shipped. It asks first, and tells you what it is about to
+**Reset** at the top of Settings restores the save folder, notifications and their sound, the
+privacy switches and both server addresses to the way Floe shipped. The request link's own **Save to**
+is left as it is. Notifications and sound go back on. It asks first, and tells you what it is about to
 forget.
 
 It deliberately leaves alone:
@@ -267,12 +331,16 @@ not. A fresh install looks like this:
   "hideIP": false,
   "reportStats": true,
   "noUpdateCheck": false,
+  "noToasts": false,
+  "silentToasts": false,
   "migrated": true
 }
 ```
 
 Empty address fields mean "use Floe's defaults", so a fresh install and a cleared field behave
-identically. The file is written atomically, so an interrupted write cannot corrupt it.
+identically. `noToasts` is **Show notifications** turned off, and `silentToasts` is **Play sound**
+turned off, so `false` for both is the default. The file is written atomically, so an interrupted
+write cannot corrupt it.
 
 Edit it only while Floe is closed. The app rewrites the whole record whenever any setting
 changes, so an edit made while it is running is overwritten. Leave `migrated` set to `true`:
@@ -284,6 +352,8 @@ its own files in that same `floe` folder, so the two coexist. The file survives 
 purpose, so reinstalling picks up where you left off.
 
 Your save folder and transfer history are not in this file. They live in the interface's own
-storage under `%APPDATA%\floe\webview`, as the keys `floe:saveDir` and `floe:history`. That folder
-survives an uninstall too, which is why a reinstall still knows where you save files and what you
-have already sent.
+storage under `%APPDATA%\floe\webview`, as the keys `floe:saveDir`, `floe:requestSaveDir` (the
+request link's **Save to**) and `floe:history`. While a request link is open,
+`floe:requestLinkOpenUntil` holds its end time, never the link, so the next launch can open on
+**Request link**. That folder survives an uninstall too, which is why a reinstall still knows where
+you save files and what you have already sent.

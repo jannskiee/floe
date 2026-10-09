@@ -50,6 +50,8 @@ Floe for Windows 10 and 11 (x64), currently in beta. The Microsoft Store build i
 
 Prefer a direct download? An installer and a portable build are on the [download page](https://www.floe.one/download). Setup details are in the [desktop installation guide](https://www.floe.one/docs/desktop/installation).
 
+Request links (Beta) let someone send files straight to your PC from a browser, and you accept each drop unless you turn on Auto-accept. See [Request links](https://www.floe.one/docs/desktop/request-links).
+
 ## CLI
 
 Send and receive from terminals, servers, and scripts.

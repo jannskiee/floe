@@ -20,7 +20,8 @@ The server at `api.floe.one` exists so two devices can find each other. It never
 
 It does:
 
-- Put two devices in a room and decide which one sends.
+- Put two devices in a room and decide which one sends. For a
+  [request link](/desktop/request-links), the Floe Desktop that made it is the one that receives.
 - Pass the connection-setup messages between them.
 - Hand out relay credentials, valid for 24 hours, when a relay is configured. They are not tied to
   you or to an account: on floe.one one credential set is minted from Cloudflare and served to
@@ -34,7 +35,14 @@ It never:
 - Receive, store, or inspect file data.
 - Keep room or peer information past the session. A short code is dropped along with the room it
   points at, so it does not outlive the session either. A code nobody uses lapses on its own ten
-  minutes after it was made, and even then it maps to nothing but a random id.
+  minutes after it was made, and even then it maps to nothing but a random id. A request link is the
+  one exception: the server holds its room for the Floe Desktop that made it, with a hash of that
+  app's secret token rather than the token, for about 10 minutes after the app disconnects. When a
+  link that someone connected through is closed, a mark that it was used stays for a day, and for
+  any other link a mark with its id and end time stays until a day after it ends. To limit new request
+  links to 20 a day from one network, it keeps their times under a keyed hash of the network
+  address, never the address itself, and under the same hash it counts the links each network has
+  open, to hold it to 10 at a time. All of it is in memory only.
 - Log what you transfer, your file names, or who you sent to.
 
 Once the data channel is open, the server plays no further part.
@@ -61,8 +69,13 @@ Routing through a relay also changes who learns your IP address. On a direct con
 devices learn each other's, which is how any peer-to-peer connection works. If you would rather
 not reveal yours, Floe Desktop's
 [Hide my IP address](/desktop/settings#hide-my-ip-address) forces the relay path so the other
-person sees the relay instead, and the CLI's `--relay-only` flag does the same. The browser has
-no equivalent.
+person sees the relay instead, and the CLI's `--relay-only` flag does the same. The web app has
+no equivalent, but the page a sender opens from a [request link](/desktop/request-links) has its
+own **Hide my IP** switch.
+
+With a request link, the two sides learn each other's IP address as soon as the sender clicks
+**Send** and connects, before anyone accepts, unless that side has Hide my IP on. Declining
+afterward does not take it back.
 
 ## The room secret stays out of every server log
 
@@ -79,12 +92,20 @@ third-party trackers. The signaling server learns it when a device joins that ro
 connection, and, for a transfer started from the CLI or Floe Desktop, when the sender registers the
 three-word code for it; either way no file bytes ever reach it.
 
+A [request link](/desktop/request-links) looks like `https://floe.one/r/<link id>#<key>`. The key
+after the `#` is the secret, and it stays out of logs the same way. The link id before it is not
+secret: it sits in the address path, so it reaches the web host's request logs, and it exists so
+that a report, or a block on one address, can name one link without the key. The signaling server
+never receives the link id. On that page, Sentry strips the link id from the address before a
+report is sent, and Umami does not load at all.
+
 ## Aggregate statistics
 
 The homepage carries a public, all-time count of bytes moved across every Floe user. To feed it,
-the **receiving** side reports how many bytes it received after a transfer completes. The sender
-never reports. All three receivers contribute, and the total itself is only ever displayed in the
-browser.
+the **receiving** side reports how many bytes it received after a transfer completes. Floe Desktop
+also reports a [request link](/desktop/request-links) drop that stops after it was accepted, with
+the bytes of the files it saved. The sender never reports. All three receivers contribute, and the total
+itself is only ever displayed in the browser.
 
 What is recorded: one cumulative integer. Nothing else.
 

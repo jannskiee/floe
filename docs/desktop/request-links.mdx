@@ -1,0 +1,544 @@
+---
+title: "Request links: let someone send files to your PC"
+sidebarTitle: "Request links"
+description: "Make a one-time link in Floe Desktop so one person can send files straight to your PC from their browser. You accept before anything is saved, unless you turn on Auto-accept. In Beta."
+keywords: ["request link", "receive files from a browser", "one-time link", "accept or decline", "auto-accept", "beta"]
+---
+
+A request link lets one person send files to your PC from their browser, with nothing to install on their
+side. You make the link in Floe Desktop and send it to them. When they click **Send**, your Floe asks you
+first, and nothing is saved until you click **Accept**, unless you made the link with
+[Auto-accept](#auto-accept) on. The files then stream straight to your PC and are never stored on a Floe
+server.
+
+Request links are in Beta, in Floe Desktop for Windows.
+
+**Someone sent you a request link?** See [Sending through a request link](#sending-through-a-request-link).
+
+## What a request link is {#what-a-request-link-is}
+
+- **One person, one drop.** A drop is one sending through the link. While one person is connected, nobody
+  else can use the link, and after a drop finishes or stops the link is used up.
+- **A live transfer, not a mailbox.** Files move only while Floe is open on your PC and the PC is awake and
+  online. Nothing waits on a server for you to collect later.
+- **No names attached.** Floe has no accounts, so a link carries no name. The sender's page says "Floe does
+  not know who that is", and it cannot tell you who is sending either.
+- **One at a time.** You can have one request link open. Close it to make another.
+
+## Where to find it {#where-to-find-it}
+
+In Floe Desktop, open **Receive**. **Request link** sits next to **Code**, with a small **Beta** tag.
+There is no switch to turn on, and nothing about request links is sent until you click **Make link**.
+
+Request links need a server that offers them. Floe's own server does unless they have been turned off
+there. When the server does not offer them, **Make link** says so under the button: "Request links are off
+on this server". If Floe cannot reach the server at all, it says "Couldn't make a link". For your own
+server, see [Self-hosted servers](#self-hosted-servers).
+
+## Make a link {#make-a-link}
+
+Go to **Receive** and choose **Request link**. The form has three fields and a check:
+
+| Field | What it does |
+|---|---|
+| **Label** | Optional, up to 64 characters. Only you see it: it names the request when it arrives, the folder the files go into, and the History row. It never leaves your PC. |
+| **Save to** | The folder every drop goes into. Leave it blank for `Downloads\Floe`, which the field shows in gray. |
+| **Link ends** | **In 30 minutes**, **In 1 hour**, **In 8 hours**, **In 24 hours** (the default), **In 3 days** or **In 7 days**. |
+| **Auto-accept** | A check under **Link ends**, off on every new link and never remembered. With it on, drops through this link save without asking, except unusual ones. See [Auto-accept](#auto-accept). |
+
+In **Save to**, a relative path such as `Pictures\Drops` is read from your home folder, so that one is the
+Drops folder in your Pictures folder. Variables such as `%USERPROFILE%` and a leading `~` work, and the
+quotes that File Explorer's **Copy as path** adds are dropped. Floe checks the folder when you click **Make
+link**. If it cannot use it, because its drive is not there, a network share is offline, part of the path is
+a file, a name in it has a character Windows does not allow, such as `|` or `?`, a name ends in a space
+or in a period after a space or another period, or it is a path Floe cannot place, such as `\Floe` or
+`D:Floe`, it says "Couldn't use that folder" under the button and makes no link. A **Save to** of
+only quotes or spaces means the default folder.
+
+Click **Make link**. Above the button, Floe says who can see your IP address: "Senders see your IP, even if
+you decline". With Hide my IP on, it says "Hide my IP limits drops to 2 GB" instead. While **Auto-accept**
+is checked, an amber line under it reads "Anyone with this link can send you files without asking".
+
+### Who sees your IP address {#who-sees-your-ip-address}
+
+The sender's browser and your PC connect to each other directly, and a direct connection shows each side the
+other's IP address. That happens as soon as the sender clicks **Send**, which is before your Floe asks you to
+accept or decline, so declining does not hide your address.
+
+Turn on **Hide my IP** and Floe relays the drop instead, so the sender sees the relay's address and not yours.
+A relayed drop is capped at 2 GB. Floe reads the setting when a sender connects, so a change applies to the
+next sender. See [Hide my IP address](/desktop/settings#hide-my-ip-address) and
+[What each side can see](#what-each-side-can-see).
+
+### Auto-accept {#auto-accept}
+
+Check **Auto-accept** under **Link ends** before you click **Make link**, and drops through that one link
+save without the Accept step. It is off on every new link, and Floe never remembers it. Its info button
+warns "Only turn this on if you trust everyone with the link", then says "Files save without asking, except
+in a few cases, like low space or a USB drive". Anyone with the whole link can use it, a link can be
+forwarded, and the person sending cannot tell that the link accepts by itself.
+
+While such a link waits, its line reads "Ends today, 2:05 PM · Accepts automatically" and the status at the
+top reads **AUTO-ACCEPT**. A drop that qualifies starts at once. With notifications on and Floe not in front,
+Windows shows "Receiving files through your request link", with no taskbar flash and no `(1) Floe` title, the card shows the drop arriving, **Cancel
+drop** stops it as usual, and History marks it "Accepted automatically". If two automatic Accepts on one
+link find the sender already gone within 10 minutes, Floe stops showing that notification for the link.
+
+Some drops still ask, with **Accept** and **Decline** as usual:
+
+- A drop the request would warn about: too little free space, a file too large for the drive, or over 2 GB
+  through the relay.
+- A drop whose route Floe could not read.
+- A drop to a drive that cannot carry Windows' downloaded-file mark, such as FAT32 and exFAT drives and
+  many network shares, or to a drive that does not answer in time.
+- A drop that would leave less than 20 GB, or less than a tenth of the drive, free, and a drop to a drive
+  whose free space or size Floe could not read.
+
+When a drop asks for one of the last two reasons, the request says why in one gray line: "Asks because C:
+would have under 48.0 GB free", "Asks because Windows can't mark files on G:", or "Asks because Floe couldn't
+check D:". Floe also reads the drive when you make the link and every 10 minutes while it waits. When the
+drive already has less free space than an automatic drop must leave, every drop would ask, so the line under
+the link reads "Ends today, 2:05 PM · Asks first, low space on C:" instead.
+
+Everything else about a drop stays the same: one drop per link, at most 10,000 files, 2 GB kept free after
+each file, renamed shortcut-type files, and the sender sees your IP address unless Hide my IP is on.
+
+## Share the link {#share-the-link}
+
+Floe shows the link, **Copy link**, and a line such as "Ends today, 2:05 PM". A later day reads like "Ends
+Oct 9, 2:05 PM", and a link made with Auto-accept adds " · Accepts automatically". A request link looks like
+`https://floe.one/r/<link id>#<key>`.
+
+Send it to one person, through a channel you trust. The whole link matters, including everything after the
+`#`: that part is the key that connects their browser to your PC. Browsers do not send it when they load a
+page, so the web server behind floe.one never sees it. The sender's page uses it only when they click
+**Send**, to reach your PC through Floe's signaling server. Anyone who has the whole link can use it, and a
+link can be forwarded.
+
+While the link waits, Floe reads "Waiting for files". Floe cannot tell when the link is opened, so a chat
+app's preview of it changes nothing. Floe hears from the sender only when they click **Send**.
+
+**Close link** ends the link at any time.
+
+### The status at the top {#the-status-at-the-top}
+
+The status at the top right reads **READY** while a link waits, the same as when no link is open, or
+**AUTO-ACCEPT** while a link made with Auto-accept waits. Open **Receive** > **Request link** to see your
+link. The dot beside it is green, or amber when Hide my IP is on, because then whoever uses the link next is
+relayed and capped at 2 GB.
+
+While files arrive it reads **ACTIVE** until the route is known, then **DIRECT** or **RELAY**, like any
+transfer. A relayed drop is capped at 2 GB.
+See [Sending files](/desktop/sending#while-it-sends) for every word the status can show.
+
+### A request link pasted into Receive {#a-request-link-pasted-into-receive}
+
+A request link is for sending, so it does not work in the **Code or link** field. Floe says "Request links
+open in a web browser" and offers **Open in browser**. The `floe` CLI refuses it too, in its own words:
+"That is a request link for sending files to someone. Open it in a web browser."
+
+## Sending through a request link {#sending-through-a-request-link}
+
+If someone sent you a request link, this section is for you: you are the sender. The files go to the
+computer of whoever made the link, not to a Floe server, and you need nothing but a browser.
+
+During Beta, request links work in current Chrome and Edge on a computer. If you use the `floe`
+command-line tool, you can send through the link from your terminal instead: see
+[Send through a request link](/cli/send#send-through-a-request-link).
+
+### Pick files {#pick-files}
+
+Drop files or folders on the page, or use **Choose files** or **Choose folder**. A drop can hold up to 10,000
+files; for more, zip them first. Empty folders are not sent, and files arrive without their original
+modification times. A folder nested very deep can be too long for the other computer to save, so zip deeply
+nested folders first.
+
+**Hide my IP (relay only, 2 GB per drop)** sends everything through the relay, so the other side sees the
+relay's address instead of yours. It is off each time the page opens, and it takes effect when you click
+**Send**. See [What each side can see](#what-each-side-can-see).
+
+### Send and wait for them to accept {#send-and-wait}
+
+Click **Send**. The page connects to their computer, then waits for them to accept. They have just under 10
+minutes to answer, and the page counts the minutes down. Nothing is written to their computer until they
+click **Accept**, unless they made the link with [Auto-accept](#auto-accept) on, which lets an ordinary drop
+start without waiting for them.
+
+If they decline, or do not answer in time, nothing is sent, and **Back to files** returns to your selection.
+
+### Keep the page open {#keep-the-page-open}
+
+The sending happens in your browser tab, so the tab has to stay open until the last file arrives. Keep the
+tab in front, and for a long drop, pin it and keep the computer plugged in and awake. If you send from a
+phone or tablet anyway, keep the page open and the screen on.
+
+There is no resume. If the connection drops, the files that arrived stay on their computer, and the rest,
+including the file that was moving, has to be sent again through a new link.
+
+If the browser discards the tab during a drop to save memory, the drop stops, and when you come back the
+page reloads on **Connection lost** with how many files arrived, such as "4 of 12 files arrived. Ask them for
+a new link to send the other 8." The tab keeps only those two numbers for this, never a file name, so the
+page cannot list which files arrived.
+
+### When the files arrive {#when-the-files-arrive}
+
+Each file is listed under **ARRIVED** once their Floe has saved it under its final name. When every file
+has arrived, the page says so, with the size, the time taken and the route. "Their app reports every file's
+SHA-256 matched." appears only when their Floe checked every file against the SHA-256 your browser computed.
+Your browser computes it while it sends and waits for it at most 45 seconds after a file's last byte; a
+file whose SHA-256 is not ready by then goes without one, and that line does not appear.
+
+**Cancel** after they accepted asks first. Files that already arrived stay on their computer, and the link
+cannot be used again.
+
+### Report a link {#report-a-link}
+
+**Report this link**, at the bottom of the page, starts an email to Floe carrying the link's id: the part
+before the `#`. It never carries the part after it, so a report cannot be used to send files through the
+link. The email goes to the address in [SECURITY.md](https://github.com/jannskiee/floe/blob/main/SECURITY.md),
+the one security reports use. On a self-hosted server the button still writes to Floe's maintainers, who
+cannot act on another server's links.
+
+## Accept or decline {#accept-or-decline}
+
+When the sender clicks **Send**, Floe connects to their computer and then shows the request under
+**Receive** > **Request link**. On a link made with Auto-accept, only a drop that still asks shows one (see
+[Auto-accept](#auto-accept)). If you are somewhere else in Floe, a notice with **Review** appears, the
+taskbar button flashes, and the window title reads `(1) Floe`. If notifications are on and Floe is in the
+background, Windows also shows a notification. See [Notifications](/desktop/settings#notifications).
+
+The request shows four things:
+
+| Part | What it tells you |
+|---|---|
+| Your label | The label you gave the link, in the heading, such as **ACME FOOTAGE WANTS TO SEND YOU FILES**. It is your own label, not the sender's name. With no label it reads **SOMEONE WANTS TO SEND YOU FILES**. |
+| How much | The number of files and their total size, as the sender's browser announced them. |
+| Where it saves | **Into**, then the new folder the files will go into. |
+| How long you have | **Accept** counts down the time left, in minutes and seconds, such as **Accept (9:45)**. |
+
+It never shows a file name or any other text the sender chose. Names appear only as files arrive, cleaned of
+hidden characters. Floe holds the sender to the count and size you accepted: more data stops the drop.
+
+The request also warns you, in amber, when something will stop the drop: too little free space, a drive that
+cannot hold a file this large, or a drop over 2 GB through the relay. On a link made with Auto-accept, a
+drop that asks for a reason those lines do not cover, such as the free space an automatic drop must leave,
+says why in a gray line (see [Auto-accept](#auto-accept)). A laptop needs one more precaution: see
+[On a laptop](#on-a-laptop).
+
+<Warning>
+  **Accept only if you expect files from the person you sent this link to.** A link can be forwarded, and
+  Floe cannot tell who is on the other end, so decline anything you do not expect.
+</Warning>
+
+**Accept** and **Decline** wake up one second after the request appears, and again for a second whenever the
+Floe window comes to the front, so a click meant for something else cannot answer it.
+
+You have just under 10 minutes to answer, and **Accept** counts it down. After that the request ends on its
+own and the sender's page says they did not answer in time. A missed request does not close the link: it
+waits again, with a note of the time you missed.
+
+If the sender's connection fails while the request is showing, because their browser closed or crashed or
+their network went away, the request ends on its own about 30 seconds later and the link waits again. A drop
+whose sender's connection fails stops the same way, and the files already saved stay.
+
+After **Decline**, nothing is saved: Floe shows "Request declined" and asks "Keep waiting for the right
+sender?". **Keep waiting** opens the link again for them; **Close link** ends it. Until you choose, the link
+takes no new request. If two requests end without an Accept within 10 minutes, Floe stops showing Windows
+notifications for the next ones on that link, though the flash, the title and the notice stay, and asks
+whether to close it.
+
+## Where files go {#where-files-go}
+
+Each drop gets its own new folder inside your **Save to** folder, created only when the drop is accepted, by
+you or by Auto-accept. It is named from your label and this PC's clock, such as `Acme footage 2026-09-14
+1405`, or `Request 2026-09-14 1405` with no label. The time is on a 24-hour clock, so the folders sort by
+date. If the name is taken, Floe adds a number, such as `(2)`, and never writes into a folder that already
+exists.
+
+Inside it, the sender's folders keep their structure. A file shows as `name.ext.part` while it arrives and
+takes its real name only once it is complete. Names Windows cannot use are adjusted, as for any receive (see
+[Receiving files](/desktop/receiving#names-windows-cannot-represent-are-adjusted)).
+
+## While files arrive {#while-files-arrive}
+
+The card shows which file is arriving, how much has arrived, the speed, and the time left. **Cancel drop** stops
+it. You can minimize the window. From the moment the drop is accepted until it ends, Floe asks Windows to keep
+the PC awake; the screen can still turn off. It does not keep the PC awake while a link only waits.
+
+There is no resume. If the connection drops, the drop stops: files already saved stay, the file that was
+moving is discarded, and the sender can send the rest with a new link.
+
+A single drop stops at 24 hours. When a drop would take longer, the card says so. For a drop that will take
+hours, keep the PC plugged in and awake, and set Windows Update's active hours to cover it, because Windows
+may restart for updates outside your active hours.
+
+### On a laptop {#on-a-laptop}
+
+Keep a laptop plugged in with its lid open while files arrive. A laptop on battery can stop Floe a few minutes
+after its screen turns off, and closing the lid does the same. The drop then stops, the files already saved
+stay, and the file that was moving has to be sent again through a new link.
+
+On a PC with a battery, the card reminds you with "Keep this laptop plugged in and open" under the progress.
+It appears once the drop has run for a minute with more than 5 minutes left, and stays until that drop ends,
+so a short drop never shows it. A PC without a battery never shows it.
+
+## When it finishes {#when-it-finishes}
+
+The card reads, for example, **RECEIVED 12 FILES, 38.0 GB**, followed by a green check mark when every file
+was checked (see [The check mark](#the-sha-256-check)). If notifications are on and Floe is in the
+background, Windows shows a notification. Under the heading the card lists every file that arrived, each
+with its size, in a box that scrolls after about five rows ("+ 3 more" counts any beyond the 200 names it
+keeps), with the drop's folder and **Show in folder** at the bottom of the box. **Make another link** puts
+the result away and takes you back to the form for a new link. The link you used is used up.
+
+History keeps one row per drop. See [History](#history).
+
+### The check mark {#the-sha-256-check}
+
+A green check mark after the heading means every file's SHA-256 matched: the value was computed on both
+computers and the two were equal. A screen reader says "SHA-256 matched". Floe never shows the value itself.
+
+No check mark means Floe could not check every file, usually because the sender's page or app is older and sent
+no SHA-256 for some file, or because the sender's browser had not finished computing one when it stopped
+waiting, at most 45 seconds after the file's last byte, and sent the file without it. The files are still
+saved. A file that does not match is never kept: it is deleted, the drop stops, and the card says so. See
+[If a drop stops](#if-a-drop-stops).
+
+Your Floe computes the SHA-256 while writing the file, before the file takes its real name, and never reads the
+file back from disk. The check proves the file arrived as the sender's browser read it. It says nothing about
+whether the file is harmful.
+
+The same check mark shows in History for a drop, and after a send or a receive with a code, when every file
+was checked.
+
+### Renamed files {#renamed-files}
+
+Some Windows file types are opened by File Explorer as soon as it shows a folder, and a few of them can send
+your Windows sign-in to a server the sender chose. A drop saves these with `.floe-blocked` added to the name,
+so File Explorer leaves them alone: `.lnk`, `.url`, `.website`, `.library-ms`, `.searchConnector-ms`,
+`.search-ms`, `.scf`, `.theme`, `.themepack`, `.deskthemepack`, and any file called `desktop.ini`. A folder
+or file name that ends in a class ID, such as `.{00000000-0000-0000-0000-000000000000}`, loses that
+ending.
+
+The card says how many files were renamed, and **Show in folder** asks first: "This drop has renamed files"
+and "Open the folder anyway?". Rename a file back only if you trust it.
+
+### Floe does not scan files {#floe-does-not-scan-files}
+
+Floe does not scan received files for malware. It marks each file as downloaded, the way a browser does, so
+SmartScreen and Office Protected View treat it like any download. The mark needs a drive that keeps it, such
+as NTFS; FAT32 and exFAT drives, like most USB sticks and SD cards, and many network shares do not, and a
+file saved there arrives without it. See
+[Received files are marked as downloads](/desktop/receiving#received-files-are-marked-as-downloads).
+
+The check mark means the files arrived intact. It does not mean they are safe.
+
+The finished card does not repeat this on every drop. Floe shows "Floe doesn't scan files for malware" there
+only when your save drive cannot carry the downloaded-file mark, such as a USB stick, an SD card, or many
+network shares, and when Floe could not find out what the drive can carry. On those drives the files carry no
+downloaded-file mark, so Windows has nothing to warn you from when you open one, and the line takes the place
+of that warning. On a drive that keeps the mark, Windows applies its usual caution to downloads (SmartScreen
+for programs, Protected View for Office documents), so the card says nothing about it.
+
+## If a drop stops {#if-a-drop-stops}
+
+The card reads **DROP STOPPED** with one sentence saying why and how many files were saved. Files saved
+before the stop stay in the drop's folder, and **Show in folder** opens it when there is one. The file that
+was arriving is deleted, with one exception: when Windows will not let Floe move a finished file into place
+(often because another program is holding it), Floe retries for 5 minutes, and if it still fails, the
+complete file stays in the drop's folder with a `.part` ending.
+
+After a stop, the sender can send the rest with a new link: click **Make another link** and send them that.
+Every stop sentence is listed under [Messages](#messages-on-your-pc).
+
+With **Contribute to global stats** on, the files a drop saved before it stopped count toward Floe's public
+total, as a finished drop's do. See [Contribute to global stats](/desktop/settings#contribute-to-global-stats).
+
+## How a link ends {#how-a-link-ends}
+
+| How | What you see |
+|---|---|
+| Its end time passes | "Link ended at 2:05 PM". A request or a drop that began before then keeps going. |
+| You click **Close link** | "Link closed" |
+| A drop finishes or stops | The result card; the link is used up. |
+| You close Floe | Floe asks first ("Your request link stops working", with **Keep open** and **Close**). If you reopen Floe before the link's end time, **Receive** opens on **Request link**, ready for a new link. |
+| Request links are turned off on the server | "Request links are off on this server" |
+
+If Floe loses its connection to the Floe server, the card reads "Can't reach the Floe server" and
+"Reconnecting...", with **Retry now**. Floe keeps trying until the link's end time, and a server restart does
+not end the link: it comes back when Floe reconnects. Meanwhile the sender's page says your computer is not
+connected.
+
+**Start over** on the Send side leaves the link open. So does switching tabs or opening Settings.
+
+## What each side can see {#what-each-side-can-see}
+
+| | You | The sender |
+|---|---|---|
+| IP address | Theirs, once they connect, unless they turn on Hide my IP on their page. | Yours, once they connect, unless you have Hide my IP on. |
+| Names | Not theirs: Floe has no accounts. | Not yours: your label never leaves your PC. |
+| Files | Names appear only as files arrive, never in the request. | Their own files, and which ones arrived. |
+
+The sender's browser and your PC exchange IP addresses as soon as the sender connects, before you accept, so
+declining does not hide yours. Turn on Hide my IP (see
+[Hide my IP address](/desktop/settings#hide-my-ip-address)) to show the relay's address instead. Floe reads
+the setting when a sender connects, so a change applies to the next sender.
+
+Hide my IP sends every drop through the relay, which caps a drop at 2 GB. The sender's page has its own Hide
+my IP with the same cost.
+
+Floe's server introduces the two computers, as it does for any transfer, and never receives the files. See
+[Security and privacy](/security-privacy).
+
+## Limits {#limits}
+
+| Limit | Value |
+|---|---|
+| Drops per link | One, then the link is used up |
+| Links open at a time | One |
+| Link lifetime | 30 minutes, 1 hour, 8 hours, 24 hours (the default), 3 days or 7 days |
+| Auto-accept | Off on every new link; a drop still asks when it would leave less than 20 GB or a tenth of the drive free, or on a drive without the downloaded-file mark |
+| Time to answer a request | Just under 10 minutes |
+| Files per drop | 10,000 |
+| Size of a relayed drop | 2 GB |
+| Time per drop | 24 hours |
+| Free space | Before each file, the drive must keep 2 GB free after it, or the drop stops |
+| Folder depth and path length | 32 levels (31 folders and a file) and 235 characters, as for every receive |
+| New links from one network | 20 in any 24 hours |
+| Open links from one network | 10 at a time |
+
+FAT and FAT32 drives cannot hold a file of 4 GB or more; exFAT, NTFS and ReFS drives can. On such a drive the
+request warns you when the first file is too large, and any file that is too large stops the drop there.
+
+A relayed drop over 2 GB stops before any file is saved. The sender's page checks first and says "Relay
+limit" when the connection needs the relay. See [File size limits](/how-it-works/2gb-limit).
+
+## Messages {#messages}
+
+### On your PC {#messages-on-your-pc}
+
+| Message | What it means | What to do |
+|---|---|---|
+| "Request links are off on this server" | Under **Make link**, the server has turned request links off or does not offer them. It also ends a link that was waiting when the server turned them off. Only request links stop: Send and Receive with a code still work. | Try again later. For your own server, see [Self-hosted servers](#self-hosted-servers). |
+| "This network reached today's link limit" | The server allows 20 new request links from one network in any 24 hours, and a link you closed still counts. | Wait, then make the link again. |
+| "Couldn't make a link" | Floe could not reach the server, the server is full, your network already has 10 request links open, or the server turned the link down for a reason Floe does not show. | Check your connection, then try again. |
+| "Couldn't use that folder" | Under **Make link**, the **Save to** folder names no place Floe can use: its drive is not there, a network share is offline, part of the path is a file, a name in it has a character Windows does not allow, such as `\|` or `?`, a name ends in a space or in a period after a space or another period, or it is a path Floe cannot place, such as `\Floe` or `D:Floe`. No link was made. | Choose the folder with **Browse**, or type a full path such as `D:\Footage`. |
+| "Hide my IP needs a relay this server doesn't have" | With Hide my IP on, every drop goes through a relay, and this server offers none. | Turn off Hide my IP, or add a relay to your server. See [TURN relay](/self-hosting/turn-relay). |
+| "Couldn't read this server's relay details for Hide my IP" | Floe could not read the server's relay list, so it cannot tell whether a relay exists. | Check the server address, or turn off Hide my IP. |
+| "Close your open link to make a new one" | You can have one request link open at a time. | Close the open link first. |
+| "Missed a request at 2:14 PM" | Someone clicked **Send** and the request ended without an answer. The link is still open. | If you expected files, ask them to send again. |
+| "The sender couldn't connect" | Someone clicked **Send**, but their browser and your PC could not finish connecting. The link waits again. | They can try again. If it keeps happening, see [The transfer never starts](/troubleshooting#the-transfer-never-starts). |
+| "2 requests ended without Accept in 10 minutes. Close this link?" | Two requests on this link ended without an Accept, so Floe stopped showing Windows notifications for the next ones. The flash, the title and the notice stay. | Close the link if you expect nothing more through it. |
+| "Can't reach the Floe server" with "Reconnecting..." | Floe lost its connection to the server and keeps trying until the link's end time. Meanwhile the sender's page says your computer is not connected. | Check your connection, or click **Retry now**. |
+| "Link ended at 2:05 PM" | The link reached its end time. | Click **Make another link** if you need one. |
+| "Link closed" | You closed the link. | Nothing. |
+| "Ends today, 2:05 PM · Asks first, low space on C:" | A link made with Auto-accept is waiting on a drive that already has less free space than an automatic drop must leave, so every drop will ask. | Free some space, or make the link with another **Save to** folder. |
+| "Asks because C: would have under 48.0 GB free" | On a link made with Auto-accept, this drop would leave less than 20 GB, or a tenth of the drive, free, so it asks. | Accept or decline as usual. |
+| "Asks because Windows can't mark files on G:" | On a link made with Auto-accept, the save drive cannot carry the downloaded-file mark, so the drop asks. | Accept or decline as usual. |
+| "Asks because Floe couldn't check D:" | On a link made with Auto-accept, Floe could not read the save drive's free space or size, or the drive did not say in time whether it can carry the downloaded-file mark, so the drop asks. | Accept or decline as usual. |
+| "Request links open in a web browser" | Under **Receive**, when a request link is pasted into **Code or link**. | Click **Open in browser**. |
+
+When a drop stops, the card reads **DROP STOPPED** with one of these, and **Make another link** under it:
+
+| Card | What it means | What to do |
+|---|---|---|
+| "The drive ran out of space · 4 of 12 files saved" | The save drive filled up. | Free some space or choose another folder, then send the sender a new link for the rest. |
+| "A file didn't match what was sent and was deleted" | A file's SHA-256 on your PC did not match the sender's. | Send a new link; they can send the rest again. |
+| "A folder path was too long for Windows" | A file's path in the drop was too deep or too long to save. | Ask the sender to zip deeply nested folders first. |
+| "More data arrived than you accepted" | The sender's browser sent more than the count and size you accepted, often because files changed after they chose them. | Send a new link; they choose the files again. |
+| "Over the 2 GB relay limit · Nothing saved" | The drop went through the relay and would have gone past 2 GB. | Turn off Hide my IP, or ask for under 2 GB per drop. |
+| "A file is too large for this drive" | The save drive cannot hold a file that large, such as 4 GB or more on FAT32. | Save to an NTFS or exFAT drive. |
+| "Windows couldn't write to the folder" | Windows refused a write into the drop's folder. | Check the save folder, then send a new link. |
+| "Windows blocked Floe from saving a file" | Floe could not move a finished file into place, often because another program held it. Floe retried for 5 minutes first. | A second line says "The complete file was kept with a .part ending". The file is complete: remove the `.part` ending to use it. |
+| "You stopped this drop · 4 of 12 files saved" | You clicked **Cancel drop**. | Nothing, or send a new link for the rest. |
+| "The sender stopped this drop · 4 of 12 files saved" | The sender stopped sending. | Nothing, unless they want to send the rest. |
+| "The drop reached the 24-hour limit · 4 of 12 files saved" | A single drop stops at 24 hours. | Send a new link for the rest. |
+| "4 of 12 files saved" | The drop stopped for another reason, such as a lost connection. | Send a new link for the rest. |
+
+A card without a count of its own is followed by one after a middle dot, for example "· 4 of 12 files
+saved". With a single file it reads "1 of 1 file saved", and with none "Nothing saved", except beside a kept
+`.part` file.
+
+### On the sender's page {#messages-on-the-senders-page}
+
+A link that was closed before anyone used it, because the person who made it clicked **Close link** or quit
+Floe, or because its end time passed, says "This link has ended" for about 24 hours afterwards. A link that
+was used says "This link has already been used" for about 24 hours after it closed. A server restart forgets
+both sooner. After that, and for a link that never existed, the page reads "Their computer is not connected
+right now", as it does while the computer that made the link is asleep or offline.
+
+| Message | What it means | What to do |
+|---|---|---|
+| "This link looks incomplete", then "Copy the whole link again, including everything after the # sign." | The link was cut short, often at the `#`. | Copy the whole link again from where you got it. |
+| "This browser cannot send through Floe", then "Open the link in current Chrome or Edge." | During Beta the page works in current Chrome and Edge on a computer. | Open the link in one of them. |
+| "This browser cannot pick folders. Drag the folder in, or zip it first." | This browser has no folder picker. | Do what the message says. |
+| "Relayed drops are capped at 2 GB. Turn off Hide my IP, or remove files." | With Hide my IP on, the drop goes through the relay, and your selection is over 2 GB. | Do what the message says. |
+| "This drop has more than 10,000 files. Zip them first." | A drop can hold up to 10,000 files. | Zip them and send the archive. |
+| "A folder path is too long to send. Zip deeply nested folders first." | A file sits too deep in its folders, or its name is too long, to be sent. | Do what the message says. |
+| "Some files in this folder could not be read. Nothing was added." | The browser could not read part of a folder you picked, so none of it was added. | Check the folder, or zip it and send the archive. |
+| "Their computer is not connected right now", then "They may have closed Floe. Your files stay selected." | Floe cannot reach the computer that made the link: it is asleep or offline, or Floe there stopped without closing the link. It also covers a link that never existed, or that ended more than about a day ago. | Click **Try again** once they have Floe open, or ask for a new link. |
+| "This link has ended", then "Ask them for a new link." | The link was closed, or reached its end time, before anyone used it. There is no **Try again**. | Ask them for a new link. |
+| "This link has already been used", then "Ask for a new link." | The link took its one drop, or someone else is sending through it now. | Ask the person who made it for a new link. |
+| "Request links are turned off right now" | The server has turned request links off. Nothing is wrong with the link itself. | Try again later. |
+| "Request links are not available on this Floe server." | The server behind this page does not offer request links. | Ask the person who made the link. |
+| "Couldn't connect to their computer. Nothing was sent." | Your browser and their PC could not finish connecting. | Click **Try again**. If it keeps happening, a network on one side may be blocking the connection. |
+| "This Floe server has no relay right now. Turn off Hide my IP to send directly." | Hide my IP needs a relay, and the server offers none. | Do what the message says. |
+| "Too many connections from this network. Trying again shortly." | The server is limiting connections from your network for a moment. | Wait: the page tries again by itself. |
+| "They declined. Nothing was sent." | They clicked **Decline**. | Ask them before you send again. |
+| "They did not answer in time. Nothing was sent." | Nobody clicked **Accept** or **Decline** in time. The link stays open. | Ask them to be at their PC, then send again. |
+| "Relay limit", then "This connection needs a relay, and relayed drops are capped at 2 GB. Remove files, or try another network." | The two computers can only connect through the relay, and your selection is over 2 GB. Nothing was sent. | Do what the message says. See [File size limits](/how-it-works/2gb-limit). |
+| "You stopped this drop." | You clicked **Cancel** after they accepted, and confirmed. | Ask for a new link to send the rest. |
+| "Their Floe needs an update." | Their Floe Desktop is too old for this page. | Ask them to update Floe. |
+| "Connection lost", then for example "4 of 12 files arrived. Ask them for a new link to send the other 8." | The connection dropped after they accepted, or the browser discarded the tab during the drop. There is no resume. | Do what the message says. |
+| "Connection lost. Nothing was sent." | The connection dropped before they accepted. | Click **Try again**. |
+| "Could not read a file", then the file's path and "may have been moved or renamed, or its drive disconnected." | A file you picked could not be read when its turn came. On Windows that includes a file whose full path is over 260 characters, which Chrome and Edge cannot read. | Check the file, then ask for a new link to send the rest. |
+
+When their Floe stops a drop, the page shows one of these, then how many files were saved, such as "4 of
+12 files were saved." ("1 of 1 file was saved." for a single file) or "Nothing was sent.", and the files that
+arrived under **ARRIVED**:
+
+| Message | What it means | What to do |
+|---|---|---|
+| "Their computer ran out of space" | Their save drive filled up. | Ask them to free space, then ask for a new link. |
+| "Their computer could not save a file" | Windows refused a write on their side. | Ask them to check their save folder. |
+| "A file changed or was damaged on the way, so their Floe deleted it", and after the count "Ask them for a new link to send the rest." | A file's SHA-256 did not match on their side. | Do what the message says. |
+| "Relayed drops are capped at 2 GB", with "Nothing was sent. Send under 2 GB." in place of the count when nothing was saved | Their Floe found the drop going through the relay and past 2 GB. | Send under 2 GB, or ask them to turn off Hide my IP. |
+| "A folder path is too long for their computer", and after the count "Zip deeply nested folders first." | A file's path was too deep or too long to save on their side. | Do what the message says. |
+| "A file is too large for the drive they save to" | Their save drive cannot hold a file that large. | Ask them to save to another drive. |
+| "Their computer blocked saving a file" | Their Floe could not move a finished file into place, after 5 minutes of retries. The complete file stays there with a `.part` ending. | Ask them about that file before you send it again. |
+| "More data arrived than they accepted", and after the count "If files changed after you chose them, ask them for a new link." | Your browser sent more than the count and size they accepted. | Do what the message says. |
+| "They stopped this drop." | They clicked **Cancel drop**. | Ask them before you send again. |
+| "This drop reached the 24-hour limit" | A single drop stops at 24 hours. | Ask for a new link and send fewer files. |
+| "The drop stopped on their computer." | Their Floe stopped the drop for another reason. | Ask them what happened. |
+
+## Self-hosted servers {#self-hosted-servers}
+
+A self-hosted server offers request links only when its policy file turns them on. `POLICY_FILE` names a
+JSON file, and `{"requestLinks": true}` in it turns them on; with no file, they are off. While they are on,
+`/health` lists `request-1` in its `features`, which is what **Make link** checks.
+
+The **Request link** tab always shows in Floe Desktop, whatever the server offers. On a server that does not
+list `request-1`, **Make link** says "Request links are off on this server" and nothing else happens.
+
+The link is built from your **Share link address** under Settings, or from the server address when you leave
+that blank. The web app at that address serves the page the sender opens, so run matching client and server
+versions.
+
+To set up the policy file, and to turn request links on or off later without a restart, see
+[the request links section of Operations](/self-hosting/operations#request-links).
+
+## History {#history}
+
+Each drop that finishes, or stops after saving a file, adds one row to
+[History](/desktop/receiving#history), titled with your label if you gave one. Opening it shows the check
+mark when every file was checked, "Accepted automatically" for a drop that Auto-accept took, and why it
+stopped. It repeats no renamed-files warning (that stays on the finished card), but **Show in folder** still
+asks first after renames. Declined and missed requests add nothing.
+
+## Related {#related}
+
+- [Receiving files](/desktop/receiving)
+- [Settings](/desktop/settings)
+- [File size limits](/how-it-works/2gb-limit)
+- [Security and privacy](/security-privacy)
+- [Troubleshooting](/troubleshooting#request-links)

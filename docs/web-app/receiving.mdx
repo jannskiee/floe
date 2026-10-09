@@ -125,6 +125,13 @@ Two details follow from that. A mismatch stops the **rest** of the transfer too,
 behind the bad one never arrive either. And the check needs a size to compare against: if the
 sending peer announces none, which only very old releases do, the file is accepted as it stands.
 
+When the sender provides a SHA-256 for a file, Floe also checks the file against it once it has
+arrived, and a file that does not match is discarded the same way, stopping the rest of the
+transfer. When every file arrived and every one matched, a line reading "SHA-256 matched" appears
+under the files. Checking a large file takes a moment after its last byte, and with more files to
+come Floe waits at most 90 seconds for it, then keeps the file unchecked so the transfer goes on;
+that line then does not appear.
+
 ## Receiving in the terminal or the desktop app instead
 
 Both write straight to disk, rebuild folder structure, and have no memory ceiling, which makes
