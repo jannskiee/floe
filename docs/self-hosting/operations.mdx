@@ -41,6 +41,11 @@ docker compose up -d
 
 That pulls the newest [published images](/self-hosting/images) and restarts. Nothing is built locally, so there is no repository to keep in sync.
 
+Pulling never changes your `docker-compose.yml`. A copy from before v1.11.0 has no `POLICY_FILE` line, so before you
+turn on [request links](#request-links) on such an install, take the current
+[`docker-compose.yml`](https://github.com/jannskiee/floe/blob/main/docker-compose.yml) and copy your own changes
+across.
+
 If you run the optional coturn relay, add its profile to both commands or Compose skips the service entirely, so a new coturn image is never pulled and a stopped relay is never restarted:
 
 ```bash Terminal
@@ -102,6 +107,10 @@ subdomain.
 
 A self-hosted server offers [request links](/desktop/request-links) only when its policy file turns
 them on. With no policy file they are off, and codes and share links work as usual.
+
+The steps need the `docker-compose.yml` from v1.11.0 or later, which passes `POLICY_FILE` to the server. An older
+copy leaves it out without a word, and `/health` keeps listing no features (see
+[Update to the latest code](#update-to-the-latest-code)).
 
 <Steps>
   <Step title="Create the policy file">
@@ -167,6 +176,13 @@ The server reads the file this way:
 - A missing file means off, and while a set `POLICY_FILE` stays missing the server logs `policy file not found, request links off` once.
 - UTF-8 works, and so does the UTF-16 that Windows PowerShell writes by default.
 
+### Limits {#request-link-limits}
+
+Floe Desktop on one network (one IPv4 address, or one IPv6 /64) can keep at most 10 request links open at a time
+and make 20 in any 24 hours, and the server holds at most 5,000 links at once. These limits are fixed in the server
+and have no setting. Behind a reverse proxy, set `TRUSTED_PROXY_COUNT` to match it (see
+[Configuration](/self-hosting/configuration)), or every user counts as the same network.
+
 ### Keep the client and server on one version {#matching-versions}
 
 The page a sender opens comes from the web client, not from the signaling server, so run the two
@@ -174,7 +190,10 @@ images at the same version. Compose does that by default, because `FLOE_IMAGE_TA
 older client in front of a newer server lets Floe Desktop make links whose page does not exist.
 
 Floe Desktop builds the link from its **Share link address** setting, or from the server address
-when that is blank. See [Self-hosted servers](/desktop/request-links#self-hosted-servers). How the
+when that is blank. With the default Compose file the web client listens on port 3000 and the server on 3001, so
+set **Share link address** to the client's address, such as `http://<host>:3000`: a link built from the server
+address opens a page the server does not serve. On a [one-domain deployment](/self-hosting/reverse-proxy), leave it
+blank. See [Self-hosted servers](/desktop/request-links#self-hosted-servers). How the
 server holds a request link's room is described in
 [the architecture reference](/reference/architecture#request-rooms).
 

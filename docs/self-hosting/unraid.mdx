@@ -135,6 +135,16 @@ behind strict NAT or CGNAT, expand the advanced Floe-Server settings and add a
 Cloudflare Realtime TURN key. You can also run coturn separately and fill in the
 self-hosted TURN domain and secret. See [TURN relay](/self-hosting/turn-relay).
 
+## Request links
+
+[Request links](/desktop/request-links) stay off until a policy file turns them on. In the Floe-Server
+template, add a **Path** that maps a folder on the array, such as `/mnt/user/appdata/floe/policy`, to
+`/app/policy` in read-only mode. Put a file named `policy.json` in that folder containing
+`{"requestLinks": true}`, then set the advanced **Request Link Policy File** variable to
+`/app/policy/policy.json`. Map the folder, not the file. A server installed from an older template has no such
+variable: add a Variable with the key `POLICY_FILE` instead. To turn request links off again, and for what the
+server logs, see [Request links](/self-hosting/operations#request-links).
+
 ## Container updates
 
 Both templates follow the `latest` image tag, which changes only when Floe
