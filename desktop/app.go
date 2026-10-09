@@ -6,13 +6,15 @@ import (
 	goruntime "runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/jannskiee/floe/cli/engine/transfer"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const desktopUpdateHint = "Update Floe from the Microsoft Store or floe.one/download."
+const desktopUpdateHint = "Update Floe from the Microsoft Store or floe.one/download"
 
 // filterFileArgs keeps only arguments that point at an existing file or
 // directory, dropping flags, empty strings, and stale paths.
@@ -80,13 +82,30 @@ type App struct {
 	// from the transfer goroutine, so it is guarded by mu like everything else here.
 	cfg appConfig
 
-	// notifyFn is the test seam for OS notifications; nil means the real Wails
-	// runtime notification (see notify).
+	// notifyFn is the test seam for OS notifications; nil means the real
+	// delivery: pushFn, or pushToast when that is nil too (see notify).
 	notifyFn func(title, body string)
+
+	// pushFn is the second test seam: delivery with the sound flag, reached
+	// when notifyFn is nil. nil means pushToast.
+	pushFn func(title, body string, silent bool)
 
 	// quitFn is the test seam for quitting; nil means runtime.Quit, which
 	// log.Fatals on the nil context a bare test App carries.
 	quitFn func()
+
+	// shuttingDown is set first thing in shutdown; quitRetryArmed keeps the
+	// quit retry (closequit.go) to one loop at a time; quitRetryWait is its
+	// test seam for the first wait, zero meaning quitRetryFirst.
+	shuttingDown   atomic.Bool
+	quitRetryArmed atomic.Bool
+	quitRetryWait  time.Duration
+
+	// req is the Request link lane (requestlink.go): its own mutex,
+	// generation and handles, never the transfer slot above. Created by
+	// NewApp; lane() creates it on first use for a bare test App.
+	req     *requestLane
+	reqOnce sync.Once
 }
 
 // NewApp creates a new App application struct
@@ -94,7 +113,9 @@ func NewApp() *App {
 	// Loaded here rather than in startup: startup runs on a goroutine after the
 	// window exists, which would leave a window where a transfer could begin
 	// against the wrong server. Failures fall back to the Floe defaults.
-	return &App{wake: newWakeGuard(), cfg: loadConfig()}
+	a := &App{wake: newWakeGuard(), cfg: loadConfig()}
+	a.req = newRequestLane(a)
+	return a
 }
 
 // startup is called when the app starts. The context is saved so we can call the
@@ -106,6 +127,10 @@ func (a *App) startup(ctx context.Context) {
 	a.mu.Lock()
 	a.ctx = ctx
 	a.mu.Unlock()
+	// Name the toast sender "Floe" before Wails registers it: Wails and
+	// go-toast fill the name in only while it is empty, and what Windows would
+	// list otherwise is the exe's file name (S-14).
+	setToastDisplayName()
 	// Best-effort: register the app for OS notifications (sets up the toast
 	// AppUserModelID on Windows). Errors are non-fatal.
 	_ = runtime.InitializeNotifications(ctx)
@@ -139,9 +164,15 @@ func (a *App) startup(ctx context.Context) {
 // its .part staging file open; its deferred cleanup will not get to run before
 // the process ends, so tidy the staging file here. Safe at any moment: only
 // .part files are registered, and a completed file's commit rename vacated
-// that path, so nothing that finished can be touched.
+// that path, so nothing that finished can be touched. Bounded, so a Close
+// that parks cannot keep the app from quitting: past 5 s the .part stays,
+// which never looks like a finished file.
 func (a *App) shutdown(ctx context.Context) {
-	transfer.AbandonPartials()
+	a.shuttingDown.Store(true) // ends the quit retry (closequit.go)
+	transfer.AbandonPartialsWithin(5 * time.Second)
+	// A quit that did not come through ConfirmClose (no link was live when it
+	// started) still ends the lane; idempotent after ConfirmClose.
+	a.lane().closeForQuit()
 }
 
 // onSecondInstanceLaunch fires when Floe is launched again while already running.
@@ -219,15 +250,40 @@ func (a *App) PasteFiles() []string {
 	return nil
 }
 
-// notify sends a best-effort OS notification. Failures are ignored so a transfer
-// outcome never depends on the notification succeeding. notifyFn is the test
-// seam: nil means the real Wails runtime notification.
+// floeInFrontFn is the foreground rule's seam: whether Floe is the window in
+// front on a PC that is in use (attention_windows.go; always false elsewhere).
+// It lives here, in an untagged file, so notify compiles on every platform.
+// testmain_test.go pins it false so no test depends on the machine it runs on.
+var floeInFrontFn = floeInFront
+
+// notify is the one gate every OS toast passes (S-11, S-12). It sends a
+// best-effort notification: failures are ignored so a transfer outcome never
+// depends on the notification succeeding. Nothing is sent when Show
+// notifications is off, or while Floe is the window in front on a PC in use
+// (the screen already shows the prompt or the result). The flash, the title
+// and the in-app notice are not here and never turn off.
+//
+// The preferences are read now, under mu, and mu is released before delivery:
+// delivery only queues the toast (Windows) or calls the Wails runtime, and no
+// caller of notify holds mu or the lane's lock. notifyFn and pushFn are the
+// test seams; with neither set the toast goes to pushToast, with the sound
+// preference as its silent flag.
 func (a *App) notify(title, body string) {
+	a.mu.Lock()
+	off, silent, ctx := a.cfg.NoToasts, a.cfg.SilentToasts, a.ctx
+	a.mu.Unlock()
+	if off || floeInFrontFn() {
+		return
+	}
 	if a.notifyFn != nil {
 		a.notifyFn(title, body)
 		return
 	}
-	_ = runtime.SendNotification(a.ctx, runtime.NotificationOptions{Title: title, Body: body})
+	if a.pushFn != nil {
+		a.pushFn(title, body, silent)
+		return
+	}
+	pushToast(ctx, title, body, silent)
 }
 
 // notifyTransferFailed sends the failure toast unless the transfer was
@@ -239,7 +295,7 @@ func (a *App) notifyTransferFailed(g uint64, title string) {
 	if !a.transferActive(g) {
 		return
 	}
-	a.notify(title, "The transfer did not complete. Open Floe to see what happened.")
+	a.notify(title, "The transfer didn't finish")
 }
 
 // EngineProtocolVersion returns the wire protocol version of the embedded engine.

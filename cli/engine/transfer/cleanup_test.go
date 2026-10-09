@@ -7,11 +7,15 @@
 package transfer
 
 import (
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/pion/webrtc/v4"
 )
 
 // TestReceiverStallMidFileRemovesPartial: the mid-file stall watchdog fires
@@ -363,6 +367,138 @@ func TestReceiverDecollidedPartialRemoved(t *testing.T) {
 	}
 	if left := listDir(t, outDir); len(left) != 1 || left[0] != "dup.bin" {
 		t.Fatalf(`expected only the completed dup.bin ("dup (1).bin" removed), found %v`, left)
+	}
+}
+
+// TestReceiverAbandonDuringEndKeepsTodaysBehavior pins the other half of the
+// end arm's Sync/Close split. An abandon (the CLI's Ctrl+C handler, the
+// desktop's shutdown hook) closes a finished file's handle before its end
+// marker is handled, and a newer receive re-claims the path the abandon freed.
+// The end arm must still read that as an abandon: no removal, no refusal to
+// the peer, and above all no touching the newer claim, which is exactly what
+// treating the abandon's os.ErrClosed like a real write failure would delete.
+//
+// Deterministic rather than a race loop in the TestCommitAbandonTorture style:
+// the abandon lands at the one instant that matters, after the last byte is
+// written and before "end". Earlier it makes the next Write fail instead, and
+// later (after the unregister) it cannot reach the handle at all.
+func TestReceiverAbandonDuringEndKeepsTodaysBehavior(t *testing.T) {
+	sender, recvCh, msgs, closed, closeFn := newPumpedPair(t)
+	defer closeFn()
+
+	var rdc *webrtc.DataChannel
+	select {
+	case rdc = <-recvCh:
+	case <-time.After(20 * time.Second):
+		t.Fatal("receiver data channel never opened")
+	}
+
+	back := make(chan webrtc.DataChannelMessage, 8)
+	sender.OnMessage(func(m webrtc.DataChannelMessage) {
+		select {
+		case back <- m:
+		default:
+		}
+	})
+
+	outDir := t.TempDir()
+	payload := []byte("FIRST!")
+	written := make(chan struct{}, 1)
+	recvErr := make(chan error, 1)
+	go func() {
+		recvErr <- ReceiveFilesWithOptions(rdc, outDir, true, "", "", ReceiveOptions{
+			Messages: msgs,
+			Closed:   closed,
+			// Runs right after each Write returns, on the receive goroutine.
+			OnProgress: func(p Progress) {
+				if p.FileBytes >= int64(len(payload)) {
+					select {
+					case written <- struct{}{}:
+					default:
+					}
+				}
+			},
+		})
+	}()
+
+	meta := `{"type":"metadata","id":"ab-1","fileName":"race.bin","fileSize":6,"index":1,"total":1,"totalBytes":6,"pv":1,"pvMin":1}`
+	if err := sender.SendText(meta); err != nil {
+		t.Fatalf("SendText metadata: %v", err)
+	}
+	select {
+	case <-back:
+	case <-time.After(20 * time.Second):
+		t.Fatal("receiver never acked")
+	}
+	if err := sender.Send(payload); err != nil {
+		t.Fatalf("Send chunk: %v", err)
+	}
+	select {
+	case <-written:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the chunk was never written")
+	}
+
+	// The abandon closes the registered handle and removes its .part.
+	AbandonPartials()
+
+	// A newer receive claims the freed path, and it must be the SAME path, or
+	// this test proves nothing about theft.
+	base := filepath.Join(outDir, "race.bin")
+	newer, dest, err := claimPart(base, nil)
+	if err != nil {
+		t.Fatalf("re-claim after the abandon: %v", err)
+	}
+	partPath := base + partSuffix
+	if newer.Name() != partPath {
+		newer.Close()
+		t.Fatalf("re-claim landed at %s, want the freed %s", newer.Name(), partPath)
+	}
+	if _, err := newer.Write([]byte("SECOND")); err != nil {
+		t.Fatalf("write the newer claim: %v", err)
+	}
+	if err := newer.Close(); err != nil {
+		t.Fatalf("close the newer claim: %v", err)
+	}
+
+	// Only now does the stale transfer's end marker arrive.
+	if err := sender.SendText(`{"type":"end"}`); err != nil {
+		t.Fatalf("SendText end: %v", err)
+	}
+
+	// Errorf, not Fatalf, from here on: when this breaks, the disk checks
+	// below say what the wrong branch did, which the error alone does not.
+	select {
+	case err := <-recvErr:
+		if err == nil || !strings.Contains(err.Error(), "transfer abandoned while completing") {
+			t.Errorf("expected today's abandon error, got: %v", err)
+		}
+		var refused *RefusedError
+		if errors.As(err, &refused) {
+			t.Errorf("an abandon was reported as a refusal: %v", err)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("ReceiveFiles did not return")
+	}
+
+	if got, err := os.ReadFile(partPath); err != nil {
+		t.Errorf("the newer claim was removed by the abandoned transfer: %v", err)
+	} else if string(got) != "SECOND" {
+		t.Errorf("the newer claim holds %q, want %q", got, "SECOND")
+	}
+	if _, err := os.Lstat(dest); !os.IsNotExist(err) {
+		t.Errorf("the abandoned transfer committed a final name: %v", err)
+	}
+
+	// No refusal crossed the wire: an abandon reaches the peer as the close,
+	// exactly as before.
+	select {
+	case m := <-back:
+		var frame map[string]interface{}
+		if json.Unmarshal(m.Data, &frame) == nil && frame["type"] == "incompatible" {
+			t.Errorf("an abandon sent a refusal: %s", m.Data)
+		}
+	case <-time.After(500 * time.Millisecond):
 	}
 }
 

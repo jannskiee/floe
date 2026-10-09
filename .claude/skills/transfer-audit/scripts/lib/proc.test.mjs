@@ -370,6 +370,12 @@ test('classifyExit: the exit map and every stderr class', () => {
         'code-unreachable':
             'Error: could not resolve "a-b-c": could not reach signaling server: Get "http://127.0.0.1:9/api/code/a-b-c": dial tcp: refused\n',
         'peer-left-early': 'Error: peer disconnected before connecting\n',
+        'setup-peer-left':
+            'Error: the other side left before the connection was established\n',
+        'setup-signaling-lost':
+            'Error: the connection to the server was lost before the peer connected\n',
+        'setup-closed':
+            'Error: closed before the connection was established\n',
     };
     for (const [name] of STDERR_CLASSES) {
         assert.ok(name in samples, `no sample for ${name}`);
@@ -390,6 +396,42 @@ test('classifyExit: the exit map and every stderr class', () => {
         'connect-timeout'
     );
     assert.equal(classifyExit(1, 'Error: something new').class, null);
+});
+
+test('classifyExit: the three setup stops the CLI prints instead of a connect timeout', () => {
+    // cli/cmd/floe/main.go setupFailureLine prints the sentinel's own
+    // sentence (cli/engine/peer/setuperror.go) with no "WebRTC setup
+    // failed: " prefix, so none of these may fall into connect-timeout.
+    const lines = {
+        'setup-peer-left':
+            'Error: the other side left before the connection was established\n',
+        'setup-signaling-lost':
+            'Error: the connection to the server was lost before the peer connected\n',
+        'setup-closed':
+            'Error: closed before the connection was established\n',
+    };
+    for (const [name, line] of Object.entries(lines)) {
+        const c = classifyExit(1, line);
+        assert.equal(c.class, name, line);
+        assert.equal(c.kind, 'error');
+    }
+    // A present peer that cannot connect keeps its old text byte for byte.
+    assert.equal(
+        classifyExit(
+            1,
+            'Error: WebRTC setup failed: timed out establishing a connection\n'
+        ).class,
+        'connect-timeout'
+    );
+    // "connection closed before any file arrived" is a refusal, not a
+    // setup stop.
+    assert.equal(
+        classifyExit(
+            1,
+            'Error: connection closed before any file arrived (the sender canceled, or the transfer was blocked)\n'
+        ).class,
+        'peer-refused'
+    );
 });
 
 test('imageOf names what tasklist will report', () => {

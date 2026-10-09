@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":9,\"pvMin\":9,\"code\":\"declined\"}")

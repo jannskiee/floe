@@ -1,4 +1,5 @@
 import {describe, expect, it} from 'vitest';
+import * as settings from './settings';
 import {advancedSummary, hostOf, webPlaceholder} from './settings';
 
 describe('hostOf', () => {
@@ -23,14 +24,14 @@ describe('hostOf', () => {
 describe('advancedSummary', () => {
     it('offers the capability when nothing is overridden', () => {
         const s = advancedSummary('', '');
-        expect(s).toBe("This app uses Floe's server. You can point it at your own instead.");
+        expect(s).toBe("Uses Floe's server unless you set your own");
         expect(s).not.toMatch(/custom/i);
     });
 
     it('names the host and the consequence when a server is set', () => {
         const s = advancedSummary('https://files.example.com', '');
         expect(s).toContain('files.example.com');
-        expect(s).toContain('cannot connect to you');
+        expect(s).toContain("can't reach you");
     });
 
     // The branch that matters. Overriding only the share link address leaves the
@@ -41,8 +42,8 @@ describe('advancedSummary', () => {
     it('does not claim peers are unreachable when only the share link is custom', () => {
         const s = advancedSummary('', 'https://app.example.com');
         expect(s).toContain('app.example.com');
-        expect(s).toContain("still uses Floe's server");
-        expect(s).not.toContain('cannot connect to you');
+        expect(s).toContain("transfers use Floe's server");
+        expect(s).not.toContain("can't reach you");
     });
 
     // A server override outranks a share-link override: the server is what
@@ -94,5 +95,25 @@ describe('webPlaceholder', () => {
     it('shows the production link while the server field is blank', () => {
         expect(webPlaceholder('')).toBe('https://floe.one');
         expect(webPlaceholder('   ')).toBe('https://floe.one');
+    });
+});
+
+// The Notifications rows (D-162). approvedCopy.test.ts ties these to the copy
+// table when it runs; this pins the same words wherever it is skipped.
+describe('notification settings copy', () => {
+    it('is the approved words', () => {
+        expect(settings.NOTIFICATIONS_HEADING).toBe('Notifications');
+        expect(settings.SHOW_NOTIFICATIONS).toBe('Show notifications');
+        expect(settings.SHOW_NOTIFICATIONS_ON).toBe('For requests and transfers while Floe is in the background');
+        expect(settings.SHOW_NOTIFICATIONS_OFF).toBe('Requests still flash Floe on the taskbar');
+        expect(settings.PLAY_SOUND).toBe('Play sound');
+        expect(settings.WINDOWS_NOTIFICATIONS).toBe('Windows notification settings');
+        expect(settings.WINDOWS_NOTIFICATIONS_DESCRIPTION).toBe('Banners, Notification Center and lock screen');
+        expect(settings.OPEN_NOTIFICATION_SETTINGS).toBe('Open');
+        expect(settings.OPEN_NOTIFICATION_SETTINGS_LABEL).toBe('Open Windows notification settings');
+    });
+
+    it('opens Windows notification settings by its settings URI', () => {
+        expect(settings.NOTIFICATION_SETTINGS_URI).toBe('ms-settings:notifications');
     });
 });

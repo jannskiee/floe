@@ -114,6 +114,39 @@
     }
 }
 
+/* Bigger tap areas on touch screens, drawn as nothing (the /r request page; the
+   owner chose "Invisible tap areas" on 2026-10-08). Every /r control was under
+   the 44 px platform guideline on a phone (buttons 32 and 36 px tall, text
+   links 16 to 20 px); WCAG 2.5.8 AA already passed through spacing. An empty
+   ::after extends the element's own hit area above and below it, so a tap
+   there lands on the element itself, its layout and focus ring stay exactly as
+   drawn, and a mouse or trackpad gets nothing. touch-button suits a 32 or 36
+   px button (44 to 48 px to the finger), touch-text a 16 to 20 px link or
+   label (40 to 44 px). */
+@utility touch-button {
+    position: relative;
+    @media (pointer: coarse) {
+        &::after {
+            content: '';
+            position: absolute;
+            inset-inline: 0;
+            inset-block: -0.375rem;
+        }
+    }
+}
+
+@utility touch-text {
+    position: relative;
+    @media (pointer: coarse) {
+        &::after {
+            content: '';
+            position: absolute;
+            inset-inline: 0;
+            inset-block: -0.75rem;
+        }
+    }
+}
+
 /* Terminal cursor blink for the CLI demo (paired with --animate-blink in @theme) */
 @keyframes blink {
     50% {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jannskiee/floe/cli/engine/signaling"
@@ -22,6 +23,10 @@ const (
 	connectTimeout    = 30 * time.Second // waiting for ICE/DTLS + the data channel to open
 	connectGrace      = 10 * time.Second // extra grace for the data channel after "connected"
 )
+
+// signalWait is the offer and answer wait the two Setup calls use:
+// signalWaitTimeout, as a variable only so a test can shrink it.
+var signalWait = signalWaitTimeout
 
 // signalPayload is the JSON structure for WebRTC signals sent over the
 // signaling channel. It can be either an SDP (offer/answer) or an ICE candidate.
@@ -44,10 +49,14 @@ type Connection struct {
 	answers    chan webrtc.SessionDescription
 	candidates chan webrtc.ICECandidateInit
 
-	// ICE candidates received before the remote description was set are buffered
+	// ICE candidates received before the remote description was set are
+	// buffered, up to maxPendingCandidates. remoteCandidates counts every
+	// candidate taken, buffered, in the remote description or handed to pion,
+	// up to maxRemoteCandidates.
 	mu                sync.Mutex
 	remoteDescSet     bool
 	pendingCandidates []webrtc.ICECandidateInit
+	remoteCandidates  int
 
 	// connected is sent once when the PeerConnection reaches "connected" state
 	connected chan error
@@ -63,6 +72,11 @@ type Connection struct {
 	// the signaling client, whose Close shuts the socket without closing it.
 	closeOnce sync.Once
 	done      chan struct{}
+
+	// failed is closed exactly once, by noteFailed, when the peer connection
+	// reaches PeerConnectionStateFailed. See Failed.
+	failOnce sync.Once
+	failed   chan struct{}
 }
 
 // Early carries a data channel's incoming messages and its close signal.
@@ -97,7 +111,8 @@ type Early struct {
 
 // earlyBuffer matches the buffer the transfer layer used when it owned this
 // pump. It is backpressure, not a drop policy: a full buffer parks pion's read
-// loop until the transfer layer catches up.
+// loop until the transfer layer catches up. EarlyBufferBytes bounds the same
+// pump by bytes (framequeue.go).
 const earlyBuffer = 256
 
 // attach installs the ONLY OnMessage and OnClose handlers this data channel will
@@ -109,20 +124,28 @@ const earlyBuffer = 256
 // their own callbacks, because pion keeps one handler per event and a later
 // registration silently replaces this one, reopening the window it closes.
 func (conn *Connection) attach(dc *webrtc.DataChannel) {
-	msgs := make(chan webrtc.DataChannelMessage, earlyBuffer)
+	msgs := NewFrameQueue(earlyBuffer, EarlyBufferBytes, func(m webrtc.DataChannelMessage) int { return len(m.Data) })
 	closed := make(chan struct{})
 	var once sync.Once
 	dc.OnClose(func() { once.Do(func() { close(closed) }) })
-	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-		// Selecting on closed means this can never block forever, and never
-		// panics: nothing closes msgs.
+	// stop ends a wait for room at the channel's close or at this Connection's
+	// Close, whichever comes first. The channel's close alone never did: pion
+	// fires OnClose only once its read loop exits, and the read loop is the
+	// goroutine waiting here, so a pump left full by a reader that had gone (a
+	// receive that returned while the peer kept sending) parked the loop, and
+	// every frame queued behind it, for the life of the process (F2-01).
+	// Nothing closes msgs, so this never panics either.
+	stop := make(chan struct{})
+	go func() {
 		select {
-		case msgs <- msg:
 		case <-closed:
+		case <-conn.done:
 		}
-	})
+		close(stop)
+	}()
+	dc.OnMessage(func(msg webrtc.DataChannelMessage) { msgs.Send(msg, stop) })
 	conn.mu.Lock()
-	conn.early = &Early{Msgs: msgs, Closed: closed}
+	conn.early = &Early{Msgs: msgs.C(), Closed: closed}
 	conn.mu.Unlock()
 }
 
@@ -205,6 +228,7 @@ func New(iceServers []webrtc.ICEServer, sc *signaling.Client, opts ...Option) (*
 		candidates: make(chan webrtc.ICECandidateInit, 64),
 		connected:  make(chan error, 1),
 		done:       make(chan struct{}),
+		failed:     make(chan struct{}),
 	}
 
 	// When pion discovers a local ICE candidate, forward it to the remote peer.
@@ -219,6 +243,7 @@ func New(iceServers []webrtc.ICEServer, sc *signaling.Client, opts ...Option) (*
 
 	// Track when the connection becomes live (or fails).
 	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
+		conn.noteFailed(s)
 		switch s {
 		case webrtc.PeerConnectionStateConnected:
 			select {
@@ -248,26 +273,44 @@ func New(iceServers []webrtc.ICEServer, sc *signaling.Client, opts ...Option) (*
 
 // SetupAsSender is called by `floe send`.
 // It creates a data channel, sends an SDP offer, waits for the answer,
-// and returns the open data channel ready for file transfer.
+// and returns the open data channel ready for file transfer. Every failure
+// is a *SetupError naming its stage, with the text each site always had.
 func (conn *Connection) SetupAsSender() (*webrtc.DataChannel, error) {
 	// The sender (initiator) creates the data channel BEFORE the offer.
 	// The data channel label "floe" identifies it to the remote peer.
 	dc, err := conn.pc.CreateDataChannel("floe", nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create data channel: %w", err)
+		return nil, &SetupError{Stage: StageChannel, Err: fmt.Errorf("failed to create data channel: %w", err)}
 	}
 	// Before the offer even leaves, so the receiver's first ack cannot land in a
 	// channel with no handler on it. See Early.
 	conn.attach(dc)
 
+	// No Floe answerer opens a data channel: the browser answers as
+	// simple-peer's non-initiator, which only listens for one, and the Go
+	// answerer is SetupAsReceiver, which creates none, in every release since
+	// v1.0.0. A channel the answerer opens anyway would meet pion's default
+	// handler, which closes it but keeps the closed object, label and all, for
+	// the connection's life, outside the pump's byte budget, once for every
+	// channel the peer chooses to open (F4-01). So the first one ends this
+	// connection: the caller sees setup fail, or its channel close through
+	// Early().Closed, as when a peer leaves. Registered before the offer
+	// leaves, so none can come first.
+	conn.pc.OnDataChannel(func(extra *webrtc.DataChannel) {
+		_ = extra.Close()
+		// On its own goroutine, never inside the callback: pion's accept loop
+		// waits for this handler to return, and Close tears that loop down.
+		go conn.Close()
+	})
+
 	// Create the SDP offer describing our capabilities
 	offer, err := conn.pc.CreateOffer(nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create offer: %w", err)
+		return nil, &SetupError{Stage: StageOffer, Err: fmt.Errorf("failed to create offer: %w", err)}
 	}
 
 	if err := conn.pc.SetLocalDescription(offer); err != nil {
-		return nil, fmt.Errorf("failed to set local description: %w", err)
+		return nil, &SetupError{Stage: StageOffer, Err: fmt.Errorf("failed to set local description: %w", err)}
 	}
 
 	// When the CLI is the sender, the browser reads its OWN answer SDP (not
@@ -275,7 +318,7 @@ func (conn *Connection) SetupAsSender() (*webrtc.DataChannel, error) {
 
 	// Send the offer to the receiver via the signaling server
 	if err := conn.sc.SendSignal(signalPayload{Type: "offer", SDP: offer.SDP}); err != nil {
-		return nil, fmt.Errorf("failed to send offer: %w", err)
+		return nil, &SetupError{Stage: StageOffer, Err: fmt.Errorf("failed to send offer: %w", err)}
 	}
 
 	// Wait for the receiver's SDP answer (bounded so a vanished peer fails fast).
@@ -283,11 +326,22 @@ func (conn *Connection) SetupAsSender() (*webrtc.DataChannel, error) {
 	select {
 	case a, ok := <-conn.answers:
 		if !ok {
-			return nil, fmt.Errorf("signaling closed before answer was received")
+			return nil, &SetupError{Stage: StageAnswer, Err: fmt.Errorf("signaling closed before answer was received")}
 		}
 		answer = a
-	case <-time.After(signalWaitTimeout):
-		return nil, fmt.Errorf("timed out waiting for the peer to answer")
+	// The peer leaving, the server going away and a local Close end every
+	// setup wait at once, instead of costing the full timeout and reading as
+	// a failure to connect. PeerLeft is read here and in the three waits
+	// below only: the join waits that also read it all finish before New.
+	case <-conn.sc.PeerLeft:
+		if conn.signalingLost() {
+			return nil, &SetupError{Stage: StageSignalingLost, Err: ErrSignalingLost}
+		}
+		return nil, &SetupError{Stage: StagePeerLeft, Err: ErrPeerLeft}
+	case <-conn.done:
+		return nil, &SetupError{Stage: StageClosed, Err: ErrClosed}
+	case <-time.After(signalWait):
+		return nil, &SetupError{Stage: StageAnswer, Err: fmt.Errorf("timed out waiting for the peer to answer")}
 	}
 
 	if err := conn.setRemoteDesc(answer); err != nil {
@@ -304,27 +358,60 @@ func (conn *Connection) SetupAsSender() (*webrtc.DataChannel, error) {
 		return dc, nil
 	case err := <-conn.connected:
 		if err != nil {
-			return nil, err
+			return nil, &SetupError{Stage: StageConnect, Err: err}
 		}
-		// Reached "connected"; give the data channel a brief grace to open.
+		// Reached "connected"; give the data channel a brief grace to open. A
+		// peer leaving or a local Close ends this wait too, as every other
+		// setup wait: a desktop cancel, or the close on an extra channel from
+		// the answerer, can land here (review A R2).
 		select {
 		case <-dcOpen:
 			return dc, nil
+		case <-conn.sc.PeerLeft:
+			if conn.signalingLost() {
+				return nil, &SetupError{Stage: StageSignalingLost, Err: ErrSignalingLost}
+			}
+			return nil, &SetupError{Stage: StagePeerLeft, Err: ErrPeerLeft}
+		case <-conn.done:
+			return nil, &SetupError{Stage: StageClosed, Err: ErrClosed}
 		case <-time.After(connectGrace):
-			return nil, fmt.Errorf("connected but the data channel did not open")
+			return nil, &SetupError{Stage: StageChannel, Err: fmt.Errorf("connected but the data channel did not open")}
 		}
+	case <-conn.sc.PeerLeft:
+		if conn.signalingLost() {
+			return nil, &SetupError{Stage: StageSignalingLost, Err: ErrSignalingLost}
+		}
+		return nil, &SetupError{Stage: StagePeerLeft, Err: ErrPeerLeft}
+	case <-conn.done:
+		return nil, &SetupError{Stage: StageClosed, Err: ErrClosed}
 	case <-time.After(connectTimeout):
-		return nil, fmt.Errorf("timed out establishing a connection")
+		return nil, &SetupError{Stage: StageConnect, Err: fmt.Errorf("timed out establishing a connection")}
 	}
 }
 
 // SetupAsReceiver is called by `floe receive`.
 // It waits for the sender's SDP offer, sends an answer,
-// and returns the open data channel ready for file transfer.
+// and returns the open data channel ready for file transfer. Every failure
+// is a *SetupError naming its stage, with the text each site always had.
 func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 	// The receiver waits for a data channel from the sender.
 	dcChan := make(chan *webrtc.DataChannel, 1)
+	// No Floe offerer opens more than one data channel: SetupAsSender creates
+	// only "floe", and the browser, as simple-peer's initiator, creates one in
+	// its constructor and none after; so does every release, each checked at
+	// its tag (review A R3). So the first remote channel is the transfer's, and
+	// a further one ends this connection, as SetupAsSender does for a channel
+	// the answerer opens: it gets no pump, Early keeps naming the first, and
+	// only the first OnOpen ever sends on dcChan, so none is left waiting there.
+	var taken atomic.Bool
 	conn.pc.OnDataChannel(func(dc *webrtc.DataChannel) {
+		if taken.Swap(true) {
+			_ = dc.Close()
+			// On its own goroutine, never inside the callback: pion's accept
+			// loop waits for this handler to return, and Close tears it down.
+			go conn.Close()
+			return
+		}
 		// attach FIRST, and in this callback rather than in OnOpen. pion runs
 		// OnDataChannel synchronously before it starts the channel's read loop,
 		// and it has already ACKed the channel by this point, so the sender may
@@ -342,25 +429,33 @@ func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 	select {
 	case o, ok := <-conn.offers:
 		if !ok {
-			return nil, fmt.Errorf("signaling closed before offer was received")
+			return nil, &SetupError{Stage: StageOffer, Err: fmt.Errorf("signaling closed before offer was received")}
 		}
 		offer = o
-	case <-time.After(signalWaitTimeout):
-		return nil, fmt.Errorf("timed out waiting for the peer's offer")
+	case <-conn.sc.PeerLeft:
+		if conn.signalingLost() {
+			return nil, &SetupError{Stage: StageSignalingLost, Err: ErrSignalingLost}
+		}
+		return nil, &SetupError{Stage: StagePeerLeft, Err: ErrPeerLeft}
+	case <-conn.done:
+		return nil, &SetupError{Stage: StageClosed, Err: ErrClosed}
+	case <-time.After(signalWait):
+		return nil, &SetupError{Stage: StageOffer, Err: fmt.Errorf("timed out waiting for the peer's offer")}
 	}
 
 	if err := conn.setRemoteDesc(offer); err != nil {
 		return nil, err
 	}
 
-	// Create our SDP answer
+	// Create our SDP answer. pion builds it from the remote description, so
+	// its error can quote the peer's SDP as the remote-description one can.
 	answer, err := conn.pc.CreateAnswer(nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create answer: %w", err)
+		return nil, &SetupError{Stage: StageAnswer, Err: fmt.Errorf("failed to create answer: %w", err)}
 	}
 
 	if err := conn.pc.SetLocalDescription(answer); err != nil {
-		return nil, fmt.Errorf("failed to set local description: %w", err)
+		return nil, &SetupError{Stage: StageAnswer, Err: fmt.Errorf("failed to set local description: %w", err)}
 	}
 
 	// The answer goes out with a=max-message-size pinned to 1 GB. Chrome caps
@@ -373,7 +468,7 @@ func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 
 	// Send the answer to the sender
 	if err := conn.sc.SendSignal(signalPayload{Type: "answer", SDP: patchedSDP}); err != nil {
-		return nil, fmt.Errorf("failed to send answer: %w", err)
+		return nil, &SetupError{Stage: StageAnswer, Err: fmt.Errorf("failed to send answer: %w", err)}
 	}
 
 	// Wait for the data channel to arrive from the sender. Fail fast if the
@@ -383,16 +478,64 @@ func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 		return dc, nil
 	case err := <-conn.connected:
 		if err != nil {
-			return nil, err
+			return nil, &SetupError{Stage: StageConnect, Err: err}
 		}
+		// The grace wait ends on a peer leaving or a local Close too (review
+		// A R2), as in SetupAsSender.
 		select {
 		case dc := <-dcChan:
 			return dc, nil
+		case <-conn.sc.PeerLeft:
+			if conn.signalingLost() {
+				return nil, &SetupError{Stage: StageSignalingLost, Err: ErrSignalingLost}
+			}
+			return nil, &SetupError{Stage: StagePeerLeft, Err: ErrPeerLeft}
+		case <-conn.done:
+			return nil, &SetupError{Stage: StageClosed, Err: ErrClosed}
 		case <-time.After(connectGrace):
-			return nil, fmt.Errorf("connected but the data channel did not open")
+			return nil, &SetupError{Stage: StageChannel, Err: fmt.Errorf("connected but the data channel did not open")}
 		}
+	case <-conn.sc.PeerLeft:
+		if conn.signalingLost() {
+			return nil, &SetupError{Stage: StageSignalingLost, Err: ErrSignalingLost}
+		}
+		return nil, &SetupError{Stage: StagePeerLeft, Err: ErrPeerLeft}
+	case <-conn.done:
+		return nil, &SetupError{Stage: StageClosed, Err: ErrClosed}
 	case <-time.After(connectTimeout):
-		return nil, fmt.Errorf("timed out establishing a connection")
+		return nil, &SetupError{Stage: StageConnect, Err: fmt.Errorf("timed out establishing a connection")}
+	}
+}
+
+// signalingLost tells a PeerLeft push that came from the socket closing from
+// one the server sent: the signaling client closes Down before it pushes
+// PeerLeft on the way out of its read loop, so a closed Down here means the
+// server is gone, not the peer. A client built without Connect has a nil
+// Down, which reads as open.
+func (conn *Connection) signalingLost() bool {
+	select {
+	case <-conn.sc.Down:
+		return true
+	default:
+		return false
+	}
+}
+
+// Failed is closed when the peer connection reaches the failed state: ICE (or
+// DTLS) has given up on the path for good. With pion's defaults that is about
+// 30 s after the last packet from the peer, 5 s to disconnected and 25 s more
+// to failed, and it is terminal, since Floe does no ICE restart. It is never
+// closed on disconnected, which ICE leaves again when the path comes back, so
+// a blackout shorter than that survives, and never by Close. A transfer wait
+// that has no deadline of its own can watch it to end when a peer vanished
+// without a close this side could hear.
+func (conn *Connection) Failed() <-chan struct{} { return conn.failed }
+
+// noteFailed closes failed, once, when s is PeerConnectionStateFailed. It is
+// the part of the state handler a test can drive without waiting out ICE.
+func (conn *Connection) noteFailed(s webrtc.PeerConnectionState) {
+	if s == webrtc.PeerConnectionStateFailed {
+		conn.failOnce.Do(func() { close(conn.failed) })
 	}
 }
 
@@ -458,9 +601,23 @@ func (conn *Connection) ConnectionType() (string, error) {
 }
 
 // setRemoteDesc sets the remote SDP and flushes any buffered ICE candidates.
+// The one setup error whose text carries the peer's bytes is built here,
+// once, so the stage cannot drift between its two callers: pion quotes the
+// offending SDP token, and SetupError.Error() is what makes that showable.
 func (conn *Connection) setRemoteDesc(desc webrtc.SessionDescription) error {
+	// pion adds every a=candidate line of a remote description itself, inside
+	// SetRemoteDescription, where addRemoteCandidate never sees it. So the
+	// lines take their share of the same budget first, after the buffered
+	// candidates and before any trickled later, and past maxCandidateBytes or
+	// the budget a line is dropped like a trickled candidate (F2-CPQA-01).
+	conn.mu.Lock()
+	var kept int
+	desc.SDP, kept = filterSDPCandidates(desc.SDP, maxRemoteCandidates-conn.remoteCandidates)
+	conn.remoteCandidates += kept
+	conn.mu.Unlock()
+
 	if err := conn.pc.SetRemoteDescription(desc); err != nil {
-		return fmt.Errorf("failed to set remote description: %w", err)
+		return &SetupError{Stage: StageRemoteDescription, Err: fmt.Errorf("failed to set remote description: %w", err)}
 	}
 
 	conn.mu.Lock()
@@ -469,23 +626,85 @@ func (conn *Connection) setRemoteDesc(desc webrtc.SessionDescription) error {
 	conn.pendingCandidates = nil
 	conn.mu.Unlock()
 
+	// Already counted toward maxRemoteCandidates when they were buffered.
 	for _, c := range pending {
 		conn.pc.AddICECandidate(c)
 	}
 	return nil
 }
 
-// addRemoteCandidate adds a remote ICE candidate, or buffers it if the remote
-// description has not been set yet.
+// The bounds on the remote candidates a peer can hand this side. The peer
+// chooses how many it sends and how large each is: the server caps one frame
+// at 1 MB, not how many, and a request link's peer is anyone holding the link.
+// Unbounded, every candidate taken reaches pion, which keeps it with its
+// peer-chosen strings for the connection's life, pairs it with each local
+// candidate, starts a goroutine to add it, resolves a .local name with an mDNS
+// query on this side's network, and checks the new pairs until one is
+// selected; before the remote description the buffer also grows for as long
+// as the host waits for the answer (F2-CPQA-01).
+//
+// maxRemoteCandidates bounds the candidates taken over the connection's life:
+// those buffered, the a=candidate lines of the remote description (see
+// setRemoteDesc) and those handed to pion later, together. A real peer sends
+// one per local address and ICE server: with the one STUN and two TURN URLs
+// Floe serves, a browser on a machine of ten adapters, each with IPv4 and
+// three IPv6 addresses, sends about 110 and a Go peer fewer, while most
+// machines send 5 to 20. 256 is more than twice the largest. Floe's peers
+// trickle and put none in their descriptions; a peer that writes them there
+// instead spends the same budget (pion writes each of its own twice, one line
+// per component, which still fits).
+//
+// maxPendingCandidates bounds the ones that wait for the remote description.
+// Only those that race the peer's answer, or this side's reading of its
+// offer, land there: under 20 in practice.
+//
+// maxCandidateBytes bounds one candidate's three strings. A real candidate is
+// under 1 KiB even with a 256-character ufrag, and it holds the buffer to
+// 64 KiB. Past any bound a candidate is dropped with no error: ICE keeps every
+// candidate already taken, and the peer's checks that reach this side are
+// still learned as peer-reflexive candidates.
+const (
+	maxRemoteCandidates  = 256
+	maxPendingCandidates = 64
+	maxCandidateBytes    = 1 << 10
+)
+
+// candidateBytes is one candidate's size for maxCandidateBytes: its three
+// strings, every one of them the peer's choice.
+func candidateBytes(c webrtc.ICECandidateInit) int {
+	n := len(c.Candidate)
+	if c.SDPMid != nil {
+		n += len(*c.SDPMid)
+	}
+	if c.UsernameFragment != nil {
+		n += len(*c.UsernameFragment)
+	}
+	return n
+}
+
+// addRemoteCandidate hands a remote ICE candidate to pion, or buffers it if the
+// remote description has not been set yet, within maxCandidateBytes,
+// maxRemoteCandidates and maxPendingCandidates; past any of them it drops the
+// candidate without an error.
 func (conn *Connection) addRemoteCandidate(c webrtc.ICECandidateInit) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
+	if candidateBytes(c) > maxCandidateBytes {
+		return
+	}
+	if conn.remoteCandidates >= maxRemoteCandidates {
+		return
+	}
 	if conn.remoteDescSet {
 		conn.pc.AddICECandidate(c)
 	} else {
+		if len(conn.pendingCandidates) >= maxPendingCandidates {
+			return
+		}
 		conn.pendingCandidates = append(conn.pendingCandidates, c)
 	}
+	conn.remoteCandidates++
 }
 
 // dispatchSignals runs in a goroutine. It reads raw JSON from the signaling

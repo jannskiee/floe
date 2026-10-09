@@ -26,6 +26,10 @@ import { after, test } from 'node:test';
 import { sleep } from './surfaces.mjs';
 import {
     AUDIT_INIT,
+    HASH_REFUSAL_AFTER_SENT_MS,
+    HASH_REFUSAL_HOLD_MS,
+    HASH_REFUSAL_SENTENCE,
+    HASH_WIRE_REASONS,
     PlaywrightMissingError,
     REPORT_STATS_KEY,
     SAMPLE,
@@ -36,6 +40,8 @@ import {
     candidateCensus,
     checkRelayPolicy,
     classifySample,
+    corruptEndFrame,
+    installHashbad,
     closeBrowser,
     createLeg,
     guardStats,
@@ -324,10 +330,20 @@ test('AUDIT_INIT tracks every data channel and SAMPLE carries the counter', () =
     const script = AUDIT_INIT({});
     assert.ok(script.includes("addEventListener('datachannel'"));
     assert.ok(script.includes('createDataChannel(...args)'));
-    assert.ok(script.includes('dcBytes: { in: 0, out: 0, messages: 0 }'));
+    assert.ok(script.includes('dcBytes: { in: 0, out: 0, messages: 0, binIn: 0, binOut: 0 }'));
+    assert.ok(script.includes("if (typeof e.data !== 'string') audit.dcBytes.binIn += size(e.data)"));
     assert.ok(script.includes('audit.dcBytes.in += size(e.data)'));
     assert.doesNotThrow(() => new Function(script));
     assert.ok(String(SAMPLE).includes('dcBytes'));
+});
+
+test('bytesMovedFrom counts only binary frames, so a text refusal reason is not file data', () => {
+    // The relay-cap refusal of 2026-09-17: one 143 B TEXT incompatible frame
+    // arrived and no binary frame did. That is a correct refusal.
+    assert.equal(bytesMovedFrom([sample([], { dcBytes: { in: 143, out: 0, messages: 1, binIn: 0, binOut: 0 } })]), 0);
+    // A chunk that did cross is counted, in either direction.
+    assert.equal(bytesMovedFrom([sample([], { dcBytes: { in: 4239, out: 20, messages: 3, binIn: 4096, binOut: 0 } })]), 4096);
+    assert.equal(bytesMovedFrom([sample([], { dcBytes: { in: 0, out: 64, messages: 1, binIn: 0, binOut: 64 } })]), 64);
 });
 
 test('bytesMovedFrom counts data-channel bytes, pairBytesFrom keeps the pair counters for the record', () => {
@@ -682,5 +698,291 @@ test('candidateCensus is the sorted union over samples; evidence carries it with
     assert.ok(
         !JSON.stringify(ev).includes('credential'),
         'no credential-shaped key in the evidence'
+    );
+});
+
+test('hashbad rewrite changes exactly one hex digit of an end frame and nothing else', () => {
+    const digest = 'a'.repeat(64);
+    const frame = `{"type":"end","sha256":"${digest}"}`;
+    const out = corruptEndFrame(frame);
+    assert.equal(out.length, frame.length, 'the frame keeps its length');
+    assert.notEqual(out, frame, 'the frame changed');
+    const changed = [...frame].filter((c, i) => c !== out[i]);
+    assert.equal(changed.length, 1, 'exactly one character changed');
+    const outDigest = JSON.parse(out).sha256;
+    assert.match(outDigest, /^[0-9a-f]{64}$/, 'still 64 lowercase hex characters');
+    assert.equal(outDigest.slice(1), digest.slice(1), 'only the first digit moved');
+    assert.equal(JSON.parse(out).type, 'end', 'still an end frame');
+
+    // Everything else is passed through untouched, including a chunk.
+    for (const other of [
+        '{"type":"end"}',
+        '{"type":"metadata","id":"x"}',
+        '{"type":"end","sha256":"ZZ"}',
+        '',
+    ]) {
+        assert.equal(corruptEndFrame(other), other, `untouched: ${other}`);
+    }
+    const chunk = new Uint8Array([1, 2, 3]);
+    assert.equal(corruptEndFrame(chunk), chunk, 'a chunk is returned as it came');
+});
+
+test('the hash refusal strings the web leg waits for are the products own words', () => {
+    // Quoted rather than imported, so a copy change must break this test before
+    // it silently turns a forced-mismatch cell into a done timeout (P0-27).
+    const repo = new URL('../../../../../', import.meta.url);
+    const read = (rel) => readFileSync(new URL(rel, repo), 'utf8');
+    const receiverTs = read('client/lib/transfer/receiver.ts');
+    for (const s of TEXT.selfDiscardedHash)
+        assert.ok(receiverTs.includes(s), `receiver.ts no longer says: ${s}`);
+    // A sender page renders the WIRE reason, so each string must be what BOTH
+    // receivers put on the frame (review F2: an earlier pin read control.go's
+    // local sentences, which no sender page ever shows).
+    const receiverGo = read('cli/engine/transfer/receiver.go');
+    for (const s of HASH_WIRE_REASONS) {
+        assert.ok(receiverGo.includes(`"${s}"`), `receiver.go does not send: ${s}`);
+        assert.ok(receiverTs.includes(s), `receiver.ts does not send: ${s}`);
+        assert.ok(TEXT.peerRefusedHash.includes(s), `the leg stopped waiting for: ${s}`);
+    }
+    assert.match(
+        receiverTs,
+        /const HASH_MISMATCH_REASON = 'receiver discarded a file because its SHA-256 did not match';/
+    );
+    // The late refusal is the sender page's OWN sentence, not a wire reason,
+    // so it is pinned here byte for byte. The client commit of this card puts
+    // it in client/lib/senderStop.ts; the moment that file exists this test
+    // reads it from there too, the same way the wire reasons are read.
+    assert.equal(
+        HASH_REFUSAL_SENTENCE,
+        'The other side discarded a file that did not match what was sent. Try sending again.'
+    );
+    assert.ok(TEXT.peerRefusedHash.includes(HASH_REFUSAL_SENTENCE));
+    const senderStop = new URL('client/lib/senderStop.ts', repo);
+    if (existsSync(senderStop))
+        assert.ok(
+            readFileSync(senderStop, 'utf8').includes(HASH_REFUSAL_SENTENCE),
+            'senderStop.ts no longer prints the sentence the sender leg waits for'
+        );
+});
+
+test('a lying cell senders bound comes from the receivers own flush timeout', () => {
+    // The refusal frame goes out and is then flushed for up to
+    // controlFlushTimeout before the CLI receiver closes the channel, so the
+    // bound has to sit above it with room for a loaded machine. Read from the
+    // engine so a change there cannot quietly outlive the bound.
+    const controlGo = readFileSync(
+        new URL('../../../../../cli/engine/transfer/control.go', import.meta.url),
+        'utf8'
+    );
+    const m = controlGo.match(
+        /controlFlushTimeout = (\d+) \* time\.(Second|Millisecond)/
+    );
+    assert.ok(m, 'control.go no longer declares controlFlushTimeout');
+    const flushMs = Number(m[1]) * (m[2] === 'Second' ? 1000 : 1);
+    assert.equal(flushMs, 2000, 'the measured gap after All Files Sent! moved');
+    assert.equal(HASH_REFUSAL_AFTER_SENT_MS, 15_000);
+    assert.ok(
+        HASH_REFUSAL_AFTER_SENT_MS > flushMs * 2,
+        'the bound must outlast the receivers flush, not race it'
+    );
+    // The hold is the same clock read from the other end: the receiver closes
+    // and exits after that flush, and the exit is what drops the socket that
+    // fires peer-disconnected on the sender. Four times the flush, and inside
+    // the first bound so a lying cell never pays for two long waits.
+    assert.equal(HASH_REFUSAL_HOLD_MS, 8_000);
+    assert.ok(
+        HASH_REFUSAL_HOLD_MS > flushMs * 2,
+        'the hold must outlast the receivers flush and exit, not race them'
+    );
+    assert.ok(
+        HASH_REFUSAL_HOLD_MS < HASH_REFUSAL_AFTER_SENT_MS,
+        'the hold must not dominate the wait that precedes it'
+    );
+});
+
+/**
+ * A page driven by the predicates awaitDone runs. Each waitForFunction poll
+ * consumes the next frame and the last frame repeats, so a frame list is a
+ * timeline: ['sent', 'sent', 'sent + refusal'] is a page that shows the
+ * success line and then the refusal two polls later. The predicate reads
+ * document.body.innerText in the browser, so the fake installs a document
+ * while it runs and puts the old one back.
+ */
+function scriptedPage(frames) {
+    let poll = 0;
+    const timeouts = [];
+    return {
+        timeouts,
+        async waitForFunction(fn, arg, opts = {}) {
+            timeouts.push(opts.timeout);
+            const deadline = Date.now() + (opts.timeout ?? 1000);
+            const had = Object.getOwnPropertyDescriptor(globalThis, 'document');
+            try {
+                for (;;) {
+                    const text = frames[Math.min(poll, frames.length - 1)];
+                    poll += 1;
+                    globalThis.document = { body: { innerText: text } };
+                    const value = fn(arg);
+                    if (value) return { jsonValue: async () => value };
+                    if (Date.now() >= deadline)
+                        throw new Error(`Timeout ${opts.timeout}ms exceeded`);
+                    await sleep(10);
+                }
+            } finally {
+                if (had) Object.defineProperty(globalThis, 'document', had);
+                else delete globalThis.document;
+            }
+        },
+        evaluate: async () => null,
+    };
+}
+
+test("a lying cell's web sender is complete only once the refusal copy shows", async (t) => {
+    // F-SHA-4: a browser sender reached "All Files Sent!" and the CLI
+    // receiver's hash-mismatch refusal landed about two seconds later and was
+    // dropped, so the page went on claiming success. The old rule took
+    // allSent on its own, which is why every H-DIR-W2C-hashbad run passed
+    // while the page was lying.
+    const mk = (frames, opts = {}) => {
+        const leg = createLeg({
+            role: 'sender',
+            cellId: 'H-DIR-W2C-hashbad',
+            attempt: 1,
+            infra: { web: 'x' },
+            files: ['a'],
+            hashLie: 'corrupt',
+            // Past, so budget() clamps both waits to its 1 s floor: the bound
+            // itself is pinned by the test above.
+            deadlineAt: Date.now(),
+            ...opts,
+        });
+        leg.page = scriptedPage(frames);
+        return leg;
+    };
+
+    await t.test('the refusal that lands after allSent is the verdict', async () => {
+        const late = mk([
+            TEXT.allSent,
+            TEXT.allSent,
+            `${TEXT.allSent}\n${HASH_REFUSAL_SENTENCE}`,
+        ]);
+        const done = await late.awaitDone(1000);
+        assert.equal(done.kind, 'refusal');
+        assert.equal(done.ok, true);
+        assert.equal(
+            late.page.timeouts.length,
+            3,
+            'allSent opened the refusal wait and then the hold'
+        );
+        assert.ok(!late.notes.includes('hash-refusal-missing'));
+    });
+
+    await t.test('a page still claiming success when the bound runs out fails', async () => {
+        // It has to THROW, not report a failed completion: verifyAttempt reads
+        // a forced-mismatch cell's SENDER result only when the sender is the
+        // harness (cell.mjs), so a returned failure would leave this cell
+        // passing exactly as it did before.
+        const silent = mk([TEXT.allSent]);
+        await assert.rejects(silent.awaitDone(1000), (err) => {
+            assert.equal(err.name, 'PhaseError');
+            assert.equal(err.phase, 'done');
+            assert.equal(err.signatureKey, 'hash-refusal-missing');
+            assert.match(err.message, /still claims success/);
+            assert.ok(
+                !/no completion in/.test(err.message),
+                'the generic done wrapper must not swallow the wording'
+            );
+            return true;
+        });
+        assert.ok(
+            silent.notes.includes('hash-refusal-missing'),
+            'the evidence names why the cell failed'
+        );
+    });
+
+    await t.test('a wire reason mid-send is still one wait', async () => {
+        const early = mk([HASH_WIRE_REASONS[0]]);
+        const done = await early.awaitDone(1000);
+        assert.equal(done.kind, 'refusal');
+        assert.equal(early.page.timeouts.length, 1);
+    });
+
+    // The refusal showing is not the end of it. The CLI receiver exits about
+    // two seconds later and drops its signaling socket, and the sender's
+    // onPeerDisconnected used to rewrite the status with receiveOutcome(),
+    // which on a sender returns 'Transfer complete'. The banner stayed right,
+    // so the wait above passed while the page contradicted itself.
+    await t.test('a status that goes back to complete under the banner fails', async () => {
+        const flips = mk([
+            TEXT.allSent,
+            `${TEXT.allSent}\n${HASH_REFUSAL_SENTENCE}`,
+            `${TEXT.transferComplete}\n${HASH_REFUSAL_SENTENCE}`,
+        ]);
+        await assert.rejects(flips.awaitDone(1000), (err) => {
+            assert.equal(err.name, 'PhaseError');
+            assert.equal(err.phase, 'done');
+            assert.equal(err.signatureKey, 'hash-refusal-overwritten');
+            assert.match(err.message, /went back to/);
+            return true;
+        });
+        assert.ok(
+            flips.notes.includes('hash-refusal-overwritten'),
+            'the evidence names why the cell failed'
+        );
+        assert.ok(
+            !flips.notes.includes('hash-refusal-missing'),
+            'the refusal did show, so the earlier signature must not fire'
+        );
+    });
+
+    await t.test('a refusal that holds through the bound is the verdict', async () => {
+        const holds = mk([
+            TEXT.allSent,
+            `${TEXT.allSent}\n${HASH_REFUSAL_SENTENCE}`,
+            `${TEXT.allSent}\n${HASH_REFUSAL_SENTENCE}`,
+        ]);
+        const done = await holds.awaitDone(1000);
+        assert.equal(done.kind, 'refusal');
+        assert.equal(done.ok, true);
+        assert.equal(holds.page.timeouts.length, 3, 'the hold is its own wait');
+        assert.equal(holds.notes.length, 0);
+    });
+
+    // No other cell's verdict changed: a sender that does not lie is done at
+    // allSent, exactly as before, and never opens the second wait.
+    await t.test('a cell that does not lie is done at allSent', async () => {
+        const honest = mk([TEXT.allSent], { hashLie: null, cellId: 'H-DIR-W2C' });
+        const done = await honest.awaitDone(1000);
+        assert.equal(done.ok, true);
+        assert.equal(done.kind, 'transfer');
+        assert.equal(done.detail.outcome, 'sent');
+        assert.equal(honest.page.timeouts.length, 1, 'an ordinary cell waits once');
+    });
+});
+
+test('the hashbad rewrite matches the end frame the client really builds', () => {
+    // endMessage builds { type: 'end', sha256: digest } and JSON.stringify keeps
+    // that key order; if the order flips, corruptEndFrame becomes a
+    // pass-through and every hashbad cell reads as a false FAIL (review F10).
+    const protocolTs = readFileSync(
+        new URL('../../../../../client/lib/transfer/protocol.ts', import.meta.url),
+        'utf8'
+    );
+    assert.match(protocolTs, /\{ type: 'end', sha256: digest \}/);
+    const frame = JSON.stringify({ type: 'end', sha256: 'a'.repeat(64) });
+    assert.notEqual(corruptEndFrame(frame), frame, 'the rewrite applies to that shape');
+});
+
+test('installHashbad ships the same rewrite into the page', async () => {
+    let installed = null;
+    await installHashbad({ addInitScript: (arg) => { installed = arg; } });
+    assert.ok(installed && typeof installed.content === 'string', 'an init script with source');
+    assert.ok(
+        installed.content.includes('{"type":"end","sha256":"'),
+        'the page gets the same prefix this test pinned'
+    );
+    assert.ok(
+        installed.content.includes('RTCDataChannel.prototype.send'),
+        'it wraps the send the app uses'
     );
 });

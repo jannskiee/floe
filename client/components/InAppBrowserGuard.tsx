@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { ExternalLink, Copy, Check, SquareArrowOutUpRight } from 'lucide-react';
 import { copyText } from '@/lib/clipboard';
 import { detectInAppBrowser, isAndroid, type DetectedApp } from '@/lib/inAppBrowser';
@@ -19,6 +19,8 @@ export function InAppBrowserGuard({ children }: Props) {
     }>({ detectedApp: null, android: false, currentUrl: '', ready: false });
     const [dismissed, setDismissed] = useState(false);
     const [copied, setCopied] = useState(false);
+    const headingId = useId();
+    const heading = useRef<HTMLHeadingElement>(null);
 
     useEffect(() => {
         const ua = navigator.userAgent;
@@ -36,6 +38,12 @@ export function InAppBrowserGuard({ children }: Props) {
             }
         }
     }, []);
+
+    // An aria-modal dialog takes focus when it opens, or a screen reader starts
+    // on the withheld page behind it.
+    useEffect(() => {
+        if (detectedApp && !dismissed) heading.current?.focus();
+    }, [detectedApp, dismissed]);
 
     // This component only ever renders inside a Facebook, Instagram, TikTok
     // or WeChat webview, which is the environment most likely to block the
@@ -59,9 +67,18 @@ export function InAppBrowserGuard({ children }: Props) {
     return (
         <>
             {/* Full-screen overlay — children are intentionally NOT rendered
-                so P2PTransfer cannot join the room from the in-app browser */}
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/90 p-5 backdrop-blur-md">
-                <div className="w-full max-w-sm overflow-hidden rounded-2xl border border-white/[0.08] bg-zinc-900 shadow-[0_32px_64px_-12px_rgba(0,0,0,0.8)]">
+                so P2PTransfer cannot join the room from the in-app browser.
+                It scrolls, and the box centers with my-auto rather than the
+                overlay's align-items: centering by items-center pushed a box
+                taller than the window off both edges, out of reach, which
+                left Continue anyway unreachable on a phone held sideways. */}
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={headingId}
+                className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-zinc-950/90 p-5 backdrop-blur-md"
+            >
+                <div className="my-auto w-full max-w-sm overflow-hidden rounded-2xl border border-white/[0.08] bg-zinc-900 shadow-[0_32px_64px_-12px_rgba(0,0,0,0.8)]">
 
                     {/* Top accent strip */}
                     <div className="h-px w-full bg-gradient-to-r from-transparent via-white/20 to-transparent" />
@@ -77,7 +94,7 @@ export function InAppBrowserGuard({ children }: Props) {
                             </div>
 
                             <div className="space-y-1.5">
-                                <h2 className="text-xl font-bold tracking-tight text-white">
+                                <h2 ref={heading} id={headingId} tabIndex={-1} className="text-xl font-bold tracking-tight text-white outline-none">
                                     Open in your browser
                                 </h2>
                                 <p className="text-sm leading-relaxed text-zinc-400">
@@ -88,7 +105,7 @@ export function InAppBrowserGuard({ children }: Props) {
 
                         {/* Platform-specific instructions */}
                         <div className="mb-5 rounded-xl border border-white/[0.06] bg-white/[0.03] p-4">
-                            <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-zinc-500">
+                            <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-zinc-400">
                                 How to open in your browser
                             </p>
                             {android ? (
@@ -169,7 +186,7 @@ export function InAppBrowserGuard({ children }: Props) {
                         {/* Continue anyway */}
                         <button
                             onClick={() => setDismissed(true)}
-                            className="w-full py-1 text-center text-xs text-zinc-600 transition-colors hover:text-zinc-400"
+                            className="w-full py-1 text-center text-xs text-zinc-400 transition-colors hover:text-zinc-300"
                         >
                             Continue anyway (some features may not work)
                         </button>

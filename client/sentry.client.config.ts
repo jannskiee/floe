@@ -5,7 +5,8 @@ import { IGNORED_ERROR_PATTERNS } from './lib/ignoredErrors';
 import { isInjectedScriptError } from './lib/injectedScripts';
 import { isNonBrowserRuntimeError } from './lib/nonBrowserRuntimes';
 import { isStaleBundleError } from './lib/staleBundle';
-import { scrubSpanJson, scrubTransactionEvent, scrubUrl } from './lib/scrubUrl';
+import { scrubBreadcrumb, scrubErrorEvent, scrubSpanJson, scrubTransactionEvent } from './lib/scrubUrl';
+import { tracesSampler } from './lib/traceSampling';
 
 // One budget per page load: no single error is sent more than a few times,
 // however often it fires. FLOE-M sent 3,871 copies of one error from one page.
@@ -41,7 +42,13 @@ Sentry.init({
     // performance detectors with low-signal "Degraded HTTP Operation" issues on
     // slow first/cold loads and added per-session overhead. 10% keeps enough
     // signal to spot real regressions without the noise.
-    tracesSampleRate: 0.1,
+    //
+    // A sampler, not tracesSampleRate: the SDK lets a parent's decision
+    // override the rate, and /r's server render handed every pageload a
+    // sampled parent at the server's old 1.0, which made every /r visit a trace
+    // (CP-QA F3-04). The sampler returns 10% whatever the parent says; the
+    // server and edge now use it too. See lib/traceSampling.ts.
+    tracesSampler,
 
     // Stale-bundle/chunk-load errors are expected deploy churn, not bugs: an old
     // tab requests chunks a new deploy removed. The browser auto-reloads onto the
@@ -72,29 +79,25 @@ Sentry.init({
             event.tags = { ...event.tags, stale_bundle: true, auto_recovered: true };
         }
 
-        // Strip the room secret from the request URL before the event is sent.
-        if (event.request?.url) {
-            event.request.url = scrubUrl(event.request.url);
-        }
+        // Strip the room secret and the request-link id before the event is
+        // sent: request.url, the transaction name (the raw /r/<linkId> path on
+        // an error thrown on /r) and stack frame file names. After the filters
+        // above, so they still read the frames as the browser reported them.
+        const scrubbed = scrubErrorEvent(event);
 
         // Last, so it counts only events that are really about to be sent.
-        const verdict = eventBudget(event);
+        const verdict = eventBudget(scrubbed);
         if (verdict === 'drop') return null;
-        if (verdict === 'last') event.tags = { ...event.tags, event_budget_exhausted: true };
+        if (verdict === 'last') scrubbed.tags = { ...scrubbed.tags, event_budget_exhausted: true };
 
-        return event;
+        return scrubbed;
     },
 
-    // Breadcrumbs (navigation, fetch, xhr) record URLs as they happen; scrub the
-    // room secret out of each one before it's attached to any event.
+    // Breadcrumbs (navigation, fetch, xhr, console) record URLs and logged text
+    // as they happen; scrub the room secret out of each one before it's attached
+    // to any event, with the server's rule (scrubBreadcrumb).
     beforeBreadcrumb(breadcrumb) {
-        const data = breadcrumb.data;
-        if (data) {
-            if (typeof data.url === 'string') data.url = scrubUrl(data.url);
-            if (typeof data.to === 'string') data.to = scrubUrl(data.to);
-            if (typeof data.from === 'string') data.from = scrubUrl(data.from);
-        }
-        return breadcrumb;
+        return scrubBreadcrumb(breadcrumb);
     },
 
     // Transactions never pass through beforeSend: the SDK routes them here

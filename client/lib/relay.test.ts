@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, isRelayPair, probeIsRelay, readConnectionType } from './relay';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, isRelayPair, probeIsRelay, readConnectionType, type RelayGateVerdict } from './relay';
+import { RELAY_BLOCK_REASON, RELAY_PROBE_DELAY_MS } from './request/constants';
 
 const STUN: RTCIceServer = { urls: 'stun:stun.l.google.com:19302' };
 const TURN: RTCIceServer = { urls: 'turn:turn.example.com:3478' };
@@ -203,5 +206,70 @@ describe('readConnectionType', () => {
             expect(readConnectionType(stats)).toBe('relay');
             expect(probeIsRelay(stats)).toBe(true);
         }
+    });
+});
+
+// The request link visitor duplicates the main page's relay probe and abort
+// rather than sharing a function with it (OD-13: the main page's inline relay
+// block is never edited). What keeps the two copies from drifting apart is
+// this table, which both callers depend on, and the source pin below it.
+describe('relay gate verdict table shared by P2PTransfer and RequestVisitor', () => {
+    const rows: Array<[string, Parameters<typeof evaluateRelayGate>[0], RelayGateVerdict]> = [
+        ['direct, any size, relay on', { isRelay: false, relayEnabled: true, totalSize: RELAY_SIZE_LIMIT * 100 }, { action: 'proceed' }],
+        ['direct, any size, relay off', { isRelay: false, relayEnabled: false, totalSize: RELAY_SIZE_LIMIT * 100 }, { action: 'proceed' }],
+        ['relay on, exactly the limit', { isRelay: true, relayEnabled: true, totalSize: RELAY_SIZE_LIMIT }, { action: 'proceed' }],
+        ['relay on, limit + 1', { isRelay: true, relayEnabled: true, totalSize: RELAY_SIZE_LIMIT + 1 }, { action: 'block-over-limit', totalSize: RELAY_SIZE_LIMIT + 1 }],
+        ['relay off on a relayed path', { isRelay: true, relayEnabled: false, totalSize: 1 }, { action: 'block-relay-disabled' }],
+    ];
+    for (const [name, input, verdict] of rows) {
+        it(name, () => {
+            expect(evaluateRelayGate(input)).toEqual(verdict);
+        });
+    }
+
+    const source = (rel: string) =>
+        readFileSync(fileURLToPath(new URL(`../${rel}`, import.meta.url)), 'utf8');
+
+    /** The body of `if (verdict.action === 'block-over-limit') { ... }`. */
+    function blockBranch(src: string): string {
+        const head = "if (verdict.action === 'block-over-limit') {";
+        const at = src.indexOf(head);
+        expect(at, 'block-over-limit branch').toBeGreaterThan(-1);
+        let depth = 0;
+        for (let i = at + head.length - 1; i < src.length; i++) {
+            if (src[i] === '{') depth++;
+            else if (src[i] === '}' && --depth === 0) return src.slice(at, i + 1);
+        }
+        throw new Error('unbalanced branch');
+    }
+
+    it('both callers probe after 2000 ms and await the TEXT abort before destroy', () => {
+        const main = source('components/P2PTransfer.tsx');
+        const visitor = source('components/RequestVisitor.tsx');
+        for (const [name, src] of [['main page', main], ['visitor', visitor]] as const) {
+            expect(src, name).toContain('probeIsRelay(');
+            expect(src, name).toContain('evaluateRelayGate(');
+            const branch = blockBranch(src);
+            const abort = branch.indexOf('await sendAbortReason(');
+            const destroy = branch.indexOf('.destroy()');
+            expect(abort, `${name}: abort`).toBeGreaterThan(-1);
+            expect(destroy, `${name}: destroy`).toBeGreaterThan(abort);
+        }
+        // The delay: a literal on the main page, the named constant on /r.
+        expect(main).toContain('}, 2000);');
+        expect(visitor).toContain('RELAY_PROBE_DELAY_MS');
+        expect(RELAY_PROBE_DELAY_MS).toBe(2000);
+        // The reason: the main page splits it into two concatenated literals;
+        // joined, they are the visitor's constant, and the visitor's branch
+        // passes that constant and nothing else.
+        const mainBranch = blockBranch(main);
+        const call = mainBranch.slice(mainBranch.indexOf('await sendAbortReason('), mainBranch.indexOf('.destroy()'));
+        const literals = [...call.matchAll(/'([^']*)'/g)].map((m) => m[1]);
+        expect(literals).toHaveLength(2);
+        const joined = literals.join('');
+        expect(joined).toBe(RELAY_BLOCK_REASON);
+        expect(blockBranch(visitor)).toMatch(/sendAbortReason\([^;]*RELAY_BLOCK_REASON\s*\)/);
+        // relayEnabled is always true on /r: there is no relay-off toggle.
+        expect(visitor).toMatch(/evaluateRelayGate\(\{[^}]*relayEnabled: true/);
     });
 });

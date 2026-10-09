@@ -23,10 +23,16 @@ import { after, test } from 'node:test';
 import {
     main,
     parseWslList,
+    exesUnderTest,
+    prepareHarnessBuild,
+    probeFirewall,
     prepareWslBuild,
+    probeServerFeatures,
     probeWsl,
     profileLine,
     purgeRunData,
+    serverFeaturesRow,
+    serverFor,
     webHeadLabel,
 } from './audit.mjs';
 import { fakeWorld, makeFakeAdapters } from './lib/tests/fake-legs.mjs';
@@ -1019,6 +1025,238 @@ test('probe subcommand on fake adapters: one line per desktop probe, the aggrega
     );
 });
 
+test('probe P10 reads /health features: request-1, absent, malformed, an error status and unreachable', async () => {
+    const answer = (status, body) => async () =>
+        new Response(JSON.stringify(body), {
+            status,
+            headers: { 'content-type': 'application/json' },
+        });
+    const on = await probeServerFeatures('http://localhost:3001', {
+        fetchImpl: answer(200, { status: 'healthy', features: ['request-1'] }),
+    });
+    assert.deepEqual(on.features, ['request-1']);
+    assert.equal(on.requestLinks, true);
+    assert.equal(on.detail, 'request-1');
+    const off = await probeServerFeatures('http://localhost:3001', {
+        fetchImpl: answer(200, { status: 'healthy' }),
+    });
+    assert.equal(off.features, null);
+    assert.equal(off.requestLinks, false);
+    assert.equal(off.detail, 'no features field');
+    const junk = await probeServerFeatures('http://localhost:3001', {
+        fetchImpl: answer(200, {
+            features: ['request-1', 'x'.repeat(41), { a: 1 }, 'Has Space', 7],
+        }),
+    });
+    assert.deepEqual(junk.features, ['request-1'], 'only short tokens are kept');
+    const down = await probeServerFeatures('http://localhost:3001', {
+        fetchImpl: answer(503, { features: ['request-1'] }),
+    });
+    assert.equal(down.features, null, 'an error status is never read as features');
+    assert.equal(down.detail, 'HTTP 503');
+    const gone = await probeServerFeatures('http://localhost:3001', {
+        fetchImpl: async () => {
+            throw new Error('connect ECONNREFUSED');
+        },
+    });
+    assert.equal(gone.features, null);
+    assert.match(gone.detail, /^unreachable: /);
+    assert.deepEqual(serverFeaturesRow(on), {
+        surface: 'Server features',
+        installed: 'request-1',
+        latest: '-',
+        oracle: 'GET /health features (probe P10)',
+        status: 'INFO',
+        gate: false,
+    });
+    assert.equal(serverFor('head'), 'http://localhost:3001');
+    assert.equal(serverFor('shipped'), 'https://api.floe.one');
+});
+
+test('probe subcommand: P10 prints the features line, keeps them in probe.json and adds a Versions INFO row', async () => {
+    const json = (body) =>
+        new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        });
+    const seen = [];
+    const fetchImpl = async (url) => {
+        const u = String(url);
+        seen.push(u);
+        if (u.endsWith('/health'))
+            return json({ status: 'healthy', features: ['request-1'] });
+        if (u.endsWith('/api/turn-credentials'))
+            return json({ iceServers: [{ urls: ['stun:x:3478'] }] });
+        return new Response('nope', { status: 404 });
+    };
+    const i = io(fakeWorld(), { fetchImpl });
+    const outDir = out('probe-p10');
+    const code = await main(
+        [
+            'probe',
+            '--profile',
+            'head',
+            '--desktop',
+            'none',
+            '--root',
+            root,
+            '--out',
+            outDir,
+        ],
+        i
+    );
+    assert.ok([0, 3].includes(code), i.lines.concat(i.errors).join('\n'));
+    assert.match(i.lines.join('\n'), /^probe P10 server features: request-1$/m);
+    assert.ok(
+        seen.includes('http://localhost:3001/health'),
+        'a head probe asks the local server, never production, for features'
+    );
+    const probe = JSON.parse(
+        readFileSync(path.join(outDir, 'probe.json'), 'utf8')
+    );
+    assert.deepEqual(probe.server.features, ['request-1']);
+    assert.equal(probe.server.requestLinks, true);
+    const row = probe.versions.rows.find((r) => r.surface === 'Server features');
+    assert.equal(row.status, 'INFO');
+    assert.equal(row.installed, 'request-1');
+});
+
+// S1-REL-03a harness fix 13: the firewall probe read only the rules under
+// --bin-dir, so a Block rule on an exe under test outside it went unreported
+// (the baseline blamed the Store exe for Blocks that sat on temp copies).
+const STORE_EXE =
+    'C:\\Program Files\\WindowsApps\\JanCarloParedes.FloeDesktop_1.2.12.0_x64__r1y5w9chaxnzc\\floe-desktop.exe';
+
+test('probeFirewall reads the rules of every exe under test and names each inbound Block by path, read only (fix 13)', () => {
+    const cmds = [];
+    const exec = (cmd, args) => {
+        cmds.push({ cmd, script: args[args.length - 1] });
+        return JSON.stringify([
+            { Program: STORE_EXE, DisplayName: 'floe-desktop.exe', Direction: 1, Action: 4, Enabled: 1 },
+            { Program: STORE_EXE, DisplayName: 'floe-desktop.exe out', Direction: 2, Action: 4, Enabled: 1 },
+            { Program: 'C:\\bin\\floe.exe', DisplayName: 'floe', Direction: 1, Action: 2, Enabled: 1 },
+            { Program: 'C:\\head\\floe-desktop.exe', DisplayName: 'old', Direction: 'Inbound', Action: 'Block', Enabled: 'False' },
+        ]);
+    };
+    const r = probeFirewall(exec, 'C:\\bin', {
+        platform: 'win32',
+        exes: [
+            { role: 'desktop (store)', path: STORE_EXE },
+            { role: 'cli', path: 'C:\\bin\\floe.exe' },
+            { role: 'desktop (head)', path: 'C:\\head\\floe-desktop.exe' },
+            { role: 'desktop (head)', path: 'c:\\HEAD\\floe-desktop.exe' },
+        ],
+    });
+    assert.equal(cmds.length, 1, 'one PowerShell read');
+    assert.equal(cmds[0].cmd, 'powershell.exe');
+    assert.ok(cmds[0].script.includes(STORE_EXE), 'the Store exe is in the filter');
+    assert.ok(cmds[0].script.includes("-like 'C:\\bin*'"), 'the --bin-dir prefix is still read');
+    assert.ok(
+        !/(Set|New|Remove|Enable|Disable|Copy|Rename)-NetFirewall/i.test(cmds[0].script),
+        'the probe only reads rules'
+    );
+    // Only the enabled inbound Block counts; the outbound one and the
+    // disabled one are not blocks on the exe under test.
+    assert.deepEqual(r.blocks, [
+        { role: 'desktop (store)', program: STORE_EXE, rule: 'floe-desktop.exe' },
+    ]);
+    assert.equal(r.block, false, 'the staged-path precondition stays about --bin-dir alone');
+    assert.equal(r.inboundAllow, true);
+    assert.deepEqual(
+        r.exes.map((e) => e.role),
+        ['desktop (store)', 'cli', 'desktop (head)'],
+        'one entry per exe, compared without case'
+    );
+    assert.equal(probeFirewall(exec, null, { platform: 'win32' }).detail, 'not probed');
+    assert.equal(probeFirewall(exec, 'C:\\bin', { platform: 'linux' }).detail, 'not probed');
+    // A path with a quote is escaped for the single-quoted PowerShell string.
+    probeFirewall(exec, null, {
+        platform: 'win32',
+        exes: [{ role: 'cli', path: "C:\\o'brien\\floe.exe" }],
+    });
+    assert.ok(cmds.at(-1).script.includes("C:\\o''brien\\floe.exe"));
+});
+
+test('exesUnderTest lists the builds the run drives, the Store exe only when the Store build is under test (fix 13)', async () => {
+    const storeAdapter = {
+        storePackage: async () => ({ present: true, exe: STORE_EXE, version: '1.2.12.0' }),
+    };
+    const head = await exesUnderTest({
+        builds: {
+            desktop: { kind: 'head', launch: 'portable', path: 'C:\\clone\\desktop\\build\\bin\\floe-desktop.exe' },
+            cli: { kind: 'head', path: 'C:\\bin\\floe-head-abc1234.exe' },
+            harness: { path: 'C:\\bin\\e2ehost-abc1234.exe' },
+        },
+        desktopProbe: { mode: 'portable' },
+        desktop: storeAdapter,
+    });
+    assert.deepEqual(head.map((e) => e.role), ['desktop (head)', 'cli (head)', 'e2ehost harness']);
+    const store = await exesUnderTest({
+        builds: { desktop: { kind: 'shipped', launch: 'store', path: null }, cli: { kind: 'shipped', path: 'C:\\x\\floe.exe' } },
+        desktopProbe: { mode: 'store' },
+        desktop: storeAdapter,
+    });
+    assert.deepEqual(store, [
+        { role: 'desktop (store)', path: STORE_EXE },
+        { role: 'cli (shipped)', path: 'C:\\x\\floe.exe' },
+    ]);
+    const logs = [];
+    const failed = await exesUnderTest({
+        builds: {},
+        desktopProbe: { mode: 'store' },
+        desktop: { storePackage: async () => { throw new Error('Get-AppxPackage failed'); } },
+        log: (l) => logs.push(l),
+    });
+    assert.deepEqual(failed, []);
+    assert.match(logs[0], /Store package lookup failed/);
+});
+
+test('a Block rule on the Store exe under test is reported in the Infra and Safety sections, and none reads none (fix 13)', async () => {
+    const runWith = async (name, firewall) => {
+        const world = fakeWorld();
+        const i = io(world, { shrinkCells: true, probe: { ...PROBE, firewall } });
+        const outDir = out(name);
+        const code = await main(
+            ['run', '--quick', '--root', root, '--out', outDir, '--desktop', 'portable'],
+            { ...i, cellHook: shrink }
+        );
+        const runs = readdirSync(outDir).filter((d) => /-shipped-quick$/.test(d));
+        const md = readFileSync(path.join(outDir, runs[0], 'audit.md'), 'utf8');
+        return {
+            code,
+            infra: md.split('## Infra')[1].split('## Safety')[0],
+            safety: md.split('## Safety')[1].split('## Failures')[0],
+        };
+    };
+    const exes = [
+        { role: 'desktop (store)', path: STORE_EXE },
+        { role: 'cli', path: 'C:\\x\\floe.exe' },
+    ];
+    const blocked = await runWith('firewall-store-block', {
+        inboundAllow: true,
+        block: false,
+        rules: [],
+        blocks: [{ role: 'desktop (store)', program: STORE_EXE, rule: 'floe-desktop.exe' }],
+        exes,
+        detail: '1 rule(s)',
+    });
+    assert.equal(blocked.code, 0, 'reported, not a precondition: the rules are the owner\'s (D-054)');
+    assert.match(blocked.infra, /firewall \(exes under test\)\s*\|\s*FAIL: inbound Block/);
+    assert.ok(blocked.infra.includes(STORE_EXE), blocked.infra);
+    assert.match(blocked.safety, /firewall Block rules on exes under test/);
+    assert.ok(blocked.safety.includes(STORE_EXE), blocked.safety);
+    const clean = await runWith('firewall-none', {
+        inboundAllow: null,
+        block: false,
+        rules: [],
+        blocks: [],
+        exes,
+        detail: 'none',
+    });
+    assert.match(clean.infra, /firewall \(exes under test\)\s*\|\s*no inbound Block rule on 2 exe\(s\)/);
+    assert.match(clean.safety, /firewall Block rules on exes under test[^|]*\|\s*none \(2 exe\(s\) read\)/);
+});
+
 test('parseWslList', () => {
     assert.deepEqual(
         parseWslList(
@@ -1244,6 +1482,136 @@ test('prepareWslBuild hands the leg the side-loaded Linux path, pinned to the re
     assert.equal(untouched.wsl, undefined);
 });
 
+test('prepareHarnessBuild stages the lying sender only for the cells that need it', async () => {
+    const lyingCli = {
+        id: 'H-DIR-C2C-hashbad',
+        hashLie: 'corrupt',
+        sender: { surface: 'cli' },
+        receiver: { surface: 'cli' },
+    };
+    const lyingWeb = {
+        id: 'H-DIR-W2C-hashbad',
+        hashLie: 'corrupt',
+        sender: { surface: 'web' },
+        receiver: { surface: 'cli' },
+    };
+    const honest = {
+        id: 'H-DIR-C2C',
+        hashLie: null,
+        sender: { surface: 'cli' },
+        receiver: { surface: 'cli' },
+    };
+    const head = { kind: 'head', sha7: 'abc1234' };
+    const built = [];
+    const build = (o) => {
+        built.push(o);
+        return { path: `${o.binDir}\\floe-e2ehost-${o.sha7}.exe`, version: `e2ehost-${o.sha7}` };
+    };
+    const preflights = [];
+    const harnessMod = {
+        preflight: async (o) => {
+            preflights.push(o);
+            return { ok: true, reason: null, detail: { bin: o.harnessBin } };
+        },
+    };
+    const cells = [lyingCli, lyingWeb, honest].map((c) => ({ ...c }));
+    const builds = { cli: head };
+    const lines = [];
+    const out = await prepareHarnessBuild({
+        cells,
+        builds,
+        binDir: 'C:\\audit\\bin',
+        root: 'C:\\floe-rl',
+        sha7: 'abc1234',
+        exec: () => '',
+        getAdapter: async (name) => {
+            assert.equal(name, 'harness');
+            return harnessMod;
+        },
+        build,
+        log: (l) => lines.push(l),
+    });
+    assert.equal(built.length, 1, 'built once for the run');
+    assert.equal(built[0].root, 'C:\\floe-rl', 'from the checkout under test');
+    assert.equal(built[0].binDir, 'C:\\audit\\bin');
+    assert.equal(preflights[0].harnessBin, 'C:\\audit\\bin\\floe-e2ehost-abc1234.exe');
+    assert.equal(out.path, 'C:\\audit\\bin\\floe-e2ehost-abc1234.exe');
+    assert.equal(builds.harness.path, out.path);
+    assert.deepEqual(
+        cells.map((c) => c.verdict ?? null),
+        [null, null, null],
+        'every cell still runs'
+    );
+    assert.match(lines.join(' '), /harness: built e2ehost-abc1234 .* for 1 cell/);
+
+    // No lying CLI-shaped sender in the plan: nothing is built at all (a
+    // browser sender lies through its init script).
+    const untouched = { cli: head };
+    assert.equal(
+        await prepareHarnessBuild({
+            cells: [{ ...lyingWeb }, { ...honest }],
+            builds: untouched,
+            binDir: 'C:\\audit\\bin',
+            root: 'C:\\floe-rl',
+            getAdapter: async () => {
+                throw new Error('must not be called');
+            },
+            build: () => {
+                throw new Error('must not build');
+            },
+        }),
+        null
+    );
+    assert.equal(untouched.harness, undefined);
+
+    // A failed build, a failed preflight, or a shipped profile skips exactly the
+    // lying cells, and never falls back to the shipped CLI.
+    for (const [label, opts] of [
+        [
+            'build',
+            {
+                builds: { cli: head },
+                build: () => {
+                    throw new Error('go build: exit status 1\nmore');
+                },
+            },
+        ],
+        [
+            'preflight',
+            {
+                builds: { cli: head },
+                getAdapter: async () => ({
+                    preflight: async () => ({ ok: false, reason: 'harness binary missing at X' }),
+                }),
+            },
+        ],
+        ['shipped', { builds: { cli: { kind: 'shipped', tag: 'v1.10.11' } } }],
+    ]) {
+        const cs = [lyingCli, lyingWeb, honest].map((c) => ({ ...c }));
+        const log2 = [];
+        const res = await prepareHarnessBuild({
+            cells: cs,
+            binDir: 'C:\\audit\\bin',
+            root: 'C:\\floe-rl',
+            sha7: 'abc1234',
+            getAdapter: async () => harnessMod,
+            build,
+            log: (l) => log2.push(l),
+            ...opts,
+        });
+        assert.equal(res, null, label);
+        assert.equal(opts.builds.harness, null, `${label}: no fallback`);
+        assert.deepEqual(
+            cs.map((c) => c.verdict ?? null),
+            ['SKIP', null, null],
+            `${label}: only the lying CLI-shaped cell skips`
+        );
+        assert.equal(cs[0].reason, 'harness-build');
+        assert.match(log2.join(' '), /harness: build failed, 1 cell\(s\) SKIP harness-build/);
+        assert.ok(!/\n/.test(log2.join(' ')), `${label}: one line`);
+    }
+});
+
 test('purgeRunData removes the transferred bytes and keeps the audit', () => {
     const runDir = path.join(base, 'purge-run');
     const mk = (rel, bytes) => {
@@ -1314,4 +1682,263 @@ test('purgeRunData removes the transferred bytes and keeps the audit', () => {
         { p: empty.purged, f: empty.freedBytes },
         { p: true, f: 0 }
     );
+});
+
+// ------------------------------------------------- the head desktop lane
+
+// A head run really resolves its builds (no io.builds), so audit.mjs's head
+// block calls desktop.buildHead. --cells keeps it to the two desktop direct
+// cells, which is what CP-0 skipped.
+const headResponse = (body) =>
+    new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+    });
+
+function headIo(world, extra = {}) {
+    const adapters = makeFakeAdapters(world);
+    const stdout = [];
+    const stderr = [];
+    return {
+        stdout: (s) => stdout.push(s),
+        stderr: (s) => stderr.push(s),
+        lines: stdout,
+        errors: stderr,
+        adapters,
+        getAdapter: async (name) => adapters[name],
+        tryAdapter: async (name) => adapters[name] ?? null,
+        exec: (cmd, args = []) => {
+            if (cmd === 'git' && args[0] === 'worktree')
+                return `worktree ${root}\n`;
+            // buildHeadCli checks the exe it asked go to write.
+            if (cmd === 'go' && args[0] === 'build') {
+                const o = args[args.indexOf('-o') + 1];
+                mkdirSync(path.dirname(o), { recursive: true });
+                writeFileSync(o, 'MZ fake head cli');
+                return '';
+            }
+            if (cmd === 'go') return 'go version go1.25 windows/amd64';
+            return '';
+        },
+        sha7: 'abc1234',
+        versions: VERSIONS(),
+        infra: {
+            name: 'local',
+            server: 'http://localhost:3001',
+            web: 'http://localhost:3000',
+            servesTurn: true,
+            relaxed: true,
+            statsOracle: 'none',
+        },
+        infraRows: [{ check: 'local /health', ok: true, detail: 'healthy' }],
+        fetchImpl: async (url) =>
+            String(url).includes('/api/turn-credentials')
+                ? headResponse({
+                      iceServers: [
+                          { urls: ['stun:x:3478'] },
+                          {
+                              urls: ['turn:x:3478', 'turns:x:5349'],
+                              username: 'u',
+                              credential: 'c',
+                          },
+                      ],
+                  })
+                : new Response('ok', { status: 200 }),
+        sleep: async () => {},
+        retryWaitMs: 0,
+        drainWaitMs: 0,
+        noSignals: true,
+        appData: path.join(base, 'appdata'),
+        defaultRoot: root,
+        ...extra,
+    };
+}
+
+const headRunDir = (outDir) =>
+    path.join(
+        outDir,
+        readdirSync(outDir).find((d) => /-head-/.test(d))
+    );
+const headArgs = (outDir) => [
+    'run',
+    '--profile',
+    'head',
+    '--desktop',
+    'wailsdev',
+    '--cells',
+    'H-DIR-D2C,H-DIR-C2D',
+    '--relaxed',
+    '--root',
+    root,
+    '--out',
+    outDir,
+];
+
+test('head profile --desktop wailsdev calls desktop.buildHead and gates no desktop cell as desktop-unavailable', async () => {
+    const world = fakeWorld();
+    const i = headIo(world);
+    const outDir = out('head-wailsdev');
+    const code = await main(headArgs(outDir), { ...i, cellHook: shrink });
+    assert.equal(code, 0, i.lines.concat(i.errors).join('\n'));
+
+    const built = world.calls.filter((c) => 'buildHead' in c);
+    assert.equal(built.length, 1, 'the head build ran exactly once');
+    assert.equal(built[0].buildHead, 'wailsdev');
+
+    const runDir = headRunDir(outDir);
+    const json = JSON.parse(
+        readFileSync(path.join(runDir, 'run.json'), 'utf8')
+    );
+    const byId = Object.fromEntries(json.cells.map((c) => [c.id, c]));
+    for (const id of ['H-DIR-D2C', 'H-DIR-C2D'])
+        assert.equal(
+            byId[id].verdict,
+            'PASS',
+            `${id} ${byId[id].verdict} ${byId[id].reason ?? ''}`
+        );
+    assert.equal(
+        json.cells.filter((c) =>
+            ['desktop-unavailable', 'head-desktop-pending'].includes(c.reason)
+        ).length,
+        0,
+        'no cell is gated on a missing head desktop build'
+    );
+    const log = readFileSync(path.join(runDir, 'log.txt'), 'utf8');
+    assert.ok(
+        !log.includes('HEAD desktop build pending'),
+        'the pending branch is not taken when the adapter can build'
+    );
+    // The wailsdev lane has no exe, so P7 has nothing to probe.
+    const probe = JSON.parse(
+        readFileSync(path.join(outDir, 'probe.json'), 'utf8')
+    );
+    assert.match(probe.motw.detail, /^n\/a/);
+});
+
+test('a desktop adapter without buildHead still logs the pending line and skips desktop cells', async () => {
+    const world = fakeWorld();
+    const i = headIo(world);
+    delete i.adapters.desktop.buildHead;
+    const outDir = out('head-pending');
+    const code = await main(headArgs(outDir), { ...i, cellHook: shrink });
+    assert.equal(code, 5, i.lines.concat(i.errors).join('\n'));
+
+    assert.deepEqual(
+        world.calls.filter((c) => 'buildHead' in c),
+        []
+    );
+    const runDir = headRunDir(outDir);
+    const log = readFileSync(path.join(runDir, 'log.txt'), 'utf8');
+    assert.ok(
+        log.includes(
+            'desktop: HEAD desktop build pending (desktop adapter has no buildHead)'
+        ),
+        log
+    );
+    const json = JSON.parse(
+        readFileSync(path.join(runDir, 'run.json'), 'utf8')
+    );
+    const byId = Object.fromEntries(json.cells.map((c) => [c.id, c]));
+    // matrix.mjs gateCell tries available before headBuild, and audit.mjs
+    // sets both in one literal, so the reason is desktop-unavailable and
+    // head-desktop-pending is shadowed (CP-0 recorded exactly this).
+    for (const id of ['H-DIR-D2C', 'H-DIR-C2D'])
+        assert.deepEqual(
+            [byId[id].verdict, byId[id].reason],
+            ['SKIP', 'desktop-unavailable'],
+            id
+        );
+});
+
+test('a wailsdev build with no exe path leaves P7 at n/a instead of probing a missing file', async () => {
+    const world = fakeWorld();
+    // A release exe staged under --bin-dir is a different build: the
+    // wailsdev lane must not adopt it for P2 or P7.
+    const binDir = out('head-bin');
+    mkdirSync(path.join(binDir, 'floe-desktop-3.4.5'), { recursive: true });
+    writeFileSync(
+        path.join(binDir, 'floe-desktop-3.4.5', 'floe-desktop.exe'),
+        'MZ staged release exe'
+    );
+    const i = headIo(world, {
+        builds: {
+            cli: null,
+            desktop: {
+                kind: 'head',
+                launch: 'wailsdev',
+                version: 'head-abc1234',
+                path: null,
+                isPackaged: false,
+                sha256: null,
+            },
+            web: null,
+            wsl: null,
+        },
+    });
+    const outDir = out('head-probe');
+    const code = await main(
+        [
+            'probe',
+            '--profile',
+            'head',
+            '--desktop',
+            'wailsdev',
+            '--root',
+            root,
+            '--bin-dir',
+            binDir,
+            '--out',
+            outDir,
+        ],
+        i
+    );
+    assert.equal(code, 0, i.lines.concat(i.errors).join('\n'));
+    const probe = JSON.parse(
+        readFileSync(path.join(outDir, 'probe.json'), 'utf8')
+    );
+    assert.equal(
+        probe.desktop.portableExe,
+        null,
+        'the staged 3.4.5 exe is not the build under test'
+    );
+    assert.equal(probe.motw.marked, null);
+    assert.match(probe.motw.detail, /^n\/a \(wailsdev lane/);
+    const p7 = i.lines.find((l) => l.startsWith('probe P7 MOTW:'));
+    assert.ok(
+        !p7.includes('floe-desktop.exe'),
+        `P7 names no exe on this lane: ${p7}`
+    );
+});
+
+// FU-26: TA-14's one tool class. A --caddy dry run asks Docker once through
+// the injected exec (no container), and a run without --caddy never does.
+test('--dry-run with --caddy exercises the docker tool class once; without it docker is never asked', async () => {
+    const run = async (extra) => {
+        const docker = [];
+        const i = io(fakeWorld(), {
+            exec: (cmd, args) => {
+                if (cmd === 'docker') {
+                    docker.push(args.join(' '));
+                    return '27.3.1';
+                }
+                if (cmd === 'git' && args[0] === 'status') return '';
+                if (cmd === 'git' && args[0] === 'worktree') return `worktree ${root}\n`;
+                if (cmd === 'go') return 'go version go1.25 windows/amd64';
+                if (cmd === 'gh') return 'gh version 2.60.0';
+                return '5.1';
+            },
+            fetchImpl: async () => new Response('ok', { status: 200 }),
+        });
+        const code = await main(
+            ['run', '--profile', 'head', '--dry-run', '--root', root, '--out', out(`dry-${extra.length}`), ...extra],
+            i
+        );
+        return { code, docker, text: i.lines.join('\n') };
+    };
+    const withCaddy = await run(['--caddy']);
+    assert.deepEqual(withCaddy.docker, ['version --format {{.Server.Version}}']);
+    assert.match(withCaddy.text, /^ok\s+docker: server 27\.3\.1$/m);
+    const without = await run([]);
+    assert.deepEqual(without.docker, []);
+    assert.ok(!/docker/.test(without.text));
 });

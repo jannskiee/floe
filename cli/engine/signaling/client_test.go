@@ -73,14 +73,47 @@ func testServer(t *testing.T, write func(*websocket.Conn)) *httptest.Server {
 	return srv
 }
 
-func dial(t *testing.T, srv *httptest.Server) *Client {
+func dial(t *testing.T, srv *httptest.Server, opts ...Option) *Client {
 	t.Helper()
-	c, err := Connect(strings.Replace(srv.URL, "http://", "ws://", 1))
+	c, err := Connect(strings.Replace(srv.URL, "http://", "ws://", 1), opts...)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	t.Cleanup(c.Close)
 	return c
+}
+
+// TestOversizedServerFrameEndsTheClient (deep QA A3-06): a frame over
+// maxServerMessage ends the connection instead of being buffered whole, while
+// a signal the size of the server's own relay cap still arrives.
+func TestOversizedServerFrameEndsTheClient(t *testing.T) {
+	big := `{"type":"error","message":"` + strings.Repeat("x", maxServerMessage) + `"}`
+	srv := testServer(t, func(conn *websocket.Conn) {
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(big))
+	})
+	c := dial(t, srv)
+	// testServer holds the socket for 2 s, so only the limit ends it sooner.
+	select {
+	case <-c.Down:
+	case <-time.After(time.Second):
+		t.Fatal("a frame over the read limit did not end the client")
+	}
+
+	sig := `{"type":"signal","signal":{"sdp":"` + strings.Repeat("y", 1_000_000) + `"}}`
+	srv2 := testServer(t, func(conn *websocket.Conn) {
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(sig))
+	})
+	c2 := dial(t, srv2)
+	select {
+	case s := <-c2.Signal:
+		if len(s) < 1_000_000 {
+			t.Fatalf("the signal arrived cut to %d bytes", len(s))
+		}
+	case <-c2.Down:
+		t.Fatal("a 1 MB signal ended the client")
+	case <-time.After(3 * time.Second):
+		t.Fatal("the 1 MB signal never arrived")
+	}
 }
 
 // The regression this package exists to prevent. Role and PeerConnected are

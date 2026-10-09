@@ -8,13 +8,26 @@ import {cn, rowDescClass, rowLabelClass} from './ui';
  *  32x18 with a 14px thumb (travel 32 - 14 - 2*2 = 14px = translate-x-3.5),
  *  desktop proportions rather than the chunkier mobile 36x20. Deliberately no
  *  group-hover coupling: the primitive stays context-free, and the row's own
- *  hover fill already signals interactivity. */
-export function Switch({checked, onChange}: {checked: boolean; onChange: (v: boolean) => void}) {
+ *  hover fill already signals interactivity.
+ *
+ *  describedBy goes on the checkbox itself as aria-describedby, the one place
+ *  it associates (see SettingField); absent, the attribute is left off. */
+export function Switch({checked, onChange, disabled, describedBy}: {
+    checked: boolean;
+    onChange: (v: boolean) => void;
+    disabled?: boolean;
+    describedBy?: string;
+}) {
     return (
         <span className="relative inline-flex shrink-0">
             <input
                 type="checkbox"
                 checked={checked}
+                aria-describedby={describedBy}
+                // Native disabled, not aria-disabled: a disabled checkbox cannot
+                // be toggled by a click on its label, by Space, or by a screen
+                // reader, which is the whole guarantee a dimmed setting needs.
+                disabled={disabled}
                 onChange={(e) => onChange(e.target.checked)}
                 className="peer sr-only"
             />
@@ -37,21 +50,54 @@ export function Switch({checked, onChange}: {checked: boolean; onChange: (v: boo
 
 /** SettingRow is one settings entry: stacked label and one-line description with
  *  a trailing switch. The hover fill is the row's interactivity signal (the card
- *  clips it to the rounded corners); the whole row stays one click target. */
-export function SettingRow({checked, onChange, label, description}: {
+ *  clips it to the rounded corners); the whole row stays one click target.
+ *
+ *  disabled keeps the row's words and dims the whole row (the look DS-03 and
+ *  DS-04 approved for a locked row): no hover fill, a not-allowed cursor,
+ *  aria-disabled on the label and native disabled on the checkbox. The
+ *  description is where a disabled row says why, so callers swap it rather than
+ *  hide it. */
+export function SettingRow({checked, onChange, label, description, disabled}: {
     checked: boolean;
     onChange: (v: boolean) => void;
     label: string;
     description?: string;
+    disabled?: boolean;
 }) {
     return (
-        <label className="flex cursor-pointer select-none items-center justify-between gap-4 px-3.5 py-2.5 transition-colors hover:bg-white/[0.04]">
+        <label
+            aria-disabled={disabled || undefined}
+            className={cn(
+                'flex select-none items-center justify-between gap-4 px-3.5 py-2.5 transition-colors',
+                disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-white/[0.04]',
+            )}
+        >
             <span className="min-w-0">
                 <span className={rowLabelClass}>{label}</span>
                 {description && <span className={rowDescClass}>{description}</span>}
             </span>
-            <Switch checked={checked} onChange={onChange}/>
+            <Switch checked={checked} onChange={onChange} disabled={disabled}/>
         </label>
+    );
+}
+
+/** SettingAction is a settings entry whose control is a button, not a switch:
+ *  the same padding and label treatment as SettingRow, with the button trailing.
+ *  No hover fill and no click target of its own: the button is the control, and
+ *  a fill over the whole row would promise a click that does nothing. */
+export function SettingAction({label, description, action}: {
+    label: string;
+    description?: string;
+    action: ReactNode;
+}) {
+    return (
+        <div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
+            <span className="min-w-0">
+                <span className={rowLabelClass}>{label}</span>
+                {description && <span className={rowDescClass}>{description}</span>}
+            </span>
+            {action}
+        </div>
     );
 }
 

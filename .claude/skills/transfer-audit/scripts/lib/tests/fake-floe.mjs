@@ -17,10 +17,18 @@
  *   FAKE_FLOE_PAIR=relay|direct     with PION_LOG_TRACE=ice, emit a pion
  *                                   "Set selected candidate pair:" line
  *   FAKE_FLOE_ICEWARN=1  print the STUN fallback warning first
+ *   FAKE_FLOE_TO_FLAG=1  list --to in `send --help`
+ *   FAKE_FLOE_TO=declined|unverified  see `send --to` below
  *
  * The receiver writes fixture.bin (1 KiB of 0x5a) into --output; `part`
  * mode also leaves fixture.bin.part behind. The room id and code are fixed
  * synthetic values.
+ *
+ * `send ... --to <link>` is the request-link visitor (TA-16, sendto.go): the
+ * approved copy's START and WAIT lines, the bar, then TL-03's arrived line
+ * and SHA line, exit 0. FAKE_FLOE_TO=declined ends on TL-14's line on stderr
+ * with exit 1 instead, and FAKE_FLOE_TO=unverified leaves the SHA line out.
+ * The link is never printed back, as sendto.go never prints it.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -53,6 +61,9 @@ const SEND_HELP = [
     '  -h, --help   help for send',
     ...(process.env.FAKE_FLOE_RELAY_ONLY === '1'
         ? ['      --relay-only   force the TURN relay path (relay only)']
+        : []),
+    ...(process.env.FAKE_FLOE_TO_FLAG === '1'
+        ? ['      --to string   send through a request link made in Floe Desktop instead of creating a code']
         : []),
     '',
     ...GLOBAL_FLAGS,
@@ -146,6 +157,31 @@ async function tail(role) {
     return null;
 }
 
+// sendto.go runSendTo, line for line (the approved CLI copy: TL-01, TL-03 and
+// TL-14; WAIT as D-144 (6) amended it).
+async function sendTo(paths) {
+    out();
+    out(`  Sending   ${paths.join(', ')} (1 file, 1 KB)`);
+    out('  Joining the request link...');
+    await sleep(DELAY);
+    out('  Connecting...');
+    await sleep(DELAY);
+    const suffix = process.env.FAKE_FLOE_SUFFIX || 'direct';
+    out(`  Connected (${suffix})`);
+    out('  Waiting for them to accept. They have 9 min to answer.');
+    await sleep(DELAY);
+    if (process.env.FAKE_FLOE_TO === 'declined') {
+        err('  They declined. Nothing was sent.');
+        process.exit(1);
+    }
+    await progress(FAKE_NAME);
+    out();
+    out(`  1 file arrived (1 KB in 0s, ${suffix}).`);
+    if (process.env.FAKE_FLOE_TO !== 'unverified')
+        out("  Their app reports every file's SHA-256 matched.");
+    process.exit(0);
+}
+
 async function send() {
     const paths = [];
     for (const a of argv.slice(1)) {
@@ -156,6 +192,7 @@ async function send() {
         err('Error: requires at least 1 arg(s), only received 0');
         process.exit(1);
     }
+    if (flag('--to') !== null) return sendTo(paths);
     const web = flag('--web') || 'http://127.0.0.1:3000';
     out();
     if (process.env.FAKE_FLOE_ICEWARN === '1')

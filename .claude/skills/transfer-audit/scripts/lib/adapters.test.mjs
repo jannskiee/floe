@@ -17,6 +17,8 @@ test('registry names and override lifecycle', async () => {
         'cli',
         'desktop',
         'wsl',
+        // A sender only, for the forced-mismatch cells (P0-27).
+        'harness',
         'proc',
         'stack',
     ]);

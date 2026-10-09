@@ -41,7 +41,12 @@
 #   wait-tree {hwnd, name?, controlType?, timeoutMs?}
 #                                         -> ready, nodes, waitedMs
 #                                            default name Settings (TitleBar.tsx aria-label, on every screen)
-#   snapshot {hwnd, max?}                 -> count, truncated, items[{i,type,name,help,enabled}]
+#   snapshot {hwnd, max?, values?}        -> count, truncated, items[{i,type,name,help,enabled}]
+#                                            values (default false) adds `value` and `readOnly` to each
+#                                            Edit, Document and ComboBox item that has a ValuePattern and
+#                                            `toggle` (On, Off, Indeterminate) to each CheckBox that has a
+#                                            TogglePattern: the request link verbs read the host's view
+#                                            from one call (lib/desktop.mjs UiaDriver.requestSnapshot)
 #   click {hwnd, name, controlType?, index?, after?, timeoutMs?}
 #                                         -> via (invoke|toggle|select), type, index, count, runtimeId
 #                                            name matches ignoring case; index -1 = last match;
@@ -49,6 +54,14 @@
 #   set-value {hwnd, placeholder, value, scope?, settleMs?}
 #                                         -> before, after, matchedBy (name|help), runtimeId
 #   get-value {hwnd, placeholder, scope?} -> value, matchedBy, runtimeId
+#   toggle {hwnd, regex, value, timeoutMs?}
+#                                         -> before, after, changed, name, runtimeId
+#                                            the one CheckBox whose Name matches regex (ignoring case;
+#                                            a Settings switch is named by the label that wraps it, row
+#                                            description included) is set to value (true On, false Off)
+#                                            through TogglePattern.Toggle, only when it differs, then read
+#                                            back; disabled when a change is needed and the box is
+#                                            disabled, ambiguous for two matches
 #   read-text {hwnd, regex, controlType?, max?, ignoreCase?, join?}
 #                                         -> texts[], count, joined, nodes, rects
 #                                            controlType default Text, 'any' for all;
@@ -250,7 +263,7 @@ $TREE_READY_NAME = 'Settings'             # TitleBar.tsx aria-label, mounted on 
 
 $COMMANDS = @(
     'ping', 'find-window', 'wait-tree', 'snapshot', 'click', 'set-value',
-    'get-value', 'read-text', 'capture', 'show', 'close', 'foreground-check',
+    'get-value', 'toggle', 'read-text', 'capture', 'show', 'close', 'foreground-check',
     'exe-version', 'stage', 'list-monitors', 'move-window', 'quit'
 )
 $REASONS = @(
@@ -650,6 +663,39 @@ function Select-TextMatches($nodes, $rx, [bool]$join, [int]$max, [scriptblock]$p
     return @{ texts = $texts; count = $total; joined = $joined }
 }
 
+# The CheckBoxes whose Name matches $rx (a compiled, case-insensitive Regex).
+# A Settings switch is a real checkbox inside the label that names it
+# (SettingsPrimitives.tsx), so its Name carries the row description too and an
+# exact match would never hit.
+function Select-ToggleCandidates($nodes, $rx) {
+    # One node at a time, never a comma-wrapped array: every caller
+    # wraps the call in @(), which would take such an array as ONE
+    # item, so no match and two matches would both count as one.
+    return @($nodes | Where-Object { $_.type -eq 'CheckBox' -and $rx.IsMatch([string]$_.name) })
+}
+
+# snapshot values: the read-only state a request link verb needs from one tree
+# read, the text of an Edit (the link field, the Save to field) and the state
+# of a CheckBox (a Settings switch). A node without the pattern adds nothing.
+function Add-NodeState($node, $item) {
+    if ($null -eq $node.el) { return }
+    $p = $null
+    if ($node.type -eq 'Edit' -or $node.type -eq 'Document' -or $node.type -eq 'ComboBox') {
+        try {
+            if ($node.el.TryGetCurrentPattern([Windows.Automation.ValuePattern]::Pattern, [ref]$p)) {
+                $item['value'] = [string]$p.Current.Value
+                $item['readOnly'] = [bool]$p.Current.IsReadOnly
+            }
+        } catch { }
+    } elseif ($node.type -eq 'CheckBox') {
+        try {
+            if ($node.el.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern, [ref]$p)) {
+                $item['toggle'] = [string]$p.Current.ToggleState
+            }
+        } catch { }
+    }
+}
+
 function Invoke-Node($node) {
     $p = $null
     if ($node.el.TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern, [ref]$p)) { $p.Invoke(); return 'invoke' }
@@ -759,6 +805,7 @@ $Handlers['wait-tree'] = {
 $Handlers['snapshot'] = {
     param($req)
     $max = Get-Int $req 'max' 400
+    $values = [bool](Get-Param $req 'values' $false)
     $root = Get-Root $req
     $nodes = Get-Nodes $root
     $items = @()
@@ -769,9 +816,46 @@ $Handlers['snapshot'] = {
         if ($x.name -ne '') { $item['name'] = $x.name }
         if ($x.help -ne '') { $item['help'] = $x.help }
         if (-not $x.enabled) { $item['enabled'] = $false }
+        if ($values) { Add-NodeState $x $item }
         $items += , $item
     }
     return @{ count = $nodes.Count; truncated = ($nodes.Count -gt $max); items = $items }
+}
+
+$Handlers['toggle'] = {
+    param($req)
+    # Parameters first, so a malformed request is bad-request before any
+    # window is touched.
+    $regex = [string](Get-Param $req 'regex' '')
+    if ($regex -eq '') { Fail 'bad-request' 'regex is required' }
+    $rawValue = Get-Param $req 'value' $null
+    if ($rawValue -isnot [bool]) { Fail 'bad-request' "value must be true or false, got '$rawValue'" }
+    $want = [bool]$rawValue
+    $timeoutMs = Get-Int $req 'timeoutMs' 5000
+    try { $rx = New-Object Text.RegularExpressions.Regex($regex, [Text.RegularExpressions.RegexOptions]::IgnoreCase) } catch { Fail 'bad-request' "invalid regex '$regex': $($_.Exception.Message)" }
+    $root = Get-Root $req
+    $found = Wait-Until {
+        $c = @(Select-ToggleCandidates (Get-Nodes $root) $rx)
+        if ($c.Count -gt 0) { return @{ cands = $c } }
+        return $null
+    } $timeoutMs
+    if ($null -eq $found) { Fail 'not-found' "no CheckBox matching '$regex' within ${timeoutMs}ms" }
+    if ($found.cands.Count -gt 1) { Fail 'ambiguous' "$($found.cands.Count) CheckBoxes match '$regex'" }
+    $node = $found.cands[0]
+    $tp = $null
+    if (-not $node.el.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern, [ref]$tp)) {
+        Fail 'no-pattern' "'$($node.name)' has no TogglePattern"
+    }
+    $before = ([string]$tp.Current.ToggleState -eq 'On')
+    $changed = $false
+    if ($before -ne $want) {
+        if (-not $node.enabled) { Fail 'disabled' "'$($node.name)' is disabled" }
+        $tp.Toggle()
+        $changed = $true
+        Start-Sleep -Milliseconds 150
+    }
+    $after = ([string]$tp.Current.ToggleState -eq 'On')
+    return @{ before = $before; after = $after; changed = $changed; name = $node.name; runtimeId = (Get-RuntimeId $node.el) }
 }
 
 $Handlers['click'] = {
@@ -1217,6 +1301,29 @@ function Invoke-SelfTest {
     Check 'fixture-two-savedir-edits' ($scoped.i -eq 7 -and $ambiguous) "scoped=$($scoped.i) ambiguous=$ambiguous"
     $missing = Select-Index @() 0
     Check 'fixture-empty-collection' ($null -eq $missing) ''
+
+    # 7b. toggle (the Settings switch verb, Hide my IP in the audits): a
+    #     Settings switch is named by its whole label, so the match is a regex
+    #     over CheckBoxes only; a Button carrying the same words is never a
+    #     candidate. The fixture names the H7 Notifications switch (NS2, NS3);
+    #     the Request links switch left Settings in H7 (D-160).
+    $sw = New-Object System.Collections.ArrayList
+    [void]$sw.Add(@{ el = $null; i = 0; name = 'Hide my IP address Route every transfer through the relay.'; help = ''; type = 'CheckBox'; enabled = $true })
+    [void]$sw.Add(@{ el = $null; i = 1; name = 'Show notifications For requests and transfers, while Floe is in the background.'; help = ''; type = 'CheckBox'; enabled = $true })
+    [void]$sw.Add(@{ el = $null; i = 2; name = 'Show notifications'; help = ''; type = 'Button'; enabled = $true })
+    $rxReq = New-Object Text.RegularExpressions.Regex('^Show notifications', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $togReq = @(Select-ToggleCandidates $sw $rxReq)
+    Check 'fixture-toggle-checkbox-only' ($togReq.Count -eq 1 -and $togReq[0].i -eq 1) "count=$($togReq.Count)"
+    $rxAny = New-Object Text.RegularExpressions.Regex('e', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    Check 'fixture-toggle-two-matches' (@(Select-ToggleCandidates $sw $rxAny).Count -eq 2) ''
+    $rxNone = New-Object Text.RegularExpressions.Regex('^No such switch$', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    Check 'fixture-toggle-no-match' (@(Select-ToggleCandidates $sw $rxNone).Count -eq 0) ''
+    $togNoRx = ConvertFrom-Json -InputObject (Invoke-Request '{"id":22,"cmd":"toggle","hwnd":1,"value":true}')
+    Check 'toggle-regex-required' ($togNoRx.ok -eq $false -and $togNoRx.reason -eq 'bad-request') "reason=$($togNoRx.reason)"
+    $togNoValue = ConvertFrom-Json -InputObject (Invoke-Request '{"id":23,"cmd":"toggle","hwnd":1,"regex":"x"}')
+    Check 'toggle-value-required' ($togNoValue.ok -eq $false -and $togNoValue.reason -eq 'bad-request') "reason=$($togNoValue.reason)"
+    $togGhost = ConvertFrom-Json -InputObject (Invoke-Request '{"id":24,"cmd":"toggle","hwnd":1,"regex":"x","value":false}')
+    Check 'toggle-dead-hwnd' ($togGhost.ok -eq $false -and $togGhost.reason -eq 'not-a-window') "reason=$($togGhost.reason)"
 
     # 9. read-text join fixtures (MEASURED 8, INFERRED 9). Rects are screen
     #    pixels at 100 percent scaling, 14 px text on 20 px lines, the

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
     PROTOCOL_VERSION,
     MIN_PROTOCOL_VERSION,
@@ -12,7 +13,19 @@ import {
     compatErrorMessage,
     peerCompatErrorMessage,
     compatErrorFromIncompatible,
+    refusalCodeOf,
+    REFUSAL_CODES,
+    REQUEST_ACK_TIMEOUT_MS,
+    REQUEST_ACK_GRACE_MS,
+    normalizeSha256,
+    verifiedCountOf,
+    ackConfirmsOf,
+    SEND_FILE_HASHES,
+    END_DIGEST_WAIT_MS,
+    POST_END_HASH_WAIT_MS,
+    type Ack,
     type Incompatible,
+    type Received,
     metadataMessage,
     ackMessage,
     endMessage,
@@ -36,9 +49,20 @@ describe('constants', () => {
     // implementations refuse each other before any bytes move.
     it('PROTOCOL_VERSION is 1', () => expect(PROTOCOL_VERSION).toBe(1));
     it('MIN_PROTOCOL_VERSION is 1', () => expect(MIN_PROTOCOL_VERSION).toBe(1));
+    it('SEND_FILE_HASHES is on, with false as the rollback lever', () => expect(SEND_FILE_HASHES).toBe(true));
     it('CONTROL_MSG_MAX is 1000', () => expect(CONTROL_MSG_MAX).toBe(1000));
     it('HIGH_WATER is 8 MB', () => expect(HIGH_WATER).toBe(8 * 1024 * 1024));
     it('LOW_WATER is 4 MB', () => expect(LOW_WATER).toBe(4 * 1024 * 1024));
+    // Pinned to VisitorAckTimeout and VisitorAckGrace in
+    // cli/engine/transfer/deadlines.go, where TestDeadlineConstantsMatchTS
+    // holds the same numbers. The deciding side's window is their difference
+    // and the waiting side's timer their sum, so moving one side alone would
+    // let the "expired" frame race the waiting side's own timeout.
+    it('REQUEST_ACK_TIMEOUT_MS and REQUEST_ACK_GRACE_MS match VisitorAckTimeout and VisitorAckGrace', () => {
+        expect(REQUEST_ACK_TIMEOUT_MS).toBe(600000);
+        expect(REQUEST_ACK_GRACE_MS).toBe(15000);
+        expect(REQUEST_ACK_TIMEOUT_MS - REQUEST_ACK_GRACE_MS).toBe(585000);
+    });
 });
 
 describe('chunkSize', () => {
@@ -80,6 +104,30 @@ describe('message builders round-trip', () => {
         const raw = endMessage();
         const msg = JSON.parse(raw);
         expect(msg).toMatchObject({ type: 'end' });
+    });
+});
+
+// The ack's optional confirms (FT-GO-CONFIRMS). The frame-level twins with Go
+// are the ackConfirms rows of parity.test.ts; these pin the reader itself and
+// the browser receiver's side of the promise.
+describe('ackConfirmsOf (twin of parseAckConfirms in cli/engine/transfer/sender.go)', () => {
+    const ack = (confirms: unknown) => ({ type: 'ack', id: 'a', offset: 0, confirms }) as unknown as Ack;
+
+    it('reads only the JSON literal true', () => {
+        expect(ackConfirmsOf(ack(true))).toBe(true);
+        for (const value of ['true', 1, 0, false, null, undefined, {}, [true], 'yes']) {
+            expect(ackConfirmsOf(ack(value)), JSON.stringify(value) ?? 'undefined').toBe(false);
+        }
+        expect(ackConfirmsOf({ type: 'ack', id: 'a', offset: 0 })).toBe(false);
+    });
+
+    it('is never promised by the browser receiver, which never sends received', () => {
+        // A browser ack that carried it would hold a Go sender until the close
+        // and end that send in an error over a file that arrived.
+        for (const raw of [ackMessage('xyz', 0), ackMessage('xyz', 512, 'v1.10.11')]) {
+            const msg = JSON.parse(raw) as Record<string, unknown>;
+            expect(Object.prototype.hasOwnProperty.call(msg, 'confirms')).toBe(false);
+        }
     });
 });
 
@@ -196,6 +244,82 @@ describe('compatErrorFromIncompatible', () => {
 });
 
 /**
+ * `code` is whatever the peer typed: classifyControl casts, it does not check.
+ * refusalCodeOf is the one reader, so it alone decides what counts as a code.
+ */
+describe('refusalCodeOf', () => {
+    // Built the way a real frame arrives, through classifyControl, so the cast
+    // under test is the one production code sees.
+    function frame(code: unknown): Incompatible {
+        const text = JSON.stringify({
+            type: 'incompatible',
+            reason: 'receiver could not finish writing a file',
+            pv: PROTOCOL_VERSION,
+            pvMin: MIN_PROTOCOL_VERSION,
+            code,
+            saved: 1,
+        });
+        return classifyControl(toUint8(text)) as Incompatible;
+    }
+
+    // The literal RefusalCodes pins in cli/engine/transfer/refusal.go
+    // (TestRefusalCodeListMatchesTS), in the byte order of the wire values, so
+    // the two lists are compared whole and in order, never sorted first.
+    const TWELVE = [
+        'declined',
+        'disk-full',
+        'expired',
+        'file-too-large-for-folder',
+        'hash-mismatch',
+        'over-approved',
+        'path-too-long',
+        'relay-cap',
+        'save-blocked',
+        'stopped',
+        'time-limit',
+        'write-failed',
+    ];
+
+    it('REFUSAL_CODES pins the twelve codes in the same order as refusal.go', () => {
+        expect([...REFUSAL_CODES]).toEqual(TWELVE);
+        expect([...TWELVE].sort()).toEqual(TWELVE);
+    });
+
+    it('refusalCodeOf allowlists and returns null for anything else', () => {
+        for (const code of TWELVE) {
+            expect(refusalCodeOf(frame(code))).toBe(code);
+        }
+
+        const hostile: unknown[] = [
+            'too-slow', // never a code: the throughput floor it named was cut
+            'WRITE-FAILED',
+            'write-failed ',
+            '',
+            7,
+            true,
+            null,
+            {},
+            { code: 'write-failed' },
+            ['write-failed'],
+            '__proto__',
+            'constructor',
+            'toString',
+            'hasOwnProperty',
+        ];
+        for (const code of hostile) {
+            expect(refusalCodeOf(frame(code))).toBeNull();
+        }
+        // Absent: the shape every peer that predates the field sends.
+        expect(refusalCodeOf({ type: 'incompatible', reason: 'x', pv: 1, pvMin: 1 })).toBeNull();
+        // A parsed "__proto__" KEY must not smuggle a code in through the prototype.
+        const protoKey = classifyControl(
+            toUint8('{"type":"incompatible","reason":"x","pv":1,"pvMin":1,"__proto__":{"code":"write-failed"}}')
+        ) as Incompatible;
+        expect(refusalCodeOf(protoKey)).toBeNull();
+    });
+});
+
+/**
  * pv and pvMin arrive from the peer with no more type safety than fileSize had
  * before normalizeFileSize. They reach an error banner and, through
  * peerCompatErrorMessage, the wire, so they need the same treatment reason and
@@ -307,5 +431,74 @@ describe('classifyControl', () => {
     it('accepts an ArrayBuffer as well as Uint8Array', () => {
         const buf = toArrayBuffer(endMessage());
         expect(classifyControl(buf)?.type).toBe('end');
+    });
+});
+
+describe('per-file SHA-256 fields', () => {
+    const good = '0123456789abcdef'.repeat(4);
+
+    it('normalizeSha256 accepts only 64 lowercase hex', () => {
+        expect(normalizeSha256(good)).toBe(good);
+        // JSON escapes are undone by the parse, as in the Go engine.
+        expect(normalizeSha256((JSON.parse('{"sha256":"\\u0030' + good.slice(1) + '"}') as { sha256: unknown }).sha256)).toBe(good);
+        for (const bad of [good.toUpperCase(), good.slice(0, 63), good + '0', good.slice(0, 63) + 'g', '', ' ' + good, 3, null, undefined, true, {}, [good]]) {
+            expect(normalizeSha256(bad), JSON.stringify(bad)).toBeNull();
+        }
+    });
+
+    it('endMessage omits sha256 without a valid digest', () => {
+        for (const bad of [undefined, null, good.toUpperCase(), good.slice(0, 63)]) {
+            expect(endMessage(bad)).toBe('{"type":"end"}');
+        }
+        const hashed = endMessage(good);
+        // type first: the transfer audit's hashbad cells match this prefix.
+        expect(hashed.startsWith('{"type":"end","sha256":"')).toBe(true);
+        expect(JSON.parse(hashed)).toEqual({ type: 'end', sha256: good });
+        expect(enc.encode(hashed).byteLength).toBe(90);
+    });
+
+    it('verifiedCountOf rejects non-integers and out-of-range', () => {
+        const of = (v: unknown) => verifiedCountOf({ type: 'received', verified: v } as Received, 3);
+        expect(of(0)).toBe(0);
+        expect(of(3)).toBe(3);
+        for (const bad of [-1, 4, 3.5, '3', 2 ** 53, Infinity, NaN, null, true, [3], undefined]) {
+            expect(of(bad), String(bad)).toBeNull();
+        }
+    });
+});
+
+describe('classifyControl and JSON whitespace', () => {
+    it('classifyControl accepts leading JSON whitespace', () => {
+        for (const lead of [' ', '\t', '\r\n', '\n  ']) {
+            expect(classifyControl(lead + '{"type":"end"}')?.type, JSON.stringify(lead)).toBe('end');
+        }
+        // Only the four JSON whitespace characters count, as in the Go engine.
+        expect(classifyControl(' {"type":"end"}')).toBeNull();
+        expect(classifyControl('x{"type":"end"}')).toBeNull();
+        expect(classifyControl('   ')).toBeNull();
+    });
+});
+
+// W3 R3-03: the two browser hash waits against the Go clocks they exist to
+// stay under, read from the Go sources so a change on either side fails here.
+// The end-digest wait leaves 15 s of a Go receiver's stall for the end frame
+// to cross; the post-end wait leaves room for a Go sender's undrained tail
+// (HIGH_WATER at 0.5 MB/s, about 17 s) before that sender's ack clock ends.
+describe('the browser hash waits fit the Go clocks', () => {
+    const goSecondsMs = (file: string, name: string): number => {
+        const src = readFileSync(new URL(`../../../cli/engine/transfer/${file}`, import.meta.url), 'utf8');
+        const line = src.split('\n').find((l) => l.includes(name) && l.includes('time.Second'));
+        const m = line ? /=\s*(\d+)\s*\*\s*time\.Second/.exec(line) : null;
+        if (!m) throw new Error(`${name} not found in ${file}`);
+        return Number(m[1]) * 1000;
+    };
+
+    it('END_DIGEST_WAIT_MS leaves 15 s of receiveStallTimeout', () => {
+        expect(END_DIGEST_WAIT_MS + 15_000).toBeLessThanOrEqual(goSecondsMs('receiver.go', 'receiveStallTimeout'));
+    });
+
+    it('POST_END_HASH_WAIT_MS leaves a Go sender its tail drain inside defaultAckTimeout', () => {
+        const tailDrainMs = (HIGH_WATER / 500_000) * 1000;
+        expect(POST_END_HASH_WAIT_MS + tailDrainMs).toBeLessThanOrEqual(goSecondsMs('deadlines.go', 'defaultAckTimeout'));
     });
 });

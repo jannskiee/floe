@@ -1,0 +1,19 @@
+import React from 'react';
+import { Marker } from '@/components/request/RequestStatus';
+
+/** V1 and V2. Both are terminal, both were decided locally, and neither offers a
+ *  button: there is nothing here for the page to retry. The dot is the status
+ *  cards' ending ring (WV-09, WV-10). */
+export function NoticeCard({ title, body }: { title: string; body: string }) {
+    return (
+        <section className="w-full rounded-2xl border border-white/[0.08] bg-zinc-950/85 p-6 shadow-[0_40px_90px_-30px_rgb(0_0_0/0.9)] sm:p-7">
+            <div className="flex items-start gap-2.5">
+                <Marker kind="ended" />
+                <h1 tabIndex={-1} data-card-heading="" className="min-w-0 break-words text-base font-semibold leading-[1.3] tracking-tight text-white outline-none">
+                    {title}
+                </h1>
+            </div>
+            <p className="mt-3 text-sm leading-relaxed text-zinc-400">{body}</p>
+        </section>
+    );
+}

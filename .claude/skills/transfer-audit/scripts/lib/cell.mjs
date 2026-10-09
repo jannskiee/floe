@@ -27,6 +27,7 @@ import {
 } from './fixtures.mjs';
 import { classifyPair } from './route.mjs';
 import { readFileSync } from 'node:fs';
+import { INFRA_KEYS, PENALIZED_KEYS, SIGNATURES, classifySignature } from './triage.mjs';
 
 export const PHASES = Object.freeze([
     'setup',
@@ -44,224 +45,6 @@ export const RETRY_WAIT_MS = 20_000;
 export const DRAIN_WAIT_MS = 90_000;
 export const ROUTE_POLL_MS = 500;
 export const KILL_POLL_MS = 500;
-
-// [key, regex, retryable ('rel' = only on relay cells with a TURN-heavy
-// window or a STUN-only warning), triage heading]. First hit wins.
-export const SIGNATURES = Object.freeze([
-    [
-        'early-race',
-        /connected, but no data arrived from the sender within|Connected, but the sender never started sending|receiver left or declined before the transfer started|no-data-after-connect/i,
-        false,
-        'connect-then-nothing',
-    ],
-    ['hash-mismatch', /hash-mismatch/, false, 'hash-mismatch'],
-    ['incomplete-file', /incomplete file "/, false, 'incomplete-file'],
-    ['route-mismatch', /route-mismatch/, false, 'route-mismatch'],
-    ['route-disagree', /route-disagree/, false, 'route-disagree'],
-    ['forcer-ineffective', /forcer-ineffective/, false, 'forcer-ineffective'],
-    ['stats-attempt', /stats-attempt/, false, 'stats-attempt'],
-    // A .part left behind by a receiver that exited clean is a product
-    // defect (the staged write was never committed or abandoned), never a
-    // harness fault.
-    ['stale-part', /stale-part|stale \.part file/, false, 'stale-part'],
-    // A CLI or desktop sender whose POST /api/code failed prints only the
-    // Link row (send.go runSend: "Warning: could not generate short code"); the
-    // cause is the code limiter, so the retry is allowed and paced.
-    [
-        'code-registration-failed',
-        /code-registration-failed|could not generate short code/i,
-        true,
-        'rate-limit',
-    ],
-    [
-        'relay-cap',
-        /relay connections are capped at 2 GB|Relay limit exceeded/,
-        false,
-        'relay-cap',
-    ],
-    [
-        'uia-setvalue',
-        /Please enter a code or link\.|uia-setvalue|desktop-receiver-undrivable/i,
-        false,
-        'uia-setvalue',
-    ],
-    // Only the texts a real 429 produces: the server bodies, the CLI's
-    // code client ("server returned 429 when registering|resolving code")
-    // and an HTTP status line. A bare 429 also appears in byte counts
-    // ("429 of 12582912 bytes") and speeds ("429.3 KB/s"), so it is never
-    // matched on its own.
-    [
-        'rate-limited',
-        /Too many refreshes|Rate limit exceeded|Too many requests|Too many reports|server returned 429\b|HTTP 429\b/i,
-        true,
-        'rate-limit',
-    ],
-    // The browser leg records the status of every TURN credential answer.
-    // A refused fetch on a relay-forced page leaves it with no candidates at
-    // all, so its peer's connect timeout is the limiter's, not the network's.
-    // 429 is the per-IP limiter (drain the window and retry); 5xx is the
-    // server or the Cloudflare mint failing, which is infra, exactly as the
-    // same answer seen by a CLI leg (ice-fetch-failed) already is.
-    [
-        'turn-fetch-rejected',
-        /turn-fetch-status 429\b/,
-        true,
-        'turn-fetch-rejected',
-    ],
-    // Any other status the hint can carry: a 5xx from the server or the
-    // Cloudflare mint, a 4xx, or the 0 the adapter records for a fetch that
-    // never got headers. The 429 row sits above and wins; 200 and 304 never
-    // reach the classifier.
-    ['turn-fetch-failed', /turn-fetch-status \d+\b/, true, 'infra-down'],
-    // The one designed FAIL of the relay-cap cell: bytes crossed the relay
-    // before the gate, or the sender ended some other way.
-    ['cap-not-enforced', /cap-not-enforced/, false, 'cap-not-enforced'],
-    ['turn-degraded', /Using STUN only/, 'rel', 'turn-degraded'],
-    [
-        'ice-fetch-failed',
-        /failed to fetch ICE credentials/i,
-        true,
-        'infra-down',
-    ],
-    [
-        'signaling-unreachable',
-        /could not reach signaling server|failed to connect to signaling server|Could not reach the server/i,
-        true,
-        'infra-down',
-    ],
-    [
-        'room-full',
-        /room is full|Link Invalid|expected sender role/i,
-        true,
-        'room-full',
-    ],
-    [
-        'goto-timeout',
-        /page\.goto|navigation timeout|goto-timeout/i,
-        true,
-        'stale-bundle',
-    ],
-    [
-        'stale-bundle-reload',
-        /stale-bundle-reload|ChunkLoadError|module factory is not available/i,
-        true,
-        'stale-bundle',
-    ],
-    // The product's own connect timeouts, plus the harness's: on a DIR
-    // cell the connect budget (45 s) runs out before the CLI's own error
-    // (signalWaitTimeout 30 s + connectTimeout 30 s) can land, so the
-    // waitLine, waitForFunction and phase-timeout texts are the signature.
-    [
-        'connect-timeout',
-        /timed out establishing a connection|timed out waiting for the peer|A connection could not be established|Connection failed|no line matching \/\^ \{2\}Connected|no PC reached connected in|phase timeout: connect exceeded/i,
-        'rel',
-        'connect-timeout',
-    ],
-    [
-        'code-expired',
-        /not found or expired|was not recognized/i,
-        false,
-        'code-expired',
-    ],
-    ['code-spent', /no longer active/i, false, 'code-spent'],
-    [
-        'peer-refused',
-        /connection closed before any file arrived/i,
-        false,
-        'peer-refused',
-    ],
-    ['ack-timeout', /timed out waiting for ack/i, false, 'ack-timeout'],
-    [
-        'stall',
-        /transfer stalled: no data for|backpressure stall|connection closed mid-transfer/i,
-        false,
-        'stall',
-    ],
-    ['incompatible', /Cannot transfer: /, false, 'incompatible'],
-    ['wsl-host-ip', /wsl: no default route IP/, false, 'wsl-host-ip'],
-    ['phase-timeout', /phase timeout/i, false, 'phase-timeout'],
-]);
-
-/**
- * Every key that has a row in references/triage.md. The report prints its
- * "no row" disclaimer from this set, so a key with a row never carries the
- * disclaimer and a key without one always does. triage.test.mjs asserts
- * this set and the table's first column are the same.
- */
-export const TRIAGE_KEYS = new Set([
-    'connect-then-nothing',
-    'room-full',
-    'code-expired',
-    'code-spent',
-    'turn-degraded',
-    'turn-fetch-rejected',
-    'turn-fetch-failed',
-    'cap-not-enforced',
-    'connect-timeout',
-    'relay-cap',
-    'phase-timeout',
-    'stale-bundle',
-    'stats-attempt',
-    'rate-limit',
-    'uia-setvalue',
-    'infra-down',
-    'stall',
-    'incomplete-file',
-    'hash-mismatch',
-    'incompatible',
-    'route-disagree',
-    'route-mismatch',
-    'forcer-ineffective',
-    'peer-refused',
-    'ack-timeout',
-    'stale-part',
-    'kill-receiver-part',
-    'kill-failed',
-    'kill-sender-outcome',
-    'kill-sender-cleanup',
-    'stats-delta',
-    'wsl-host-ip',
-]);
-
-export const INFRA_KEYS = new Set([
-    'ice-fetch-failed',
-    'signaling-unreachable',
-    'turn-fetch-failed',
-]);
-
-/**
- * Signature keys whose retry drains a full limiter window and counts a
- * ledger symptom. lib/pacing.mjs makes two CONSECUTIVE symptoms infraDown(),
- * so audit.mjs clears them after any cell that ended for another reason.
- */
-export const PENALIZED_KEYS = new Set([
-    'rate-limited',
-    'code-registration-failed',
-    'turn-degraded',
-    'turn-fetch-rejected',
-    'connect-timeout',
-]);
-
-/** classifySignature(text, { relay, turnHeavy }) -> { key, retryable, triage, text } */
-export function classifySignature(
-    text,
-    { relay = false, turnHeavy = false } = {}
-) {
-    const s = String(text || '');
-    for (const [key, re, retry, triage] of SIGNATURES) {
-        if (re.test(s)) {
-            const retryable =
-                retry === 'rel' ? relay && turnHeavy : Boolean(retry);
-            return { key, retryable, triage, text: firstLine(s) };
-        }
-    }
-    return {
-        key: 'unknown',
-        retryable: false,
-        triage: null,
-        text: firstLine(s),
-    };
-}
 
 /**
  * Lines from a web leg's evidence: one per leg whose LAST TURN credential
@@ -305,15 +88,6 @@ export function candidateNotes(legs = {}) {
     return out;
 }
 
-export function isEarlyRace(text) {
-    return classifySignature(text).key === 'early-race';
-}
-
-const firstLine = (s) =>
-    String(s || '')
-        .split(/\r?\n/)
-        .find((l) => l.trim()) || '';
-
 export function describeError(e) {
     if (!e) return null;
     return {
@@ -344,6 +118,9 @@ function withTimeout(promise, ms, phase) {
     });
     return Promise.race([promise, t]).finally(() => clearTimeout(timer));
 }
+
+/** The phase clock, for lib/request.mjs's own attempt. */
+export { withTimeout as attemptTimeout };
 
 export function assertStatsOff(cell) {
     if (!cell.receiver || cell.receiver.statsOff !== true)
@@ -464,6 +241,11 @@ function legOpts(cell, role, ctx, rec, extra) {
         cliHasRelayOnly: Boolean(ctx.cliHasRelayOnly),
         expect: cell.expect,
         killAtBytes: cell.killAtBytes,
+        // Only the sender lies, and only in a hashbad or hashmal cell (P0-27).
+        hashLie: role === 'sender' ? cell.hashLie || null : null,
+        // The receiver of a lying sender watches for its own discard copy, the
+        // refusal it must produce (a browser receiver has no exit code).
+        peerLies: role === 'receiver' ? Boolean(cell.hashLie) : false,
         pionTrace: Boolean(
             ctx.pionTrace &&
             cell.path === 'REL' &&
@@ -584,7 +366,25 @@ export function bytesReportedCount(raw) {
     return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-function statsProofCheck(cell, ev, rec, ctx) {
+/**
+ * Harness fix 12: a CLI receiver leg counts into the Safety denominator when
+ * it is spawned, with `ok` decided from the argv and environment the leg was
+ * started with. Counting at verify dropped every leg whose cell failed in
+ * the connect phase (the baseline default run launched 6 CLI receiver legs
+ * and reported 5/5; its rerun 2 reported 0/0). Once per attempt record.
+ */
+export function countCliReceiverAtSpawn(cell, leg, rec, ctx) {
+    const surface = cell.receiver.surface;
+    if (!ctx.safety || rec.cliReceiverCounted) return;
+    if (surface !== 'cli' && surface !== 'wsl') return;
+    const proof = safeEvidence(leg)?.statsProof || null;
+    rec.cliReceiverCounted = true;
+    ctx.safety.cliReceiversOptedOut.total += 1;
+    if (proof?.noReport && proof?.floeNoStats === '1')
+        ctx.safety.cliReceiversOptedOut.ok += 1;
+}
+
+export function statsProofCheck(cell, ev, rec, ctx) {
     const proof = ev?.statsProof || null;
     const surface = cell.receiver.surface;
     const events = bytesReportedCount(
@@ -643,7 +443,10 @@ function statsProofCheck(cell, ev, rec, ctx) {
     } else if (surface === 'cli' || surface === 'wsl') {
         out.proof.argvNoReport = Boolean(proof?.noReport);
         out.proof.envNoStats = proof?.floeNoStats === '1';
-        if (ctx.safety) {
+        // Counted at spawn (countCliReceiverAtSpawn); this is only the
+        // fallback for a leg that reached verify without passing there.
+        if (ctx.safety && !rec.cliReceiverCounted) {
+            rec.cliReceiverCounted = true;
             ctx.safety.cliReceiversOptedOut.total += 1;
             if (out.proof.argvNoReport && out.proof.envNoStats)
                 ctx.safety.cliReceiversOptedOut.ok += 1;
@@ -696,6 +499,17 @@ function recordSafety(cell, rec, ctx) {
         // The Store-mode config guard reports its restore on both roles.
         if (ev.config && ev.config.applied && ev.config.match === false)
             s.desktopReceiversOptedOut.configRestoredIdentical = false;
+        // Its mtime restore too (fix 14): one leg that could not put the
+        // mtime back keeps the line at "mtime changed" for the run.
+        if (ev.config && ev.config.applied) {
+            if (ev.config.mtimeRestored === false)
+                s.desktopReceiversOptedOut.configMtimeRestored = false;
+            else if (
+                ev.config.mtimeRestored === true &&
+                s.desktopReceiversOptedOut.configMtimeRestored !== false
+            )
+                s.desktopReceiversOptedOut.configMtimeRestored = true;
+        }
         if (side === 'receiver' && ev.saveDir && ev.saveDir.changed) {
             const ok = ev.saveDir.restored === true;
             s.saveDirRestored = s.saveDirRestored === false ? false : ok;
@@ -779,6 +593,10 @@ async function receiverOutputs(
  * output dir, so the previous attempt's .part is not counted again.
  */
 function bytesMovedOf(cell, rec, fixture, outs) {
+    // A forced mismatch sends every byte before the refusal, and the guard
+    // that counts a cap cell's bytes never runs on it (review F8).
+    if (cell.expect === 'refusal' && cell.hashLie)
+        return fixture?.totalBytes ?? 0;
     if (cell.expect === 'refusal') return rec.bytesMoved || 0;
     const killFirst =
         (cell.expect === 'kill-sender' || cell.expect === 'kill-receiver') &&
@@ -826,6 +644,58 @@ async function verifyAttempt(cell, ctx, rec, legs, done, fixture, outDir) {
 
     const s = done?.s;
     const r = done?.r;
+    if (cell.expect === 'refusal' && cell.hashLie) {
+        // A forced mismatch: the receiver must refuse the file and keep
+        // nothing. Bytes moving first is the point, not a failure, so the
+        // relay-cap guard below must not run on this cell.
+        // A CLI receiver's `peer-refused` class means the SENDER left before
+        // any file arrived (cli.mjs, "connection closed before any file
+        // arrived"): the receiver refused nothing and checked no digest, so it
+        // never counts here (P0-27 review F1). What does count is the
+        // receiver's own sentence (RefusedError.Error in refusal.go) or a
+        // browser receiver's own discard copy (web.mjs, kind 'refusal').
+        const peerLeft = r?.detail?.class === 'peer-refused';
+        const receiverRefused =
+            r &&
+            !peerLeft &&
+            (r.kind === 'refusal' ||
+                /did not match the SHA-256|SHA-256 for a file could not be read/.test(
+                    String(r.detail?.error || r.detail?.tail || '')
+                ));
+        if (!receiverRefused)
+            throw new PhaseError(
+                'verify',
+                `hash-not-refused: the receiver ended ${r ? `${r.kind} (${r.detail?.error || r.exitCode})` : 'without a result'} instead of refusing the digest`,
+                { signatureKey: 'hash-not-refused' }
+            );
+        // The harness sender reads the receiver's refusal frame itself, so the
+        // code on the wire is checked too: a receiver that refused for some
+        // other reason, or closed without a frame, is not the proof this cell
+        // is after.
+        if (legs.sender?.surface === 'harness') {
+            const code = s?.detail?.code ?? null;
+            if (!s || s.kind !== 'refusal' || code !== 'hash-mismatch')
+                throw new PhaseError(
+                    'verify',
+                    `hash-refusal-code: the harness sender read ${code ?? 'no refusal'} instead of hash-mismatch`,
+                    { signatureKey: 'hash-refusal-code' }
+                );
+        }
+        const outs = await receiverOutputs(cell, legs, rec, outDir, {
+            allowPart: true,
+        });
+        // Nothing at all may stay, a zero-byte .part included (review F6).
+        if (outs.length)
+            throw new PhaseError(
+                'verify',
+                `hash-not-refused: the receiver kept ${outs.length} file(s) whose digest did not match`,
+                { signatureKey: 'hash-not-refused' }
+            );
+        rec.outputs = outs;
+        rec.integrity = { ok: true, files: [] };
+        rec.route.evidence = 'refusal';
+        return;
+    }
     if (cell.expect === 'refusal') {
         // Both ways bytes can show up: a staging file for a CLI or desktop
         // receiver, and the browser receiver's own data-channel counter,
@@ -1048,11 +918,17 @@ async function verifyAttempt(cell, ctx, rec, legs, done, fixture, outDir) {
     };
 }
 
+/**
+ * hooks (lib/request.mjs openLinkHooks, TA-17) run beside the plain
+ * attempt: afterSetup(rec) as its own phase before any leg starts,
+ * afterVerify(rec) inside verify once every plain oracle held, and
+ * teardown(rec) after both legs stopped.
+ */
 export async function runAttempt(
     cell,
     ctx,
     n,
-    { reuse = null, designed = false } = {}
+    { reuse = null, designed = false, hooks = null } = {}
 ) {
     const sleep = ctx.sleep || defaultSleep;
     const T = cell.timeouts;
@@ -1132,12 +1008,36 @@ export async function runAttempt(
             await ctx.ledger.waitFor(cell.cost, { sleep, log: ctx.log });
             rec.ledgerEventsBefore = ctx.ledger.events.length;
         });
+        if (hooks?.afterSetup)
+            await phase('request.host', T.link + 30_000, () =>
+                hooks.afterSetup(rec)
+            );
         await phase('sender.start', T.link + 5_000, async () => {
-            const mod = await ctx.getAdapter(cell.sender.surface);
+            // A CLI-shaped sender that must lie about a digest is the test-only
+            // floe-e2ehost send mode, never the shipped CLI: the engine has no
+            // way to send a wrong digest and must not gain one. Every other
+            // cell, and every receiver, uses its own surface's adapter.
+            const senderAdapter =
+                cell.hashLie && cell.sender.surface === 'cli'
+                    ? 'harness'
+                    : cell.sender.surface;
+            const mod = await ctx.getAdapter(senderAdapter);
             legs.sender = mod.createLeg(
                 legOpts(cell, 'sender', ctx, rec, {
                     files: fixture.paths,
                     evidenceDir: path.join(rec.evidenceDir, 'sender'),
+                    // The harness is staged per run by prepareHarnessBuild;
+                    // the cell's own build is the shipped-shape CLI's.
+                    ...(senderAdapter === 'harness'
+                        ? {
+                              bin: ctx.buildFor
+                                  ? (ctx.buildFor('harness')?.path ?? null)
+                                  : null,
+                              // How long the harness waits for the refusal
+                              // after its last byte: the cell's exit budget.
+                              refusalWaitMs: T.exit,
+                          }
+                        : {}),
                 })
             );
             await legs.sender.start();
@@ -1183,6 +1083,7 @@ export async function runAttempt(
                 })
             );
             await legs.receiver.start();
+            countCliReceiverAtSpawn(cell, legs.receiver, rec, ctx);
             if (ctx.onPid)
                 ctx.onPid(legPid(legs.receiver), `${cell.id}:receiver`);
         });
@@ -1208,7 +1109,12 @@ export async function runAttempt(
             T.firstBytes + T.complete + T.exit,
             async () => {
                 let guard = null;
-                if (cell.expect === 'refusal')
+                // The byte guard is the relay cap's oracle: that refusal must
+                // come before any byte moves. A forced mismatch refuses after
+                // every byte moved, so the guard would stop a correct run (a
+                // browser receiver's own counter trips it at the first chunk,
+                // and a CLI receiver's .part only escaped it between polls).
+                if (cell.expect === 'refusal' && !cell.hashLie)
                     guard = startByteGuard(legs, rec, ctx, outDir);
                 else if (
                     cell.expect === 'kill-sender' ||
@@ -1232,8 +1138,11 @@ export async function runAttempt(
                         const t0 = Date.now();
                         const s = await legs.sender.awaitDone(budget);
                         const left = Math.max(1000, budget - (Date.now() - t0));
+                        // A browser receiver of a lying sender does have an
+                        // oracle: its own fixed discard copy (P0-27), so it is
+                        // awaited rather than synthesized from the sender's word.
                         const noOracle =
-                            cell.receiver.surface === 'web' ||
+                            (cell.receiver.surface === 'web' && !cell.hashLie) ||
                             cell.receiver.surface === 'desktop';
                         let r = null;
                         if (!rec.guardTripped) {
@@ -1290,9 +1199,10 @@ export async function runAttempt(
             sender: completionOf(done, 's'),
             receiver: completionOf(done, 'r'),
         };
-        await phase('verify', T.verify, () =>
-            verifyAttempt(cell, ctx, rec, legs, done, fixture, outDir)
-        );
+        await phase('verify', T.verify, async () => {
+            await verifyAttempt(cell, ctx, rec, legs, done, fixture, outDir);
+            if (hooks?.afterVerify) await hooks.afterVerify(rec);
+        });
         rec.ok = true;
         rec.outcome = 'pass';
     } catch (e) {
@@ -1396,6 +1306,21 @@ export async function runAttempt(
                     }
                     rec.evidence[side] = safeEvidence(l);
                 }
+                if (hooks?.teardown) {
+                    try {
+                        await hooks.teardown(rec);
+                    } catch (e) {
+                        rec.notes.push(`teardown hook: ${e.message}`);
+                        if (e instanceof SafetyError || e.safety) {
+                            rec.ok = false;
+                            rec.outcome = 'fail';
+                            rec.safety = true;
+                            rec.safetyError = e;
+                            rec.error = rec.error || describeError(e);
+                            rec.failedPhase = rec.failedPhase || 'teardown';
+                        }
+                    }
+                }
                 recordSafety(cell, rec, ctx);
                 if (
                     ctx.ledger &&
@@ -1468,7 +1393,14 @@ export async function runAttempt(
 export function baseResult(cell, ctx) {
     const build = (surface, role) =>
         ctx.buildFor ? ctx.buildFor(surface, role) : null;
-    const sb = build(cell.sender.surface, 'sender');
+    // A CLI-shaped sender that lies is the staged floe-e2ehost, not the head
+    // CLI, and the report's sender build says so (P0-27 review F4).
+    const sb = build(
+        cell.hashLie && cell.sender.surface === 'cli'
+            ? 'harness'
+            : cell.sender.surface,
+        'sender'
+    );
     const rb = build(cell.receiver.surface, 'receiver');
     return {
         id: cell.id,
@@ -1542,8 +1474,16 @@ function fill(result, rec, cell) {
         result.route.label = pair.label;
         result.route.sources = pair.sources;
     }
-    if (rec.route?.evidence === 'refusal')
-        result.route.label = 'relay [refusal]';
+    if (rec.route?.evidence === 'refusal') {
+        // The label follows the path the run observed. It used to be the
+        // literal 'relay [refusal]', which was true while the only refusal cell
+        // was the 2 GB relay cap and read as a lie on a direct hashbad cell
+        // whose own sources both said direct. `observed` is always set
+        // ('unobserved' at worst, and a passing cap cell always observed
+        // relay), so there is no fallback to the cell's own path: a label never
+        // claims a path nobody saw (P0-27 review F5).
+        result.route.label = `${result.route.observed} [refusal]`;
+    }
     if (rec.integrity) result.integrity = rec.integrity;
     if (rec.completion) result.completion = rec.completion;
     if (rec.stats) result.stats = rec.stats;
@@ -1555,18 +1495,39 @@ function fill(result, rec, cell) {
     result.receiver.outputDir = rec.outDir ?? null;
 }
 
+/**
+ * A capture under an attempt's private/ folder: the request host's, which
+ * can show a request link on screen (lib/request.mjs). Judged relative to
+ * the attempt folder, and by a `private` path segment for a capture kept
+ * anywhere else.
+ */
+export function isPrivateCapture(file, attemptDir) {
+    const p = String(file || '');
+    if (attemptDir) {
+        const rel = path.relative(attemptDir, p);
+        if (rel && !rel.startsWith('..') && !path.isAbsolute(rel))
+            return /^private(?:[\\/]|$)/i.test(rel);
+    }
+    return /(^|[\\/])private[\\/]/i.test(p);
+}
+
 export function attemptSummary(rec) {
     const { safetyError, fixture, evidence, timeline, ...rest } = rec;
+    // lib/desktop.mjs captures are { tag, t, path, w, h }; the report wants
+    // paths. A private capture stays on disk and is counted, but its path
+    // never reaches audit.md or run.json, which both read this summary: the
+    // Evidence line then names the attempt folder.
+    const shots = (evidence?.captures ?? []).map((c) =>
+        typeof c === 'string' ? c : (c && c.path) || String(c)
+    );
+    const hidden = shots.filter((p) => isPrivateCapture(p, rec.evidenceDir));
     return {
         ...rest,
         evidence: {
             senderTranscript: evidence?.sender?.transcript ?? null,
             receiverTranscript: evidence?.receiver?.transcript ?? null,
-            // lib/desktop.mjs captures are { tag, t, path, w, h }; the
-            // report wants paths.
-            captures: (evidence?.captures ?? []).map((c) =>
-                typeof c === 'string' ? c : (c && c.path) || String(c)
-            ),
+            captures: shots.filter((p) => !hidden.includes(p)),
+            privateCaptures: hidden.length,
             browserConsole:
                 evidence?.receiver?.console ??
                 evidence?.sender?.console ??
@@ -1595,6 +1556,18 @@ export async function runCell(cell, ctx) {
         return result;
     }
     assertStatsOff(cell);
+    // A request cell never runs as a plain cell: its own runner makes the
+    // link, drives the visitor on /r and checks the drop subfolder
+    // (lib/request.mjs), and TA-17 holds a link open beside its quick cell.
+    // Imported here, not at the top, because request.mjs imports this file.
+    let attemptFn = runAttempt;
+    if (cell.request) {
+        const req = await import('./request.mjs');
+        attemptFn =
+            cell.request.flow === 'open-link-precondition'
+                ? req.runOpenLinkAttempt
+                : req.runRequestAttempt;
+    }
     const sleep = ctx.sleep || defaultSleep;
     ctx.retry = ctx.retry || { used: 0, cap: RETRY_CAP };
     const attempts = [];
@@ -1648,7 +1621,7 @@ export async function runCell(cell, ctx) {
         ];
     };
 
-    const a = await runAttempt(cell, ctx, 1);
+    const a = await attemptFn(cell, ctx, 1);
     attempts.push(a);
     if (cell.expect === 'kill-receiver') {
         if (!a.ok) return finish(...failureOf(a), a);
@@ -1697,7 +1670,7 @@ export async function runCell(cell, ctx) {
             );
         await sleep(ctx.retryWaitMs ?? RETRY_WAIT_MS);
     }
-    const b = await runAttempt(cell, ctx, 2);
+    const b = await attemptFn(cell, ctx, 2);
     attempts.push(b);
     if (b.ok) {
         const unproven = routeNoteOf(b);

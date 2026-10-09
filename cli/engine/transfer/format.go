@@ -72,6 +72,15 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dh %dm", secs/3600, (secs%3600)/60)
 }
 
+// FormatBytes is formatBytes for other packages: the request-link send
+// (cli/cmd/floe/sendto.go) prints its own START and ending lines in place of
+// the summary box (TL-01, TL-03), and a size there must read exactly as it
+// does everywhere else here.
+func FormatBytes(n int64) string { return formatBytes(n) }
+
+// FormatDuration is formatDuration for other packages, for the same reason.
+func FormatDuration(d time.Duration) string { return formatDuration(d) }
+
 func pluralize(n int, word string) string {
 	if n == 1 {
 		return fmt.Sprintf("1 %s", word)
@@ -94,6 +103,15 @@ func truncateName(name string, maxLen int) string {
 // when it shortens a name, matching the 16-unit rule of the browser's
 // sanitizeSegment so both surfaces agree on what counts as an extension.
 const displayExtMax = 16
+
+// DisplayText is displayText for other packages that print a string a peer
+// had a hand in: the peer package's SetupError wraps the SDP token pion quotes
+// in its error, and a command that prints a RefusedError's cause line goes
+// through here too. Same treatment, same caps; callers pass maxDisplayReason's
+// value (300) for an error string.
+func DisplayText(s string, maxRunes int) string {
+	return displayText(s, maxRunes)
+}
 
 // displayText makes a peer-supplied string safe to print to a terminal, hand
 // to a GUI callback, or embed in an error: C0/C1 controls, DEL and the Unicode
@@ -199,7 +217,7 @@ func Summarize(paths []string) (Summary, error) {
 		return Summary{}, err
 	}
 	if len(files) == 0 {
-		return Summary{}, fmt.Errorf("no files to send")
+		return Summary{}, ErrNoFiles
 	}
 	var total int64
 	for _, f := range files {

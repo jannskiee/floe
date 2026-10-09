@@ -5,7 +5,11 @@
  * The parser fixtures under tests/fixtures/ were captured from the shipped
  * floe 1.10.5 sending and receiving through a local floe-run stack, with
  * the room id, the code and the output path replaced by fixed synthetic
- * values (the shapes are what matter). Two more cases run the real binary
+ * values (the shapes are what matter). send-to-head.stdout.txt is the head
+ * CLI's request-link send (sendto.go, TA-16) captured in process by the
+ * FU-B6 lane against the cmd/floe tests' fake request-room server and a
+ * scripted host that answered received with both files verified; the CLI
+ * never prints the link, so it holds no room. Two more cases run the real binary
  * when `floe` is on PATH: `--help`/`--version` through preflight, and a
  * `floe send` against an unreachable server, which prints the STUN
  * warning and exits 1 before any code box (main.go: signaling.Connect runs
@@ -41,6 +45,7 @@ import {
     parseHelpFlags,
     parseLink,
     parsePionPair,
+    parseRequestOutcome,
     parseSummary,
     parseVersion,
     preflight,
@@ -735,3 +740,159 @@ test(
         assert.equal(leg.evidence().env.FLOE_NO_UPDATE_CHECK, '1');
     }
 );
+
+test('parses the Verified row', () => {
+    // Shape from receiver.go's summary: labels padded to the longest one.
+    const lines = [
+        '  ─────',
+        '  Received   3 files (12 MB)',
+        '  Time       4s · avg 3.0 MB/s',
+        '  Verified   SHA-256 matched',
+        '  Saved to   /tmp/out',
+        '  ─────',
+    ];
+    const summary = parseSummary(lines.join('\n'));
+    assert.equal(summary.verified, 'SHA-256 matched');
+    assert.equal(summary.received, '3 files (12 MB)');
+    assert.equal(summary.savedTo, '/tmp/out');
+
+    // A transfer without digests has no row at all, and the field says so.
+    const noRow = parseSummary(['  Received   1 file (1 MB)', '  Time       1s'].join('\n'));
+    assert.equal(noRow.verified, null);
+});
+
+// ---------------------------------------------------------------------------
+// TA-16: the request-link visitor, floe send --to (sendto.go)
+// ---------------------------------------------------------------------------
+
+const TO_LINK = 'http://localhost:3000/r/Xk3p9Q0aB1c#11111111-2222-4333-8444-555555555555';
+const TO_FIXTURE = join(FIXTURES, 'send-to-head.stdout.txt');
+
+test('buildArgs and buildEnv: the request-link visitor sends with --to and no --web, with FLOE_NO_STATS=1', () => {
+    assert.deepEqual(
+        buildArgs({ role: 'sender', requestLink: TO_LINK, files: ['a.bin', 'b.bin'], infra: INFRA }),
+        ['send', 'a.bin', 'b.bin', '--to', TO_LINK, '--server', INFRA.server]
+    );
+    assert.deepEqual(
+        buildArgs({
+            role: 'sender',
+            requestLink: TO_LINK,
+            files: ['a.bin'],
+            infra: INFRA,
+            relayOnly: true,
+            cliHasRelayOnly: true,
+        }).slice(-1),
+        ['--relay-only']
+    );
+    assert.throws(
+        () => buildArgs({ role: 'sender', requestLink: TO_LINK, files: [], infra: INFRA }),
+        /cli visitor: opts\.files is empty/
+    );
+    const env = buildEnv(
+        { role: 'sender', requestLink: TO_LINK },
+        { PATH: 'p', FLOE_SERVER: 'https://api.floe.one', FLOE_NO_STATS: '0' }
+    );
+    assert.equal(env.FLOE_NO_STATS, '1');
+    assert.equal(env.FLOE_SERVER, undefined);
+    assert.equal(env.FLOE_NO_UPDATE_CHECK, '1');
+    // A plain sender is unchanged: no FLOE_NO_STATS.
+    assert.equal(buildEnv({ role: 'sender' }, { PATH: 'p' }).FLOE_NO_STATS, undefined);
+});
+
+test('parseRequestOutcome on the head CLI transcript and on synthetic endings', () => {
+    const captured = parseRequestOutcome(fixture(TO_FIXTURE));
+    assert.deepEqual(captured.arrived && { files: captured.arrived.files }, { files: 2 });
+    assert.match(captured.arrived.line, /^All 2 files arrived \(.+ in \d+s, direct\)\.$/);
+    assert.equal(captured.shaLine, true);
+    assert.equal(captured.connected, 'direct');
+    assert.equal(captured.outcome, null);
+    assert.ok(!fixture(TO_FIXTURE).includes('#'), 'the transcript never prints the link back');
+    // The WAIT line of D-144 (6), START and the arrived line, as the markers read them.
+    const lines = fixture(TO_FIXTURE).split('\n');
+    for (const m of ['sending', 'joining', 'connecting', 'connected', 'requestWaiting', 'arrived', 'shaMatched'])
+        assert.ok(lines.some((l) => MARKERS[m].test(l)), `the transcript has the ${m} line`);
+
+    const one = parseRequestOutcome(
+        ['  Connected (relay)', '  Waiting for them to accept. They have 9 min to answer.', '', '  1 file arrived (620 MB in 16s, relay).'].join('\n')
+    );
+    assert.deepEqual(one.arrived, { files: 1, detail: '620 MB in 16s, relay', line: '1 file arrived (620 MB in 16s, relay).' });
+    assert.equal(one.shaLine, false);
+    assert.equal(one.connected, 'relay');
+    const refused = parseRequestOutcome(
+        '  Waiting for them to accept. They have 9 min to answer.\n',
+        'sctp ERROR: 2026/09/30 teardown\n  Their computer ran out of space.\n  4 of 12 files were saved.\n'
+    );
+    assert.equal(refused.arrived, null);
+    assert.equal(refused.outcome, '4 of 12 files were saved.');
+});
+
+test('CliLeg request visitor: start waits for WAIT, never hands the link out, and ends on TL-03', async () => {
+    const spent = [];
+    const leg = createLeg(
+        fakeOpts({ role: 'sender', files: ['a.bin'], requestLink: TO_LINK, ledger: { spend: (k) => spent.push(k) } })
+    );
+    await leg.start();
+    assert.deepEqual(spent, ['turn', 'conn'], 'a TURN fetch and a socket, and no code: it joins with request-join');
+    assert.ok(typeof leg.marks.waiting === 'number');
+    assert.equal(await leg.link(), null);
+    assert.equal(await leg.code(), null);
+    assert.equal(leg.route()?.verdict, 'direct', 'the Connected line before WAIT names the route');
+    const done = await leg.awaitDone(10_000);
+    assert.equal(done.ok, true);
+    assert.equal(done.kind, 'transfer');
+    assert.equal(done.exitCode, 0);
+    assert.equal(done.detail.arrived.files, 1);
+    assert.equal(done.detail.shaLine, true);
+    assert.equal(done.detail.outcome, null);
+    const ev = leg.evidence();
+    assert.deepEqual(ev.statsProof, { kind: 'sender-env', floeNoStats: '1' });
+    assert.equal(ev.env.FLOE_NO_STATS, '1');
+    assert.ok(ev.argv.includes('--to') && ev.argv.includes(TO_LINK), 'the argv carries the link, for the runner to redact');
+    assert.equal(ev.request.arrived.files, 1);
+    assert.ok(!readFileSync(ev.transcript, 'utf8').includes('11111111-2222'), 'the transcript never holds the room');
+    await leg.stop('done');
+});
+
+test('CliLeg request visitor: a decline is not ok and carries its fixed line; an unverified drop prints no SHA line', async () => {
+    const declined = createLeg(
+        fakeOpts({
+            role: 'sender',
+            files: ['a.bin'],
+            requestLink: TO_LINK,
+            baseEnv: { ...process.env, FAKE_FLOE_DELAY_MS: '10', FAKE_FLOE_TO: 'declined' },
+        })
+    );
+    await declined.start();
+    const d = await declined.awaitDone(10_000);
+    assert.equal(d.ok, false);
+    assert.equal(d.exitCode, 1);
+    assert.equal(d.detail.outcome, 'They declined. Nothing was sent.');
+    assert.equal(d.detail.arrived, null);
+    await declined.stop('failed');
+
+    const unverified = createLeg(
+        fakeOpts({
+            role: 'sender',
+            files: ['a.bin'],
+            requestLink: TO_LINK,
+            baseEnv: { ...process.env, FAKE_FLOE_DELAY_MS: '10', FAKE_FLOE_TO: 'unverified' },
+        })
+    );
+    await unverified.start();
+    const u = await unverified.awaitDone(10_000);
+    assert.equal(u.ok, true);
+    assert.equal(u.detail.shaLine, false);
+    await unverified.stop('done');
+});
+
+test('preflight reads --to off send --help (cliHasTo)', async () => {
+    const without = await preflight({ bin: process.execPath, binArgs: [FAKE] });
+    assert.equal(without.ok, true, without.reason);
+    assert.equal(without.detail.cliHasTo, false);
+    const withTo = await preflight({
+        bin: process.execPath,
+        binArgs: [FAKE],
+        baseEnv: { ...process.env, FAKE_FLOE_TO_FLAG: '1' },
+    });
+    assert.equal(withTo.detail.cliHasTo, true);
+});

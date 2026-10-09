@@ -1,0 +1,286 @@
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
+import { walkEntries, type EntryLike, type WalkedFile } from '@/lib/request/folderWalk';
+import { checkPick } from '@/lib/request/metadataBudget';
+import { MAX_REQUEST_FILES } from '@/lib/request/constants';
+import { visitorCopy } from '@/lib/request/visitorCopy';
+import { mergeSelection, type RequestFile } from '@/lib/request/mergeSelection';
+import { createPickTracker } from '@/lib/request/pickTracker';
+
+/**
+ * The visitor's file selection.
+ *
+ * Deliberately NOT useFileManagement. That hook belongs to "/" and reads only
+ * `dataTransfer.files`, which is top-level files and, on Chrome, a directory
+ * pseudo-File that blows up mid-batch when the sender tries to read it. Teaching
+ * it folders would put a second set of rules into the one place both pages
+ * depend on, for a page that also needs relative paths, a file cap and a
+ * frame-size check that "/" has no use for. So this is a separate hook and
+ * useFileManagement is untouched.
+ *
+ * Everything with a rule in it lives in lib/request/ with a test beside it (the
+ * walk, the byte budget, the constants, the copy); what is left here is React
+ * state and the one thing that cannot move, which is the drop handler's
+ * synchronous read of the item list.
+ */
+export interface RequestFileEvents {
+    /** A pick was added to the selection (the visitor state's E04). */
+    onPicked?: () => void;
+    /** A pick was refused and the notice now says why (E05). */
+    onRefused?: () => void;
+}
+
+export function useRequestFiles(events: RequestFileEvents = {}) {
+    const [files, setFiles] = useState<RequestFile[]>([]);
+    const [isDragging, setIsDragging] = useState(false);
+    /** A refusal, in the approved copy, or null. Never a place for free text: no
+     *  path, no name and no error string from the machine reaches it. */
+    const [notice, setNotice] = useState<string | null>(null);
+    /** Folders skipped by every pick since the last Clear, for the quiet C-35
+     *  line. Accumulated rather than replaced per pick (the S1-WEB-02 review's
+     *  open decision): the line is about the selection, and a second pick of
+     *  plain files must not make it vanish while the folder's files are still
+     *  in it. */
+    const [emptyFolders, setEmptyFolders] = useState(0);
+    /** True while a dropped folder is being walked or a plain drop probed. A
+     *  large or slow walk is visible as pending, and Send stays off until it
+     *  settles, so a half-walked folder can never be sent. Counted by the
+     *  tracker, so two overlapping drops keep it on until the last settles,
+     *  and a walk that began before Clear drops its result (review F5). */
+    const [reading, setReading] = useState(false);
+    const [tracker] = useState(createPickTracker);
+
+    // The selection as the LAST commit left it. A pick finishes after an await,
+    // by which time the closure's `files` can be a render behind, and the check
+    // below has to run against what is really selected.
+    const selected = useRef<RequestFile[]>([]);
+
+    // The caller's callbacks, current at the time a pick settles. Updated in an
+    // effect rather than during render (react-hooks/refs).
+    const eventsRef = useRef(events);
+    useEffect(() => {
+        eventsRef.current = events;
+    });
+
+    // A file let go anywhere but the dropzone. Chrome's default is to open it
+    // in this tab, which dropped the selection without a word in Ready (no
+    // leave-page prompt there) and raised the leave prompt mid-drop. The zone's
+    // own handlers run first (React listens on the document, this on the
+    // window), so a drop the zone took is already defaultPrevented and passes;
+    // anything else carrying files is refused, with the no-drop cursor.
+    useEffect(() => {
+        const refuse = (e: globalThis.DragEvent) => {
+            if (e.defaultPrevented || !Array.from(e.dataTransfer?.types ?? []).includes('Files')) return;
+            e.preventDefault();
+            if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+        };
+        window.addEventListener('dragover', refuse);
+        window.addEventListener('drop', refuse);
+        return () => {
+            window.removeEventListener('dragover', refuse);
+            window.removeEventListener('drop', refuse);
+        };
+    }, []);
+
+    const totalBytes = files.reduce((sum, f) => sum + f.file.size, 0);
+
+    /** Add files to the selection, or refuse the whole pick.
+     *
+     *  The check runs over the MERGED selection, not over what is being added:
+     *  `total` and `totalBytes` are inputs to every file's frame size, so a pick
+     *  that is fine on its own can push an earlier file over the cap. A refusal
+     *  leaves the selection exactly as it was. */
+    const commit = useCallback((incoming: WalkedFile[], skippedFolders: number) => {
+        const merged = mergeSelection(selected.current, incoming);
+        const verdict = checkPick(merged);
+        if (!verdict.ok) {
+            setNotice(
+                verdict.cause === 'too-many' ? visitorCopy.tooManyFiles : visitorCopy.pathTooLong
+            );
+            eventsRef.current.onRefused?.();
+            return;
+        }
+        selected.current = merged;
+        setFiles(merged);
+        setNotice(null);
+        setEmptyFolders((n) => n + skippedFolders);
+        eventsRef.current.onPicked?.();
+    }, []);
+
+    const ingestEntries = useCallback(
+        async (entries: EntryLike[]) => {
+            const token = tracker.begin();
+            setReading(true);
+            try {
+                const walked = await walkEntries(entries, { maxFiles: MAX_REQUEST_FILES });
+                if (!tracker.current(token)) return;
+                if (walked.outcome === 'too-many') {
+                    setNotice(visitorCopy.tooManyFiles);
+                    eventsRef.current.onRefused?.();
+                    return;
+                }
+                if (walked.outcome === 'unreadable') {
+                    setNotice(visitorCopy.folderUnreadable);
+                    eventsRef.current.onRefused?.();
+                    return;
+                }
+                commit(walked.files, walked.emptyFolders);
+            } finally {
+                tracker.end();
+                setReading(tracker.reading());
+            }
+        },
+        [commit, tracker]
+    );
+
+    /** The fallback path, for a browser with no entries API.
+     *
+     *  A dropped folder can arrive in `.files` as a pseudo-File (Chrome gives it
+     *  type '' and size 4096, Firefox size 0) whose read fails later, which is
+     *  how a whole batch used to die halfway through a send. Reading the first
+     *  byte now is what tells a real file from one of those, and a folder on
+     *  this path means the browser cannot take folders at all, which is what
+     *  C-30 says. */
+    const ingestPlainFiles = useCallback(
+        async (list: File[]) => {
+            // The same stop the walk has, for the same reason. Without it a
+            // drop of 200,000 files would run 200,000 sequential reads before
+            // checkPick ever got to refuse on count, and the tab would sit
+            // there doing it. Refuse on count first, then do per-file work.
+            if (list.length > MAX_REQUEST_FILES) {
+                setNotice(visitorCopy.tooManyFiles);
+                eventsRef.current.onRefused?.();
+                return;
+            }
+            const token = tracker.begin();
+            setReading(true);
+            try {
+                for (const file of list) {
+                    const readable = await firstByteReadable(file);
+                    if (!tracker.current(token)) return;
+                    if (!readable) {
+                        setNotice(visitorCopy.foldersUnsupported);
+                        eventsRef.current.onRefused?.();
+                        return;
+                    }
+                }
+                commit(
+                    list.map((file) => ({ file, relativePath: file.name })),
+                    0
+                );
+            } finally {
+                tracker.end();
+                setReading(tracker.reading());
+            }
+        },
+        [commit, tracker]
+    );
+
+    const handleDragOver = (e: DragEvent) => {
+        e.preventDefault();
+        setIsDragging(true);
+    };
+
+    const handleDragLeave = (e: DragEvent) => {
+        e.preventDefault();
+        // dragleave bubbles from every child the pointer crosses (the icon,
+        // the buttons, the strip's input), which switched the highlight off
+        // while the files were still over the zone.
+        if (e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) return;
+        setIsDragging(false);
+    };
+
+    const handleDrop = (e: DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+
+        // Synchronous, and it has to stay that way. A DataTransferItemList is
+        // only usable while the drop event is being dispatched: read it after
+        // the first await and it is empty, which looks exactly like a drop of
+        // nothing. Both lists are copied out here, and only then does any
+        // asynchronous work start.
+        const entries: EntryLike[] = [];
+        const items = e.dataTransfer.items;
+        for (let i = 0; i < (items?.length ?? 0); i++) {
+            const item = items[i];
+            if (item.kind !== 'file') continue;
+            const entry =
+                typeof item.webkitGetAsEntry === 'function' ? item.webkitGetAsEntry() : null;
+            if (entry) entries.push(entry as unknown as EntryLike);
+        }
+        const plain = e.dataTransfer.files ? Array.from(e.dataTransfer.files) : [];
+
+        if (entries.length > 0) {
+            void ingestEntries(entries);
+            return;
+        }
+        if (plain.length > 0) void ingestPlainFiles(plain);
+    };
+
+    /** Choose files: a flat pick, so the relative path is the file's own name. */
+    const handleFileSelection = (e: ChangeEvent<HTMLInputElement>) => {
+        const picked = e.target.files ? Array.from(e.target.files) : [];
+        // Reset first, so picking the same file again still fires onChange.
+        e.target.value = '';
+        if (picked.length === 0) return;
+        commit(
+            picked.map((file) => ({ file, relativePath: file.name })),
+            0
+        );
+    };
+
+    /** Choose folder: the browser supplies the path inside the chosen folder.
+     *  `webkitRelativePath` is empty on a browser that accepts the attribute and
+     *  ignores it, and the name is the only honest fallback there. */
+    const handleFolderSelection = (e: ChangeEvent<HTMLInputElement>) => {
+        const picked = e.target.files ? Array.from(e.target.files) : [];
+        e.target.value = '';
+        if (picked.length === 0) return;
+        commit(
+            picked.map((file) => ({ file, relativePath: file.webkitRelativePath || file.name })),
+            0
+        );
+    };
+
+    const handleDeleteFile = (fileId: string) => {
+        selected.current = selected.current.filter((f) => f.id !== fileId);
+        setFiles(selected.current);
+        setNotice(null);
+    };
+
+    const clear = () => {
+        // A walk still in flight belongs to the selection being cleared.
+        tracker.clear();
+        selected.current = [];
+        setFiles([]);
+        setNotice(null);
+        setEmptyFolders(0);
+    };
+
+    return {
+        files,
+        isDragging,
+        notice,
+        emptyFolders,
+        reading,
+        totalBytes,
+        handleDragOver,
+        handleDragLeave,
+        handleDrop,
+        handleFileSelection,
+        handleFolderSelection,
+        handleDeleteFile,
+        clear,
+    };
+}
+
+/** True when the first byte of this File can actually be read. A directory
+ *  pseudo-File cannot, which is the only reliable way to tell one apart before
+ *  a send begins. */
+async function firstByteReadable(file: File): Promise<boolean> {
+    try {
+        await file.slice(0, 1).arrayBuffer();
+        return true;
+    } catch {
+        return false;
+    }
+}

@@ -143,6 +143,11 @@ function readText(req) {
 
 const flaky = new Map();
 let wedged = false;
+// The Settings > Notifications > Show notifications switch the toggle
+// command flips (NS2 and NS3; Settings has no Request links switch since H7).
+const SWITCH_NAME =
+    'Show notifications For requests and transfers, while Floe is in the background.';
+let switchOn = false;
 const out = (obj) => process.stdout.write(JSON.stringify(obj) + '\n');
 
 out({ id: null, ok: true, ready: true, pid: process.pid, fake: true });
@@ -201,6 +206,40 @@ rl.on('line', (line) => {
             } catch (err) {
                 return fail('bad-request', err.message);
             }
+        // FU-26: the request link verbs' two reads and one write. snapshot
+        // adds value, readOnly and toggle only when asked (values:true), as
+        // the helper does; toggle validates its parameters the helper's way
+        // and flips one scripted switch.
+        case 'snapshot': {
+            const items = [
+                { i: 0, type: 'Button', name: 'Settings' },
+                { i: 1, type: 'Edit', name: 'REQUEST LINK' },
+                { i: 2, type: 'CheckBox', name: SWITCH_NAME },
+            ];
+            if (req.values === true) {
+                items[1].value =
+                    'http://localhost:3000/r/Xk3p9Q0aB1c#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f';
+                items[1].readOnly = true;
+                items[2].toggle = switchOn ? 'On' : 'Off';
+            }
+            return reply({ count: items.length, truncated: false, items });
+        }
+        case 'toggle': {
+            if (!req.regex) return fail('bad-request', 'regex is required');
+            if (typeof req.value !== 'boolean')
+                return fail('bad-request', `value must be true or false, got '${req.value}'`);
+            let rx;
+            try {
+                rx = new RegExp(String(req.regex), 'i');
+            } catch (err) {
+                return fail('bad-request', err.message);
+            }
+            if (!rx.test(SWITCH_NAME))
+                return fail('not-found', `no CheckBox matching '${req.regex}'`);
+            const before = switchOn;
+            if (before !== req.value) switchOn = req.value;
+            return reply({ before, after: switchOn, changed: before !== switchOn, name: SWITCH_NAME });
+        }
         case 'crash':
             process.exit(3);
             return;

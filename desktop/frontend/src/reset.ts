@@ -67,15 +67,15 @@ export function resetWarning(s: {
     sentText: string;
     clearedText?: string;
 }): string {
-    if (s.transferring) return 'A transfer is in progress. Starting over will cancel it.';
+    if (s.transferring) return 'Starting over cancels the transfer';
     if (s.busy) return '';
     // Trimmed on both sides, like the emptiness test it shares a line with: a
     // note that differs from the one that went out by trailing whitespace is
     // not lost work.
     const sent = s.sentText.trim();
     const t = s.text.trim();
-    if (t !== '' && t !== sent) return 'The text you typed has not been sent yet. Starting over will clear it.';
+    if (t !== '' && t !== sent) return 'Starting over clears your unsent text';
     const c = (s.clearedText ?? '').trim();
-    if (c !== '' && c !== sent) return 'The text you cleared can still be brought back. Starting over will discard it.';
+    if (c !== '' && c !== sent) return 'Starting over discards the text you can still undo';
     return '';
 }

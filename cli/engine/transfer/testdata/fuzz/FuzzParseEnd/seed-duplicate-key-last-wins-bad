@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"type\":\"end\",\"sha256\":\"abababababababababababababababababababababababababababababababab\",\"sha256\":\"zz\"}")

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -71,44 +72,98 @@ func dialSignaling(base string) error {
 func probeServer(raw string, dialWS func(string) error) ProbeResult {
 	base := serverurl.Normalize(raw)
 	if base == "" {
-		return ProbeResult{Message: "Enter a server address."}
+		return ProbeResult{Message: "Enter a server address"}
 	}
 	u, err := url.Parse(base)
 	if err != nil || u.Host == "" {
-		return ProbeResult{Message: "That does not look like an address. Include https:// and the host name."}
+		return ProbeResult{Message: "Include https:// and the host name"}
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return ProbeResult{Message: "The address must start with https:// or http://."}
+		return ProbeResult{Message: "Start the address with https:// or http://"}
 	}
 
-	if r := probeHealth(base); !r.OK {
+	if r, _ := probeHealth(base); !r.OK {
 		return r
 	}
 	if err := dialWS(base); err != nil {
-		return ProbeResult{Message: "The server answered, but the realtime connection was refused. If it is behind a reverse proxy, check that /ws is being forwarded."}
+		return ProbeResult{Message: "The server refused the realtime connection (check that your proxy forwards /ws)"}
 	}
 	return probeAPI(base)
 }
 
-// probeHealth is stage one: reachable, and answering as a Floe server.
-func probeHealth(base string) ProbeResult {
+// probeHealth is stage one: reachable, and answering as a Floe server. It also
+// returns the server's optional feature list (spec 04 5.9, ["request-1"] on a
+// server with request links on), which only RequestLinkSupport reads. A missing
+// list is an older or self-hosted server and is not a failure; a list of the
+// wrong shape is treated as absent rather than failing Settings Test.
+func probeHealth(base string) (ProbeResult, []string) {
 	resp, err := probeClient().Get(base + "/health")
 	if err != nil {
-		return ProbeResult{Message: describeDialError(err)}
+		return ProbeResult{Message: describeDialError(err)}, nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return ProbeResult{Message: fmt.Sprintf(
-			"The address answered with HTTP %d. This may be the web app rather than the signaling server.", resp.StatusCode)}
+			"That address answered HTTP %d (likely the web app, not the server)", resp.StatusCode)}, nil
 	}
 	var body struct {
-		Status string `json:"status"`
+		Status   string          `json:"status"`
+		Features json.RawMessage `json:"features"`
 	}
-	if json.NewDecoder(resp.Body).Decode(&body) != nil || body.Status != "healthy" {
-		return ProbeResult{Message: "Something answered at that address, but it is not a Floe signaling server."}
+	// Bounded: the feature list is the only open-ended field, and nothing a
+	// Floe server sends here comes near 64 KiB.
+	if json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&body) != nil || body.Status != "healthy" {
+		return ProbeResult{Message: "That address isn't a Floe server"}, nil
 	}
-	return ProbeResult{OK: true}
+	var features []string
+	if json.Unmarshal(body.Features, &features) != nil {
+		features = nil
+	}
+	return ProbeResult{OK: true}, features
+}
+
+// FeatureResult is the Go-side /health probe for the request link lane: whether
+// the server answered as a healthy Floe server, and whether it lists request-1.
+// One struct return, never a (T, error) pair, for the reason ProbeResult gives.
+type FeatureResult struct {
+	Reachable    bool `json:"reachable"`
+	RequestLinks bool `json:"requestLinks"`
+}
+
+// RequestLinkSupport probes the server this app talks to for request-1 (spec
+// 06 4.18). It runs in Go because the webview's CSP blocks the fetch, through
+// probeClient: six seconds, no redirects, so a captive portal or a catch-all
+// rewrite cannot unlock the switch. Only the two booleans reach the frontend,
+// never the body or an error text.
+func (a *App) RequestLinkSupport() FeatureResult {
+	server, _ := a.endpoints()
+	return requestLinkSupport(server)
+}
+
+// requestLinkSupport is RequestLinkSupport against an explicit base, so tests
+// can aim it at an httptest server. An unreachable or unhealthy server is the
+// zero result: not reachable, no request links.
+func requestLinkSupport(base string) FeatureResult {
+	if base == "" {
+		return FeatureResult{}
+	}
+	r, features := probeHealth(base)
+	if !r.OK {
+		return FeatureResult{}
+	}
+	return FeatureResult{Reachable: true, RequestLinks: featuresHave(features, "request-1")}
+}
+
+// featuresHave reports whether name is in the server's feature list. Exact
+// match only; names this build does not know are ignored.
+func featuresHave(list []string, name string) bool {
+	for _, f := range list {
+		if f == name {
+			return true
+		}
+	}
+	return false
 }
 
 // probeAPI is stage three: the REST endpoints a transfer actually needs, and
@@ -122,7 +177,7 @@ func probeAPI(base string) ProbeResult {
 
 	if resp.StatusCode != http.StatusOK {
 		return ProbeResult{Message: fmt.Sprintf(
-			"The server is running, but its API answered with HTTP %d. If it is behind a reverse proxy, check that /api/ is being forwarded.", resp.StatusCode)}
+			"The API answered HTTP %d (check that your proxy forwards /api/)", resp.StatusCode)}
 	}
 	// Decoded by the engine rather than by hand. "urls" is a plain string for
 	// coturn and the STUN-only fallback but an array for Cloudflare, and one
@@ -131,7 +186,7 @@ func probeAPI(base string) ProbeResult {
 	// because the old check only asked whether the JSON array was non-empty.
 	servers, err := ice.ParseServers(resp.Body)
 	if err != nil || len(servers) == 0 {
-		return ProbeResult{Message: "The server is running, but it did not return usable connection details."}
+		return ProbeResult{Message: "The server didn't return usable connection details"}
 	}
 	if !ice.HasRelay(servers) {
 		// A pass, not a failure, and the OK matters: this is a working Floe
@@ -140,9 +195,9 @@ func probeAPI(base string) ProbeResult {
 		// for a broken reverse proxy that does not exist. Saying so here is
 		// what replaces a thirty-second timeout later that reads like a
 		// network fault on a network that is fine.
-		return ProbeResult{OK: true, Message: "Connected. This server has no TURN relay, so Hide my IP will not work."}
+		return ProbeResult{OK: true, Message: "Connected, but there's no relay for Hide my IP"}
 	}
-	return ProbeResult{OK: true, RelayAvailable: true, Message: "Connected."}
+	return ProbeResult{OK: true, RelayAvailable: true, Message: "Connected"}
 }
 
 // probeClient refuses redirects rather than following them, so a captive portal
@@ -162,13 +217,13 @@ func probeClient() *http.Client {
 func describeDialError(err error) string {
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
-		return "That host could not be found. Check the address for typos."
+		return "Host not found"
 	}
 	if os.IsTimeout(err) {
-		return "Timed out reaching that address."
+		return "Timed out reaching that address"
 	}
 	if s := err.Error(); strings.Contains(s, "certificate") || strings.Contains(s, "tls:") || strings.Contains(s, "x509") {
-		return "The server's security certificate could not be verified."
+		return "Couldn't verify the server's certificate"
 	}
-	return "Could not connect. Check that the server is running and reachable from this machine."
+	return "Couldn't connect to that server"
 }

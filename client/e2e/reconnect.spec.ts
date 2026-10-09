@@ -85,6 +85,21 @@ test('sender link survives a receiver closing its tab before the transfer finish
     const firstReceiverCtx = await browser.newContext();
     const secondReceiverCtx = await browser.newContext();
 
+    // Socket.IO frames the sender's page receives, so the test can wait for
+    // the server's notice itself (see the wait below).
+    let senderSockets = 0;
+    let peerDisconnectedNotices = 0;
+    senderPage.on('websocket', (ws) => {
+        // next dev opens its own HMR socket; only the signaling one counts.
+        if (!ws.url().includes('/socket.io/')) return;
+        senderSockets++;
+        ws.on('framereceived', ({ payload }) => {
+            if (typeof payload === 'string' && payload.includes('"peer-disconnected"')) {
+                peerDisconnectedNotices++;
+            }
+        });
+    });
+
     try {
         const link = await browserSenderSetup(senderPage, fixturePath);
 
@@ -98,10 +113,14 @@ test('sender link survives a receiver closing its tab before the transfer finish
         await expect(senderPage.getByText(/Peer joined/).first()).toBeVisible({ timeout: 30_000 });
         await firstReceiverCtx.close();
 
-        // The context close reaches the server as a clean disconnect; the
-        // sender is told and goes back to waiting. Pre-fix, the server also
-        // deleted the whole room here, which the second join disproves.
-        await expect(senderPage.getByText(/Peer disconnected/).first()).toBeVisible({ timeout: 15_000 });
+        // The context close reaches the server as a clean disconnect and the
+        // server tells the sender. Pre-fix, the server also deleted the whole
+        // room here, which the second join disproves. The notice is awaited on
+        // the wire rather than on screen, so this test checks the room
+        // lifecycle and not how the page reacts to the notice, which depends
+        // on whether the first receiver's WebRTC connection was already up.
+        expect(senderSockets, 'the sender page never opened a signaling WebSocket').toBeGreaterThan(0);
+        await expect.poll(() => peerDisconnectedNotices, { timeout: 15_000 }).toBeGreaterThan(0);
 
         // A second receiver joins the SAME link and completes the transfer.
         const secondReceiverPage = await secondReceiverCtx.newPage();

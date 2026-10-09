@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { setFlagsFromString } from 'node:v8';
+import { runInNewContext } from 'node:vm';
 import { createReceiver, OUT_OF_MEMORY_MESSAGE, INTERNAL_ERROR_MESSAGE, SPILL_BYTES, type ReceiveFailure } from './receiver';
 import { metadataMessage, endMessage, incompatibleMessage, CONTROL_MSG_MAX, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, checkCompat } from './protocol';
 
@@ -486,34 +488,84 @@ describe('receiver: truncation guard', () => {
     });
 
     it('accepts a peer that announces no size at all', () => {
-        // metadataMessage always writes a fileSize, so build the frame by hand.
-        const h = harness();
-        h.rx.handleMessage(JSON.stringify({
-                type: 'metadata', id: 'a', fileName: 'a.bin', index: 1, total: 1, totalBytes: 0,
-            })
-        );
-        const chunk = new Uint8Array(50);
-        for (let i = 0; i < 50; i++) chunk[i] = (i + 1) % 256;
-        h.rx.handleMessage(chunk);
-        h.rx.handleMessage(endMessage());
-        expect(h.completed).toEqual(['a.bin']);
-        expect(h.errors).toEqual([]);
-    });
-
-    it('treats an unusable announced size as unknown rather than failing', () => {
-        for (const bad of ['100', -1, 1.5, null, Number.MAX_SAFE_INTEGER + 2]) {
+        // metadataMessage always writes a fileSize, so build the frame by hand. A
+        // null size reads the same way: unknown, not refused.
+        for (const fields of [{}, { fileSize: null }]) {
             const h = harness();
             h.rx.handleMessage(JSON.stringify({
+                    type: 'metadata', id: 'a', fileName: 'a.bin', index: 1, total: 1, totalBytes: 0, ...fields,
+                })
+            );
+            const chunk = new Uint8Array(50);
+            for (let i = 0; i < 50; i++) chunk[i] = (i + 1) % 256;
+            h.rx.handleMessage(chunk);
+            h.rx.handleMessage(endMessage());
+            expect(h.completed).toEqual(['a.bin']);
+            expect(h.errors).toEqual([]);
+        }
+    });
+
+    it('refuses an unusable announced size before any chunk is kept', () => {
+        // These used to read as "unknown" and switch the byte-count guard off.
+        // The Go receiver refuses every one of them, and now so does the browser.
+        for (const bad of ['100', -1, 1.5, Number.MAX_SAFE_INTEGER + 2]) {
+            const sent: (string | Uint8Array)[] = [];
+            const completed: string[] = [];
+            const errors: string[] = [];
+            const rx = createReceiver({
+                send: (d) => sent.push(d),
+                onFileComplete: (f) => completed.push(f.fileName),
+                onError: (m) => errors.push(m),
+            });
+            rx.handleMessage(JSON.stringify({
                     type: 'metadata', id: 'a', fileName: 'a.bin',
                     fileSize: bad, index: 1, total: 1, totalBytes: 0,
                 })
             );
             const chunk = new Uint8Array(10);
             for (let i = 0; i < 10; i++) chunk[i] = (i + 1) % 256;
-            h.rx.handleMessage(chunk);
-            h.rx.handleMessage(endMessage());
-            expect(h.completed).toEqual(['a.bin']);
-            expect(h.errors).toEqual([]);
+            rx.handleMessage(chunk);
+            rx.handleMessage(endMessage());
+            expect(completed, String(bad)).toEqual([]);
+            expect(errors).toEqual(['The sender described a file in a way Floe could not read, so the transfer was stopped. Ask the sender to try again.']);
+            // Never acked, and told why in a frame with no code.
+            expect(sent.some((s) => typeof s === 'string')).toBe(false);
+            const frame = JSON.parse(new TextDecoder().decode(sent[0] as Uint8Array));
+            expect(frame.reason).toBe('receiver rejected the file description: the file size is not a byte count');
+            expect(frame.code).toBeUndefined();
+        }
+    });
+
+    it('refuses a file description Go refuses', () => {
+        const base = { type: 'metadata', id: 'a', fileName: 'a.bin', fileSize: 4, index: 1, total: 1, totalBytes: 4, pv: 1, pvMin: 1 };
+        const refused = [
+            { fileSize: 9007199254740992, totalBytes: 9007199254740992 },
+            { fileSize: -1 },
+            { fileSize: 1.5 },
+            { fileSize: '4' },
+            { fileSize: 1e300 },
+            { index: 0 },
+            { total: 0 },
+            { totalBytes: 2 },
+            { pv: '1' },
+            { fileName: 7 },
+            { id: 3 },
+            { index: null },
+        ];
+        for (const fields of refused) {
+            const sent: (string | Uint8Array)[] = [];
+            const errors: string[] = [];
+            const rx = createReceiver({ send: (d) => sent.push(d), onError: (m) => errors.push(m) });
+            rx.handleMessage(JSON.stringify({ ...base, ...fields }));
+            expect(errors, JSON.stringify(fields)).toHaveLength(1);
+            expect(sent.some((s) => typeof s === 'string'), JSON.stringify(fields)).toBe(false);
+        }
+        // What Go accepts stays accepted: a legacy peer with no protocol fields, pv 0, and null name or id.
+        for (const fields of [{ pv: undefined, pvMin: undefined }, { pv: 0, pvMin: 0 }, { fileName: null }, { id: null }, { totalBytes: undefined }]) {
+            const sent: (string | Uint8Array)[] = [];
+            const rx = createReceiver({ send: (d) => sent.push(d) });
+            rx.handleMessage(JSON.stringify({ ...base, ...fields }));
+            expect(sent.filter((s) => typeof s === 'string'), JSON.stringify(fields)).toHaveLength(1);
         }
     });
 
@@ -992,5 +1044,219 @@ describe('receiver: holds a bounded amount of a file in the tab', () => {
         rx.handleMessage(pattern(SPILL_BYTES));
         await new Promise((r) => setTimeout(r, 0));
         expect(errors).toHaveLength(1);
+    });
+});
+
+/**
+ * The bound above, against a sender that does not follow the protocol (review
+ * R0-06-H6 L1). A byte line alone let one-byte frames keep millions of chunk
+ * copies before the first spill, empty frames keep copies that never reach it,
+ * and a metadata for a new id leave the previous file's copies in the tab.
+ */
+describe('receiver: holds a bounded amount in the tab whatever the sender does', () => {
+    const RealBlob = Blob;
+    // The bound under test: at most about one chunk copy per 16 KiB of a file,
+    // which is what a sender writing 16 KiB frames already produced.
+    const COPY_BYTES = 16 * 1024;
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    function pattern(size: number): Uint8Array {
+        const out = new Uint8Array(size);
+        for (let i = 0; i < size; i++) out[i] = (i * 7 + (i >>> 16)) % 251 + 1;
+        return out;
+    }
+
+    // Every Blob the receiver builds, with how many pieces it was built from:
+    // a spill's piece count is the number of chunk copies the tab held.
+    function recordBuilds(): Array<{ size: number; parts: number }> {
+        const builds: Array<{ size: number; parts: number }> = [];
+        vi.stubGlobal(
+            'Blob',
+            class extends RealBlob {
+                constructor(parts?: BlobPart[], options?: BlobPropertyBag) {
+                    super(parts, options);
+                    builds.push({ size: this.size, parts: parts?.length ?? 0 });
+                }
+            }
+        );
+        return builds;
+    }
+
+    function recorder() {
+        const sent: (string | Uint8Array)[] = [];
+        const errors: string[] = [];
+        const completed: Blob[] = [];
+        const rx = createReceiver({
+            send: (d) => sent.push(d),
+            onFileComplete: (f) => completed.push(f.blob),
+            onError: (m) => errors.push(m),
+        });
+        return { rx, sent, errors, completed };
+    }
+
+    function feedFrames(rx: { handleMessage: (d: string | Uint8Array | ArrayBuffer) => void }, bytes: Uint8Array, sizes: number[]) {
+        rx.handleMessage(metadataMessage('m', 'm.bin', bytes.byteLength, 1, 1, bytes.byteLength));
+        let off = 0;
+        for (const n of sizes) {
+            rx.handleMessage(bytes.subarray(off, off + n));
+            off += n;
+        }
+        rx.handleMessage(endMessage());
+    }
+
+    async function same(blob: Blob, bytes: Uint8Array): Promise<boolean> {
+        return Buffer.compare(Buffer.from(await blob.arrayBuffer()), Buffer.from(bytes)) === 0;
+    }
+
+    it('keeps one-byte frames in one chunk copy per 16 KiB, not one per frame', async () => {
+        const builds = recordBuilds();
+        const h = recorder();
+        const n = 100_000;
+        const bytes = pattern(n);
+        feedFrames(h.rx, bytes, new Array<number>(n).fill(1));
+        expect(h.errors).toEqual([]);
+        // One part at the end, as for any file under the line: no new spill.
+        expect(builds.map((b) => b.size)).toEqual([n]);
+        expect(builds[0].parts).toBeLessThanOrEqual(Math.ceil(n / COPY_BYTES));
+        expect(await same(h.completed[0], bytes)).toBe(true);
+    });
+
+    it('spills 1 KiB frames at the same byte line, from one copy per 16 KiB', async () => {
+        const builds = recordBuilds();
+        const h = recorder();
+        const size = 2 * SPILL_BYTES + 100;
+        const bytes = pattern(size);
+        const sizes: number[] = [];
+        for (let off = 0; off < size; off += 1024) sizes.push(Math.min(1024, size - off));
+        feedFrames(h.rx, bytes, sizes);
+        expect(h.errors).toEqual([]);
+        expect(builds).toEqual([
+            { size: SPILL_BYTES, parts: SPILL_BYTES / COPY_BYTES },
+            { size: SPILL_BYTES, parts: SPILL_BYTES / COPY_BYTES },
+            { size: 100, parts: 1 },
+            { size, parts: 3 },
+        ]);
+        expect(await same(h.completed[0], bytes)).toBe(true);
+    });
+
+    it('keeps no copy for an empty frame', async () => {
+        const builds = recordBuilds();
+        const h = recorder();
+        h.rx.handleMessage(metadataMessage('e', 'e.bin', 3, 1, 1, 3));
+        const empty = new Uint8Array(0);
+        for (let i = 0; i < 50_000; i++) h.rx.handleMessage(empty);
+        h.rx.handleMessage(enc.encode('abc'));
+        h.rx.handleMessage(endMessage());
+        expect(h.errors).toEqual([]);
+        expect(builds).toEqual([{ size: 3, parts: 1 }]);
+        expect(await same(h.completed[0], enc.encode('abc'))).toBe(true);
+    });
+
+    // Live ArrayBuffer memory, the chunk copies' own. V8 frees collected
+    // buffers on a background sweeper, so a count waits for the garbage
+    // earlier tests left to be freed first: without the wait it was freed
+    // during the measured loop and hid a 125 MiB growth in one of two runs.
+    async function liveArrayBuffers(): Promise<number> {
+        setFlagsFromString('--expose-gc');
+        const gc = runInNewContext('gc') as () => void;
+        for (let i = 0; i < 4; i++) {
+            gc();
+            await new Promise((r) => setTimeout(r, 25));
+        }
+        return process.memoryUsage().arrayBuffers;
+    }
+
+    it('lets go of a file left open when a metadata names another id', async () => {
+        const h = recorder();
+        const frame = pattern(16 * 1024);
+        const per = SPILL_BYTES / frame.byteLength - 1; // one frame under the line
+        const before = await liveArrayBuffers();
+        for (let k = 0; k < 8; k++) {
+            h.rx.handleMessage(metadataMessage(`f${k}`, `f${k}.bin`, SPILL_BYTES, 1, 2, 2 * SPILL_BYTES));
+            for (let i = 0; i < per; i++) h.rx.handleMessage(frame);
+        }
+        const grown = (await liveArrayBuffers()) - before;
+        expect(h.errors).toEqual([]);
+        // The open file's copies, just under SPILL_BYTES; kept for a resume,
+        // the seven files left behind held seven times that again.
+        // 4x, not 2x (FU-52 review N2): one dropped file the collector has not reclaimed reads just under 2x on a busy
+        // runner; the unbounded build still reads about 134 MB here, far over the line.
+        expect(grown).toBeLessThan(4 * SPILL_BYTES);
+    });
+
+    it('resumes the open file under the same id, and starts over one it left', async () => {
+        const builds = recordBuilds();
+        const h = recorder();
+        const a = pattern(100);
+        const b = pattern(10).map((x) => (x % 200) + 2);
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 100, 1, 2, 110));
+        h.rx.handleMessage(a.subarray(0, 40));
+        // The same id again is a resume: the 40 bytes stay, nothing is built.
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 100, 1, 2, 110));
+        expect(builds).toEqual([]);
+        // Another id abandons a, as the Go receiver does, so a starts over.
+        h.rx.handleMessage(metadataMessage('b', 'b.bin', 10, 2, 2, 110));
+        h.rx.handleMessage(b.subarray(0, 4));
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 100, 1, 2, 110));
+        h.rx.handleMessage(a);
+        h.rx.handleMessage(endMessage());
+        const acks = h.sent.filter((d): d is string => typeof d === 'string').map((d) => JSON.parse(d));
+        expect(acks.map((m) => [m.id, m.offset])).toEqual([['a', 0], ['a', 40], ['b', 0], ['a', 0]]);
+        expect(h.errors).toEqual([]);
+        expect(h.completed).toHaveLength(1);
+        expect(await same(h.completed[0], a)).toBe(true);
+    });
+
+    it.each([16 * 1024, 64 * 1024, 256 * 1024])('spills %i-byte frames exactly where it always has', async (chunk) => {
+        const builds = recordBuilds();
+        const h = recorder();
+        const size = 2 * SPILL_BYTES + 100;
+        const bytes = pattern(size);
+        const sizes: number[] = [];
+        for (let off = 0; off < size; off += chunk) sizes.push(Math.min(chunk, size - off));
+        feedFrames(h.rx, bytes, sizes);
+        expect(h.errors).toEqual([]);
+        // A part per SPILL_BYTES, each from one copy per frame, then the tail
+        // and the file composed of the three.
+        expect(builds).toEqual([
+            { size: SPILL_BYTES, parts: SPILL_BYTES / chunk },
+            { size: SPILL_BYTES, parts: SPILL_BYTES / chunk },
+            { size: 100, parts: 1 },
+            { size, parts: 3 },
+        ]);
+        expect(await same(h.completed[0], bytes)).toBe(true);
+    });
+
+    it('reassembles any mix of frame sizes in order, spilling at the same byte line', async () => {
+        const builds = recordBuilds();
+        const h = recorder();
+        const cycle = [1, 16383, 16384, 7, 65536, 0, 100, 16385, 262144, 3, 5000, 12000];
+        const sizes: number[] = [];
+        let total = 0;
+        for (let i = 0; total < 2 * SPILL_BYTES + 777; i++) {
+            const n = cycle[i % cycle.length];
+            sizes.push(n);
+            total += n;
+        }
+        const bytes = pattern(total);
+        feedFrames(h.rx, bytes, sizes);
+        expect(h.errors).toEqual([]);
+        // Where a byte line alone spills: each time SPILL_BYTES have gathered.
+        const spills: number[] = [];
+        let held = 0;
+        for (const n of sizes) {
+            held += n;
+            if (held >= SPILL_BYTES) {
+                spills.push(held);
+                held = 0;
+            }
+        }
+        if (held > 0) spills.push(held);
+        expect(builds.map((b) => b.size)).toEqual([...spills, total]);
+        for (const b of builds.slice(0, -1)) expect(b.parts).toBeLessThanOrEqual(2 * Math.ceil(b.size / COPY_BYTES) + 1);
+        expect(await same(h.completed[0], bytes)).toBe(true);
     });
 });

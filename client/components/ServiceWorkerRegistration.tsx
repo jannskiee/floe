@@ -1,14 +1,17 @@
 'use client';
 
 import { useEffect } from 'react';
+import { registerServiceWorker } from '@/lib/serviceWorkerRegistration';
 
 export function ServiceWorkerRegistration() {
     useEffect(() => {
-        if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/sw.js').catch(() => { });
-            });
-        }
+        registerServiceWorker({
+            isProduction: process.env.NODE_ENV === 'production',
+            hasServiceWorker: 'serviceWorker' in navigator,
+            readyState: () => document.readyState,
+            addLoadListener: (listener) => window.addEventListener('load', listener, { once: true }),
+            register: () => navigator.serviceWorker.register('/sw.js'),
+        });
     }, []);
 
     return null;

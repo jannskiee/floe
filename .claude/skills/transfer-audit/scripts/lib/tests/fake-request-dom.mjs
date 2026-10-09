@@ -1,0 +1,782 @@
+// A scripted stand-in for the wailsdev page's request link host view, for
+// the PlaywrightDriver request verbs (desktop-request.test.mjs) and, through
+// tests/fake-request-world.mjs, for the request runner (request.test.mjs).
+// It models the host states of spec 06 4.4 as the buttons each one shows
+// (names from the frozen copy, REQUEST_STRINGS), the 1 s input guard on the
+// prompt's buttons (a click inside it is ignored, as the frontend ignores
+// it), the Settings screen with its Hide my IP switch (H7 has no Request
+// links switch: the REQUEST LINK tab is always there, and a server without
+// request-1 answers at Make link with E1), the Save to field, and the Wails
+// bindings GetSettings, SetSettings and GetRequestLink on
+// window.go.main.App. Time is a fake clock the verbs read through `now` and
+// advance through `nap`, so no test sleeps.
+import path from 'node:path';
+
+export const FAKE_ROOM = '6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f';
+export const FAKE_LINK = `http://localhost:3000/r/Xk3p9Q0aB1c#${FAKE_ROOM}`;
+export const SAVE_TO = 'Downloads\\Floe';
+export const VERIFIED_LINE = 'SHA-256 matched';
+// The amber READY's one sentence (App.tsx statusNote), which also rides a
+// screen-reader twin beside the chip's word while nothing moves.
+export const HIDE_IP_NOTE = 'Hide my IP limits transfers to 2 GB';
+
+// The lane states that show the link block (RequestLinkView.tsx LINK_PHASES).
+const LINK_STATES = new Set([
+    'waiting',
+    'reconnecting',
+    'connecting',
+    'deciding',
+    'declined',
+]);
+
+const VIEW_BUTTONS = {
+    ready: ['Make link'],
+    error: ['Make link'],
+    waiting: ['Copy link', 'Close link'],
+    reconnecting: ['Copy link', 'Close link', 'Retry now'],
+    deciding: ['Copy link', 'Accept', 'Decline', 'Close link'],
+    declined: ['Copy link', 'Keep waiting', 'Close link'],
+    receiving: ['Cancel drop'],
+    done: ['Make another link'],
+    stopped: ['Make another link'],
+    closed: ['Make another link'],
+};
+
+// The Link ends select's options (RequestLinkView.tsx draws requestLink.ts
+// LIFETIMES, D-173): each key beside its label, in list order.
+const LIFETIMES = [
+    ['30m', 'In 30 minutes'],
+    ['1h', 'In 1 hour'],
+    ['8h', 'In 8 hours'],
+    ['24h', 'In 24 hours'],
+    ['3d', 'In 3 days'],
+    ['7d', 'In 7 days'],
+];
+export const LIFETIME_OPTIONS = LIFETIMES.map(([, label]) => label);
+// The Make link form's Auto-accept check, by its accessible name (R29, D-174).
+const AUTO_SWITCH = 'Auto-accept';
+
+const SWITCHES = [
+    {
+        key: 'hideIP',
+        name: 'Hide my IP address Hides your IP with a relay, slower and capped at 2 GB',
+    },
+];
+
+/** serverurl.Web for the two addresses the fake knows. */
+function webFor(server) {
+    const s = String(server || '').replace(/\/+$/, '');
+    if (s === '' || s === 'https://api.floe.one') return 'https://floe.one';
+    if (s === 'http://localhost:3001') return 'http://localhost:3000';
+    return s;
+}
+
+const mb = (bytes) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+
+// desktop/frontend/src/incoming.ts fmtBytes, for the prompt's P2 line.
+function fmtBytes(n) {
+    if (!n || n < 0) return '0 B';
+    const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.min(u.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
+    return (n / Math.pow(1024, i)).toFixed(i ? 1 : 0) + ' ' + u[i];
+}
+
+export function fakeRequestDom({
+    link = null,
+    screenText = undefined,
+    guardMs = 1000,
+    withBinding = true,
+    settings = {},
+    // The server's request-1 answer, which is now the whole gate: the tab
+    // shows either way, and Make link on a server without it ends in E1.
+    featureOn = true,
+    // A build that does not show the REQUEST LINK tab at all (a pre-H7 build
+    // with its Settings switch off).
+    hideTab = false,
+    saveDirStuck = false,
+    // A page that draws Link ends as something other than a <select>, so
+    // the driver's select branch finds nothing and clicks the label.
+    lifetimeSelect = true,
+    // A Settings switch that is disabled and ignores clicks (Hide my IP
+    // reads disabled while a transfer is busy).
+    switchStuck = false,
+    makeError = null,
+    // TA-13 shapes: a SetSettings that keeps the old server address, and a
+    // host that makes its link on the old address whatever Settings reads.
+    addressesStuck = false,
+    ignoreServer = false,
+    // Release shapes: a Close link or Make another link click the view ignores, a
+    // Close link click that never returns (the teardown budget runs out),
+    // and a view that shows the ended link while the lane still reads
+    // waiting.
+    closeStuck = false,
+    dismissStuck = false,
+    closeHangs = false,
+    laneStaysOpen = false,
+    // Auto-accept (D-173): a build made before H10 has no switch on the
+    // Make link form, autoSwitchStuck one whose switch ignores clicks,
+    // autoAsks a host that prompts on an automatic link anyway, and autoChip
+    // false one whose chip still reads READY.
+    autoSwitch = true,
+    autoSwitchStuck = false,
+    autoAsks = false,
+    autoChip = true,
+} = {}) {
+    const clock = { t: 0, waiters: [] };
+    const dom = {
+        state: 'ready',
+        requestAt: null,
+        pendingPrompt: null,
+        promptMountedAt: null,
+        clicks: [],
+        ignored: [],
+        reopens: 0,
+        picked: [],
+        // The Link ends value the form holds, and the one the last link was
+        // made with.
+        lifetime: '24h',
+        madeLifetime: null,
+        settingsOpen: false,
+        // App.tsx `mode`: the REQUEST LINK view shows only on Receive, and
+        // requestView is its `receiveKind === 'request'`.
+        mode: 'receive',
+        requestView: false,
+        // What App.tsx addFiles staged, and every event the dev server
+        // rebroadcast to this page from another one (devPeerPage below).
+        staged: [],
+        broadcasts: [],
+        saveDir: '',
+        linkSaveDir: '',
+        link: '',
+        gen: 0,
+        seq: 0,
+        promptGen: 0,
+        code: '',
+        route: '',
+        prompt: null,
+        result: null,
+        blip: null,
+        madeWith: null,
+        // The form's Auto-accept switch (off on every mount), every label
+        // click that flipped it, and the link's own record of the choice.
+        autoOn: false,
+        switched: [],
+        autoAccept: false,
+        closed: false,
+        screenshots: [],
+        setSettingsCalls: [],
+        featureOn,
+        settings: {
+            server: 'http://localhost:3001',
+            web: '',
+            hideIP: false,
+            reportStats: false,
+            migrated: true,
+            ...settings,
+        },
+        // Set by tests/fake-request-world.mjs.
+        onTick: null,
+        onAnswer: null,
+    };
+    const now = () => clock.t;
+    const nap = async (ms) => {
+        clock.t += Math.max(1, ms);
+        const due = clock.waiters.filter((w) => w.t <= clock.t);
+        clock.waiters = clock.waiters.filter((w) => w.t > clock.t);
+        for (const w of due) w.resolve();
+    };
+    const waitUntil = (t) =>
+        new Promise((resolve) => {
+            if (clock.t >= t) resolve();
+            else clock.waiters.push({ t, resolve });
+        });
+    // Time-driven moves: a visitor's request mounts the prompt at requestAt
+    // on the fake clock; a blip holds the link in Reconnecting from its cut
+    // until the reclaim; the world finishes a drop on its own schedule.
+    const tick = () => {
+        if (
+            dom.state === 'waiting' &&
+            dom.requestAt !== null &&
+            clock.t >= dom.requestAt
+        ) {
+            const p = dom.pendingPrompt || { files: 1, totalBytes: 1 };
+            if (dom.autoAccept && !autoAsks && !(p.warnings || []).length) {
+                // An automatic link takes a drop with nothing unusual about
+                // it at once: no prompt, straight to receiving (requestDecide).
+                dom.state = 'receiving';
+                dom.requestAt = null;
+                if (dom.onAnswer) dom.onAnswer('auto-accept');
+            } else {
+                dom.state = 'deciding';
+                dom.promptMountedAt = dom.requestAt;
+                dom.promptGen += 1;
+                dom.prompt = {
+                    files: p.files,
+                    totalBytes: p.totalBytes,
+                    folder: path.join(dom.linkSaveDir || 'C:\\', 'Floe request 1'),
+                    freeBytes: 1e12,
+                    warnings: p.warnings || [],
+                    answerBy: dom.requestAt + 300_000,
+                };
+                dom.requestAt = null;
+            }
+        }
+        if (dom.blip) {
+            const back = dom.blip.until + dom.blip.reclaimMs;
+            if (
+                dom.state === 'waiting' &&
+                clock.t >= dom.blip.from &&
+                clock.t < back
+            )
+                dom.state = 'reconnecting';
+            else if (dom.state === 'reconnecting' && clock.t >= back) {
+                dom.state = 'waiting';
+                dom.blip = null;
+            }
+        }
+        if (dom.onTick) dom.onTick(clock.t);
+    };
+    // Receive > CODE | REQUEST LINK: the row, and the view under it, show
+    // only on the Receive tab.
+    const onRequestView = () =>
+        !dom.settingsOpen && dom.mode === 'receive' && dom.requestView;
+    const visibleButtons = () => {
+        tick();
+        const out = ['Settings', 'Receive'];
+        if (dom.settingsOpen || dom.closed) return dom.closed ? [] : out;
+        if (dom.mode === 'receive' && !hideTab) {
+            out.push('Request link, beta');
+            if (dom.requestView) out.push(...(VIEW_BUTTONS[dom.state] || []));
+        }
+        return out;
+    };
+    // App.tsx addFiles (the files:open listener): Settings closes and the
+    // page moves to Send with the paths staged.
+    dom.addFiles = (paths) => {
+        dom.settingsOpen = false;
+        dom.mode = 'send';
+        dom.staged = [...(paths || [])];
+    };
+    // The host page's own event listeners: EventsOn('files:open', addFiles).
+    const ownListeners = (msg) => {
+        if (msg && msg.name === 'files:open') dom.addFiles(msg.data?.[0]);
+    };
+    const visible = (name) => visibleButtons().includes(name);
+    const makeLink = () => {
+        if (makeError || !dom.featureOn) {
+            dom.state = 'error';
+            dom.code = makeError ?? 'disabled';
+            return;
+        }
+        dom.gen += 1;
+        dom.code = '';
+        dom.route = '';
+        dom.result = null;
+        dom.linkSaveDir = dom.saveDir.trim();
+        dom.madeLifetime = dom.lifetime;
+        // The link keeps the form's choice; the form it came from unmounts,
+        // so the next one starts off (D-173: never remembered).
+        dom.autoAccept = dom.autoOn;
+        dom.autoOn = false;
+        dom.madeWith = { ...dom.settings };
+        if (ignoreServer) dom.madeWith.server = 'http://localhost:3001';
+        const web =
+            dom.settings.web || webFor(dom.settings.server || 'http://localhost:3001');
+        dom.link = link ?? `${web.replace(/\/+$/, '')}/r/Xk3p9Q0aB1c#${FAKE_ROOM}`;
+        dom.state = 'waiting';
+    };
+    const click = (name) => {
+        if (!visible(name))
+            throw new Error(`fake dom: no visible button "${name}"`);
+        dom.clicks.push({ name, t: clock.t });
+        if (name === 'Settings') {
+            dom.settingsOpen = !dom.settingsOpen;
+            return;
+        }
+        if (name === 'Receive') {
+            // App.tsx: entering Receive shows REQUEST LINK while the lane
+            // has something to say, CODE otherwise; staying on it changes
+            // nothing.
+            if (dom.mode !== 'receive') {
+                dom.mode = 'receive';
+                dom.requestView = dom.state !== 'ready';
+            }
+            return;
+        }
+        if (name === 'Request link, beta') {
+            dom.requestView = true;
+            return;
+        }
+        const guarded =
+            dom.state === 'deciding' &&
+            (name === 'Accept' || name === 'Decline') &&
+            clock.t < dom.promptMountedAt + guardMs;
+        if (guarded) {
+            dom.ignored.push({ name, t: clock.t });
+            return;
+        }
+        if ((dom.state === 'ready' || dom.state === 'error') && name === 'Make link')
+            makeLink();
+        else if (dom.state === 'deciding' && name === 'Accept') {
+            dom.state = 'receiving';
+            if (dom.onAnswer) dom.onAnswer('accept');
+        } else if (dom.state === 'deciding' && name === 'Decline') {
+            dom.state = 'declined';
+            dom.prompt = null;
+            if (dom.onAnswer) dom.onAnswer('decline');
+        } else if (dom.state === 'declined' && name === 'Keep waiting') {
+            dom.reopens += 1;
+            dom.state = 'waiting';
+            if (dom.onAnswer) dom.onAnswer('keep-waiting');
+        } else if (name === 'Close link') {
+            if (closeStuck) return;
+            dom.state = 'closed';
+            dom.code = 'closed';
+            if (dom.onAnswer) dom.onAnswer('close');
+        } else if (name === 'Cancel drop') {
+            dom.state = 'stopped';
+            dom.code = 'stopped';
+        } else if (name === 'Make another link' && dismissStuck && (dom.state === 'done' || dom.state === 'stopped')) {
+            return;
+        } else if (name === 'Make another link') {
+            dom.state = 'ready';
+            dom.result = null;
+            dom.code = '';
+            // A fresh form: Link ends is back on its default.
+            dom.lifetime = '24h';
+            dom.autoOn = false; // the form mounts anew, off (D-173)
+        }
+    };
+    // The Make link form (ready or error) is on screen: Save to and Link ends.
+    const formShowing = () =>
+        onRequestView() && ['ready', 'error'].includes(dom.state);
+    // A pick of the Link ends option labeled `label`, exactly.
+    const pickLifetime = (label) => {
+        const hit = LIFETIMES.find(([, l]) => l === label);
+        if (!formShowing())
+            throw new Error('fake dom: the Link ends select is not showing');
+        if (!hit) throw new Error(`fake dom: no Link ends option labeled "${label}"`);
+        dom.picked.push(label);
+        dom.lifetime = hit[0];
+    };
+    const locator = (name) => {
+        const self = {
+            first: () => self,
+            nth: () => self,
+            async isVisible() {
+                return visible(name);
+            },
+            async click() {
+                if (closeHangs && name === 'Close link') return new Promise(() => {});
+                click(name);
+            },
+            async waitFor() {
+                if (!visible(name))
+                    throw new Error(`fake dom: "${name}" never showed`);
+            },
+        };
+        return self;
+    };
+    const snapshot = () => {
+        tick();
+        const hasLink = [...LINK_STATES, 'receiving'].includes(dom.state);
+        dom.seq += 1;
+        return {
+            state:
+                dom.state === 'closed'
+                    ? laneStaysOpen
+                        ? 'waiting'
+                        : 'ended'
+                    : dom.state,
+            code: dom.code,
+            gen: dom.gen,
+            seq: dom.seq,
+            promptGen: dom.promptGen,
+            link: hasLink ? dom.link : '',
+            label: '',
+            saveDir: dom.state === 'ready' ? '' : dom.linkSaveDir,
+            expiresAt: 0,
+            autoAccept: dom.autoAccept,
+            route: dom.route,
+            suggestClose: false,
+            ...(dom.state === 'deciding' && dom.prompt ? { prompt: { ...dom.prompt } } : {}),
+            ...((dom.state === 'done' || dom.state === 'stopped') && dom.result
+                ? { result: { ...dom.result } }
+                : {}),
+        };
+    };
+    const node = (textContent) => ({ textContent, contains: () => false });
+    // What the page renders as text, roughly one node per <p> or <span>.
+    const textNodes = () => {
+        tick();
+        const pill =
+            dom.state === 'receiving'
+                ? dom.route === 'relay'
+                    ? 'Relay'
+                    : dom.route === 'direct'
+                      ? 'Direct'
+                      : 'Active'
+                : autoChip && dom.autoAccept && LINK_STATES.has(dom.state)
+                  ? 'Auto-accept'
+                  : 'Ready';
+        // The chip as App.tsx draws it: the word in an element of its own,
+        // and with Hide my IP on while nothing moves, the screen-reader twin
+        // as its sibling, both inside the chip's span. The reader keeps the
+        // innermost element whose whole text is one word.
+        const word = node(pill);
+        const twin =
+            dom.settings.hideIP && dom.state !== 'receiving' ? node(`, ${HIDE_IP_NOTE}`) : null;
+        const chip = {
+            textContent: twin ? `${pill}${twin.textContent}` : pill,
+            contains: (o) => o === word || (twin !== null && o === twin),
+        };
+        const head = twin ? [chip, word, twin] : [chip, word];
+        const out = [];
+        if (!onRequestView()) return head;
+        switch (dom.state) {
+            case 'waiting':
+                out.push('Waiting for files');
+                break;
+            case 'reconnecting':
+                // C1 on two lines (D-136): the news, then the reassurance.
+                out.push("Can't reach the Floe server", 'Reconnecting...');
+                break;
+            case 'deciding':
+                out.push('SOMEONE WANTS TO SEND YOU FILES');
+                // P2, P8 and P3 (RequestLinkView.tsx Prompt): the count and
+                // size as one string with the answer window at the right
+                // end of the same row (its own element, minutes only), then
+                // "Into " and the host-computed folder as two leaves. The
+                // UIA lane reads the prompt from these. H7 has no caution
+                // line (P10) and no laptop line on the prompt (P11).
+                if (dom.prompt)
+                    out.push(
+                        `${dom.prompt.files} ${dom.prompt.files === 1 ? 'file' : 'files'}, ${fmtBytes(dom.prompt.totalBytes)}`,
+                        `${Math.max(1, Math.ceil((dom.prompt.answerBy - clock.t) / 60_000))} min to answer`,
+                        'Into ',
+                        dom.prompt.folder
+                    );
+                break;
+            case 'declined':
+                out.push('Request declined');
+                break;
+            case 'receiving':
+                out.push('RECEIVING 1 OF 1');
+                if (dom.prompt) out.push('Into ', dom.prompt.folder);
+                break;
+            case 'done': {
+                const r = dom.result || { saved: 0, files: 0, verified: 0, bytes: 0 };
+                out.push(
+                    `RECEIVED ${r.saved} ${r.saved === 1 ? 'FILE' : 'FILES'}, ${mb(r.bytes)}`
+                );
+                // DN3 (D-161): a green check beside the heading, aria-hidden,
+                // and the words as an sr-only span of their own. The span is
+                // the only trace of verification a reader sees, so
+                // forceVerifiedLine false models a window that does not
+                // expose it. DN5 left the view (docs only).
+                const shown =
+                    dom.forceVerifiedLine ??
+                    (r.files > 0 && r.saved === r.files && r.verified === r.files);
+                if (shown) out.push(VERIFIED_LINE);
+                // The saved files list (D-171, D-172): every saved name, each
+                // its own text, above the folder row in the same box.
+                for (const n of r.names || []) out.push(n);
+                // DN6's folder row: the drop folder's own name (the full
+                // path rides only its title attribute).
+                if (r.folder && r.saved > 0) out.push(path.basename(r.folder));
+                break;
+            }
+            case 'stopped':
+                out.push('DROP STOPPED');
+                break;
+            case 'closed':
+                out.push('Link closed');
+                break;
+            case 'error':
+                // E1 and E4 (requestCopy.ts errorLine), the role=alert line
+                // under Make link that the UIA lane reads the code from.
+                out.push(
+                    dom.code === 'disabled'
+                        ? 'Request links are off on this server'
+                        : "Couldn't make a link"
+                );
+                break;
+            default:
+                break;
+        }
+        return [...head, ...out.map(node)];
+    };
+    const inputNodes = () => {
+        tick();
+        if (!onRequestView()) return [];
+        if (LINK_STATES.has(dom.state)) {
+            const value = screenText !== undefined ? screenText : dom.link;
+            return [{ value, textContent: '', contains: () => false }];
+        }
+        if (dom.state === 'ready' || dom.state === 'error')
+            return [{ value: dom.saveDir, textContent: '', contains: () => false }];
+        return [];
+    };
+    // The Make link form's Auto-accept switch (RequestLinkView.tsx): a
+    // checkbox named by its box's label, on the form only (ready or error),
+    // and absent on a build made before H10.
+    const autoBox = () => {
+        const shown = () => autoSwitch && onRequestView() && ['ready', 'error'].includes(dom.state);
+        const self = {
+            first: () => self,
+            async count() {
+                return shown() ? 1 : 0;
+            },
+            async isChecked() {
+                return shown() && dom.autoOn;
+            },
+            locator() {
+                return {
+                    async click() {
+                        if (!shown()) throw new Error('fake dom: the Auto-accept switch is not showing');
+                        if (autoSwitchStuck) return;
+                        dom.autoOn = !dom.autoOn;
+                        dom.switched.push(AUTO_SWITCH);
+                    },
+                };
+            },
+        };
+        return self;
+    };
+    const checkbox = (name) => {
+        if (name === AUTO_SWITCH) return autoBox();
+        const sw = SWITCHES.find((s) =>
+            name instanceof RegExp ? name.test(s.name) : s.name === name
+        );
+        if (!sw) throw new Error(`fake dom: no checkbox named ${name}`);
+        return {
+            async isChecked() {
+                return Boolean(dom.settings[sw.key]);
+            },
+            locator() {
+                return {
+                    async click() {
+                        if (!dom.settingsOpen)
+                            throw new Error(
+                                `fake dom: the ${sw.key} switch is on the Settings screen, which is closed`
+                            );
+                        if (switchStuck) return;
+                        dom.settings[sw.key] = !dom.settings[sw.key];
+                    },
+                };
+            },
+        };
+    };
+    const page = {
+        dom,
+        getByRole(role, o) {
+            if (role === 'checkbox') return checkbox(o.name);
+            if (role !== 'button')
+                throw new Error(`fake dom: role ${role} not modeled`);
+            return locator(o.name);
+        },
+        getByPlaceholder(text) {
+            if (text !== SAVE_TO)
+                throw new Error(`fake dom: placeholder ${text} not modeled`);
+            return {
+                async fill(v) {
+                    if (!onRequestView() || !['ready', 'error'].includes(dom.state))
+                        throw new Error('fake dom: the Save to field is not showing');
+                    if (!saveDirStuck) dom.saveDir = String(v);
+                },
+                async inputValue() {
+                    return dom.saveDir;
+                },
+            };
+        },
+        getByText(text) {
+            return {
+                async click() {
+                    if (LIFETIME_OPTIONS.includes(text) && formShowing()) pickLifetime(text);
+                    else dom.picked.push(text);
+                },
+            };
+        },
+        locator(sel, opts = {}) {
+            // The Link ends <select>, restyled but still a real select
+            // (D-173): found by an option's text the way Playwright's hasText
+            // matches (a substring, any case), then picked by
+            // selectOption({label}), which takes a label exactly.
+            if (sel === 'option') return { hasText: String(opts.hasText ?? '') };
+            if (sel !== 'select')
+                throw new Error(`fake dom: locator ${sel} not modeled`);
+            const showing = () => lifetimeSelect && formShowing();
+            const holds = (has) =>
+                !has ||
+                LIFETIME_OPTIONS.some((l) => l.toLowerCase().includes(has.hasText.toLowerCase()));
+            const select = (has) => {
+                const self = {
+                    filter: ({ has: inner } = {}) => select(inner ?? has),
+                    first: () => self,
+                    async count() {
+                        return showing() && holds(has) ? 1 : 0;
+                    },
+                    async selectOption({ label } = {}) {
+                        if (!showing()) throw new Error('fake dom: no select showing');
+                        pickLifetime(label);
+                    },
+                };
+                return self;
+            };
+            return select(null);
+        },
+        async evaluate(fn, arg) {
+            const saved = {
+                window: globalThis.window,
+                document: globalThis.document,
+                hadWindow: 'window' in globalThis,
+                hadDocument: 'document' in globalThis,
+            };
+            const app = {
+                GetRequestLink: async () => snapshot(),
+                GetSettings: async () => ({ ...dom.settings }),
+                SetSettings: async (server, web, hideIP, reportStats) => {
+                    dom.setSettingsCalls.push({ server, web, hideIP, reportStats });
+                    Object.assign(dom.settings, {
+                        server: addressesStuck ? dom.settings.server : server,
+                        web,
+                        hideIP,
+                        reportStats,
+                        migrated: true,
+                    });
+                },
+            };
+            globalThis.window = withBinding
+                ? {
+                      go: { main: { App: app } },
+                      __floeRoute: null,
+                      // This page's own listeners (App.tsx's files:open).
+                      runtime: { EventsEmit: (name, ...data) => ownListeners({ name, data }) },
+                      wails: { EventsNotify: (json) => ownListeners(JSON.parse(json)) },
+                  }
+                : {};
+            globalThis.document = {
+                querySelectorAll: (sel) =>
+                    sel === 'input'
+                        ? inputNodes()
+                        : sel === 'button'
+                          ? visibleButtons().map(node)
+                          : textNodes(),
+            };
+            try {
+                return await fn(arg);
+            } finally {
+                if (saved.hadWindow) globalThis.window = saved.window;
+                else delete globalThis.window;
+                if (saved.hadDocument) globalThis.document = saved.document;
+                else delete globalThis.document;
+            }
+        },
+        async screenshot({ path: file } = {}) {
+            dom.screenshots.push(file);
+            return Buffer.alloc(0);
+        },
+        isClosed() {
+            return dom.closed;
+        },
+    };
+    const context = {
+        async close() {
+            dom.closed = true;
+        },
+    };
+    /**
+     * Another leg's page on the same wails dev server (its own Playwright
+     * context), with the two Wails runtime calls a page can make. Wails
+     * v2.12.0 devserver.go handleIPCWebSocket hands an `EE` (EventsEmit)
+     * message to notifyExcludingSender, which rebroadcasts it to every
+     * other connected page: this host page's files:open listener runs
+     * addFiles and leaves REQUEST LINK for Send (the first live TA-17 run,
+     * 2026-09-24). EventsNotify (runtime/desktop/events.js) reaches the
+     * calling page's own listeners and nothing else.
+     */
+    const devPeerPage = () => {
+        const peer = { emitted: [], notified: [] };
+        return {
+            peer,
+            async evaluate(fn, arg) {
+                const had = 'window' in globalThis;
+                const prev = globalThis.window;
+                globalThis.window = {
+                    runtime: {
+                        EventsEmit: (name, ...data) => {
+                            peer.emitted.push({ name, data });
+                            dom.broadcasts.push({ name, data });
+                            ownListeners({ name, data });
+                        },
+                    },
+                    wails: {
+                        EventsNotify: (json) => peer.notified.push(JSON.parse(json)),
+                    },
+                };
+                try {
+                    return await fn(arg);
+                } finally {
+                    if (had) globalThis.window = prev;
+                    else delete globalThis.window;
+                }
+            },
+        };
+    };
+    return {
+        page,
+        context,
+        devPeerPage,
+        dom,
+        clock,
+        now,
+        nap,
+        waitUntil,
+        tick,
+        snapshot,
+        /** A visitor asks to send at fake time t (the prompt mounts then). */
+        requestAt(t, prompt = null) {
+            dom.requestAt = t;
+            dom.pendingPrompt = prompt;
+        },
+        /**
+         * The view as tests/fake-request-uia.mjs renders it for the UIA lane:
+         * the visible buttons, the text leaves, the inputs, one click by
+         * name, the Settings switches, and the prompt guard (its re-arm on
+         * window focus, which the frontend does for a click that brought the
+         * window forward).
+         */
+        views: {
+            buttons: () => visibleButtons(),
+            texts: () => textNodes().map((n) => n.textContent),
+            inputs: () => inputNodes(),
+            click: (name) => click(name),
+            onRequestView: () => onRequestView(),
+            saveToShowing: () => formShowing(),
+            // The Link ends options while the form shows, which the helper
+            // reaches as ListItems by name, and one pick by label.
+            lifetimeOptions: () => (formShowing() ? [...LIFETIME_OPTIONS] : []),
+            pickLifetime: (label) => pickLifetime(label),
+            setSaveDir: (v) => {
+                if (!saveDirStuck) dom.saveDir = String(v);
+            },
+            switches: () =>
+                SWITCHES.map((sw) => ({
+                    key: sw.key,
+                    name: sw.name,
+                    on: Boolean(dom.settings[sw.key]),
+                    disabled: switchStuck,
+                })),
+            setSwitch: (key, on) => {
+                dom.settings[key] = Boolean(on);
+            },
+            guarded: (name) =>
+                dom.state === 'deciding' &&
+                (name === 'Accept' || name === 'Decline') &&
+                clock.t < dom.promptMountedAt + guardMs,
+            rearmGuard: () => {
+                if (dom.state === 'deciding') dom.promptMountedAt = clock.t;
+            },
+        },
+    };
+}

@@ -2,16 +2,33 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import {
+    CLI_VISITOR_ORACLES,
     DEEP_IDS,
     DEFAULT_IDS,
+    HASH_IDS,
     QUICK_IDS,
+    REQUEST_ACCEPT_WAIT_MS,
+    REQUEST_BLIP_MS,
+    REQUEST_IDS,
+    REQUEST_OPEN_IDS,
+    REQUEST_VARIANTS,
+    SKIP_REASONS,
     cellPlan,
     countsForExit,
+    fixtureSpec,
+    isLoopbackUrl,
     matchCells,
     parseCellId,
     phaseTimeouts,
+    requestFlowOf,
 } from './matrix.mjs';
+import { ACCEPT_WAIT_MS } from './desktop.mjs';
+import { UsageError } from './args.mjs';
 
 const byId = (rows) => Object.fromEntries(rows.map((c) => [c.id, c]));
 
@@ -398,4 +415,475 @@ test('the size ladder spans one byte to a large file in a single batch', () => {
         ).length,
         0
     );
+});
+
+test('the forced-mismatch cells: refusal, a hashLie, and no other cell lies', () => {
+    const plan = cellPlan({ profile: 'head', cells: HASH_IDS });
+    const cells = plan.filter((c) => HASH_IDS.includes(c.id));
+    assert.equal(cells.length, HASH_IDS.length, 'every hash id plans a cell');
+    // Everything else is skipped, most of it as filtered and the rest by a gate
+    // that runs before the filter (a same-surface desktop pair, for instance).
+    for (const other of plan.filter((c) => !HASH_IDS.includes(c.id))) {
+        assert.ok(other.verdict, `${other.id} was not asked for, so it must not run`);
+    }
+    for (const cell of cells) {
+        assert.equal(cell.expect, 'refusal', `${cell.id} expects a refusal`);
+        assert.equal(
+            cell.hashLie,
+            cell.variant === 'hashmal' ? 'malformed' : 'corrupt',
+            `${cell.id} says how its sender lies`
+        );
+        assert.equal(cell.profile, 'H', 'head profile only');
+    }
+    // Nothing that ships a normal transfer carries a lie.
+    for (const cell of cellPlan({ subset: 'deep' })) {
+        assert.equal(cell.hashLie, null, `${cell.id} must not lie about a digest`);
+    }
+    // They stay out of the lists a run walks by default.
+    for (const id of HASH_IDS) {
+        assert.ok(!DEFAULT_IDS.includes(id), `${id} is not a default cell`);
+        assert.ok(!DEEP_IDS.includes(id), `${id} is not a deep cell`);
+    }
+});
+
+test('a shipped run never executes a head-only hash cell against production', () => {
+    // --profile shipped --cells H-DIR-W2C-hashbad would have opened
+    // www.floe.one with a sender that lies (P0-27 review F3).
+    const plan = cellPlan({ profile: 'shipped', cells: HASH_IDS });
+    const hash = plan.filter((c) => HASH_IDS.includes(c.id));
+    assert.equal(hash.length, HASH_IDS.length);
+    for (const cell of hash) {
+        assert.equal(cell.verdict, 'SKIP', `${cell.id} must not run in a shipped run`);
+        assert.equal(cell.reason, 'head-only');
+    }
+    assert.ok(SKIP_REASONS['head-only'], 'the skip reason is documented');
+    // The same ids in a head run are executable (their other gates permitting).
+    const head = cellPlan({ profile: 'head', cells: ['H-DIR-W2C-hashbad'] });
+    const w2c = head.find((c) => c.id === 'H-DIR-W2C-hashbad');
+    assert.ok(!w2c.verdict, `${w2c.id} runs in a head run (verdict ${w2c.verdict})`);
+});
+
+test('matrix.md documents every hash id and variant the code knows', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const md = readFileSync(join(here, '..', '..', 'references', 'matrix.md'), 'utf8');
+    for (const id of HASH_IDS) {
+        const variant = parseCellId(id).variant;
+        assert.ok(md.includes(variant), `matrix.md names the ${variant} variant`);
+    }
+    assert.ok(md.includes('hashbad'), 'matrix.md names hashbad');
+    assert.ok(md.includes('hashmal'), 'matrix.md names hashmal');
+    assert.ok(md.includes('HASH_IDS'), 'matrix.md points at the id list in the code');
+});
+
+// ------------------------------------------------ request link cells
+
+const WITH_FEATURE = {
+    server: { features: ['request-1'] },
+    desktop: { available: true },
+};
+const LOCAL = 'http://localhost:3001';
+// The request host is the wailsdev dev page (a head lane) or, away-only, an
+// exe driven through the UIA verbs (FU-26); the head plans here take
+// --desktop wailsdev and the shipped ones keep the default, which is what a
+// real run can ask for.
+const requestPlan = (profile, probe = WITH_FEATURE) =>
+    cellPlan({
+        profile,
+        cells: REQUEST_IDS,
+        probe,
+        server: profile === 'head' ? LOCAL : 'https://api.floe.one',
+        desktopMode: profile === 'head' ? 'wailsdev' : 'auto',
+        // TA-14 plans only with --caddy (its own test covers the SKIP).
+        caddy: true,
+    }).filter((c) => REQUEST_IDS.includes(c.id));
+
+function requestTableIds() {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const md = readFileSync(
+        join(here, '..', '..', 'references', 'matrix.md'),
+        'utf8'
+    );
+    const start = md.indexOf('## Request-link cells (need request-1)');
+    assert.ok(start >= 0, 'matrix.md has the Request-link cells section');
+    const end = md.indexOf('\n## ', start + 5);
+    const section = md.slice(start, end < 0 ? undefined : end);
+    const row = /^\|\s*([SH]-(?:DIR|REL)-[WCDL]2[WCDL]-[a-z0-9]+)\s*\|/;
+    return section
+        .split('\n')
+        .map((l) => row.exec(l))
+        .filter(Boolean)
+        .map((m) => m[1]);
+}
+
+test('matrix.md and cellPlan agree on every request link cell, both ways', () => {
+    const table = requestTableIds();
+    assert.deepEqual([...table].sort(), [...REQUEST_IDS].sort());
+    const planned = [...requestPlan('shipped'), ...requestPlan('head')].map(
+        (c) => c.id
+    );
+    for (const id of REQUEST_IDS)
+        assert.ok(planned.includes(id), `${id} has a cellPlan entry`);
+    for (const id of table)
+        assert.ok(REQUEST_VARIANTS.includes(parseCellId(id).variant), id);
+    assert.equal(
+        REQUEST_OPEN_IDS.length,
+        QUICK_IDS.length,
+        'TA-17 is all six quick cells'
+    );
+});
+
+test('request cells SKIP server-no-request-1 without the feature, and absent or malformed counts as absent', () => {
+    assert.match(SKIP_REASONS['server-no-request-1'], /probe P10/);
+    for (const probe of [
+        {},
+        { server: null },
+        { server: { features: null } },
+        { server: { features: 'request-1' } },
+        { server: { features: ['request-2'] } },
+    ]) {
+        for (const profile of ['shipped', 'head']) {
+            const rows = requestPlan(profile, {
+                ...probe,
+                desktop: { available: true },
+            }).filter((c) => c.reason !== 'head-only');
+            assert.ok(rows.length > 0);
+            for (const c of rows)
+                assert.equal(
+                    c.reason,
+                    'server-no-request-1',
+                    `${c.id} ${JSON.stringify(probe)}`
+                );
+        }
+    }
+    const head = requestPlan('head');
+    assert.ok(head.length > 0);
+    for (const c of head) assert.equal(c.verdict, null, `${c.id} runs with request-1`);
+});
+
+test('request cells are never in a walk without --cells, and every receiver leg is opted out', () => {
+    for (const subset of ['quick', 'default', 'deep'])
+        for (const profile of ['shipped', 'head'])
+            assert.ok(
+                !cellPlan({ profile, subset }).some((c) => c.request),
+                `${profile}/${subset} plans no request cell`
+            );
+    for (const c of [...requestPlan('shipped'), ...requestPlan('head')])
+        assert.equal(c.receiver.statsOff, true, c.id);
+});
+
+test('request cells: sizes, inputs, forcers, flows and the Accept wait', () => {
+    const all = byId([...requestPlan('shipped'), ...requestPlan('head')]);
+    const MiB = 1024 * 1024;
+    const want = {
+        'S-DIR-W2D-req': [64 * MiB, 'request-link', 'none', null, 'accept'],
+        'S-REL-W2D-req': [4 * MiB, 'request-link', 'initScript', 'sender', 'accept'],
+        'S-REL-W2D-reqhideip': [4 * MiB, 'request-link', 'hideIP', 'receiver', 'accept'],
+        'H-DIR-W2D-reqblip': [64 * MiB, 'request-link', 'none', null, 'blip-then-accept'],
+        'H-DIR-W2D-reqdecline': [MiB, 'request-link', 'none', null, 'decline-then-accept'],
+        'S-DIR-W2W-reqopen': [12 * MiB, 'link', 'none', null, 'open-link-precondition'],
+        'S-REL-W2C-reqopen': [4 * MiB, 'link', 'initScript', 'sender', 'open-link-precondition'],
+        'S-DIR-C2D-reqopen': [64 * MiB, 'code', 'none', null, 'open-link-precondition'],
+        'H-REL-W2D-req': [4 * MiB, 'request-link', 'initScript', 'sender', 'accept'],
+    };
+    for (const [id, [bytes, input, forcer, side, flow]] of Object.entries(want)) {
+        const c = all[id];
+        assert.ok(c, id);
+        assert.equal(c.fixture.totalBytes, bytes, `${id} size`);
+        assert.equal(c.receiver.input, input, `${id} input`);
+        assert.equal(c.forcer, forcer, `${id} forcer`);
+        assert.equal(c.forcedSide, side, `${id} forced side`);
+        assert.equal(c.request.flow, flow, `${id} flow`);
+        assert.equal(c.request.feature, 'request-1');
+    }
+    assert.equal(all['S-REL-W2D-reqhideip'].receiver.relayOnly, true);
+    assert.equal(all['S-REL-W2D-reqhideip'].sender.relayOnly, false);
+    assert.equal(all['H-DIR-W2D-reqblip'].request.blipMs, REQUEST_BLIP_MS);
+    assert.equal(REQUEST_BLIP_MS, 5_000);
+    assert.equal(all['H-DIR-W2D-reqdecline'].request.visitors, 2);
+    assert.equal(REQUEST_ACCEPT_WAIT_MS, ACCEPT_WAIT_MS, 'one Accept wait');
+    assert.ok(REQUEST_ACCEPT_WAIT_MS >= 1200);
+    for (const c of Object.values(all)) {
+        if (c.request.flow === 'open-link-precondition') continue;
+        assert.equal(c.request.acceptWaitMs, REQUEST_ACCEPT_WAIT_MS);
+        assert.ok(c.timeouts.accept >= REQUEST_ACCEPT_WAIT_MS);
+        assert.ok(c.request.oracles.includes('visitor-stats-attempts-0'), c.id);
+    }
+    // TA-17's W2W has no desktop leg, but its host is the desktop.
+    const none = cellPlan({
+        profile: 'shipped',
+        cells: ['S-DIR-W2W-reqopen'],
+        probe: WITH_FEATURE,
+        desktopMode: 'none',
+    }).find((c) => c.id === 'S-DIR-W2W-reqopen');
+    assert.equal(none.reason, 'desktop-none');
+});
+
+test('reqblip refuses any server that is not loopback, as a usage error before anything is created', () => {
+    for (const server of [
+        'https://api.floe.one',
+        'http://192.168.1.10:3001',
+        'http://localhost.evil.example:3001',
+        'ws://localhost:3001',
+        'not a url',
+        null,
+    ]) {
+        assert.throws(
+            () =>
+                cellPlan({
+                    profile: 'head',
+                    cells: ['H-DIR-W2D-reqblip'],
+                    probe: WITH_FEATURE,
+                    server,
+                }),
+            (e) => e instanceof UsageError && /loopback/.test(e.message),
+            String(server)
+        );
+    }
+    for (const server of [
+        'http://localhost:3001',
+        'http://127.0.0.1:3001',
+        'http://[::1]:3001',
+    ])
+        assert.ok(isLoopbackUrl(server), server);
+    const ok = cellPlan({
+        profile: 'head',
+        cells: ['H-DIR-W2D-reqblip'],
+        probe: WITH_FEATURE,
+        server: LOCAL,
+        desktopMode: 'wailsdev',
+    }).find((c) => c.id === 'H-DIR-W2D-reqblip');
+    assert.equal(ok.verdict, null);
+    assert.equal(ok.request.loopbackOnly, true);
+    // A shipped run that names it SKIPs head-only and never reaches a server.
+    const shipped = cellPlan({
+        profile: 'shipped',
+        cells: ['H-DIR-W2D-reqblip'],
+        probe: WITH_FEATURE,
+        server: 'https://api.floe.one',
+    }).find((c) => c.id === 'H-DIR-W2D-reqblip');
+    assert.equal(shipped.reason, 'head-only');
+    // Only the blip and Caddy cells carry the loopback rule.
+    for (const c of requestPlan('head'))
+        assert.equal(
+            c.request.loopbackOnly,
+            c.id === 'H-DIR-W2D-reqblip' || c.id === 'H-DIR-W2D-reqcaddy',
+            c.id
+        );
+});
+
+// FU-26: TA-14 (the local Caddy reload) is planned, SKIP unless the run
+// names --caddy, head only, and a usage error against any server that is not
+// loopback, before anything is created (OD-33).
+test('TA-14 reqcaddy SKIPs caddy-not-enabled without --caddy, plans with it, stays head-only and loopback-only', () => {
+    assert.ok(REQUEST_IDS.includes('H-DIR-W2D-reqcaddy'));
+    assert.match(SKIP_REASONS['caddy-not-enabled'], /--caddy/);
+    assert.match(SKIP_REASONS['docker-absent'], /Docker/);
+    const off = cellPlan({
+        profile: 'head',
+        cells: ['H-DIR-W2D-reqcaddy'],
+        probe: WITH_FEATURE,
+        server: LOCAL,
+        desktopMode: 'wailsdev',
+    }).find((c) => c.id === 'H-DIR-W2D-reqcaddy');
+    assert.equal(off.reason, 'caddy-not-enabled');
+    const noFeature = cellPlan({
+        profile: 'head',
+        cells: ['H-DIR-W2D-reqcaddy'],
+        probe: { desktop: { available: true } },
+        server: LOCAL,
+        desktopMode: 'wailsdev',
+    }).find((c) => c.id === 'H-DIR-W2D-reqcaddy');
+    assert.equal(noFeature.reason, 'caddy-not-enabled', 'without --caddy nothing else is even asked');
+    const on = cellPlan({
+        profile: 'head',
+        cells: ['H-DIR-W2D-reqcaddy'],
+        probe: WITH_FEATURE,
+        server: LOCAL,
+        desktopMode: 'wailsdev',
+        caddy: true,
+    }).find((c) => c.id === 'H-DIR-W2D-reqcaddy');
+    assert.equal(on.verdict, null);
+    assert.equal(on.request.flow, 'caddy-reload');
+    assert.equal(on.request.caddy, true);
+    assert.equal(on.request.loopbackOnly, true);
+    assert.equal(on.fixture.totalBytes, 64 * 1024 * 1024);
+    assert.ok(on.request.oracles.includes('drop-survives-a-reload-while-receiving'));
+    assert.ok(on.request.oracles.includes('visitor-ignores-peer-disconnected'));
+    assert.ok(on.timeouts.hardCap > off.timeouts.accept);
+    assert.throws(
+        () =>
+            cellPlan({
+                profile: 'head',
+                cells: ['H-DIR-W2D-reqcaddy'],
+                probe: WITH_FEATURE,
+                server: 'https://api.floe.one',
+                desktopMode: 'wailsdev',
+                caddy: true,
+            }),
+        /loopback/
+    );
+    const shipped = cellPlan({
+        profile: 'shipped',
+        cells: ['H-DIR-W2D-reqcaddy'],
+        probe: WITH_FEATURE,
+        server: 'https://api.floe.one',
+        caddy: true,
+    }).find((c) => c.id === 'H-DIR-W2D-reqcaddy');
+    assert.equal(shipped.reason, 'head-only');
+});
+
+test('request cells on an exe host SKIP request-host-away-only without --user-away; with it they run, and TA-17 with a desktop side is NA single-instance (FU-26, G2-F1)', () => {
+    assert.match(SKIP_REASONS['request-host-away-only'], /activate its window/);
+    assert.equal(SKIP_REASONS['request-host-uia-pending'], undefined, 'the UIA verbs landed');
+    const deskSide = (c) => c.sender.surface === 'desktop' || c.receiver.surface === 'desktop';
+    for (const desktopMode of ['auto', 'store', 'portable']) {
+        const present = cellPlan({
+            profile: 'head',
+            cells: REQUEST_IDS,
+            probe: WITH_FEATURE,
+            server: LOCAL,
+            desktopMode,
+            caddy: true,
+        }).filter((c) => REQUEST_IDS.includes(c.id) && c.reason !== 'head-only' && c.request.flow !== 'auto');
+        assert.ok(present.length > 0);
+        for (const c of present)
+            assert.equal(c.reason, 'request-host-away-only', `${c.id} on ${desktopMode}`);
+        const away = cellPlan({
+            profile: 'head',
+            cells: REQUEST_IDS,
+            probe: WITH_FEATURE,
+            server: LOCAL,
+            desktopMode,
+            userAway: true,
+            caddy: true,
+        }).filter((c) => REQUEST_IDS.includes(c.id) && c.reason !== 'head-only' && c.request.flow !== 'auto');
+        for (const c of away) {
+            if (c.request.flow === 'open-link-precondition' && deskSide(c)) {
+                assert.equal(c.verdict, 'NA', `${c.id} on ${desktopMode}`);
+                assert.equal(c.reason, 'single-instance', c.id);
+            } else assert.equal(c.verdict, null, `${c.id} on ${desktopMode} runs away-only`);
+        }
+    }
+    // The shipped profile cannot take --desktop wailsdev (audit.mjs refuses
+    // it), so a shipped request cell runs only on an exe host, away-only.
+    for (const c of requestPlan('shipped').filter((c) => c.reason !== 'head-only'))
+        assert.equal(c.reason, 'request-host-away-only', c.id);
+    // The wailsdev lane is not affected by the flag.
+    const dev = cellPlan({
+        profile: 'head',
+        cells: ['H-DIR-W2D-req', 'H-DIR-C2D-reqopen'],
+        probe: WITH_FEATURE,
+        server: LOCAL,
+        desktopMode: 'wailsdev',
+    }).filter((c) => c.request);
+    for (const c of dev) assert.equal(c.verdict, null, c.id);
+    // The feature gate still comes first, and --desktop none still wins.
+    const noFeature = cellPlan({
+        profile: 'head',
+        cells: ['H-DIR-W2D-req'],
+        probe: { desktop: { available: true } },
+        server: LOCAL,
+    }).find((c) => c.id === 'H-DIR-W2D-req');
+    assert.equal(noFeature.reason, 'server-no-request-1');
+});
+
+test('every request flow checks the prompt, and TA-12 carries no oracle a web visitor cannot reach', () => {
+    for (const c of requestPlan('head').concat(requestPlan('shipped'))) {
+        if (c.request.flow === 'open-link-precondition') continue;
+        // TA-10a's link accepts automatically: its oracle is that no prompt
+        // ever shows (and the chip reads AUTO-ACCEPT), never the prompt's.
+        if (c.request.flow === 'auto') {
+            assert.ok(c.request.oracles.includes('no-prompt-chip-auto-accept'), c.id);
+            assert.ok(!c.request.oracles.includes('prompt-counts-match-no-relay-warning'), c.id);
+            continue;
+        }
+        assert.ok(c.request.oracles.includes('prompt-counts-match-no-relay-warning'), c.id);
+        assert.ok(!c.request.oracles.includes('prompt-text-only-over-2gb'), c.id);
+    }
+});
+
+test('TA-10a: H-DIR-W2D-reqauto is head only, makes its link with Auto-accept on, and every other cell leaves it off (D-173)', () => {
+    assert.equal(requestFlowOf('reqauto'), 'auto');
+    assert.ok(REQUEST_VARIANTS.includes('reqauto'));
+    assert.ok(REQUEST_IDS.includes('H-DIR-W2D-reqauto'));
+    assert.ok(!REQUEST_IDS.includes('S-DIR-W2D-reqauto'), 'no shipped build has the Auto-accept switch yet');
+    const [head] = requestPlan('head').filter((c) => c.id === 'H-DIR-W2D-reqauto');
+    assert.ok(head, 'planned in a head run');
+    assert.equal(head.verdict, null, 'it runs on the wailsdev lane');
+    assert.equal(head.request.autoAccept, true);
+    assert.ok(head.request.oracles.includes('result-marked-auto-accepted'));
+    assert.deepEqual(head.fixture, fixtureSpec(parseCellId('H-DIR-W2D-req')), 'the drop TA-10 moves');
+    for (const c of requestPlan('head').concat(requestPlan('shipped'))) {
+        if (c.request.flow === 'open-link-precondition' || c.id === 'H-DIR-W2D-reqauto') continue;
+        assert.equal(c.request.autoAccept, false, c.id);
+    }
+    assert.match(SKIP_REASONS['request-no-auto-switch'], /Auto-accept switch/);
+});
+
+test('TA-10a off the wailsdev lane SKIPs request-auto-wailsdev-only, with or without --user-away: only the dev page reads the host\'s own record', () => {
+    assert.match(SKIP_REASONS['request-auto-wailsdev-only'], /GetRequestLink/);
+    for (const desktopMode of ['auto', 'store', 'portable'])
+        for (const userAway of [false, true]) {
+            const [c] = cellPlan({
+                profile: 'head',
+                cells: ['H-DIR-W2D-reqauto'],
+                probe: WITH_FEATURE,
+                server: LOCAL,
+                desktopMode,
+                userAway,
+            }).filter((x) => x.id === 'H-DIR-W2D-reqauto');
+            assert.equal(c.verdict, 'SKIP', `${desktopMode} away ${userAway}`);
+            assert.equal(c.reason, 'request-auto-wailsdev-only', `${desktopMode} away ${userAway}`);
+        }
+    // The feature gate still comes first.
+    const [noFeature] = cellPlan({
+        profile: 'head',
+        cells: ['H-DIR-W2D-reqauto'],
+        probe: { desktop: { available: true } },
+        server: LOCAL,
+        desktopMode: 'wailsdev',
+    }).filter((x) => x.id === 'H-DIR-W2D-reqauto');
+    assert.equal(noFeature.reason, 'server-no-request-1');
+});
+
+test('TA-16 H-DIR-C2D-req: the CLI visitor on a desktop link, head only, 64 MiB, judged by the CLI oracles', () => {
+    assert.ok(REQUEST_IDS.includes('H-DIR-C2D-req'));
+    assert.ok(!REQUEST_IDS.includes('S-DIR-C2D-req'), 'no shipped twin until a released CLI has --to');
+    const head = byId(requestPlan('head'));
+    const c = head['H-DIR-C2D-req'];
+    assert.ok(c, 'planned in a head run');
+    assert.equal(c.verdict, null, c.note);
+    assert.equal(c.sender.surface, 'cli');
+    assert.equal(c.receiver.surface, 'desktop');
+    assert.equal(c.receiver.input, 'request-link');
+    assert.equal(c.receiver.statsOff, true);
+    assert.equal(c.fixture.totalBytes, 64 * 1024 * 1024);
+    assert.equal(c.forcer, 'none');
+    assert.equal(c.byConstruction, false, 'its route is observed, never assumed');
+    assert.equal(c.request.flow, 'accept');
+    assert.equal(c.request.visitor, 'cli');
+    assert.equal(c.request.visitors, 1);
+    assert.deepEqual(c.request.oracles, [...CLI_VISITOR_ORACLES]);
+    for (const o of [
+        'visitor-exit-0',
+        'sha256-in-drop-subfolder',
+        'visitor-sha-line-only-when-verified-equals-n',
+        'desktop-received-n-files',
+        'desktop-json-proof',
+    ])
+        assert.ok(c.request.oracles.includes(o), o);
+    assert.ok(!c.request.oracles.includes('link-used-up-after'), 'the used-up check needs a second visitor');
+    // Every other request cell keeps the web visitor.
+    for (const w of Object.values(head)) {
+        if (w.request.flow === 'open-link-precondition' || w.id === 'H-DIR-C2D-req') continue;
+        assert.equal(w.request.visitor, 'web', w.id);
+    }
+    // A shipped run that names it SKIPs head-only and never reaches a server.
+    const shipped = cellPlan({
+        profile: 'shipped',
+        cells: ['H-DIR-C2D-req'],
+        probe: WITH_FEATURE,
+        server: 'https://api.floe.one',
+    }).find((x) => x.id === 'H-DIR-C2D-req');
+    assert.equal(shipped.reason, 'head-only');
 });

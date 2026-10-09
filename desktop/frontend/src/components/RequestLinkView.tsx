@@ -1,0 +1,711 @@
+// Receive > REQUEST LINK: everything the owner sees of the Request link, one
+// block per lane phase, drawn from the approved Checkpoint C canvas (DY, DE,
+// DW, DC, DP, DD, DV, DO, DT and DX artboards). A top-level module component
+// on purpose: declared inside App it would be a new type on every render and
+// the label field would remount under the caret.
+//
+// Every string comes from requestCopy.ts. The only visitor-derived text that
+// renders here is the engine's display-safe file name while a drop receives,
+// as a React text node; the prompt shows numbers and host-computed values only.
+
+import {useEffect, useRef, useState, type MouseEvent} from 'react';
+import {AlertCircle, Check, ChevronDown, Folder, FolderOpen, Info, Loader2, X} from 'lucide-react';
+import {Button, cn, Eyebrow, Input} from './ui';
+import {Tooltip} from './Tooltip';
+import * as copy from '../requestCopy';
+import {
+    autoAcceptShown,
+    DEFAULT_LIFETIME,
+    etaLines,
+    guardActive,
+    GUARD_MS,
+    isLifetime,
+    LIFETIMES,
+    showLaptopLine,
+    type Lifetime,
+    type Phase,
+    type RequestLinkSnapshot,
+} from '../requestLink';
+import {fmtEta, fmtSpeed, type Prog} from '../progress';
+import {shortPath} from '../paths';
+import {VerifiedMark} from './TransferBits';
+
+/** The link block and the activity slot below it: the phases in which a link
+ *  exists on screen. Close link keeps one box across all of them (spec 06 5.5:
+ *  the prompt mounts below, and nothing above it ever moves). */
+export const LINK_PHASES = new Set<Phase>(['waiting', 'reconnecting', 'connecting', 'deciding', 'declined']);
+
+export const PROMPT_HEADING_ID = 'floe-request-prompt-heading';
+/** The Accept and Decline row: Review scrolls it into view (the notice hides
+ *  only while this whole row is on screen). */
+export const PROMPT_ACTIONS_ID = 'floe-request-prompt-actions';
+export const LABEL_INPUT_ID = 'floe-request-label';
+/** R30, the amber line the Auto-accept check is described by while it is on. */
+const AUTO_LINE_ID = 'floe-request-auto-line';
+/** R31 and R31a for screen readers (R3 M1): the tooltip's words describe the
+ *  check and the info icon at all times, since a tooltip's own description
+ *  sits on its wrapper and reaches no screen reader. */
+const AUTO_ABOUT_ID = 'floe-request-auto-about';
+
+// Shared pieces of the canvas grammar. A heading breaks inside a word only when
+// the word cannot fit: the owner's label is up to 64 characters and may have no
+// space, which in this tracked uppercase mono is wider than the card (FU-04,
+// case d). anywhere, not break-all, so a spaced label still breaks at spaces.
+const headClass = 'px-0.5 font-mono text-[10px] font-medium uppercase leading-4 tracking-[0.2em] text-zinc-300 [overflow-wrap:anywhere]';
+// The folder after "Into" (P3) on the prompt and while a drop receives, by the
+// same rule: break-all split a spaced label's folder inside a word ("f" /
+// "rom", QA-H6 L-1) right under a heading that broke at its spaces.
+const intoClass = 'font-mono text-zinc-300 [overflow-wrap:anywhere]';
+const t1Class = 'text-sm leading-normal text-zinc-200';
+const t2Class = 'text-xs leading-relaxed text-zinc-400';
+const t3Class = 'text-xs leading-relaxed text-zinc-500';
+const warnClass = 'text-xs leading-relaxed text-amber-300/80';
+// The Done folder name, in characters (12 px mono beside Show in folder). The
+// walkthrough measured 7.2 px a character in a 238.63 px room, room for 33, so
+// 34 let CSS cut the very timestamp the middle cut keeps (deep QA L12
+// cell-08); 32 leaves a character of slack.
+const DONE_FOLDER_MAX = 32;
+// The SAVE TO field's text at rest, in characters. The card is 448 px at every
+// window size (max-w-lg less px-8), which leaves the field 270 px of text
+// beside Browse; QA-H6 capture 11 fit 40 characters of a typical path in
+// 14 px Geist (6.75 px each), so 36 leaves room for wider letters.
+const SAVE_TO_MAX = 36;
+
+export interface RequestLinkViewProps {
+    phase: Phase;
+    snap: RequestLinkSnapshot;
+    /** The refusal code for the Error phase. */
+    errorCode: string;
+    /** The latest request:progress event of the running drop, or null. */
+    progress: Prog | null;
+    hideIP: boolean;
+    /** The base folder for the next link (localStorage floe:requestSaveDir). */
+    saveDir: string;
+    onSaveDirChange: (v: string) => void;
+    /** Make link, with the form's Auto-accept check: true only while it is
+     *  on (D-173). */
+    onMake: (label: string, lifetime: Lifetime, autoAccept: boolean) => void;
+    onClose: () => void;
+    onAnswer: (promptGen: number, answer: 'accept' | 'decline' | 'keep-waiting') => void;
+    onCancelDrop: () => void;
+    onRetry: () => void;
+    onShowInFolder: (folder: string) => void;
+    onMakeAnother: () => void;
+    onBrowse: () => void;
+    /** Any edit of the form while an error shows (T5). */
+    onEdit: () => void;
+    /** The guard lifted on a prompt (A2 is announced once, by App). */
+    onGuardLift: () => void;
+    /** Whether the whole Accept and Decline row is in view (the notice hides
+     *  while it is). */
+    onPromptVisible: (visible: boolean) => void;
+    /** The count and folder of the prompt this drop answered, for Receiving
+     *  before the first progress event (requestLink.ts acceptedPrompt). */
+    accepted?: {files: number; folder: string} | null;
+}
+
+export default function RequestLinkView(props: RequestLinkViewProps) {
+    const {phase, snap} = props;
+    if (phase === 'ready' || phase === 'making' || phase === 'error') return <ReadyForm {...props}/>;
+    if (LINK_PHASES.has(phase)) {
+        return (
+            <div className="space-y-4">
+                <LinkBlock phase={phase} snap={snap} onClose={props.onClose}/>
+                <div aria-hidden className="-mx-5 h-px bg-white/[0.06]"/>
+                <ActivitySlot {...props}/>
+            </div>
+        );
+    }
+    if (phase === 'receiving') return <Receiving {...props}/>;
+    if (phase === 'done' || phase === 'stopped') return <Result {...props}/>;
+    if (phase === 'ended') {
+        return (
+            <div className="space-y-4">
+                {/* With no label, REQUEST LINK stays for screen readers only:
+                    the sub-tab row right above already says it. */}
+                <p className={snap.label ? headClass : 'sr-only'}>{copy.linkHeading(snap.label)}</p>
+                <p className={t1Class}>{copy.endedLine(snap.code, snap.expiresAt)}</p>
+                <Button id="floe-make-another" className="w-full" onClick={props.onMakeAnother}>{copy.MAKE_ANOTHER_LINK}</Button>
+            </div>
+        );
+    }
+    return null;
+}
+
+// ---- Ready, making and error (DY-01 to DY-03, DE-01 to DE-08) --------------
+function ReadyForm({phase, errorCode, hideIP, saveDir, onSaveDirChange, onMake, onBrowse, onEdit}: RequestLinkViewProps) {
+    // View-local only: what the owner is typing and choosing. Auto-accept
+    // starts off on every mount, Make another link included, and is never
+    // stored anywhere (D-173, G2): the choice is this link's alone.
+    const [label, setLabel] = useState('');
+    const [lifetime, setLifetime] = useState<Lifetime>(DEFAULT_LIFETIME);
+    const [autoAccept, setAutoAccept] = useState(false);
+    const [saveFocused, setSaveFocused] = useState(false);
+    const making = phase === 'making';
+    const edited = () => { if (phase === 'error') onEdit(); };
+    // At rest, a folder too long for the field is cut in the middle, the way
+    // Done and History cut theirs (M5), so the folder the files land in stays
+    // in view (QA-H6 L-2: the end was cut). Only the picture changes: the
+    // field's value stays the whole path, which UIA, Playwright and a screen
+    // reader read, and focus shows it whole to edit.
+    const savePath = shortPath(saveDir, SAVE_TO_MAX);
+    const saveCut = !saveFocused && savePath !== saveDir;
+    return (
+        <div className="space-y-4">
+            <div className="space-y-2">
+                <Eyebrow className="px-0.5"><label htmlFor={LABEL_INPUT_ID}>{copy.LABEL_EYEBROW}</label></Eyebrow>
+                <Input
+                    id={LABEL_INPUT_ID}
+                    placeholder={copy.LABEL_PLACEHOLDER}
+                    className="placeholder:text-zinc-400!"
+                    value={label}
+                    onChange={(e) => { setLabel(e.target.value); edited(); }}
+                    disabled={making}
+                    maxLength={64}
+                    autoComplete="off"
+                    spellCheck={false}
+                />
+            </div>
+            <div className="space-y-2">
+                <Eyebrow className="px-0.5"><label htmlFor="floe-request-save">{copy.SAVE_TO_EYEBROW}</label></Eyebrow>
+                <div className="flex gap-3">
+                    <div className="relative min-w-0 flex-1">
+                        {/* The cut path is drawn over the field in the field's
+                            own box (1 px border, px-3 py-2, text-sm), and the
+                            field's text is made transparent under it; an
+                            inline style, because cn has no tailwind-merge and
+                            a second text color class would not reliably win.
+                            Its color never transitions, cut or not: on blur
+                            the whole path would fade under the cut one, and
+                            when the cut ends the field would blank and fade
+                            back in (150 ms each); the focus ring still fades.
+                            Nothing else changes its color (disabled uses
+                            opacity). In a contrast theme the forced text
+                            color replaces transparent (only background-color
+                            keeps its alpha), so there the overlay is hidden
+                            and the field shows its own text, cut at the end. */}
+                        <Input
+                            id="floe-request-save"
+                            placeholder={copy.SAVE_TO_PLACEHOLDER}
+                            // The same gray as the Label placeholder (D-167, D1 P-2).
+                            className="placeholder:text-zinc-400!"
+                            value={saveDir}
+                            title={saveCut ? saveDir : undefined}
+                            style={{color: saveCut ? 'transparent' : undefined, transitionProperty: 'box-shadow'}}
+                            onFocus={() => setSaveFocused(true)}
+                            onBlur={() => setSaveFocused(false)}
+                            onChange={(e) => { onSaveDirChange(e.target.value); edited(); }}
+                            disabled={making}
+                            autoComplete="off"
+                            spellCheck={false}
+                        />
+                        {saveCut && (
+                            <span aria-hidden className={cn('pointer-events-none absolute inset-0 truncate border border-transparent px-3 py-2 text-sm text-zinc-100 forced-colors:hidden', making && 'opacity-50')}>
+                                {savePath}
+                            </span>
+                        )}
+                    </div>
+                    <Button variant="outline" onClick={onBrowse} disabled={making}>
+                        <Folder/> {copy.BROWSE}
+                    </Button>
+                </div>
+            </div>
+            <div className="space-y-2">
+                <Eyebrow className="px-0.5"><label htmlFor="floe-request-lifetime">{copy.LINK_ENDS_EYEBROW}</label></Eyebrow>
+                {/* The real select, restyled as a customizable select by
+                    globals.css .floe-select (D-173): native keyboard, type-ahead,
+                    screen reader and UIA behavior stay, and a WebView2 older
+                    than 135 draws today's native list. A value that is not one
+                    of the six changes nothing, never folded into 24h. */}
+                <div className="relative">
+                    <select
+                        id="floe-request-lifetime"
+                        value={lifetime}
+                        onChange={(e) => { if (isLifetime(e.target.value)) setLifetime(e.target.value); edited(); }}
+                        disabled={making}
+                        className="floe-select h-[38px] w-full rounded-md border border-white/10 bg-white/[0.03] px-3 pr-9 text-sm text-zinc-100 outline-none transition-[color,box-shadow] focus-visible:border-ice/50 focus-visible:ring-[3px] focus-visible:ring-ice/25 disabled:opacity-50"
+                    >
+                        {LIFETIMES.map((l) => <option key={l.key} value={l.key}>{l.label}</option>)}
+                    </select>
+                    <ChevronDown aria-hidden className="floe-select-chevron pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-zinc-500"/>
+                </div>
+                {/* Auto-accept (D-173, D-174): an inline check under the select,
+                    in the LINK ENDS group, with an info icon whose tooltip warns
+                    when to turn it on, then says what it does. The checkbox is native and
+                    sr-only inside its label, as the Settings switches are, so the
+                    keyboard, the UIA Toggle and screen readers need nothing extra;
+                    the box is drawn from the state as two whole class sets (cn has
+                    no tailwind-merge). R30 is the one line of consequence, amber,
+                    only while it is on, and the checkbox is described by it. */}
+                <div className="flex items-center gap-0.5 px-0.5 pt-0.5">
+                    <label
+                        aria-disabled={making || undefined}
+                        className={cn('group inline-flex min-h-6 select-none items-center gap-2.5', making ? 'cursor-not-allowed opacity-50' : 'cursor-pointer')}
+                    >
+                        <input
+                            type="checkbox"
+                            checked={autoAccept}
+                            onChange={(e) => { setAutoAccept(e.target.checked); edited(); }}
+                            disabled={making}
+                            aria-describedby={autoAccept ? `${AUTO_ABOUT_ID} ${AUTO_LINE_ID}` : AUTO_ABOUT_ID}
+                            className="peer sr-only"
+                        />
+                        <span
+                            aria-hidden
+                            className={cn(
+                                // Only the fill and the edge fade: transition-colors would fade
+                                // the focus ring in from currentColor (R3 L3). The off edge is
+                                // white/40, 3:1 or better on the card (WCAG 1.4.11, R3 M2), and
+                                // it brightens on hover only while the check can be used (L2).
+                                'grid size-4 shrink-0 place-items-center rounded-[5px] border transition-[background-color,border-color] peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ice/60',
+                                autoAccept ? 'border-white bg-white' : cn('border-white/40 bg-white/[0.02]', !making && 'group-hover:border-white/60'),
+                            )}
+                        >
+                            {autoAccept && <Check className="size-3 text-zinc-950" strokeWidth={3}/>}
+                        </span>
+                        <span className={cn('text-sm transition-colors', autoAccept ? 'text-zinc-100' : 'text-zinc-300')}>{copy.AUTO_ACCEPT_LABEL}</span>
+                    </label>
+                    <Tooltip label={copy.AUTO_ACCEPT_TIP} detail={copy.AUTO_ACCEPT_TIP_DETAIL} warn toggletip align="start">
+                        {/* outline-hidden, not outline-none: in a contrast theme the
+                            ring's box-shadow is dropped, and the transparent outline
+                            it keeps there is what the system color shows (R3 L2). */}
+                        <button
+                            type="button"
+                            aria-label={copy.AUTO_ACCEPT_ABOUT}
+                            aria-describedby={AUTO_ABOUT_ID}
+                            className="grid size-6 place-items-center rounded-md text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-300 focus-visible:text-zinc-300 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ice/60"
+                        >
+                            <Info className="size-3.5"/>
+                        </button>
+                    </Tooltip>
+                </div>
+                {/* Screen-reader text keeps its periods (D-167): there they make the pause. */}
+                <span id={AUTO_ABOUT_ID} hidden className="sr-only">{`${copy.AUTO_ACCEPT_TIP}. ${copy.AUTO_ACCEPT_TIP_DETAIL}.`}</span>
+                {autoAccept && <p id={AUTO_LINE_ID} className={cn(warnClass, 'px-0.5')}>{copy.READY_AUTO_LINE}</p>}
+            </div>
+            {/* The one IP line, read before the commit (R15, D-136). With Hide
+                my IP on it would warn of something that does not apply, so R17
+                says the state instead. */}
+            {hideIP
+                ? <p className={warnClass}>{copy.READY_HIDE_IP_LINE}</p>
+                : <p className={t2Class}>{copy.READY_IP_LINE}</p>}
+            {making ? (
+                <Button className="w-full" disabled>
+                    <Loader2 className="animate-spin"/> {copy.MAKING_LINK}
+                </Button>
+            ) : (
+                <Button className="w-full" onClick={() => onMake(label.trim(), lifetime, autoAccept)}>{copy.MAKE_LINK}</Button>
+            )}
+            {phase === 'error' && (
+                <p role="alert" className="flex min-h-5 items-center justify-center gap-2 text-center text-xs text-red-400">
+                    <AlertCircle className="size-3.5 shrink-0"/>
+                    <span>{copy.errorLine(errorCode)}</span>
+                </p>
+            )}
+        </div>
+    );
+}
+
+// ---- The link block (DW-01): the fixed geometry of every link phase --------
+function LinkBlock({phase, snap, onClose}: {phase: Phase; snap: RequestLinkSnapshot; onClose: () => void}) {
+    const [copied, setCopied] = useState(false);
+    const timer = useRef<number | null>(null);
+    useEffect(() => () => { if (timer.current !== null) clearTimeout(timer.current); }, []);
+    async function copyLink() {
+        try {
+            await navigator.clipboard.writeText(snap.link);
+            setCopied(true);
+            if (timer.current !== null) clearTimeout(timer.current);
+            timer.current = window.setTimeout(() => setCopied(false), 1500);
+        } catch {
+            // clipboard unavailable
+        }
+    }
+    return (
+        <div className="space-y-2">
+            {/* With no label the heading is for screen readers only; it still
+                names the link field (aria-labelledby), by which the harnesses
+                find it. */}
+            <p id="floe-request-link-heading" className={snap.label ? headClass : 'sr-only'}>{copy.linkHeading(snap.label)}</p>
+            <Input
+                readOnly
+                value={snap.link}
+                aria-labelledby="floe-request-link-heading"
+                className="font-mono text-xs"
+                onFocus={(e) => e.currentTarget.select()}
+            />
+            <div className="flex gap-3">
+                {/* White only while the link waits: the view's one job then.
+                    Once someone connects, Accept (or nothing) is the white one. */}
+                <Button id="floe-copy-link" variant={phase === 'waiting' ? 'primary' : 'secondary'} className="flex-1" onClick={copyLink}>{copied ? copy.COPIED : copy.COPY_LINK}</Button>
+                {/* The one Close link, on the right rail, in the same box in
+                    every link phase (the prompt mounts below the hairline). */}
+                <Button id="floe-close-link" variant="secondary" className="min-w-24" onClick={onClose}>{copy.CLOSE_LINK}</Button>
+            </div>
+            <p className={t2Class}>{copy.scopeLine(snap.expiresAt, Date.now(), autoAcceptShown({autoAccept: snap.autoAccept, state: phase}), snap.autoAsks, snap.saveDir)}</p>
+        </div>
+    );
+}
+
+// ---- The activity slot: waiting lines, reconnecting, connecting, the prompt
+function ActivitySlot(props: RequestLinkViewProps) {
+    const {phase, snap} = props;
+    if (phase === 'deciding' && snap.prompt) {
+        // Keyed on the prompt, so a new request gets a fresh guard.
+        return <Prompt key={snap.promptGen} {...props}/>;
+    }
+    // Two gaps only: 8 px inside a group of lines, 16 px between a group and
+    // the control under it.
+    if (phase === 'declined') {
+        // Keyed on the prompt, like Prompt, so each decline gets its own guard.
+        return <Declined key={snap.promptGen} {...props}/>;
+    }
+    if (phase === 'reconnecting') {
+        return (
+            <div className="space-y-4">
+                <div className="space-y-2">
+                    <p className={t1Class}>{copy.RECONNECTING_LINE}</p>
+                    <p className={t3Class}>{copy.RECONNECTING_NOTE}</p>
+                </div>
+                <Button variant="outline" className="w-full" onClick={props.onRetry}>{copy.RETRY_NOW}</Button>
+            </div>
+        );
+    }
+    if (phase === 'connecting') {
+        return (
+            <p className="flex items-center gap-2 text-sm text-zinc-200">
+                <Loader2 className="size-3.5 shrink-0 animate-spin"/>
+                <span>{copy.CONNECTING_LINE}</span>
+            </p>
+        );
+    }
+    // Waiting, or deciding without a prompt yet. On a reopened link the news
+    // comes first and "Waiting for files." is the quiet reassurance under it.
+    const reopened = copy.reopenLine(snap);
+    return reopened ? (
+        <div className="space-y-2">
+            <p className={t1Class}>{reopened}</p>
+            <p className={t3Class}>{copy.WAITING_LINE}</p>
+        </div>
+    ) : (
+        <p className={t1Class}>{copy.WAITING_LINE}</p>
+    );
+}
+
+// Declined, with Keep waiting under the prompt's 1 s guard from the moment it
+// renders. Keep waiting reopens the link and sits where the Decline that just
+// rendered it was, so the second click of a double click on Decline pressed it
+// (deep QA A5-12), and since focus moves to it after Decline (A5-02) a held
+// Enter would too. Every activation inside the guard is ignored.
+function Declined({snap, onAnswer}: RequestLinkViewProps) {
+    const mountedAt = useRef(Date.now());
+    const [guarded, setGuarded] = useState(true);
+    useEffect(() => {
+        const id = window.setTimeout(() => setGuarded(false), GUARD_MS);
+        return () => clearTimeout(id);
+    }, []);
+    const keepWaiting = () => {
+        if (guardActive(Date.now(), mountedAt.current, null)) return;
+        onAnswer(snap.promptGen, 'keep-waiting');
+    };
+    return (
+        <div className="space-y-4">
+            <div className="space-y-2">
+                <p className={t1Class}>{copy.DECLINED_LINE}</p>
+                <p className={t2Class}>{copy.DECLINED_QUESTION}</p>
+            </div>
+            <Button id="floe-keep-waiting" variant="outline" className={cn('w-full', guarded && 'cursor-not-allowed opacity-50')} aria-disabled={guarded} onClick={keepWaiting}>{copy.KEEP_WAITING}</Button>
+        </div>
+    );
+}
+
+// ---- The prompt (DP-01 to DP-03) and its guard (spec 06 5.5, E-44) ---------
+function Prompt({snap, onAnswer, onGuardLift, onPromptVisible}: RequestLinkViewProps) {
+    const prompt = snap.prompt!;
+    // When this prompt rendered, and when the window last regained focus.
+    const mountedAt = useRef(Date.now());
+    const focusAt = useRef<number | null>(null);
+    // The last pointerdown on either button: a mouse activation counts only
+    // when it also started after the prompt rendered.
+    const downAt = useRef<number | null>(null);
+    const lifted = useRef(false);
+    const timer = useRef<number | null>(null);
+    const [guarded, setGuarded] = useState(true);
+    const [now, setNow] = useState(() => Date.now());
+    const block = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const tick = () => {
+            const t = Date.now();
+            if (guardActive(t, mountedAt.current, focusAt.current)) {
+                setGuarded(true);
+                const until = Math.max(mountedAt.current, focusAt.current ?? 0) + GUARD_MS;
+                timer.current = window.setTimeout(tick, Math.max(0, until - t));
+                return;
+            }
+            setGuarded(false);
+            if (!lifted.current) {
+                lifted.current = true;
+                onGuardLift();
+            }
+        };
+        timer.current = window.setTimeout(tick, GUARD_MS);
+        // The guard re-arms for 1 s whenever the window regains focus: a click
+        // that brought the window forward must not land on Accept.
+        const onFocus = () => {
+            focusAt.current = Date.now();
+            if (timer.current !== null) clearTimeout(timer.current);
+            tick();
+        };
+        window.addEventListener('focus', onFocus);
+        return () => {
+            if (timer.current !== null) clearTimeout(timer.current);
+            window.removeEventListener('focus', onFocus);
+        };
+        // Registered once per prompt: the parent keys this on promptGen.
+    }, []);
+
+    // The answer window, as Accept's countdown: refreshed every second and kept
+    // out of every live region (spec 06 5.6, D-169).
+    useEffect(() => {
+        const id = window.setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(id);
+    }, []);
+
+    // Whether the whole Accept and Decline row is on screen, for the notice
+    // (spec 06 5.4): one visible pixel of the prompt used to hide it while
+    // Accept sat half cut below the window. 0.99, not 1: a row at a fractional
+    // y can report 0.9999. WebView2 has IntersectionObserver; where it is
+    // missing the notice simply stays.
+    useEffect(() => {
+        const el = block.current;
+        if (!el || typeof IntersectionObserver === 'undefined') return;
+        const io = new IntersectionObserver((entries) => {
+            for (const e of entries) onPromptVisible(e.intersectionRatio >= 0.99);
+        }, {threshold: [0, 0.99]});
+        io.observe(el);
+        return () => { io.disconnect(); onPromptVisible(false); };
+    }, []);
+
+    const answer = (a: 'accept' | 'decline') => (e: MouseEvent<HTMLButtonElement>) => {
+        if (guardActive(Date.now(), mountedAt.current, focusAt.current)) return;
+        // detail > 0 is a pointer activation; Enter and Space arrive as 0. A
+        // pointer activation counts only when its press began after the
+        // prompt rendered and outside the guard (a press held across the end
+        // of the guard is one the guard was there to stop).
+        if (e.detail > 0) {
+            const down = downAt.current;
+            if (down === null || down < mountedAt.current || guardActive(down, mountedAt.current, focusAt.current)) return;
+        }
+        onAnswer(snap.promptGen, a);
+    };
+    const onDown = () => { downAt.current = Date.now(); };
+    const guardClass = guarded ? 'cursor-not-allowed opacity-50' : '';
+
+    return (
+        <div className="space-y-4">
+            <div className="space-y-2">
+                <h3 id={PROMPT_HEADING_ID} tabIndex={-1} className={cn(headClass, 'outline-none')}>{copy.promptHeading(snap.label)}</h3>
+                <p className="text-sm font-medium text-zinc-100">{copy.promptSize(prompt.files, prompt.totalBytes)}</p>
+                <p className={t2Class}>{copy.INTO} <span className={intoClass}>{prompt.folder}</span></p>
+                {prompt.warnings.map((w) => {
+                    const line = copy.warningLine(w, prompt, snap.saveDir);
+                    return line ? <p key={w} className={w.startsWith('auto-') ? t2Class : warnClass}>{line}</p> : null;
+                })}
+            </div>
+            {/* scroll-mb-4: Review's scrollIntoView stops 16 px short of the
+                window's bottom edge, not flush with it (QA-H6 L-4). A scroll
+                margin moves nothing on screen; it only changes where that
+                scroll ends. On the row, not the buttons, so a Tab onto Accept
+                or Decline scrolls as before. */}
+            <div ref={block} id={PROMPT_ACTIONS_ID} className="flex scroll-mb-4 gap-3">
+                {/* The answer window lives on Accept as a countdown (P12, D-169).
+                    Drawn only: the button's name stays Accept, so a screen
+                    reader is not handed a new name every second, and nothing
+                    here is a live region (spec 06 5.6). */}
+                <Button className={cn('flex-1', guardClass)} aria-label={copy.ACCEPT} aria-disabled={guarded} onPointerDown={onDown} onClick={answer('accept')}>
+                    {copy.ACCEPT} <span aria-hidden className="tabular-nums">({copy.countdown(prompt.answerBy, now)})</span>
+                </Button>
+                <Button variant="secondary" className={cn('min-w-24', guardClass)} aria-disabled={guarded} onPointerDown={onDown} onClick={answer('decline')}>
+                    {copy.DECLINE}
+                </Button>
+            </div>
+        </div>
+    );
+}
+
+// ---- Receiving (DV-01 to DV-03) ---------------------------------------------
+function Receiving({snap, progress, accepted, onCancelDrop}: RequestLinkViewProps) {
+    // Speed and time left, averaged since this drop's first progress event
+    // (the track() rule in progress.ts), keyed on the lane generation.
+    const start = useRef<{gen: number; t: number; bytes: number} | null>(null);
+    // P11 latches for the drop once shown (the same key): the averaged time left
+    // wobbles around 5 min, and a line that blinks is worse than one that stays.
+    const laptopGen = useRef<number | null>(null);
+    const now = Date.now();
+    const done = progress ? (progress.grandTotal > 0 ? progress.totalBytes : progress.fileBytes) : 0;
+    const total = progress ? (progress.grandTotal > 0 ? progress.grandTotal : progress.fileSize) : 0;
+    if (progress && (!start.current || start.current.gen !== snap.gen)) start.current = {gen: snap.gen, t: now, bytes: done};
+    const dt = start.current ? (now - start.current.t) / 1000 : 0;
+    const speed = start.current && dt > 0.2 ? (done - start.current.bytes) / dt : 0;
+    const eta = speed > 0 ? (total - done) / speed : Infinity;
+    const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+    // Before the first progress event the accepted prompt names the count, so
+    // the heading never reads RECEIVING 0 OF 0.
+    const count = progress?.fileCount || snap.result?.files || snap.prompt?.files || accepted?.files || 0;
+    const index = progress?.fileIndex || (count ? 1 : 0);
+    // Where the files land, in P3's words and form, from Accept to Done: the
+    // lane's result on both paths (a drop the link took by itself showed no
+    // prompt, D-173), else the prompt this drop answered.
+    const folder = copy.dropFolderShown(snap.result?.folder ?? '') || snap.prompt?.folder || accepted?.folder || '';
+    const speedText = fmtSpeed(speed);
+    const etaText = fmtEta(eta);
+    if (showLaptopLine(snap, eta, dt)) laptopGen.current = snap.gen;
+    const laptopLine = snap.battery && laptopGen.current === snap.gen;
+    return (
+        <div className="space-y-4">
+            <div className="space-y-2">
+                <p id="floe-receiving-heading" tabIndex={-1} className={cn(headClass, 'outline-none')}>{copy.receivingHeading(index, count, snap.label)}</p>
+                {folder && <p className={t2Class}>{copy.INTO} <span className={intoClass}>{folder}</span></p>}
+            </div>
+            <div className="space-y-2">
+                <div className="flex items-baseline justify-between gap-3 font-mono text-[11px] text-zinc-400">
+                    {/* The engine's display-safe name (displayText, 200 max), as text. */}
+                    <span className="truncate">{progress?.fileName ?? ''}</span>
+                    <span className="shrink-0 text-zinc-500">{pct}%</span>
+                </div>
+                <div className="h-1 w-full overflow-hidden rounded-full bg-white/10">
+                    <div className="h-full rounded-full bg-white transition-[width] duration-150" style={{width: `${pct}%`}}/>
+                </div>
+                {/* The numbers wait for the first progress event ("0 B of 0 B"
+                    said nothing). */}
+                {progress && (
+                    <div className="flex gap-4 font-mono text-[11px] text-zinc-500">
+                        <span>{copy.receivedOf(done, total)}</span>
+                        {speedText && <span>{speedText}</span>}
+                        {etaText && pct < 100 && <span>{copy.timeLeft(etaText)}</span>}
+                    </div>
+                )}
+            </div>
+            {etaLines(snap, eta, dt).map((l) => <p key={l} className={warnClass}>{l}</p>)}
+            {/* P11 is advice, not a fact about this drop, so it is not amber. */}
+            {laptopLine && <p className={t2Class}>{copy.LAPTOP_LINE}</p>}
+            <div className="flex justify-end">
+                <Button variant="outline" onClick={onCancelDrop}><X/> {copy.CANCEL_DROP}</Button>
+            </div>
+        </div>
+    );
+}
+
+// ---- Done and Stopped (DO-01 to DO-03, DT-01 to DT-13) ----------------------
+function Result({phase, snap, onMakeAnother, onShowInFolder}: RequestLinkViewProps) {
+    const r = snap.result ?? {files: 0, saved: 0, bytes: 0, verified: 0, renamed: 0, folder: '', names: []};
+    const [confirming, setConfirming] = useState(false);
+    const done = phase === 'done';
+    const showFolder = !!r.folder && (done ? r.saved > 0 : copy.stoppedShowsFolder(snap.code, r.saved));
+    // Show in folder asks first after renames (DN8): Explorer parses some file
+    // types by itself, and the renamed count is the warning that survives.
+    const show = () => { if (r.renamed > 0) setConfirming(true); else onShowInFolder(r.folder); };
+    const files = copy.fileRows(r);
+    return (
+        <div className="space-y-4">
+            {/* The check trails the heading, so the heading keeps its left
+                edge (D-136 L8 was a leading icon pushing text right). It is
+                drawn only on Done: the Stopped card shares this component and
+                says nothing of verification. No Dismiss on the right since
+                D-169: Make another link below puts the result away too. */}
+            <div className="flex min-w-0 items-center gap-2">
+                <p className={cn(headClass, 'leading-7')}>{done ? copy.doneHeading(r.saved, r.bytes) : copy.STOPPED_HEADING}</p>
+                {done && copy.verifiedAll(r) && <VerifiedMark className="size-3.5"/>}
+            </div>
+            {!done && (
+                // The stop and, for save-blocked, the kept file are one
+                // statement: one group, 8 px apart.
+                <div className="space-y-2">
+                    <p className={t1Class}>{copy.stoppedCard(snap.code, r.saved, r.files)}</p>
+                    {/* D-128: save-blocked kept a verified .part in the drop folder. */}
+                    {copy.keptPartLine(snap.code) && <p className={t1Class}>{copy.keptPartLine(snap.code)}</p>}
+                </div>
+            )}
+            {/* What arrived and where it went, as one unit (D-171, layout A):
+                the saved files with their sizes, then the drop's folder as
+                the box's footer. No per-row icon and no Open: these are a
+                stranger's files, and Show in folder is the one way in. */}
+            {(files.rows.length > 0 || showFolder) && (
+                <div className="overflow-hidden rounded-md border border-white/10">
+                    {files.rows.length > 0 && (
+                        // Every saved file is a row, and past about five the
+                        // list scrolls inside the box (D-172); the folder
+                        // footer stays put under it.
+                        <ul aria-label={copy.RECEIVED_FILES_LABEL} className="custom-scrollbar max-h-[185px] divide-y divide-white/[0.04] overflow-y-auto overscroll-contain">
+                            {files.rows.map((f, i) => (
+                                <li key={i} className="flex items-baseline justify-between gap-3 px-3 py-2">
+                                    {/* A visitor's file name, as text only. */}
+                                    <span className="min-w-0 truncate text-sm text-zinc-200" title={f.full}>{f.name}</span>
+                                    {f.size && <span className="shrink-0 text-xs tabular-nums text-zinc-500">{f.size}</span>}
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                    {files.more > 0 && (
+                        <p className="border-t border-white/[0.04] px-3 py-2 text-xs text-zinc-500">{copy.moreFiles(files.more)}</p>
+                    )}
+                    {showFolder && (
+                        <div className={cn('flex min-w-0 items-center justify-between gap-3 px-3 py-2', files.rows.length > 0 && 'border-t border-white/10')}>
+                            {/* The drop's own folder name, cut in the middle so its
+                                timestamp stays; the full path is shown nowhere else, so
+                                it is always the title. */}
+                            <span className="truncate font-mono text-xs text-zinc-300" title={r.folder}>{shortPath(copy.folderName(r.folder), DONE_FOLDER_MAX)}</span>
+                            <Button variant="outline" className="h-[30px] shrink-0 text-xs" onClick={show}>
+                                <FolderOpen/> {copy.SHOW_IN_FOLDER}
+                            </Button>
+                        </div>
+                    )}
+                </div>
+            )}
+            {done && (r.renamed > 0 || r.noNamedStreams) && (
+                // Under the list they qualify: DN5 returns only where the save
+                // volume cannot carry the downloaded-file mark (S-7), and the
+                // renamed line only after renames, so an empty group is never
+                // drawn.
+                <div className="space-y-2">
+                    {r.renamed > 0 && <p className={warnClass}>{copy.renamedLine(r.renamed)}</p>}
+                    {r.noNamedStreams && <p className={t2Class}>{copy.NOT_SCANNED_LINE}</p>}
+                </div>
+            )}
+            {/* The one way out of a result (D-169). Outline, not white: the
+                result and Show in folder lead, the next link follows. */}
+            <Button id="floe-make-another" variant="outline" className="w-full" onClick={onMakeAnother}>{copy.MAKE_ANOTHER_LINK}</Button>
+            {confirming && (
+                <RenamedConfirm
+                    onCancel={() => setConfirming(false)}
+                    onConfirm={() => { setConfirming(false); onShowInFolder(r.folder); }}
+                />
+            )}
+        </div>
+    );
+}
+
+/** RenamedConfirm is the DN8 and DN9 dialog, in the app's z-50 dialog style,
+ *  with the safe choice (Cancel) focused. Exported for History (S1-DSK-09),
+ *  which asks the same question from a request row. */
+export function RenamedConfirm({onCancel, onConfirm}: {onCancel: () => void; onConfirm: () => void}) {
+    return (
+        <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/70">
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="floe-renamed-title"
+                onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancel(); } }}
+                className="animate-floe-in mx-4 w-full max-w-sm rounded-xl border border-white/10 bg-zinc-900 p-5 shadow-2xl"
+            >
+                <h2 id="floe-renamed-title" className="text-sm font-semibold text-white">{copy.RENAMED_CONFIRM_TITLE}</h2>
+                <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">{copy.RENAMED_CONFIRM_QUESTION}</p>
+                <div className="mt-4 flex justify-end gap-2">
+                    <Button variant="outline" autoFocus onClick={onCancel}>{copy.CANCEL}</Button>
+                    <Button onClick={onConfirm}>{copy.SHOW_IN_FOLDER}</Button>
+                </div>
+            </div>
+        </div>
+    );
+}

@@ -9,7 +9,7 @@
 // is the single place the exit precedence lives: 2, 4, 3, 1, 5, 6, 0.
 import { createHash } from 'node:crypto';
 
-import { TRIAGE_KEYS } from './cell.mjs';
+import { TRIAGE_KEYS } from './triage.mjs';
 import { formatBytes } from './fixtures.mjs';
 import { gatingDrift } from './versions.mjs';
 
@@ -63,7 +63,26 @@ export function redactRooms(text, rooms = []) {
         const tag = /#room=/.test(v) ? 'room' : 'code';
         s = s.split(v).join(`<${tag} ${redact(v)}>`);
     }
-    return s.replace(ROOM_LINK_RE, (m) => `<room ${redact(m)}>`);
+    return redactRequestLinks(
+        s.replace(ROOM_LINK_RE, (m) => `<room ${redact(m)}>`)
+    );
+}
+
+/**
+ * A request link (spec 06 4.4: <web>/r/<linkId>#<roomId>) anywhere in a
+ * line, with or without its scheme and under any base path. The room after
+ * `#` is a secret for the life of the link; the link id before it names the
+ * link and stays readable, so a report can still tell two links apart.
+ */
+const REQUEST_LINK_ANY_RE =
+    /(\/r\/[A-Za-z0-9_-]+)#(?!<room>)[^\s'"`)\]<>]*[^\s'"`)\]<>.,;:!?]/g;
+
+/** Every request link in `text` with its room replaced by `<room>`. */
+export function redactRequestLinks(text) {
+    return String(text ?? '').replace(
+        REQUEST_LINK_ANY_RE,
+        (_m, head) => `${head}#<room>`
+    );
 }
 
 /** Every room link and code the run's attempts recorded, longest first. */
@@ -269,6 +288,22 @@ export function versionRows(rows) {
     ]);
 }
 
+/**
+ * What happened to the owner's real desktop.json, which only a Store-mode
+ * leg edits (S1-REL-03a harness fix 14): the contents and the mtime put
+ * back, the contents only, a restore that did not match (a SafetyError, exit
+ * 4), or not edited at all. Never a bare "yes".
+ */
+function desktopJsonState(d = {}) {
+    if (d?.configRestoredIdentical === false)
+        return 'desktop.json restored byte-identical: NO';
+    if (d?.configMtimeRestored === true)
+        return 'desktop.json: contents and mtime restored';
+    if (d?.configMtimeRestored === false)
+        return 'desktop.json: contents restored byte-identical, mtime changed';
+    return 'desktop.json: not edited (no Store-mode leg)';
+}
+
 export function safetyRows(s) {
     const ok = (v) => (v === null || v === undefined ? 'n/a' : v);
     const killed =
@@ -287,7 +322,7 @@ export function safetyRows(s) {
         ],
         [
             'desktop receivers reportStats:false, migrated',
-            `${s.desktopReceiversOptedOut?.ok ?? 0}/${s.desktopReceiversOptedOut?.total ?? 0}; desktop.json restored byte-identical: ${s.desktopReceiversOptedOut?.configRestoredIdentical === false ? 'NO' : 'yes'}`,
+            `${s.desktopReceiversOptedOut?.ok ?? 0}/${s.desktopReceiversOptedOut?.total ?? 0}; ${desktopJsonState(s.desktopReceiversOptedOut)}`,
         ],
         [
             'local /api/stats before/after (head)',
@@ -333,7 +368,23 @@ export function safetyRows(s) {
                 ? 'not counted (no desktop receiver, or the adapter reports none)'
                 : String(s.historyRowsAdded),
         ],
+        [
+            'firewall Block rules on exes under test (read only)',
+            firewallBlocksText(s.firewallBlocks),
+        ],
     ];
+}
+
+/**
+ * Fix 13: each enabled inbound Block rule on an exe the run drove, by path;
+ * the audit only reads rules (D-054), so this is evidence, never a change.
+ */
+function firewallBlocksText(f) {
+    if (!f || !Array.isArray(f.blocks)) return 'not probed';
+    if (!f.blocks.length) return `none (${f.read ?? 0} exe(s) read)`;
+    return f.blocks
+        .map((b) => `${b.program} (rule "${b.rule}", ${b.role})`)
+        .join('; ');
 }
 
 export function failureSections(cells) {
@@ -571,6 +622,9 @@ export function newSafety() {
             ok: 0,
             total: 0,
             configRestoredIdentical: true,
+            // null until a Store-mode guard reports; false once any leg's
+            // mtime would not come back (fix 14).
+            configMtimeRestored: null,
         },
         localStatsDeltaZero: null,
         localReceives: 0,
@@ -582,6 +636,9 @@ export function newSafety() {
         workingTreeUnchanged: null,
         saveDirRestored: null,
         historyRowsAdded: null,
+        // { blocks, read } from the firewall read of the exes under test
+        // (fix 13); null when it was not probed or the read failed.
+        firewallBlocks: null,
         refusals: [],
     };
 }

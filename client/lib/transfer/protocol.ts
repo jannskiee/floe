@@ -9,12 +9,69 @@ export const READ_SLAB = 4 * 1024 * 1024;  // 4 MB — disk read slab size
 export const DEFAULT_CHUNK = 64 * 1024;    // 64 KB — fallback chunk size
 export const MAX_CHUNK = 256 * 1024;       // 256 KB — cap on adaptive chunk
 
+// Whether the browser sender computes a per-file SHA-256 and puts it in `end`.
+// This is the rollback lever: set it to false and the sender stops hashing, and
+// every receiver treats the absent digest as the old byte-count check.
+export const SEND_FILE_HASHES = true;
+
 // Milliseconds the sender waits for the receiver's ack before failing. Mirrors
 // the CLI sender's 120 s ack deadline (cli/engine/transfer/sender.go). It must be
 // this generous because a CLI receiver only acks after a human answers its
 // interactive "Accept? [Y/n]" prompt; a shorter timeout aborts a browser→CLI
 // transfer whenever the person at the terminal is slow to accept.
 export const ACK_TIMEOUT_MS = 120_000;
+
+// The one clock pair for a transfer whose receiver is a person deciding
+// whether to accept. Mirrors VisitorAckTimeout and VisitorAckGrace in
+// cli/engine/transfer/deadlines.go (pinned there by TestDeadlineConstantsMatchTS
+// and here in protocol.test.ts). The waiting side's timer is the binding
+// clock: it waits the sum of the two, while the deciding side answers
+// "expired" at the difference, so that frame has twice the grace (30 s) to
+// arrive. Every consumer derives its wait from these and never restates a
+// literal.
+export const REQUEST_ACK_TIMEOUT_MS = 600_000;
+export const REQUEST_ACK_GRACE_MS = 15_000;
+
+/**
+ * How long a digest may take for a file of this many bytes before the side
+ * waiting on it gives up: a floor rate of 10 MB/s plus 30 s, so a 2 GB file
+ * gets 230 s. The base bound only: the sender caps it at END_DIGEST_WAIT_MS,
+ * and a receiver at POST_END_HASH_WAIT_MS for every file but the last.
+ *
+ * One formula for both sides, which is why it lives here and not in
+ * fileHash.ts (the Worker boundary, which holds no caller policy). A hasher
+ * that never answers must leave neither the receiver pending forever with every
+ * later frame queued behind it nor the sender without an end frame (CP0-F2).
+ * Giving up is never a refusal on either side: the receiver keeps the file
+ * unverified and the sender sends its end frame with no digest key, which is
+ * what an absent digest has always meant.
+ */
+export function hashBoundMs(bytes: number): number {
+    return Math.ceil((bytes / 10_000_000) * 1000) + 30_000;
+}
+
+/**
+ * The longest a sender holds a file's end frame for its digest after the last
+ * chunk, whatever hashBoundMs allows. Every Go receiver (the floe CLI and Floe
+ * Desktop, released builds included) ends a receive after 60 s with no frame
+ * and deletes the file it was writing (receiveStallTimeout in
+ * cli/engine/transfer/receiver.go), so a hasher slower than the link must
+ * never keep end back that long. Past this wait end goes out with no digest
+ * key, the byte-count check every receiver already knows.
+ */
+export const END_DIGEST_WAIT_MS = 45_000;
+
+/**
+ * The longest a receiver hashes a file after its end frame while more files
+ * follow. The next metadata, and so its ack, queues behind the hash, and both
+ * senders wait ACK_TIMEOUT_MS for that ack (defaultAckTimeout in
+ * cli/engine/transfer/deadlines.go), so past this wait the file is kept
+ * unverified rather than the batch timing out. 90 s, not closer to 120: a Go
+ * sender sends the next metadata without draining, so its clock can start up
+ * to the tail drain (8 MB at 0.5 MB/s, about 16 s) before this hash does. The
+ * last file of a batch keeps hashBoundMs: no sender waits on it.
+ */
+export const POST_END_HASH_WAIT_MS = 90_000;
 
 // ProtocolVersion is the highest wire protocol version this build speaks.
 // MinProtocolVersion is the lowest it still supports.
@@ -48,6 +105,12 @@ export interface Metadata {
     ver?: string;   // sender's human release string, e.g. "v1.5.5"
 }
 
+// `confirms` is optional: a Go receiver's promise that it ends every batch with
+// a received frame or a refusal, so a Go sender waits for that word instead of
+// a drained send buffer (FT-GO-CONFIRMS). The browser sender does not act on
+// it, and a browser receiver never sends it, because it never sends received.
+// classifyControl casts, so read it only through ackConfirmsOf. Mirrors the
+// ack that cli/engine/transfer/receiver.go builds.
 export interface Ack {
     type: 'ack';
     id: string;
@@ -55,17 +118,25 @@ export interface Ack {
     pv?: number;    // receiver's highest protocol version
     pvMin?: number; // receiver's minimum protocol version
     ver?: string;   // receiver's human release string
+    confirms?: boolean;
 }
 
+// `sha256` is optional and rides only this frame: the sender's digest of the file,
+// 64 lowercase hex characters. classifyControl casts, so read it only through
+// normalizeSha256. Mirrors endMsg in cli/engine/transfer/sender.go.
 export interface End {
     type: 'end';
+    sha256?: string;
 }
 
 // Sent by the CLI receiver after all files are written and verified.
 // Tells the CLI sender delivery is confirmed so it can close cleanly.
 // Browser receivers never send this; the protocol handles both cases.
+// `verified` counts the files whose SHA-256 matched; it is cast, so read it only
+// through verifiedCountOf.
 export interface Received {
     type: 'received';
+    verified?: number;
 }
 
 // Sent when a peer stops on purpose. Two jobs, told apart by the pv range it
@@ -76,12 +147,19 @@ export interface Received {
 // Framing depends on direction. Receiver to sender is binary, which old senders
 // drop safely rather than treating as file data. Sender to receiver MUST be
 // text: on that path a binary frame is file data by definition.
+//
+// `code` and `saved` are optional, ride only this frame (never ack), and mirror
+// incompatibleMsg in cli/engine/transfer/protocol.go. classifyControl casts, so
+// both are whatever the peer typed: read `code` only through refusalCodeOf, and
+// clamp `saved` to [0, total] before any use. Neither is ever rendered raw.
 export interface Incompatible {
     type: 'incompatible';
     reason: string;
     pv?: number;
     pvMin?: number;
     ver?: string;
+    code?: string;  // why the peer stopped; see RefusalCode
+    saved?: number; // files the peer committed before this frame
 }
 
 export type ControlMessage = Metadata | Ack | End | Received | Incompatible;
@@ -114,11 +192,17 @@ export function ackMessage(id: string, offset: number, ver?: string): string {
     } satisfies Ack);
 }
 
-export function endMessage(): string {
-    return JSON.stringify({ type: 'end' } satisfies End);
+// The key is emitted only for a digest that passes normalizeSha256, and `type`
+// stays first: the transfer audit's hashbad cells match frames that start with
+// {"type":"end","sha256":". An invalid digest is left out rather than sent,
+// because a receiver refuses a malformed one.
+export function endMessage(sha256?: string | null): string {
+    const digest = normalizeSha256(sha256);
+    const msg: End = digest === null ? { type: 'end' } : { type: 'end', sha256: digest };
+    return JSON.stringify(msg);
 }
 
-export function incompatibleMessage(reason: string): string {
+export function incompatibleMessage(reason: string, code?: RefusalCode, saved?: number): string {
     // The cap is on the ENCODED FRAME, not on the reason. A receiver stops
     // classifying a control message past CONTROL_MSG_MAX and would read the
     // frame as file data, so a long reason has to shrink until the whole thing
@@ -127,14 +211,16 @@ export function incompatibleMessage(reason: string): string {
     // sanitizeDisplayText, which caps in UTF-16 units and
     // never leaves a lone surrogate at the end. Go trims the same frame by rune,
     // so the two can land a character apart on astral text; the cap is a byte
-    // budget on the frame either way, which is what has to hold.
+    // budget on the frame either way, which is what has to hold. `code` and
+    // `saved` are what a current reader acts on, so they are never dropped to
+    // make room; only the reason shrinks, as in incompatibleFrame in Go.
     let text = reason;
-    let frame = buildIncompatible(text);
+    let frame = buildIncompatible(text, code, saved);
     for (let budget = MAX_REASON; frameBytes(frame) > CONTROL_MSG_MAX && budget > 0; budget = Math.floor(budget / 2)) {
         text = sanitizeDisplayText(reason, budget);
-        frame = buildIncompatible(text);
+        frame = buildIncompatible(text, code, saved);
     }
-    if (frameBytes(frame) > CONTROL_MSG_MAX) frame = buildIncompatible('');
+    if (frameBytes(frame) > CONTROL_MSG_MAX) frame = buildIncompatible('', code, saved);
     return frame;
 }
 
@@ -146,13 +232,19 @@ function frameBytes(frame: string): number {
     return encoder.encode(frame).byteLength;
 }
 
-function buildIncompatible(reason: string): string {
-    return JSON.stringify({
+// A code is sent only when the caller names one, and saved only as a safe
+// integer from 0 up (0 is sent, like Go's *int), which is exactly the frame
+// every shipped peer already reads when neither is given.
+function buildIncompatible(reason: string, code?: RefusalCode, saved?: number): string {
+    const msg: Incompatible = {
         type: 'incompatible',
         reason,
         pv: PROTOCOL_VERSION,
         pvMin: MIN_PROTOCOL_VERSION,
-    } satisfies Incompatible);
+    };
+    if (code) msg.code = code;
+    if (saved !== undefined && Number.isSafeInteger(saved) && saved >= 0) msg.saved = saved;
+    return JSON.stringify(msg);
 }
 
 // --- Protocol compatibility ---
@@ -339,7 +431,10 @@ export function classifyControl(data: string | ArrayBuffer | Uint8Array): Contro
         }
     }
 
-    if (!text.startsWith('{')) return null;
+    // JSON whitespace may lead, as looksLikeJSONObject allows in the Go engine; a
+    // text frame is never file data, so a whitespace-led object is still control.
+    const first = text.search(/[^ \t\r\n]/);
+    if (first < 0 || text[first] !== '{') return null;
 
     let msg: Record<string, unknown>;
     try {
@@ -371,6 +466,55 @@ export function classifyControl(data: string | ArrayBuffer | Uint8Array): Contro
 export function isAbortReason(msg: Incompatible): boolean {
     const { ok } = checkCompat(MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, msg.pvMin ?? 1, msg.pv ?? 1);
     return ok;
+}
+
+/**
+ * Why a receiver stopped a transfer on purpose, as named by the optional `code`
+ * on its `incompatible` frame. Mirrors RefusalCode and RefusalCodes in
+ * cli/engine/transfer/refusal.go; the two lists must stay in sync, and they are
+ * kept in the byte order of the wire values so the literals can be compared
+ * whole (TestRefusalCodeListMatchesTS there, the "twelve codes" case in
+ * protocol.test.ts here). The set is closed: a reader maps anything else to its
+ * generic stopped copy.
+ */
+export type RefusalCode =
+    | 'declined'
+    | 'disk-full'
+    | 'expired'
+    | 'file-too-large-for-folder'
+    | 'hash-mismatch'
+    | 'over-approved'
+    | 'path-too-long'
+    | 'relay-cap'
+    | 'save-blocked'
+    | 'stopped'
+    | 'time-limit'
+    | 'write-failed';
+
+export const REFUSAL_CODES: ReadonlySet<string> = new Set<RefusalCode>([
+    'declined',
+    'disk-full',
+    'expired',
+    'file-too-large-for-folder',
+    'hash-mismatch',
+    'over-approved',
+    'path-too-long',
+    'relay-cap',
+    'save-blocked',
+    'stopped',
+    'time-limit',
+    'write-failed',
+]);
+
+/**
+ * The one reader of a peer's refusal code: the code when it is a string in
+ * REFUSAL_CODES, and null for anything else (absent, unknown, not a string).
+ * A caller maps null to its generic stopped copy. A Set lookup, not an object
+ * key, so a hostile `__proto__` or `constructor` can never match.
+ */
+export function refusalCodeOf(msg: Incompatible): RefusalCode | null {
+    const value: unknown = msg.code;
+    return typeof value === 'string' && REFUSAL_CODES.has(value) ? (value as RefusalCode) : null;
 }
 
 /**
@@ -422,4 +566,68 @@ export function normalizeFileSize(value: unknown): number | null {
     if (!Number.isInteger(value)) return null; // also rejects NaN and Infinity
     if (value < 0 || value > Number.MAX_SAFE_INTEGER) return null;
     return value;
+}
+
+/**
+ * The first reason a peer's file description cannot be right, as a fixed phrase,
+ * or null when nothing is wrong. The twin of parseMetadata in
+ * cli/engine/transfer/control.go: both sides refuse the same literals, which the
+ * metadataGuard parity rows pin. classifyControl casts, so every field is
+ * whatever the peer typed. A null field reads the way Go's decoder reads it, as
+ * a zero value; an absent or null fileSize stays "unknown" here, as it always has.
+ */
+export function metadataProblem(msg: Metadata): string | null {
+    const m = msg as unknown as Record<string, unknown>;
+    const given = (key: string) => m[key] !== undefined && m[key] !== null;
+    const byteCount = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+    const position = (v: unknown) => typeof v === 'number' && Number.isSafeInteger(v) && v >= 1;
+    if (given('id') && typeof m.id !== 'string') return 'the file id is not a string';
+    if (given('fileName') && typeof m.fileName !== 'string') return 'the file name is not a string';
+    if (given('fileSize') && !byteCount(m.fileSize)) return 'the file size is not a byte count';
+    if (given('totalBytes') && !byteCount(m.totalBytes)) return 'the batch size is not a byte count';
+    if (!position(m.index) || !position(m.total)) return 'the file index is not a position in a batch';
+    if (byteCount(m.totalBytes) && m.totalBytes > 0 && byteCount(m.fileSize) && m.totalBytes < m.fileSize) {
+        return 'the batch size is smaller than the file size';
+    }
+    // Go decodes pv and pvMin as integers, so 0 (legacy) passes and a string does not.
+    for (const key of ['pv', 'pvMin']) {
+        if (given(key) && !(typeof m[key] === 'number' && Number.isSafeInteger(m[key]))) return 'the protocol version is not a number';
+    }
+    return null;
+}
+
+/**
+ * Validates a SHA-256 on the wire: the value when it is a string of exactly 64
+ * lowercase hex characters, and `null` for anything else. The twin of
+ * validSHA256Hex and parseEnd in cli/engine/transfer/control.go. A receiver
+ * treats a present value that comes back `null` as a refusal, never as absent.
+ */
+export function normalizeSha256(value: unknown): string | null {
+    return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value) ? value : null;
+}
+
+/**
+ * The receiver's count of files whose SHA-256 matched, or `null` when it is
+ * not a safe integer in [0, fileCount]. A range check, never a clamp, so an
+ * over-claim can never read as "all matched". The twin of parseReceived in
+ * cli/engine/transfer/sender.go.
+ */
+export function verifiedCountOf(msg: Received, fileCount: number): number | null {
+    const value: unknown = msg.verified;
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= fileCount
+        ? value
+        : null;
+}
+
+/**
+ * Whether an ack carries the receiver's confirms promise: only the JSON
+ * literal `true` counts, and anything else (the string "true", 1, null,
+ * absent) is no promise. The twin of parseAckConfirms in
+ * cli/engine/transfer/sender.go, pinned by the ackConfirms parity rows. The
+ * browser sender reads it nowhere: a plain send still ends on a drained
+ * buffer, and a request-link visitor sets requireReceived itself.
+ */
+export function ackConfirmsOf(msg: Ack): boolean {
+    const value: unknown = msg.confirms;
+    return value === true;
 }

@@ -1,10 +1,26 @@
 package transfer
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"unicode/utf8"
 )
+
+// goRefusalDecision is the engine's side of the refusalCodeOf rows in the
+// parity table (parity_test.go): an incompatible frame is "accept" only when
+// the production reader, abortFromPeer, turns it into a *PeerStoppedError,
+// which it does for a code in RefusalCodes read by exact key and nothing
+// else. It lives here, beside incompatibleMsg's other tests, so the peer field
+// is read in one test file rather than two. A three-file batch, as the
+// receivedVerified rows assume.
+func goRefusalDecision(frame []byte) string {
+	var stopped *PeerStoppedError
+	if errors.As(abortFromPeer(frame, "test-ver", "", 3), &stopped) {
+		return "accept"
+	}
+	return "reject"
+}
 
 // TestProtocolVersionPinnedToClient anchors the two constants to the browser
 // client's PROTOCOL_VERSION and MIN_PROTOCOL_VERSION (client/lib/transfer/

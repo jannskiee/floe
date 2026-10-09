@@ -68,6 +68,7 @@ import {
     tryAdapter as realTryAdapter,
 } from './lib/adapters.mjs';
 import { USAGE, UsageError, parseArgs } from './lib/args.mjs';
+import { dockerVersion } from './lib/caddy.mjs';
 import { RETRY_CAP, baseResult, runCell } from './lib/cell.mjs';
 import { createFence, isUnder, normalizePath } from './lib/fence.mjs';
 import { formatBytes } from './lib/fixtures.mjs';
@@ -85,6 +86,7 @@ import {
     sideloadDesktop,
     findStagedDesktop,
     buildHeadCli,
+    buildHarness,
     headDesktopCommands,
     gitSha7,
     sha256Sync,
@@ -103,7 +105,7 @@ import { SafetyError, sleep as defaultSleep } from './lib/surfaces.mjs';
 import { classifyIce, describeTurn, probeTurn } from './lib/turn.mjs';
 import { decodeWslOutput } from './lib/wsl.mjs';
 import { SKIP_REASONS } from './lib/matrix.mjs';
-import { PENALIZED_KEYS } from './lib/cell.mjs';
+import { PENALIZED_KEYS } from './lib/triage.mjs';
 import {
     cliUnderTestOracle,
     collectVersions,
@@ -128,6 +130,10 @@ const LOCAL = Object.freeze({
     server: 'http://localhost:3001',
     web: 'http://localhost:3000',
 });
+/** The signaling server a profile drives: production, or the local stack. */
+export function serverFor(profile) {
+    return profile === 'head' ? LOCAL.server : PROD.server;
+}
 const WIN = process.platform === 'win32';
 const PS = [
     '-NoProfile',
@@ -436,45 +442,175 @@ function probeWsl(exec) {
     }
 }
 
-function probeFirewall(exec, binDir) {
-    if (!WIN || !binDir)
-        return { inboundAllow: null, rules: [], detail: 'not probed' };
+// Get-NetFirewallRule's enums reach JSON as numbers (Direction Inbound 1,
+// Action Allow 2 and Block 4, Enabled True 1) or, from other hosts, as names.
+const fwInbound = (r) =>
+    String(r.Direction) === '1' || /inbound/i.test(String(r.Direction));
+const fwEnabled = (r) =>
+    r.Enabled === 1 || r.Enabled === true || /true/i.test(String(r.Enabled));
+const fwAllow = (r) =>
+    String(r.Action) === '2' || /allow/i.test(String(r.Action));
+const fwBlock = (r) =>
+    String(r.Action) === '4' || /block/i.test(String(r.Action));
+const psQuote = (s) => String(s).replace(/'/g, "''");
+const samePathCi = (a, b) =>
+    String(a ?? '').toLowerCase() === String(b ?? '').toLowerCase();
+
+/** One entry per exe path (compared without case), the first role kept. */
+function uniqueExes(exes) {
+    const out = [];
+    for (const e of exes || []) {
+        if (!e || typeof e.path !== 'string' || !e.path) continue;
+        if (out.some((o) => samePathCi(o.path, e.path))) continue;
+        out.push({ role: String(e.role ?? 'exe'), path: e.path });
+    }
+    return out;
+}
+
+/**
+ * The Windows Firewall rules that cover the staged binaries (every Program
+ * under --bin-dir, as before) AND every exe under test wherever it lives
+ * (S1-REL-03a harness fix 13): the Store build's floe-desktop.exe under its
+ * InstallLocation, the portable or head `wails build` exe, the CLI under test
+ * and the e2ehost harness. The baseline's --bin-dir-only read missed Block
+ * rules on exes outside it (and blamed the Store exe for Blocks that sat on
+ * temp copies). One read-only Get-NetFirewallApplicationFilter pass: the
+ * audit never adds, removes or changes a rule and never clicks a consent
+ * dialog (D-054, the rules are the owner's). `inboundAllow` and `block` stay
+ * about the staged path (`block` is the precondition it always was);
+ * `blocks` names each enabled inbound Block rule on an exe under test by
+ * path, for the Infra and Safety sections; null when the read failed.
+ */
+export function probeFirewall(
+    exec,
+    binDir,
+    { exes = [], platform = process.platform } = {}
+) {
+    const targets = uniqueExes(exes);
+    if (platform !== 'win32' || (!binDir && !targets.length))
+        return {
+            inboundAllow: null,
+            rules: [],
+            blocks: null,
+            exes: targets,
+            detail: 'not probed',
+        };
+    const conds = [];
+    if (binDir) conds.push(`$_.Program -like '${psQuote(binDir)}*'`);
+    if (targets.length)
+        conds.push(
+            `@(${targets.map((t) => `'${psQuote(t.path)}'`).join(', ')}) -contains $_.Program`
+        );
     try {
         const out = exec(
             'powershell.exe',
             [
                 ...PS,
-                `Get-NetFirewallApplicationFilter | Where-Object { $_.Program -like '${binDir.replace(/'/g, "''")}*' } | ForEach-Object { $_ | Get-NetFirewallRule } | Select-Object DisplayName,Direction,Action,Enabled | ConvertTo-Json -Compress`,
+                `Get-NetFirewallApplicationFilter | Where-Object { ${conds.join(' -or ')} } | ForEach-Object { $p = $_.Program; $_ | Get-NetFirewallRule | Select-Object @{ n = 'Program'; e = { $p } },DisplayName,Direction,Action,Enabled } | ConvertTo-Json -Compress`,
             ],
             { timeout: 60_000 }
         );
-        const parsed = out.trim() ? JSON.parse(out) : [];
+        const text = String(out ?? '').trim();
+        const parsed = text ? JSON.parse(text) : [];
         const rules = Array.isArray(parsed) ? parsed : [parsed];
-        const allow = rules.some((r) =>
-            String(r.Direction) === '1' || /inbound/i.test(String(r.Direction))
-                ? (String(r.Action) === '2' ||
-                      /allow/i.test(String(r.Action))) &&
-                  (r.Enabled === 1 ||
-                      r.Enabled === true ||
-                      /true/i.test(String(r.Enabled)))
-                : false
+        const prefix = binDir ? String(binDir).toLowerCase() : null;
+        const staged = prefix
+            ? rules.filter((r) =>
+                  String(r.Program ?? '')
+                      .toLowerCase()
+                      .startsWith(prefix)
+              )
+            : [];
+        const allow = staged.some(
+            (r) => fwInbound(r) && fwAllow(r) && fwEnabled(r)
         );
-        const block = rules.some(
-            (r) => String(r.Action) === '4' || /block/i.test(String(r.Action))
-        );
+        const blocks = [];
+        for (const r of rules) {
+            if (!(fwInbound(r) && fwBlock(r) && fwEnabled(r))) continue;
+            const t = targets.find((x) => samePathCi(x.path, r.Program));
+            if (t)
+                blocks.push({
+                    role: t.role,
+                    program: t.path,
+                    rule: String(r.DisplayName ?? ''),
+                });
+        }
         return {
-            inboundAllow: rules.length ? allow : false,
-            block,
+            inboundAllow: staged.length ? allow : prefix ? false : null,
+            block: staged.some(fwBlock),
             rules,
+            blocks,
+            exes: targets,
             detail: rules.length ? `${rules.length} rule(s)` : 'none',
         };
     } catch (e) {
         return {
             inboundAllow: null,
             rules: [],
+            blocks: null,
+            exes: targets,
             detail: `read failed: ${e.message.split('\n')[0]}`,
         };
     }
+}
+
+/**
+ * Every exe this run drives, for the firewall read (fix 13): the portable or
+ * head desktop build, the staged portable exe the desktop probe found, the
+ * Store build's floe-desktop.exe when the Store build is the one under test
+ * (its InstallLocation from Get-AppxPackage, a read), the CLI under test and
+ * the e2ehost harness. A lookup that fails is a log line, never a failure.
+ */
+export async function exesUnderTest({ builds, desktopProbe, desktop, log = () => {} }) {
+    const exes = [];
+    const d = builds?.desktop;
+    if (d?.path)
+        exes.push({ role: `desktop (${d.kind === 'head' ? 'head' : (d.launch ?? 'build')})`, path: d.path });
+    if (desktopProbe?.portableExe)
+        exes.push({ role: 'desktop (portable, staged)', path: desktopProbe.portableExe });
+    if (
+        (desktopProbe?.mode === 'store' || d?.launch === 'store') &&
+        desktop &&
+        typeof desktop.storePackage === 'function'
+    ) {
+        try {
+            const pkg = await desktop.storePackage();
+            if (pkg?.present && pkg.exe)
+                exes.push({ role: 'desktop (store)', path: pkg.exe });
+        } catch (e) {
+            log(`firewall: the Store package lookup failed: ${e.message}`);
+        }
+    }
+    if (builds?.cli?.path)
+        exes.push({ role: `cli (${builds.cli.kind ?? 'build'})`, path: builds.cli.path });
+    if (builds?.harness?.path)
+        exes.push({ role: 'e2ehost harness', path: builds.harness.path });
+    return uniqueExes(exes);
+}
+
+/** An inbound Block on an exe under test, as one report line. */
+export function firewallBlockText(b) {
+    return `${b.program} (rule "${b.rule}", ${b.role})`;
+}
+
+/** The Infra row for the exes under test (fix 13); never gates a run. */
+export function firewallExesRow(fw) {
+    const n = Array.isArray(fw?.exes) ? fw.exes.length : 0;
+    if (!fw || fw.detail === 'not probed' || !Array.isArray(fw.exes))
+        return { check: 'firewall (exes under test)', ok: true, detail: 'not probed' };
+    if (!Array.isArray(fw.blocks))
+        return {
+            check: 'firewall (exes under test)',
+            ok: true,
+            detail: `not read (${fw.detail})`,
+        };
+    return {
+        check: 'firewall (exes under test)',
+        ok: fw.blocks.length === 0,
+        detail: fw.blocks.length
+            ? `inbound Block on ${fw.blocks.map(firewallBlockText).join('; ')}`
+            : `no inbound Block rule on ${n} exe(s)`,
+    };
 }
 
 function probeMotw(exec, exe, fence, { desktopMode = 'auto' } = {}) {
@@ -485,7 +621,9 @@ function probeMotw(exec, exe, fence, { desktopMode = 'auto' } = {}) {
             detail:
                 desktopMode === 'none'
                     ? 'n/a (--desktop none)'
-                    : 'n/a (store build; no portable exe staged, so nothing to unblock)',
+                    : desktopMode === 'wailsdev'
+                      ? 'n/a (wailsdev lane; the dev server serves the app, so there is no exe on disk)'
+                      : 'n/a (store build; no portable exe staged, so nothing to unblock)',
         };
     try {
         const out = exec(
@@ -519,6 +657,64 @@ function probeMotw(exec, exe, fence, { desktopMode = 'auto' } = {}) {
             detail: `read failed: ${e.message.split('\n')[0]}`,
         };
     }
+}
+
+/**
+ * P10: GET <server>/health and record its `features` (spec 04: request-1
+ * means the server serves request links). Only well-formed short tokens are
+ * kept, at most 20, so a server's answer cannot put arbitrary text in the
+ * report. An absent, malformed or unreachable answer records features null,
+ * and every request cell then SKIPs server-no-request-1 (lib/matrix.mjs).
+ */
+export async function probeServerFeatures(server, { fetchImpl } = {}) {
+    const url = `${server}/health`;
+    try {
+        const r = await getJson(url, { timeoutMs: 5_000, fetchImpl });
+        const raw = r.json && r.json.features;
+        const features = Array.isArray(raw)
+            ? raw
+                  .filter(
+                      (f) => typeof f === 'string' && /^[a-z0-9-]{1,40}$/.test(f)
+                  )
+                  .slice(0, 20)
+            : null;
+        const ok = r.status === 200;
+        return {
+            server,
+            status: r.status,
+            features: ok ? features : null,
+            requestLinks: ok && Array.isArray(features)
+                ? features.includes('request-1')
+                : false,
+            detail: !ok
+                ? `HTTP ${r.status}`
+                : features === null
+                  ? 'no features field'
+                  : features.length
+                    ? features.join(', ')
+                    : 'none listed',
+        };
+    } catch (e) {
+        return {
+            server,
+            status: null,
+            features: null,
+            requestLinks: false,
+            detail: `unreachable: ${String(e.message).split('\n')[0]}`,
+        };
+    }
+}
+
+/** The Versions INFO row for the server's features (never gates a run). */
+export function serverFeaturesRow(p) {
+    return {
+        surface: 'Server features',
+        installed: p ? p.detail : 'not probed',
+        latest: '-',
+        oracle: 'GET /health features (probe P10)',
+        status: 'INFO',
+        gate: false,
+    };
 }
 
 async function localServerUp(fetchImpl) {
@@ -569,7 +765,10 @@ async function probeDesktopInputs({
         build && (build.launch === 'portable' || build.kind === 'head')
             ? (build.path ?? null)
             : null;
-    if (!portableExe && tag && opts.binDir) {
+    // The wailsdev lane is the dev server, not an exe: a staged release exe
+    // under --bin-dir is a different build, so it is never adopted here.
+    // P2 and P7 stay n/a rather than reporting on something not under test.
+    if (!portableExe && mode !== 'wailsdev' && tag && opts.binDir) {
         const staged = findStagedDesktop(opts.binDir, tag);
         if (staged) {
             portableExe = staged.path;
@@ -678,6 +877,10 @@ async function runProbes({ opts, io, ledger, fence, log, builds, versions }) {
             servesTurn: opts.profile === 'head' ? false : null,
             detail: 'local server not running',
         };
+    probe.server = await probeServerFeatures(serverFor(opts.profile), {
+        fetchImpl: io.fetchImpl,
+    });
+    log(`probe P10 server features: ${probe.server.detail}`);
     probe.playwright = playwrightCheck(opts.clientDir);
     const web = await (io.tryAdapter || realTryAdapter)('web');
     if (
@@ -755,10 +958,19 @@ async function runProbes({ opts, io, ledger, fence, log, builds, versions }) {
     } else pending.push('P1 P2 P6 P8 P9 desktop (desktop adapter)');
     probe.wsl = { ...probe.wsl, ...probeWsl(exec) };
     // The effective staged-binary dir, not just an operator override, or
-    // the probe reports "not probed" on every default run.
+    // the probe reports "not probed" on every default run; plus every exe
+    // under test wherever it lives (fix 13).
     probe.firewall = probeFirewall(
         exec,
-        opts.binDir || (opts.out ? path.join(opts.out, 'bin') : null)
+        opts.binDir || (opts.out ? path.join(opts.out, 'bin') : null),
+        {
+            exes: await exesUnderTest({
+                builds,
+                desktopProbe: probe.desktop,
+                desktop,
+                log,
+            }),
+        }
     );
     // P7 only means something for an exe on disk: the portable build under
     // test, else the staged portable exe the desktop probe found.
@@ -991,12 +1203,19 @@ async function resolveBuilds({ opts, io, versions, log, fence, manifest }) {
                     log,
                     exec,
                 });
+                // The path is whatever the adapter returned, null included:
+                // the wailsdev lane has no exe on disk, and plan.exe as a
+                // fallback would hand P7 (motwExe below) a wails build path
+                // that need not exist, or worse a stale exe an earlier
+                // portable build left there, which is not the build under
+                // test.
                 builds.desktop = {
                     kind: 'head',
                     launch:
-                        opts.desktop === 'wailsdev' ? 'wailsdev' : 'portable',
-                    version: plan.version,
-                    path: d?.path ?? plan.exe,
+                        d?.launch ??
+                        (opts.desktop === 'wailsdev' ? 'wailsdev' : 'portable'),
+                    version: d?.version ?? plan.version,
+                    path: d?.path ?? null,
                     isPackaged: false,
                     sha256: d?.sha256 ?? null,
                 };
@@ -1219,6 +1438,65 @@ export async function prepareWslBuild({
  * Never touches a report, a transcript, a capture or attempt.json, and
  * never looks outside the run directory it is given.
  */
+/**
+ * Build the test-only sender that can lie about a digest (cli/internal/e2ehost)
+ * into the run's bin dir and record it as builds.harness, or turn the cells
+ * that need it into SKIP harness-build. Only a cell whose CLI-shaped sender must
+ * lie needs it, and only a head run has the checkout to build it from, so
+ * nothing is built for any other plan. Exported for the unit test, because a
+ * silent failure here would read as a product result.
+ */
+export async function prepareHarnessBuild({
+    cells,
+    builds,
+    binDir,
+    root,
+    sha7,
+    exec,
+    getAdapter,
+    build = buildHarness,
+    log = () => {},
+}) {
+    const lying = (cells || []).filter(
+        (c) =>
+            !c.verdict && c.hashLie && c.sender && c.sender.surface === 'cli'
+    );
+    if (!lying.length) return null;
+    try {
+        if (!builds.cli || builds.cli.kind !== 'head' || !root)
+            throw new Error(
+                'the lying harness is built from the checkout (head profile only)'
+            );
+        if (!binDir) throw new Error('no bin dir for the harness build');
+        const built = build({ root, sha7, binDir, exec });
+        const mod = await getAdapter('harness');
+        const pf = await mod.preflight({ harnessBin: built.path });
+        if (!pf.ok) throw new Error(pf.reason);
+        builds.harness = {
+            kind: 'harness',
+            source: 'go build ./internal/e2ehost',
+            path: built.path,
+            version: built.version,
+            sha7: sha7 ?? null,
+        };
+        log(
+            `harness: built ${built.version} -> ${built.path} for ${lying.length} cell(s)`
+        );
+        return builds.harness;
+    } catch (e) {
+        builds.harness = null;
+        log(
+            `harness: build failed, ${lying.length} cell(s) SKIP harness-build: ${String(e.message).split('\n')[0]}`
+        );
+        for (const c of lying) {
+            c.verdict = 'SKIP';
+            c.reason = 'harness-build';
+            c.note = SKIP_REASONS['harness-build'];
+        }
+        return null;
+    }
+}
+
 export function purgeRunData(
     runDir,
     { keepData = false, log = () => {} } = {}
@@ -1326,6 +1604,14 @@ async function dryRun({ opts, io, out, log }) {
         return r.detail;
     });
     await step('go', () => exec('go', ['version']));
+    // TA-14's one tool class (FU-26): Docker must answer before a --caddy
+    // run starts a Caddy container.
+    if (opts.caddy)
+        await step('docker', () => {
+            const d = dockerVersion({ exec });
+            if (!d.ok) throw new Error(d.detail);
+            return `server ${d.version}`;
+        });
     let failed = 0;
     for (const [s, n, d] of results) {
         if (s === 'FAIL') failed += 1;
@@ -1356,6 +1642,7 @@ export async function runCmd(opts, io = {}) {
             subset: opts.subset,
             cells: opts.cells,
             cliHasRelayOnly: true,
+            server: serverFor(opts.profile),
         });
         if (!plan.some((c) => c.reason !== 'filtered' && c.verdict !== 'NA'))
             throw new UsageError(
@@ -1736,6 +2023,17 @@ export async function runCmd(opts, io = {}) {
                 log(`probe P4 local TURN re-probe failed: ${e.message}`);
             }
         }
+        if (!io.probe) {
+            // probe.json may predate P10 or a flip of the server's flag;
+            // the request cells gate on this answer, so it is always fresh.
+            const server = await probeServerFeatures(serverFor(opts.profile), {
+                fetchImpl: io.fetchImpl,
+            });
+            probe = { ...probe, server };
+            log(`probe P10 server features (re-probed): ${server.detail}`);
+        }
+        if (Array.isArray(run.versions))
+            run.versions.push(serverFeaturesRow(probe.server));
         run.probe = probe;
         if (probe.turn?.prod)
             run.infra.push({
@@ -1774,6 +2072,20 @@ export async function runCmd(opts, io = {}) {
                         ? 'none'
                         : probe.firewall.detail || 'not probed',
             });
+        // Fix 13: every exe under test, wherever it lives. Reported in Infra
+        // and Safety only: the rules are the owner's (D-054), and a block
+        // outside the staged path is evidence for a failed cell, not a gate.
+        if (probe.firewall) {
+            run.infra.push(firewallExesRow(probe.firewall));
+            safety.firewallBlocks = Array.isArray(probe.firewall.blocks)
+                ? {
+                      blocks: probe.firewall.blocks,
+                      read: Array.isArray(probe.firewall.exes)
+                          ? probe.firewall.exes.length
+                          : 0,
+                  }
+                : null;
+        }
         if (probe.firewall?.block)
             throw new Precondition(
                 'a Block firewall rule covers the staged exe path'
@@ -1813,6 +2125,11 @@ export async function runCmd(opts, io = {}) {
             cliHasRelayOnly: Boolean(builds.cli?.hasRelayOnly),
             cells: opts.cells,
             desktopMode: opts.desktop,
+            server: serverFor(opts.profile),
+            // An exe request host is away-only (G2-F1, FU-26).
+            userAway: Boolean(opts.userAway),
+            // TA-14 runs only when asked (FU-26).
+            caddy: Boolean(opts.caddy),
         });
         if (typeof io.cellHook === 'function') io.cellHook(cells);
         log(
@@ -1825,6 +2142,23 @@ export async function runCmd(opts, io = {}) {
             getAdapter,
             log,
         });
+        await prepareHarnessBuild({
+            cells,
+            builds,
+            binDir: manifest.binDir,
+            root: opts.root,
+            sha7: builds.cli?.sha7 ?? null,
+            exec,
+            getAdapter,
+            log,
+        });
+        run.binaries.harness = builds.harness
+            ? {
+                  path: builds.harness.path,
+                  version: builds.harness.version,
+                  source: builds.harness.source,
+              }
+            : null;
         const buildFor = (surface) => builds[surface] || null;
         const proc = await tryAdapter('proc');
         const ctx = {
@@ -2074,7 +2408,11 @@ export async function probeCmd(opts, io = {}) {
         versions,
     });
     probe.versions = versions
-        ? { rows: versions.rows, latest: versions.latest, ghOk: versions.ghOk }
+        ? {
+              rows: [...versions.rows, serverFeaturesRow(probe.server)],
+              latest: versions.latest,
+              ghOk: versions.ghOk,
+          }
         : null;
     if (versions && versions.ghOk === false) {
         probe.pending.push('gh auth (gh release view failed)');
@@ -2102,6 +2440,9 @@ export async function probeCmd(opts, io = {}) {
         out(
             `probe P3 browser relay: ${probe.browserRelay.ok === null ? probe.browserRelay.detail : probe.browserRelay.ok ? 'ok' : `NO (${probe.browserRelay.detail})`}`
         );
+        out(
+            `probe P10 server features: ${probe.server?.detail ?? 'not probed'}`
+        );
         const d = probe.desktop || {};
         if (d.probes && Object.keys(d.probes).length) {
             for (const [name, r] of Object.entries(d.probes))
@@ -2125,7 +2466,7 @@ export async function probeCmd(opts, io = {}) {
             `probe WSL: ${probe.wsl.present ? (probe.wsl.running ? 'Running' : 'Stopped (the audit starts it on demand for deep cells)') : `absent (${probe.wsl.state || '?'})`}`
         );
         out(
-            `probe firewall: ${probe.firewall.detail || (probe.firewall.inboundAllow ? 'inbound Allow present' : 'none')}`
+            `probe firewall: ${probe.firewall.detail || (probe.firewall.inboundAllow ? 'inbound Allow present' : 'none')}; exes under test: ${firewallExesRow(probe.firewall).detail}`
         );
         out(
             `probe disk free: ${probe.disk.freeBytes === null ? 'unknown' : formatBytes(probe.disk.freeBytes)}`

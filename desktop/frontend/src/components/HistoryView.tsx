@@ -1,9 +1,18 @@
-import type {Dispatch, SetStateAction} from 'react';
+import {useState, type Dispatch, type SetStateAction} from 'react';
 import {ArrowDownLeft, ArrowUpRight, ChevronDown} from 'lucide-react';
 import {OpenFolder, RevealFile} from '../../wailsjs/go/main/App';
 import {cn, Eyebrow} from './ui';
 import {fmtWhen, histKey, type HistEntry} from '../history';
 import {fmtBytes} from '../incoming';
+import {shortPath} from '../paths';
+import {ACCEPTED_AUTOMATICALLY_LINE, keptPartLine, stoppedFull, verifiedAll} from '../requestCopy';
+import {RenamedConfirm} from './RequestLinkView';
+import {VerifiedMark} from './TransferBits';
+
+// The received folder, in characters: 12 px mono (Geist Mono advances 7.2 px)
+// in the expanded row's 348 px, or 342 px once the list scrolls and its 6 px
+// scrollbar takes its share, which holds 47 (FU-04 saw the 48th cut).
+const DIR_MAX = 47;
 
 /** HistoryView is the History console: the header with Clear and its inline
  *  confirm, the empty state, and the list of expandable rows.
@@ -13,7 +22,13 @@ import {fmtBytes} from '../incoming';
  *  confirmation, and Start over resets both confirmClear and expandedRow, so
  *  both writers live outside this view. The names in each row came from the
  *  other machine (see the floe:history row of the consumer map); they reach
- *  React as text nodes only, and RevealFile is gated by safeLeaf in reveal.go. */
+ *  React as text nodes only, and RevealFile is gated by safeLeaf in reveal.go.
+ *
+ *  A request drop's row (via 'request', S1-DSK-09) is titled with the owner's
+ *  own label, carries the verified, renamed and stop lines its Done or Stopped
+ *  card had, and opens only its folder: never RevealFile or OpenFile, and
+ *  after renames only once the owner confirms (DN8, DN9), the same question
+ *  the card asked, because the renamed files are still in that folder. */
 export default function HistoryView({history, setHistory, confirmClear, setConfirmClear, expandedRow, setExpandedRow}: {
     history: HistEntry[];
     setHistory: Dispatch<SetStateAction<HistEntry[]>>;
@@ -22,6 +37,8 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
     expandedRow: string | null;
     setExpandedRow: Dispatch<SetStateAction<string | null>>;
 }) {
+    // The folder a request row is asking to open (DN8), or null.
+    const [confirmDir, setConfirmDir] = useState<string | null>(null);
     return (
         <div className="space-y-3">
             <div className="flex items-baseline justify-between px-0.5">
@@ -53,7 +70,7 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
                 )}
             </div>
             {history.length === 0 ? (
-                <p className="py-8 text-center text-xs text-zinc-500">No transfers yet.</p>
+                <p className="py-8 text-center text-xs text-zinc-500">No transfers yet</p>
             ) : (
                 <ul className="custom-scrollbar max-h-80 divide-y divide-white/[0.04] overflow-y-auto rounded-lg border border-white/[0.06] bg-white/[0.02]">
                     {history.map((h, i) => {
@@ -61,6 +78,10 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
                         const multi = h.count > 1;
                         const expanded = expandedRow === key;
                         const panelId = `floe-hist-panel-${i}`;
+                        const request = h.via === 'request';
+                        const offered = h.offered ?? h.count;
+                        // Cut in the middle, so the drop's own folder and its time stay.
+                        const dir = h.dir ? shortPath(h.dir, DIR_MAX) : '';
                         return (
                             <li key={key} className="transition-colors hover:bg-white/[0.03]">
                                 {/* The whole row is one disclosure button, the same idiom as the
@@ -79,7 +100,7 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
                                         : <ArrowDownLeft className="size-4 shrink-0 text-zinc-500"/>}
                                     <span className="min-w-0 flex-1">
                                         <span className="block truncate text-sm text-zinc-200">
-                                            {h.count === 1 ? (h.names[0] || '1 file') : `${h.count} files`}
+                                            {request && h.label ? h.label : h.count === 1 ? (h.names[0] || '1 file') : `${h.count} files`}
                                         </span>
                                         <span className="flex items-center gap-2 text-xs text-zinc-500">
                                             <span>{h.kind === 'send' ? 'Sent' : 'Received'}</span>
@@ -101,7 +122,32 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
                                             <p className="break-all pl-7 text-xs text-zinc-500">{h.names[0]}</p>
                                         ) : null}
                                         {h.kind === 'recv' && h.dir && (
-                                            <p className="truncate pl-7 font-mono text-xs text-zinc-500" title={h.dir}>{h.dir}</p>
+                                            // A verified request row hangs its green check in the
+                                            // 28 px gutter of the folder line, under the row's
+                                            // arrow, so no line of words is drawn (D-161).
+                                            <div className="relative">
+                                                {request && !h.stopped && verifiedAll({files: offered, saved: h.count, verified: h.verified ?? 0}) && (
+                                                    <VerifiedMark className="absolute left-0 top-px size-3.5"/>
+                                                )}
+                                                <p className="truncate pl-7 font-mono text-xs text-zinc-500" title={dir !== h.dir ? h.dir : undefined}>{dir}</p>
+                                            </div>
+                                        )}
+                                        {/* HA1 (D-173): History answers "did I accept this?" for a
+                                            drop the link took by itself. A record, not a warning, so
+                                            it is the row's own gray (D-172). */}
+                                        {request && h.auto === true && (
+                                            <p className="pl-7 text-xs leading-relaxed text-zinc-500">{ACCEPTED_AUTOMATICALLY_LINE}</p>
+                                        )}
+                                        {/* No warning here (D-172): the renamed line belongs to the
+                                            moment of receiving, on the finished card; the saved names
+                                            still end in .floe-blocked and Show in folder still asks
+                                            first. How a stopped drop ended is a record, so it stays,
+                                            in the row's own gray rather than amber. */}
+                                        {request && h.stopped && (
+                                            <p className="pl-7 text-xs leading-relaxed text-zinc-500">{stoppedFull(h.stopped, h.count, offered)}</p>
+                                        )}
+                                        {request && h.stopped && keptPartLine(h.stopped) && (
+                                            <p className="pl-7 text-xs leading-relaxed text-zinc-500">{keptPartLine(h.stopped)}</p>
                                         )}
                                         {/* Footer actions behind an inset hairline. The border-t is the
                                             row dividers' white/[0.04] but stops at the px-3.5 content
@@ -118,7 +164,14 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
                                             {h.kind === 'recv' && h.dir && (
                                                 <button
                                                     type="button"
-                                                    onClick={() => { (h.count === 1 ? RevealFile(h.dir!, h.names[0] || '') : OpenFolder(h.dir!)).catch(() => {}); }}
+                                                    onClick={() => {
+                                                        if (request) {
+                                                            if ((h.renamed ?? 0) > 0) setConfirmDir(h.dir!);
+                                                            else OpenFolder(h.dir!).catch(() => {});
+                                                            return;
+                                                        }
+                                                        (h.count === 1 ? RevealFile(h.dir!, h.names[0] || '') : OpenFolder(h.dir!)).catch(() => {});
+                                                    }}
                                                     className="rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice/60"
                                                 >
                                                     Show in folder
@@ -138,6 +191,12 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
                         );
                     })}
                 </ul>
+            )}
+            {confirmDir !== null && (
+                <RenamedConfirm
+                    onCancel={() => setConfirmDir(null)}
+                    onConfirm={() => { const dir = confirmDir; setConfirmDir(null); OpenFolder(dir).catch(() => {}); }}
+                />
             )}
         </div>
     );

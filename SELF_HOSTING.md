@@ -48,6 +48,7 @@ that matter most:
 | `TRUSTED_PROXY_COUNT` | Reverse-proxy hops in front of the server. `0` direct, `1` behind a proxy. |
 | `CLOUDFLARE_TURN_KEY_ID` / `CLOUDFLARE_TURN_KEY_API_TOKEN` | Optional managed TURN via Cloudflare (see below). |
 | `TURN_SECRET` / `TURN_DOMAIN` | Optional self-hosted coturn credentials (see below). |
+| `POLICY_FILE` | Optional request-link policy file, a JSON file such as `{"requestLinks": true}` that turns request links on, given as its path inside the container (for example `/app/policy/policy.json`). Unset, or naming a file that does not exist, means request links are off. Re-read every 60 seconds, so no restart is needed. The image never contains the file: mount its folder with the `volumes` example in `docker-compose.yml`. |
 
 ### Applying a change
 

@@ -77,8 +77,11 @@ func (a *App) transferActive(g uint64) bool {
 // generation cancelled (suppressing its failure toast and late events) and
 // closes its signaling and peer connections. Closing the signaling client
 // unblocks a sender waiting for a receiver (via PeerLeft); closing the peer
-// connection unblocks a stuck WebRTC setup (via the connection-state error).
-// Safe to call when nothing is running.
+// connection ends a WebRTC setup at whichever wait it is in (via the
+// connection's done, peer.ErrClosed, since S1-ENG-11; the closed signaling
+// socket can win the race and end it as peer.ErrSignalingLost instead).
+// Either failure is suppressed by the cancelled generation. Safe to call when
+// nothing is running.
 //
 // Ordering contract: it cancels whatever attempt is live when it EXECUTES, so
 // a caller must not dispatch a new StartSend/ReceiveByCode until this call has
@@ -101,12 +104,18 @@ func (a *App) CancelTransfer() {
 }
 
 // closeBlocked reports whether quitting must be intercepted: a live,
-// uncancelled transfer is in flight and the user has not yet said
-// "Close anyway". Pure state, testable on a bare &App{}.
+// uncancelled transfer is in flight, or a request link is open or receiving a
+// drop (not while it is only being made: closeGuardNow), and the user has not
+// yet said "Close anyway". Pure state, testable on a bare &App{}. The lane is
+// read through its atomic only, never its mutex, and never while a.mu is held:
+// this runs on the Windows message-pump thread. With nothing live on any lane
+// it returns false, which keeps an unclosable window impossible.
 func (a *App) closeBlocked() bool {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.busy && !a.cancelled && !a.allowClose
+	transfer := a.busy && !a.cancelled
+	allow := a.allowClose
+	a.mu.Unlock()
+	return !allow && (transfer || a.lane().closeGuardNow())
 }
 
 // onBeforeClose is the Wails close hook, covering every close path (the
@@ -115,9 +124,11 @@ func (a *App) closeBlocked() bool {
 // thread, so blocking here freezes the window. No dialog from Go, therefore;
 // just tell the frontend to ask. EventsEmit posts and returns, never blocks.
 // Returning false whenever no transfer is active is the property that makes
-// an unclosable window impossible.
+// an unclosable window impossible; the quit retry (closequit.go) covers the
+// quit Wails then posts getting lost on the UI thread.
 func (a *App) onBeforeClose(ctx context.Context) bool {
 	if !a.closeBlocked() {
+		a.armQuitRetry()
 		return false
 	}
 	runtime.EventsEmit(ctx, "close:blocked")
@@ -132,15 +143,13 @@ func (a *App) onBeforeClose(ctx context.Context) bool {
 // the failure toast, since a user-ordered close is not a failure) and quit.
 // Deliberately no wait for the transfer goroutine's cleanup: a leftover
 // .part staging file is the accepted cost of an instant close, and the
-// shutdown hook tidies it.
+// shutdown hook tidies it. The request lane closes last, without waiting on
+// the network (closeForQuit).
 func (a *App) ConfirmClose() {
 	a.mu.Lock()
 	a.allowClose = true
 	a.mu.Unlock()
 	a.CancelTransfer()
-	if a.quitFn != nil {
-		a.quitFn()
-		return
-	}
-	runtime.Quit(a.ctx)
+	a.lane().closeForQuit()
+	a.requestQuit()
 }

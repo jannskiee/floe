@@ -195,13 +195,14 @@ export function spawnSend(path: string, binary: string = cliBinary()): {
 }
 
 /**
- * Spawn `floe receive` and return a promise that resolves once the process
- * exits successfully (its integrity guard ties exit 0 to every byte of every
- * file being on disk), and rejects on nonzero exit or after CLI_TIMEOUT_MS.
+ * Spawn `floe receive` and return a promise that resolves with its stdout once
+ * the process exits successfully (its integrity guard ties exit 0 to every byte
+ * of every file being on disk), and rejects on nonzero exit or after
+ * CLI_TIMEOUT_MS. The stdout is what a test reads the summary box from.
  *
  * `binary` defaults to the HEAD build, same contract as spawnSend.
  */
-export function spawnReceive(link: string, outputDir: string, binary: string = cliBinary()): Promise<void> {
+export function spawnReceive(link: string, outputDir: string, binary: string = cliBinary()): Promise<string> {
     return new Promise((resolve, reject) => {
         const proc = spawn(binary, [
             'receive', link,
@@ -228,7 +229,7 @@ export function spawnReceive(link: string, outputDir: string, binary: string = c
         proc.on('error', (err) => { clearTimeout(timer); reject(err); });
         proc.on('close', (code) => {
             clearTimeout(timer);
-            if (code === 0) resolve();
+            if (code === 0) resolve(stdout);
             else reject(new Error(`floe receive exited with code ${code}${tail(stdout, stderr)}`));
         });
     });

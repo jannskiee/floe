@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import io, { Socket } from 'socket.io-client';
 import { resolveSocketUrl } from '@/lib/socketUrl';
+import { createReconnectBackoff } from '@/lib/reconnectBackoff';
 
 // Module-level singleton, created lazily on first use rather than at import.
 // Keep getSocket() the ONLY io() call in the app so the whole client shares one
@@ -11,7 +12,7 @@ import { resolveSocketUrl } from '@/lib/socketUrl';
 // prerender, which the old top-level io() did on the build machine.
 let socketPromise: Promise<Socket> | null = null;
 
-function getSocket(): Promise<Socket> {
+export function getSocket(): Promise<Socket> {
     // Server-side: never connect, and never reject. Nothing awaits this on the
     // server, so an inert promise is the quietest possible no-op.
     if (typeof window === 'undefined') return new Promise<Socket>(() => {});
@@ -74,6 +75,13 @@ export function useSignaling(callbacks: UseSignalingCallbacks) {
         let cancelled = false;
         let sock: Socket | null = null;
         let pingInterval: ReturnType<typeof setInterval> | null = null;
+        // The manual retry after a refusal (see connect_error below).
+        let retryTimer: ReturnType<typeof setTimeout> | null = null;
+        const backoff = createReconnectBackoff();
+        const clearRetry = () => {
+            if (retryTimer) clearTimeout(retryTimer);
+            retryTimer = null;
+        };
 
         getSocket().then((socket) => {
             if (cancelled) return;
@@ -81,7 +89,11 @@ export function useSignaling(callbacks: UseSignalingCallbacks) {
 
             if (socket.connected) setIsConnected(true);
 
-            socket.on('connect', () => setIsConnected(true));
+            socket.on('connect', () => {
+                setIsConnected(true);
+                clearRetry();
+                backoff.reset();
+            });
             socket.on('disconnect', () => {
                 setIsConnected(false);
                 setPing(0);
@@ -90,6 +102,17 @@ export function useSignaling(callbacks: UseSignalingCallbacks) {
             socket.on('connect_error', (err) => {
                 setIsConnected(false);
                 cbRef.current.onConnectError(err);
+                // A refusal from the server's middleware (the per-IP connection
+                // limiter) leaves the socket inactive, and socket.io-client never
+                // retries it, so retry by hand with a jittered, growing delay. An
+                // active socket means a transport failure the manager is already
+                // retrying; a second retry path there would only add load.
+                if (socket.active === false && !retryTimer) {
+                    retryTimer = setTimeout(() => {
+                        retryTimer = null;
+                        if (!cancelled) socket.connect();
+                    }, backoff.next());
+                }
             });
             // `reconnect` is a Manager-level event, note the `.io` namespace.
             socket.io.on('reconnect', () => cbRef.current.onReconnect());
@@ -109,6 +132,7 @@ export function useSignaling(callbacks: UseSignalingCallbacks) {
 
         return () => {
             cancelled = true;
+            clearRetry();
             if (pingInterval) clearInterval(pingInterval);
             if (!sock) return;
             sock.off('signal');

@@ -17,6 +17,8 @@ import (
 	"unicode"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/jannskiee/floe/cli/engine/peer"
 )
 
 // hostileToken is an SDP network type made of terminal controls: clear the
@@ -116,13 +118,12 @@ func runAgainst(t *testing.T, url string, args ...string) string {
 	var printed bytes.Buffer
 	rootCmd.SetOut(io.Discard)
 	rootCmd.SetErr(&printed)
-	rootCmd.SetArgs(append(args, "--server", url))
 	t.Cleanup(func() {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
 	})
-	if err := execute(); err == nil {
+	if err := execute(append(args, "--server", url)); err == nil {
 		t.Fatalf("floe %s succeeded against a peer that sent a broken SDP", args[0])
 	}
 	return printed.String()
@@ -173,13 +174,21 @@ func TestSendEscapesAHostileAnswer(t *testing.T) {
 
 // TestSetupErrorTextIsBounded (FU-40 review 2 L3): the server relays a signal
 // of up to 1 MB, so a token pion/sdp quotes can be that long. The printed text
-// stays one bounded line with no raw control, and a short error keeps its
-// words.
+// stays one bounded line with no raw control or format character, and a short
+// error keeps its words. On feat/request-link the line is setupFailureLine's
+// (the FU-40 merge note): the bound is SetupError's, DisplayText at 300 runes
+// on the stage pion's parse error comes back on, and setupFailureLine escapes
+// what DisplayText keeps (a zero-width space, U+2028).
 func TestSetupErrorTextIsBounded(t *testing.T) {
-	long := errors.New("sdp: invalid value `" + strings.Repeat("\x1b", 1<<20) + "`")
-	got := setupErrorText(long)
-	if n := len(got); n > 4*setupErrorMax+8 {
-		t.Fatalf("setupErrorText printed %d bytes for a 1 MiB token, want at most %d", n, 4*setupErrorMax+8)
+	const prefix = "WebRTC setup failed: "
+	long := &peer.SetupError{
+		Stage: peer.StageRemoteDescription,
+		Err:   errors.New("sdp: invalid value `" + strings.Repeat("\x1b", 1<<20) + "`"),
+	}
+	got := setupFailureLine(long)
+	// 300 runes, each at most 10 bytes once escaped (\UNNNNNNNN).
+	if max := len(prefix) + 10*300; len(got) > max {
+		t.Fatalf("setupFailureLine printed %d bytes for a 1 MiB token, want at most %d", len(got), max)
 	}
 	if !strings.HasSuffix(got, "…") {
 		t.Errorf("a cut setup error does not end with the ellipsis: %q", got[len(got)-16:])
@@ -187,8 +196,18 @@ func TestSetupErrorTextIsBounded(t *testing.T) {
 	if strings.ContainsRune(got, 0x1b) {
 		t.Errorf("a raw ESC survived in the bounded setup error")
 	}
+	kept := &peer.SetupError{
+		Stage: peer.StageRemoteDescription,
+		Err:   errors.New("sdp: invalid value `a\u200bb\u2028c`"),
+	}
+	got = setupFailureLine(kept)
+	for i, r := range got {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) {
+			t.Fatalf("setupFailureLine kept %U raw at %d: %q", r, i, got)
+		}
+	}
 	short := errors.New("timed out establishing a connection")
-	if got := setupErrorText(short); got != short.Error() {
-		t.Errorf("setupErrorText(%q) = %q, want it unchanged", short.Error(), got)
+	if got := setupFailureLine(short); got != prefix+short.Error() {
+		t.Errorf("setupFailureLine(%q) = %q, want it unchanged after the prefix", short.Error(), got)
 	}
 }

@@ -12,6 +12,11 @@ export interface ReceivedFile {
     fileName: string;
     fileSize: number;
     downloadUrl: string;
+    /**
+     * True only when the sender sent a SHA-256 for this file and it matched the
+     * bytes that arrived. A local compare result, never a peer value.
+     */
+    verified: boolean;
 }
 
 /**

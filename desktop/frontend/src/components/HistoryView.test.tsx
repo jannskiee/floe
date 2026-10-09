@@ -46,7 +46,7 @@ const rowButton = (title: RegExp) => screen.getByRole('button', {name: title});
 describe('the empty state', () => {
     it('says so and offers nothing to clear', () => {
         mount([]);
-        expect(screen.getByText('No transfers yet.')).toBeTruthy();
+        expect(screen.getByText('No transfers yet')).toBeTruthy();
         expect(screen.queryByRole('button', {name: 'Clear'})).toBeNull();
         expect(screen.queryByRole('list')).toBeNull();
     });
@@ -55,7 +55,7 @@ describe('the empty state', () => {
 describe('the list', () => {
     it('shows one collapsed row per entry with its direction', () => {
         mount([received, receivedMany, sent]);
-        expect(screen.queryByText('No transfers yet.')).toBeNull();
+        expect(screen.queryByText('No transfers yet')).toBeNull();
         expect(screen.getAllByRole('listitem')).toHaveLength(3);
 
         // Single-file rows are titled by the name, multi-file rows by the count.
@@ -138,8 +138,210 @@ describe('Clear', () => {
 
         await user.click(screen.getByRole('button', {name: 'Clear'}));
         await user.click(screen.getByRole('button', {name: 'Yes'}));
-        expect(screen.getByText('No transfers yet.')).toBeTruthy();
+        expect(screen.getByText('No transfers yet')).toBeTruthy();
         expect(screen.queryByText('Clear all?')).toBeNull();
         expect(screen.queryByRole('button', {name: 'Clear'})).toBeNull();
+    });
+});
+
+/**
+ * A request drop's row (S1-DSK-09): the owner's label as its title, the lines
+ * its result card had, and a Show in folder that opens only the folder, asking
+ * first after renames.
+ */
+describe('request rows', () => {
+    const FOLDER = 'D:\\Footage\\Floe requests\\Acme footage 2026-09-14 1405';
+    const request = (over: Partial<HistEntry> = {}): HistEntry => ({
+        kind: 'recv', names: ['shoot/A001_C001.mov', 'shoot/A001_C002.mov'], count: 2, dir: FOLDER, at: 1_700_000_003_000,
+        bytes: 2048, via: 'request', label: 'Acme footage', verified: 2, renamed: 0, offered: 2, ...over,
+    });
+    const openRow = async (title = 'Acme footage') => {
+        await userEvent.click(rowButton(new RegExp(title)));
+    };
+
+    it('request row Show in folder opens the folder directly when nothing was renamed', async () => {
+        mount([request()]);
+        await openRow();
+        // Words for screen readers only; the green check is what is drawn.
+        expect(screen.getByText('SHA-256 matched').className).toBe('sr-only');
+        await userEvent.click(screen.getByRole('button', {name: 'Show in folder'}));
+        expect(wails.go.OpenFolder).toHaveBeenCalledTimes(1);
+        expect(wails.go.OpenFolder).toHaveBeenCalledWith(FOLDER);
+        expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('a verified request row hangs a green check in the gutter of its folder line, and says nothing in words (D-161)', async () => {
+        const {container} = mount([request()]);
+        await openRow();
+        const glyph = container.querySelector('svg.lucide-circle-check')!;
+        expect(glyph).not.toBeNull();
+        expect(glyph.getAttribute('aria-hidden')).toBe('true');
+        expect(glyph.getAttribute('class')!.split(' ')).toEqual(expect.arrayContaining(['absolute', 'left-0', 'size-3.5', 'text-green-500']));
+        const sr = screen.getByText('SHA-256 matched');
+        expect(sr.className).toBe('sr-only');
+        // Beside the folder line, in its 28 px gutter, and not a line of its own.
+        const folder = screen.getByTitle(FOLDER);
+        expect(folder.className.split(' ')).toContain('pl-7');
+        expect(glyph.parentElement).toBe(folder.parentElement);
+        expect(sr.parentElement).toBe(folder.parentElement);
+        expect(folder.parentElement!.className.split(' ')).toContain('relative');
+    });
+
+    it('no check on a request row that was not fully verified, on a stopped row, or on a plain receive', async () => {
+        const {container, unmount} = mount([request({verified: 1})]);
+        await openRow();
+        expect(container.querySelector('svg.lucide-circle-check')).toBeNull();
+        expect(screen.queryByText(/SHA-256/)).toBeNull();
+        unmount();
+        const stopped = mount([request({stopped: 'disk-full', count: 2, offered: 2, verified: 2})]);
+        await openRow();
+        expect(stopped.container.querySelector('svg.lucide-circle-check')).toBeNull();
+        stopped.unmount();
+        const plain = mount([received]);
+        await userEvent.click(rowButton(/report\.pdf/));
+        expect(plain.container.querySelector('svg.lucide-circle-check')).toBeNull();
+    });
+
+    it('request row Show in folder asks first when files were renamed', async () => {
+        mount([request({renamed: 2, names: ['a.url.floe-blocked', 'b.lnk.floe-blocked']})]);
+        await openRow();
+        // No warning line in History (D-172): it belongs to the finished card.
+        // The names still end in .floe-blocked, and the folder still asks first.
+        expect(screen.queryByText(/now ends? in \.floe-blocked/)).toBeNull();
+        expect(screen.getByText('a.url.floe-blocked')).toBeTruthy();
+        await userEvent.click(screen.getByRole('button', {name: 'Show in folder'}));
+        const dialog = screen.getByRole('dialog');
+        expect(within(dialog).getByText('This drop has renamed files')).toBeTruthy();
+        expect(document.activeElement).toBe(within(dialog).getByRole('button', {name: 'Cancel'}));
+        expect(wails.go.OpenFolder).not.toHaveBeenCalled();
+        await userEvent.click(within(dialog).getByRole('button', {name: 'Cancel'}));
+        expect(screen.queryByRole('dialog')).toBeNull();
+        expect(wails.go.OpenFolder).not.toHaveBeenCalled();
+        await userEvent.click(screen.getByRole('button', {name: 'Show in folder'}));
+        await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', {name: 'Show in folder'}));
+        expect(wails.go.OpenFolder).toHaveBeenCalledWith(FOLDER);
+    });
+
+    it('request rows never call RevealFile or OpenFile', async () => {
+        // A one-file request row: the path a plain receive row would take to
+        // RevealFile. A request row opens the folder instead, every time.
+        mount([request({names: ['only.mov'], count: 1, offered: 1, verified: 1})]);
+        await openRow();
+        await userEvent.click(screen.getByRole('button', {name: 'Show in folder'}));
+        expect(wails.go.RevealFile).not.toHaveBeenCalled();
+        expect(wails.go.OpenFile).not.toHaveBeenCalled();
+        expect(wails.go.OpenFolder).toHaveBeenCalledWith(FOLDER);
+    });
+
+    it('no Open button on request rows', async () => {
+        mount([request(), request({at: 1_700_000_004_000, label: 'Second', stopped: 'disk-full', count: 1, offered: 5})]);
+        // One row expands at a time: check each.
+        for (const title of ['Acme footage', 'Second']) {
+            await openRow(title);
+            const buttons = screen.getAllByRole('button').map((b) => b.textContent?.trim());
+            expect(buttons, title).not.toContain('Open');
+            expect(buttons.filter((t) => t === 'Show in folder'), title).toHaveLength(1);
+        }
+    });
+
+    it('shows the History form of a stop and no SHA-256 line with it', async () => {
+        mount([request({label: 'Acme footage', stopped: 'disk-full', count: 4, offered: 12, verified: 4})]);
+        await openRow();
+        const stop = screen.getByText('Drop stopped: the drive ran out of space · 4 of 12 files saved');
+        // A record of how it ended, in the row's gray, not a warning (D-172).
+        expect(stop.className.split(' ')).toContain('text-zinc-500');
+        expect(stop.className).not.toMatch(/amber/);
+        expect(screen.queryByText(/SHA-256/)).toBeNull();
+    });
+
+    it("says Accepted automatically, in the row's gray, only on a drop the link took by itself (HA1, D-173)", async () => {
+        const {container, unmount} = mount([request({auto: true})]);
+        await openRow();
+        const line = screen.getByText('Accepted automatically');
+        // A record, not a warning (D-172): the stop line's gray, under the folder.
+        expect(line.className.split(' ')).toEqual(expect.arrayContaining(['pl-7', 'text-xs', 'text-zinc-500']));
+        expect(line.className).not.toMatch(/amber/);
+        const folder = screen.getByTitle(FOLDER);
+        expect(folder.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(container.querySelector('svg.lucide-circle-check')).not.toBeNull();
+        unmount();
+        // A stopped automatic drop keeps the mark beside its stop sentence.
+        const stopped = mount([request({auto: true, stopped: 'stopped', count: 1, offered: 2, verified: 1})]);
+        await openRow();
+        expect(screen.getByText('Accepted automatically')).toBeTruthy();
+        stopped.unmount();
+        // Not on a prompted request row, and not on a plain receive.
+        mount([request(), {...received, at: 1_700_000_005_000}]);
+        await openRow();
+        expect(screen.queryByText('Accepted automatically')).toBeNull();
+        await userEvent.click(rowButton(/report\.pdf/));
+        expect(screen.queryByText('Accepted automatically')).toBeNull();
+    });
+
+    it('a save-blocked row with nothing saved points at the kept file (D-128)', async () => {
+        mount([request({stopped: 'save-blocked', names: [], count: 0, offered: 1, verified: 0, bytes: undefined})]);
+        await openRow();
+        expect(screen.getByText('Drop stopped: Windows blocked a save')).toBeTruthy();
+        expect(screen.getByText('The complete file was kept with a .part ending')).toBeTruthy();
+        expect(screen.queryByText(/SHA-256/)).toBeNull();
+        await userEvent.click(screen.getByRole('button', {name: 'Show in folder'}));
+        expect(wails.go.OpenFolder).toHaveBeenCalledWith(FOLDER);
+    });
+
+    it('falls back to the count when the owner gave no label', () => {
+        mount([request({label: undefined})]);
+        expect(screen.getByText('2 files')).toBeTruthy();
+    });
+
+    it('hostile names in a request row render as text', async () => {
+        const hostile = ['<img src=x onerror=alert(1)>', '$(calc)', ']]><', '\u202Eevil.exe'];
+        const {container} = mount([request({names: hostile, count: 4, offered: 4, verified: 4})]);
+        await openRow();
+        expect(container.querySelector('img')).toBeNull();
+        for (const name of hostile) expect(screen.getByText(name, {exact: true}).textContent).toBe(name);
+        await userEvent.click(screen.getByRole('button', {name: 'Show in folder'}));
+        const calls = JSON.stringify(Object.values(wails.go).map((f) => f.mock.calls));
+        for (const name of hostile) expect(calls.includes(JSON.stringify(name).slice(1, -1))).toBe(false);
+    });
+
+    it('a long folder is cut in the middle, keeping its end, with the full path as its title (D-136)', async () => {
+        const long = `D:\\Footage\\Floe requests\\${'A'.repeat(40)} 2026-09-14 1405`;
+        mount([request({dir: long})]);
+        await openRow();
+        const line = screen.getByTitle(long);
+        expect(line.textContent).toContain('...');
+        expect(line.textContent!.startsWith('D:\\')).toBe(true);
+        expect(line.textContent!.endsWith(' 2026-09-14 1405')).toBe(true);
+        expect(line.textContent!.length).toBeLessThanOrEqual(47);
+        // Show in folder still gets the whole path.
+        await userEvent.click(screen.getByRole('button', {name: 'Show in folder'}));
+        expect(wails.go.OpenFolder).toHaveBeenCalledWith(long);
+    });
+
+    it('the cap is 47 characters, what the expanded row holds while the list scrolls (FU-38)', async () => {
+        // Once the list outgrows its 320 px it scrolls, and its 6 px scrollbar
+        // leaves the folder line 342 px of its 348: room for 47 characters of
+        // 12 px mono at 7.2 px, not 48 (FU-04 saw the 48th cut).
+        const fits = 'D:\\Floe requests\\Acme footage I 2026-09-14 1405';
+        const over = 'D:\\Floe requests\\Acme footage II 2026-09-14 1405';
+        expect([fits.length, over.length]).toEqual([47, 48]);
+        const first = mount([request({dir: fits})]);
+        await openRow();
+        expect(screen.getByText(fits).getAttribute('title')).toBeNull();
+        first.unmount();
+        mount([request({dir: over})]);
+        await openRow();
+        const line = screen.getByTitle(over);
+        expect(line.textContent).not.toBe(over);
+        expect(line.textContent!.length).toBeLessThanOrEqual(47);
+        expect(line.textContent!.endsWith('Acme footage II 2026-09-14 1405')).toBe(true);
+    });
+
+    it('a folder that fits shows whole, with no title', async () => {
+        const short = 'D:\\Floe requests\\Acme 2026-09-14 1405';
+        mount([request({dir: short})]);
+        await openRow();
+        const line = screen.getByText(short);
+        expect(line.getAttribute('title')).toBeNull();
     });
 });

@@ -120,6 +120,7 @@ const LABEL_ESCAPE_CARDS = [];
 const INTERNAL = {
     FLOE_DISTRIBUTABLE_IMAGE: 'set by client/Dockerfile only',
     HEARTBEAT_MS: 'test knob read by server/crashguard.test.js; not an operator setting',
+    FLOE_TEST_REQUEST_GRACE_MS: 'test knob read by server/crashguard.test.js; can only shorten the request-room grace',
 };
 // Documented keys the server never reads, and why that is fine.
 const NOT_READ = {

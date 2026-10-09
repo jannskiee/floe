@@ -6,6 +6,8 @@ package transfer
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -124,7 +126,8 @@ func TestReceiverNoMisfireWhileFlowing(t *testing.T) {
 // TestSenderAckWaitConnectionClosed: the receiver's data channel closes while
 // the sender is waiting for an ack (the decline path and any receiver
 // error-exit land here). The sender must fail in seconds via its done channel,
-// not burn the 120-second ack deadline.
+// not burn the whole ack deadline, which is 120 s by default and much longer
+// for a request-link visitor.
 func TestSenderAckWaitConnectionClosed(t *testing.T) {
 	sender, recvCh, closeFn := newConnectedPair(t)
 	defer closeFn()
@@ -158,9 +161,236 @@ func TestSenderAckWaitConnectionClosed(t *testing.T) {
 			t.Fatalf("expected a connection-closed ack-wait error, got: %v", err)
 		}
 		if elapsed := time.Since(start); elapsed > 10*time.Second {
-			t.Fatalf("sender took %v to fail; want well under 10s, never the 120s ack deadline", elapsed)
+			t.Fatalf("sender took %v to fail; want well under 10s, never the whole ack deadline", elapsed)
 		}
 	case <-time.After(15 * time.Second):
 		t.Fatal("SendFiles did not return; the done channel is not wired into the ack wait")
+	}
+}
+
+// The default ack wait is what every caller that leaves SendOptions.AckTimeout
+// at zero gets, and it is the number the docs quote. Pinned here because the
+// literal moved out of sender.go into deadlines.go, where a change would
+// otherwise be invisible from the send path.
+func TestSenderAckTimeoutDefaultIs120s(t *testing.T) {
+	if defaultAckTimeout != 120*time.Second {
+		t.Fatalf("defaultAckTimeout = %v, want 120s", defaultAckTimeout)
+	}
+	var zero SendOptions
+	if got := ackTimeoutOrDefault(zero.AckTimeout); got != 120*time.Second {
+		t.Fatalf("the zero SendOptions waits %v for an ack, want 120s", got)
+	}
+	if got := ackTimeoutOrDefault(-time.Second); got != 120*time.Second {
+		t.Fatalf("a negative option gives %v; want the default, never a timer that has already fired", got)
+	}
+	if got := ackTimeoutOrDefault(VisitorAckTimeout + VisitorAckGrace); got != 615*time.Second {
+		t.Fatalf("a request-link visitor's ack wait is %v, want 615s", got)
+	}
+}
+
+// A caller's AckTimeout must be the wait, not the default. The option exists
+// so a request-link visitor can wait 615 s instead of 120 s; one that is
+// silently dropped would make that a no-op and a held Decide window would end
+// in "timed out waiting for ack" after two minutes.
+func TestSenderAckTimeoutHonored(t *testing.T) {
+	sender, recvCh, closeFn := newConnectedPair(t)
+	defer closeFn()
+
+	srcDir := t.TempDir()
+	src := filepath.Join(srcDir, "unacked.bin")
+	if err := os.WriteFile(src, make([]byte, 4096), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Take the receiver's channel and hold it OPEN without ever running
+	// ReceiveFiles: no ack can arrive and no close can end the wait early, so
+	// only the deadline can end it.
+	dc := <-recvCh
+	defer dc.Close()
+
+	start := time.Now()
+	sendErr := make(chan error, 1)
+	go func() {
+		sendErr <- SendFilesWithOptions(sender, []string{src}, "", SendOptions{AckTimeout: 200 * time.Millisecond})
+	}()
+
+	select {
+	case err := <-sendErr:
+		if err == nil || !strings.Contains(err.Error(), "timed out waiting for ack") {
+			t.Fatalf("expected an ack timeout, got: %v", err)
+		}
+		if !errors.Is(err, ErrAckTimeout) {
+			t.Fatalf("the ack timeout %v is not ErrAckTimeout", err)
+		}
+		// The only other value this wait could have taken is the 120 s
+		// default, so a generous bound still discriminates. It is generous on
+		// purpose: several suites share this machine.
+		if elapsed := time.Since(start); elapsed > 5*time.Second {
+			t.Fatalf("the sender waited %v, so the 200ms AckTimeout was ignored", elapsed)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("SendFilesWithOptions never returned; AckTimeout did not reach the ack wait")
+	}
+}
+
+// runDecideHold stages the visitor's metadata in the host's pump, then runs
+// the host's receive with a Decide that blocks for hold before accepting, and
+// requires the transfer to complete. Staging first means a shrunk idle timer
+// cannot fire on the few milliseconds the sender needs to produce its
+// metadata. A zero ackTimeout leaves the sender's default.
+//
+// The blocking Decide is heldDecide.accept (decide_test.go), the same shape
+// both variants below hold the loop with.
+func runDecideHold(t *testing.T, hold, ackTimeout time.Duration) {
+	t.Helper()
+
+	p := newOffererPair(t, nil)
+
+	srcDir := t.TempDir()
+	sum := writeRandom(t, srcDir, "decided.bin", 64*1024)
+
+	sendErr := make(chan error, 1)
+	go func() {
+		sendErr <- SendFilesWithOptions(p.visitor, []string{filepath.Join(srcDir, "decided.bin")}, "", SendOptions{
+			OnProgress: func(Progress) {},
+			AckTimeout: ackTimeout,
+			Messages:   p.visitorMsgs,
+			Closed:     p.visitorClosed,
+		})
+	}()
+	waitQueued(t, p.hostMsgs)
+
+	outDir := t.TempDir()
+	decide := &heldDecide{hold: hold}
+	recvErr := make(chan error, 1)
+	go func() {
+		recvErr <- ReceiveFilesWithOptions(p.host, outDir, true, "", "", ReceiveOptions{
+			OnProgress: func(Progress) {},
+			Decide:     decide.accept,
+			Messages:   p.hostMsgs,
+			Closed:     p.hostClosed,
+		})
+	}()
+
+	p.finish(t, sendErr, recvErr, hold+60*time.Second)
+
+	if decide.calls != 1 {
+		t.Fatalf("Decide was asked %d times, want 1", decide.calls)
+	}
+	if decide.held < hold {
+		t.Fatalf("Decide held %s, want at least %s", decide.held, hold)
+	}
+	data, err := os.ReadFile(filepath.Join(outDir, "decided.bin"))
+	if err != nil {
+		t.Fatalf("read decided.bin: %v", err)
+	}
+	if sha256.Sum256(data) != sum {
+		t.Fatal("decided.bin: SHA-256 differs from the source")
+	}
+	if got := listDir(t, outDir); len(got) != 1 {
+		t.Fatalf("output tree %v, want only decided.bin", got)
+	}
+}
+
+// TestDecideBlockingDoesNotTripWatchdog is TestLoopbackOffererHoldsAck for the
+// accept decision: neither receive watchdog is armed while Decide runs (they
+// are armed only around an empty message queue), so a person may take as long
+// as they like without the transfer being killed under them.
+//
+// The fast variant proves the arming rule in two seconds by shrinking both
+// watchdogs below the hold. The long variant is the real thing on the real
+// numbers, which takes about ten minutes of wall clock and holds real timers
+// the whole way: it is opt-in through FLOE_LONG_TESTS, read only here, on the
+// FLOE_WRITE_FUZZ_SEEDS precedent in fuzz_test.go. CI, DV-A and the Docker
+// runs never pay for it; a person verifying the window runs it by hand with an
+// explicit -timeout, because 9 min 45 s sits within seconds of the 10 minute
+// default.
+func TestDecideBlockingDoesNotTripWatchdog(t *testing.T) {
+	t.Run("fast", func(t *testing.T) {
+		if testing.Short() {
+			t.Skip("skipping ICE loopback transfer in -short mode")
+		}
+		oldIdle, oldStall := receiveIdleTimeout, receiveStallTimeout
+		receiveIdleTimeout = 200 * time.Millisecond
+		receiveStallTimeout = 200 * time.Millisecond
+		t.Cleanup(func() { receiveIdleTimeout = oldIdle; receiveStallTimeout = oldStall })
+
+		runDecideHold(t, 2*time.Second, 0)
+	})
+
+	t.Run("long", func(t *testing.T) {
+		if testing.Short() {
+			t.Skip("skipping ICE loopback transfer in -short mode")
+		}
+		if os.Getenv("FLOE_LONG_TESTS") != "1" {
+			t.Skip("set FLOE_LONG_TESTS=1 to hold the real decision window, which takes about ten minutes")
+		}
+		// The whole clock pair, unshrunk: the visitor waits one grace past its
+		// own deadline and the deciding side answers one grace early, so the
+		// hold has to fit between them for the transfer to survive it.
+		runDecideHold(t, HostDecisionWindow, VisitorAckTimeout+VisitorAckGrace)
+	})
+}
+
+// timersIn lists every timer construction in a region of source text.
+func timersIn(region string) (armed []string) {
+	for _, line := range strings.Split(region, "\n") {
+		for _, ctor := range []string{"time.After(", "time.NewTimer(", "time.NewTicker(", "time.Tick("} {
+			if strings.Contains(line, ctor) {
+				armed = append(armed, strings.TrimSpace(line))
+				break
+			}
+		}
+	}
+	return armed
+}
+
+// The ack wait arms exactly one timer: its own deadline. That is what makes a
+// much longer AckTimeout a constant change rather than a behavior change, so
+// nothing else may start running while a person decides. Driving all three
+// other timers in process would mean holding a real ack for minutes, so this
+// is a source-shape check in the style of cli/engine/peer/setupsites_test.go.
+//
+// The order checked is PROGRAM order, not file order: the delivery stall timer
+// and the drain ticker are written in SendFilesWithOptions, which sits earlier
+// in the file than sendFile, but they are created after the per-file loop and
+// therefore after every ack.
+func TestSenderAckWaitArmsNothingElse(t *testing.T) {
+	src, err := os.ReadFile("sender.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	at := func(needle string) int {
+		i := strings.Index(text, needle)
+		if i < 0 {
+			t.Fatalf("sender.go no longer contains %q; re-anchor this test by symbol", needle)
+		}
+		return i
+	}
+
+	sendFileCall := at("if err := sendFile(")
+	if at("stall := time.NewTimer(") < sendFileCall || at("drainTick := time.NewTicker(") < sendFileCall {
+		t.Fatal("the delivery stall timer or the drain ticker is created before the per-file loop, so it would be running during an ack wait")
+	}
+
+	deadline := at("ackDeadline := time.After(ackTimeout)")
+	ackLabel := at("\nackLoop:")
+	breakAck := at("break ackLoop")
+	step3 := at("// Step 3: Send binary chunks")
+	backpressure := at("case <-time.After(60 * time.Second):")
+	if !(deadline < ackLabel && ackLabel < breakAck && breakAck < step3 && step3 < backpressure) {
+		t.Fatal("the ack deadline, the ack loop and the backpressure wait are no longer in that order; re-anchor this test")
+	}
+
+	if armed := timersIn(text[ackLabel:step3]); len(armed) != 0 {
+		t.Fatalf("timers armed inside the ack wait: %q", armed)
+	}
+
+	// The rule itself must catch one: over a region with a ticker between the
+	// label and the break it flags exactly that line.
+	snippet := "ackLoop:\n\tfor {\n\t\tt := time.NewTicker(time.Second)\n\t\t_ = t\n\t}\n"
+	if armed := timersIn(snippet); len(armed) != 1 {
+		t.Fatalf("the shape rule must flag the ticker in the snippet, flagged %q", armed)
 	}
 }

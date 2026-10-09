@@ -5,8 +5,12 @@ package transfer
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"hash"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -30,6 +34,35 @@ import (
 var (
 	receiveIdleTimeout  = 30 * time.Second
 	receiveStallTimeout = 60 * time.Second
+)
+
+// After its "received" the receive keeps the connection open for the sender
+// (see the end handler): until the sender closes; else receivedGrace, as it
+// always was, once this side's send buffer is empty; and while the buffer
+// still holds the frame, up to receivedLinger from its send. receivedLinger
+// covers pion's T3 copy at 31 s (sctp v1.11.1: RTO floor 1 s, doubling, so
+// copies at 1, 3, 7, 15 and 31 s after a tail-loss probe at 2 SRTT + 200 ms);
+// the next would come at 63 s, past the 30 s after which the sender's own ICE
+// has failed for good. receivedBuffered is the buffer read, a seam because a
+// test cannot hold a real SACK back. Vars, not consts, so tests can shrink
+// them.
+var (
+	receivedGrace    = 5 * time.Second
+	receivedLinger   = 35 * time.Second
+	receivedBuffered = func(dc *webrtc.DataChannel) uint64 { return dc.BufferedAmount() }
+)
+
+// syncPart flushes a finished .part before its ownership check. A seam, like
+// the timeouts above: a real delayed write failure (a network share, a USB
+// bridge) cannot be produced on demand, so tests swap in one that fails.
+var syncPart = func(f *os.File) error { return f.Sync() }
+
+// writePart puts a chunk into the open .part and openPart claims one. Seams
+// like syncPart: a full drive, or a name the filesystem refuses at claim
+// time, cannot be produced on demand either, so tests swap in ones that fail.
+var (
+	writePart = func(f *os.File, b []byte) (int, error) { return f.Write(b) }
+	openPart  = claimPart
 )
 
 // FileInfo describes an incoming file (parsed from metadata message).
@@ -61,12 +94,38 @@ func reportBytesToServer(serverURL string, byteCount int64) {
 	resp.Body.Close()
 }
 
+// ReportStats is the same report for a caller that counts the bytes itself.
+// It has one call site, the desktop request lane (endRequestDrop in
+// desktop/transfer.go), for a drop it accepted that stopped before it
+// completed (E-32, D-006). The lane sums FileDone.Bytes, so only files
+// committed under their final names count: never a .part, never a file whose
+// SHA-256 did not match (OnFileDone never fires for one), never an announced
+// total. No drop is counted twice: the receive loop reports only a transfer
+// that completes, when it returns nil, and the lane only one that returned an
+// error. An empty serverURL, the opt-out on every surface, posts nothing, and
+// so does a count of zero or less. Synchronous, with reportBytesToServer's
+// 5 s timeout, and errors are ignored.
+func ReportStats(serverURL string, byteCount int64) {
+	if byteCount <= 0 {
+		return
+	}
+	reportBytesToServer(serverURL, byteCount)
+}
+
 // IncomingInfo describes a transfer at the moment its first metadata arrives,
 // before any file is created, any ack is sent, or any byte lands on disk.
 type IncomingInfo struct {
 	Files      int    `json:"files"`      // total files in the batch
 	TotalBytes int64  `json:"totalBytes"` // batch size; falls back to the single file's size, 0 when the sender predates totalBytes
 	FirstName  string `json:"firstName"`  // sender-supplied name of the first file after displayText (controls and bidi marks replaced, at most maxDisplayName runes); display only, NOT the on-disk name
+	FirstSize  int64  `json:"firstSize"`  // announced size of the first file, validated by byteCount like every other number here; a size warning reads this, never TotalBytes
+}
+
+// FileDone describes one file committed under its final name.
+type FileDone struct {
+	SavedName string `json:"savedName"` // on-disk name relative to the output folder, the same value Progress.SavedName carries
+	Bytes     int64  `json:"bytes"`     // bytes written, equal to the announced size (the end handler refuses anything else)
+	Verified  bool   `json:"verified"`  // the sender sent a SHA-256 and it matched the bytes as they were written
 }
 
 // ReceiveOptions carries the optional callbacks for GUI clients. The zero
@@ -75,6 +134,24 @@ type IncomingInfo struct {
 type ReceiveOptions struct {
 	OnProgress ProgressFunc
 	OnIncoming func(IncomingInfo)
+	// OnFileDone fires once per committed file, after the rename and any
+	// numbered-sibling correction, and never for a refused file. It delays the
+	// next ack, so keep it fast, never call back into the engine and never
+	// block on UI.
+	OnFileDone func(FileDone)
+	// Decide, when non-nil, is consulted exactly once and synchronously, right
+	// after OnIncoming for the first metadata: after the compatibility check,
+	// before any directory or staging file is created and before the first
+	// ack. It may block for as long as the person it is asking takes, because
+	// nothing here is armed while it runs, and it MUST return when Closed
+	// fires. It owns its own deadline. Nil keeps the terminal prompt below and
+	// today's behavior.
+	Decide func(IncomingInfo) Decision
+	// Limits, when non-nil, is the request link's receive policy (layer 2),
+	// checked at fixed points of the loop below. Nil keeps layer 2 off. Layer
+	// 1, the universal sanity limits in limits.go, runs either way and has no
+	// field here on purpose.
+	Limits *ReceiveLimits
 	// UpdateHint replaces the CLI-only local update instruction in protocol
 	// compatibility errors. Leave empty for the default CLI wording.
 	UpdateHint string
@@ -109,9 +186,16 @@ func ReceiveFilesWithProgress(dc *webrtc.DataChannel, outputDir string, autoAcce
 // ReceiveFilesWithOptions is the full-featured receive entry point; the other
 // two delegate here. opts.OnIncoming, when set, fires exactly once as the
 // first metadata arrives, after the protocol compatibility check and before
-// any file is created or acked.
+// any file is created or acked, and opts.Decide is asked at that same point
+// whether the transfer happens at all.
 func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccept bool, localVer string, serverURL string, opts ReceiveOptions) error {
 	onProgress := opts.OnProgress
+	// Where this receive claims, reports and saves: outputDir until a Decide
+	// accepts with an OutputDir of its own, and that one from then on. Every
+	// site that joins a name, makes one relative or prints the folder reads
+	// this, never outputDir, so a drop accepted into a subfolder cannot report
+	// a path relative to the parent.
+	effectiveOutputDir := outputDir
 	// msgCh collects ALL incoming data channel messages, so the callback that
 	// pion runs on its own goroutine feeds a sequential loop here.
 	//
@@ -152,14 +236,30 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 	var currentFile *os.File // the .part staging file the bytes are written to
 	var currentInfo FileInfo
 	var currentDisplayName string // displayText(currentInfo.FileName): every print, callback and error uses this, never the raw name
-	var currentBase string        // safeJoin output; the de-collision sequence starts here
+	var currentRel string         // the relative path the file is claimed under: safeJoin's result, checked by layer 1
+	var currentBase string        // currentRel under effectiveOutputDir; the de-collision sequence starts here
 	var currentDest string        // final path claimed for the file (see claimPart)
-	var currentSavedName string   // FINAL on-disk name, relative to outputDir (see Progress.SavedName)
+	var currentSavedName string   // FINAL on-disk name, relative to effectiveOutputDir (see Progress.SavedName)
 	var bytesReceived int64
 	var totalReceived int64
 	var bar *progressbar.ProgressBar
 	var start time.Time
 	filesReceived := 0
+	// Layer 2 state, read only when opts.Limits is set: every metadata frame
+	// counts (E-37), the first one is what later ones must agree with, and
+	// its announced total, recorded when the transfer is accepted, is what
+	// the bytes actually received are held to (D-055).
+	metadataFrames := 0
+	var firstInfo FileInfo
+	var approvedTotal int64
+	// This side's reading of the selected pair, taken once when the transfer
+	// is accepted and only with Limits.HostRelayCheck: no ICE restart exists,
+	// so the pair does not change during a drop.
+	relayVerdict := "unknown"
+	// SHA-256 of the bytes written to the current .part, started fresh on every
+	// claim so an abandoned file can never lend its digest to the next one.
+	var currentHash hash.Hash
+	verifiedCount := 0 // committed files whose sender digest was present and matched
 	waitingForFirst := true
 	// Where the de-collision scan for each base path stopped. Scoped to this
 	// call so a long-lived desktop process does not carry numbering across
@@ -252,8 +352,14 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 		// this side to the stall watchdog, whereas returning lets the caller's
 		// deferred Close reach the sender within a second. A BINARY frame of any
 		// size is file data and never reaches classifyControl at all.
+		//
+		// What crosses the cap in practice is the metadata of a deep folder
+		// path, so the frame carries path-too-long and a current sender shows
+		// its fixed sentence. The reason is the one this frame has always
+		// carried, for peers that print it.
 		if msg.IsString && len(msg.Data) > controlMsgMax {
-			rejectDescription(dc, localVer, fmt.Sprintf("control message is %d bytes, limit %d", len(msg.Data), controlMsgMax))
+			detail := fmt.Sprintf("control message is %d bytes, limit %d", len(msg.Data), controlMsgMax)
+			AbortWithCode(dc, localVer, CodePathTooLong, "receiver rejected the file description: "+detail, filesReceived)
 			return fmt.Errorf("rejected the sender's control message: %d bytes, limit %d", len(msg.Data), controlMsgMax)
 		}
 
@@ -298,7 +404,9 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				// ranges overlap, which is a deliberate abort, and rebuilds from
 				// pv/pvMin with THIS surface update hint when they do not, so a
 				// desktop receiver is never told to run a command it does not have.
-				return compatError(compatErrorFromIncompatible(localVer, opts.UpdateHint, incompat))
+				// A *CompatError, so its lines print as Floe's own (OwnLines).
+				_, localTooOld := CheckCompat(MinProtocolVersion, ProtocolVersion, incompat.PvMin, incompat.Pv)
+				return &CompatError{LocalTooOld: localTooOld, text: compatErrorFromIncompatible(localVer, opts.UpdateHint, incompat)}
 
 			case "metadata":
 				// A new file is starting
@@ -312,12 +420,20 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					rejectDescription(dc, localVer, err.Error())
 					return fmt.Errorf("rejected the sender's file description: %w", err)
 				}
+				metadataFrames++
 				// A second metadata while a file is still open means the sender
 				// abandoned the current file without an "end". Close and delete
 				// the .part staging file before starting the next one, or the
 				// handle leaks and the abandoned staging file lingers, keeping
 				// its claimed final name blocked.
+				//
+				// A request link refuses it instead (E-37): replaying metadata
+				// with fresh paths would otherwise build a folder tree per
+				// frame. The deferred discard removes the open .part.
 				if currentFile != nil {
+					if opts.Limits != nil {
+						return refuseLimit(dc, localVer, CodeOverApproved, CodeOverApproved.WireReason(), filesReceived)
+					}
 					discardPart(currentFile)
 					currentFile = nil
 				}
@@ -330,10 +446,43 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				currentDisplayName = displayText(info.FileName, maxDisplayName)
 				bytesReceived = 0
 
+				// Layer 1, on every receiver and for every file, before the
+				// Incoming box, OnIncoming, Decide and the prompt, so nobody is
+				// asked about a file this side will refuse, and before MkdirAll,
+				// so a refused path creates nothing. currentRel is relative to
+				// whichever folder the claim lands in, which Decide may still
+				// change; the claim below joins the two.
+				currentRel = safeJoin("", info.FileName)
+				// The name hook, request links only: it renames the leaf and
+				// strips class IDs, so it runs before the depth and length
+				// checks, which then measure the name that will be claimed.
+				if opts.Limits != nil && opts.Limits.BlockShellTypes {
+					currentRel, _ = blockShellTypes(currentRel)
+				}
+				if code, reason := checkPathShape(info.FileName, currentRel); code != "" {
+					return refuseLimit(dc, localVer, code, reason, filesReceived)
+				}
+				// A volume that cannot say counts as no known maximum.
+				volumeMax, err := volumeMaxFn(effectiveOutputDir)
+				if err != nil {
+					volumeMax = 0
+				}
+				if code, reason := checkAnnouncedSize(info.FileSize, volumeMax); code != "" {
+					return refuseLimit(dc, localVer, code, reason, filesReceived)
+				}
+				// Layer 2's first-metadata checks need no folder, so they run
+				// here too, before anyone is asked.
+				if opts.Limits != nil && waitingForFirst {
+					if code, reason := checkFirstMetadata(info, opts.Limits); code != "" {
+						return refuseLimit(dc, localVer, code, reason, filesReceived)
+					}
+				}
+
 				// On first file: check compat, show summary, and optionally prompt
 				if waitingForFirst {
 					waitingForFirst = false
 					start = time.Now()
+					firstInfo = info
 
 					// Protocol compatibility check - before creating any files or
 					// prompting the user. Send "incompatible" so the sender fails
@@ -347,7 +496,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 						// Through abortReason for the flush. This is the path #284
 						// was filed about, where the frame was lost in 6 of 6 rounds.
 						abortReason(dc, localVer, peerErrMsg, false)
-						return compatError(errMsg)
+						return &CompatError{LocalTooOld: localTooOld, text: errMsg}
 					}
 
 					// Optional informational note when release versions differ
@@ -368,15 +517,84 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					PrintBox([][2]string{{"Incoming", incomingLabel}})
 					fmt.Println()
 
+					tb := info.TotalBytes
+					if info.Total == 1 && tb == 0 {
+						tb = info.FileSize // legacy sender: the single file's size is still known
+					}
+					// Built once, so what the preview showed is exactly what the
+					// decision below is asked about. Every field is a validated
+					// number or the display form of the name.
+					incoming := IncomingInfo{Files: info.Total, TotalBytes: tb, FirstName: currentDisplayName, FirstSize: info.FileSize}
 					if opts.OnIncoming != nil {
-						tb := info.TotalBytes
-						if info.Total == 1 && tb == 0 {
-							tb = info.FileSize // legacy sender: the single file's size is still known
-						}
-						opts.OnIncoming(IncomingInfo{Files: info.Total, TotalBytes: tb, FirstName: currentDisplayName})
+						opts.OnIncoming(incoming)
 					}
 
-					if !autoAccept {
+					// The one place a caller's callback can hold this loop for
+					// minutes: a person is deciding. Neither watchdog is armed
+					// while it runs (they are armed only around an empty msgCh,
+					// see the stall timer above), exactly as neither is armed for
+					// the terminal prompt below.
+					if opts.Decide != nil {
+						d := opts.Decide(incoming)
+						// The sender may have given up and closed while the
+						// person was deciding. Ask before acting on the answer:
+						// everything past this block claims a name, creates a
+						// directory and a staging file and acks, and doing that
+						// for a peer that is gone leaves all three behind and
+						// reports a mid-transfer close that never happened.
+						// Best effort by construction: a close that lands
+						// between this check and openPart still claims a
+						// .part and still reports closedError, the same race
+						// every receive has always had. What changed is its
+						// size, from the whole decision window down to a few
+						// instructions.
+						select {
+						case <-done:
+							return ErrSenderLeft
+						default:
+						}
+						switch d.Kind {
+						case DecisionAccept:
+							// The first line allowed to name the accepted folder.
+							// A caller that creates it at this moment, rather
+							// than before asking, leaves nothing behind when the
+							// answer is no.
+							if d.OutputDir != "" {
+								effectiveOutputDir = d.OutputDir
+							}
+						case DecisionRefuse:
+							code := d.Code
+							if code == "" {
+								code = CodeStopped
+							}
+							// The frame first and the close second, in that
+							// order: AbortWithCode flushes until the frame is
+							// out, polling at 10 ms and bounded by
+							// controlFlushTimeout (2 s), and a refusal reaches a
+							// Go sender one tick later (measured 1.0 ms, with the
+							// buffer already empty), while a bare close leaves it
+							// with generic closed-while-waiting text and no
+							// reason at all. The saved count is the constant 0,
+							// not filesReceived: this is the first metadata, so
+							// nothing has been committed and the constant says so
+							// at a glance.
+							AbortWithCode(dc, localVer, code, code.WireReason(), 0)
+							dc.Close()
+							return &RefusedError{Code: code}
+						default:
+							// DecisionDecline, and any Kind this build does not
+							// know: both take the one path that creates nothing
+							// and still names a reason the sender can act on.
+							// Same frame-then-close order, for the same reason.
+							AbortWithCode(dc, localVer, CodeDeclined, CodeDeclined.WireReason(), 0)
+							dc.Close()
+							return ErrDeclined
+						}
+					}
+
+					// A Decide has already answered for this side, so asking a
+					// second time at the terminal would ask the wrong person.
+					if opts.Decide == nil && !autoAccept {
 						fmt.Print("  Accept? [Y/n] ")
 						var answer string
 						fmt.Scanln(&answer)
@@ -386,22 +604,58 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 							return fmt.Errorf("transfer declined")
 						}
 					}
+
+					// Accepted, by Decide, the prompt or autoAccept: this is
+					// the total the rest of the drop is held to.
+					approvedTotal = info.TotalBytes
+					if opts.Limits != nil && opts.Limits.HostRelayCheck {
+						relayVerdict = hostRelayVerdict(dc)
+					}
+				}
+
+				// Layer 2 at every metadata, immediately before the claim:
+				// both totals and the index agree with the first metadata,
+				// the frames stay within MaxFiles, and the folder the file
+				// lands in has room for it plus the reserve. After Decide,
+				// because the free space is the accepted folder's.
+				if opts.Limits != nil {
+					free, err := diskFreeFn(effectiveOutputDir)
+					if err != nil {
+						free = -1
+					}
+					if code, reason := checkEveryMetadata(info, firstInfo, filesReceived, metadataFrames, opts.Limits, free); code != "" {
+						return refuseLimit(dc, localVer, code, reason, filesReceived)
+					}
+					// On a relay this side confirmed, a file that would take
+					// the drop past the cap is refused before its ack.
+					if opts.Limits.HostRelayCheck {
+						if err := checkRelayGate(relayVerdict, totalReceived+info.FileSize); err != nil {
+							return refuseRelay(dc, localVer, filesReceived, err)
+						}
+					}
 				}
 
 				// Claim a final name and open its .part staging file (create
 				// parent dirs for folder transfers first). Bytes go to the
 				// staging file; the final name is taken only by the rename in
 				// the "end" handler, so a kill at any moment leaves nothing on
-				// disk that looks complete.
-				currentBase = safeJoin(outputDir, info.FileName)
+				// disk that looks complete. Nothing in this arm above this line
+				// creates anything on disk, and every path and limit check is
+				// above it.
+				// A failure here, or on the handle just below, is this side's
+				// own disk refusing after the sender was accepted. It used to
+				// return the raw OS error and send nothing, so the sender waited
+				// out its ack deadline; refuseWrite names it on the wire.
+				currentBase = filepath.Join(effectiveOutputDir, currentRel)
 				if err := os.MkdirAll(filepath.Dir(currentBase), 0755); err != nil {
-					return fmt.Errorf("cannot create directory: %w", err)
+					return refuseWrite(dc, localVer, filesReceived, true, fmt.Errorf("cannot create directory: %w", err))
 				}
-				currentFile, currentDest, err = claimPart(currentBase, hints)
+				currentFile, currentDest, err = openPart(currentBase, hints)
 				if err != nil {
-					return fmt.Errorf("cannot create file %s: %w", currentBase, err)
+					return refuseWrite(dc, localVer, filesReceived, true, fmt.Errorf("cannot create file %s: %w", currentBase, err))
 				}
 				registerPartial(currentFile)
+				currentHash = sha256.New()
 				// Refuse anything that is not a regular file. claimPart already
 				// Lstats each final-name candidate and commitPart stats the
 				// placeholder it creates, so this is defense in depth on the
@@ -415,8 +669,8 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					name := currentFile.Name()
 					discardPart(currentFile)
 					currentFile = nil
-					return fmt.Errorf("refusing to write %s: not a regular file (%s)",
-						name, st.Mode())
+					return refuseWrite(dc, localVer, filesReceived, true,
+						fmt.Errorf("refusing to write %s: not a regular file (%s)", name, st.Mode()))
 				}
 				// The FINAL name claimed for this file, which differs from the
 				// sender's whenever claimPart de-collided or safeJoin sanitized.
@@ -427,7 +681,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				// only when the two paths are on different volumes, and the
 				// name is still whatever claimPart wrote.
 				currentSavedName = filepath.ToSlash(filepath.Base(currentDest))
-				if rel, relErr := filepath.Rel(outputDir, currentDest); relErr == nil {
+				if rel, relErr := filepath.Rel(effectiveOutputDir, currentDest); relErr == nil {
 					currentSavedName = filepath.ToSlash(rel)
 				}
 
@@ -440,12 +694,24 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				// can verify compat from its side and show the optional peer-version
 				// note. The browser checks data.byteLength before decoding, which is
 				// only defined on ArrayBuffer/Buffer, not strings.
+				// The end handler's SHA-256 covers only bytes written after claimPart,
+				// so a future non-zero offset must re-hash the prefix or skip
+				// verification.
+				//
+				// confirms is this receiver's promise (FT-GO-CONFIRMS, D-144.2):
+				// it answers the last file with "received" after the commit
+				// below, or with a refusal when it keeps a file out, so a Go
+				// sender waits for that word instead of a drained buffer and a
+				// late hash-mismatch, write-failed or save-blocked is never its
+				// success. Optional and additive, so no ProtocolVersion bump:
+				// older senders and the browser ignore it.
 				ack := map[string]interface{}{
-					"type":   "ack",
-					"id":     info.ID,
-					"offset": 0,
-					"pv":     ProtocolVersion,
-					"pvMin":  MinProtocolVersion,
+					"type":     "ack",
+					"id":       info.ID,
+					"offset":   0,
+					"pv":       ProtocolVersion,
+					"pvMin":    MinProtocolVersion,
+					"confirms": true,
 				}
 				if localVer != "" {
 					ack["ver"] = localVer
@@ -467,16 +733,36 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					// rename below cannot steal a path that a newer transfer
 					// re-claimed after an abandon freed it (a torture test
 					// proved exactly that theft when the commit trusted the
-					// path string alone). If either call fails, the transfer
-					// was abandoned mid-flight: the path is not ours, so leave
-					// it alone entirely and report the abort.
+					// path string alone).
 					unregisterPartial(staged)
-					syncErr := staged.Sync()
+					syncErr := syncPart(staged)
 					closeErr := staged.Close()
 					currentFile = nil
 					fmt.Println()
-					if syncErr != nil || closeErr != nil {
+					// os.ErrClosed is the abandon's fingerprint: AbandonPartials
+					// closed the shared handle before we unregistered, so our
+					// Sync and Close find it already closed. The transfer was
+					// abandoned mid-flight and the path may already belong to a
+					// newer transfer, so leave it alone entirely and report the
+					// abort, exactly as before.
+					if errors.Is(syncErr, os.ErrClosed) || errors.Is(closeErr, os.ErrClosed) {
 						return fmt.Errorf("transfer abandoned while completing %q", currentSavedName)
+					}
+					// Any other error is our own handle failing to flush or
+					// close: a real I/O failure (a network share, a USB bridge,
+					// a delayed write error), and the path is still ours. This
+					// used to share the abandon branch, which left the .part on
+					// disk forever and told the sender nothing. Remove it (best
+					// effort: a sharing lock leaves a .part, never a final name)
+					// and say why. The reason names no surface and no path, and
+					// a full drive is named as such (a Sync can fail with it too).
+					if syncErr != nil || closeErr != nil {
+						_ = os.Remove(partPath)
+						cause := syncErr
+						if cause == nil {
+							cause = closeErr
+						}
+						return refuseWrite(dc, localVer, filesReceived, false, cause)
 					}
 
 					// Integrity guard: a short byte count means the transfer was
@@ -497,6 +783,28 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 						return fmt.Errorf("%s", detail)
 					}
 
+					// SHA-256, when the sender sent one. After the byte-count guard,
+					// so a short file still reports "incomplete file", and before
+					// MOTW and the rename, so a file that fails never exists under
+					// its final name. The digest covers the bytes as they were
+					// written and is never re-read from disk. Not a secret, so a
+					// plain comparison; the peer's value is compared and dropped,
+					// never printed, logged or stored.
+					sha, shaErr := parseEnd(msg.Data)
+					if shaErr == nil && sha != "" && sha != hex.EncodeToString(currentHash.Sum(nil)) {
+						shaErr = errSHA256Mismatch
+					}
+					if shaErr != nil {
+						_ = os.Remove(partPath)
+						reason := "receiver discarded a file because its SHA-256 did not match"
+						if errors.Is(shaErr, errSHA256Unreadable) {
+							reason = "receiver discarded a file because the sender's SHA-256 was not readable"
+						}
+						AbortWithCode(dc, localVer, CodeHashMismatch, reason, filesReceived)
+						return &RefusedError{Code: CodeHashMismatch, Saved: filesReceived, Err: shaErr}
+					}
+					matched := sha != ""
+
 					// Mark the file as internet-sourced (Windows MOTW) so
 					// SmartScreen / Office Protected View apply when it is opened,
 					// like a browser download. Best-effort and Windows-only.
@@ -508,17 +816,23 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					// Publish the verified bytes at the final name. On failure the
 					// staging file is deliberately left in place: the bytes are
 					// complete and verified, and deleting them over a transient
-					// AV lock would be data loss.
-					finalPath, commitErr := commitPart(partPath, currentDest, currentBase)
+					// AV lock would be data loss. A request link retries for
+					// Limits.CommitRetry; every receive tells the sender
+					// save-blocked and hands its caller the .part's whereabouts.
+					commitRetry := time.Duration(0)
+					if opts.Limits != nil {
+						commitRetry = opts.Limits.CommitRetry
+					}
+					finalPath, commitErr := commitPart(partPath, currentDest, currentBase, commitRetry)
 					if commitErr != nil {
-						return fmt.Errorf("received %q in full but could not finish saving it: %w",
-							currentSavedName, commitErr)
+						AbortWithCode(dc, localVer, CodeSaveBlocked, CodeSaveBlocked.WireReason(), filesReceived)
+						return &CommitError{PartPath: partPath, Dest: currentDest, Base: currentBase, Err: commitErr}
 					}
 
 					// External interference only: something claimed the final name
 					// between our claim and the commit, so the file landed under a
 					// numbered sibling. Correct everything that reported the name.
-					if rel, relErr := filepath.Rel(outputDir, finalPath); relErr == nil {
+					if rel, relErr := filepath.Rel(effectiveOutputDir, finalPath); relErr == nil {
 						if s := filepath.ToSlash(rel); s != currentSavedName {
 							currentSavedName = s
 							if onProgress != nil {
@@ -539,32 +853,70 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					}
 
 					filesReceived++
+					// Counted only after the commit, so verifiedCount can never
+					// exceed filesReceived: a commit failure above returns with the
+					// verified .part left in place and nothing counted.
+					if matched {
+						verifiedCount++
+					}
+					if opts.OnFileDone != nil {
+						opts.OnFileDone(FileDone{SavedName: currentSavedName, Bytes: bytesReceived, Verified: matched})
+					}
 					if filesReceived >= currentInfo.Total {
 						elapsed := time.Since(start)
 						timeVal := formatDuration(elapsed)
 						if spd := formatSpeed(float64(totalReceived) / elapsed.Seconds()); spd != "" {
 							timeVal += " · avg " + spd
 						}
-						printSummary([][2]string{
+						rows := [][2]string{
 							{"Received", fmt.Sprintf("%s (%s)", pluralize(filesReceived, "file"), formatBytes(totalReceived))},
-							{"Time", timeVal},
-							{"Saved to", outputDir},
-						})
+						}
+						// Only when every file matched. "Verified" is as wide as
+						// "Received" and "Saved to", so the box keeps its width, and
+						// no digest is ever printed.
+						if verifiedCount == filesReceived && filesReceived > 0 {
+							rows = append(rows, [2]string{"Verified", "SHA-256 matched"})
+						}
+						rows = append(rows, [2]string{"Time", timeVal}, [2]string{"Saved to", effectiveOutputDir})
+						printSummary(rows)
 
 						// Tell the sender all bytes are written and verified so it
 						// can close cleanly without relying on SCTP buffer accounting.
 						// Sent as binary so the browser (which checks byteLength) can
 						// classify it and ignore it; CLI senders consume it explicitly.
-						receivedMsg, _ := json.Marshal(map[string]string{"type": "received"})
+						// verified is always present: 0 means this receiver checks
+						// hashes and no file carried one.
+						receivedMsg, _ := json.Marshal(map[string]interface{}{"type": "received", "verified": verifiedCount})
 						dc.Send([]byte(receivedMsg))
+						sentReceived := time.Now()
 
-						// Wait for the sender to close the channel (or a short grace
-						// period) before returning. This keeps our SCTP/DTLS alive
-						// long enough for the "received" SACK to reach the sender —
-						// tearing down immediately would race it.
+						// Keep the connection until the sender has this frame:
+						// tearing down with it still in flight would race it. The
+						// sender's close ends the wait at once (every Go sender
+						// closes as soon as it reads the frame). A browser sender
+						// never closes here, so the wait otherwise ends at
+						// receivedGrace, as it always did, but only once this
+						// side's send buffer is empty. pion releases buffered bytes
+						// on the peer's SACK alone, so an empty buffer means the
+						// sender's SCTP holds the frame; while it does not, a copy
+						// was lost and waits for its retransmission, and a Go
+						// sender whose ack promised (confirms) waits for exactly
+						// this frame, so returning then reported a saved transfer
+						// to it as unconfirmed (review A1 F3). receivedLinger,
+						// counted from the send, bounds a sender that vanished.
 						select {
 						case <-done:
-						case <-time.After(5 * time.Second):
+						case <-time.After(receivedGrace):
+							tick := time.NewTicker(50 * time.Millisecond)
+						linger:
+							for receivedBuffered(dc) > 0 && time.Since(sentReceived) < receivedLinger {
+								select {
+								case <-done:
+									break linger
+								case <-tick.C:
+								}
+							}
+							tick.Stop()
 						}
 
 						// Report total bytes to the global stats counter. Called
@@ -599,10 +951,28 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 			abortReason(dc, localVer, "receiver stopped the transfer: "+detail, false)
 			return fmt.Errorf("%s", detail)
 		}
-		n, err := currentFile.Write(msg.Data)
-		if err != nil {
-			return fmt.Errorf("write error: %w", err)
+		// A request link also holds the whole drop to the total that was
+		// accepted, counting bytes that arrived rather than any announced
+		// size, so files that each stay inside their own size cannot add up
+		// past it (VR2-05). The deferred cleanup removes the .part.
+		if opts.Limits != nil {
+			if code, reason := checkFrame(totalReceived, len(msg.Data), approvedTotal); code != "" {
+				return refuseLimit(dc, localVer, code, reason, filesReceived)
+			}
+			if opts.Limits.HostRelayCheck {
+				if err := relayFrameCheck(relayVerdict, totalReceived, len(msg.Data)); err != nil {
+					return refuseRelay(dc, localVer, filesReceived, err)
+				}
+			}
 		}
+		// A failed write used to return the raw OS error with nothing on the
+		// wire. The .part stays open here: the deferred discard removes it once
+		// the refusal has been flushed to the sender.
+		n, err := writePart(currentFile, msg.Data)
+		if err != nil {
+			return refuseWrite(dc, localVer, filesReceived, false, err)
+		}
+		currentHash.Write(msg.Data[:n]) // only what reached the file
 		bytesReceived += int64(n)
 		totalReceived += int64(n)
 		if bar != nil {

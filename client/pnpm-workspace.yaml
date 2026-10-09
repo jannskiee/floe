@@ -48,3 +48,9 @@ overrides:
   # webpack's schema-utils (Sentry's build plugin). ajv declares ^3.0.1, but a
   # bare `pnpm update fast-uri` re-resolved rollup, postcss and more. Build-time only.
   fast-uri@3: ^3.1.7
+  # GHSA-wq5f-xc86-pv6w (librsvg in sharp 0.35.4, glibc builds only; deep QA A6-02):
+  # next 16.3.8 declares optional sharp ^0.35.4, so 0.35.5 is a pin, not a Next bump.
+  # Floe has no images.remotePatterns and never hands the optimizer an SVG.
+  sharp: ^0.35.5
+  # A build-time advisory in source-map-js 1.2.1, fixed in 1.2.2. Never in the bundle.
+  source-map-js: ^1.2.2

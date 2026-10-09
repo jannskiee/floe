@@ -136,6 +136,31 @@ func sanitizeComponent(name, goos string) string {
 	return trimmed
 }
 
+// SafeFolderName turns one name into a single path component this machine can
+// create, by the rules sanitizeComponent applies to a peer-supplied component:
+// controls and bidi marks become "_" on every platform; on Windows the reserved
+// characters become "_", trailing spaces and dots go, and a device name is
+// prefixed. Both path separators become "_" first, so the result is always ONE
+// component and can never climb out of the folder it is joined onto.
+//
+// "" means nothing usable was left, and so do "." and "..", which a caller must
+// never join onto a folder: each caller picks its own fallback name. The
+// desktop's request lane names the subfolder a drop is saved into after the
+// owner's label with it (spec 06 4.7).
+func SafeFolderName(name string) string {
+	one := strings.Map(func(r rune) rune {
+		if r == '/' || r == '\\' {
+			return '_'
+		}
+		return r
+	}, name)
+	out := sanitizeComponent(one, runtime.GOOS)
+	if out == "." || out == ".." {
+		return ""
+	}
+	return out
+}
+
 // sanitizeRune is the one mapping shared by sanitizeComponent (on disk) and
 // displayText (on screen), so the two can never disagree about what a control
 // or a bidi mark becomes. windows adds the Win32 reserved characters, which

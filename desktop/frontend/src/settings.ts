@@ -39,12 +39,12 @@ export function hostOf(raw: string): string {
  *  likely regression here, which is why it has its own test. */
 export function advancedSummary(server: string, web: string): string {
     if (server.trim() !== '') {
-        return `This app uses ${hostOf(server)}, so people on floe.one cannot connect to you.`;
+        return `Uses ${hostOf(server)}, so people on floe.one can't reach you`;
     }
     if (web.trim() !== '') {
-        return `Share links point to ${hostOf(web)}, but this app still uses Floe's server.`;
+        return `Share links point to ${hostOf(web)}, but transfers use Floe's server`;
     }
-    return "This app uses Floe's server. You can point it at your own instead.";
+    return "Uses Floe's server unless you set your own";
 }
 
 /** webPlaceholder shows what the Web address field falls back to when left blank,
@@ -56,3 +56,20 @@ export function webPlaceholder(server: string): string {
     if (s === 'http://localhost:3001') return 'http://localhost:3000';
     return s;
 }
+
+// Settings > Notifications (D-162). The words are the approved NS1 to NS8 rows,
+// byte for byte (approvedCopy.test.ts), and the Windows-only row is the one
+// place Floe sends people to Windows' own per-app settings for banners, the
+// Notification Center and the lock screen: Windows alone decides where a banner
+// appears, so there is no position or duration control here.
+export const NOTIFICATIONS_HEADING = 'Notifications';
+export const SHOW_NOTIFICATIONS = 'Show notifications';
+export const SHOW_NOTIFICATIONS_ON = 'For requests and transfers while Floe is in the background';
+export const SHOW_NOTIFICATIONS_OFF = 'Requests still flash Floe on the taskbar';
+export const PLAY_SOUND = 'Play sound';
+export const WINDOWS_NOTIFICATIONS = 'Windows notification settings';
+export const WINDOWS_NOTIFICATIONS_DESCRIPTION = 'Banners, Notification Center and lock screen';
+export const OPEN_NOTIFICATION_SETTINGS = 'Open';
+/** The Open button's accessible name: its visible word first (WCAG 2.5.3). */
+export const OPEN_NOTIFICATION_SETTINGS_LABEL = 'Open Windows notification settings';
+export const NOTIFICATION_SETTINGS_URI = 'ms-settings:notifications';

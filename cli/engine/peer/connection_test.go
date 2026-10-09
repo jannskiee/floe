@@ -1,11 +1,19 @@
 package peer
 
 import (
+	"encoding/json"
+	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"net/http"
+	"net/http/httptest"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/pion/webrtc/v4"
 )
@@ -153,4 +161,640 @@ func TestCloseIsIdempotent(t *testing.T) {
 	conn.Close()
 	conn.Close()
 	conn.Close()
+}
+
+// Failed is what a transfer wait with no deadline of its own watches to end
+// when a peer vanished without a close (G5-F1), so it must close on the
+// terminal failed state only. Disconnected is the state a network blackout
+// passes through and recovers from, and closing on it would end a transfer a
+// 20 s blackout used to survive (E-84). A second failed report must not
+// panic on a closed channel, and Close, which reports closed, never closes it.
+func TestFailedClosesOnlyOnFailed(t *testing.T) {
+	conn, err := New(nil, &signaling.Client{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer conn.Close()
+
+	isClosed := func() bool {
+		select {
+		case <-conn.Failed():
+			return true
+		default:
+			return false
+		}
+	}
+	if conn.Failed() == nil {
+		t.Fatal("Failed() is nil, so a wait on it would block forever")
+	}
+	for _, s := range []webrtc.PeerConnectionState{
+		webrtc.PeerConnectionStateNew,
+		webrtc.PeerConnectionStateConnecting,
+		webrtc.PeerConnectionStateConnected,
+		webrtc.PeerConnectionStateDisconnected,
+		webrtc.PeerConnectionStateConnected,
+		webrtc.PeerConnectionStateDisconnected,
+	} {
+		conn.noteFailed(s)
+		if isClosed() {
+			t.Fatalf("Failed() closed on %s; it must close on failed only", s)
+		}
+	}
+
+	conn.noteFailed(webrtc.PeerConnectionStateFailed)
+	if !isClosed() {
+		t.Fatal("Failed() still open after the failed state")
+	}
+	conn.noteFailed(webrtc.PeerConnectionStateFailed) // a second report must not panic
+	if !isClosed() {
+		t.Fatal("Failed() reopened after a second failed state")
+	}
+
+	closedOnly, err := New(nil, &signaling.Client{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	closedOnly.Close()
+	closedOnly.noteFailed(webrtc.PeerConnectionStateClosed)
+	// pion hands each state to the handler on a goroutine of its own (`go
+	// handler(cs)`, peerconnection.go), so the closed report Close made may
+	// land after this line: wait for it before judging (review A1 F4).
+	select {
+	case <-closedOnly.Failed():
+		t.Fatal("Failed() closed by Close or the closed state; it must close on failed only")
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// TestStateHandlerFeedsFailed pins the link TestFailedClosesOnlyOnFailed
+// cannot see: the handler New registers with pion hands every state it gets
+// to noteFailed, as the handler's own statement, so the failed state reaches
+// the latch. Deleting that one line left every other test green while the
+// waits that watch Failed (floe send's and the desktop's delivery wait, the
+// request drop) lost their only bound (review A1 F1, probe P1). A source-shape
+// check, in the style of TestRunSendWatchesTheConnection, because a real
+// failed state takes ICE 30 s to reach.
+func TestStateHandlerFeedsFailed(t *testing.T) {
+	f, err := parser.ParseFile(token.NewFileSet(), "connection.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var handlers, fed int
+	for _, decl := range f.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if !ok || fd.Recv != nil || fd.Name.Name != "New" || fd.Body == nil {
+			continue
+		}
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "OnConnectionStateChange" || len(call.Args) != 1 {
+				return true
+			}
+			handlers++
+			lit, ok := call.Args[0].(*ast.FuncLit)
+			if !ok || len(lit.Type.Params.List) != 1 || len(lit.Type.Params.List[0].Names) != 1 {
+				t.Errorf("the state handler is not a func literal of one named parameter; re-anchor this test")
+				return true
+			}
+			state := lit.Type.Params.List[0].Names[0].Name
+			// A statement of the handler's own body, not one nested in a
+			// switch or an if that some states would skip.
+			for _, stmt := range lit.Body.List {
+				es, ok := stmt.(*ast.ExprStmt)
+				if !ok {
+					continue
+				}
+				c, ok := es.X.(*ast.CallExpr)
+				if !ok || len(c.Args) != 1 {
+					continue
+				}
+				s, ok := c.Fun.(*ast.SelectorExpr)
+				if !ok || s.Sel.Name != "noteFailed" {
+					continue
+				}
+				if recv, ok := s.X.(*ast.Ident); !ok || recv.Name != "conn" {
+					continue
+				}
+				if arg, ok := c.Args[0].(*ast.Ident); ok && arg.Name == state {
+					fed++
+				}
+			}
+			return true
+		})
+	}
+	if handlers != 1 {
+		t.Fatalf("New registers %d state handlers, want exactly 1; re-anchor this test", handlers)
+	}
+	if fed != 1 {
+		t.Fatalf("New's state handler calls conn.noteFailed with its own state %d times at its top level, want 1: the failed state would never reach Failed()", fed)
+	}
+}
+
+// ---- Setup stops at once when the peer leaves (S1-ENG-11, D-036) ----
+//
+// Before this, the offer or answer wait and the data-channel wait read
+// neither the signaling client's PeerLeft nor the connection's own done, so a
+// peer that left during setup cost the full 30 s and ended in "timed out
+// establishing a connection", and a local Close during the offer or answer
+// wait changed nothing until the same 30 s had passed.
+
+// setupWS is the server side of one fake /ws socket after the join.
+type setupWS struct {
+	ws     *websocket.Conn
+	frames chan setupFrame
+}
+
+// setupFrame is the part of a client frame the tests look at.
+type setupFrame struct {
+	Type   string          `json:"type"`
+	Signal json.RawMessage `json:"signal"`
+}
+
+// newSetupServer is a fake /ws endpoint: it answers the first frame
+// (join-room) with room-joined in role, hands the socket to the test and
+// forwards every later frame, so the test decides when to send
+// peer-disconnected, close the socket, or say nothing. It binds 127.0.0.1
+// through httptest. The test is the only writer once it has the socket.
+func newSetupServer(t *testing.T, role string) (string, <-chan *setupWS) {
+	t.Helper()
+	ready := make(chan *setupWS, 1)
+	up := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := up.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer ws.Close()
+		if _, _, err := ws.ReadMessage(); err != nil {
+			return
+		}
+		if ws.WriteJSON(map[string]string{"type": "room-joined", "role": role}) != nil {
+			return
+		}
+		s := &setupWS{ws: ws, frames: make(chan setupFrame, 256)}
+		ready <- s
+		for {
+			_, raw, err := ws.ReadMessage()
+			if err != nil {
+				return
+			}
+			var f setupFrame
+			if json.Unmarshal(raw, &f) == nil {
+				select {
+				case s.frames <- f:
+				default:
+				}
+			}
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL, ready
+}
+
+// joinedClient connects a real signaling client to a fake server, joins and
+// waits for the role the way the CLI's join wait does.
+func joinedClient(t *testing.T, role string) (*signaling.Client, *setupWS) {
+	t.Helper()
+	url, ready := newSetupServer(t, role)
+	sc, err := signaling.Connect(url)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	t.Cleanup(sc.Close)
+	if err := sc.JoinRoom("6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"); err != nil {
+		t.Fatalf("JoinRoom: %v", err)
+	}
+	select {
+	case got := <-sc.Role:
+		if got != role {
+			t.Fatalf("role = %q, want %q", got, role)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no room-joined")
+	}
+	select {
+	case s := <-ready:
+		return sc, s
+	case <-time.After(3 * time.Second):
+		t.Fatal("the fake server never handed over its socket")
+		return nil, nil
+	}
+}
+
+// joinedConnection is joinedClient plus the Connection a CLI builds next.
+func joinedConnection(t *testing.T, role string) (*Connection, *setupWS) {
+	t.Helper()
+	sc, s := joinedClient(t, role)
+	conn, err := New(nil, sc)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(conn.Close)
+	return conn, s
+}
+
+// shrinkSignalWait shrinks the offer and answer wait for one test. Call it
+// before any setup starts: its restore is a cleanup, and cleanups run last in,
+// first out, so the join runSetup registers later runs before the restore.
+func shrinkSignalWait(t *testing.T, d time.Duration) {
+	t.Helper()
+	if signalWait != signalWaitTimeout {
+		t.Fatalf("signalWait = %v, want signalWaitTimeout (%v)", signalWait, signalWaitTimeout)
+	}
+	signalWait = d
+	t.Cleanup(func() { signalWait = signalWaitTimeout })
+}
+
+// runSetup runs one Setup call on its own goroutine, and its cleanup closes
+// conn and waits for that goroutine to end, so no setup outlives its test.
+// Without the join, a test could return while SetupAsSender still waited for
+// an answer that never came, and shrinkSignalWait's restore then wrote
+// signalWait with no happens-before edge to the setup's read of it: the
+// Docker race line on H3 reported it in TestCandidateFloodBeforeTheAnswerIsBounded.
+// Every test that starts a Setup call on a goroutine goes through here.
+func runSetup(t *testing.T, conn *Connection, setup func() (*webrtc.DataChannel, error)) <-chan error {
+	t.Helper()
+	done := make(chan error, 1)
+	ended := make(chan struct{})
+	go func() {
+		defer close(ended)
+		_, err := setup()
+		done <- err
+	}()
+	t.Cleanup(func() {
+		conn.Close()
+		select {
+		case <-ended:
+		case <-time.After(10 * time.Second):
+			t.Errorf("the setup goroutine was still running 10 s after Close")
+		}
+	})
+	return done
+}
+
+// waitSetup waits up to limit for setup to return and reports how long it
+// took after since.
+func waitSetup(t *testing.T, done <-chan error, since time.Time, limit time.Duration) (time.Duration, error) {
+	t.Helper()
+	select {
+	case err := <-done:
+		return time.Since(since), err
+	case <-time.After(limit):
+		t.Fatalf("setup still waiting %v after the event", limit)
+		return 0, nil
+	}
+}
+
+// assertStopped checks the sentinel, the stage and that the text is the
+// sentinel's own sentence and nothing else.
+func assertStopped(t *testing.T, err, sentinel error, stage string) {
+	t.Helper()
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("err = %v, want %v", err, sentinel)
+	}
+	var se *SetupError
+	if !errors.As(err, &se) || se.Stage != stage {
+		t.Fatalf("err = %#v, want a *SetupError at stage %q", err, stage)
+	}
+	if err.Error() != sentinel.Error() {
+		t.Fatalf("text = %q, want the sentinel's %q", err.Error(), sentinel.Error())
+	}
+}
+
+// waitSignal reads the client's frames until a signal of kind (offer or
+// answer) arrives and returns its SDP.
+func waitSignal(t *testing.T, s *setupWS, kind string) string {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case f := <-s.frames:
+			if f.Type != "signal" {
+				continue
+			}
+			var p struct {
+				Type string `json:"type"`
+				SDP  string `json:"sdp"`
+			}
+			if json.Unmarshal(f.Signal, &p) == nil && p.Type == kind {
+				return p.SDP
+			}
+		case <-deadline:
+			t.Fatalf("no %s reached the server", kind)
+			return ""
+		}
+	}
+}
+
+// peerLeaves sends what the server sends when the other seat disconnects.
+func peerLeaves(t *testing.T, s *setupWS) time.Time {
+	t.Helper()
+	at := time.Now()
+	if err := s.ws.WriteJSON(map[string]string{"type": "peer-disconnected"}); err != nil {
+		t.Fatalf("write peer-disconnected: %v", err)
+	}
+	return at
+}
+
+// The receiver waits for the offer; the sender leaves 100 ms in.
+func TestSetupAsReceiverReturnsAtOnceWhenPeerLeaves(t *testing.T) {
+	shrinkSignalWait(t, 2*time.Second)
+	conn, s := joinedConnection(t, "receiver")
+	done := runSetup(t, conn, conn.SetupAsReceiver)
+	time.Sleep(100 * time.Millisecond)
+	left := peerLeaves(t, s)
+
+	elapsed, err := waitSetup(t, done, left, 5*time.Second)
+	t.Logf("SetupAsReceiver returned %v after the peer left", elapsed)
+	if elapsed >= time.Second {
+		t.Fatalf("returned %v after the peer left, want under 1s (err %v)", elapsed, err)
+	}
+	assertStopped(t, err, ErrPeerLeft, StagePeerLeft)
+}
+
+// The sender's offer reached the server; the receiver leaves before it
+// answers.
+func TestSetupAsSenderReturnsAtOnceWhenPeerLeaves(t *testing.T) {
+	shrinkSignalWait(t, 2*time.Second)
+	conn, s := joinedConnection(t, "sender")
+	done := runSetup(t, conn, conn.SetupAsSender)
+	waitSignal(t, s, "offer")
+	left := peerLeaves(t, s)
+
+	elapsed, err := waitSetup(t, done, left, 5*time.Second)
+	t.Logf("SetupAsSender returned %v after the peer left", elapsed)
+	if elapsed >= time.Second {
+		t.Fatalf("returned %v after the peer left, want under 1s (err %v)", elapsed, err)
+	}
+	assertStopped(t, err, ErrPeerLeft, StagePeerLeft)
+}
+
+// The server goes away during the answer wait: the PeerLeft push comes from
+// the socket closing, which Down tells apart from a peer that left.
+func TestSetupReturnsSignalingLostWhenTheSocketCloses(t *testing.T) {
+	shrinkSignalWait(t, 2*time.Second)
+	conn, s := joinedConnection(t, "sender")
+	done := runSetup(t, conn, conn.SetupAsSender)
+	waitSignal(t, s, "offer")
+	lost := time.Now()
+	_ = s.ws.Close()
+
+	elapsed, err := waitSetup(t, done, lost, 5*time.Second)
+	t.Logf("SetupAsSender returned %v after the socket closed", elapsed)
+	if elapsed >= time.Second {
+		t.Fatalf("returned %v after the socket closed, want under 1s (err %v)", elapsed, err)
+	}
+	assertStopped(t, err, ErrSignalingLost, StageSignalingLost)
+}
+
+// Close from another goroutine during the offer wait (the desktop's
+// CancelTransfer) ends setup at once; it used to wait out signalWaitTimeout.
+func TestSetupReturnsClosedOnLocalClose(t *testing.T) {
+	shrinkSignalWait(t, 2*time.Second)
+	conn, _ := joinedConnection(t, "receiver")
+	done := runSetup(t, conn, conn.SetupAsReceiver)
+	time.Sleep(200 * time.Millisecond)
+	closed := time.Now()
+	go conn.Close()
+
+	elapsed, err := waitSetup(t, done, closed, 5*time.Second)
+	t.Logf("SetupAsReceiver returned %v after Close", elapsed)
+	if elapsed >= time.Second {
+		t.Fatalf("returned %v after Close, want under 1s (err %v)", elapsed, err)
+	}
+	assertStopped(t, err, ErrClosed, StageClosed)
+}
+
+// A peer that is present but never signals still ends in today's timeout
+// text, byte for byte, at the (shrunk) signal wait, and in none of the new
+// sentinels.
+func TestSetupStillTimesOutWithoutSignals(t *testing.T) {
+	shrinkSignalWait(t, 300*time.Millisecond)
+	for _, tc := range []struct {
+		role, text, stage string
+		setup             func(*Connection) func() (*webrtc.DataChannel, error)
+	}{
+		{"receiver", "timed out waiting for the peer's offer", StageOffer, func(c *Connection) func() (*webrtc.DataChannel, error) { return c.SetupAsReceiver }},
+		{"sender", "timed out waiting for the peer to answer", StageAnswer, func(c *Connection) func() (*webrtc.DataChannel, error) { return c.SetupAsSender }},
+	} {
+		t.Run(tc.role, func(t *testing.T) {
+			conn, _ := joinedConnection(t, tc.role)
+			start := time.Now()
+			_, err := tc.setup(conn)()
+			if err == nil || err.Error() != tc.text {
+				t.Fatalf("err = %v, want %q", err, tc.text)
+			}
+			var se *SetupError
+			if !errors.As(err, &se) || se.Stage != tc.stage {
+				t.Fatalf("err = %#v, want stage %q", err, tc.stage)
+			}
+			for _, s := range []error{ErrPeerLeft, ErrSignalingLost, ErrClosed} {
+				if errors.Is(err, s) {
+					t.Fatalf("a plain timeout reads as %v", s)
+				}
+			}
+			if d := time.Since(start); d < 250*time.Millisecond {
+				t.Fatalf("timed out after %v, before the 300ms wait", d)
+			}
+		})
+	}
+}
+
+// The join waits keep PeerLeft to themselves. The CLI visitor builds its
+// Connection before it joins (spec 07 4.8), so New runs first here: a
+// peer-disconnected that lands during the join wait is still read by the
+// join select as today (New's goroutines never read PeerLeft), and once that
+// select has consumed it, setup afterwards never sees it: with no frames it
+// waits out the shrunk offer wait and ends in the plain timeout.
+func TestSetupPeerLeftDoesNotStealTheJoinWait(t *testing.T) {
+	shrinkSignalWait(t, 300*time.Millisecond)
+	sc, s := joinedClient(t, "sender")
+	conn, err := New(nil, sc)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(conn.Close)
+	peerLeaves(t, s)
+
+	// send.go's wait for the receiver, in shape.
+	select {
+	case <-sc.PeerConnected:
+		t.Fatal("no peer connected in this test")
+	case <-sc.PeerLeft:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the join wait never saw the peer leave: something else read PeerLeft")
+	}
+
+	start := time.Now()
+	_, err = conn.SetupAsReceiver()
+	if errors.Is(err, ErrPeerLeft) || errors.Is(err, ErrSignalingLost) {
+		t.Fatalf("setup saw the push the join wait had consumed: %v", err)
+	}
+	if err == nil || err.Error() != "timed out waiting for the peer's offer" {
+		t.Fatalf("err = %v, want the plain offer timeout", err)
+	}
+	if d := time.Since(start); d < 250*time.Millisecond {
+		t.Fatalf("setup returned after %v, before its wait could pass", d)
+	}
+}
+
+// newAnswerer answers offerSDP with a real pion peer and returns the answer
+// SDP. It trickles nothing anywhere, so ICE between it and the Connection
+// under test can never complete: a setup that has the answer sits in its
+// data-channel wait until something ends it.
+func newAnswerer(t *testing.T, offerSDP string) string {
+	t.Helper()
+	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatalf("answerer: %v", err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	if err := pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: offerSDP}); err != nil {
+		t.Fatalf("answerer remote description: %v", err)
+	}
+	ans, err := pc.CreateAnswer(nil)
+	if err != nil {
+		t.Fatalf("answerer answer: %v", err)
+	}
+	if err := pc.SetLocalDescription(ans); err != nil {
+		t.Fatalf("answerer local description: %v", err)
+	}
+	return ans.SDP
+}
+
+// newOfferer makes a real pion offer with a data channel, trickling nothing.
+func newOfferer(t *testing.T) string {
+	t.Helper()
+	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatalf("offerer: %v", err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	if _, err := pc.CreateDataChannel("floe", nil); err != nil {
+		t.Fatalf("offerer channel: %v", err)
+	}
+	offer, err := pc.CreateOffer(nil)
+	if err != nil {
+		t.Fatalf("offerer offer: %v", err)
+	}
+	if err := pc.SetLocalDescription(offer); err != nil {
+		t.Fatalf("offerer local description: %v", err)
+	}
+	return offer.SDP
+}
+
+// sendSignal writes a signal frame from the fake server.
+func sendSignal(t *testing.T, s *setupWS, kind, sdp string) {
+	t.Helper()
+	msg := map[string]interface{}{"type": "signal", "signal": map[string]string{"type": kind, "sdp": sdp}}
+	if err := s.ws.WriteJSON(msg); err != nil {
+		t.Fatalf("write %s: %v", kind, err)
+	}
+}
+
+// The data-channel waits, past the SDP exchange, get the same two cases:
+// the peer leaving ends them at once, and so does a local Close. Before,
+// the first waited for connectTimeout (30 s) and the second ended as a
+// connection failure.
+func TestSetupDataChannelWaitStopsAtOnce(t *testing.T) {
+	notYet := func(t *testing.T, done <-chan error) {
+		t.Helper()
+		time.Sleep(300 * time.Millisecond)
+		select {
+		case err := <-done:
+			t.Fatalf("setup returned before the event: %v", err)
+		default:
+		}
+	}
+	t.Run("sender, peer leaves", func(t *testing.T) {
+		conn, s := joinedConnection(t, "sender")
+		done := runSetup(t, conn, conn.SetupAsSender)
+		sendSignal(t, s, "answer", newAnswerer(t, waitSignal(t, s, "offer")))
+		notYet(t, done)
+		left := peerLeaves(t, s)
+		elapsed, err := waitSetup(t, done, left, 3*time.Second)
+		t.Logf("SetupAsSender returned %v after the peer left", elapsed)
+		assertStopped(t, err, ErrPeerLeft, StagePeerLeft)
+	})
+	t.Run("receiver, peer leaves", func(t *testing.T) {
+		conn, s := joinedConnection(t, "receiver")
+		done := runSetup(t, conn, conn.SetupAsReceiver)
+		sendSignal(t, s, "offer", newOfferer(t))
+		waitSignal(t, s, "answer")
+		notYet(t, done)
+		left := peerLeaves(t, s)
+		elapsed, err := waitSetup(t, done, left, 3*time.Second)
+		t.Logf("SetupAsReceiver returned %v after the peer left", elapsed)
+		assertStopped(t, err, ErrPeerLeft, StagePeerLeft)
+	})
+	t.Run("sender, local close", func(t *testing.T) {
+		conn, s := joinedConnection(t, "sender")
+		done := runSetup(t, conn, conn.SetupAsSender)
+		sendSignal(t, s, "answer", newAnswerer(t, waitSignal(t, s, "offer")))
+		notYet(t, done)
+		closed := time.Now()
+		conn.Close()
+		elapsed, err := waitSetup(t, done, closed, 3*time.Second)
+		t.Logf("SetupAsSender returned %v after Close", elapsed)
+		assertStopped(t, err, ErrClosed, StageClosed)
+	})
+}
+
+// The grace wait after "connected", while the channel is not open yet, gets
+// the same two cases (review A R2). Before, it watched neither, so a Close or
+// a peer leaving there waited out connectGrace and then read as "connected but
+// the data channel did not open"; a desktop cancel, or f0fdb6f's close on an
+// extra channel, landed in that window. No ICE runs here (the fake peers
+// trickle nothing), so the channel can never open, and the test reports
+// "connected" itself, as the Connection's OnConnectionStateChange handler does.
+func TestSetupChannelGraceStopsAtOnce(t *testing.T) {
+	inGrace := func(t *testing.T, conn *Connection, done <-chan error) {
+		t.Helper()
+		conn.connected <- nil
+		time.Sleep(300 * time.Millisecond)
+		select {
+		case err := <-done:
+			t.Fatalf("setup returned in its grace wait before the event: %v", err)
+		default:
+		}
+	}
+	sender := func(t *testing.T) (*Connection, *setupWS, <-chan error) {
+		conn, s := joinedConnection(t, "sender")
+		done := runSetup(t, conn, conn.SetupAsSender)
+		sendSignal(t, s, "answer", newAnswerer(t, waitSignal(t, s, "offer")))
+		inGrace(t, conn, done)
+		return conn, s, done
+	}
+	receiver := func(t *testing.T) (*Connection, *setupWS, <-chan error) {
+		conn, s := joinedConnection(t, "receiver")
+		done := runSetup(t, conn, conn.SetupAsReceiver)
+		sendSignal(t, s, "offer", newOfferer(t))
+		waitSignal(t, s, "answer")
+		inGrace(t, conn, done)
+		return conn, s, done
+	}
+	for _, side := range []struct {
+		name  string
+		setup func(*testing.T) (*Connection, *setupWS, <-chan error)
+	}{{"sender", sender}, {"receiver", receiver}} {
+		t.Run(side.name+", local close", func(t *testing.T) {
+			conn, _, done := side.setup(t)
+			closed := time.Now()
+			conn.Close()
+			elapsed, err := waitSetup(t, done, closed, 3*time.Second)
+			t.Logf("setup returned %v after Close in its grace wait", elapsed)
+			assertStopped(t, err, ErrClosed, StageClosed)
+		})
+		t.Run(side.name+", peer leaves", func(t *testing.T) {
+			_, s, done := side.setup(t)
+			left := peerLeaves(t, s)
+			elapsed, err := waitSetup(t, done, left, 3*time.Second)
+			t.Logf("setup returned %v after the peer left in its grace wait", elapsed)
+			assertStopped(t, err, ErrPeerLeft, StagePeerLeft)
+		})
+	}
 }

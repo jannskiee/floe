@@ -39,35 +39,23 @@ const controlFlushTimeout = 2 * time.Second
 // Best effort. A failed send changes nothing, because the caller's deferred
 // Close reaches the peer either way.
 func abortReason(dc *webrtc.DataChannel, localVer, reason string, toReceiver bool) {
-	if dc == nil {
-		return // nobody to tell; the relay gate runs against a nil channel in tests
-	}
-	msg := incompatibleMsg{
-		Type:   "incompatible",
-		Reason: reason,
-		Pv:     ProtocolVersion,
-		PvMin:  MinProtocolVersion,
-		Ver:    localVer,
-	}
-	// The cap is on the ENCODED FRAME, not the reason: a browser receiver stops
-	// classifying a control message past controlMsgMax and would read the frame
-	// as file data. Halving a rune budget terminates and never splits a
-	// character, which a byte cut would.
-	encoded, _ := json.Marshal(msg)
-	for budget := maxDisplayReason; len(encoded) > controlMsgMax && budget > 0; budget /= 2 {
-		msg.Reason = displayText(reason, budget)
-		encoded, _ = json.Marshal(msg)
-	}
-	if len(encoded) > controlMsgMax {
-		msg.Reason = ""
-		encoded, _ = json.Marshal(msg)
-	}
-	if toReceiver {
-		_ = dc.SendText(string(encoded))
-	} else {
-		_ = dc.Send(encoded)
-	}
-	flushControl(dc)
+	sendIncompatible(dc, incompatibleFrame(localVer, "", reason, -1), toReceiver)
+}
+
+// VisitorCancelReason is the one reason a request-link visitor sends when the
+// person sending stops the drop: VISITOR_CANCEL_REASON in
+// client/lib/request/constants.ts, which the /r page's Cancel sends. The host
+// maps any abort to fixed copy of its own and never shows it.
+// TestVisitorCancelReasonMatchesTheWebPage pins the two together.
+const VisitorCancelReason = "The sender stopped."
+
+// AbortSend is abortReason for a sender that stops on purpose from outside
+// SendFilesWithOptions (the request-link send's Ctrl+C, TL-29): one text
+// incompatible frame with an overlapping range and reason, then the bounded
+// flush. Safe while that send is still running on dc, because pion serializes
+// writes to the channel's stream, and best effort like abortReason.
+func AbortSend(dc *webrtc.DataChannel, localVer, reason string) {
+	abortReason(dc, localVer, reason, true)
 }
 
 // rejectDescription is abortReason for the case that had it first: a file
@@ -127,9 +115,15 @@ const controlMsgMax = 1000
 // The receive loop is the only caller, and it acts on "metadata", "end" and
 // "incompatible" (a sender's abort). "ack" and "received" flow the other way
 // and never come through here: the sender decodes the receiver's frames on its
-// own (the ack wait in sendFile, abortFromPeer and isReceived) under the same
+// own (the ack wait in sendFile, abortFromPeer and parseReceived) under the same
 // controlMsgMax bound. A stray "ack" or "received" that does reach the receive
 // loop matches no arm of its switch and is dropped.
+//
+// "type" is read by its exact key from a map of RAW values, so no other key's
+// value is ever converted here: decoding into interface{} turned a number out
+// of float64 range in an unrelated key into a failed decode, which dropped an
+// end frame the browser accepted and left the sender waiting. Each arm's own
+// parser still validates the fields it reads.
 func classifyControl(data []byte) (msgType string, isControl bool) {
 	if len(data) > controlMsgMax {
 		return "", false
@@ -137,11 +131,14 @@ func classifyControl(data []byte) (msgType string, isControl bool) {
 	if !looksLikeJSONObject(data) {
 		return "", false
 	}
-	var base map[string]interface{}
-	if err := json.Unmarshal(data, &base); err != nil {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
 		return "", false
 	}
-	t, _ := base["type"].(string)
+	var t string
+	if json.Unmarshal(fields["type"], &t) != nil {
+		return "", false
+	}
 	switch t {
 	case "metadata", "end", "ack", "received", "incompatible":
 		return t, true
@@ -231,4 +228,50 @@ func parseMetadata(text string) (FileInfo, error) {
 		PvMin:      m.PvMin,
 		Ver:        m.Ver,
 	}, nil
+}
+
+// validSHA256Hex is the single definition of the wire digest: exactly 64
+// characters, each 0-9 or a-f. Lowercase only, so the check needs no case
+// folding and the TS twin (normalizeSha256) is one regular expression.
+func validSHA256Hex(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// parseEnd reads the optional sha256 of an end frame classifyControl already
+// accepted. Absent gives "" and nil: the sender does not hash, and the file is
+// committed unverified. Present but not a JSON string (null, a number, an
+// object) or a string that fails validSHA256Hex is an error, and the receiver
+// refuses the file rather than treat an unreadable digest as absent.
+//
+// The field is read by its exact key as raw JSON, as the browser reads it: a
+// struct tag would also match "SHA256", and a string decode would turn null
+// into "" and absent. JSON escapes are undone before validation, and a
+// duplicate key keeps its last value, on both sides. The error never embeds
+// the value.
+func parseEnd(data []byte) (string, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return "", errSHA256Unreadable
+	}
+	lit, present := fields["sha256"]
+	if !present {
+		return "", nil
+	}
+	if len(lit) == 0 || lit[0] != '"' {
+		return "", errSHA256Unreadable
+	}
+	var s string
+	if err := json.Unmarshal(lit, &s); err != nil || !validSHA256Hex(s) {
+		return "", errSHA256Unreadable
+	}
+	return s, nil
 }

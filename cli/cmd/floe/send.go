@@ -4,6 +4,7 @@ package main
 // signaling and transfer sequence.
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -25,10 +26,40 @@ var sendCmd = &cobra.Command{
 	RunE:  runSend,
 }
 
+// flagTo is the request link a send goes to instead of a new code (sendto.go).
+var flagTo string
+
+// errLinkTypedAsPath ends a plain send that was given a request link where a
+// path goes, the likeliest mistake of someone who forgot --to. The stat
+// sentence it replaces quoted the path, and so printed the link and its room
+// id twice into scrollback (FU-46, FU-32 F5-3). It also ends `floe <link>`,
+// the subcommand forgotten, whose unknown-command error quoted the link
+// (execute, FU-53). execute prints it as an outcome, alone on the indent, and
+// main exits 1. The line is approved copy (D-153, approved-copy-cli.txt),
+// byte for byte.
+var errLinkTypedAsPath = errors.New("That looks like a request link, not a file. To send to it, use: floe send <files> --to <link>")
+
+func init() {
+	// The help line is the approved copy's (TL-34), byte for byte.
+	sendCmd.Flags().StringVar(&flagTo, "to", "",
+		"send through a request link made in Floe Desktop instead of creating a code")
+}
+
 func runSend(cmd *cobra.Command, args []string) error {
-	// Validate that all paths exist
+	// Typed at all, even empty: an unset shell variable in --to "$LINK" must
+	// end on the incomplete-link line, never fall through to a code nobody
+	// asked for.
+	if cmd.Flags().Changed("to") {
+		return runSendTo(cmd, args)
+	}
+
+	// Validate that all paths exist. The sentence quotes the path, so a
+	// request link typed as one (--to forgotten) ends on a fixed line instead.
 	for _, p := range args {
 		if _, err := os.Stat(p); err != nil {
+			if looksLikeRequestLink(p) {
+				return outcomeError{errLinkTypedAsPath}
+			}
 			return fmt.Errorf("cannot read %s: %w", p, err)
 		}
 	}
@@ -134,20 +165,44 @@ func runSend(cmd *cobra.Command, args []string) error {
 	fmt.Println("  Connecting...")
 	dc, err := conn.SetupAsSender()
 	if err != nil {
-		// Bounded and escaped: pion's parse error quotes the peer's answer.
-		return fmt.Errorf("WebRTC setup failed: %s", setupErrorText(err))
+		// Bounded and escaped (setupFailureLine): pion's parse error quotes
+		// the peer's answer.
+		return fmt.Errorf("%s", setupFailureLine(err))
 	}
 
 	fmt.Println(connectedLine(conn.ConnectionType()))
 	fmt.Println()
 
 	// 9. Send files. The pump comes from the connection, not from SendFiles: see
-	// peer.Early for why registering it later can silently lose a message.
+	// peer.Early for why registering it later can silently lose a message. A Go
+	// receiver's word after the last file has no deadline, so an ICE failure
+	// closes the connection and ends the wait (connfailed.go).
+	quit := make(chan struct{})
+	defer close(quit)
+	closeOnFailed(conn, quit)
 	early := conn.Early()
-	return transfer.SendFilesWithOptions(dc, args, version, transfer.SendOptions{
+	return plainSendEnd(transfer.SendFilesWithOptions(dc, args, version, transfer.SendOptions{
 		Messages: early.Msgs,
 		Closed:   early.Closed,
-	})
+	}))
+}
+
+// errTheyStopped is the plain send's line when the receiver ended the
+// transfer itself (code stopped: floe receive's Ctrl+C, FU-54), printed
+// behind cobra's "Error: ". Approved by the owner as written (D-159,
+// approved-copy-cli.txt), byte for byte. floe send --to keeps TL-24, the
+// engine's own sentence for the code.
+var errTheyStopped = errors.New("They stopped the transfer.")
+
+// plainSendEnd is the plain send's error as it prints: code stopped becomes
+// errTheyStopped, and every other error, every other code among them, is
+// returned as it came.
+func plainSendEnd(err error) error {
+	var stopped *transfer.PeerStoppedError
+	if errors.As(err, &stopped) && stopped.Code == transfer.CodeStopped {
+		return errTheyStopped
+	}
+	return err
 }
 
 // shortCodeWarning is the line send prints when the server gives no code. The

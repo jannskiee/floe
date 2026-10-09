@@ -55,6 +55,9 @@ export const FLAGS = Object.freeze({
     '--monitor': { value: true, cmds: ['run', 'probe'] },
     '--dry-run': { value: false, cmds: ['run'] },
     '--relaxed': { value: false, cmds: ['run', 'probe'] },
+    // TA-14 (H-DIR-W2D-reqcaddy): a local Docker Caddy reloaded twice; the
+    // cell SKIPs caddy-not-enabled without this flag (FU-26).
+    '--caddy': { value: false, cmds: ['run'] },
     '--run': { value: true, cmds: ['cleanup'] },
     '--last': { value: false, cmds: ['cleanup'] },
 });
@@ -67,7 +70,7 @@ run       [--profile shipped|head] [--quick | --deep] [--cells <id-or-glob,...>]
           [--strict] [--pion-trace] [--user-away] [--pause-max <min>]
           [--web-sha <sha> | --web-sha-file <json>] [--server-sha <sha>]
           [--keep] [--keep-data] [--monitor secondary|primary|off|<n>]
-          [--dry-run] [--relaxed]
+          [--dry-run] [--relaxed] [--caddy]
 probe     [--profile ...] [--desktop ...] [--bin-dir <dir>] [--user-away]
           [--pause-max <min>] [--web-sha ...] [--server-sha <sha>] [--relaxed]
 versions  [--web-sha <sha> | --web-sha-file <json>] [--server-sha <sha>]
@@ -148,6 +151,7 @@ export function parseArgs(argv, { defaultRoot, fs } = {}) {
         monitor: 'secondary',
         dryRun: false,
         relaxed: false,
+        caddy: false,
         run: null,
         last: false,
     };
@@ -265,6 +269,9 @@ export function parseArgs(argv, { defaultRoot, fs } = {}) {
             case '--relaxed':
                 opts.relaxed = true;
                 break;
+            case '--caddy':
+                opts.caddy = true;
+                break;
             case '--run':
                 if (!/^[A-Za-z0-9_-]+$/.test(value))
                     throw new UsageError(`--run wants a run id, got ${value}`);
@@ -290,6 +297,10 @@ export function parseArgs(argv, { defaultRoot, fs } = {}) {
     if (opts.relaxed && opts.profile !== 'head')
         throw new UsageError(
             '--relaxed only applies to --profile head (production limiters are never relaxed)'
+        );
+    if (opts.caddy && opts.profile !== 'head')
+        throw new UsageError(
+            '--caddy only applies to --profile head (TA-14 reloads a local Caddy; never production, OD-33)'
         );
     if (!opts.root) throw new UsageError('no --root and no default root');
     opts.root = path.resolve(opts.root);

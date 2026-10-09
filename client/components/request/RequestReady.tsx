@@ -1,0 +1,105 @@
+import React, { type ChangeEvent, type DragEvent, type ReactNode } from 'react';
+import { Button } from '@/components/ui/button';
+import { sendLabel, visitorCopy } from '@/lib/request/visitorCopy';
+import type { SendBlock } from '@/lib/request/visitorState';
+import { ReadyHeader } from '@/components/request/ReadyHeader';
+import { RequestDropzone } from '@/components/request/RequestDropzone';
+import { RequestFileList } from '@/components/request/RequestFileList';
+import { HideMyIpSwitch } from '@/components/request/HideMyIpSwitch';
+import type { PathRow } from '@/components/request/ArrivedList';
+
+export interface RequestReadyProps {
+    rows: PathRow[];
+    size: number;
+    /** The pick refusal, already an approved string, or null. */
+    notice: string | null;
+    emptyFolders: number;
+    reading: boolean;
+    isDragging: boolean;
+    canPickFolders: boolean;
+    coarsePointer: boolean;
+    hideIp: boolean;
+    /** V6b: the last Send stopped because Hide my IP has no relay to use. */
+    needsRelay: boolean;
+    /** Why Send is off, or null. */
+    block: SendBlock;
+    onHideIp: (on: boolean) => void;
+    onSend: () => void;
+    onClear: () => void;
+    onDragOver: (e: DragEvent) => void;
+    onDragLeave: (e: DragEvent) => void;
+    onDrop: (e: DragEvent) => void;
+    onFiles: (e: ChangeEvent<HTMLInputElement>) => void;
+    onFolder: (e: ChangeEvent<HTMLInputElement>) => void;
+    /** The right side of the footer row (Report this link). */
+    footerEnd?: ReactNode;
+}
+
+/**
+ * V3 Ready (W1, W3; WV-01 to WV-08), also drawn for V3c, V6b and V6d, which
+ * are Ready with one more line. Before the first pick only the dropzone, the
+ * switch and the notice show; the count, Send and Clear arrive with a file.
+ * Button labels never change to explain themselves: when Send is off, the
+ * reason is the sentence next to it (C-31).
+ */
+export function RequestReady(props: RequestReadyProps) {
+    const hasFiles = props.rows.length > 0;
+    return (
+        <section className="w-full rounded-2xl border border-white/[0.08] bg-zinc-950/85 p-6 shadow-[0_40px_90px_-30px_rgb(0_0_0/0.9)] sm:p-7">
+            <ReadyHeader />
+            <RequestDropzone
+                hasFiles={hasFiles}
+                isDragging={props.isDragging}
+                reading={props.reading}
+                canPickFolders={props.canPickFolders}
+                coarsePointer={props.coarsePointer}
+                onDragOver={props.onDragOver}
+                onDragLeave={props.onDragLeave}
+                onDrop={props.onDrop}
+                onFiles={props.onFiles}
+                onFolder={props.onFolder}
+            />
+            {!props.canPickFolders && (
+                <p className="mt-3 text-sm leading-relaxed text-zinc-300">{visitorCopy.foldersUnsupported}</p>
+            )}
+            {props.notice && <p className="mt-3 text-sm leading-relaxed text-zinc-300">{props.notice}</p>}
+            {hasFiles && <RequestFileList rows={props.rows} size={props.size} emptyFolders={props.emptyFolders} />}
+            <HideMyIpSwitch checked={props.hideIp} onChange={props.onHideIp} />
+            {props.block === 'relay-cap' && (
+                <p className="mt-2 text-sm leading-relaxed text-zinc-300">{visitorCopy.relayCapReady}</p>
+            )}
+            {props.needsRelay && props.hideIp && (
+                <p className="mt-2 text-sm leading-relaxed text-zinc-300">{visitorCopy.hideIpNeedsRelay}</p>
+            )}
+            {props.coarsePointer && hasFiles && (
+                <p className="mt-4 text-sm leading-relaxed text-zinc-300">{visitorCopy.coarsePointer}</p>
+            )}
+            {hasFiles && (
+                // flex-wrap: at 280 px a 100+ file count makes Send wider than
+                // the row, and Clear drops under it instead of into the padding.
+                <div className="mt-4 flex flex-wrap gap-2">
+                    <Button
+                        type="button"
+                        className="touch-button flex-1 font-semibold h-auto min-h-9 max-w-full whitespace-normal text-center"
+                        disabled={props.block !== null}
+                        onClick={props.onSend}
+                    >
+                        {sendLabel(props.rows.length)}
+                    </Button>
+                    <Button type="button" variant="outline" className="touch-button h-auto min-h-9 max-w-full whitespace-normal py-[7px] text-center" onClick={props.onClear}>
+                        {visitorCopy.clear}
+                    </Button>
+                </div>
+            )}
+            {/* Wraps: with a fixed row, Report this link (shrink-0) pushed past
+                the card at 200% text and squeezed the notice into a 98 px
+                column at 280 px. The notice keeps at least 10.5rem, so from
+                360 px at 100% the row draws exactly as before; narrower, the
+                link takes its own line at the right (ml-auto in ReportLink). */}
+            <div className="mt-4 flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+                <p className="flex-[1_1_10.5rem] text-xs leading-relaxed text-zinc-400">{visitorCopy.ipNotice}</p>
+                {props.footerEnd}
+            </div>
+        </section>
+    );
+}

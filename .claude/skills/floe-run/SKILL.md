@@ -27,12 +27,26 @@ relay test needs.
 Run `start` with `run_in_background` and read its READY block.
 
 ```text
-node .claude/skills/floe-run/scripts/floe-run.mjs start            server only
-node .claude/skills/floe-run/scripts/floe-run.mjs start --client   plus next dev on :3000
-node .claude/skills/floe-run/scripts/floe-run.mjs start --relaxed  lift the per-IP limiters, as the e2e config does
-node .claude/skills/floe-run/scripts/floe-run.mjs check            what is bound on :3001 and :3000, and whether we own it
-node .claude/skills/floe-run/scripts/floe-run.mjs stop             kill what this script started
+node .claude/skills/floe-run/scripts/floe-run.mjs start                  server only
+node .claude/skills/floe-run/scripts/floe-run.mjs start --client         plus next dev on :3000
+node .claude/skills/floe-run/scripts/floe-run.mjs start --relaxed        lift the per-IP limiters, as the e2e config does
+node .claude/skills/floe-run/scripts/floe-run.mjs start --request-links  the server lists request-1 (a temp policy file, POLICY_FILE)
+node .claude/skills/floe-run/scripts/floe-run.mjs start --local-turn     relay through a local coturn (see Local relay)
+node .claude/skills/floe-run/scripts/floe-run.mjs check                  what is bound on :3001 and :3000, and whether we own it
+node .claude/skills/floe-run/scripts/floe-run.mjs stop                   kill what this script started
 ```
+
+The start switches combine (`start --client --relaxed --request-links`).
+
+`--request-links` writes `{"requestLinks":true}` to `floe-run-policy.json`
+beside the pidfile (the OS temp dir, never the repo tree) and starts the
+server with `POLICY_FILE` pointing at it; `stop`, and any teardown, deletes
+it. Never edit that file by hand. To flip the policy under one running
+server instead, leave the switch off and set `POLICY_FILE` yourself to a file
+you own, in the same PowerShell call as `start` (the tool keeps no
+environment between calls; `start` spreads its environment into the
+server): `$env:POLICY_FILE = 'C:/path/policy.json'`. Rewrite that file in
+place and the server picks the change up within 60 s, no restart.
 
 `check` exits 0 when `:3001` is owned by this script, healthy, and reading
 `totalBytes=0`; 1 when `:3001` is bound but not owned, or owned but unhealthy;
@@ -80,7 +94,21 @@ pnpm directly (memory `project_pnpm_via_corepack`).
   instantly and `upstashPost` swallows the error, so startup never blocks.
 - `GET /api/stats` read `{"totalBytes":0}` right after `/health`, and again two
   seconds later (`initStats` is fire-and-forget). With real credentials it
-  reads about 200 GB.
+  reads about 200 GB. Neither switch changes this proof or the sentinel.
+- `features:` is the list `/health` answered with: `["request-1"]` under
+  `--request-links` on a server that has the policy switch, `[]` otherwise.
+  With the switch set and no `request-1`, the line says so.
+- `turn:` is `coturn` when `/api/turn-credentials` served a `turn:` or
+  `turns:` URL and `stun-only` when it served STUN alone. It is decided from
+  the URL schemes only: the body carries live credentials, and no username,
+  credential or full body is ever printed (the transfer-audit P4 rule).
+  Cloudflare keys in the environment or `server/.env` outrank coturn in
+  `server/turn.js` and read the same, so a lane clone (no `server/.env`) is
+  where `coturn` means the local one.
+
+`check` prints the same `features:` and `turn:` lines, and `check --json`
+carries them as `features` (a list, or `null` when `/health` is unreadable)
+and `turn` (`"coturn"`, `"stun-only"`, or `null`).
 
 A green `start` or `check` proves the environment and nothing else: zero is
 necessary, not sufficient (only the pidfile says this script set the
@@ -88,6 +116,24 @@ environment), and it says nothing about whether a transfer works, which is
 what the e2e suite and a hand test are for. The deep cross-surface
 matrix (the built desktop app, a forced relay, production, the installed
 binaries) is `.claude/skills/transfer-audit/SKILL.md`.
+
+## Local relay
+
+`--local-turn` points the server at a coturn running on this machine (the
+maintainers run one in WSL). Set two variables in the same PowerShell call
+as `start`, each assigned straight from the command that reads it, so
+neither value is ever echoed: `FLOE_LOCAL_TURN_DOMAIN` (the address coturn
+listens on) and `FLOE_LOCAL_TURN_SECRET` (its shared auth secret).
+
+The switch hands the pair to the server as `TURN_DOMAIN` and `TURN_SECRET`
+and to nothing else: no child sees the `FLOE_LOCAL_TURN_*` names, next dev
+never sees either pair, and neither the pidfile, READY nor `check` carries a
+value. Without both variables, `start --local-turn` exits 2 with usage before
+it probes, writes or spawns anything. READY then reads `turn: coturn`; if it
+reads `stun-only`, relay cells cannot run on this stack. Setting `TURN_DOMAIN`
+and `TURN_SECRET` directly still works and reads the same in READY, but they
+then pass through the environment spread to next dev as well; the switch
+keeps the secret in the server's environment alone.
 
 ## Tell the user
 
@@ -97,6 +143,10 @@ binaries) is `.claude/skills/transfer-audit/SKILL.md`.
   reconnect path, see the comment in `client/playwright.config.ts`).
 - Server: http://localhost:3001 (`/health`, `/api/stats`,
   `/api/turn-credentials`).
+- Request links: the READY `features:` line. `["request-1"]` means clients
+  pointed at this server may offer them; `[]` means they are off.
+- Relay: the READY `turn:` line. `stun-only` means relayed transfers cannot
+  work here; `coturn` means they can.
 - CLI: `floe send <file> --server http://localhost:3001 --web http://localhost:3000`
   and `floe receive <code> --server http://localhost:3001` (or `FLOE_SERVER`).
   A local receive still moves the local `cachedTotal`; that is a useful sign

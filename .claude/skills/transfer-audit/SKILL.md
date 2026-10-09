@@ -120,6 +120,11 @@ a code or link.` or an empty read-back means every desktop-receiver cell
   runs `Unblock-File` on its own scratch file only). P8, `ShowWindow`
   SW_SHOWNOACTIVATE un-minimizes without activation. P9, the remembered
   save dir (`floe:saveDir`) reads back and restores through UIA.
+- P10, `GET <server>/health` `features` on the server the profile drives
+  (local for head, production for shipped; one GET, re-read on every run).
+  Only short tokens are kept. Without `request-1` every request link cell
+  SKIPs `server-no-request-1`; the Versions table carries it as the INFO row
+  `Server features`.
 
 Every probe records a verdict object; a probe that throws records `error`
 and the dependent cells SKIP with that reason.
@@ -181,8 +186,9 @@ when someone else owns the port), a `go build` CLI with `-X
 main.version=head-<sha7>`, `next dev`, and the desktop through `--desktop
 wailsdev` (the real app with real Go bindings served at
 `http://localhost:34115` to a Playwright page) or a `wails build` exe.
-Subsets: `--quick` (6 cells), default (18 rows, 15 executable), `--deep` (14
-more). `--cells S-REL-*,S-DIR-C2D` narrows; a pattern that names no
+Subsets: `--quick` (6 cells), default (18 rows: 15 executable on shipped,
+16 on head, where the CLI's `--relay-only` lifts S-REL-C2C's NA), `--deep`
+(17 more, 35 rows). `--cells S-REL-*,S-DIR-C2D` narrows; a pattern that names no
 executable cell (or only NA rows, or a deep id without `--deep`) is a usage
 error before anything is created. `--desktop
 auto|store|portable|wailsdev|none`; `auto` picks the Store build when it is
@@ -196,6 +202,10 @@ is the expected answer on an idle machine, not a fault. `--relaxed` (head only) 
 `floe-run` with `--relaxed` and relaxes the ledger to the local limits (1000
 for TURN, connections and codes, the stats limiter unchanged at 60
 per window, no floor); it is a usage error on the shipped profile.
+`--caddy` (head only, a usage error on the shipped profile) enables
+TA-14, the one cell that starts a Docker container: without it that cell
+is SKIP `caddy-not-enabled`, and with it the dry run adds a `docker`
+tool class (`docker version`) so a missing Docker shows before any cell.
 `--web-sha-file <json>` takes a recorded deployment record instead of
 `--web-sha`; `--root <dir>` and `--json` are common; `--pause-max` defaults
 to 10 minutes; `node audit.mjs --self-test` (a top-level form, not a `run`
@@ -218,6 +228,20 @@ default, and the primary screen when there is only one), `primary`, a
 1-based index, or `off` to leave the window where Windows put it. The
 browser runs headless and the CLI has no window, so nothing else in a
 run is on screen at all.
+
+Every exe the audit starts (the Store build by AUMID, the Store exe with
+files, a portable or a head build) starts detached through
+`scripts/lib/detached.mjs`: `Win32_Process.Create` makes the WMI provider
+host its parent, so it holds no foreground rights even while the
+operator's terminal is the foreground window, and its first window shows
+`SW_SHOWNOACTIVATE` (FU-26: a launch from the foreground terminal took the
+foreground twice on 2026-09-30). The cost is the app's stdout and stderr;
+`desktop.launch.txt` records the pid instead. A leg never starts a second
+instance: while any `floe-desktop.exe` or `floe-desktop-dev.exe` (the app
+`wails dev` runs) is up, the cell is SKIP `desktop-running` before
+anything starts, because the single-instance lock forwards a second
+launch to the running app, which raises its own window. An instance this
+run started and is still closing gets 5 s to go first.
 
 Pacing on production: a rolling 60 s ledger with 50 percent headroom (10
 TURN fetches, 15 connections, 30 code calls) and an 8 s floor between cell
@@ -243,7 +267,10 @@ under `WindowsApps` with the files as argv (P6: `explorer.exe
 shell:AppsFolder` drops the argument), with `desktop.json` backed up, edited
 (`server`, `web`, `hideIP`, `reportStats:false`, `noUpdateCheck:true`,
 `migrated:true`) while no Floe process exists, and restored byte-identical
-after (sha256 compared, exit 4 on mismatch); the portable and head exes
+after (sha256 compared, exit 4 on mismatch) with its original mtime put back
+through `utimesSync` and read again (an mtime that will not come back is
+reported as `mtime changed`, never a failure; the run manifest carries it,
+so `cleanup` puts it back too); the portable and head exes
 launch with `APPDATA` redirected; the per-user Explorer entry
 `HKCU\Software\Classes\*\shell\Floe`, which an unpackaged exe points at
 itself on startup, is snapshotted at the first such launch in the process
@@ -286,7 +313,10 @@ counts as PASS. SKIP names a machine or run precondition (`uia-setvalue`,
 `desktop-savedir`, `desktop-none`, `desktop-unavailable`,
 `head-desktop-pending`, `present`, `local-stun-only`, `prod-turn-absent`,
 `browser-relay-na`, `firewall-block`, `wsl-stopped`, `wsl-sideload`,
-`disk-space`, `infra-down`, `budget-exhausted`; `filtered` marks cells
+`disk-space`, `infra-down`, `budget-exhausted`, `server-no-request-1`,
+`request-host-away-only`, `caddy-not-enabled`, `docker-absent`,
+`desktop-running`; `filtered`
+marks cells
 dropped by `--cells` and is never counted). NA is impossible with the
 shipped product (`single-instance`, `no-cli-relay-forcer`). ERROR is a
 harness fault (for example `init-script-not-applied`), never a product
@@ -302,11 +332,26 @@ interrupted. Precedence 2, 4, 3, 130, 1, 5, 6, 0. `versions` exits 0 or 6,
 The Safety section is printed every run and must read: browser stats
 attempts 0 (all aborted), `floe:bytes-reported` events 0, CLI receivers
 opted out k/k, desktop receivers `reportStats:false, migrated:true` k/k with
-the config restored byte-identical, local `/api/stats` 0/0 on the head
+`desktop.json: contents and mtime restored` after a Store-mode leg
+(`contents restored byte-identical, mtime changed` when the mtime would not
+come back, `restored byte-identical: NO` on a mismatch, `not edited (no
+Store-mode leg)` when only portable, head or wailsdev ran), local `/api/stats` 0/0 on the head
 profile, TURN bodies never, `server/.env` never read, captures N (desktop
 PrintWindow captures; browser page screenshots are not counted) all
 window-cropped, forced foreground 0, killed pids own only, working tree
-unchanged.
+unchanged, and firewall Block rules on the exes under test `none (N exe(s)
+read)`.
+
+The firewall read covers the staged `--bin-dir` (a Block rule there is the
+precondition it always was, exit 3) and every exe the run drives wherever it
+lives: the Store build's `floe-desktop.exe` under its `InstallLocation` when
+the Store build is under test, the portable or head `wails build` exe, the
+CLI under test and the e2ehost harness. Each enabled inbound Block rule on
+one of those is named by path in the Infra row `firewall (exes under test)`
+and in Safety; it is evidence for a failed receive, not a gate. The read is
+one `Get-NetFirewallApplicationFilter` pass: the audit never adds, removes
+or changes a rule and never clicks a consent dialog (the rules are the
+owner's).
 
 ## 5. When a cell fails (the receiver build decides the early race; read it first)
 
@@ -359,7 +404,11 @@ toast activator keys
 `LocalServer32`) are rewritten by every unpackaged launch too and are
 deliberately not restored, because the next launch of a real unpackaged
 Floe corrects them, packaged builds never read them, and go-toast shares
-one CLSID across apps.
+one CLSID across apps. H7 (S-14) specifies that the same `AppUserModelId`
+key also carries `DisplayName` = `Floe`, written at launch before the
+notification service starts so Windows lists the app as Floe; the audits
+do not restore that value either, and an exe copy with its own name gets
+its own key beside this one.
 
 ## 7. Head profile (what the next release will do)
 
@@ -378,9 +427,233 @@ with `COREPACK_ENABLE_AUTO_PIN=0` (from the repo root corepack resolves
 after `npm run build` in `desktop/frontend`; it proves HEAD, not the shipped
 exe, and the report labels it. The lane expects `wails dev` to be started by
 the operator from that checkout's `desktop/` with its `desktop.json` pointed
-at the audit server and `reportStats:false`; it was not exercised in the
-first round. A wailsdev receiver is refused (exit 3) unless `GetSettings()`
-shows `reportStats:false`, `migrated:true` and the audit server.
+at the audit server and `reportStats:false`, and started without foreground
+rights: `node .claude/skills/transfer-audit/scripts/launch-detached.mjs
+--cwd desktop --log <file> -- <wails.exe> dev` runs it through
+`Win32_Process.Create` in a hidden console that appends its output to
+`<file>` (stop it with `taskkill /PID <pid> /T /F`), so the app window it
+opens cannot take the foreground from the owner, and it refuses while any
+Floe desktop already runs. A wailsdev receiver is refused
+(exit 3) unless `GetSettings()` shows `reportStats:false`, `migrated:true`
+and the audit server.
+
+The lane first ran on 2026-09-22 (DV-MATRIX-DSK). Four things the lane needs
+that no other lane does, every one of them learned from that run:
+
+- **The sender's files.** `planLaunch` starts no process for `wailsdev`
+  (`filesStaged: false`), so nothing carries the files on argv and the page
+  opens on an empty drop zone. The leg hands them over first, through the
+  `files:open` event `App.tsx` listens on, which is the same entry point
+  Explorer's verb and a second instance use. The native picker behind the
+  Files button (`SelectFiles()`) cannot be driven from a browser page, and
+  `StartSend()` would skip the button the cell exists to exercise. The
+  event goes through `window.wails.EventsNotify`, which reaches the leg's
+  own page only: `runtime.EventsEmit` is rebroadcast by the dev server to
+  every other page, and on 2026-09-24 it moved a request host's page to
+  Send and stranded its Close link.
+- **The receive view's primary button.** It carries the same accessible
+  name as the RECEIVE tab, and the calm redesign left it a sibling of the
+  field groups rather than of the code input, so it is reached by document
+  order after the code input (the tab row is in the card header above the
+  body), never by sibling position.
+- **The room code and the share link.** They render together, from one
+  `send:code` event, but the leg reads them one after the other, so it
+  waits for both rather than returning on whichever read wins. `readText`
+  answers with the innermost matching elements, because an element's
+  textContent carries its descendants' and the page root would otherwise
+  answer every loose pattern first, and a share link is parsed as a URL
+  with a `#room=` fragment before the receiver is driven with it.
+- **The relay forcer.** Every other mode takes `hideIP` from the
+  desktop.json it launches with, but the operator starts this one and the
+  audit never writes its config, so an `H-REL-*` cell with a desktop side
+  sets Hide my IP through the Settings switch and puts it back on stop.
+  The switch, not the bound `SetSettings` call: App.tsx passes its own
+  React `hideIP` to `StartSend` and `ReceiveByCode`, and that state is read
+  from `GetSettings` once at mount, so writing the file under a running
+  page would persist a value the transfer never uses. `GetSettings` is read
+  back as the proof, and a switch that will not move is a precondition
+  failure rather than a relay cell quietly recorded as direct.
+
+`wails dev` serves the page over its own websocket bridge, so the runtime's
+`window.WailsInvoke("runtime:ready")` reaches the dev server's dispatcher,
+which does not know that message and logs `ERR | Unknown message from front
+end: runtime:ready`, once per page connect. Only the WebView2 frontend
+handles it, and all it does there is set the CSS drag and drop property
+names. It is noise for an external browser page: bound method calls (`C`)
+and events (`EE`, `EX`) take different dispatcher branches, so nothing the
+driver relies on is dropped.
+
+Both head desktop lanes are built by `lib/desktop.mjs` `buildHead` from
+`lib/release.mjs` `headDesktopCommands`. On `wailsdev` it runs no build step:
+it requires `http://localhost:34115` to answer (exit 3 `wailsdev-down`
+otherwise) and returns a build with no exe path, so P2 and P7 read `n/a` and
+a release exe staged under `--bin-dir` is never adopted for them. On
+`portable` it runs `npm run build` in `desktop/frontend`, then `wails build`
+with no shell so the `-ldflags` value stays one argv element, and requires
+the exe's mtime to advance, because `wails build` can exit 0 on a silent
+failure. Both build dirs go through the write fence before the first step
+runs, so nothing a plan names can land under the real `%APPDATA%\floe`. An
+adapter without `buildHead` logs `HEAD desktop build pending` and every
+desktop cell SKIPs `desktop-unavailable`.
+
+## 7a. Request-link cells (need request-1 on the server)
+
+TA-10 to TA-17 of spec 09 2.7.2, and TA-10a (Auto-accept, D-173), listed in
+`references/matrix.md` (Request-link cells) and `REQUEST_IDS` in
+`scripts/lib/matrix.mjs`. A run reaches them only through `--cells`, and
+each SKIPs `server-no-request-1` until probe P10 finds `request-1`.
+`scripts/lib/request.mjs` runs them; `runCell` hands every request cell
+to it, so none ever runs as a plain cell.
+
+- The host is the desktop: on the wailsdev lane through the DOM verbs on
+  `PlaywrightDriver` (the table in matrix.md), and on an exe (the Store
+  build, a portable or a head `wails build`) through the same verbs on
+  `UiaDriver` (FU-26), which read the lane from one UIA `snapshot` of the
+  window (`requestStateFromItems`: the buttons each phase shows and its
+  fixed copy; the prompt's size as the view renders it, compared with
+  `desktopFmtBytes` of the fixture; the drop folder by the name the Done
+  view shows under the run's own save folder) and drive it with Invoke,
+  SetValue and the new `toggle` command. UIA pattern calls activate the
+  exe's window (G2-F1), so an exe host is away-only: without `--user-away`
+  its cells SKIP `request-host-away-only`, and with it every pattern call
+  first re-reads `GetLastInputInfo` and stops as SKIP `present` below
+  120 s of idle input. The Invoke that activates the window can be
+  swallowed by the prompt's guard, which re-arms on focus, so Accept and
+  Decline are repeated (three Invokes at most), never sooner than 1.2 s
+  after the prompt was first seen or after the previous Invoke. An exe has
+  no bound GetSettings or SetSettings: a proxy's server address rides the
+  desktop.json it launches with (`serverOverride`). Since H7 (D-160) there
+  is no Beta switch and no `requestLinks` key to seed (a legacy one in a
+  desktop.json is ignored by the app and left as it is): the host waits up
+  to 10 s for the REQUEST LINK choice on Receive, clicking RECEIVE once
+  when the window is on another tab, and a build that never shows it is a
+  `request-flow` FAIL at `host.start`.
+  On an exe lane the TA-17 cells with a desktop side are NA
+  `single-instance` (the host holds the one app instance).
+- TA-16 (`H-DIR-C2D-req`, head only) makes the CLI the visitor:
+  `floe send <file> --to <link> --server <s>` through the CLI adapter's own
+  leg (`lib/cli.mjs`, `opts.requestLink`), started once it prints `Waiting
+  for them to accept. They have 9 min to answer.` and done on its exit. The
+  link goes to its argv only; the CLI never prints it back, `link()` answers
+  null, and the leg's evidence, argv included, is scrubbed like every other.
+  Oracles (`CLI_VISITOR_ORACLES`): the prompt, exit 0, the drop's bytes in
+  the exclusive subfolder, the CLI's `All N files arrived (...)` line and
+  its SHA line only when the host verified all N, the desktop's Done copy,
+  the route pair (the CLI's `Connected (direct)` and the D pill), the
+  desktop.json proof, FLOE_NO_STATS=1 on the CLI (a sender has no stats path
+  at all) and a local `/api/stats` delta of 0. A CLI that fails is judged
+  after the host's own end, so a host stop code stays the finding. No
+  used-up check: that needs a second visitor, and the web cells prove it.
+  It returns to the shipped profile (`S-DIR-C2D-req`) with the release
+  whose CLI lists `--to` (preflight's `cliHasTo`).
+- Before the run: the operator's `wails dev` app must already read
+  `reportStats:false`, `migrated:true` and the local server
+  (`GetSettings`), as for any wailsdev receiver; otherwise the cell is
+  ERROR `wailsdev-config` and the host is never driven.
+- Each attempt makes its own link: Hide my IP on for TA-12, the REQUEST LINK
+  tab awaited (10 s; no Settings switch since H7, and a server without
+  request-1 answers at Make link with E1, a `request-flow` FAIL naming
+  `disabled`), Make link with the Save to field set to the
+  attempt's own `out` folder (never the owner's `Downloads\Floe`;
+  a field that does not take is SKIP `desktop-savedir`), then Read link.
+- The visitor is a fresh Chromium context on `/r`: the files go into the
+  hidden "Choose files" input, Send is clicked by its label, and the
+  page's own status card is read. Relay cells move 4 MiB; TA-11 forces the
+  visitor's relay with the audit init script, TA-12 the host's Hide my IP.
+- Accept and Decline wait at least 1.2 s from the moment the prompt was
+  first seen (the frontend's guard is 1 s). Every prompt must carry the
+  visitor's own file count and bytes and no relay-over-cap line.
+- Oracles: the route pair (the visitor's nominated candidate pair, the
+  host pill or the lane's route); the host's stats proof and 0 report
+  attempts on every visitor (a `floe:bytes-reported` event on a visitor
+  is a safety stop); the host's saved and verified counts, its done heading
+  and the check mark's SHA-256 matched text (since D-161 the sr-only span
+  beside the green check, read as a Text node on UIA and a span on the dev
+  page; on an exe host it is the only account, so a done view without it is
+  a `request-flow` FAIL that names the host's view), and the visitor's
+  arrived title and SHA line, each SHA mark shown only when every file
+  verified; the received files byte for
+  byte inside the one exclusive subfolder the host reports, nothing loose
+  beside it (`request-manifest`, `hash-mismatch`, `stale-part`); a fresh
+  visitor reading the link used up afterwards. A failed step is FAIL
+  `request-flow` with the fixed copy it met, never retried.
+- TA-13 (`H-DIR-W2D-reqblip`) starts the driver's own proxy
+  (`scripts/lib/blip.mjs`, 127.0.0.1 only, loopback upstream only), points
+  the host's server address at it through the app's own SetSettings (web
+  address set to the web under test), makes the link, cuts for 5 s, and
+  requires Reconnecting, the visitor's not-connected copy, the reclaim to
+  Waiting within 60 s and a delivery after Try again. `cellPlan` refuses
+  the cell against a server that is not loopback, the runner refuses it
+  again as a safety stop before any proxy or page, and the proxy refuses a
+  non-loopback upstream: it can never point at api.floe.one. A host that
+  is not behind the proxy (no proxy URL, a server address that did not
+  read back, or no live socket through it before the cut) is ERROR
+  `blip-url` and nothing is cut: a cut of a proxy the host bypasses would
+  read the host's correct Waiting as a product defect.
+- TA-14 (`H-DIR-W2D-reqcaddy`, head profile, `--caddy` only) starts a
+  local Docker Caddy (`scripts/lib/caddy.mjs`: `caddy:2`, published on
+  127.0.0.1 only, `reverse_proxy host.docker.internal:<port>` to the
+  loopback server) and points the host's server address at it, as TA-13
+  does with its blip; the visitor's page talks to the server directly.
+  A `caddy reload` while the link waits must read Reconnecting within
+  10 s, or the cell is ERROR `caddy-url` (the host was not behind the
+  proxy, so the reload proved nothing), then Waiting again within 60 s;
+  a 64 MiB drop is then accepted and a second reload lands while it is
+  receiving, so the visitor is sent `peer-disconnected` and must ignore
+  it (a drop that ends before that reload is ERROR
+  `caddy-reload-missed`, never a pass). Verify is the usual set. A
+  server that is not loopback is refused by `cellPlan`, by the runner
+  before any container, and by the upstream check; Docker not answering
+  is SKIP `docker-absent`; the container is removed at teardown and on
+  exit. Proven on fixtures only until it runs live.
+- TA-15 declines the first visitor, reads its declined copy, checks
+  nothing was saved, clicks Keep waiting (`request-reopen`) and lets a
+  second visitor context deliver.
+- TA-10a (`H-DIR-W2D-reqauto`, head profile, wailsdev host only) makes
+  its link with the Make link form's Auto-accept check on (D-173, D-174),
+  turned on through its label, Auto-accept. It requires the header
+  chip to read AUTO-ACCEPT while the link waits (its sampler keeps that
+  word as idle, never as a route), the drop to start with no prompt at any
+  point and nothing clicked on the host, and the host's link and result
+  marked automatic in `GetRequestLink`; every other TA-10 oracle applies.
+  A build without the switch SKIPs `request-no-auto-switch`, and an exe
+  host SKIPs `request-auto-wailsdev-only` (the UIA lane has no snapshot to
+  read the marks from). Every other cell leaves the switch off, Make link
+  fails `request-flow` when the host holds the other choice, and a
+  prompted drop marked automatic is a FAIL.
+- TA-17 (`-reqopen`) is the six quick cells with a link open on the
+  desktop: the host makes a link into its own `host-drops` folder after
+  setup, the quick cell runs as always, and verify requires the same link
+  still waiting and that folder empty. It needs the desktop even for its
+  W2W cell.
+- Teardown, pass or fail, and on an interrupt too (the host leg's stop):
+  a running drop is canceled, the cell's link closed or its result put
+  away and the blip's addresses restored. Every request
+  verb first brings the host page back to Receive > REQUEST LINK when it
+  is not showing it, so a page that moved to Send still gets its link
+  closed. Only a link generation the cell made is touched at teardown. A
+  live link found when a cell starts is closed first only when it saves
+  into this run's own
+  evidence root (a leftover of an earlier cell, noted as swept); any other
+  is the owner's, is left exactly as it is, and the cell is ERROR
+  `host-busy` before any click. A release that does not leave the host as
+  found (the link still open, the result still showing, the address not
+  restored, or a release that outlived the teardown budget) turns a cell
+  that otherwise passed into ERROR `host-release`; a
+  cell that already failed keeps its own finding with the same words as a
+  note.
+- The link carries the room after `#`: it goes to the visitor's
+  `page.goto` only. Every message, note, log line and evidence file passes
+  through `redactRequestLinks` (`#<room>`, the link id stays), and the
+  report's redaction applies the same net to audit.md and run.json. The
+  host's captures can show the link on screen, so they go under
+  `cells/<id>/attempt-<n>/private/host/`: never share that folder.
+  audit.md and run.json count them (`privateCaptures`) and never quote
+  their paths; an Evidence line names the attempt folder instead.
+- TA-12's over 2 GB prompt line (P6) is not reachable from a web visitor:
+  the page probes its route 2 s after the channel opens and blocks a
+  relayed drop over the cap before it sends any metadata, so no prompt
+  reaches the host. TA-12 proves the host-forced relay path only.
 
 ## 8. Deep cells (the shapes that shipped bugs: chunk edges, sizes, kills, the cap, one non-loopback path)
 
@@ -398,7 +671,17 @@ sparse file over a browser-forced relay (`fsutil sparse`, at least 4 GiB
 free); a 500 MiB direct throughput baseline (CLI to CLI only, browser
 receivers hold the file in memory); a sender killed at 50 MiB leaving no
 `.part`, and a killed receiver leaving exactly one `.part` with the retry
-landing `name (1).bin`; link-input variants; and the WSL2 `Ubuntu-22.04`
+landing `name (1).bin`; link-input variants; the forced-mismatch
+variants `hashbad` and `hashmal`, which make a sender send a digest that
+cannot match (one hex digit changed) or one the wire format forbids (upper
+case) and require the receiver to refuse with `hash-mismatch` and keep
+nothing, reached only through `--cells` and never part of a default walk
+(`HASH_IDS` in `scripts/lib/matrix.mjs`, the table in `references/matrix.md`,
+and the CLI-shaped sender they need is `go build ./internal/e2ehost` in
+`cli/`, which no release builds: a run builds it into `--bin-dir` itself
+when a planned cell needs it, or SKIPs those cells as `harness-build`, and
+the harness reports its own path as `direct` or `relay` so the route is
+still judged from both sides); and the WSL2 `Ubuntu-22.04`
 Linux CLI sending to the Windows CLI, browser and desktop as the only
 non-loopback path on one machine (`wsl -d Ubuntu-22.04`; the tarball is
 downloaded by tag, verified with `sha256sum -c` inside WSL and extracted
@@ -419,7 +702,7 @@ staged path.
   signature, a triage key and both transcripts, and whose SKIP and NA rows
   each carry a reason key.
 - The Safety section reading zero everywhere it must, and `desktop.json`
-  restored byte-identical.
+  restored byte-identical with its mtime (or the changed mtime named).
 - `cleanup` run; no Floe process left; the working tree unchanged.
 
 Green is a gate, not a proof: a cell passes on this machine, today, against

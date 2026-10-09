@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {baseName, mergePaths, normPath} from './paths';
+import {baseName, mergePaths, normPath, shortPath} from './paths';
 
 // Every case that depends on the platform runs BOTH ways. That is the point of
 // the platform being a parameter: this file runs under vitest's node
@@ -70,5 +70,42 @@ describe('mergePaths', () => {
 
     it('handles both sides empty', () => {
         expect(mergePaths([], [], false)).toEqual([]);
+    });
+});
+
+describe('shortPath', () => {
+    const DROP = 'D:\\Footage\\Floe requests\\Acme footage 2026-09-14 1405';
+
+    it('returns a path that fits unchanged', () => {
+        expect(shortPath(DROP, DROP.length)).toBe(DROP);
+        expect(shortPath('Acme footage 2026-09-14 1405', 40)).toBe('Acme footage 2026-09-14 1405');
+        expect(shortPath('', 10)).toBe('');
+    });
+
+    it('keeps the drive root and as many last folders as fit', () => {
+        expect(shortPath(DROP, 40)).toBe('D:\\...\\Acme footage 2026-09-14 1405');
+        expect(shortPath(DROP, 49)).toBe('D:\\...\\Floe requests\\Acme footage 2026-09-14 1405');
+        expect(shortPath('\\\\nas\\share\\Floe requests\\Acme footage 2026-09-14 1405', 45)).toBe('\\\\nas\\share\\...\\Acme footage 2026-09-14 1405');
+        expect(shortPath('/home/a/Floe requests/Acme footage 2026-09-14 1405', 40)).toBe('/.../Acme footage 2026-09-14 1405');
+    });
+
+    it('cuts the middle of a name too long for the row, keeping its distinctive end', () => {
+        const name = `${'A'.repeat(64)} 2026-09-14 1405`;
+        const short = shortPath(name, 34);
+        expect(short).toHaveLength(34);
+        expect(short.startsWith('AAAAAAAAAAAAAAA...')).toBe(true);
+        expect(short.endsWith(' 2026-09-14 1405')).toBe(true);
+        // In a path whose last folder alone is too long: the root and the end.
+        const deep = shortPath(`D:\\Footage\\Floe requests\\${name}`, 46);
+        expect(deep).toHaveLength(46);
+        expect(deep.startsWith('D:\\Footage')).toBe(true);
+        expect(deep.endsWith(' 2026-09-14 1405')).toBe(true);
+    });
+
+    it('is never longer than asked, whatever the path', () => {
+        const paths = [DROP, `D:\\${'x'.repeat(200)}`, 'x'.repeat(300), '\\\\a\\b\\c', '/a/b/c/d/e/f/g/h', 'C:\\a\\\\b\\c.txt'];
+        for (const p of paths) {
+            for (let max = 5; max <= 60; max++) expect(shortPath(p, max).length, `${p} at ${max}`).toBeLessThanOrEqual(max);
+        }
     });
 });

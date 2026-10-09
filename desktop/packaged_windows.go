@@ -42,3 +42,29 @@ func isPackaged() bool {
 	)
 	return r == uintptr(windows.ERROR_INSUFFICIENT_BUFFER)
 }
+
+var procGetCurrentApplicationUserModelId = kernel32.NewProc("GetCurrentApplicationUserModelId")
+
+// appUserModelIDMax is APPLICATION_USER_MODEL_ID_MAX_LENGTH from appmodel.h,
+// terminating NUL included.
+const appUserModelIDMax = 130
+
+// packageAppID returns the AppUserModelID Windows gave this process from its
+// MSIX package ("Publisher.Name_hash!FloeDesktop" for the Store build), or ""
+// when unpackaged (APPMODEL_ERROR_NO_APPLICATION, 15703) or on any failure.
+// Toasts go out under it (toast_windows.go).
+func packageAppID() string {
+	if procGetCurrentApplicationUserModelId.Find() != nil {
+		return ""
+	}
+	n := uint32(appUserModelIDMax)
+	buf := make([]uint16, n)
+	r, _, _ := procGetCurrentApplicationUserModelId.Call(
+		uintptr(unsafe.Pointer(&n)),
+		uintptr(unsafe.Pointer(&buf[0])),
+	)
+	if r != 0 {
+		return ""
+	}
+	return windows.UTF16ToString(buf)
+}

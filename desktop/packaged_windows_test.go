@@ -12,3 +12,11 @@ func TestIsPackagedUnpackaged(t *testing.T) {
 		t.Fatal("isPackaged() = true in an unpackaged test process")
 	}
 }
+
+// An unpackaged process has no package AppUserModelID, so its toasts go out
+// under the exe-name ID Wails registered (deep QA A2-02).
+func TestPackageAppIDUnpackaged(t *testing.T) {
+	if got := packageAppID(); got != "" {
+		t.Fatalf("packageAppID() = %q in an unpackaged test process, want \"\"", got)
+	}
+}

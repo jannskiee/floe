@@ -77,4 +77,52 @@ describe('sender ack timeout', () => {
             expect.stringContaining('timed out waiting for receiver')
         );
     });
+
+    it('honors a custom ackTimeoutMs', async () => {
+        vi.useFakeTimers();
+        const { deps } = makeDeps();
+        const onError = vi.fn();
+
+        const file = new File([new Uint8Array(8)], 'x.bin');
+        const p = sendFiles(deps, [{ id: 'id-custom', file }], { onError }, { ackTimeoutMs: 5_000 });
+        // Flush the setup so metadata is sent and the ack timer is armed at t=0.
+        await vi.advanceTimersByTimeAsync(0);
+
+        await vi.advanceTimersByTimeAsync(4_999);
+        expect(onError).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(1);
+        await p;
+        expect(onError).toHaveBeenCalledWith(
+            expect.stringContaining('timed out waiting for receiver')
+        );
+    });
+
+    it('ACK_TIMEOUT_MS is still 120000', () => {
+        // The deadline every file but the visitor's first one waits out, and
+        // the number the CLI sender mirrors. Pinned on its own, so a change to
+        // it cannot hide inside a behavior test.
+        expect(ACK_TIMEOUT_MS).toBe(120_000);
+    });
+
+    // VR4-W06. The visitor's longer first-file wait is an option, so a send
+    // without options must still fail at 120 s and not a millisecond later.
+    it('a send without options keeps 120 s for the first file', async () => {
+        vi.useFakeTimers();
+        const { deps } = makeDeps();
+        const onError = vi.fn();
+
+        const file = new File([new Uint8Array(8)], 'x.bin');
+        const p = sendFiles(deps, [{ id: 'id-default', file }], { onError });
+        await vi.advanceTimersByTimeAsync(0);
+
+        await vi.advanceTimersByTimeAsync(ACK_TIMEOUT_MS - 1);
+        expect(onError).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(1);
+        await p;
+        expect(onError).toHaveBeenCalledWith(
+            expect.stringContaining('timed out waiting for receiver')
+        );
+    });
 });

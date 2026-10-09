@@ -13,6 +13,8 @@ const MODULES = Object.freeze({
     cli: './cli.mjs',
     desktop: './desktop.mjs',
     wsl: './wsl.mjs',
+    // A sender only, and only for a cell that must lie about a digest (P0-27).
+    harness: './harness.mjs',
     proc: './proc.mjs',
     stack: './stack.mjs',
 });

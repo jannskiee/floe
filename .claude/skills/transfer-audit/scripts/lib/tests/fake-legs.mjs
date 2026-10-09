@@ -22,7 +22,8 @@ import path from 'node:path';
 
 import { Leg, PhaseError, SafetyError, sleep } from '../surfaces.mjs';
 
-const LETTER = { web: 'W', cli: 'C', desktop: 'D', wsl: 'L' };
+// The harness is the CLI-shaped sender that can lie about a digest (P0-27).
+const LETTER = { web: 'W', cli: 'C', desktop: 'D', wsl: 'L', harness: 'C' };
 
 export const SCRIPTS = Object.freeze([
     'pass',
@@ -43,7 +44,23 @@ export const SCRIPTS = Object.freeze([
     'harness-crash',
     'savedir-skip',
     'restore-mismatch',
+    // The Store guard put the bytes back but not the mtime (fix 14): a
+    // pass whose Safety line says "mtime changed".
+    'mtime-changed',
     'done-hang',
+    // Forced-mismatch cells (P0-27): the receiver refuses and keeps nothing;
+    // the sender told the truth and the file was kept (the mutation a hashbad
+    // cell must catch); the harness read a code other than hash-mismatch; the
+    // receiver refused but a file stayed on disk.
+    'hashlie-refused',
+    'hashlie-kept',
+    'hashlie-wrong-code',
+    'hashlie-leaves-file',
+    // The sender left before any file arrived: a CLI receiver reports its
+    // peer-refused class, which must never read as a hash refusal (review F1).
+    'hashlie-peer-left',
+    // The receiver refused but left a zero-byte .part behind (review F6).
+    'hashlie-empty-part',
 ]);
 
 /**
@@ -71,6 +88,8 @@ export function fakeWorld({ tick = 5, webShape = 'b1' } = {}) {
             if (typeof s === 'function') return s(attempt, cell);
             if (Array.isArray(s)) return s[Math.min(attempt - 1, s.length - 1)];
             if (s) return s;
+            if (cell.expect === 'refusal' && cell.hashLie)
+                return 'hashlie-refused';
             if (cell.expect === 'refusal') return 'refusal';
             if (
                 cell.expect === 'kill-sender' ||
@@ -93,9 +112,14 @@ class FakeLeg extends Leg {
         this.surface = surface;
         this.world = world;
         this.script = world.scriptFor(
-            { id: opts.cellId, expect: opts.expect },
+            {
+                id: opts.cellId,
+                expect: opts.expect,
+                hashLie: opts.hashLie || opts.peerLies || null,
+            },
             opts.attempt
         );
+        this.movedBytes = 0;
         this.pid = world.nextPid++;
         this.h = { pid: this.pid };
         this._link = null;
@@ -116,6 +140,10 @@ class FakeLeg extends Leg {
             role: opts.role,
             surface,
             script: this.script,
+            bin: opts.bin ?? null,
+            input: opts.input ?? null,
+            hashLie: opts.hashLie ?? null,
+            peerLies: Boolean(opts.peerLies),
         });
     }
 
@@ -214,7 +242,21 @@ class FakeLeg extends Leg {
                 'Error: timed out establishing a connection'
             );
         this.connectedAt = Date.now();
+        // A browser receiver's own data-channel counter sees every chunk of a
+        // forced-mismatch cell before the refusal, which is what used to trip
+        // the relay-cap byte guard on these cells.
+        if (
+            this.role === 'receiver' &&
+            this.surface === 'web' &&
+            String(this.script).startsWith('hashlie-')
+        )
+            this.movedBytes = 4096;
         return { t: this.connectedAt };
+    }
+
+    /** What a browser receiver's data-channel counter read (web.mjs shape). */
+    bytesMoved() {
+        return this.movedBytes;
     }
 
     route() {
@@ -253,6 +295,14 @@ class FakeLeg extends Leg {
             return {
                 t: Date.now(),
                 source: 'pill',
+                local: null,
+                remote: null,
+                verdict: relay ? 'relay' : 'direct',
+            };
+        if (this.surface === 'harness')
+            return {
+                t: Date.now(),
+                source: 'harness-connection-type',
                 local: null,
                 remote: null,
                 verdict: relay ? 'relay' : 'direct',
@@ -347,6 +397,8 @@ class FakeLeg extends Leg {
                 ms: ms(),
             };
         }
+        if (String(this.script).startsWith('hashlie-'))
+            return this.hashLieScript(ms);
         if (this.script === 'kill') return this.killScript(ms);
         if (this.script === 'done-hang') {
             // The transfer completes (file on disk, a CLI exits 0) but the
@@ -435,6 +487,128 @@ class FakeLeg extends Leg {
         }
     }
 
+    /**
+     * A forced-mismatch cell, shaped like the real adapters: the harness
+     * reports the refusal code it read (harness.mjs outcomeFromEvents), a
+     * browser sender or receiver its own copy, and a CLI receiver exits 1 with
+     * the engine's RefusedError sentence.
+     */
+    async hashLieScript(ms) {
+        const { opts } = this;
+        const s = this.script;
+        if (s === 'hashlie-peer-left') {
+            if (this.role === 'sender') {
+                this.exitCode = this.surface === 'web' ? null : 1;
+                return this.surface === 'harness'
+                    ? {
+                          ok: true,
+                          kind: 'transfer',
+                          detail: { class: 'no-refusal', code: 'closed' },
+                          exitCode: 1,
+                          ms: ms(),
+                      }
+                    : {
+                          ok: false,
+                          kind: 'error',
+                          detail: { outcome: 'failed' },
+                          exitCode: null,
+                          ms: ms(),
+                      };
+            }
+            this.exitCode = 1;
+            return {
+                ok: true,
+                kind: 'refusal',
+                detail: {
+                    class: 'peer-refused',
+                    side: 'peer',
+                    error: 'Error: connection closed before any file arrived (the sender canceled, or the transfer was blocked)',
+                },
+                exitCode: 1,
+                ms: ms(),
+            };
+        }
+        if (s === 'hashlie-empty-part' && this.role === 'receiver') {
+            mkdirSync(opts.outDir, { recursive: true });
+            writeFileSync(path.join(opts.outDir, 'fixture.bin.part'), Buffer.alloc(0));
+        }
+        if (this.role === 'sender') {
+            if (s === 'hashlie-kept') {
+                this.exitCode = this.surface === 'web' ? null : 1;
+                return this.surface === 'harness'
+                    ? {
+                          ok: true,
+                          kind: 'transfer',
+                          detail: { class: 'no-refusal', code: 'closed' },
+                          exitCode: 1,
+                          ms: ms(),
+                      }
+                    : {
+                          ok: true,
+                          kind: 'transfer',
+                          detail: { outcome: 'sent' },
+                          exitCode: null,
+                          ms: ms(),
+                      };
+            }
+            if (this.surface === 'harness') {
+                this.exitCode = 0;
+                return {
+                    ok: true,
+                    kind: 'refusal',
+                    detail: {
+                        class: 'peer-refused',
+                        code: s === 'hashlie-wrong-code' ? 'other' : 'hash-mismatch',
+                    },
+                    exitCode: 0,
+                    ms: ms(),
+                };
+            }
+            this.exitCode = null;
+            return {
+                ok: true,
+                kind: 'refusal',
+                detail: { outcome: 'refusal', side: 'self' },
+                exitCode: null,
+                ms: ms(),
+            };
+        }
+        mkdirSync(opts.outDir, { recursive: true });
+        if (s === 'hashlie-kept' || s === 'hashlie-leaves-file')
+            for (const src of this.room.files)
+                this.deliver(src, this.surface !== 'web');
+        if (s === 'hashlie-kept') {
+            this.exitCode = this.surface === 'web' ? null : 0;
+            return {
+                ok: true,
+                kind: 'transfer',
+                detail: { complete: true },
+                exitCode: this.exitCode,
+                ms: ms(),
+            };
+        }
+        if (this.surface === 'web') {
+            this.exitCode = null;
+            return {
+                ok: true,
+                kind: 'refusal',
+                detail: { outcome: 'refusal', side: 'self' },
+                exitCode: null,
+                ms: ms(),
+            };
+        }
+        this.exitCode = 1;
+        return {
+            ok: false,
+            kind: 'error',
+            detail: {
+                error: 'Error: a file did not match the SHA-256 the sender computed, so it was not kept',
+            },
+            exitCode: 1,
+            ms: ms(),
+        };
+    }
+
     async killScript(ms) {
         const { opts, world } = this;
         const victim = opts.expect === 'kill-sender' ? 'sender' : 'receiver';
@@ -512,24 +686,26 @@ class FakeLeg extends Leg {
                     ms: ms(),
                 };
             }
+            // A killed receiver's exitCode stays null (see above), so this check
+            // cannot sit under the exitCode guard below: there it never ran.
+            if (victim === 'receiver' && other && world.killed.has(other.pid)) {
+                this.exitCode = 1;
+                return {
+                    ok: false,
+                    kind: 'error',
+                    detail: {
+                        error: 'Error: peer disconnected mid-transfer',
+                        class: 'peer-left',
+                    },
+                    exitCode: 1,
+                    ms: ms(),
+                };
+            }
             if (
                 other &&
                 other.exitCode !== null &&
                 other.exitCode !== undefined
             ) {
-                if (victim === 'receiver' && world.killed.has(other.pid)) {
-                    this.exitCode = 1;
-                    return {
-                        ok: false,
-                        kind: 'error',
-                        detail: {
-                            error: 'Error: peer disconnected mid-transfer',
-                            class: 'peer-left',
-                        },
-                        exitCode: 1,
-                        ms: ms(),
-                    };
-                }
                 if (this.attempt >= 2) {
                     this.exitCode = 0;
                     return {
@@ -619,6 +795,7 @@ class FakeLeg extends Leg {
             ev.config = {
                 applied: true,
                 match: this.script !== 'restore-mismatch',
+                mtimeRestored: this.script !== 'mtime-changed',
             };
             if (receiver)
                 ev.saveDir = {
@@ -707,10 +884,32 @@ export function makeFakeAdapters(world = fakeWorld()) {
         statsTotal: async () => 0,
     };
     // The desktop adapter also answers the probe subcommand: storePackage
-    // and the aggregate shape audit.mjs prints and matrix.mjs gates on.
+    // and the aggregate shape audit.mjs prints and matrix.mjs gates on, plus
+    // buildHead on the head profile. The wailsdev lane returns no exe path,
+    // the way lib/desktop.mjs buildHead does, so the fake exercises the null
+    // path P7 has to tolerate.
     const desktop = {
         ...surface('desktop'),
         storePackage: async () => ({ present: false }),
+        buildHead: async (o = {}) => {
+            world.calls.push({ buildHead: o.mode ?? null, exe: o.exe ?? null });
+            return o.mode === 'wailsdev'
+                ? {
+                      path: null,
+                      sha256: null,
+                      version: o.version ?? null,
+                      launch: 'wailsdev',
+                      served: 'http://localhost:34115',
+                      builtAt: null,
+                  }
+                : {
+                      path: o.exe ?? null,
+                      sha256: 'd'.repeat(64),
+                      version: o.version ?? null,
+                      launch: 'portable',
+                      builtAt: new Date(0).toISOString(),
+                  };
+        },
         probe: async (o = {}) => ({
             available: true,
             receiverDrivable: true,
@@ -762,6 +961,7 @@ export function makeFakeAdapters(world = fakeWorld()) {
         cli: surface('cli'),
         desktop,
         wsl: surface('wsl'),
+        harness: surface('harness'),
         proc,
         stack,
         world,

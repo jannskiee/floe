@@ -18,6 +18,9 @@ interface ReceiverPanelProps {
     onDownloadAll: () => void;
     onDownloadZip: () => void;
     listRef: RefObject<HTMLDivElement | null>;
+    // 'SHA-256 matched' once every announced file arrived and every one of them
+    // verified, else null. Never a digest value (D-101).
+    verifiedLine: string | null;
 }
 
 /**
@@ -43,12 +46,18 @@ export function ReceiverPanel({
     onDownloadAll,
     onDownloadZip,
     listRef,
+    verifiedLine,
 }: ReceiverPanelProps) {
+    // 'Verifying file N of M' is the same slot as 'Receiving file N of M': the
+    // file's bytes are all here and its SHA-256 is being checked. Without this
+    // the status line at the foot vanished and the handshake pipeline came back
+    // on screen for the length of the check.
+    const busy = status.includes('Receiving') || status.includes('Verifying');
     return (
         <div className="space-y-3 pt-2">
             {/* Handshake pipeline — shows what has happened and what comes next */}
             {receivedFiles.length === 0 &&
-                !status.includes('Receiving') && (
+                !busy && (
                     <div className="space-y-3 px-1 py-3">
                         <div className={`flex items-center gap-2.5 text-sm ${isConnected ? 'text-zinc-400' : 'text-zinc-200'}`}>
                             {isConnected ? (
@@ -79,7 +88,7 @@ export function ReceiverPanel({
             )}
 
             {receivedFiles.length > 1 &&
-                !status.includes('Receiving') && (
+                !busy && (
                     <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 gap-2 mb-3 animate-in fade-in slide-in-from-top-2 duration-300">
                         <Button
                             onClick={onDownloadAll}
@@ -145,7 +154,7 @@ export function ReceiverPanel({
                 <p className="text-[10px] text-zinc-600 text-center mt-1">Tip: Use &quot;Download ZIP&quot; for the best experience on iOS.</p>
             )}
 
-            {status.includes('Receiving') ? (
+            {busy ? (
                 <div className="flex w-full items-center justify-center gap-2 text-xs text-zinc-400 animate-pulse pt-2">
                     <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
                     <span className="truncate max-w-[200px] sm:max-w-[280px]">
@@ -158,6 +167,16 @@ export function ReceiverPanel({
                     <span>
                         {receivedFiles.length} {receivedFiles.length === 1 ? 'file' : 'files'} received
                     </span>
+                </div>
+            )}
+
+            {/* Its own block element, never a second span inside the completion
+                line above: the audit's TEXT.received is the anchored regex
+                /^(\d+) files? received$/ against innerText, so anything sharing
+                that line breaks it. */}
+            {verifiedLine && !busy && receivedFiles.length > 0 && (
+                <div className="flex w-full items-center justify-center gap-2 text-xs text-zinc-500">
+                    <span>{verifiedLine}</span>
                 </div>
             )}
         </div>

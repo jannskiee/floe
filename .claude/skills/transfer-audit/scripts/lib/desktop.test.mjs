@@ -13,7 +13,10 @@ import {
     mkdirSync,
     mkdtempSync,
     readFileSync,
+    readdirSync,
     rmSync,
+    statSync,
+    utimesSync,
     writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -22,6 +25,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { createFence } from './fence.mjs';
 import { started } from './proc.mjs';
+import { headDesktopCommands } from './release.mjs';
 import { PhaseError, SafetyError, sleep } from './surfaces.mjs';
 import {
     AUMID,
@@ -33,6 +37,7 @@ import {
     FAST_SAMPLE_WINDOW_MS,
     LAUNCH_MODES,
     PROBE_NAMES,
+    PlaywrightDriver,
     PreconditionError,
     RE,
     READY_AFTER_DECISIVE_MS,
@@ -41,16 +46,21 @@ import {
     STRINGS,
     ShellMenuGuard,
     USER_AWAY_IDLE_S,
+    UiaDriver,
+    WAILSDEV_URL,
     WINDOWS_APPS,
     activeGuards,
     activeLegs,
     aggregateProbes,
+    buildHead,
     classifyStatus,
     createLeg,
     defaultConfigPath,
     editDesktopJson,
     identityVersion,
+    isRoomLink,
     listDesktopProcesses,
+    openReceiveCode,
     parseTag,
     parseTasklist,
     pillVerdict,
@@ -71,6 +81,7 @@ import {
     versionForIdentity,
     withDesktopConfig,
     writeShellMenu,
+    xpathLiteral,
 } from './desktop.mjs';
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), 'desktop-test-'));
@@ -133,6 +144,12 @@ test('editDesktopJson keeps the record and forces the five keys', () => {
     );
     assert.deepEqual(JSON.parse(editDesktopJson(null, {})).migrated, true);
     assert.throws(() => editDesktopJson('{not json', {}));
+});
+
+test('editDesktopJson never writes a requestLinks key (D-160: the app has no such setting), and a legacy one in the record is left exactly as it was', () => {
+    assert.equal('requestLinks' in JSON.parse(editDesktopJson('', { requestLinks: true })), false);
+    assert.equal(JSON.parse(editDesktopJson('{"requestLinks":false}', { requestLinks: true })).requestLinks, false);
+    assert.equal(JSON.parse(editDesktopJson('{"server":"x"}', {})).requestLinks, undefined);
 });
 
 test('sendButtonName, receiverTarget, pillVerdict, classifyStatus, sameText', () => {
@@ -486,6 +503,78 @@ test('the guard refuses a foreign floe-desktop.exe and a missing file, and never
     }
 });
 
+// S1-REL-03a harness fix 14: the byte restore used to leave the owner's
+// desktop.json with the mtime of the restore write, and the Safety line
+// still said a bare "yes".
+test('withDesktopConfig puts the original mtime back after the byte restore and says so (fix 14)', async () => {
+    const dir = tmp();
+    try {
+        const cfg = path.join(dir, 'desktop.json');
+        const original = Buffer.from('{\n  "migrated": true\n}\n');
+        writeFileSync(cfg, original);
+        const then = new Date('2026-01-02T03:04:05.000Z');
+        utimesSync(cfg, then, then);
+        const r = await withDesktopConfig(
+            cfg,
+            { hideIP: true },
+            async () => {
+                // The edit is a write, so it moves the mtime like any write.
+                assert.notEqual(statSync(cfg).mtimeMs, then.getTime());
+                return 1;
+            },
+            { processes: NO_PROCS }
+        );
+        assert.ok(readFileSync(cfg).equals(original));
+        assert.equal(r.state.match, true);
+        assert.equal(r.state.mtimeBefore, then.toISOString());
+        assert.equal(r.state.mtimeRestored, true, r.state.mtimeNote);
+        assert.ok(
+            Math.abs(statSync(cfg).mtimeMs - then.getTime()) < 1,
+            `mtime reads ${statSync(cfg).mtime.toISOString()}`
+        );
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('an mtime that cannot be put back reads as changed, never as a mismatch, and the bytes still match (fix 14)', async () => {
+    const dir = tmp();
+    try {
+        const cfg = path.join(dir, 'desktop.json');
+        const original = Buffer.from('{"migrated":true}\n');
+        const then = new Date('2026-01-02T03:04:05.000Z');
+        // A refused utime (EPERM), and a utime that returns without taking
+        // (a volume whose mtime granularity drops it): both read changed.
+        const refusing = {
+            existsSync,
+            mkdirSync,
+            readFileSync,
+            writeFileSync,
+            statSync,
+            utimesSync: () => {
+                const err = new Error('EPERM: operation not permitted, utime');
+                err.code = 'EPERM';
+                throw err;
+            },
+        };
+        const ignoring = { ...refusing, utimesSync: () => {} };
+        for (const fsImpl of [refusing, ignoring]) {
+            writeFileSync(cfg, original);
+            utimesSync(cfg, then, then);
+            const r = await withDesktopConfig(cfg, {}, async () => 1, {
+                processes: NO_PROCS,
+                fsImpl,
+            });
+            assert.ok(readFileSync(cfg).equals(original));
+            assert.equal(r.state.match, true);
+            assert.equal(r.state.mtimeRestored, false);
+            assert.match(r.state.mtimeNote, /mtime/);
+        }
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
 /**
  * A scripted driver: a mutable text list plus a log of every call. An entry
  * of state.texts may be an array of leaves (Chromium exposes each DOM text
@@ -504,6 +593,10 @@ function scriptedDriver(state) {
             calls.push(['click', name, opts]);
             if (state.onClick) state.onClick(name, opts);
             return { via: 'invoke' };
+        },
+        async toCodeView() {
+            calls.push(['to-code-view']);
+            return false;
         },
         async setValue(placeholder, value, opts = {}) {
             calls.push(['set-value', placeholder, value, opts]);
@@ -584,6 +677,21 @@ function scriptedDriver(state) {
             if (state.onStage) state.onStage(paths);
             return { target: 1, chars: 1, cbData: 1, activates: true };
         },
+        // The wailsdev pieces: GetSettings over the dev bridge and one
+        // Settings switch. state.settings is the app's persisted record, so
+        // a toggle that claims to have landed has to show up in it.
+        async settings() {
+            calls.push(['settings']);
+            return state.settings ?? null;
+        },
+        async setToggle(name, value) {
+            calls.push(['set-toggle', String(name), value]);
+            const before = Boolean(state.settings && state.settings.hideIP);
+            if (state.toggleStuck)
+                return { before, after: before, changed: false };
+            if (state.settings) state.settings.hideIP = value;
+            return { before, after: value, changed: before !== value };
+        },
     };
 }
 
@@ -625,6 +733,8 @@ test('receiver flow: tab, remember save dir, set code and dir, click the action 
     );
     await leg.start();
     assert.deepEqual(driver.calls[0], ['click', 'Receive', { index: 0 }]);
+    // The Code sub-view before any field is read (openReceiveCode).
+    assert.deepEqual(driver.calls[1], ['to-code-view']);
     assert.equal(leg.saveDir.original, 'C:\\old\\dir');
     assert.deepEqual(
         driver.calls
@@ -958,6 +1068,7 @@ test('launch registers the app pid with lib/proc.mjs (spawned and window-found a
             scratch: dir,
             uia: client,
             launcher: async () => ({ child: null, pid }),
+            lister: NO_PROCS,
             // Keeps this pid test off the real registry.
             shellMenu: new ShellMenuGuard({ platform: 'linux' }),
             infra: { server: 'http://127.0.0.1:9', web: 'http://127.0.0.1:9' },
@@ -1060,6 +1171,7 @@ test('stop() restores the guard in finally even when the close path throws, writ
             state
         );
         await leg.launch();
+        const mtimeMs = statSync(cfg).mtimeMs;
         leg.guard = new DesktopConfigGuard({
             configPath: cfg,
             evidenceDir: path.join(dir, 'ev'),
@@ -1067,10 +1179,12 @@ test('stop() restores the guard in finally even when the close path throws, writ
         });
         await leg.guard.apply();
         leg.recordGuard();
+        // mtimeMs (fix 14) lets `cleanup` put the owner's mtime back as well.
         assert.deepEqual(manifest.desktop, {
             backup: path.join(dir, 'ev', 'desktop.json.bak'),
             configPath: cfg,
             sha256: sha256(original),
+            mtimeMs,
             restored: null,
         });
         assert.equal(
@@ -2026,6 +2140,36 @@ test('restoreConfig puts the backup back only when safe, and says when it wrote 
     }
 });
 
+test('cleanup restoreConfig puts the recorded mtime back too, and a manifest without one leaves it alone (fix 14)', async () => {
+    const dir = tmp();
+    try {
+        const cfg = path.join(dir, 'desktop.json');
+        const bak = path.join(dir, 'desktop.json.bak');
+        writeFileSync(bak, '{"reportStats":true}\n');
+        const sha = sha256(readFileSync(bak));
+        const then = new Date('2026-01-02T03:04:05.000Z');
+        writeFileSync(cfg, '{"reportStats":false}\n');
+        const withTime = await restoreConfig(
+            { backup: bak, configPath: cfg, sha256: sha, mtimeMs: then.getTime() },
+            { lister: async () => [] }
+        );
+        assert.equal(withTime.ok, true);
+        assert.equal(withTime.mtimeRestored, true);
+        assert.match(withTime.detail, /mtime restored/);
+        assert.ok(Math.abs(statSync(cfg).mtimeMs - then.getTime()) < 1);
+        writeFileSync(cfg, '{"reportStats":false}\n');
+        const noTime = await restoreConfig(
+            { backup: bak, configPath: cfg, sha256: sha },
+            { lister: async () => [] }
+        );
+        assert.equal(noTime.ok, true);
+        assert.equal(noTime.mtimeRestored, null);
+        assert.notEqual(statSync(cfg).mtimeMs, then.getTime());
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
 test('probe() never throws and names its probes; store paths sit under WindowsApps', async () => {
     assert.deepEqual(PROBE_NAMES, ['P1', 'P2', 'P6', 'P8', 'P9']);
     const unknown = await probe({ probe: 'P3' });
@@ -2114,4 +2258,757 @@ test('awaitConnected accepts a completion that landed between two polls (fast tr
     );
     assert.equal((await s.leg.awaitDone(2000)).ok, true);
     await s.leg.stop('test');
+});
+
+// ----------------------------------------------------------- head builds
+
+test('buildHead wailsdev: runs no build step, needs the dev server to answer, and returns a build with no exe path', async () => {
+    const dir = tmp();
+    const plan = headDesktopCommands({
+        root: path.join(dir, 'repo'),
+        sha7: 'abc1234',
+        wails: 'C:\\go\\bin\\wails.exe',
+    });
+    const execCalls = [];
+    const exec = (cmd, args) => {
+        execCalls.push([cmd, ...args]);
+        return '';
+    };
+    const probed = [];
+    const up = await buildHead({
+        ...plan,
+        mode: 'wailsdev',
+        fence: null,
+        exec,
+        head: async (url) => {
+            probed.push(url);
+            return 200;
+        },
+    });
+    assert.deepEqual(execCalls, [], 'the wailsdev lane runs no build step');
+    assert.deepEqual(probed, [WAILSDEV_URL]);
+    assert.equal(up.path, null, 'no exe on disk, so P7 has nothing to probe');
+    assert.equal(up.sha256, null);
+    assert.equal(up.launch, 'wailsdev');
+    assert.equal(up.served, WAILSDEV_URL);
+    assert.equal(up.version, 'head-abc1234');
+
+    // Nothing answering 34115 is a machine precondition, not a verdict.
+    let thrown = null;
+    try {
+        await buildHead({
+            ...plan,
+            mode: 'wailsdev',
+            exec,
+            head: async () => 0,
+        });
+    } catch (e) {
+        thrown = e;
+    }
+    assert.ok(thrown instanceof PreconditionError);
+    assert.equal(thrown.reason, 'wailsdev-down');
+    assert.equal(thrown.exitCode, 3);
+    assert.match(thrown.message, /wails dev/);
+    assert.deepEqual(execCalls, [], 'still no build step on the down path');
+    rmSync(dir, { recursive: true, force: true });
+});
+
+test('buildHead portable: runs npm run build then wails build through exec with no shell for wails, requires the exe mtime to advance, and returns its sha256', async () => {
+    const dir = tmp();
+    const root = path.join(dir, 'repo');
+    const plan = headDesktopCommands({
+        root,
+        sha7: 'abc1234',
+        wails: 'C:\\go\\bin\\wails.exe',
+    });
+    for (const w of plan.writes) mkdirSync(w, { recursive: true });
+    writeFileSync(plan.exe, 'MZ stale build');
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(plan.exe, old, old);
+    const fence = {
+        allowed: [],
+        asserted: [],
+        allowDir(d) {
+            this.allowed.push(d);
+        },
+        assertWritable(p) {
+            this.asserted.push(p);
+            return p;
+        },
+    };
+    const calls = [];
+    const exec = (cmd, args, o = {}) => {
+        calls.push({
+            cmd,
+            args,
+            cwd: o.cwd,
+            shell: o.shell,
+            timeout: o.timeout,
+        });
+        if (cmd === plan.steps[1].cmd)
+            writeFileSync(plan.exe, 'MZ fresh head desktop build');
+        return '';
+    };
+    const built = await buildHead({ ...plan, mode: 'portable', fence, exec });
+
+    assert.equal(calls.length, 2, 'both steps, in order');
+    assert.deepEqual(calls[0].args, ['run', 'build']);
+    assert.equal(calls[0].cwd, path.join(root, 'desktop', 'frontend'));
+    assert.equal(
+        calls[0].shell,
+        process.platform === 'win32',
+        'the npm step keeps the plan shell flag'
+    );
+    assert.equal(calls[1].cmd, 'C:\\go\\bin\\wails.exe');
+    assert.equal(calls[1].cwd, path.join(root, 'desktop'));
+    assert.equal(calls[1].shell, false, 'no shell for wails');
+    const ld = calls[1].args.indexOf('-ldflags');
+    assert.ok(ld > -1);
+    assert.equal(
+        calls[1].args[ld + 1],
+        '-X main.version=head-abc1234',
+        'the ldflags value is one argv element, so no shell quoting'
+    );
+    assert.equal(calls[1].timeout, plan.steps[1].timeoutMs);
+    assert.deepEqual(
+        fence.allowed,
+        plan.writes,
+        'every build dir is registered with the fence before any step runs'
+    );
+    assert.deepEqual(fence.asserted, [...plan.writes, plan.exe]);
+
+    assert.equal(built.path, plan.exe);
+    assert.equal(built.launch, 'portable');
+    assert.equal(built.version, 'head-abc1234');
+    assert.equal(built.sha256, sha256(readFileSync(plan.exe)));
+    assert.ok(built.builtAt > old.toISOString());
+
+    // wails build can exit 0 on a silent failure, so a run that leaves the
+    // exe alone is a failed build however the child exited.
+    const quiet = [];
+    let thrown = null;
+    try {
+        await buildHead({
+            ...plan,
+            mode: 'portable',
+            fence,
+            exec: (cmd) => {
+                quiet.push(cmd);
+                return '';
+            },
+        });
+    } catch (e) {
+        thrown = e;
+    }
+    assert.ok(thrown instanceof PreconditionError);
+    assert.equal(quiet.length, 2, 'both steps ran and both exited 0');
+    assert.ok(
+        thrown.message.includes(plan.exe),
+        `the failure names the exe: ${thrown.message}`
+    );
+    rmSync(dir, { recursive: true, force: true });
+});
+
+test('buildHead never writes under the real APPDATA', async () => {
+    const dir = tmp();
+    const appData = path.join(dir, 'appdata');
+    mkdirSync(path.join(appData, 'floe'), { recursive: true });
+    const fence = createFence({
+        allow: [path.join(dir, 'out')],
+        repoRoots: [],
+        appData,
+    });
+    const exec = () => {
+        throw new Error('no step may run once a write is refused');
+    };
+    // A plan naming the real %APPDATA%\floe: allowDir cannot open that tree,
+    // because the fence refuses it ahead of its own allowlist.
+    for (const target of [
+        path.join(appData, 'floe'),
+        path.join(appData, 'floe', 'webview'),
+        path.join(appData, 'floe', 'desktop.json'),
+    ]) {
+        let thrown = null;
+        try {
+            await buildHead({
+                version: 'head-abc1234',
+                steps: [{ cmd: 'npm', args: ['run', 'build'], cwd: dir }],
+                exe: path.join(dir, 'out', 'floe-desktop.exe'),
+                writes: [target],
+                mode: 'portable',
+                fence,
+                exec,
+            });
+        } catch (e) {
+            thrown = e;
+        }
+        assert.ok(
+            thrown instanceof SafetyError,
+            `${target} must be refused, got ${thrown && thrown.name}`
+        );
+        assert.match(thrown.message, /write refused/);
+    }
+    assert.deepEqual(
+        readdirSync(path.join(appData, 'floe')),
+        [],
+        'nothing was created under the real app data'
+    );
+    // The fence is also required: without one the guarantee is unproven.
+    let noFence = null;
+    try {
+        await buildHead({
+            version: 'head-abc1234',
+            steps: [],
+            exe: path.join(dir, 'out', 'floe-desktop.exe'),
+            writes: [],
+            mode: 'portable',
+            exec,
+        });
+    } catch (e) {
+        noFence = e;
+    }
+    assert.ok(noFence instanceof PreconditionError);
+    assert.match(noFence.message, /write fence is required/);
+    rmSync(dir, { recursive: true, force: true });
+});
+
+test('buildHead refuses a mode it does not know', async () => {
+    const exec = () => {
+        throw new Error('no step may run for an unknown mode');
+    };
+    const head = async () => {
+        throw new Error('no dev server probe for an unknown mode');
+    };
+    for (const mode of ['store', 'none', 'auto-magic', '', null]) {
+        let thrown = null;
+        try {
+            await buildHead({
+                version: 'head-abc1234',
+                steps: [],
+                exe: 'C:\\x\\floe-desktop.exe',
+                writes: [],
+                mode,
+                fence: createFence({ allow: [], repoRoots: [] }),
+                exec,
+                head,
+            });
+        } catch (e) {
+            thrown = e;
+        }
+        assert.ok(
+            thrown instanceof PreconditionError,
+            `${String(mode)} must be refused`
+        );
+        assert.equal(thrown.reason, 'head-desktop-mode');
+        assert.equal(thrown.exitCode, 3);
+        assert.match(thrown.message, /not a head desktop lane/);
+    }
+    // store is a launch mode the adapter knows; it is just not a head build.
+    assert.ok(LAUNCH_MODES.includes('store'));
+    assert.ok(LAUNCH_MODES.includes('wailsdev'));
+});
+
+// -------------------------------------------------- the wailsdev driver
+
+/**
+ * A page that records the locator chain instead of touching a browser, so
+ * the shape of a selector is testable without Playwright or a DOM. evaluate
+ * runs the real page function against a stub window, which is what pins the
+ * event name and payload rather than the source text.
+ */
+function fakePage({ runtime, wails } = {}) {
+    const chain = [];
+    const node = () => ({
+        locator(sel) {
+            chain.push(['locator', sel]);
+            return node();
+        },
+        getByRole(role, o) {
+            chain.push(['getByRole', role, o]);
+            return node();
+        },
+        nth(i) {
+            chain.push(['nth', i]);
+            return node();
+        },
+        async click() {
+            chain.push(['click']);
+        },
+    });
+    return {
+        chain,
+        locator(sel) {
+            chain.push(['locator', sel]);
+            return node();
+        },
+        getByRole(role, o) {
+            chain.push(['getByRole', role, o]);
+            return node();
+        },
+        async evaluate(fn, arg) {
+            const had = 'window' in globalThis;
+            const prev = globalThis.window;
+            globalThis.window = { runtime, wails };
+            try {
+                return await fn(arg);
+            } finally {
+                if (had) globalThis.window = prev;
+                else delete globalThis.window;
+            }
+        },
+    };
+}
+
+test('xpathLiteral quotes a value XPath 1.0 has no escape for', () => {
+    assert.equal(xpathLiteral('Receive'), "'Receive'");
+    assert.equal(xpathLiteral(STRINGS.cancel), "'Cancel'");
+    assert.equal(xpathLiteral('say "hi"'), '\'say "hi"\'');
+    assert.equal(xpathLiteral("it's"), '"it\'s"');
+    // Both quote characters: only concat() can express it.
+    assert.equal(xpathLiteral('it\'s "x"'), "concat('it',\"'\",'s \"x\"')");
+});
+
+test("PlaywrightDriver.click reaches the receive view's primary button by document order, not by sibling position", async () => {
+    const page = fakePage();
+    const d = new PlaywrightDriver(page, null, {});
+
+    // The tab carries the same accessible name and is clicked by index.
+    await d.click(STRINGS.tabReceive, { index: 0 });
+    assert.deepEqual(page.chain, [
+        ['getByRole', 'button', { name: 'Receive', exact: true }],
+        ['nth', 0],
+        ['click'],
+    ]);
+
+    page.chain.length = 0;
+    await d.click(STRINGS.receiveButton, {
+        after: STRINGS.codePlaceholder,
+        controlType: 'Button',
+    });
+    assert.deepEqual(page.chain, [
+        ['locator', 'input[placeholder="amber-otter-cloud"]'],
+        ['locator', "xpath=following::button[normalize-space(.)='Receive']"],
+        ['nth', 0],
+        ['click'],
+    ]);
+    const selectors = page.chain
+        .filter((c) => c[0] === 'locator')
+        .map((c) => c[1]);
+    // The shape that failed every live *2D cell on 2026-09-22: the button
+    // is a sibling of the field group, so `~ *` matched it and getByRole
+    // then searched inside it. Nothing may chain a role query onto a
+    // container here, and no sibling combinator may appear.
+    assert.ok(!selectors.some((s) => s.includes('~ *')), selectors.join(' | '));
+    assert.ok(
+        !page.chain.some((c, i) => c[0] === 'getByRole' && i > 0),
+        'the button is taken by the anchored XPath, not by a nested role query'
+    );
+});
+
+/** A page holding only the receive row's Code choice, in a given state. */
+function codeChoicePage({ shown, pressed }) {
+    const clicks = [];
+    const button = {
+        first: () => button,
+        isVisible: async () => shown,
+        getAttribute: async (n) => (n === 'aria-pressed' ? String(pressed) : null),
+        click: async () => {
+            clicks.push('Code');
+        },
+    };
+    return {
+        clicks,
+        getByRole(role, o) {
+            assert.equal(role, 'button');
+            assert.deepEqual(o, { name: STRINGS.codeChoice, exact: true });
+            return button;
+        },
+    };
+}
+
+test('PlaywrightDriver.toCodeView presses Code only when it shows and is not pressed', async () => {
+    assert.equal(STRINGS.codeChoice, 'Code');
+    for (const [shown, pressed, want] of [
+        [true, false, ['Code']], // the view kept Request link from the last cell
+        [true, true, []], // already on Code
+        [false, false, []], // not on Receive: no choice row on the page
+    ]) {
+        const page = codeChoicePage({ shown, pressed });
+        const pressedIt = await new PlaywrightDriver(page, null, {}).toCodeView();
+        assert.deepEqual(page.clicks, want, `shown=${shown} pressed=${pressed}`);
+        assert.equal(pressedIt, want.length === 1);
+    }
+});
+
+test('openReceiveCode opens RECEIVE and then its Code sub-view, on either driver', async () => {
+    // The head default run of 2026-09-25 lost every *2D cell to
+    // `locator.inputValue: Timeout 30000ms`: a request cell left the receive
+    // view on Request link, where the code and Save to fields do not exist.
+    const calls = [];
+    await openReceiveCode({
+        click: async (n, o) => calls.push(['click', n, o]),
+        toCodeView: async () => calls.push(['toCodeView']),
+    });
+    assert.deepEqual(calls, [['click', STRINGS.tabReceive, { index: 0 }], ['toCodeView']]);
+
+    // The UIA lane has no request link verbs (request.mjs refuses them off
+    // wailsdev), so there is no sub-view to leave: only the tab is clicked.
+    const sent = [];
+    const uia = new UiaDriver(
+        {
+            retry: async (verb, args) => sent.push([verb, args.name]),
+            request: async (verb) => sent.push([verb]),
+        },
+        7
+    );
+    await openReceiveCode(uia);
+    assert.equal(await uia.toCodeView(), false);
+    assert.deepEqual(sent, [['click', STRINGS.tabReceive]]);
+});
+
+test('every code-receive path in DesktopLeg goes through openReceiveCode', () => {
+    // A bare RECEIVE click followed by a read of the code or Save to field is
+    // the shape that timed out; the request views reach RECEIVE through
+    // _toRequestView and makeRequestLink, which pick their own sub-view, on
+    // the dev page (PlaywrightDriver) and on an exe (UiaDriver, FU-26).
+    const src = readFileSync(fileURLToPath(new URL('./desktop.mjs', import.meta.url)), 'utf8');
+    const bare = src
+        .split('\n')
+        .map((l, i) => [i + 1, l.trim()])
+        .filter(([, l]) => /click\(STRINGS\.tabReceive\b/.test(l));
+    const allowed = /^await this\._button\(STRINGS\.tabReceive\)\.first\(\)\.click\(\);$|^await driver\.click\(STRINGS\.tabReceive, \{ index: 0 \}\);$|^await this\.click\(STRINGS\.tabReceive, \{ index: 0, controlType: 'Button' \}\);$/;
+    const stray = bare.filter(([, l]) => !allowed.test(l));
+    assert.deepEqual(stray, [], 'a RECEIVE click outside openReceiveCode and the request views');
+});
+
+test('PlaywrightDriver.stage hands its own page the files through a files:open notify, never EventsEmit', async () => {
+    const emitted = [];
+    const notified = [];
+    const page = fakePage({
+        runtime: { EventsEmit: (...a) => emitted.push(a) },
+        wails: { EventsNotify: (json) => notified.push(json) },
+    });
+    const d = new PlaywrightDriver(page, null, {});
+    const files = ['C:\\fx\\a.bin', 'C:\\fx\\b.bin'];
+    const out = await d.stage(files);
+    // App.tsx's mount effect: EventsOn('files:open', (paths) => addFiles(paths)),
+    // so the payload is one array argument, not one argument per path.
+    assert.deepEqual(
+        notified.map((j) => JSON.parse(j)),
+        [{ name: 'files:open', data: [files] }]
+    );
+    // The wails dev server rebroadcasts an EventsEmit to every other page,
+    // so a sender leg's staging moved the request host's page to Send and
+    // stranded its Close link (the first live TA-17 run, 2026-09-24).
+    assert.deepEqual(emitted, [], 'EventsEmit is never called');
+    assert.deepEqual(out, { staged: 2, via: 'files:open' });
+
+    // A page with EventsEmit alone is refused rather than broadcast to.
+    const emitOnly = new PlaywrightDriver(
+        fakePage({ runtime: { EventsEmit: (...a) => emitted.push(a) } }),
+        null,
+        {}
+    );
+    await assert.rejects(
+        () => emitOnly.stage(files),
+        (e) => e instanceof PhaseError && /EventsNotify is missing/.test(e.message)
+    );
+    assert.deepEqual(emitted, [], 'still no broadcast');
+
+    // A page without the Wails runtime is a start-phase fault, never a
+    // silent no-op that would look like an empty drop zone.
+    const bare = new PlaywrightDriver(fakePage(), null, {});
+    await assert.rejects(() => bare.stage(files), PhaseError);
+});
+
+test('wailsdev sender: the leg stages its files before waiting for the send button', async () => {
+    const state = {
+        values: {},
+        texts: ['READY', 'Select or drag files, then click Send.'],
+        buttons: ['SEND', 'RECEIVE', 'Send'],
+    };
+    // Staging is what makes the button appear, exactly as addFiles does.
+    state.onStage = () => state.buttons.push('Send 1 item');
+    state.onClick = (name) => {
+        if (sameText(name, 'Send 1 item'))
+            state.texts = [
+                'ACTIVE',
+                'olive-tiger-castle',
+                'https://floe.one/#room=abc',
+                STRINGS.waitingForReceiver,
+            ];
+    };
+    const { leg, driver } = legWith(
+        {
+            role: 'sender',
+            files: ['C:\\fx\\a.bin'],
+            build: { launch: 'wailsdev' },
+        },
+        state
+    );
+    await leg.start();
+    const order = driver.calls.map((c) => c[0]);
+    assert.ok(order.includes('stage'), driver.calls.map(String).join(' | '));
+    assert.ok(
+        order.indexOf('stage') < order.indexOf('click'),
+        'the files are staged before the send button is clicked'
+    );
+    assert.deepEqual(driver.calls.find((c) => c[0] === 'stage').slice(0, 2), [
+        'stage',
+        ['C:\\fx\\a.bin'],
+    ]);
+    assert.deepEqual(
+        driver.calls.find((c) => c[0] === 'click').slice(0, 2),
+        ['click', 'Send 1 item'],
+        'the cell still exercises the button, not a direct StartSend'
+    );
+    assert.ok(
+        leg.notes.some((n) =>
+            /staged 1 file\(s\) through the files:open event/.test(n)
+        ),
+        leg.notes.join(' | ')
+    );
+    await leg.stop('test');
+
+    // Every other mode stages at launch, so none of them calls stage.
+    const pstate = {
+        values: {},
+        texts: ['READY'],
+        buttons: ['SEND', 'RECEIVE', 'Send 1 item'],
+    };
+    pstate.onClick = (name) => {
+        if (sameText(name, 'Send 1 item'))
+            pstate.texts = ['ACTIVE', 'https://floe.one/#room=abc'];
+    };
+    const p = legWith(
+        {
+            role: 'sender',
+            files: ['C:\\fx\\a.bin'],
+            build: { launch: 'portable', path: 'x' },
+        },
+        pstate
+    );
+    await p.leg.start();
+    assert.ok(!p.driver.calls.some((c) => c[0] === 'stage'));
+    await p.leg.stop('test');
+});
+
+// ------------------------------------- reading the share panel, and relay
+
+/** The SharePanel shape App.tsx renders, as far as readText can see it. */
+function fakeShareDom({ code, link }) {
+    const node = (tag, text, kids = []) => ({
+        tag,
+        kids,
+        get textContent() {
+            return this.kids.length
+                ? this.kids.map((k) => k.textContent).join('')
+                : text;
+        },
+        contains(o) {
+            return (
+                o === this ||
+                this.kids.some((k) => k === o || (k.contains && k.contains(o)))
+            );
+        },
+    });
+    const codeSpan = node('span', code);
+    const linkCode = node('code', link);
+    const panel = node('div', '', [
+        node('span', 'Room code'),
+        codeSpan,
+        node('span', 'Share link'),
+        linkCode,
+    ]);
+    const root = node('div', '', [
+        node('h2', 'Send anything, peer to peer.'),
+        panel,
+        node('p', 'Waiting for the receiver...'),
+    ]);
+    const all = [];
+    const walk = (n) => {
+        all.push(n);
+        n.kids.forEach(walk);
+    };
+    walk(root);
+    return {
+        querySelectorAll: (sel) =>
+            all.filter((n) => sel.split(', ').includes(n.tag)),
+    };
+}
+
+test('isRoomLink takes a share link and refuses the page around it', () => {
+    const link = 'http://localhost:3000/?s=a7ac39a8#room=7d6d89b2-0742-4f75';
+    assert.equal(isRoomLink(link), true);
+    assert.equal(isRoomLink('https://www.floe.one/#room=abc'), true);
+    // What the wailsdev read actually handed the web receiver on 2026-09-22.
+    assert.equal(
+        isRoomLink(
+            'FloedesktopPeer to peerSend anything,peer to peer.Room codestung-step-tamerShare linkhttp://localhost:3000/?s=a#room=b'
+        ),
+        false
+    );
+    assert.equal(isRoomLink('stung-step-tamer'), false);
+    assert.equal(isRoomLink('http://localhost:3000/'), false);
+    assert.equal(isRoomLink('http://localhost:3000/#room='), false);
+    assert.equal(isRoomLink('file:///c:/x#room=abc'), false);
+    assert.equal(isRoomLink(null), false);
+});
+
+test('PlaywrightDriver.readText answers with the innermost matches, so a share link is the link and not the page', async () => {
+    const code = 'stung-step-tamer';
+    const link = 'http://localhost:3000/?s=a7ac39a8#room=7d6d89b2-0742-4f75';
+    const dom = fakeShareDom({ code, link });
+    const page = {
+        async evaluate(fn, arg) {
+            const had = 'document' in globalThis;
+            const prev = globalThis.document;
+            globalThis.document = dom;
+            try {
+                return await fn(arg);
+            } finally {
+                if (had) globalThis.document = prev;
+                else delete globalThis.document;
+            }
+        },
+    };
+    const d = new PlaywrightDriver(page, null, {});
+
+    // Every ancestor of the link matches RE.link too, and document order
+    // puts the page root first, which is what used to be read.
+    const links = await d.readText(RE.link, { controlType: 'any' });
+    assert.deepEqual(links, [link]);
+    assert.ok(links.every((l) => isRoomLink(l)));
+
+    // The anchored code pattern never matched a container, but it still has
+    // to answer with the code span.
+    const codes = await d.readText(RE.code, { controlType: 'Text' });
+    assert.deepEqual(codes, [code]);
+});
+
+test('wailsdev sender: the room code and the share link are read together, not whichever renders first', async () => {
+    const code = 'stung-step-tamer';
+    const link = 'http://localhost:3000/?s=a7ac39a8#room=7d6d89b2-0742-4f75';
+    let reads = 0;
+    const state = {
+        values: {},
+        buttons: ['SEND', 'RECEIVE', 'Send'],
+        // App.tsx renders both from one send:code event, but the leg reads
+        // them one after the other: this script puts a render between the
+        // two reads of the first poll, which is what the live run hit (13 ms
+        // from click to link, code still unread).
+        get texts() {
+            reads += 1;
+            return reads <= 2 ? ['ACTIVE', link] : ['ACTIVE', code, link];
+        },
+    };
+    state.onStage = () => state.buttons.push('Send 1 item');
+    const { leg } = legWith(
+        {
+            role: 'sender',
+            files: ['C:\\fx\\a.bin'],
+            build: { launch: 'wailsdev' },
+        },
+        state
+    );
+    await leg.start();
+    assert.equal(await leg.link(), link, 'the link is the link');
+    assert.equal(
+        await leg.code(),
+        code,
+        'the code is read even though the link won the first poll'
+    );
+    await leg.stop('test');
+});
+
+test('wailsdev relay cell: Hide my IP is set through Settings, proved by GetSettings, and put back on stop', async () => {
+    const code = 'stung-step-tamer';
+    const link = 'http://localhost:3000/?s=a7ac39a8#room=7d6d89b2-0742-4f75';
+    const state = {
+        values: {},
+        texts: ['ACTIVE', code, link],
+        buttons: ['SEND', 'RECEIVE', 'Send'],
+        settings: {
+            server: 'http://localhost:3001',
+            reportStats: false,
+            migrated: true,
+            hideIP: false,
+        },
+    };
+    state.onStage = () => state.buttons.push('Send 1 item');
+    const { leg, driver } = legWith(
+        {
+            role: 'sender',
+            files: ['C:\\fx\\a.bin'],
+            relayOnly: true,
+            build: { launch: 'wailsdev' },
+        },
+        state
+    );
+    await leg.start();
+    const toggles = driver.calls.filter((c) => c[0] === 'set-toggle');
+    assert.deepEqual(
+        toggles.map((c) => c[2]),
+        [true],
+        'the cell forces relay exactly once'
+    );
+    assert.equal(state.settings.hideIP, true, 'and the app agrees it is on');
+    // Settings is opened and closed around it, and the files are staged
+    // afterwards, because addFiles closes Settings.
+    const order = driver.calls.map((c) => c[0]);
+    assert.ok(order.indexOf('set-toggle') < order.indexOf('stage'));
+    assert.equal(
+        driver.calls.filter(
+            (c) => c[0] === 'click' && sameText(c[1], STRINGS.settings)
+        ).length,
+        2,
+        'the gear toggles Settings open and shut'
+    );
+    await leg.stop('test');
+    assert.equal(
+        state.settings.hideIP,
+        false,
+        'and it is put back when the cell ends'
+    );
+
+    // A switch that will not move is a precondition failure, never a relay
+    // cell quietly recorded as direct.
+    const stuck = {
+        values: {},
+        texts: ['ACTIVE', code, link],
+        buttons: ['SEND', 'RECEIVE', 'Send 1 item'],
+        settings: { server: 'http://localhost:3001', hideIP: false },
+        toggleStuck: true,
+    };
+    const s = legWith(
+        {
+            role: 'sender',
+            files: ['C:\\fx\\a.bin'],
+            relayOnly: true,
+            build: { launch: 'wailsdev' },
+        },
+        stuck
+    );
+    await assert.rejects(() => s.leg.start(), PreconditionError);
+    await s.leg.stop('test');
+
+    // A direct cell on the same lane never touches the switch.
+    const plain = {
+        values: {},
+        texts: ['ACTIVE', code, link],
+        buttons: ['SEND', 'RECEIVE', 'Send'],
+        settings: { server: 'http://localhost:3001', hideIP: false },
+    };
+    plain.onStage = () => plain.buttons.push('Send 1 item');
+    const p = legWith(
+        {
+            role: 'sender',
+            files: ['C:\\fx\\a.bin'],
+            build: { launch: 'wailsdev' },
+        },
+        plain
+    );
+    await p.leg.start();
+    assert.ok(!p.driver.calls.some((c) => c[0] === 'set-toggle'));
+    await p.leg.stop('test');
 });

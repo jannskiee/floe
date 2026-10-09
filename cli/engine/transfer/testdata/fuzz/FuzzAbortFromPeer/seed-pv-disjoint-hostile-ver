@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":2,\"pvMin\":2,\"ver\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u202e\u2066\u200f\u061c\\u0000\\u0007\\u001b[2J\\n\\r\u0085\u009b$(calc)]]\\u003e\\u003czzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\"}")

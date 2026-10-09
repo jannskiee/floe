@@ -292,8 +292,12 @@ func TestSenderSeesReceiverRejection(t *testing.T) {
 
 	select {
 	case err := <-sendErr:
-		if err == nil || !strings.Contains(err.Error(), "file description") {
-			t.Fatalf("expected the receiver's reason in the sender's error, got: %v", err)
+		// Since S1-ENG-03 the over-cap frame carries path-too-long, so a
+		// current sender prints that code's fixed sentence; the reason, which
+		// still names the file description, is for senders without code.
+		var stopped *PeerStoppedError
+		if !errors.As(err, &stopped) || stopped.Code != CodePathTooLong {
+			t.Fatalf("expected the receiver's path-too-long in the sender's error, got: %v (%T)", err, err)
 		}
 		if strings.Contains(err.Error(), "connection closed") {
 			t.Fatalf("sender reported the close instead of the reason: %v", err)
@@ -393,14 +397,15 @@ func TestReceiverIncomingIsDisplaySafe(t *testing.T) {
 		t.Errorf("a raw control or bidi character reached stdout:\n%q", out)
 	}
 
-	// More shapes, asserting FirstName only: the long name may fail at
-	// claimPart (the OS caps a component at 255), which is fine here because
-	// OnIncoming has already fired by then. The long name keeps its extension
-	// across the cut, so the prompt still says what the file is.
+	// More shapes, asserting FirstName only. The long name keeps its
+	// extension across the cut, so the prompt still says what the file is.
+	// It is 234 runes, past the 200-rune display cap and inside layer 1's 240
+	// units with ".part"; it was 404 before S1-ENG-03, which layer 1 now
+	// refuses before OnIncoming ever fires.
 	rows := []struct{ name, fileName, wantFirst string }{
 		{"escape sequence", "\x1b[2Kfake.txt", "_[2Kfake.txt"},
 		{"carriage return", "a\rb", "a_b"},
-		{"400 rune name", strings.Repeat("n", 400) + ".txt", strings.Repeat("n", 195) + "….txt"},
+		{"234 rune name", strings.Repeat("n", 230) + ".txt", strings.Repeat("n", 195) + "….txt"},
 	}
 	for _, row := range rows {
 		t.Run(row.name, func(t *testing.T) {
@@ -510,7 +515,12 @@ func TestSenderIncompatibleTextIsDisplaySafe(t *testing.T) {
 	bidiVer := strings.Repeat("v\u202e", 200)
 	bidiPayload, _ := json.Marshal(incompatibleMsg{Type: "incompatible", Reason: "x", Pv: 2, PvMin: 2, Ver: bidiVer})
 	hugePayload, _ := json.Marshal(incompatibleMsg{Type: "incompatible", Reason: strings.Repeat("evil ", 2048), Pv: 1, PvMin: 1})
-	for _, p := range [][]byte{escPayload, bidiPayload} {
+	// A coded frame: the code is what a current sender acts on, and nothing
+	// else on the frame may reach the person, however it is dressed.
+	hostileText := "\x1b[2K‮$(calc)]]><" + strings.Repeat("⁦x", 40)
+	one := 1
+	codedPayload, _ := json.Marshal(incompatibleMsg{Type: "incompatible", Reason: hostileText, Pv: 1, PvMin: 1, Ver: "v" + hostileText, Code: string(CodeWriteFailed), Saved: &one})
+	for _, p := range [][]byte{escPayload, bidiPayload, codedPayload} {
 		if len(p) > 1000 {
 			t.Fatalf("fixture is %d bytes on the wire, must stay under the control cap", len(p))
 		}
@@ -519,6 +529,8 @@ func TestSenderIncompatibleTextIsDisplaySafe(t *testing.T) {
 		t.Fatalf("huge fixture is %d bytes, must exceed the control cap", len(hugePayload))
 	}
 
+	// The wrap the sender puts on its OWN failures. A peer-originated error must
+	// not carry it (F-SHA-3), so here the prefix is what must be absent.
 	const prefix = "error sending hostile.bin: "
 	cases := []struct {
 		name       string
@@ -531,11 +543,10 @@ func TestSenderIncompatibleTextIsDisplaySafe(t *testing.T) {
 			if strings.Contains(s, "\x1b") || strings.Contains(s, "\n") {
 				t.Errorf("a raw control character reached the error: %q", s)
 			}
-			body := strings.TrimPrefix(s, prefix)
-			if body == s {
-				t.Errorf("error lacks the sender's wrapping prefix: %q", s)
+			if strings.HasPrefix(s, prefix) {
+				t.Errorf("a peer reason was wrapped with a local file name: %q", s)
 			}
-			if n := utf8.RuneCountInString(body); n > 300 {
+			if n := utf8.RuneCountInString(s); n > 300 {
 				t.Errorf("reason is %d runes, want at most 300", n)
 			}
 		}},
@@ -562,6 +573,26 @@ func TestSenderIncompatibleTextIsDisplaySafe(t *testing.T) {
 			}
 			if strings.Contains(s, "evil evil") {
 				t.Errorf("the over-cap payload reached the error: %q", s)
+			}
+		}},
+		{"coded frame with hostile reason and ver prints the fixed sentence", codedPayload, false, func(t *testing.T, err error) {
+			var stopped *PeerStoppedError
+			if !errors.As(err, &stopped) {
+				t.Fatalf("expected a *PeerStoppedError, got %T: %v", err, err)
+			}
+			if stopped.Code != CodeWriteFailed || stopped.Saved != 1 {
+				t.Errorf("PeerStoppedError{%q, %d}, want write-failed and 1", stopped.Code, stopped.Saved)
+			}
+			if got, want := stopped.Error(), "Their computer could not save a file."; got != want {
+				t.Errorf("Error() = %q, want exactly %q", got, want)
+			}
+			if s := err.Error(); s != "Their computer could not save a file." {
+				t.Errorf("the wrapped error is %q, want exactly the fixed sentence", s)
+			}
+			for _, bad := range []string{"\x1b", "‮", "⁦", "calc", "]]>"} {
+				if strings.Contains(err.Error(), bad) {
+					t.Errorf("%q from the peer reached the error: %q", bad, err.Error())
+				}
 			}
 		}},
 	}
@@ -609,6 +640,61 @@ func TestSenderIncompatibleTextIsDisplaySafe(t *testing.T) {
 				tc.check(t, err)
 			case <-time.After(15 * time.Second):
 				t.Fatal("SendFiles did not return")
+			}
+		})
+	}
+}
+
+// TestReceiverCompatErrorsKeepTheirLines: the receiver's two protocol mismatch
+// returns, its own check of the metadata's range and the sender's
+// incompatible frame, carry the OwnLines mark the CLI's error printer needs to
+// print Floe's three lines as lines (FU-43 at the merge into
+// feat/request-link, where the mark moved onto the typed compat error). A
+// frame whose range overlaps ours is the peer's reason through displayText,
+// so it stays on one line whatever newlines the peer sent.
+func TestReceiverCompatErrorsKeepTheirLines(t *testing.T) {
+	cases := []struct {
+		name     string
+		frame    string
+		newlines int
+	}{
+		{"metadata whose range misses ours", `{"type":"metadata","id":"c-1","fileName":"a.bin","fileSize":4,"index":1,"total":1,"totalBytes":4,"pv":9,"pvMin":9,"ver":"v9"}`, 2},
+		{"incompatible frame whose range misses ours", `{"type":"incompatible","reason":"x","pv":9,"pvMin":9,"ver":"v9"}`, 2},
+		{"incompatible frame from a legacy peer", `{"type":"incompatible","reason":"line one\n  Run this instead"}`, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sender, recvCh, closeFn := newConnectedPair(t)
+			defer closeFn()
+
+			recvErr := make(chan error, 1)
+			go func() {
+				dc := <-recvCh
+				recvErr <- ReceiveFilesWithOptions(dc, t.TempDir(), true, "v1", "", ReceiveOptions{})
+			}()
+			time.Sleep(300 * time.Millisecond)
+			if err := sender.SendText(tc.frame); err != nil {
+				t.Fatalf("SendText: %v", err)
+			}
+
+			select {
+			case err := <-recvErr:
+				if err == nil {
+					t.Fatal("expected an error, got nil")
+				}
+				s := err.Error()
+				var own interface{ OwnLines() }
+				if !errors.As(err, &own) {
+					t.Errorf("the compat error does not mark its lines as Floe's own (OwnLines): %T %q", err, s)
+				}
+				if n := strings.Count(s, "\n"); n != tc.newlines {
+					t.Errorf("the compat error has %d newlines, want %d: %q", n, tc.newlines, s)
+				}
+				if tc.newlines > 0 && !strings.Contains(s, "Cannot transfer") {
+					t.Errorf("expected the rebuilt compat message, got: %q", s)
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatal("ReceiveFilesWithOptions did not return")
 			}
 		})
 	}

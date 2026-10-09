@@ -26,3 +26,14 @@ type Progress struct {
 // once per chunk, so consumers that cross an expensive boundary (e.g. emitting a
 // UI event across the Go/JS bridge) should throttle.
 type ProgressFunc func(Progress)
+
+// Delivered is the receiver's delivery report, handed to a GUI client once the
+// send is confirmed. Files is this sender's own count; Verified is the count
+// the receiver claimed through parseReceived, and HasVerified says whether that
+// claim was usable at all. A claim, never a proof: read Verified only for
+// equality with Files, the way the Verified summary row does.
+type Delivered struct {
+	Files       int  `json:"files"`
+	Verified    int  `json:"verified"`
+	HasVerified bool `json:"hasVerified"`
+}

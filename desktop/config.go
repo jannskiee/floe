@@ -43,6 +43,18 @@ type appConfig struct {
 	// vouch for a field that did not exist when the record was written.
 	NoUpdateCheck bool `json:"noUpdateCheck"`
 
+	// NoToasts and SilentToasts are Settings > Notifications. Inverted for the
+	// same reason as NoUpdateCheck: the zero values (toasts shown, with sound)
+	// are today's behavior, so a desktop.json written before them keeps every
+	// toast. Named Toasts, never Notification: TestNoDirectNotifyInRequestLane
+	// fails any identifier holding that word that is not on its allowlist.
+	NoToasts     bool `json:"noToasts"`
+	SilentToasts bool `json:"silentToasts"`
+
+	// There is no request-links field: the Settings switch is gone (H7 S-1,
+	// S-2). A desktop.json written while it existed still carries a
+	// "requestLinks" key; json.Unmarshal ignores it and the next save drops it.
+
 	// Migrated records that the two toggles above came from somewhere real: either
 	// the user, or the one-time import of the localStorage keys they used to live
 	// in. It is load-bearing, not bookkeeping. Go's zero value for a bool is false,

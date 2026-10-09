@@ -32,6 +32,18 @@
  * (ice/v4 agent.go:780, Trace level) whose local and remote halves name the
  * candidate types; a future "  Connected (direct|relay)" suffix is accepted
  * by the marker regex so no parser change is needed when it ships.
+ *
+ * Request-link visitor (TA-16, opts.requestLink): the sender leg runs
+ *   <bin> send <paths...> --to <link> --server <s> [--relay-only]
+ * (cli/cmd/floe/send.go flagTo, sendto.go runSendTo). No --web: the request
+ * path prints no link of its own. It is started once the WAIT line prints
+ * (joined, connected, waiting for the host's Accept), and it is done on its
+ * exit: 0 with TL-03's arrived line (and the SHA line only when the host's
+ * verified count equals N), or 1 with one fixed outcome line on stderr. The
+ * link carries the room after `#` and goes to argv only: the CLI never
+ * prints it back, link() answers null, and a request runner scrubs the leg's
+ * evidence (argv included) with redactRequestLinks. FLOE_NO_STATS=1 is set
+ * on it as on every receiver, though a sender has no stats path at all.
  */
 import { execFile, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -56,10 +68,12 @@ export const VERSION_RE = /^floe (\S+)\s*$/m;
 export const CODE_RE = /^\s*Code\s+([a-z]+(?:-[a-z]+){2,3})\s*$/m;
 // client/e2e/helpers.ts spawnSend
 export const LINK_RE = /https?:\/\/\S*#room=[^\s]+/;
-// Summary rows: sender.go SendFilesWithOptions (Sent, Time), receiver.go ReceiveFilesWithOptions
-// (Received, Time, Saved to). Labels are padded to the longest label.
+// Summary rows: sender.go SendFilesWithOptions (Sent, Time, Verified), receiver.go
+// ReceiveFilesWithOptions (Received, Time, Saved to, Verified). Labels are padded
+// to the longest label. Verified is present only when every file carried a digest
+// that matched, so a cell can require it or require its absence.
 export const SUMMARY_ROW_RE =
-    /^ {2}(Sent|Received|Time|Saved to) {3,}(.+?)\s*$/gm;
+    /^ {2}(Sent|Received|Time|Saved to|Verified) {3,}(.+?)\s*$/gm;
 // pion/ice/v4 agent.go:780 under PION_LOG_TRACE=ice.
 export const PION_PAIR_RE = /Set selected candidate pair: (.*)$/;
 // relay.go checkRelayGate wrapped by cobra's "Error: " prefix (main.go SilenceUsage).
@@ -82,6 +96,11 @@ export const MARKERS = Object.freeze({
     progress: /^ {2}\[(\d+)\/(\d+)\] /, // format.go newProgressBar
     savedAs: /^ {2}Saved as (.+)$/, // receiver.go ReceiveFilesWithOptions
     canceled: /^ {2}Canceled\.$/, // main.go main, the Ctrl+C handler (stderr)
+    // The request-link send, sendto.go (the approved CLI copy, TL-01 and TL-03).
+    joining: /^ {2}Joining the request link\.\.\.$/, // lineJoining
+    requestWaiting: /^ {2}Waiting for them to accept\. They have \d+ min to answer\.$/, // lineWaiting (D-144 (6))
+    arrived: /^ {2}(?:All (\d+) files|(1) file) arrived \((.+)\)\.$/, // arrivedLine
+    shaMatched: /^ {2}Their app reports every file's SHA-256 matched\.$/, // lineVerified
 });
 
 export function parseVersion(stdout = '') {
@@ -119,6 +138,8 @@ export function parseSummary(stdout = '') {
         received: rows.Received ?? null,
         time: rows.Time ?? null,
         savedTo: rows['Saved to'] ?? null,
+        // Present only when every file carried a digest that matched (P0-19a).
+        verified: rows.Verified ?? null,
         files: null,
         size: null,
         duration: null,
@@ -139,6 +160,36 @@ export function parseSummary(stdout = '') {
     }
     out.complete = Boolean(rows.Sent || (rows.Received && rows['Saved to']));
     return out;
+}
+
+/**
+ * What a request-link visitor's run printed at its end (TA-16):
+ * { arrived: { files, detail } | null, shaLine, connected, outcome }. arrived
+ * is TL-03's line ("All 12 files arrived (38 GB in 17m 4s, direct).", the
+ * singular "1 file arrived (...)."), shaLine whether TL-03's SHA line
+ * printed, connected the route word of the Connected line, and outcome the
+ * last indented line on stderr: the one fixed sentence a failed run ends
+ * on (approved copy, TL-05 to TL-30), never a peer's text.
+ */
+export function parseRequestOutcome(stdout = '', stderr = '') {
+    const lines = stdout.split(/\r\n|\r|\n/);
+    let arrived = null;
+    let shaLine = false;
+    let connected = null;
+    for (const l of lines) {
+        const a = l.match(MARKERS.arrived);
+        if (a) arrived = { files: Number(a[1] ?? a[2]), detail: a[3], line: l.trim() };
+        if (MARKERS.shaMatched.test(l)) shaLine = true;
+        const c = l.match(MARKERS.connected);
+        if (c) connected = c[1] ?? null;
+    }
+    const outcome =
+        stderr
+            .split(/\r\n|\r|\n/)
+            .filter((l) => /^ {2}\S/.test(l))
+            .at(-1)
+            ?.trim() ?? null;
+    return { arrived, shaLine, connected, outcome };
 }
 
 /**
@@ -178,7 +229,14 @@ export function buildArgs(opts) {
     const web = infra.web ?? opts.web;
     if (!server) throw new PhaseError('start', 'cli: infra.server is required');
     const args = [];
-    if (opts.role === 'sender') {
+    if (opts.role === 'sender' && opts.requestLink) {
+        // TA-16: the request-link visitor. No --web, the request path
+        // prints no link of its own.
+        const files = opts.files || [];
+        if (!files.length)
+            throw new PhaseError('start', 'cli visitor: opts.files is empty');
+        args.push('send', ...files, '--to', opts.requestLink, '--server', server);
+    } else if (opts.role === 'sender') {
         const files = opts.files || [];
         if (!files.length)
             throw new PhaseError('start', 'cli sender: opts.files is empty');
@@ -228,7 +286,7 @@ export function buildEnv(opts, base = process.env) {
         env[key] = value;
     }
     env.FLOE_NO_UPDATE_CHECK = '1';
-    if (opts.role === 'receiver') env.FLOE_NO_STATS = '1';
+    if (opts.role === 'receiver' || opts.requestLink) env.FLOE_NO_STATS = '1';
     if (opts.pionTrace) env.PION_LOG_TRACE = 'ice';
     return env;
 }
@@ -335,6 +393,8 @@ export async function preflight(opts = {}) {
         };
     }
     detail.cliHasRelayOnly = detail.sendFlags.includes('--relay-only');
+    // The request-link visitor (TA-16): a CLI whose send --help lists --to.
+    detail.cliHasTo = detail.sendFlags.includes('--to');
     for (const need of ['--no-report', '--yes', '--output']) {
         if (!detail.receiveFlags.includes(need))
             return {
@@ -378,10 +438,11 @@ export class CliLeg extends Leg {
         const timeout = this.budget(opts.startTimeoutMs ?? START_TIMEOUT_MS);
         // send.go runSend and receive.go runReceive fetch TURN, open /ws,
         // and register a code (sender) and code.Resolve GETs one (receiver
-        // by code).
+        // by code). The request visitor (sendto.go) fetches TURN and opens
+        // /ws but registers no code: it joins with request-join.
         spend(opts.ledger, 'turn');
         spend(opts.ledger, 'conn');
-        if (opts.role === 'sender' || opts.input === 'code')
+        if ((opts.role === 'sender' && !opts.requestLink) || opts.input === 'code')
             spend(opts.ledger, 'code');
         this.h = spawnFloe({
             bin: this.bin,
@@ -394,7 +455,18 @@ export class CliLeg extends Leg {
             verbatim: this.verbatim,
         });
         try {
-            if (opts.role === 'sender') {
+            if (opts.requestLink) {
+                // TA-16: joined, connected and waiting for the host's Accept.
+                // The Connected line prints just before the WAIT line
+                // (sendto.go runSendTo), so its route word is in by now.
+                const hit = await this.h.waitLine(
+                    MARKERS.requestWaiting,
+                    timeout
+                );
+                this.marks.waiting = hit.t;
+                this.connectedSuffix = parseRequestOutcome(this.h.stdout).connected;
+                if (this.connectedSuffix) this.marks.connected = hit.t;
+            } else if (opts.role === 'sender') {
                 // The Code row prints before the Link row (send.go runSend),
                 // so once the link is out the code is final or absent.
                 const hit = await this.h.waitLine(LINK_RE, timeout);
@@ -419,6 +491,8 @@ export class CliLeg extends Leg {
     }
 
     async link() {
+        // A request-link visitor never hands its link on: it carries the room.
+        if (this.opts.requestLink) return null;
         if (this.role === 'receiver') return receiverTarget(this.opts);
         return this._link;
     }
@@ -508,6 +582,23 @@ export class CliLeg extends Leg {
             );
         }
         const ms = exit.t - this.h.t0;
+        if (this.opts.requestLink) {
+            // TA-16: success is exit 0 with TL-03's arrived line; anything
+            // else carries the fixed outcome line it ended on.
+            const r = parseRequestOutcome(this.h.stdout, this.h.stderr);
+            const ok = exit.code === 0 && Boolean(r.arrived);
+            return {
+                ok,
+                kind: ok ? 'transfer' : 'error',
+                detail: {
+                    ...r,
+                    error: firstErrorLine(this.h.stderr),
+                    ...(ok ? {} : { signal: exit.signal, tail: tail(this.h) }),
+                },
+                exitCode: exit.code,
+                ms,
+            };
+        }
         const cls = classifyExit(exit.code, this.h.stderr);
         const summary = parseSummary(this.h.stdout);
         const error = firstErrorLine(this.h.stderr);
@@ -637,7 +728,17 @@ export class CliLeg extends Leg {
                           noReport: this.argv.includes('--no-report'),
                           floeNoStats: this.env.FLOE_NO_STATS ?? null,
                       }
-                    : null,
+                    : this.opts.requestLink
+                      ? {
+                            kind: 'sender-env',
+                            floeNoStats: this.env.FLOE_NO_STATS ?? null,
+                        }
+                      : null,
+            // TA-16's own lines; argv above holds the link, which the request
+            // runner scrubs before anything is written.
+            request: this.opts.requestLink
+                ? parseRequestOutcome(h ? h.stdout : '', h ? h.stderr : '')
+                : null,
             notes: this.notes,
         };
     }

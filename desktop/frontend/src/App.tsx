@@ -1,6 +1,9 @@
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useReducer, useRef, useState} from 'react';
 import {
+    AnswerRequest,
+    CancelRequestDrop,
     CancelTransfer,
+    CloseRequestLink,
     ConfirmClose,
     CheckForUpdate,
     ContextMenuEnabled,
@@ -8,18 +11,23 @@ import {
     EnableContextMenu,
     EngineProtocolVersion,
     GetPendingFiles,
+    GetRequestLink,
     GetSettings,
     GetVersion,
     IsPackaged,
+    MakeRequestLink,
     OpenFile,
     OpenFolder,
     PasteFiles,
     ReceiveByCode,
+    RetryRequestLink,
     RevealFile,
     SelectFiles,
     SelectFolder,
     SetCheckUpdates,
     SetSettings,
+    SetToastSound,
+    SetToasts,
     StartSend,
     StartSendText,
     TestServer,
@@ -38,29 +46,85 @@ import {
     X,
 } from 'lucide-react';
 import {BoltMark, Button, cn, Eyebrow, Input, rowDescClass, rowLabelClass, StatusDot} from './components/ui';
-import {advancedSummary, hostOf, webPlaceholder} from './settings';
+import {
+    NOTIFICATION_SETTINGS_URI,
+    NOTIFICATIONS_HEADING,
+    OPEN_NOTIFICATION_SETTINGS,
+    OPEN_NOTIFICATION_SETTINGS_LABEL,
+    PLAY_SOUND,
+    SHOW_NOTIFICATIONS,
+    SHOW_NOTIFICATIONS_OFF,
+    SHOW_NOTIFICATIONS_ON,
+    WINDOWS_NOTIFICATIONS,
+    WINDOWS_NOTIFICATIONS_DESCRIPTION,
+    advancedSummary,
+    hostOf,
+    webPlaceholder,
+} from './settings';
 import {UNDO_WINDOW_MS, clearLabel, clearedAnnouncement, clearedLabel, restorable, restoredAnnouncement, stagedSnapshot, supersededBy, undoLabel, type Cleared} from './clear';
 import {resetWarning} from './reset';
 import {friendlyError} from './errors';
+import {
+    acceptedPrompt,
+    autoAcceptShown,
+    errorCode as requestErrorCode,
+    initialRequestUI,
+    linkOpen,
+    noticeVisible,
+    normalizeSnapshot,
+    parsePastedLink,
+    phase as requestPhase,
+    reduce as reduceRequest,
+    type Lifetime,
+} from './requestLink';
+import {
+    ANNOUNCE_GUARD_LIFTED,
+    ANNOUNCE_REQUEST,
+    AUTO_ACCEPT_CHIP,
+    BETA_CHIP,
+    CLOSE_DROP_RECEIVING_LINE,
+    CLOSE_FLOE,
+    CLOSE_LINK_ALSO_LINE,
+    CLOSE_LINK_OPEN_LINE,
+    CODE_PASTE_LINE,
+    CODE_TAB,
+    DECLINED_LINE,
+    KEEP_FLOE_OPEN,
+    LINK_OPEN_DESCRIPTION,
+    OPEN_IN_BROWSER,
+    REQUEST_TAB,
+    REQUEST_TAB_NAME,
+    START_OVER_LINK_LINE,
+    STOPPED_HEADING,
+    WAITING_LINE,
+    doneHeading,
+    endedLine,
+    stoppedCard,
+} from './requestCopy';
 import {formatIncoming, type IncomingPreview} from './incoming';
 import {track, type Marker, type Prog} from './progress';
 import {baseName, mergePaths, normPath} from './paths';
-import {HISTORY_CAP, loadHistory, type HistEntry} from './history';
+import {HISTORY_CAP, loadHistory, requestHistoryEntry, type HistEntry} from './history';
 import {DOWNLOAD_URL, bareVersion, isNewerDesktopVersion} from './update';
 import TitleBar from './components/TitleBar';
 import {Tooltip} from './components/Tooltip';
-import {UNDO_ANCHOR_ID, UpdateNotice, UndoToast} from './components/Toasts';
-import {SettingRow, SettingField} from './components/SettingsPrimitives';
-import {ProgressRow, StatusLine, FooterNote, Dropzone, FileList, FileSummary} from './components/TransferBits';
+import {NoticeStack, RequestNotice, UNDO_ANCHOR_ID, UpdateNotice, UndoToast} from './components/Toasts';
+import {SettingAction, SettingRow, SettingField} from './components/SettingsPrimitives';
+import {ProgressRow, StatusLine, FooterNote, Dropzone, FileList, FileSummary, VerifiedMark} from './components/TransferBits';
 import SharePanel from './components/SharePanel';
 import HistoryView from './components/HistoryView';
+import RequestLinkView, {LABEL_INPUT_ID, PROMPT_ACTIONS_ID, PROMPT_HEADING_ID} from './components/RequestLinkView';
+import {useCardPin} from './cardPin';
 
 type Mode = 'send' | 'receive' | 'history';
 
 // Initial status lines, shared by the useState initializers and Start-over so
 // a reset lands on the exact same copy a fresh launch shows.
-const INITIAL_SEND_STATUS = 'Select or drag files, then click Send.';
-const INITIAL_RECV_STATUS = 'Enter a code or link, then click Receive.';
+const INITIAL_SEND_STATUS = 'Select or drag files, then click Send';
+const INITIAL_RECV_STATUS = 'Enter a code or link, then click Receive';
+
+// The hidden H2 line the Receive tab points its aria-describedby at.
+const RECEIVE_DESCRIPTION_ID = 'floe-receive-link-open';
 
 // Windows paths compare case-insensitively; normalize for dedupe and removal but
 // keep the original strings for display and for the Go side.
@@ -158,6 +222,10 @@ function App() {
     const [sending, setSending] = useState(false);
     const [sendProg, setSendProg] = useState<{pct: number; label: string} | null>(null);
     const [sendDone, setSendDone] = useState(false);
+    // Whether the receiver's delivery report said every file matched its
+    // SHA-256. Reduced to a boolean in the event handler; the counts never
+    // reach a render.
+    const [sendVerified, setSendVerified] = useState(false);
     const [sentCount, setSentCount] = useState(0);
     // The note the last COMPLETED send put on the wire, '' when that send was
     // files. Start over compares the box against it: send:done leaves the
@@ -203,6 +271,10 @@ function App() {
 
     // Receive state
     const [code, setCode] = useState('');
+    // A request or drop link the owner pasted into CODE, as the parsed http(s)
+    // href Open in browser may hand to the default browser; '' when none. Set
+    // only by receive()'s pre-check, cleared by any edit of the field.
+    const [pastedRequestLink, setPastedRequestLink] = useState('');
     const [output, setOutput] = useState(() => localStorage.getItem('floe:saveDir') || '');
     // Opt-OUT model like the browser: report unless explicitly disabled. Seeded
     // from localStorage, then replaced by the Go-owned record on mount.
@@ -214,6 +286,13 @@ function App() {
     const [recvProg, setRecvProg] = useState<{pct: number; label: string} | null>(null);
     const [recvDir, setRecvDir] = useState('');
     const [recvDone, setRecvDone] = useState(false);
+    // Whether every file this receive committed passed its SHA-256 check.
+    // Counted in refs, because the recv:file-done handler is registered once
+    // with [] deps, so a state value read inside it would be the first
+    // render's forever. Only the reduced boolean is state.
+    const [recvVerified, setRecvVerified] = useState(false);
+    const recvVerifiedRef = useRef(0);
+    const recvFilesRef = useRef(0);
     // The pre-transfer preview line ("Incoming: 3 files · 812 MB"), set by the
     // recv:incoming event before the first byte lands.
     const [incoming, setIncoming] = useState('');
@@ -269,6 +348,33 @@ function App() {
     const [updateVer, setUpdateVer] = useState('');
     const [updateDismissed, setUpdateDismissed] = useState(false);
     const [checkUpdates, setCheckUpdates] = useState(true);
+    // Settings > Notifications. Go-owned like checkUpdates, and the zero value
+    // of both Go fields is today's behavior, so both default to on. Sound keeps
+    // its value while notifications are off: the row is dimmed, not cleared.
+    const [notificationsOn, setNotificationsOn] = useState(true);
+    const [notificationSound, setNotificationSound] = useState(true);
+
+    // The Request link lane as this window sees it (requestLink.ts). Go is
+    // authoritative; the reducer adopts its snapshots and keeps only what Go
+    // never sees. None of it feeds `busy`: an open link must never lock out
+    // Send or code Receive (spec 06 5.1).
+    const [reqUI, dispatchReq] = useReducer(reduceRequest, initialRequestUI);
+    const [reqProgress, setReqProgress] = useState<Prog | null>(null);
+    // The newest lane generation a request:state snapshot or the
+    // GetRequestLink pull has named (F2-03).
+    const reqProgressGen = useRef(0);
+    // Which half of Receive shows. Not persisted: entering Receive shows
+    // REQUEST LINK while the lane has something to say, CODE otherwise.
+    const [receiveKind, setReceiveKind] = useState<'code' | 'request'>('code');
+    // Whether the prompt block is on screen (the notice hides while it is).
+    const [promptInView, setPromptInView] = useState(false);
+    // The request lane's own screen-reader channel (A1, A2): a fourth
+    // persistent span, for the reason the update and undo spans give.
+    const [reqAnnounce, setReqAnnounce] = useState('');
+    // The base folder for request links, remembered like floe:saveDir.
+    const [requestSaveDir, setRequestSaveDir] = useState(() => {
+        try { return localStorage.getItem('floe:requestSaveDir') || ''; } catch { return ''; }
+    });
 
     // addFiles merges incoming paths into the send selection. Shared by OS
     // drops, second-instance launches, and cold-start args; safe to call from
@@ -303,6 +409,26 @@ function App() {
             await SetCheckUpdates(v);
         } catch {
             setCheckUpdates(!v); // revert on failure, the toggleCtxMenu pattern
+        }
+    }
+
+    // The same pattern for the two notification switches: each has its own Go
+    // setter, so the whole-record save below can never clobber them.
+    async function toggleNotifications(v: boolean) {
+        setNotificationsOn(v);
+        try {
+            await SetToasts(v);
+        } catch {
+            setNotificationsOn(!v);
+        }
+    }
+
+    async function toggleNotificationSound(v: boolean) {
+        setNotificationSound(v);
+        try {
+            await SetToastSound(v);
+        } catch {
+            setNotificationSound(!v);
         }
     }
 
@@ -345,7 +471,7 @@ function App() {
         try {
             await saveSettings();
             const r = await TestServer(serverAddrRef.current.trim());
-            setTestStatus(r.ok ? (r.message || 'Connected.') : 'Error: ' + r.message);
+            setTestStatus(r.ok ? (r.message || 'Connected') : 'Error: ' + r.message);
         } catch (e) {
             setTestStatus('Error: ' + e);
         } finally {
@@ -363,7 +489,7 @@ function App() {
     // is registered once and cannot see current state.
     function serverNote(): string {
         const s = serverAddrRef.current.trim();
-        return s ? ` This app uses ${hostOf(s)}. Both people must be on the same server.` : '';
+        return s ? ` · Both people must use ${hostOf(s)}` : '';
     }
 
     // Copies the About rows for pasting into a bug report. Mirrors SharePanel's
@@ -423,8 +549,10 @@ function App() {
         try {
             await SetSettings('', '', false, true);
             await SetCheckUpdates(true);
+            await SetToasts(true);
+            await SetToastSound(true);
         } catch (e) {
-            // Two persists means a partial failure is possible: re-pull what
+            // Four persists means a partial failure is possible: re-pull what
             // actually landed on disk so the screen never diverges from it.
             try {
                 const c = await GetSettings();
@@ -433,6 +561,8 @@ function App() {
                 setHideIP(c.hideIP);
                 setReportStats(c.reportStats);
                 setCheckUpdates(!c.noUpdateCheck);
+                setNotificationsOn(!c.noToasts);
+                setNotificationSound(!c.silentToasts);
                 serverAddrRef.current = c.server || '';
                 webAddrRef.current = c.web || '';
             } catch { /* unreadable config: leave the screen as is */ }
@@ -444,12 +574,14 @@ function App() {
         setHideIP(false);
         setReportStats(true);
         setCheckUpdates(true);
+        setNotificationsOn(true);
+        setNotificationSound(true);
         setOutput('');
         setTestStatus('');
         serverAddrRef.current = '';
         webAddrRef.current = '';
         setConfirmDefaults(false);
-        setResetDone('Settings are back to their defaults.');
+        setResetDone('Settings reset to defaults');
         focusResetTrigger();
     }
 
@@ -482,13 +614,14 @@ function App() {
             if (sendCancel.current) return;
             setSendCode(data.code);
             setSendLink(data.link);
-            setSendStatus('Waiting for the receiver...');
+            setSendStatus('Waiting for the receiver');
         });
         EventsOn('send:status', (msg: string) => {
             if (sendCancel.current) return;
             setSendStatus(msg);
-            // The only send:status today is "Peer connected. Sending..." — it marks
-            // the moment the room is consumed and the share panel can collapse.
+            // The only send:status today is "Sending..." (D-167; it was "Peer
+            // connected. Sending..."), and it marks the moment the room is
+            // consumed and the share panel can collapse.
             setPeerConnected(true);
         });
         EventsOn('send:progress', (p: Prog) => {
@@ -613,6 +746,77 @@ function App() {
         };
     }, []);
 
+    // The two verification events, in their own effect with their own teardown.
+    // Deliberately NOT folded into the mount effect above: that one is eleven
+    // listeners with a matching teardown and a first-render closure contract,
+    // and it stays exactly as it is.
+    useEffect(() => {
+        EventsOn('recv:file-done', (d: {verified: boolean}) => {
+            if (recvCancel.current) return;
+            recvFilesRef.current += 1;
+            if (d && d.verified) recvVerifiedRef.current += 1;
+            setRecvVerified(recvFilesRef.current > 0 && recvVerifiedRef.current === recvFilesRef.current);
+        });
+        EventsOn('send:delivered', (d: {files: number; verified: number; hasVerified: boolean}) => {
+            if (sendCancel.current) return;
+            // The receiver's claim, so only the equality is read: a count above
+            // the file count already arrives as hasVerified false.
+            setSendVerified(!!d && d.hasVerified && d.files > 0 && d.verified === d.files);
+        });
+        return () => {
+            EventsOff('recv:file-done');
+            EventsOff('send:delivered');
+        };
+    }, []);
+
+    // The Request link's two events, in their own effect with their own
+    // teardown (KL-3): the mount effect above keeps exactly its eleven
+    // listeners. Registered at launch (H7 S-1, FT-03b): they are local Wails
+    // events and a call into Go, not network traffic, and no server is asked
+    // anything before Make link. GetRequestLink is pulled after both
+    // listeners exist, the GetPendingFiles ordering: a snapshot emitted in
+    // between would otherwise be lost.
+    //
+    // A lane generation is one link and at most one drop, and Go emits
+    // request:progress for the current generation only, so a snapshot naming
+    // a newer generation than any before it clears the progress the last drop
+    // left (F2-03): the next drop shows its own progress or none, never the
+    // previous visitor's name and counts (a drop of empty files sends none).
+    // It clears here, in event order, so a progress event right behind that
+    // snapshot still shows.
+    useEffect(() => {
+        const adopt = (s: unknown) => {
+            const snap = normalizeSnapshot(s);
+            if (snap.gen > reqProgressGen.current) {
+                reqProgressGen.current = snap.gen;
+                setReqProgress(null);
+            }
+            dispatchReq({type: 'SNAPSHOT', snap});
+        };
+        EventsOn('request:state', adopt);
+        EventsOn('request:progress', (p: Prog) => setReqProgress(p));
+        GetRequestLink().then(adopt).catch(() => {});
+        return () => {
+            EventsOff('request:state');
+            EventsOff('request:progress');
+        };
+    }, []);
+
+    // Floe closed last time with a link open (O7). The marker holds only the
+    // link's end time, never the link. Read once and cleared at once; a link
+    // that would have ended anyway by now leaves no trace. It only makes
+    // Receive open on REQUEST LINK, at its Make link form, until a new link
+    // exists (D-170: the X5 line "Link ended when Floe closed" is cut).
+    const openRequestAfterRelaunch = useRef(false);
+    useEffect(() => {
+        let until = 0;
+        try {
+            until = Number(localStorage.getItem('floe:requestLinkOpenUntil')) || 0;
+            localStorage.removeItem('floe:requestLinkOpenUntil');
+        } catch { /* storage unavailable */ }
+        if (until > Date.now()) openRequestAfterRelaunch.current = true;
+    }, []);
+
     // About data: fetched once; failures just leave the placeholders.
     useEffect(() => {
         GetVersion().then(setAppVer).catch(() => {});
@@ -647,6 +851,8 @@ function App() {
                 // Not part of the migration below: the field never lived in
                 // localStorage, and its zero value is the shipped default.
                 setCheckUpdates(!c.noUpdateCheck);
+                setNotificationsOn(!c.noToasts);
+                setNotificationSound(!c.silentToasts);
                 if (c.migrated) {
                     setHideIP(c.hideIP);
                     setReportStats(c.reportStats);
@@ -664,6 +870,77 @@ function App() {
             })
             .catch(() => {});
     }, []);
+
+    // Entering Receive shows REQUEST LINK while the lane has something to say
+    // (a link, a drop, a result or an error) or after a relaunch that closed
+    // a link, CODE otherwise.
+    const reqPhaseRef = useRef('ready');
+    useEffect(() => {
+        if (mode !== 'receive') return;
+        setReceiveKind(reqPhaseRef.current === 'ready' && !openRequestAfterRelaunch.current ? 'code' : 'request');
+    }, [mode]);
+
+    // The next-launch marker: set to the link's end time while a link is
+    // open, cleared once it is not (closed, expired, done, stopped, refused).
+    // Gen 0 is the launch state, which must not clear what the launch read.
+    useEffect(() => {
+        try {
+            if (linkOpen(reqUI.snap.state) && reqUI.snap.expiresAt) {
+                localStorage.setItem('floe:requestLinkOpenUntil', String(reqUI.snap.expiresAt));
+            } else if (reqUI.snap.gen > 0) {
+                localStorage.removeItem('floe:requestLinkOpenUntil');
+            }
+        } catch { /* storage unavailable */ }
+        // A link of this session ends the relaunch's pull toward REQUEST LINK.
+        if (reqUI.snap.gen > 0) openRequestAfterRelaunch.current = false;
+    }, [reqUI.snap.state, reqUI.snap.expiresAt, reqUI.snap.gen]);
+
+    // One History row per finished drop (S1-DSK-09): the first time a lane
+    // generation reaches done, or stopped with files saved, or save-blocked
+    // (D-128, requestHistoryEntry). Go may re-emit a
+    // terminal snapshot (a GetRequestLink pull, a later event of the same
+    // gen), so the gens already recorded are remembered and a copy adds
+    // nothing. The row keeps no link and no room id (requestHistoryEntry).
+    const recordedGens = useRef(new Set<number>());
+    useEffect(() => {
+        const s = reqUI.snap;
+        if ((s.state !== 'done' && s.state !== 'stopped') || recordedGens.current.has(s.gen)) return;
+        recordedGens.current.add(s.gen);
+        const row = requestHistoryEntry(s);
+        // The row is keyed by its exclusive subfolder too: a webview reload
+        // empties recordedGens and re-pulls a still-done lane, and the folder
+        // that drop was saved into is already on a stored row (review F7).
+        if (row) {
+            setHistory((prev) => (row.dir && prev.some((h) => h.via === 'request' && h.dir === row.dir)
+                ? prev
+                : [row, ...prev].slice(0, HISTORY_CAP)));
+        }
+    }, [reqUI.snap]);
+
+    // A1 once per prompt, and the channel emptied between prompts so the next
+    // one is a change the screen reader speaks. A2 comes from the view.
+    const lastPromptGen = useRef(0);
+    const reqPrevState = useRef('');
+    useEffect(() => {
+        const s = reqUI.snap;
+        const prev = reqPrevState.current;
+        reqPrevState.current = s.state;
+        if (s.state !== 'deciding') {
+            const r = s.result;
+            let line = '';
+            if (s.state === 'done' && r) line = doneHeading(r.saved, r.bytes);
+            else if (s.state === 'stopped' && r) line = `${STOPPED_HEADING}. ${stoppedCard(s.code, r.saved, r.files)}`;
+            else if (s.state === 'ended') line = endedLine(s.code, s.expiresAt);
+            else if (s.state === 'declined') line = DECLINED_LINE;
+            else if (s.state === 'waiting' && prev === 'making') line = WAITING_LINE;
+            setReqAnnounce(line);
+            return;
+        }
+        if (reqUI.snap.promptGen !== lastPromptGen.current) {
+            lastPromptGen.current = reqUI.snap.promptGen;
+            setReqAnnounce(ANNOUNCE_REQUEST);
+        }
+    }, [reqUI.snap.state, reqUI.snap.promptGen, reqUI.snap.gen]);
 
     // Persist only the transfer tabs; relaunching into History would be odd.
     useEffect(() => { if (mode !== 'history') localStorage.setItem('floe:mode', mode); }, [mode]);
@@ -717,7 +994,10 @@ function App() {
     // The close dialog's premise is "a transfer is running". If it finishes or
     // is canceled while the dialog is up, dismiss: the Go hook no longer blocks
     // a close anyway, so the next X just closes, and stale copy would lie.
-    useEffect(() => { if (!sending && !receiving) setCloseGuard(false); }, [sending, receiving]);
+    // The lane joins in: with a link still open the Go hook keeps blocking, so
+    // the dialog stays until nothing is live on any lane.
+    const laneLive = linkOpen(reqUI.snap.state);
+    useEffect(() => { if (!sending && !receiving && !laneLive) setCloseGuard(false); }, [sending, receiving, laneLive]);
 
     // Leaving the history view abandons a pending Clear confirmation.
     useEffect(() => { if (mode !== 'history') setConfirmClear(false); }, [mode]);
@@ -1038,7 +1318,7 @@ function App() {
         setSendDone(false);
         // Blanked for the same reason every staging path blanks it: whatever it
         // said was about a payload that no longer exists. Without this, a
-        // "Canceled." from an earlier send would reappear when the offer went.
+        // "Canceled" from an earlier send would reappear when the offer went.
         setSendStatus('');
         setCleared(snap);
         setOfferUp(true);
@@ -1089,11 +1369,11 @@ function App() {
     async function send() {
         if (sendKind === 'text') {
             if (!sendText.trim()) {
-                setSendStatus('Type some text first.');
+                setSendStatus('Type some text to send');
                 return;
             }
         } else if (!files.length) {
-            setSendStatus('Select at least one file first.');
+            setSendStatus('Add a file to send');
             return;
         }
         // Nothing is discarded here, and the reason is worth stating because the
@@ -1108,6 +1388,7 @@ function App() {
         sendCancel.current = false;
         setSending(true);
         setSendDone(false);
+        setSendVerified(false);
         setRoute('');
         if (sendKind === 'text') {
             setSentCount(1);
@@ -1138,7 +1419,17 @@ function App() {
 
     async function receive() {
         if (!code.trim()) {
-            setRecvStatus('Please enter a code or link.');
+            setRecvStatus('Enter a code or link');
+            return;
+        }
+        // A request or drop link is for a web browser: say so and offer to
+        // open it, and never call ReceiveByCode, which claims a transfer
+        // generation before it resolves and toasts on failure (S1-DSK-07).
+        // Anyone can be sent somebody else's request link.
+        const pasted = parsePastedLink(code);
+        if (pasted) {
+            setPastedRequestLink(pasted.href);
+            setRecvStatus('');
             return;
         }
         const attempt = ++recvAttempt.current;
@@ -1146,13 +1437,16 @@ function App() {
         setRecvProg(null);
         setRecvDir('');
         setRecvDone(false);
+        setRecvVerified(false);
+        recvVerifiedRef.current = 0;
+        recvFilesRef.current = 0;
         setIncoming('');
         setRoute('');
         recvCancel.current = false;
         recvStart.current = null;
         recvNamesRef.current = new Map();
         recvBytesRef.current = 0;
-        setRecvStatus('Connecting... keep this window open.');
+        setRecvStatus('Connecting...');
         try {
             const dir = await ReceiveByCode(code.trim(), output.trim(), hideIP, reportStats);
             if (recvAttempt.current !== attempt) return;
@@ -1163,7 +1457,7 @@ function App() {
             setHistory((prev) => [{kind: 'recv' as const, names, count: names.length, dir, bytes: recvBytesRef.current || undefined, at: Date.now()}, ...prev].slice(0, HISTORY_CAP));
         } catch (e: any) {
             if (recvAttempt.current !== attempt) return;
-            setRecvStatus(recvCancel.current ? 'Canceled.' : friendlyError(e) + serverNote());
+            setRecvStatus(recvCancel.current ? 'Canceled' : friendlyError(e) + serverNote());
         } finally {
             if (recvAttempt.current !== attempt) return;
             setReceiving(false);
@@ -1200,7 +1494,7 @@ function App() {
             setSendLink('');
             setPeerConnected(false);
             setFilesOpen(false);
-            setSendStatus('Canceled.');
+            setSendStatus('Canceled');
         }
         setRoute('');
         if (receiving) {
@@ -1209,7 +1503,7 @@ function App() {
             setRecvProg(null);
             setRecvDone(false);
             setIncoming('');
-            setRecvStatus('Canceled.');
+            setRecvStatus('Canceled');
         }
         CancelTransfer().catch(() => {});
     }
@@ -1251,6 +1545,7 @@ function App() {
         setSending(false);
         setSendProg(null);
         setSendDone(false);
+        setSendVerified(false);
         setSentCount(0);
         setPeerConnected(false);
         setFilesOpen(false);
@@ -1260,11 +1555,15 @@ function App() {
 
         // Receive
         setCode('');
+        setPastedRequestLink('');
         setRecvStatus(INITIAL_RECV_STATUS);
         setReceiving(false);
         setRecvProg(null);
         setRecvDir('');
         setRecvDone(false);
+        setRecvVerified(false);
+        recvVerifiedRef.current = 0;
+        recvFilesRef.current = 0;
         setIncoming('');
         recvStart.current = null;
         recvNamesRef.current = new Map();
@@ -1319,6 +1618,37 @@ function App() {
 
     const busy = sending || receiving;
 
+    // The lane, derived for display only; never part of `busy`.
+    const reqPhase = requestPhase(reqUI);
+    reqPhaseRef.current = reqPhase;
+    const dropMoving = reqUI.snap.state === 'receiving';
+    const dropRelay = dropMoving && reqUI.snap.route === 'relay';
+    const dropDirect = dropMoving && reqUI.snap.route === 'direct';
+    const onRequestView = !settingsOpen && mode === 'receive' && receiveKind === 'request';
+    // A5-02: after the owner's own action unmounts the control they pressed,
+    // focus goes to the new state's own control (the undo bar's orphan rule:
+    // only when focus fell to the page). A change the owner did not cause
+    // moves nothing (spec 06 5.6).
+    const reqActed = useRef(false);
+    useEffect(() => {
+        if (!reqActed.current) return;
+        const target: Record<string, string> = {
+            waiting: 'floe-copy-link', reconnecting: 'floe-copy-link', connecting: 'floe-copy-link',
+            declined: 'floe-keep-waiting', receiving: 'floe-receiving-heading',
+            done: 'floe-make-another', stopped: 'floe-make-another', ended: 'floe-make-another', error: LABEL_INPUT_ID,
+        };
+        const id = target[reqPhase];
+        if (!id) return; // making, deciding: wait for the state the action leads to
+        reqActed.current = false;
+        if (document.activeElement && document.activeElement !== document.body) return;
+        requestAnimationFrame(() => document.getElementById(id)?.focus());
+    }, [reqPhase]);
+    // On REQUEST LINK the card's top is one anchored spot for every state, so
+    // a prompt mounting below cannot re-center it and move Close link
+    // (VR3-D03), and no state starts the card higher or lower than another
+    // (D-136). cardPin.ts has the why.
+    const cardPin = useCardPin(onRequestView);
+
     // What the send tab is holding, or null when it is empty. One rule, read by
     // three places: whether Send is enabled, whether Clear is offered at all, and
     // what an undo would have to put back.
@@ -1330,7 +1660,15 @@ function App() {
     // dismissed. The isNewer re-check is defense in depth (Go already compared)
     // and keeps the card from flashing before GetVersion resolves.
     const updateAvailable = updateVer !== '' && isNewerDesktopVersion(updateVer, appVer);
-    const showUpdate = updateAvailable && !updateDismissed && !busy && !confirmReset && !confirmDefaults;
+    const showUpdate = updateAvailable && !updateDismissed && !busy && !dropMoving && !confirmReset && !confirmDefaults;
+    // The request notice keeps the update notice's manners: never behind a
+    // dialog's scrim. It stands on every screen, Settings included, except
+    // REQUEST LINK with the prompt in view. A prompt that arrives there already
+    // in view still mounts the notice until the IntersectionObserver's first
+    // report, 8 to 23 ms later (FU-04): a frame or so into a 0.32 s fade-in
+    // that starts at opacity 0. Under reduced motion there is no fade, so that
+    // frame or two shows the notice at full opacity. Both are left as they are.
+    const showRequestNotice = noticeVisible(reqUI.snap, onRequestView, promptInView) && !closeGuard && !confirmReset && !confirmDefaults;
     // What Start over would destroy, phrased for its own dialog, so the decision
     // to interrupt and the sentence explaining why can never drift apart. Empty
     // means nothing worth a prompt and the reset runs on the first click or
@@ -1346,7 +1684,30 @@ function App() {
     });
     // Amber marks anything relay-flavored: a known relayed route, or (before
     // the route is known / while idle) the Hide-my-IP preference forcing one.
-    const relayTone = route ? route === 'relay' : hideIP;
+    // A relayed drop is relay-flavored too; a direct one is not, even with
+    // Hide my IP on (the route is known).
+    const relayTone = dropRelay || (route ? route === 'relay' : dropDirect ? false : hideIP);
+    // Status word precedence (spec 06 5.3), display only: relay wins if either
+    // lane relays, then direct, then Active while anything moves. Idle, a link
+    // made with Auto-accept on reads AUTO-ACCEPT while it waits (H4, D-173):
+    // it says what the app will do by itself, which READY cannot. A drop that
+    // did not qualify asks under READY (autoAcceptShown). The tone is READY's.
+    const moving = busy || dropMoving;
+    const autoLinkWaiting = autoAcceptShown(reqUI.snap);
+    const statusWord = !moving ? (autoLinkWaiting ? AUTO_ACCEPT_CHIP : 'Ready')
+        : (busy && route === 'relay') || dropRelay ? 'Relay'
+        : (busy && route === 'direct') || dropDirect ? 'Direct'
+        : 'Active';
+    // The chip's one remaining hover (D-135 D2): the amber READY, the only
+    // case where the dot's hue carries a meaning the word does not. Every
+    // other state shows nothing on hover, because the word says it all. The
+    // same sentence rides a screen-reader twin beside the word, and the Ready
+    // form and Settings say it in visible text (WCAG 1.4.1).
+    const statusNote = !moving && hideIP ? 'Hide my IP limits transfers to 2 GB' : '';
+    // The Receive tab's description while a link waits (H2): the header no
+    // longer carries a marker for it, so a screen reader hears it on the tab
+    // that leads to the link. Not while a drop moves: the chip says that.
+    const receiveDescribed = linkOpen(reqUI.snap.state) && !dropMoving;
 
     // The header clock toggles the history view; leaving returns to the tab it
     // covered. The ref never holds 'history' (only set when entering from a tab).
@@ -1390,6 +1751,9 @@ function App() {
     // already here.)
     function primaryAction() {
         if (busy || settingsOpen || confirmReset || confirmDefaults) return;
+        // No keyboard path to Accept but a focused native button (spec 06
+        // 5.2 item 6), so Ctrl+Enter does nothing on REQUEST LINK at all.
+        if (onRequestView) return;
         if (mode === 'send') {
             if (sendKind === 'text' ? sendText.trim() : files.length) send();
         } else if (mode === 'receive') {
@@ -1399,16 +1763,104 @@ function App() {
     const primaryActionRef = useRef(primaryAction);
     primaryActionRef.current = primaryAction;
 
+    // The REQUEST LINK view's actions. Each binding call answers with a
+    // snapshot or is followed by request:state; nothing here decides a state.
+    function makeRequestLink(label: string, lifetime: Lifetime, autoAccept: boolean) {
+        dispatchReq({type: 'MAKE'});
+        reqActed.current = true;
+        // Automatic only when the form's switch says so (D-173, G1).
+        MakeRequestLink(label, requestSaveDir.trim(), lifetime, autoAccept === true)
+            .then((s) => dispatchReq({type: 'SNAPSHOT', snap: normalizeSnapshot(s)}))
+            .catch(() => dispatchReq({type: 'MAKE_FAILED'}))
+            .finally(() => dispatchReq({type: 'MAKE_DONE'}));
+    }
+    function answerRequest(promptGen: number, answer: 'accept' | 'decline' | 'keep-waiting') {
+        reqActed.current = true;
+        AnswerRequest(promptGen, answer).then((s) => dispatchReq({type: 'SNAPSHOT', snap: normalizeSnapshot(s)})).catch(() => {});
+    }
+    // The base folder is remembered when the owner types or picks one, and
+    // only then: nothing of the feature writes to storage at launch (review
+    // F4). An emptied field forgets it, so the default applies again.
+    function changeRequestSaveDir(dir: string) {
+        setRequestSaveDir(dir);
+        try {
+            if (dir.trim()) localStorage.setItem('floe:requestSaveDir', dir);
+            else localStorage.removeItem('floe:requestSaveDir');
+        } catch { /* storage unavailable */ }
+    }
+    async function pickRequestFolder() {
+        try {
+            const dir = await SelectFolder();
+            if (dir) changeRequestSaveDir(dir);
+        } catch {
+            // dialog cancelled
+        }
+    }
+    // Make another link is one of the three focus moves the owner asks for.
+    function makeAnotherLink() {
+        dispatchReq({type: 'MAKE_ANOTHER'});
+        requestAnimationFrame(() => document.getElementById(LABEL_INPUT_ID)?.focus());
+    }
+    // Review opens Receive > REQUEST LINK, brings the whole Accept and Decline
+    // row into view (so the notice hides) and focuses the prompt's heading
+    // without scrolling again: the only automatic focus move, and one the
+    // owner pressed a button for.
+    function openRequestView() {
+        setSettingsOpen(false);
+        setMode('receive');
+        setReceiveKind('request');
+        requestAnimationFrame(() => {
+            document.getElementById(PROMPT_ACTIONS_ID)?.scrollIntoView?.({block: 'nearest'});
+            document.getElementById(PROMPT_HEADING_ID)?.focus({preventScroll: true});
+        });
+    }
+
     const modeBtn = (m: Mode, label: string) => (
         <button
             onClick={() => setMode(m)}
+            aria-describedby={m === 'receive' && receiveDescribed ? RECEIVE_DESCRIPTION_ID : undefined}
             className={cn(
-                'border-b-2 px-3 pb-1 font-mono text-[11px] uppercase tracking-[0.2em] transition-colors',
-                mode === m ? 'border-white text-zinc-100' : 'border-transparent text-zinc-600 hover:text-zinc-400',
+                // The same 2 px edge and padding above and below the word, so it
+                // sits centered in the header whether selected or not; selected
+                // only colors the bottom edge (D-172).
+                'border-y-2 border-t-transparent px-3 py-1 font-mono text-[11px] uppercase tracking-[0.2em] transition-colors',
+                mode === m ? 'border-b-white text-zinc-100' : 'border-b-transparent text-zinc-600 hover:text-zinc-400',
             )}
         >
             {label}
         </button>
+    );
+
+    // Receive > CODE | REQUEST LINK (R1 to R3): two aria-pressed words like the
+    // History toggle. The Beta chip is outside the second button but grouped
+    // with it, on the words' shared baseline with a 4 px gap (the owner's look,
+    // 2026-09-23: the chip belongs to its label, not to the row). Its right
+    // padding gives back the 0.15em that the letter spacing adds after the last
+    // letter, so the word sits centered in the chip. It is hidden from the
+    // accessibility tree because the second button's name already says "beta"
+    // (R3). Plain elements, not components, so nothing remounts.
+    const choiceButton = (k: 'code' | 'request') => (
+        <button
+            type="button"
+            aria-pressed={receiveKind === k}
+            aria-label={k === 'request' ? REQUEST_TAB_NAME : undefined}
+            onClick={() => setReceiveKind(k)}
+            className={cn(
+                'border-b pb-0.5 font-mono text-[10px] uppercase tracking-[0.2em] transition-colors',
+                receiveKind === k ? 'border-white text-zinc-200' : 'border-transparent text-zinc-400 hover:text-zinc-300',
+            )}
+        >
+            {k === 'code' ? CODE_TAB : REQUEST_TAB}
+        </button>
+    );
+    const receiveRow = (
+        <div className="flex items-baseline gap-4 px-0.5">
+            {choiceButton('code')}
+            <span className="flex items-baseline gap-1">
+                {choiceButton('request')}
+                <span aria-hidden className="rounded bg-white/[0.07] py-[3px] pl-1.5 pr-[calc(0.375rem_-_0.15em)] font-mono text-[10px] uppercase leading-none tracking-[0.15em] text-zinc-400">{BETA_CHIP}</span>
+            </span>
+        </div>
     );
 
     // Advanced is open when the user says so, and otherwise whenever a non-default
@@ -1436,7 +1888,14 @@ function App() {
             <span className="sr-only" role="status" aria-live="polite">
                 {updateAvailable ? `Update available: Floe ${bareVersion(updateVer)}. See Settings.` : ''}
             </span>
-            {showUpdate && <UpdateNotice version={updateVer} onDismiss={() => setUpdateDismissed(true)}/>}
+            <NoticeStack>
+                {showRequestNotice && <RequestNotice onReview={openRequestView}/>}
+                {showUpdate && <UpdateNotice version={updateVer} onDismiss={() => setUpdateDismissed(true)}/>}
+            </NoticeStack>
+            {/* The request lane's announcements (A1 on a new prompt, A2 when
+                the Accept guard lifts): their own persistent span, so neither
+                the update line nor the undo line can erase them. */}
+            <span className="sr-only" role="status" aria-live="polite">{reqAnnounce}</span>
 
             {/* The undo offer's own announcement, a separate span from the
                 update one above rather than a shared channel: the two can stand
@@ -1520,7 +1979,7 @@ function App() {
                                         <SettingField
                                             htmlFor="floe-save-folder"
                                             label="Save received files to"
-                                            description="Everything you receive is saved here. Leave it blank to use your Downloads folder."
+                                            description="Received files go here, or to Downloads if blank"
                                             className="px-3.5 py-3"
                                         >
                                             {(ids) => (
@@ -1544,6 +2003,45 @@ function App() {
                                 </section>
 
                                 <section className="space-y-2">
+                                    <Eyebrow as="h3">{NOTIFICATIONS_HEADING}</Eyebrow>
+                                    {/* Two switches and, on Windows, the way to Windows' own settings.
+                                        Windows alone decides where a banner appears, so nothing here
+                                        pretends to a position or a duration. The taskbar flash, the
+                                        window title and the in-app notice are not switches: they are
+                                        what a request still does with notifications off. */}
+                                    <div className={cn(cardClass, insetHairline)}>
+                                        <SettingRow
+                                            checked={notificationsOn}
+                                            onChange={(v) => void toggleNotifications(v)}
+                                            label={SHOW_NOTIFICATIONS}
+                                            description={notificationsOn ? SHOW_NOTIFICATIONS_ON : SHOW_NOTIFICATIONS_OFF}
+                                        />
+                                        <SettingRow
+                                            checked={notificationSound}
+                                            onChange={(v) => void toggleNotificationSound(v)}
+                                            label={PLAY_SOUND}
+                                            disabled={!notificationsOn}
+                                        />
+                                        {isWindows && (
+                                            <SettingAction
+                                                label={WINDOWS_NOTIFICATIONS}
+                                                description={WINDOWS_NOTIFICATIONS_DESCRIPTION}
+                                                action={
+                                                    <Button
+                                                        variant="outline"
+                                                        className="h-7 shrink-0 text-xs"
+                                                        aria-label={OPEN_NOTIFICATION_SETTINGS_LABEL}
+                                                        onClick={() => BrowserOpenURL(NOTIFICATION_SETTINGS_URI)}
+                                                    >
+                                                        {OPEN_NOTIFICATION_SETTINGS}
+                                                    </Button>
+                                                }
+                                            />
+                                        )}
+                                    </div>
+                                </section>
+
+                                <section className="space-y-2">
                                     <Eyebrow as="h3">Privacy</Eyebrow>
                                     {/* Both rows state the benefit first, then the cost, because a
                                         toggle described only by its cost reads as a trap. The
@@ -1555,13 +2053,13 @@ function App() {
                                             checked={hideIP}
                                             onChange={(v) => { setHideIP(v); void saveSettings({hideIP: v}); }}
                                             label="Hide my IP address"
-                                            description="The other person never sees your IP. Transfers go through a relay, so they are slower and capped at 2 GB."
+                                            description="Hides your IP with a relay, slower and capped at 2 GB"
                                         />
                                         <SettingRow
                                             checked={reportStats}
                                             onChange={(v) => { setReportStats(v); void saveSettings({reportStats: v}); }}
                                             label="Contribute to global stats"
-                                            description="Each transfer you receive adds its size to a public total. Floe never sends file names or contents."
+                                            description="Adds the size of what you receive to a public total, never names or contents"
                                         />
                                         {/* Hidden for Store installs: the Store updates the app
                                             itself and the Go side never checks there, so the
@@ -1571,7 +2069,7 @@ function App() {
                                                 checked={checkUpdates}
                                                 onChange={(v) => void toggleCheckUpdates(v)}
                                                 label="Check for updates"
-                                                description="Shows a notice when a new version is out. Asks GitHub once a day; off means no request at all."
+                                                description="Checks GitHub once a day for a new version"
                                             />
                                         )}
                                     </div>
@@ -1592,7 +2090,7 @@ function App() {
                                                 checked={ctxMenu}
                                                 onChange={toggleCtxMenu}
                                                 label="Show in right-click menu"
-                                                description="Right-click any file in File Explorer and pick Send with Floe. On Windows 11 it sits under Show more options."
+                                                description="Adds Send with Floe to the File Explorer right-click menu (under Show more options on Windows 11)"
                                             />
                                         </div>
                                     </section>
@@ -1647,7 +2145,7 @@ function App() {
                                                     <SettingField
                                                         htmlFor="floe-server-address"
                                                         label="Server address"
-                                                        description="This server introduces the two devices and never touches your files. Both people need to be on the same one."
+                                                        description="Both people must use the same server, which never sees your files"
                                                         className="px-3.5 py-3"
                                                     >
                                                         {(ids) => (
@@ -1676,7 +2174,7 @@ function App() {
                                                     <SettingField
                                                         htmlFor="floe-share-link-address"
                                                         label="Share link address"
-                                                        description="Set this only if your web app has its own address. Leave it blank and Floe uses the server address."
+                                                        description="Only needed if your web app has its own address"
                                                         className="px-3.5 py-3"
                                                     >
                                                         {(ids) => (
@@ -1694,7 +2192,7 @@ function App() {
                                                     </SettingField>
                                                     {usingCustomServer && (
                                                         <div className="flex items-center justify-between gap-4 px-3.5 py-2.5 animate-floe-in motion-reduce:animate-none">
-                                                            <span className="text-xs leading-4 text-zinc-500">This removes both addresses and returns the app to api.floe.one.</span>
+                                                            <span className="text-xs leading-4 text-zinc-500">Removes both addresses and goes back to api.floe.one</span>
                                                             <Button variant="outline" className="h-7 shrink-0 text-xs" onClick={useFloeServer}>
                                                                 Use default server
                                                             </Button>
@@ -1745,7 +2243,7 @@ function App() {
                                                 invites the hover. */}
                                             {/* Not "must match": CheckCompat is a range-overlap test,
                                                 not equality, so compatible versions can differ. */}
-                                            <Tooltip label="Both devices need compatible versions. Update the older app if a transfer will not start.">
+                                            <Tooltip label="If a transfer won't start, update the older app">
                                                 <span className={cn(aboutLabelClass, 'cursor-default underline decoration-dotted decoration-zinc-600 underline-offset-4')}>Transfer protocol</span>
                                             </Tooltip>
                                             <span className={aboutValueClass}>{proto == null ? '...' : `Version ${proto}`}</span>
@@ -1771,7 +2269,7 @@ function App() {
                                             </div>
                                         )}
                                         <div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
-                                            <span className="text-xs leading-4 text-zinc-500">These are the details to include in a bug report.</span>
+                                            <span className="text-xs leading-4 text-zinc-500">Include these in a bug report</span>
                                             <Button variant="outline" className="h-7 shrink-0 text-xs" onClick={copyAbout}>
                                                 {aboutCopied ? 'Copied' : 'Copy'}
                                             </Button>
@@ -1782,7 +2280,7 @@ function App() {
                             </div>
                         </div>
                     </div>
-                    {busy && (
+                    {(busy || dropMoving) && (
                         <div className="border-t border-white/[0.06] px-5 py-3">
                             <FooterNote busy/>
                         </div>
@@ -1809,23 +2307,23 @@ function App() {
                     <div className="relative flex flex-1 flex-col justify-center px-9 py-8">
                         <Eyebrow tone="ice">Peer to peer</Eyebrow>
                         <h1 className="mt-4 text-[28px] font-semibold leading-[1.1] tracking-tight text-white">
-                            Send anything,<br/>peer to peer.
+                            Send anything,<br/>peer to peer
                         </h1>
                         <p className="mt-3.5 text-sm leading-relaxed text-zinc-400">
                             {/* "no uploads", not "no middleman": a relayed
                                 transfer does pass through a TURN relay (bullet
                                 01 admits as much), while nothing is uploaded
                                 on any path. Matches docs/introduction.mdx. */}
-                            End-to-end encrypted. No accounts,<br/>no storage, no uploads.
+                            End-to-end encrypted,<br/>no accounts, no storage, no uploads
                         </p>
 
                         <div className="mt-10 space-y-6">
                             {[
-                                {n: '01', title: 'Direct & unlimited', note: 'Direct transfers stream device to device with no size cap. Relay fallback is capped at 2 GB.'},
+                                {n: '01', title: 'Direct & unlimited', note: 'Device to device with no size cap, 2 GB through a relay'},
                                 // DTLS alone: data channels are SCTP over DTLS. SRTP carries
                                 // media, which Floe never sends.
-                                {n: '02', title: 'End-to-end encrypted', note: 'DTLS, the same as a video call.'},
-                                {n: '03', title: 'Nothing is stored', note: 'The server only brokers the handshake.'},
+                                {n: '02', title: 'End-to-end encrypted', note: 'DTLS, the same as a video call'},
+                                {n: '03', title: 'Nothing is stored', note: 'The server only brokers the handshake'},
                             ].map(({n, title, note}) => (
                                 <div key={n} className="border-l border-white/10 pl-5">
                                     <span className="font-mono text-xs text-zinc-600">{n}</span>
@@ -1855,27 +2353,38 @@ function App() {
                 </aside>
 
                 {/* ── RIGHT CONSOLE: the "instrument" card ────────────────────── */}
-                <main className="custom-scrollbar flex-1 overflow-y-auto">
+                {/* The scrollbar's 6 px gutter is kept even while nothing scrolls,
+                    on both edges so the card stays centered: without it, a prompt
+                    that made <main> scroll moved the card 3 px left in WebView2
+                    (FU-04), and a gutter on the inline end alone kept it there for
+                    good. It takes width only, so the card's anchored top, read from
+                    clientHeight, stays put. */}
+                <main className="custom-scrollbar flex-1 overflow-y-auto [scrollbar-gutter:stable_both-edges]">
                     <div className="mx-auto flex min-h-full w-full max-w-lg px-8 py-8">
-                        <div className="m-auto w-full rounded-xl border border-white/10 bg-zinc-900/60 shadow-2xl ring-1 ring-white/5 backdrop-blur-xl">
+                        <div ref={cardPin.ref} style={cardPin.style} className="m-auto w-full rounded-xl border border-white/10 bg-zinc-900/60 shadow-2xl ring-1 ring-white/5 backdrop-blur-xl">
 
                             {/* header: mode toggle + status badge */}
                             <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-3.5">
                                 <div className="flex items-center gap-5">
                                     {modeBtn('send', 'Send')}
                                     {modeBtn('receive', 'Receive')}
+                                    {/* H2, the Receive tab's description while a link waits. The
+                                        header shows no marker for an open link (D-135 D1): READY
+                                        carries it, and the notice calls the owner when someone sends. */}
+                                    <span id={RECEIVE_DESCRIPTION_ID} hidden>{LINK_OPEN_DESCRIPTION}</span>
                                 </div>
                                 <div className="flex items-center gap-3">
                                     {/* one-word status; the dot color carries the route (site parity:
-                                        green = direct, amber = relay), details live in the tooltip */}
-                                    <Tooltip
-                                        label={busy
-                                            ? (route === 'relay' ? 'Relay connection' : route === 'direct' ? 'Direct peer connection' : 'Connecting')
-                                            : hideIP ? 'Hide my IP is on. Transfers go through the relay (capped at 2 GB).' : 'Ready for a transfer'}
-                                    >
+                                        green = direct, amber = relay). The word keeps an element of its
+                                        own and the screen-reader twin is its sibling, never inside it:
+                                        the transfer-audit reader keeps innermost elements whose whole
+                                        text is one status word. One Tooltip in every case, so the chip
+                                        never remounts; an empty label shows nothing. */}
+                                    <Tooltip label={statusNote}>
                                         <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-                                            <StatusDot className={cn('transition-colors duration-500', relayTone ? 'bg-amber-500' : 'bg-green-500')} pulse={busy}/>
-                                            {busy ? (route ? (route === 'relay' ? 'Relay' : 'Direct') : 'Active') : 'Ready'}
+                                            <StatusDot className={cn('transition-colors duration-500', relayTone ? 'bg-amber-500' : 'bg-green-500')} pulse={moving}/>
+                                            <span>{statusWord}</span>
+                                            {statusNote && <span className="sr-only normal-case">, {statusNote}</span>}
                                         </span>
                                     </Tooltip>
                                     <Tooltip label="History" keys={isMac ? '⌘Y' : 'Ctrl+H'} align="end">
@@ -1917,7 +2426,7 @@ function App() {
                                                         onClick={() => setSendKind(k)}
                                                         className={cn(
                                                             'border-b pb-0.5 font-mono text-[10px] uppercase tracking-[0.2em] transition-colors',
-                                                            sendKind === k ? 'border-white text-zinc-200' : 'border-transparent text-zinc-600 hover:text-zinc-400',
+                                                            sendKind === k ? 'border-white text-zinc-200' : 'border-transparent text-zinc-400 hover:text-zinc-300',
                                                         )}
                                                     >
                                                         {k === 'files' ? 'Files' : 'Text'}
@@ -2034,22 +2543,59 @@ function App() {
                                         {sendProg && <ProgressRow prog={sendProg}/>}
                                         {sendDone && !sending && (
                                             <div className="animate-floe-in flex items-center justify-center gap-2 text-sm text-zinc-300">
-                                                <Check className="size-4 shrink-0 text-green-500"/>
+                                                {/* One rule across the desktop (D-161): a green
+                                                    circle-check only when every file arrived
+                                                    intact, read as the D-101 words and never
+                                                    drawn as a digest value; a quiet check
+                                                    otherwise. The mark follows the text in the
+                                                    DOM so a screen reader reads the count first,
+                                                    and order-first keeps the glyph leading. */}
                                                 <span>Sent {sentCount} {sentCount === 1 ? 'item' : 'items'}</span>
+                                                {sendVerified
+                                                    ? <VerifiedMark className="order-first size-4"/>
+                                                    : <Check className="order-first size-4 shrink-0 text-zinc-500"/>}
                                             </div>
                                         )}
                                         <StatusLine text={sendStatus} busy={sending}/>
                                     </div>
 
+                                ) : mode === 'receive' && onRequestView ? (
+                                /* ── RECEIVE > REQUEST LINK ───────────────────── */
+                                    <div className="space-y-4">
+                                        {receiveRow}
+                                        <RequestLinkView
+                                            phase={reqPhase}
+                                            snap={reqUI.snap}
+                                            errorCode={requestErrorCode(reqUI)}
+                                            progress={reqProgress}
+                                            hideIP={hideIP}
+                                            saveDir={requestSaveDir}
+                                            onSaveDirChange={changeRequestSaveDir}
+                                            onMake={makeRequestLink}
+                                            onClose={() => { reqActed.current = true; CloseRequestLink().catch(() => {}); }}
+                                            onAnswer={answerRequest}
+                                            onCancelDrop={() => { reqActed.current = true; CancelRequestDrop().catch(() => {}); }}
+                                            onRetry={() => { reqActed.current = true; RetryRequestLink().catch(() => {}); }}
+                                            onShowInFolder={(dir) => { OpenFolder(dir).catch(() => {}); }}
+                                            onMakeAnother={makeAnotherLink}
+                                            onBrowse={pickRequestFolder}
+                                            onEdit={() => dispatchReq({type: 'ACK_ERROR'})}
+                                            onGuardLift={() => setReqAnnounce(ANNOUNCE_GUARD_LIFTED)}
+                                            onPromptVisible={setPromptInView}
+                                            accepted={acceptedPrompt(reqUI)}
+                                        />
+                                    </div>
+
                                 ) : mode === 'receive' ? (
                                 /* ── RECEIVE VIEW ─────────────────────────────── */
                                     <div className="space-y-4">
+                                        {receiveRow}
                                         <div className="space-y-2">
                                             <Eyebrow>Code or link</Eyebrow>
                                             <Input
                                                 placeholder="amber-otter-cloud"
                                                 value={code}
-                                                onChange={(e) => setCode(e.target.value)}
+                                                onChange={(e) => { setCode(e.target.value); setPastedRequestLink(''); }}
                                                 onKeyDown={(e) => { if (e.key === 'Enter' && !busy && code.trim()) receive(); }}
                                                 disabled={receiving}
                                                 autoFocus
@@ -2083,14 +2629,30 @@ function App() {
                                             </Button>
                                         )}
 
+                                        {/* A pasted request link (DK-01): the sentence, then Open in
+                                            browser on the right rail. BrowserOpenURL only ever gets
+                                            the http(s) href parsePastedLink produced. */}
+                                        {pastedRequestLink && !receiving && (
+                                            <div className="animate-floe-in space-y-2">
+                                                <p className="text-xs leading-relaxed text-zinc-400">{CODE_PASTE_LINE}</p>
+                                                <div className="flex justify-end">
+                                                    <Button variant="outline" onClick={() => BrowserOpenURL(pastedRequestLink)}>
+                                                        {OPEN_IN_BROWSER}
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        )}
+
                                         {receiving && incoming && (
                                             <p className="animate-floe-in text-center text-xs text-zinc-400">{incoming}</p>
                                         )}
                                         {recvProg && <ProgressRow prog={recvProg}/>}
                                         {recvDone && !receiving && (
                                             <div className="animate-floe-in flex items-center gap-2 text-sm text-zinc-300">
-                                                <Check className="size-4 shrink-0 text-green-500"/>
                                                 <span className="truncate">Saved to {recvDir}</span>
+                                                {recvVerified
+                                                    ? <VerifiedMark className="order-first size-4"/>
+                                                    : <Check className="order-first size-4 shrink-0 text-zinc-500"/>}
                                             </div>
                                         )}
                                         {recvDir && !receiving && (() => {
@@ -2130,7 +2692,7 @@ function App() {
 
                             {/* footer note */}
                             <div className="border-t border-white/[0.06] px-5 py-3">
-                                <FooterNote busy={busy}/>
+                                <FooterNote busy={busy || dropMoving}/>
                             </div>
                         </div>
                     </div>
@@ -2143,7 +2705,7 @@ function App() {
                 it must sit on top and be dismissed first, and a preferences dialog
                 must never occlude it. */}
             {confirmDefaults && (
-                <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/60 backdrop-blur-sm">
+                <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/70">
                     <div
                         role="dialog"
                         aria-modal="true"
@@ -2152,26 +2714,26 @@ function App() {
                     >
                         <h2 id="floe-reset-title" className="text-sm font-semibold text-white">Reset all settings?</h2>
                         <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">
-                            Your save folder, the privacy switches and the server addresses go back to the way Floe shipped.
+                            Save folder, notifications, privacy and server settings go back to defaults
                         </p>
-                        {/* Names what the user will actually notice. The path is the
-                            thing they cannot retype from memory, so it is shown in
-                            full rather than summarised. */}
-                        {(output.trim() !== '' || !reportStats) && (
+                        {/* Names what the user will actually notice, one line
+                            each (D-167). The path is the thing they cannot retype
+                            from memory, so it is shown in full rather than
+                            summarised. */}
+                        {output.trim() !== '' && (
                             <p className="mt-2 text-xs leading-relaxed text-zinc-400">
-                                {output.trim() !== '' && (
-                                    <>Floe will forget <span className="break-all font-mono text-zinc-300">{output.trim()}</span> and save to your Downloads folder again.</>
-                                )}
-                                {output.trim() !== '' && !reportStats && ' '}
-                                {!reportStats && (
-                                    <>Floe will {output.trim() !== '' ? 'also ' : ''}start adding the size of transfers you receive to the public total again.</>
-                                )}
+                                Received files go to Downloads again, not <span className="break-all font-mono text-zinc-300">{output.trim()}</span>
                             </p>
                         )}
+                        {!reportStats && (
+                            <p className="mt-2 text-xs leading-relaxed text-zinc-400">Contribute to global stats turns back on</p>
+                        )}
                         {/* The exclusions, stated rather than left to be discovered.
-                            An unstated exclusion is what makes a reset feel dishonest. */}
+                            An unstated exclusion is what makes a reset feel dishonest.
+                            The right-click menu lives in Windows rather than in
+                            Floe, so a reset leaves it too. */}
                         <p className="mt-2 text-xs leading-relaxed text-zinc-500">
-                            Your transfer history and the files you have already received are left alone{isWindows ? ', and so is your right-click menu, because that entry lives in Windows rather than in Floe' : ''}.
+                            {isWindows ? 'History, received files and the right-click menu stay as they are' : 'History and received files stay as they are'}
                         </p>
                         <StatusLine text={resetErr} busy={false}/>
                         <div className="mt-4 flex justify-end gap-2">
@@ -2188,7 +2750,7 @@ function App() {
                 states earn a prompt and which deliberately do not. Sits below
                 the titlebar so the window controls remain reachable. */}
             {confirmReset && (
-                <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/60 backdrop-blur-sm">
+                <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/70">
                     <div
                         role="dialog"
                         aria-modal="true"
@@ -2201,6 +2763,9 @@ function App() {
                             the copy cannot disagree about why you were stopped.
                             Captured at open time, not read live: see startOver. */}
                         <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">{resetMsg}</p>
+                        {/* Start over never touches the lane, so an open link
+                            is worth saying out loud here (SO1). */}
+                        {laneLive && <p className="mt-2 text-xs leading-relaxed text-zinc-400">{START_OVER_LINK_LINE}</p>}
                         <div className="mt-4 flex justify-end gap-2">
                             {/* The safe choice takes focus. Without it the dialog
                                 opens with focus wherever it was, which after a
@@ -2218,7 +2783,7 @@ function App() {
                 </div>
             )}
             {closeGuard && (
-                <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/60 backdrop-blur-sm">
+                <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/70">
                     <div
                         role="dialog"
                         aria-modal="true"
@@ -2228,17 +2793,29 @@ function App() {
                         <h2 id="floe-close-title" className="text-sm font-semibold text-white">Close Floe?</h2>
                         <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">
                             {sending
-                                ? "You're still sending. If you close now, the transfer stops and the other side gets nothing."
+                                ? 'Closing now stops the transfer and they get nothing'
                                 : receiving
-                                    ? "You're still receiving. If you close now, the transfer stops before the files finish."
-                                    : 'A transfer is still running. Closing Floe will stop it.'}
+                                    ? 'Closing now stops the transfer before the files finish'
+                                    : dropMoving
+                                        ? CLOSE_DROP_RECEIVING_LINE
+                                        : laneLive
+                                            ? CLOSE_LINK_OPEN_LINE
+                                            : 'Closing Floe stops the transfer'}
                         </p>
+                        {/* A Send or code Receive plus an open link: the
+                            transfer sentence, then CL5 on its own line (D-167:
+                            with no periods, one paragraph would run them together). */}
+                        {busy && laneLive && <p className="mt-2 text-xs leading-relaxed text-zinc-400">{CLOSE_LINK_ALSO_LINE}</p>}
                         <div className="mt-4 flex justify-end gap-2">
-                            <Button variant="outline" autoFocus onClick={() => { setCloseGuard(false); focusLockup(); }}>Keep going</Button>
+                            <Button variant="outline" autoFocus onClick={() => { setCloseGuard(false); focusLockup(); }}>
+                                {KEEP_FLOE_OPEN}
+                            </Button>
                             {/* No local dismiss on purpose: the app is about to
                                 exit, and clearing the dialog first would flash
                                 the live UI during teardown. */}
-                            <Button onClick={() => { ConfirmClose().catch(() => {}); }}>Close anyway</Button>
+                            <Button onClick={() => { ConfirmClose().catch(() => {}); }}>
+                                {CLOSE_FLOE}
+                            </Button>
                         </div>
                     </div>
                 </div>

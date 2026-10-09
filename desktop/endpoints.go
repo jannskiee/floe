@@ -81,10 +81,11 @@ func (a *App) SetSettings(server, web string, hideIP, reportStats bool) error {
 }
 
 // settingsFromArgs builds the record SetSettings persists. Fields owned by
-// other setters (NoUpdateCheck, via SetCheckUpdates) are carried over from the
-// current record: SetSettings used to construct a fresh appConfig from only
-// its arguments, which silently zeroed any field the Settings screen did not
-// know about on every save.
+// other setters (NoUpdateCheck via SetCheckUpdates, the two toast fields via
+// SetToasts and SetToastSound) are carried over from the current record:
+// SetSettings used to construct a fresh appConfig from only its arguments,
+// which silently zeroed any field the Settings screen did not know about on
+// every save.
 func settingsFromArgs(cur appConfig, server, web string, hideIP, reportStats bool) appConfig {
 	return normalizeConfig(appConfig{
 		Server:        server,
@@ -92,6 +93,8 @@ func settingsFromArgs(cur appConfig, server, web string, hideIP, reportStats boo
 		HideIP:        hideIP,
 		ReportStats:   reportStats,
 		NoUpdateCheck: cur.NoUpdateCheck,
+		NoToasts:      cur.NoToasts,
+		SilentToasts:  cur.SilentToasts,
 		Migrated:      true,
 	})
 }
@@ -105,6 +108,48 @@ func (a *App) SetCheckUpdates(enabled bool) error {
 	defer a.mu.Unlock()
 	cfg := a.cfg
 	cfg.NoUpdateCheck = !enabled
+	if err := saveConfig(cfg); err != nil {
+		return err
+	}
+	a.cfg = cfg
+	return nil
+}
+
+// withToasts and withToastSound are the pure halves of SetToasts and
+// SetToastSound, so a test can check that each flips its own field and
+// nothing else without touching desktop.json. enabled=true is the shipped
+// default (the inverted field false).
+func withToasts(cfg appConfig, enabled bool) appConfig {
+	cfg.NoToasts = !enabled
+	return cfg
+}
+
+func withToastSound(cfg appConfig, enabled bool) appConfig {
+	cfg.SilentToasts = !enabled
+	return cfg
+}
+
+// SetToasts persists Show notifications alone. Holds the lock across the whole
+// read-modify-write, like SetCheckUpdates: the setters race on quick toggle
+// flips, and a snapshot taken before another writer's write-back would
+// resurrect the stale record.
+func (a *App) SetToasts(enabled bool) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	cfg := withToasts(a.cfg, enabled)
+	if err := saveConfig(cfg); err != nil {
+		return err
+	}
+	a.cfg = cfg
+	return nil
+}
+
+// SetToastSound persists Play sound alone, the same way. The sound is kept when
+// notifications are off: the switch is dimmed in Settings, not cleared.
+func (a *App) SetToastSound(enabled bool) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	cfg := withToastSound(a.cfg, enabled)
 	if err := saveConfig(cfg); err != nil {
 		return err
 	}

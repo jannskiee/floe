@@ -57,6 +57,20 @@ test('Direction 1: CLI send → browser receive (SHA-256 integrity)', async ({ b
         const blobUrl = (await downloadLink.getAttribute('href'))!;
         const receivedHash = await sha256OfBlobUrl(page, blobUrl);
         expect(receivedHash).toBe(expectedHash);
+
+        // The CLI sender now puts the file's SHA-256 on its end frame, so the
+        // browser receiver checked it before offering the download. A mismatch
+        // discards the file and shows one of the fixed sentences, so the absence
+        // of any of them is the assertion that the check passed rather than
+        // never ran (the download link above proves it ran to completion).
+        const body = await page.locator('body').innerText();
+        expect(body).not.toMatch(/did not match what was sent|could not be read/i);
+
+        // And the page now says so: every handed-over file verified, so the
+        // success line shows under the completion line. The transient
+        // "Verifying file 1 of 1" is deliberately not asserted; for a 12 MB
+        // file the check is milliseconds and the assertion would flake.
+        await expect(page.locator('body')).toContainText('SHA-256 matched', { timeout: 15_000 });
     } finally {
         await ctx.close();
         proc.kill();
@@ -76,7 +90,22 @@ test('Direction 2: browser send → CLI receive (SHA-256 integrity)', async ({ b
         const roomLink = await browserSenderSetup(page, fixturePath);
 
         // Spawn CLI receiver pointing at the room link.
-        await spawnReceive(roomLink, outputDir);
+        const stdout = await spawnReceive(roomLink, outputDir);
+
+        // The browser sender put the file's SHA-256 on its end frame and the Go
+        // receiver matched it against the bytes it wrote.
+        expect(stdout).toMatch(/Verified\s+SHA-256 matched/);
+
+        // Either string is the success status: onPeerDisconnected moves the
+        // sender from 'All Files Sent!' to 'Transfer complete' the moment the
+        // CLI receiver exits and drops its socket, which is always before the
+        // SHA-256 line below has had 15 s to appear. Asserted first, because by
+        // this point one of the two is already on the page.
+        await expect(page.locator('body')).toContainText(/All Files Sent!|Transfer complete/);
+        // The CLI receiver's `received` frame carries verified=1 and now
+        // reaches the page, because the session listener outlives onAllSent
+        // (F-SHA-4). Before this the finally closed the channel first.
+        await expect(page.locator('body')).toContainText('SHA-256 matched', { timeout: 15_000 });
 
         // Verify the file landed on disk with correct content.
         const expectedName = basename(fixturePath);

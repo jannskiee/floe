@@ -18,9 +18,178 @@ path     DIR = direct expected, no side may observe relay
 surface  W = web browser (Playwright chromium)   C = CLI (Windows)
          D = desktop (Store build or portable)    L = CLI inside WSL2 Ubuntu-22.04 (deep only)
 variant  link | bnd8 | fold | zip | cap3g | thr500 | killsnd | killrcv
+         hashbad | hashmal (head profile only, see Forced mismatches)
+         req | reqhideip | reqblip | reqdecline | reqopen | reqauto (see Request-link cells)
 ```
 
-Examples: `S-DIR-W2C`, `S-REL-C2D`, `H-DIR-C2C-bnd8`, `S-DIR-L2W`.
+Examples: `S-DIR-W2C`, `S-REL-C2D`, `H-DIR-C2C-bnd8`, `S-DIR-L2W`, `H-DIR-C2C-hashbad`.
+
+## Forced mismatches (hashbad, hashmal)
+
+Every receiver checks a file's SHA-256 against the bytes it wrote and deletes a
+file that does not match. These two variants prove it, by making a sender lie:
+
+| Variant   | What the sender sends                        | How                                                                 | Expected |
+| --------- | -------------------------------------------- | ------------------------------------------------------------------- | -------- |
+| `hashbad` | the real digest with one hex digit changed   | web sender: `installHashbad` in `scripts/lib/web.mjs`; CLI-shaped sender: `floe-e2ehost send -corrupt-hash` | refusal with `hash-mismatch`, no file and no `.part` left |
+| `hashmal` | the real digest upper-cased, which the wire format forbids | `floe-e2ehost send -malformed-hash`                    | the same refusal: a digest that cannot be read cannot vouch for the file |
+
+The corrupt digest never exists in shipped code. It lives in the audit skill and
+in `cli/internal/e2ehost`, which no release builds (`go list -deps ./cmd/floe`
+never names it), and `cellPlan` exposes it to a runner as `cell.hashLie`, which
+is `null` for every other cell.
+
+The ids are `HASH_IDS` in `scripts/lib/matrix.mjs`. They are head profile only,
+and they are deliberately outside `DEFAULT_IDS` and `DEEP_IDS`: a run reaches
+them through `--cells`, and the runner needs a sender that can lie before they
+can pass. `H-DIR-C2D-hashbad` also needs `--desktop wailsdev`.
+
+How a run carries them out:
+
+- The CLI-shaped sender (C in `H-DIR-C2C-*` and `H-DIR-C2W-hashbad`) is never the
+  shipped CLI. `prepareHarnessBuild` in `scripts/audit.mjs` builds
+  `cli/internal/e2ehost` from the checkout into the run's `--bin-dir` as
+  `floe-e2ehost-<sha7>.exe` once per run, only when a planned cell needs it, and
+  the sender phase picks the `harness` adapter (`scripts/lib/harness.mjs`). A
+  failed build or preflight turns exactly those cells into SKIP `harness-build`;
+  there is no fallback. A new exe path wants one discarded warm-up run (firewall).
+- The harness prints a link and never a code, so these cells use link input.
+- They are head cells only: a shipped run that names one SKIPs it as `head-only`,
+  because it would drive production with a sender that lies.
+- Route: the harness prints `{"event":"route","path":"direct"|"relay"}` from the
+  engine's own `ConnectionType()` (the word only, never an address), so a cell is
+  judged by two observers, source `harness-connection-type` beside the receiver's.
+  The harness takes no `--no-relay`, so a C2C hash cell is never "direct by
+  construction"; its CLI receiver still gets the flag.
+- The relay cap's byte guard does not run on these cells: bytes moving before the
+  refusal is the point.
+- Verdict: the receiver refused (a CLI receiver's `RefusedError` sentence and exit
+  1; a browser receiver's own fixed discard copy, awaited on the page rather than
+  synthesized from the sender) and kept nothing at all, not even an empty `.part`;
+  and when the sender is the harness, the refusal code it read back is
+  `hash-mismatch`. A CLI receiver that only saw its sender leave ("connection
+  closed before any file arrived") refused nothing and never counts. A browser
+  sender may end on "All Files Sent!" or on the receiver's wire reason; the page
+  usually reaches the first before the refusal lands. The FAIL keys are
+  `hash-not-refused` and `hash-refusal-code`.
+
+## Request-link cells (need request-1)
+
+The Stage 1 cells of spec 09 2.7.2. The ids are `REQUEST_IDS` in
+`scripts/lib/matrix.mjs`, and each row below has a `cellPlan` entry (and the
+reverse; `matrix.test.mjs` parses this table). Like the hash cells they are
+outside `DEFAULT_IDS` and `DEEP_IDS`: a run reaches them through `--cells`.
+Every one SKIPs `server-no-request-1` until probe P10 (`GET <server>/health`)
+finds `request-1` in the server's `features`; an absent, malformed or
+unreachable answer counts as absent. The host is always the desktop (D), so
+`--desktop none` drops them all, TA-17's W2W included. On `--desktop
+wailsdev` the host is the dev page (DOM verbs); on an exe (store, portable,
+a head `wails build`) it is driven through the UIA request verbs (FU-26),
+whose pattern calls activate its window (G2-F1), so without `--user-away`
+every exe request cell SKIPs `request-host-away-only`, and with it the
+TA-17 cells with a desktop side are NA `single-instance` (the host holds
+the one app instance). A shipped run cannot take wailsdev, so a shipped
+request cell runs only on an exe host with the owner away.
+`scripts/lib/request.mjs` runs them: each attempt makes its own link into
+its own folder, and a failed step is FAIL `request-flow` or
+`request-manifest`, never retried.
+
+The visitor (W) opens `<web>/r/<linkId>#<roomId>` in a fresh Chromium
+context, picks the files through the hidden "Choose files" input, clicks
+`Send N files` and reads the page's status card (`lib/visitor.mjs`). The
+link comes from the host's `GetRequestLink` on the wailsdev lane
+(`PlaywrightDriver.readRequestLink`, checked against the link block's
+input) or from the link block's read-only field on an exe
+(`UiaDriver.readRequestLink`, its UIA value; the host's `uia.log` sits
+under `private/host/` with the captures) and goes to the visitor's
+`page.goto` only: `redactRequestLinks`
+replaces the room with `<room>` in every message, note, log line and
+evidence file, the report applies the same net to audit.md and run.json,
+and the host's captures sit under the attempt's `private/host/` folder. The visitor seeds
+`localStorage['floe:report-stats']` to `false` and aborts and counts every
+`**/api/stats/report` request: attempts must be 0 in every cell. Accept and
+Decline are clicked no earlier than 1.2 s after the prompt was first seen
+(`REQUEST_ACCEPT_WAIT_MS`; the frontend guard is 1 s). Relay cells move
+4 MiB. `reqblip` refuses any server that is not loopback, as a usage error
+before anything is created, and cuts only through the driver's own proxy
+(`scripts/lib/blip.mjs`, 127.0.0.1 only).
+
+TA-14 `H-DIR-W2D-reqcaddy` (FU-26) SKIPs `caddy-not-enabled` unless the run
+names `--caddy`, and `docker-absent` when Docker is not answering: a local
+Docker Caddy (`scripts/lib/caddy.mjs`, `caddy:2`, published on 127.0.0.1
+only) fronts the local server, the host's server address points at it, and
+the cell reloads it twice. The visitor's page connects straight to the local
+server, so the second reload drops only the host's socket and the visitor is
+sent `peer-disconnected`, which it must ignore while the channel is open (the
+card's INFERRED design put the visitor behind the same Caddy, which would
+drop the visitor's own socket instead and never send it the notice). The host
+must read Reconnecting within 10 s of the first reload, or the cell is ERROR
+`caddy-url` (the host was not behind the proxy, so nothing was proved); a drop
+that ends before the second reload lands is ERROR `caddy-reload-missed`. It is
+on the untested list until it runs live (P-15: before any production policy
+flip).
+
+TA-16's visitor is the CLI (C): `floe send <file> --to <link> --server <s>`
+through the CLI adapter's own leg (`lib/cli.mjs`, `opts.requestLink`, the
+head CLI). The link goes to its argv only and the CLI never prints it back;
+the leg is started once the CLI prints `Waiting for them to accept. They
+have 9 min to answer.` and is done on its exit. It is head only
+(`H-DIR-C2D-req`) until a released CLI has `--to`; `S-DIR-C2D-req` returns to
+the shipped profile then. Its oracles are `CLI_VISITOR_ORACLES` in
+`scripts/lib/matrix.mjs`; the used-up check needs a second visitor and stays
+with the web cells.
+
+The id scheme takes one variant token, so TA-12 is `reqhideip` (spec 09
+writes `req-hideip`).
+
+| Cell                   | TA        | Snd | Rcv | Path | Forcer         | Input        | Size        | Required oracles |
+| ---------------------- | --------- | --- | --- | ---- | -------------- | ------------ | ----------- | ---------------- |
+| S-DIR-W2D-req          | TA-10     | W   | D   | DIR  | none           | request-link | 64 MiB      | the prompt shows the visitor's own count and bytes and no relay-over-cap line; on-disk sha256 inside the exclusive drop subfolder, nothing loose beside it; visitor arrived line, its SHA line only when verified equals N; desktop `Received N files` and the SHA sentence; D pill `Direct` and W `direct`; desktop.json proof; visitor stats attempts 0; the link reads used up afterwards |
+| S-REL-W2D-req          | TA-11     | W   | D   | REL  | W sender       | request-link | 4 MiB       | as TA-10 with W `local=relay` and D pill `Relay` |
+| S-REL-W2D-reqhideip    | TA-12     | W   | D   | REL  | D hideIP       | request-link | 4 MiB       | as TA-11 with the relay forced by the host (D pill `Relay`, the visitor unforced); optional. The over 2 GB prompt line is not reachable from a web visitor, which blocks a relayed drop over the cap before its metadata (a spec gap) |
+| H-DIR-W2D-reqblip      | TA-13     | W   | D   | DIR  | none           | request-link | 64 MiB      | the host's `/ws` cut 5 s through the blip proxy while the link waits: a visitor in the gap gets the not-connected copy; the desktop shows Reconnecting then Waiting; after the reclaim the visitor's Try again delivers and hashes match; head only, loopback only |
+| H-DIR-W2D-reqcaddy     | TA-14     | W   | D   | DIR  | none           | request-link | 64 MiB      | `--caddy` only: a local Docker Caddy fronts the local server with the host behind it; a reload while the link waits: the desktop reads Reconnecting then Waiting (the reclaim) and a visitor then delivers; a second reload while the drop receives: the drop completes on the data channel, the visitor ignores `peer-disconnected`, hashes match; head only, loopback only; SKIP `docker-absent` without Docker |
+| H-DIR-W2D-reqdecline   | TA-15     | W   | D   | DIR  | none           | request-link | 1 MiB       | Decline: the visitor reads the declined copy; Keep waiting sends `request-reopen`; a second visitor context delivers and hashes match |
+| H-DIR-W2D-reqauto      | TA-10a    | W   | D   | DIR  | none           | request-link | 64 MiB      | Make link with the Auto-accept check on (D-173, D-174, clicked by its label Auto-accept): the header chip reads AUTO-ACCEPT while the link waits; the drop starts with no prompt at any point and nothing clicked on the host; the host's link and result are marked automatic (GetRequestLink); then every TA-10 oracle but the prompt's. Head only, wailsdev host only (SKIP `request-auto-wailsdev-only` elsewhere); SKIP `request-no-auto-switch` on a build without the switch |
+| S-DIR-W2W-reqopen      | TA-17     | W   | W   | DIR  | none           | link         | 12 MiB      | the S-DIR-W2W oracles with a link open on the desktop; the link still waits afterwards |
+| S-DIR-C2W-reqopen      | TA-17     | C   | W   | DIR  | none           | link         | 12 MiB      | as S-DIR-C2W, link open |
+| S-DIR-W2C-reqopen      | TA-17     | W   | C   | DIR  | none           | link         | 12 MiB      | as S-DIR-W2C, link open |
+| S-REL-W2C-reqopen      | TA-17     | W   | C   | REL  | W sender       | link         | 4 MiB       | as S-REL-W2C, link open |
+| S-DIR-D2C-reqopen      | TA-17     | D   | C   | DIR  | none           | code         | 64 MiB      | as S-DIR-D2C, link open (the Send lane beside an open link) |
+| S-DIR-C2D-reqopen      | TA-17     | C   | D   | DIR  | none           | code         | 64 MiB      | as S-DIR-C2D, link open (code Receive and the early-race fix beside an open link) |
+| H-DIR-W2D-req          | TA-10 (H) | W   | D   | DIR  | none           | request-link | 64 MiB      | as TA-10 on the local stack |
+| H-REL-W2D-req          | TA-11 (H) | W   | D   | REL  | W sender       | request-link | 4 MiB       | as TA-11; SKIP `local-stun-only` without the local coturn (floe-run `--local-turn`) |
+| H-DIR-W2W-reqopen      | TA-17 (H) | W   | W   | DIR  | none           | link         | 12 MiB      | as S-DIR-W2W-reqopen on the local stack |
+| H-DIR-C2W-reqopen      | TA-17 (H) | C   | W   | DIR  | none           | link         | 12 MiB      | as S-DIR-C2W-reqopen |
+| H-DIR-W2C-reqopen      | TA-17 (H) | W   | C   | DIR  | none           | link         | 12 MiB      | as S-DIR-W2C-reqopen |
+| H-REL-W2C-reqopen      | TA-17 (H) | W   | C   | REL  | W sender       | link         | 4 MiB       | as S-REL-W2C-reqopen |
+| H-DIR-D2C-reqopen      | TA-17 (H) | D   | C   | DIR  | none           | code         | 64 MiB      | as S-DIR-D2C-reqopen |
+| H-DIR-C2D-reqopen      | TA-17 (H) | C   | D   | DIR  | none           | code         | 64 MiB      | as S-DIR-C2D-reqopen |
+| H-DIR-C2D-req          | TA-16 (H) | C   | D   | DIR  | none           | request-link | 64 MiB      | the CLI visitor, `floe send <file> --to <link>`: the prompt shows its count and bytes and no relay-over-cap line; the CLI exits 0; on-disk sha256 inside the exclusive drop subfolder, nothing loose beside it; its arrived line (TL-03), its SHA line only when verified equals N; desktop `Received N files` and the SHA sentence; D pill and the CLI's `Connected (direct)`; desktop.json proof; FLOE_NO_STATS=1 on the CLI and a local /api/stats delta of 0; head only until a released CLI has `--to` |
+
+The host verbs on the wailsdev lane (`scripts/lib/desktop.mjs`
+`PlaywrightDriver`), each by its frozen accessible name from
+`work/16-design/cp-3/approved-copy-desktop.md`:
+
+| Verb              | Clicks                                                  | Reads back                               |
+| ----------------- | ------------------------------------------------------- | ---------------------------------------- |
+| awaitRequestTab   | `Receive` once, only when the REQUEST LINK choice is not showing | `Request link, beta` shows within 10 s (H7: always there, no Settings switch) |
+| makeRequestLink   | `Receive`, `Request link, beta`, `Make another link` (from the ended view), the Save to field (the run's own folder, required), the Link ends option by its label for any key but the default 24h (`In 30 minutes`, `In 1 hour`, `In 8 hours`, `In 3 days`, `In 7 days`; every cell makes 24h), `Make link` | the field's value, `Copy link` shows (waiting) or the lane's error code, the link's folder in `GetRequestLink` |
+| readRequestLink   | nothing                                                 | `GetRequestLink` link, matched to the link block's input |
+| acceptRequest     | `Accept`, at least 1200 ms after the prompt was seen    | `Accept` gone (the prompt left)          |
+| declineRequest    | `Decline`, at least 1200 ms after the prompt was seen   | `Keep waiting` shows (declined)          |
+| keepWaiting       | `Keep waiting` (only from the declined view), at least 1200 ms after it was seen | `Copy link` shows again (waiting)        |
+| closeRequestLink  | `Close link`                                            | `Make another link` shows (ended)        |
+| readRequestResult | nothing                                                 | the done heading `RECEIVED N FILES, ...` and whether the check mark's `SHA-256 matched` text shows |
+| dismissRequestResult | `Make another link` (DN2 Dismiss is cut, D-169)    | `Make another link` gone (the lane back to Ready) |
+| cancelRequestDrop | `Cancel drop` (teardown of a drop still receiving)     | `Cancel drop` gone                       |
+| setAddresses      | nothing (the app's own `SetSettings`, TA-13 only)       | `GetSettings` server and web             |
+
+The runner no longer touches Settings for the request link: H7 (D-160) removed
+the Settings > Beta > `Request links` switch, the REQUEST LINK tab is always
+on Receive, and `awaitRequestTab` waits for it. A server without request-1
+(the kill switch) leaves the tab in place and ends Make link in E1. Only
+Hide my IP is still flipped through a Settings label click (TA-12).
 
 ## What each surface can do
 
@@ -100,7 +269,7 @@ relay evidence never passes (`route-unproven` or `forcer-ineffective`).
 
 Desktop precondition for every D cell on the shipped profile: the `probe`
 result. When `ValuePattern.SetValue` on `placeholder="amber-otter-cloud"`
-followed by Invoke `Receive` yields `Please enter a code or link.`
+followed by Invoke `Receive` yields `Please enter a code or link.` (`Enter a code or link` with the calm copy, D-167)
 (`desktop/frontend/src/App.tsx` `receive`), every D-receiver cell is SKIP
 `uia-setvalue`; when the save-dir field cannot be set either, they are SKIP
 `desktop-savedir` (the app must never write into the real Downloads folder).
@@ -124,7 +293,7 @@ other four move 12 MiB.
 A negative P1 probe gives 5 PASS + 1 SKIP `uia-setvalue` and exit 5, which is
 the honest answer.
 
-## `--deep` additions (14 cells, shipped)
+## `--deep` additions (17 cells, shipped)
 
 | Cell              | Snd | Rcv | Path | What it proves                                                   | Fixture                                                         | Expected                                                                                                                                    |
 | ----------------- | --- | --- | ---- | ---------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
@@ -192,12 +361,12 @@ records `local HEAD <sha>`.
 | W pill           | route         | `Direct`, `Relay`, `Ready`, `Offline` (textContent; rendered uppercase by CSS)                                                                                                                                                            | `client/components/ConnectionStatusBadge.tsx`                           |
 | W error          | banners       | `Link Invalid` heading; `Too many refreshes. Reconnecting`; `Connection failed. Enable "Network Relay" to connect across restrictive networks.`; `Transfer blocked. Relay limit exceeded.`; `Peer disconnected. Waiting for reconnection` | `client/components/P2PTransfer.tsx` (the `setError` calls and the error banner)                       |
 | D sender         | staged        | button name `Send 1 item` or `Send N items`                                                                                                                                                                                               | `desktop/frontend/src/App.tsx` (the primary send button)                                         |
-| D sender         | live          | status `Waiting for the receiver...`, `Peer connected. Sending...`; pill `Active` then `Direct` or `Relay`                                                                                                                                | `desktop/frontend/src/App.tsx` (the `send:status` handler); `desktop/transfer.go` `runSend`                        |
+| D sender         | live          | status `Waiting for the receiver...`, `Peer connected. Sending...` (calm copy: `Waiting for the receiver`, `Sending...`); pill `Active` then `Direct` or `Relay`                                                                                                                                | `desktop/frontend/src/App.tsx` (the `send:status` handler); `desktop/transfer.go` `runSend`                        |
 | D sender         | done          | `Sent 1 item` or `Sent N items`                                                                                                                                                                                                           | `desktop/frontend/src/App.tsx` (the send-done row)                                              |
 | D receiver       | input         | `input[placeholder="amber-otter-cloud"]`; `input[placeholder="Downloads (default)"]` scoped to the receive view (the placeholder repeats in Settings); button `Receive`                                                                   | `desktop/frontend/src/App.tsx` (the receive view)                               |
-| D receiver       | live          | `Connecting... keep this window open.`; `Incoming: <name> · <size>`                                                                                                                                                                       | `desktop/frontend/src/App.tsx` `receive`; `desktop/frontend/src/incoming.ts` `formatIncoming`                         |
+| D receiver       | live          | `Connecting... keep this window open.` (calm copy: `Connecting...`); `Incoming: <name> · <size>`                                                                                                                                                                       | `desktop/frontend/src/App.tsx` `receive`; `desktop/frontend/src/incoming.ts` `formatIncoming`                         |
 | D receiver       | done          | `Saved to <dir>`                                                                                                                                                                                                                          | `desktop/frontend/src/App.tsx` (the receive-done row)                                              |
-| D any            | error         | status starting `Error: ` (`friendlyError`), for example `Error: Connected, but the sender never started sending. Ask them to try again.`                                                                                                 | `desktop/frontend/src/errors.ts` `PASSTHROUGH` and `RULES`                      |
+| D any            | error         | status starting `Error: ` (`friendlyError`), for example `Error: Connected, but the sender never started sending. Ask them to try again.` (calm copy: `Error: The sender never started sending`)                                                                                                 | `desktop/frontend/src/errors.ts` `PASSTHROUGH` and `RULES`                      |
 | D                | close guard   | dialog heading id `floe-close-title`, buttons `Keep going` and `Close anyway`                                                                                                                                                             | `desktop/frontend/src/App.tsx` (the close-guard dialog)                                         |
 | D                | about         | Settings row `Transfer protocol` with value `Version <n>` (`...` while pending)                                                                                                                                                           | `desktop/frontend/src/App.tsx` (the About section)                                         |
 | D any            | UIA names     | Name properties carry the rendered case: tabs `SEND`, `RECEIVE`; pill `READY`, `ACTIVE`, `DIRECT`, `RELAY`; the `Receive` button is the last IgnoreCase match (the `RECEIVE` tab is the first)                                            | probe record 2026-08-29                                     |

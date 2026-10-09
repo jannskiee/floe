@@ -6,7 +6,47 @@
 // fragment) so error reports, breadcrumbs, request URLs, span attributes and
 // span descriptions sent to Sentry can never be replayed to hijack a transfer.
 //
+// A request link (/r/<linkId>) carries an id in the PATH as well, and the two
+// exclude flags that keep a room id out of telemetry only cover the query and
+// the fragment. That id is not a secret and cannot be replayed into a transfer,
+// but it names one link and one person's request, and telemetry has no use for
+// it, so it is redacted here beside the room id.
+//
 // Accepts absolute or relative URLs and never throws.
+
+// One request-link path segment, matched case-insensitively and only where a
+// path segment can begin (string start, or after a slash). The captured
+// boundary is put back, so "/r/x" and "r/x" each stay their own shape, and it
+// is what keeps /rx/abc and /robots.txt out of the match. A bare /r has no id
+// to redact and is left alone. The r and either slash may also be
+// percent-encoded (%72, %2F): a serialized pathname keeps them encoded, and
+// /%72/<id> or /r%2F<id> still names the same link.
+const REQUEST_PATH = /(^|\/|%2f)(?:r|%72)(?:\/|%2f)[^/]+/gi;
+
+// The same shape as a plain test: no /g, so it keeps no lastIndex between
+// calls, and only one character after the separator, since it only asks
+// whether there is a segment to redact.
+const REQUEST_PATH_SHAPE = /(^|\/|%2f)(?:r|%72)(?:\/|%2f)[^/]/i;
+
+function redactRequestPath(path: string): string {
+    // lastIndex is reset per call: the regex is module-level and /g is stateful,
+    // so a shared one would skip the next caller's match.
+    REQUEST_PATH.lastIndex = 0;
+    return path.replace(REQUEST_PATH, '$1r/redacted');
+}
+
+// A /r path can also ride in a query value (?next=/r/<id>). URLSearchParams
+// hands each value back decoded, so %2F and %72 are caught by the same test.
+// The query is rebuilt only when a value matches, so every other URL keeps its
+// query byte for byte.
+function redactRequestQuery(u: URL): void {
+    const params = [...u.searchParams];
+    if (!params.some(([, value]) => REQUEST_PATH_SHAPE.test(value))) return;
+    u.search = new URLSearchParams(
+        params.map(([key, value]) => [key, REQUEST_PATH_SHAPE.test(value) ? redactRequestPath(value) : value])
+    ).toString();
+}
+
 export function scrubUrl(url: string | undefined | null): string | undefined {
     if (!url) return url ?? undefined;
 
@@ -16,6 +56,8 @@ export function scrubUrl(url: string | undefined | null): string | undefined {
     try {
         const u = new URL(url, BASE);
         if (u.searchParams.has('room')) u.searchParams.set('room', 'redacted');
+        redactRequestQuery(u);
+        u.pathname = redactRequestPath(u.pathname);
         u.hash = '';
         const out = u.toString();
         // Match BASE plus the path separator, not BASE as a bare prefix: a
@@ -26,9 +68,17 @@ export function scrubUrl(url: string | undefined | null): string | undefined {
         return out.startsWith(BASE + '/') ? out.slice(BASE.length) || '/' : out;
     } catch {
         // Parsing failed (unusual breadcrumb value); fall back to a plain strip.
-        return url
-            .replace(/#.*$/, '')
-            .replace(/([?&])room=[^&]*/i, '$1room=redacted');
+        // The path is split off by hand here because there is no parsed URL to
+        // ask: the room redaction must stay on the query side and the request
+        // redaction on the path side, or a ?room= value containing "/r/" would
+        // rewrite itself.
+        const withoutHash = url.replace(/#.*$/, '');
+        const q = withoutHash.indexOf('?');
+        const path = q >= 0 ? withoutHash.slice(0, q) : withoutHash;
+        const query = q >= 0 ? withoutHash.slice(q) : '';
+        return (
+            redactRequestPath(path) + query.replace(/([?&])room=[^&]*/i, '$1room=redacted')
+        );
     }
 }
 
@@ -46,10 +96,12 @@ export interface ScrubbableSpan {
 }
 
 export interface ScrubbableTransaction {
-    transaction?: string;
     request?: { url?: string };
+    /** The transaction NAME, which Sentry indexes and shows in every list. */
+    transaction?: string;
     contexts?: { trace?: { data?: Record<string, unknown> } };
     spans?: ScrubbableSpan[];
+    breadcrumbs?: unknown;
 }
 
 // Scrubs the room secret out of one span, in place: its description, its URL
@@ -73,13 +125,253 @@ export function scrubSpanJson<T extends ScrubbableSpan>(span: T): T {
 // document URL (see scrubDescription). On a receiver page that is the whole
 // share link, and with tracesSampleRate 0.1 one page load in ten was sending
 // it. The transaction name is the segment span's description, so it gets the
-// same rule as every other span's.
+// same rule as every other span's, and then the /r rule below, unconditionally.
+//
+// Today a /r pageload is already named /r/:linkId rather than /r/<id>, because
+// the Next SDK parameterizes it from the route manifest it injects into the
+// client bundle. That is an SDK DEFAULT, not something this repo pins: if it
+// ever flips, or a future SDK stops injecting the manifest, the name becomes
+// the raw path and the id lands in the one field Sentry indexes and lists.
+//
+// So this does not try to tell an id from a placeholder. Both /r/<id> and
+// /r/:linkId collapse to /r/redacted, deliberately: there is exactly one /r
+// route, so one name is all the grouping anyone can want from it, and a rule
+// that redacted only strings matching today's 11-character id shape would
+// silently stop covering an id of any other length. Fail closed, and it costs
+// a bucket name nobody reads.
 export function scrubTransactionEvent<T extends ScrubbableTransaction>(event: T): T {
-    if (typeof event.transaction === 'string') event.transaction = scrubDescription(event.transaction);
+    if (typeof event.transaction === 'string') event.transaction = scrubTransactionName(event.transaction);
     if (event.request?.url) event.request.url = scrubUrl(event.request.url);
     scrubAttributes(event.contexts?.trace?.data);
     for (const span of event.spans ?? []) scrubSpanJson(span);
+    // A transaction carries the scope's breadcrumbs as an error does
+    // (applyScopeDataToEvent), and the browser hook no longer walks a logged
+    // object (W3 R5-01): what is in one is scrubbed here, on the SDK's copy.
+    if (Array.isArray(event.breadcrumbs)) event.breadcrumbs = event.breadcrumbs.map((crumb: unknown) => scrubEventBreadcrumb(crumb));
     return event;
+}
+
+export interface ScrubbableErrorEvent {
+    request?: { url?: string };
+    transaction?: string;
+    exception?: { values?: { value?: string; stacktrace?: { frames?: { filename?: string; abs_path?: string }[] } }[] };
+    breadcrumbs?: unknown;
+}
+
+// Scrubs the room secret and the request-link id out of an error event, in
+// place, for beforeSend.
+//
+// request.url was the only field beforeSend scrubbed. On /r an error event's
+// transaction is the raw /r/<linkId> path (captured on a production build),
+// not the parameterized name a pageload gets, so it takes the transaction-name
+// rule. V8 names an inline script's frames after the document URL without its
+// fragment, so a frame thrown from one on /r carries the path too; frames from
+// bundle chunks hold no /r segment and come back as they were. An exception's
+// value and the event's breadcrumbs are text anything on the page can write (a
+// third-party or extension script that logs location.href or the link), so the
+// value takes the free-text rule and each breadcrumb scrubEventBreadcrumb's
+// (deep QA A4-06, W3 R5-04).
+//
+// It never throws, whatever the shape: beforeSend drops an event whose hook
+// throws, and a scrub has no business losing an error report. A value, a
+// stacktrace, a frame list or a frame that is not what the SDK writes is
+// skipped and left as it is.
+export function scrubErrorEvent<T extends ScrubbableErrorEvent>(event: T): T {
+    if (typeof event.request?.url === 'string') event.request.url = scrubUrl(event.request.url);
+    if (typeof event.transaction === 'string') event.transaction = scrubTransactionName(event.transaction);
+    if (Array.isArray(event.breadcrumbs)) event.breadcrumbs = event.breadcrumbs.map((crumb: unknown) => scrubEventBreadcrumb(crumb));
+    const values: unknown = event.exception?.values;
+    if (!Array.isArray(values)) return event;
+    for (const value of values) {
+        if (!isObject(value)) continue;
+        if (typeof value.value === 'string') value.value = scrubText(value.value);
+        if (!isObject(value.stacktrace)) continue;
+        const frames = value.stacktrace.frames;
+        if (!Array.isArray(frames)) continue;
+        for (const frame of frames) {
+            if (!isObject(frame)) continue;
+            if (typeof frame.filename === 'string') frame.filename = scrubDescription(frame.filename);
+            if (typeof frame.abs_path === 'string') frame.abs_path = scrubDescription(frame.abs_path);
+        }
+    }
+    return event;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
+// Server and edge events carry what a browser event never does: the request's
+// headers and query string, and on an error from captureRequestError,
+// contexts.nextjs.request_path, the raw path and query. sendDefaultPii false
+// drops only the headers that carry an IP address. Every other header stays,
+// Cookie included, and @sentry/core 10.72.0 also parses that header into
+// request.cookies, unfiltered, and attaches any body the scope holds as
+// request.data. Next's RSC requests name the page they were made from in
+// Next-Url and Next-Router-State-Tree, so from /r they name /r/<linkId>: five
+// prefetch transactions per /r view on a production build (CP-QA F3-01), and a
+// render fault on /r sent the path in request_path (F3-03). A legacy ?room=
+// page sends its whole URL, room id included, as the Referer of every
+// same-origin request and as the query string of its own (skeptic S2, O-2).
+//
+// So a server event keeps one header, the user agent (Sentry reads the browser
+// and OS from it, and the privacy page says each report carries it), and its
+// query string and request path take request.url's rules. Of the request
+// block it keeps the url, method, query string and headers: cookies, the body
+// and anything the SDK adds later go. Allowlists rather than denylists: Next
+// can add a header and the SDK a field, and a new one must arrive dropped.
+const KEPT_REQUEST_HEADERS = new Set(['user-agent']);
+const KEPT_REQUEST_FIELDS = new Set(['url', 'method', 'query_string', 'headers']);
+
+export interface ScrubbableServerRequest {
+    request?: { url?: string; headers?: Record<string, string>; query_string?: unknown };
+    // A record, not { nextjs?: ... }: Sentry's Contexts declares no nextjs key,
+    // so a shape naming only that one is a weak type Contexts fails to match.
+    contexts?: Record<string, unknown>;
+    breadcrumbs?: unknown;
+}
+
+/** beforeSend on the server and edge runtimes: scrubErrorEvent, plus the
+ *  request block, contexts.nextjs.request_path and the breadcrumbs. */
+export function scrubServerErrorEvent<T extends ScrubbableErrorEvent & ScrubbableServerRequest>(event: T): T {
+    scrubErrorEvent(event);
+    scrubServerRequest(event);
+    scrubBreadcrumbs(event);
+    return event;
+}
+
+/** beforeSendTransaction on the server and edge runtimes: scrubTransactionEvent,
+ *  plus the same request fields and breadcrumbs. */
+export function scrubServerTransactionEvent<T extends ScrubbableTransaction & ScrubbableServerRequest>(
+    event: T
+): T {
+    scrubTransactionEvent(event);
+    scrubServerRequest(event);
+    scrubBreadcrumbs(event);
+    return event;
+}
+
+// Never throws, like scrubErrorEvent. Unlike it, a header list, query string
+// or request path of a shape the SDK does not write is deleted rather than
+// left as it is: these fields exist to carry URLs.
+function scrubServerRequest(event: ScrubbableServerRequest): void {
+    const request: unknown = event.request;
+    if (isObject(request)) {
+        for (const field of Object.keys(request)) {
+            if (!KEPT_REQUEST_FIELDS.has(field)) delete request[field];
+        }
+        const headers = request.headers;
+        if (isObject(headers)) {
+            for (const name of Object.keys(headers)) {
+                if (!KEPT_REQUEST_HEADERS.has(name.toLowerCase())) delete headers[name];
+            }
+        } else if (headers !== undefined) {
+            delete request.headers;
+        }
+        if (typeof request.query_string === 'string') {
+            request.query_string = scrubQuery(request.query_string).replace(/^\?/, '');
+        } else if (request.query_string !== undefined) {
+            delete request.query_string;
+        }
+    }
+    const contexts: unknown = event.contexts;
+    const nextjs = isObject(contexts) ? contexts.nextjs : undefined;
+    if (isObject(nextjs) && nextjs.request_path !== undefined) {
+        if (typeof nextjs.request_path === 'string') nextjs.request_path = scrubUrl(nextjs.request_path);
+        else delete nextjs.request_path;
+    }
+}
+
+// A console breadcrumb holds whatever was logged, a Next render fault's stack
+// included, and the SDK's own sentry.event breadcrumb holds "Type: value" of an
+// earlier error: neither went through any rule before deep QA A4-06. Two
+// passes now cover them, because the two places a breadcrumb is seen hold
+// different things.
+//
+// beforeBreadcrumb (the browser) gets the breadcrumb as it is made, and
+// @sentry/browser 10.72.0 puts the page's own console arguments in its data,
+// live, before the real console call: a logged object there is the app's own
+// state. Walking it took a share link in state down to its path and a deep
+// object's leaves to undefined, threw on a frozen object or a getter, and in a
+// probe left the page's React tree dead after one console.log(button) (W3
+// R5-01). So scrubBreadcrumb touches only what the SDK made: the message, url,
+// to and from, and each logged string, in a new arguments array.
+//
+// An event about to be sent carries a normalized copy of every breadcrumb's
+// data (prepareEvent's normalizeEvent, before beforeSend and
+// beforeSendTransaction), so there every string at any depth is scrubbed, by
+// copying: scrubEventBreadcrumb, used by the browser's and the server's event
+// hooks alike. A breadcrumb list of a shape the SDK does not write is deleted
+// on the server, and a value nested deeper than the SDK's own normalization
+// leaves one is dropped rather than walked.
+const BREADCRUMB_URL_KEYS = ['url', 'to', 'from'] as const;
+const MAX_BREADCRUMB_DEPTH = 8;
+
+/** One breadcrumb as beforeBreadcrumb sees it: its message and every logged
+ *  string take the free-text rule, and url, to and from in data request.url's.
+ *  A logged object is never walked or written to. Never throws. */
+export function scrubBreadcrumb<T>(crumb: T): T {
+    if (!isObject(crumb)) return crumb;
+    const c: Record<string, unknown> = crumb;
+    try {
+        if (typeof c.message === 'string') c.message = scrubText(c.message);
+        const data = c.data;
+        if (isObject(data) && !Array.isArray(data)) {
+            for (const key of BREADCRUMB_URL_KEYS) {
+                const value = data[key];
+                if (typeof value === 'string') data[key] = scrubUrl(value);
+            }
+            const args = data.arguments;
+            if (Array.isArray(args)) {
+                data.arguments = args.map((arg: unknown) => (typeof arg === 'string' ? scrubText(arg) : arg));
+            }
+        }
+    } catch {
+        // A breadcrumb the SDK did not shape is left as it is.
+    }
+    return crumb;
+}
+
+/** One breadcrumb of an event about to be sent: a copy in which url, to and
+ *  from in data take request.url's rule and every other string, at any depth,
+ *  the free-text rule. Never throws, and writes into nothing it did not make. */
+function scrubEventBreadcrumb(crumb: unknown): unknown {
+    const out = scrubCopy(crumb, 0);
+    const data = isObject(crumb) ? crumb.data : undefined;
+    const copied = isObject(out) ? out.data : undefined;
+    if (isObject(data) && !Array.isArray(data) && isObject(copied) && !Array.isArray(copied)) {
+        for (const key of BREADCRUMB_URL_KEYS) {
+            const value = data[key];
+            if (typeof value === 'string') copied[key] = scrubUrl(value);
+        }
+    }
+    return out;
+}
+
+function scrubBreadcrumbs(event: ScrubbableServerRequest): void {
+    const crumbs: unknown = event.breadcrumbs;
+    if (crumbs === undefined) return;
+    if (!Array.isArray(crumbs)) {
+        delete event.breadcrumbs;
+        return;
+    }
+    event.breadcrumbs = crumbs.map((crumb: unknown) => scrubEventBreadcrumb(crumb));
+}
+
+// A copy of value with every string scrubbed by the free-text rule. A property
+// that throws when read, or anything past MAX_BREADCRUMB_DEPTH, is left out.
+function scrubCopy(value: unknown, depth: number): unknown {
+    if (typeof value === 'string') return scrubText(value);
+    if (!isObject(value)) return value;
+    if (depth >= MAX_BREADCRUMB_DEPTH) return undefined;
+    try {
+        if (Array.isArray(value)) return value.map((item: unknown) => scrubCopy(item, depth + 1));
+        const out: Record<string, unknown> = {};
+        for (const key of Object.keys(value)) out[key] = scrubCopy(value[key], depth + 1);
+        return out;
+    } catch {
+        return undefined;
+    }
 }
 
 // A query parameter or fragment key named room, the legacy and the current
@@ -90,13 +382,14 @@ const ROOM_PARAM = /[?&#]room=/i;
 // on its own. An element selector ("div#main", "a:nth-child(2)") is neither.
 const URL_TOKEN = /^(?:[a-z][a-z0-9+.-]*:\/\/|[/?#])/i;
 
-// A URL inside a token that does not start as one: a scheme's "://" somewhere
-// before a '#', as in "(https://floe.one/r/x#<id>)" or "url=http://a/#<id>".
-// The bare #<id> fragment carries no room= to catch it otherwise. Anchored on
-// "://" rather than any '/': an element selector can hold a '/' and then a '#'
-// (div.w-1/2.bg-[#fff], img[alt="a/b#c"]) and must come back as it was. No
-// SDK producer writes a page URL without its scheme.
-const EMBEDDED_URL = /:\/\/[^#]*#/;
+// A URL inside a token that does not start as one: a scheme's "://" anywhere,
+// as in "(https://floe.one/r/x#<id>)", "url=http://a/#<id>" or, with no
+// fragment at all, "(https://floe.one/r/<id>)". Such a token is only rewritten
+// when it also holds a fragment, a room= parameter or a /r segment. Anchored
+// on "://" rather than any '/': an element selector can hold a '/' and then a
+// '#' (div.w-1/2.bg-[#fff], img[alt="a/b#c"]) and must come back as it was.
+// No SDK producer writes a page URL without its scheme.
+const EMBEDDED_URL = /:\/\//;
 
 // Scrubs the room secret out of a span description or a transaction name.
 //
@@ -114,20 +407,86 @@ const EMBEDDED_URL = /:\/\/[^#]*#/;
 // whitespace, and every token that is URL-shaped, holds a URL, or carries a
 // room= parameter goes through scrubUrl, which drops the fragment whatever it
 // holds (a bare #<id> included) and redacts ?room=.
+//
+// A request link adds a third shape, the /r/<linkId> path, and that one needs
+// no '#' or room= at all: url.path on every pageload and navigation span is
+// the bare path, and so is the url of a fetch. The check is made per token as
+// well as per string, so a string that qualifies because of one token never
+// has its other URL tokens normalized.
 function scrubDescription(description: string): string {
-    if (!description.includes('#') && !ROOM_PARAM.test(description)) return description;
+    if (!mayHoldSecret(description)) return description;
     return description
         .split(/(\s+)/)
         .map((token) =>
-            URL_TOKEN.test(token) || EMBEDDED_URL.test(token) || ROOM_PARAM.test(token)
+            mayHoldSecret(token) &&
+            (URL_TOKEN.test(token) || EMBEDDED_URL.test(token) || ROOM_PARAM.test(token))
                 ? (scrubUrl(token) ?? '')
                 : token
         )
         .join('');
 }
 
+// Free text (an exception's value, a breadcrumb's message, a logged string):
+// the description rule, except that a token that is only URL-shaped because
+// it starts with '#' is rewritten only when it is a fragment parameter
+// (#room=, #k=), a room id (W3 R5-04) or a /r path, as a hash route writes a
+// request link (#/r/<linkId>, C1-05). "React error #418", "member #peer" and
+// "token # in JSON" are not link fragments, and the description rule turned
+// each into "/".
+const FRAGMENT_SECRET = /^#(?:[a-z][a-z0-9_]*=|[0-9a-f]{8}-[0-9a-f]{4}-|(?:\/|%2f)?(?:r|%72)(?:\/|%2f))/i;
+
+// A room id after a '#' inside a token that is not URL-shaped, as in
+// Chromium's "'#<id>' is not a valid selector" when a script hands a /r
+// fragment, a bare room id, to querySelector (C1-04). Only the id goes; the
+// quotes and the rest of the message stay.
+const FRAGMENT_ROOM_ID = /#[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
+function scrubText(text: string): string {
+    if (!mayHoldSecret(text)) return text;
+    return text
+        .split(/(\s+)/)
+        .map((token) => {
+            if (!mayHoldSecret(token)) return token;
+            const urlish =
+                EMBEDDED_URL.test(token) ||
+                ROOM_PARAM.test(token) ||
+                (URL_TOKEN.test(token) && (!token.startsWith('#') || FRAGMENT_SECRET.test(token)));
+            return urlish ? (scrubUrl(token) ?? '') : token.replace(FRAGMENT_ROOM_ID, '#redacted');
+        })
+        .join('');
+}
+
+// REQUEST_PATH_SHAPE on a raw, still-encoded string, where a /r path can also
+// open a query value (?next=r%2F<id>) right after its '='.
+const REQUEST_PATH_HINT = /(^|[/=]|%2f)(?:r|%72)(?:\/|%2f)[^/]/i;
+
+// Whether a string can hold the room id (a fragment or a room= parameter) or a
+// request-link id (a /r/<linkId> path). Nothing else is touched, and only a
+// URL-shaped token is ever rewritten for a /r segment, so free text such as
+// "r/abc" stays.
+function mayHoldSecret(value: string): boolean {
+    return value.includes('#') || ROOM_PARAM.test(value) || REQUEST_PATH_HINT.test(value);
+}
+
+// A transaction name, on a transaction or on an error event: the description
+// rule, then the /r rule unconditionally (see scrubTransactionEvent for why a
+// parameterized /r/:linkId collapses too).
+function scrubTransactionName(name: string): string {
+    return redactRequestPath(scrubDescription(name));
+}
+
+// The span attributes the SDK's httpHeadersToSpanAttributes writes, one per
+// header it keeps: http.request.header.next_url and its siblings on every
+// server span of a request. Dropped whole rather than scrubbed: a header can
+// carry any URL, and Next-Router-State-Tree is URL-encoded JSON that holds
+// the link id where no string rule here can see it (CP-QA F3-01).
+const HEADER_ATTRIBUTE = /^http\.(?:request|response)\.header\./;
+
 function scrubAttributes(data: Record<string, unknown> | undefined): void {
     if (!data) return;
+    for (const key of Object.keys(data)) {
+        if (HEADER_ATTRIBUTE.test(key)) delete data[key];
+    }
     for (const key of URL_ATTRIBUTES) {
         const value = data[key];
         if (typeof value !== 'string' || value === '') continue;

@@ -11,11 +11,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
 
@@ -50,13 +50,12 @@ func runArgs(t *testing.T, args ...string) string {
 	var printed bytes.Buffer
 	rootCmd.SetOut(io.Discard)
 	rootCmd.SetErr(&printed)
-	rootCmd.SetArgs(args)
 	t.Cleanup(func() {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
 	})
-	if err := execute(); err == nil {
+	if err := execute(args); err == nil {
 		t.Fatalf("floe %s succeeded", strings.Join(args, " "))
 	}
 	return printed.String()
@@ -149,6 +148,95 @@ func TestExecuteKeepsCobrasOwnOutput(t *testing.T) {
 	if got := runArgs(t, "--bogus"); got != "Error: unknown flag: --bogus\n" {
 		t.Errorf("floe --bogus printed %q", got)
 	}
+	// Byte for byte as cobra printed them before execute looked for a request
+	// link in the command's place (FU-53, FU-46 review 1 L4): a suggestion
+	// block, a hash with no room id after it, a room id in a name, and an
+	// unknown command beside a request link, which cobra names alone.
+	room := uuid.New().String()
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"recieve"}, "Error: unknown command \"recieve\" for \"floe\"\n\nDid you mean this?\n\treceive\n\nRun 'floe --help' for usage.\n"},
+		{[]string{"notes#1.txt"}, "Error: unknown command \"notes#1.txt\" for \"floe\"\nRun 'floe --help' for usage.\n"},
+		{[]string{room + ".bin"}, "Error: unknown command \"" + room + ".bin\" for \"floe\"\nRun 'floe --help' for usage.\n"},
+		{[]string{"nope", "https://floe.one/r/Xk3p9Q0aB1c#" + room}, "Error: unknown command \"nope\" for \"floe\"\nRun 'floe --help' for usage.\n"},
+	} {
+		if got := runArgs(t, c.args...); got != c.want {
+			t.Errorf("floe %s printed %q, want %q", strings.Join(c.args, " "), got, c.want)
+		}
+	}
+	// help keeps cobra's own answer for a topic that is not a request link.
+	if stdout, stderr, _ := runArgsAll(t, "help", "nope"); !strings.Contains(stdout+stderr, "Unknown help topic") {
+		t.Errorf("floe help nope lost cobra's answer:\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+	}
+}
+
+// TestRequestLinkTypedAsTheCommandIsNeverPrintedBack (FU-53, FU-46 review 1
+// L4): `floe <request link>`, the subcommand forgotten, ended on cobra's
+// unknown-command error, which quotes the link, room id and all, into
+// scrollback. It now ends on the plain send's line (D-153), alone on the
+// indent and on nothing else, in every shape looksLikeRequestLink takes,
+// after a root flag too; main exits 1 on the error. An unknown command with
+// no request link in its place keeps cobra's text
+// (TestExecuteKeepsCobrasOwnOutput).
+func TestRequestLinkTypedAsTheCommandIsNeverPrintedBack(t *testing.T) {
+	room := uuid.New().String()
+	shapes := linkAsPathShapes(room)
+	type run struct {
+		name string
+		args []string
+	}
+	var runs []run
+	for name, link := range shapes {
+		runs = append(runs, run{name, []string{link}})
+	}
+	runs = append(runs,
+		run{"after a root flag", []string{"--no-relay", shapes["a whole link"]}},
+		run{"after --server and its value", []string{"--server", closedServer, shapes["a whole link"]}},
+		run{"with --help after it", []string{shapes["a whole link"], "--help"}},
+		// deep QA A3-07: cobra's help answers an unknown topic with the link quoted.
+		run{"after help", []string{"help", shapes["a whole link"]}},
+		run{"after --server, its value and help", []string{"--server", closedServer, "help", shapes["a whole link"]}},
+		// W3 R5-08: cobra drops a lone dash and an empty argument before it
+		// looks for the command.
+		run{"after a lone dash and help", []string{"-", "help", shapes["a whole link"]}},
+		run{"after an empty argument and help", []string{"", "help", shapes["a whole link"]}},
+	)
+	for _, r := range runs {
+		t.Run(r.name, func(t *testing.T) {
+			stdout, stderr, err := runArgsAll(t, r.args...)
+			all := strings.ToLower(stdout + stderr)
+			for _, leak := range []string{strings.ToLower(room[1:]), strings.ToLower("Xk3p9Q0aB1"), "unknown command"} {
+				if strings.Contains(all, leak) {
+					t.Fatalf("%q was printed:\nstdout:\n%s\nstderr:\n%s", leak, stdout, stderr)
+				}
+			}
+			if !errors.Is(err, errLinkTypedAsPath) {
+				t.Fatalf("execute returned %v, want the link-as-path outcome (main exits 1 on it)", err)
+			}
+			if stdout != "" || stderr != "  "+lineLinkAsPath+"\n" {
+				t.Fatalf("want the one line %q on stderr and nothing on stdout\nstdout:\n%q\nstderr:\n%q", lineLinkAsPath, stdout, stderr)
+			}
+		})
+	}
+}
+
+// runArgsAll runs the command tree through execute with args, as main runs
+// it, and returns what reached stdout (cobra's writer and the process's) and
+// the error writer, with the error main turns into exit 1.
+func runArgsAll(t *testing.T, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
+	var out, errOut bytes.Buffer
+	rootCmd.SetOut(&out)
+	rootCmd.SetErr(&errOut)
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
+	})
+	stdout = captureStdout(t, func() { err = execute(args) })
+	return stdout + out.String(), errOut.String(), err
 }
 
 // TestShortCodeWarningEscapes: the warning send prints when no code comes
@@ -182,28 +270,6 @@ func TestShareRowsEscapeTheCode(t *testing.T) {
 	if got := shareRows("", link); len(got) != 1 || got[0][0] != "Link" {
 		t.Errorf("no code should leave the link alone: %q", got)
 	}
-}
-
-// captureStdout swaps os.Stdout for a pipe while fn runs and returns what fn
-// printed there.
-func captureStdout(t *testing.T, fn func()) string {
-	t.Helper()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("os.Pipe: %v", err)
-	}
-	orig := os.Stdout
-	os.Stdout = w
-	var buf bytes.Buffer
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() { defer wg.Done(); _, _ = io.Copy(&buf, r) }()
-	fn()
-	os.Stdout = orig
-	_ = w.Close()
-	wg.Wait()
-	_ = r.Close()
-	return buf.String()
 }
 
 // TestSendEscapesAHostileCodePhrase (review 1 L2): the real floe send prints

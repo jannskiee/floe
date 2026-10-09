@@ -58,8 +58,19 @@ export const FIELDS = {
             'endMsg',
             'IncomingInfo',
             'FileInfo',
+            'RefusalCode',
+            'PeerStoppedError',
+            'SHA256',
+            'parseEnd',
+            'parseReceived',
+            'parseAckConfirms',
+            'FileDone',
         ],
-        member: ['Ver', 'Reason'],
+        // Code and Saved are the optional incompatible fields; both words are
+        // too common to search for bare ("Saved to" is a receiver print).
+        // Verified is FileDone's field (the receiver's own compare) and the name a
+        // struct decode of received would give the peer's count.
+        member: ['Ver', 'Reason', 'Code', 'Saved', 'Verified'],
     },
     ts: {
         word: [
@@ -72,8 +83,14 @@ export const FIELDS = {
             'Ack',
             'End',
             'Incompatible',
+            'refusalCodeOf',
+            'RefusalCode',
+            'Received',
+            'normalizeSha256',
+            'verifiedCountOf',
+            'ackConfirmsOf',
         ],
-        member: ['ver', 'reason'],
+        member: ['ver', 'reason', 'code', 'saved', 'sha256', 'verified', 'confirms'],
     },
 };
 // Files the map keeps although no token appears in them, for either of two
@@ -88,12 +105,25 @@ export const FIELDS = {
 // `notifyTransferFailed`, whose every call site passes a literal string
 // ("Floe - send failed", "Floe"), so nothing peer-chosen reaches an OS
 // notification. That is worth keeping as a row rather than deleting.
+//
+// desktop/toast_windows.go and desktop/toast_other.go are the second kind:
+// their rows record that pushToast and toastXML carry only the constant strings
+// notify was handed.
+//
+// desktop/frontend/src/components/Toasts.tsx is the second kind too: its one
+// row records that the Request link notice (RequestNotice) shows only the
+// constant N1 and N2 strings, never a label, count, size or name.
 export const TOKEN_FREE = new Set([
     'desktop/frontend/src/errors.ts',
     'desktop/frontend/src/history.ts',
     'desktop/frontend/src/components/HistoryView.tsx',
+    'desktop/frontend/src/components/Toasts.tsx',
     'cli/engine/peer/connection.go',
+    'cli/engine/peer/setuperror.go',
+    'cli/engine/transfer/relay.go',
     'desktop/app.go',
+    'desktop/toast_windows.go',
+    'desktop/toast_other.go',
 ]);
 const tokenRegex = (f) =>
     new RegExp(`\\b(${f.word.join('|')})\\b|\\.(${f.member.join('|')})\\b`);
@@ -139,6 +169,9 @@ function scanFiles(root) {
     for (const r of [
         'cli/engine',
         'cli/cmd',
+        // Test harnesses live here (e2ehost); their stdout reaches public CI logs
+        // and the evidence artifact, so their peer sinks are mapped too.
+        'cli/internal',
         'client/lib',
         'client/components',
         'client/hooks',

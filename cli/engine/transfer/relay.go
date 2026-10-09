@@ -90,3 +90,49 @@ func relayGate(dc *webrtc.DataChannel, totalBytes int64) error {
 	}
 	return checkRelayGate(pathType, totalBytes)
 }
+
+// RelayGate is relayGate for a caller that must know before the send starts
+// whether the cap lets it through: the request-link send prints its WAIT
+// lines only for a drop the gate passes (TL-11 of the approved CLI copy shows
+// none before the relay sentence). The same decision, the same error text,
+// and it fails open the same way; SendFilesWithOptions still applies the gate
+// itself.
+func RelayGate(dc *webrtc.DataChannel, totalBytes int64) error {
+	return relayGate(dc, totalBytes)
+}
+
+// hostRelayVerdict is the receiving side's reading of its own connection for
+// Limits.HostRelayCheck: "relay" or "direct" through the same pathTypeFn walk
+// the sender gate and peer.ConnectionType use, or "unknown" when the probe
+// fails, which checkRelayGate lets through (fail open, like relayGate).
+//
+// What it can enforce: a relay on this side of the pair is this side's own
+// candidate and cannot be faked. A relay on the far side is what the far side
+// declared in its SDP, so a modified sender can label it direct; for honest
+// senders their own gate is the enforcement.
+func hostRelayVerdict(dc *webrtc.DataChannel) string {
+	pathType, err := pathTypeFn(dc)
+	if err != nil {
+		return "unknown"
+	}
+	return pathType
+}
+
+// checkRelayFrame is the relay cap applied to bytes that arrived: the drop's
+// running total plus this frame, strictly past RelaySizeLimit on a relay
+// verdict, refuses. The same rule as checkRelayGate, so exactly the limit
+// passes.
+func checkRelayFrame(pathType string, totalReceived int64, n int) error {
+	return checkRelayGate(pathType, totalReceived+int64(n))
+}
+
+// relayFrameCheck is the seam the receive loop calls at every binary frame, so
+// a test can prove the wiring at a limit it can reach without sending 2 GB.
+var relayFrameCheck = checkRelayFrame
+
+// refuseRelay is refuseLimit for the relay cap, keeping the gate's error as
+// the cause so a caller can errors.Is it against ErrRelayOverLimit.
+func refuseRelay(dc *webrtc.DataChannel, localVer string, saved int, cause error) error {
+	AbortWithCode(dc, localVer, CodeRelayCap, CodeRelayCap.WireReason(), saved)
+	return &RefusedError{Code: CodeRelayCap, Saved: saved, Err: cause}
+}
