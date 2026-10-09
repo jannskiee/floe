@@ -301,8 +301,25 @@ async function assertInsideCard(page: Page, label: string) {
         for (const el of card.querySelectorAll('*')) {
             const r = el.getBoundingClientRect();
             if (r.width === 0) continue;
-            if (r.left < left || r.right > right) {
-                out.push(`<${el.tagName.toLowerCase()}> "${(el.textContent ?? '').slice(0, 30)}" ${Math.round(r.left)}..${Math.round(r.right)} in ${Math.round(left)}..${Math.round(right)}`);
+            // What is drawn is the box cut to every ancestor inside the card that
+            // clips it (overflow hidden or clip). A row's tail gives way from its
+            // start inside such a box at 280 px (ArrivedList.tsx), and on Linux's
+            // wider fallback font its <bdi> runs 2 px past that box, clipped
+            // (CI's ubuntu runner, 2026-10-09). A scrolling ancestor does not count:
+            // a row that would scroll sideways is still a spill.
+            let l = r.left;
+            let rt = r.right;
+            for (let a = el.parentElement; a && a !== card; a = a.parentElement) {
+                const o = getComputedStyle(a).overflowX;
+                if (o === 'hidden' || o === 'clip') {
+                    const ar = a.getBoundingClientRect();
+                    l = Math.max(l, ar.left);
+                    rt = Math.min(rt, ar.right);
+                }
+            }
+            if (rt <= l) continue;
+            if (l < left || rt > right) {
+                out.push(`<${el.tagName.toLowerCase()}> "${(el.textContent ?? '').slice(0, 30)}" ${Math.round(l)}..${Math.round(rt)} in ${Math.round(left)}..${Math.round(right)}`);
             }
         }
         return out.slice(0, 5);
