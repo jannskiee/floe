@@ -186,6 +186,7 @@
           "desktop/installation",
           "desktop/sending",
           "desktop/receiving",
+          "desktop/request-links",
           "desktop/settings",
           "desktop/keyboard-shortcuts"
         ]

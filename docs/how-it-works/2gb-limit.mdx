@@ -32,7 +32,8 @@ networks and even on mobile data.
 ## What counts as one session
 
 A session is one sender and one receiver. The room holds exactly two people, so only one recipient
-is ever connected at a time and there is no way for a session to accumulate.
+is ever connected at a time and there is no way for a session to accumulate. With a
+[request link](/desktop/request-links), each drop is its own session.
 
 The check happens **once, before any file data moves**. When the connection turns out to be
 relayed, Floe compares the total size of everything you queued against 2 GB and either allows the
@@ -42,8 +43,8 @@ relay is declined up front rather than truncated at 2 GB.
 Exactly 2 GB is allowed. Only more than that is refused.
 
 Starting a new transfer runs the check again from scratch, so splitting a large batch into pieces
-under the cap works. Deliberately cycling sessions to get around the cap goes against the spirit
-of a free service.
+under the cap works, and each drop through a request link is checked on its own the same way.
+Deliberately cycling sessions to get around the cap goes against the spirit of a free service.
 
 ## What you see when it stops you
 
@@ -55,6 +56,9 @@ selected.
 
 **In Floe Desktop**, the same message, plus `Turn off Hide my IP to send larger files` when that
 setting is what forced the relay.
+
+**On a request link's page**, the sender sees "Relay limit" and nothing is sent. See
+[Request links](/desktop/request-links#limits).
 
 ## One case that catches people out
 
@@ -81,12 +85,15 @@ Floe Desktop and the CLI write straight to disk as bytes arrive and have no such
 makes them the better choice for anything multi-gigabyte.
 
 Your **disk** is the other one. Nothing checks that the receiving device has room before the
-transfer starts.
+transfer starts, except for a request link: there, Floe Desktop checks before each file that the
+drive will keep 2 GB free after it, and stops the drop if it will not.
 
 <Accordion title="How the cap is enforced">
   The 2 GB cap is local policy on the sending side, applied identically by the web app, the
-  desktop app, and the CLI. It is not part of the wire protocol and the receiver runs no size
-  check of its own.
+  desktop app, and the CLI. It is not part of the wire protocol, and an ordinary receiver runs no
+  size check of its own. A request link is the exception: the Floe Desktop that receives the drop
+  also checks the route itself when you accept, and if it is relayed, refuses any file that would
+  take the drop past 2 GB.
 
   Once the connection is established, the sender inspects the network path that actually won. If
   it runs through a relay and the queued files total more than the limit, the transfer is blocked
@@ -99,7 +106,8 @@ transfer starts.
   partway, in the rare case where Floe could not tell it was relayed.
 
   The limit lives in `RELAY_SIZE_LIMIT` in `client/lib/relay.ts` and `RelaySizeLimit` in
-  `cli/engine/transfer/relay.go`. It is compiled into all three clients rather than served by the
-  signaling server, so raising it on a self-hosted instance means building the clients from
-  modified source. See [TURN relay](/self-hosting/turn-relay).
+  `cli/engine/transfer/relay.go`, which the desktop app also reads for that receiving-side check.
+  It is compiled into all three clients rather than served by the signaling server, so raising it
+  on a self-hosted instance means building the clients from modified source. See
+  [TURN relay](/self-hosting/turn-relay).
 </Accordion>

@@ -42,7 +42,7 @@ The endpoint to point a monitor at. It survives every deployment layout, includi
 [one-domain reverse proxy](/self-hosting/reverse-proxy).
 
 ```json 200 OK
-{ "status": "healthy", "uptime": 1893.4 }
+{ "status": "healthy", "uptime": 1893.4, "features": ["request-1"] }
 ```
 
 <ResponseField name="status" type="string" required>
@@ -51,6 +51,13 @@ The endpoint to point a monitor at. It survives every deployment layout, includi
 </ResponseField>
 <ResponseField name="uptime" type="number" required>
   Seconds since the process started, as a float. Useful for confirming a restart actually landed.
+</ResponseField>
+<ResponseField name="features" type="string[]">
+  What the server offers beyond ordinary transfers: `["request-1"]` while
+  [request links](/desktop/request-links) are turned on in its policy file, and `[]` while they
+  are off. It is read fresh on every request, so it follows a policy file edit within a minute.
+  Floe Desktop reads it each time you click **Make link**, and makes no request-link call before
+  that. A server from before request links has no `features` field at all.
 </ResponseField>
 
 Not rate limited.
@@ -229,7 +236,8 @@ Upstash Redis configured it lives in memory only and resets to zero on restart.
 ### POST /api/stats/report
 
 How the counter is fed. Only the **receiving** side of a completed transfer calls this, so each
-transfer is counted once. Senders never report.
+transfer is counted once, plus Floe Desktop for a request link drop that stopped after it was
+accepted, with the bytes of the files it saved. Senders never report.
 
 <ParamField body="bytes" type="integer" required>
   A positive integer, no larger than `MAX_REPORT_BYTES`, which defaults to 5 TiB

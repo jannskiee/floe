@@ -58,8 +58,8 @@ alongside it.
   Keys are ephemeral and per-session. They are created when the connection is created and
   discarded when it closes.
 
-  Floe adds no encryption layer of its own on top of this, and computes no hash of file contents.
-  Integrity in transit comes from DTLS; integrity of the finished file is a byte-count check
-  against the size the sender announced. See
+  Floe adds no encryption layer of its own on top of this. Integrity in transit comes from DTLS;
+  the finished file is checked against the size the sender announced and, when the sender provides
+  one, against a SHA-256 taken while the file is written. See
   [the transfer protocol reference](/reference/transfer-protocol#integrity).
 </Accordion>

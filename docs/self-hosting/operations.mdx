@@ -1,8 +1,8 @@
 ---
 title: "Day-to-day operations"
 sidebarTitle: "Operations"
-description: "Day-to-day operations for a self-hosted Floe instance: common Compose commands, updating to the latest images, and the health endpoints to point a monitor at."
-keywords: ["logs", "update containers", "health check", "restart"]
+description: "Day-to-day operations for a self-hosted Floe instance: common Compose commands, updating to the latest images, the health endpoints to point a monitor at, and the request-link policy file."
+keywords: ["logs", "update containers", "health check", "restart", "request links", "policy file"]
 ---
 
 ## Common commands
@@ -22,6 +22,12 @@ server, except between two browsers: the shutdown tells one that the other has l
 transfer stops. One that was still connecting may need another try. There is no draining and no
 warning. Pick a quiet moment.
 
+A [request link](/desktop/request-links) that is waiting for a sender comes back on its own. The
+server forgets it too, but a Floe Desktop that is still open reconnects and makes the same link
+again, so the person it was sent to can still use it. What a restart does lose is the mark on a link
+that was used, or that ended before anyone used it: a later sender sees "Their computer is not
+connected right now" instead of "This link has already been used" or "This link has ended".
+
 The client also waits on the server: Compose starts it only once the server reports healthy. If
 the server never gets there, you do not get a web app that cannot connect, you get no web app at
 all.
@@ -34,6 +40,11 @@ docker compose up -d
 ```
 
 That pulls the newest [published images](/self-hosting/images) and restarts. Nothing is built locally, so there is no repository to keep in sync.
+
+Pulling never changes your `docker-compose.yml`. A copy from before v1.11.0 has no `POLICY_FILE` line, so before you
+turn on [request links](#request-links) on such an install, take the current
+[`docker-compose.yml`](https://github.com/jannskiee/floe/blob/main/docker-compose.yml) and copy your own changes
+across.
 
 If you run the optional coturn relay, add its profile to both commands or Compose skips the service entirely, so a new coturn image is never pulled and a stopped relay is never restarted:
 
@@ -80,7 +91,7 @@ The signaling server exposes two status endpoints:
 
 | Endpoint | Purpose | Response |
 |----------|---------|---------|
-| `GET /health` | Liveness check | `{ "status": "healthy", "uptime": <seconds> }` |
+| `GET /health` | Liveness check | `{ "status": "healthy", "uptime": <seconds>, "features": [...] }` |
 | `GET /` | Status and timestamp | `{ "status": "ok", "timestamp": "..." }` |
 
 Point a monitor at `/health`. It is the only one of the two that survives a
@@ -88,3 +99,104 @@ Point a monitor at `/health`. It is the only one of the two that survives a
 web client and returns a page rather than JSON. `GET /` on the signaling server
 is reachable only when you address the server directly, on `:3001` or on its own
 subdomain.
+
+`features` is `["request-1"]` while request links are on and `[]` while they are off. See
+[the HTTP API](/reference/http-api).
+
+## Request links {#request-links}
+
+A self-hosted server offers [request links](/desktop/request-links) only when its policy file turns
+them on. With no policy file they are off, and codes and share links work as usual.
+
+The steps need the `docker-compose.yml` from v1.11.0 or later, which passes `POLICY_FILE` to the server. An older
+copy leaves it out without a word, and `/health` keeps listing no features (see
+[Update to the latest code](#update-to-the-latest-code)).
+
+<Steps>
+  <Step title="Create the policy file">
+    Next to `docker-compose.yml`:
+
+    ```bash Terminal
+    mkdir -p policy
+    echo '{"requestLinks": true}' > policy/policy.json
+    ```
+  </Step>
+  <Step title="Mount the folder and name the file">
+    In `docker-compose.yml`, uncomment the server's `volumes` example:
+
+    ```yaml docker-compose.yml
+    volumes:
+      - ./policy:/app/policy:ro
+    ```
+
+    Then, in `.env`:
+
+    ```dotenv .env
+    POLICY_FILE=/app/policy/policy.json
+    ```
+
+    Mount the folder, not the file. An edit puts a new file in place of the old one, and a mount of
+    the single file keeps showing the old one.
+  </Step>
+  <Step title="Recreate the server and check">
+    ```bash Terminal
+    docker compose up -d
+    curl http://localhost:3001/health
+    ```
+
+    The answer lists `"features":["request-1"]`, and the server's log has one line,
+    `request links: on`.
+  </Step>
+</Steps>
+
+### Turn request links on or off later {#turn-request-links-on-or-off}
+
+The server re-reads the file every 60 seconds, so no restart is needed. Write the new content to a
+temporary file and rename it over the old one, rather than editing the file in place, so the server
+never reads a half-written file:
+
+```bash Terminal
+echo '{"requestLinks": false}' > policy/policy.json.tmp
+mv policy/policy.json.tmp policy/policy.json
+```
+
+Then wait up to 60 seconds. The log says `request links: off` (or `request links: on`), and
+`/health` follows.
+
+Turning request links off ends every link that is waiting for a sender, and Floe Desktop shows
+"Request links are off on this server". A drop that is already under way is left to finish.
+
+The server reads the file this way:
+
+- Only `true`, the JSON boolean, turns request links on. `"true"` in quotes, any other value, and a
+  missing `requestLinks` key all mean off. Other keys are ignored.
+- A file that cannot be read, is not a JSON object, or is larger than 64 KB changes nothing: the
+  server keeps its last good setting and logs `policy file unreadable, keeping previous policy`
+  once, until the file reads cleanly again.
+- A missing file means off, and while a set `POLICY_FILE` stays missing the server logs `policy file not found, request links off` once.
+- UTF-8 works, and so does the UTF-16 that Windows PowerShell writes by default.
+
+### Limits {#request-link-limits}
+
+Floe Desktop on one network (one IPv4 address, or one IPv6 /64) can keep at most 10 request links open at a time
+and make 20 in any 24 hours, and the server holds at most 5,000 links at once. These limits are fixed in the server
+and have no setting. Behind a reverse proxy, set `TRUSTED_PROXY_COUNT` to match it (see
+[Configuration](/self-hosting/configuration)), or every user counts as the same network.
+
+### Keep the client and server on one version {#matching-versions}
+
+The page a sender opens comes from the web client, not from the signaling server, so run the two
+images at the same version. Compose does that by default, because `FLOE_IMAGE_TAG` picks both. An
+older client in front of a newer server lets Floe Desktop make links whose page does not exist.
+
+Floe Desktop builds the link from its **Share link address** setting, or from the server address
+when that is blank. With the default Compose file the web client listens on port 3000 and the server on 3001, so
+set **Share link address** to the client's address, such as `http://<host>:3000`: a link built from the server
+address opens a page the server does not serve. On a [one-domain deployment](/self-hosting/reverse-proxy), leave it
+blank. See [Self-hosted servers](/desktop/request-links#self-hosted-servers). How the
+server holds a request link's room is described in
+[the architecture reference](/reference/architecture#request-rooms).
+
+The page a sender opens carries **Report this link** on every server, and on yours it still starts
+an email to Floe's maintainers, who cannot turn off or trace another server's links. Tell the people
+you share links with how to reach you instead.

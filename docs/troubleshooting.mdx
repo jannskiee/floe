@@ -1,7 +1,7 @@
 ---
 title: "Troubleshooting: fixes by error message"
 sidebarTitle: "Troubleshooting"
-description: "Every message Floe can show you, what causes it, and what to do. Covers the browser, Floe Desktop, the floe CLI, and self-hosted instances."
+description: "Every message Floe can show you, what causes it, and what to do. Covers the browser, Floe Desktop, request links, the floe CLI, and self-hosted instances."
 keywords: ["error", "not working", "cannot connect", "failed", "stuck", "troubleshooting"]
 boost: 2
 ---
@@ -100,11 +100,26 @@ The two bulk buttons appear only for multi-file transfers, and they come and go:
 as the second file lands, hide while the next file streams, and settle once the transfer finishes.
 A single file is saved from the download button on its own row.
 
+### "Could not read "<name>". It may have been moved, renamed, or on a drive or folder that is no longer available. Nothing further was sent." {#could-not-read-a-file}
+
+The browser could not read a file you picked when its turn came: it was moved, renamed or deleted after
+you picked it, its drive was disconnected, or it is a cloud file whose local copy is gone. On Windows,
+Chrome and Edge also cannot read a file whose full path is over 260 characters. The files sent before it
+arrived. Move the file to a folder with a shorter path, or zip it, and send it again.
+
 ### A file did not appear at all
 
 Floe compares what arrived against the size the sender announced and discards anything that does
-not match, in either direction, rather than handing you a file that looks whole and is not. Ask
-the sender to send that file again.
+not match, in either direction, or, when the sender provides one, does not match its SHA-256,
+rather than handing you a file that looks whole and is not. Ask the sender to send that file again.
+
+### "A file did not match what was sent, so it was discarded. Ask the sender to try again." {#a-file-did-not-match-what-was-sent}
+
+The sender's SHA-256 for that file did not match the bytes that arrived, so Floe threw the file away
+rather than hand you a damaged copy, and the transfer stopped. Files saved before it are fine. A
+second wording, "The sender's SHA-256 for a file could not be read, so the file was discarded. Ask
+the sender to try again.", means the value itself was malformed. On the sending side the page says
+"The other side discarded a file that did not match what was sent. Try sending again."
 
 ## On the command line
 
@@ -176,10 +191,32 @@ Every byte was sent, but for a full minute the receiver neither confirmed delive
 more of the data still on its way. The connection has most likely stalled. Check with the recipient
 before resending.
 
+### `the connection closed before the receiver confirmed delivery`
+
+Every byte was sent to a current `floe receive` or Floe Desktop, but the connection closed before
+it said it saved every file, or went silent for about 30 seconds. The receiver may or may not have
+kept the files, and `floe send` cannot tell, so it exits with status 1 instead of reporting
+success. Check with the recipient before resending.
+
 ### `relay connections are capped at 2 GB`
 
 The same cap as in the browser, from the sending side. See
 [File size limits](/how-it-works/2gb-limit).
+
+### `receive stopped: a file's path is too deep or too long to save in this folder` {#receive-stopped-path-too-deep-or-too-long}
+
+A file in the transfer sits more than 32 levels deep, or its path inside the transfer is longer
+than 235 characters. `floe receive` refuses such a file before writing it, and there is no flag to
+turn that off. Ask the sender to zip deeply nested folders first. See
+[Paths that are too deep or too long](/cli/receive#paths-too-deep-or-too-long).
+
+### `a file did not match the SHA-256 the sender computed, so it was not kept` {#a-file-did-not-match-the-sha-256}
+
+Printed by `floe receive` behind `Error: `. The sender's SHA-256 for that file did not match the bytes
+that arrived, so the file was deleted before it took its name, and the transfer stopped. Files saved
+before it are kept. A second wording, `the sender's SHA-256 for a file could not be read, so the file
+was not kept`, means the value itself was malformed. The `floe send` on the other side ends with
+`A file changed or was damaged on the way, so their Floe deleted it.` Ask the sender to send it again.
 
 ### `Cannot transfer: your floe is too old for this peer`
 
@@ -254,50 +291,49 @@ of which also accept the link.
 ## In Floe Desktop
 
 Every failure in the app is shown with an `Error: ` prefix, so a message on screen reads
-`Error: That code was not recognized. ...`.
+`Error: That code wasn't recognized`.
 
-### "That code was not recognized. Check it for typos, or ask the sender for a new one."
+### "That code wasn't recognized" {#that-code-was-not-recognized}
 
 The same causes as the CLI's expired-code message: a typo, more than ten minutes have passed, or
 the code has already been retired because its transfer paired or the sender's room emptied. It
 also appears when the code belongs to a different server from the one the app is set to.
 
-### "Connected, but the sender never started sending. Ask them to try again."
+### "The sender never started sending" {#connected-but-the-sender-never-started-sending}
 
-Floe reached the sender and waited thirty seconds with nothing arriving.
+Floe reached the sender and waited thirty seconds with nothing arriving. Ask them to try again.
 
-### "Could not reach the server. Check your internet connection."
+### "Can't reach the server" {#could-not-reach-the-server}
 
 The app could not reach the signaling server at all, or the server never assigned it a role within
 twenty seconds. If you recently changed **Server address**, check it with **Test**.
 
 ### The Test button says the realtime connection was refused
 
-"The server answered, but the realtime connection was refused. If it is behind a reverse proxy,
-check that /ws is being forwarded." The address is a Floe signaling server but the WebSocket
-upgrade at `/ws` is not reaching it, which is nearly always a proxy that forwards ordinary
-requests without forwarding the upgrade. See
+"The server refused the realtime connection (check that your proxy forwards /ws)". The address is a
+Floe signaling server but the WebSocket upgrade at `/ws` is not reaching it, which is nearly always a
+proxy that forwards ordinary requests without forwarding the upgrade. See
 [Run behind one domain](/self-hosting/reverse-proxy). The other cause is a proxy that rewrites the
 `Host` header to its upstream address, which fails the server's origin check; the CLI reports the
 same thing as `websocket: bad handshake`. See [Production deployment](/self-hosting/production).
 
 ### The Test button says the API answered with an HTTP error
 
-"The server is running, but its API answered with HTTP 404." `/api/` is not being forwarded. Fix
-it before relying on the server, because nothing else reports this failure: relay credentials fall
+"The API answered HTTP 404 (check that your proxy forwards /api/)". `/api/` is not being forwarded.
+Fix it before relying on the server, because nothing else reports this failure: relay credentials fall
 back to public STUN and the room code silently fails to register, so you get a share link with no
 code and no error.
 
 ### The Test button says the server has no TURN relay
 
-"Connected. This server has no TURN relay, so Hide my IP will not work." The address is a working
-Floe signaling server, and this is a pass rather than a failure, which is why it carries no
+"Connected, but there's no relay for Hide my IP". The address is a working Floe signaling server,
+and this is a pass rather than a failure, which is why it carries no
 `Error: ` prefix. [Hide my IP address](/desktop/settings#hide-my-ip-address) cannot work at all
 without a relay, and ordinary transfers succeed only where the two devices can reach each other
 directly. Turn the switch off, or add a relay to the instance. See
 [TURN relay](/self-hosting/turn-relay).
 
-### "Hide my IP needs a TURN relay and this server has none."
+### "Hide my IP needs a relay this server doesn't have" {#hide-my-ip-needs-a-relay}
 
 The server answered, and its answer had no relay in it. The transfer stops before it starts
 rather than timing out about thirty seconds later with advice about both devices being online.
@@ -305,7 +341,7 @@ Turn **Hide my IP** off, or add a relay to your instance. Floe's own server alwa
 this only appears on a self-hosted address. **Test** reports the same thing about an address
 before you rely on it. See [TURN relay](/self-hosting/turn-relay).
 
-### "Hide my IP needs a TURN relay, and this server's connection details could not be read."
+### "Couldn't read this server's relay details for Hide my IP" {#relay-details-unreadable}
 
 The difference from the message above is who is being blamed. Here the server was not heard from
 at all, so Floe fell back to public STUN and cannot say what the server offers. Check the
@@ -313,6 +349,13 @@ at all, so Floe fell back to public STUN and cannot say what the server offers. 
 that `/api/` is being forwarded. Trying again in a minute also helps, because the TURN endpoint
 rate-limits repeated requests from one address. Turning **Hide my IP** off lets the transfer
 proceed over whatever path is available.
+
+### "They discarded a file that didn't match what was sent" {#they-discarded-a-file}
+
+On the sending side. The receiving app checked a file against the SHA-256 Floe sent with it, the two
+did not match, so it threw the file away rather than keep a damaged copy, and the transfer stopped.
+Send it again. When Floe Desktop is the side receiving, its own line ends with `a file did not match
+the SHA-256 the sender computed, so it was not kept`.
 
 ### The Test button says it may be the web app rather than the signaling server
 
@@ -347,6 +390,64 @@ If the Microsoft Edge WebView2 runtime is missing and the machine cannot reach M
 download, Floe cannot start and says so. Install
 [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) yourself, then start Floe
 again. See [Install the desktop app](/desktop/installation).
+
+## Request links {#request-links}
+
+The messages below come from [request links](/desktop/request-links): some from Floe Desktop, where
+the link was made, and some from the page the sender opens. That page lists
+[every message](/desktop/request-links#messages). `floe send --to` prints several of the same
+sentences in the terminal, and [its own messages](/cli/send#messages-from-floe-send-to) are listed
+on its page.
+
+### "Their computer is not connected right now" {#their-computer-is-not-connected-right-now}
+
+On the sender's page. Floe cannot reach the computer that made the link: the PC is asleep or
+offline, or Floe there stopped without closing the link. A link that never existed reads the same,
+and so does one that ended more than about a day ago; within that day it reads "This link has
+ended". The files stay selected, so click **Try again** once the other person has Floe open, or ask
+them for a new link.
+
+### "This link has ended" {#this-link-has-ended}
+
+On the sender's page, followed by "Ask them for a new link." The link was closed before anyone used
+it: the person who made it clicked **Close link** or quit Floe, or its end time passed. The page says
+so for about a day afterwards, and there is no **Try again**, because the link will not come back.
+Ask them for a new link.
+
+### "This link has already been used" {#this-link-has-already-been-used}
+
+On the sender's page. A request link takes one drop, and this one has had it, or someone else is
+sending through it right now. Ask the person who made it for a new link.
+
+### "Request links are turned off right now" {#request-links-are-turned-off-right-now}
+
+On the sender's page. Request links are turned off on this Floe server, so no request link works
+there until they are turned back on. Nothing is wrong with the link itself. Try again later.
+
+### "They did not answer in time" {#they-did-not-answer-in-time}
+
+On the sender's page, followed by "Nothing was sent." The person who made the link did not click
+**Accept** or **Decline** within just under 10 minutes. Nothing was saved on their computer. A
+missed request does not close the link, so ask them to be at their PC, then send again.
+
+### "Request links are off on this server" {#request-links-are-turned-off-on-this-server}
+
+In Floe Desktop, when you make a link or while one waits. The server has turned request links off.
+Only request links stop: Send and Receive with a code still work. Try again later, or, on your own
+server, see [Self-hosted servers](/desktop/request-links#self-hosted-servers).
+
+### "This network reached today's link limit" {#this-network-made-too-many-request-links-today}
+
+In Floe Desktop, when you make a link. The server allows 20 new request links from one network in
+any 24 hours, and a link you closed still counts. Wait, then make the link again. A network that
+already has 10 links open, or a server that is full, gets "Couldn't make a link" instead.
+
+### "The sender couldn't connect" {#the-sender-could-not-connect}
+
+In Floe Desktop, on a link that is waiting again. Someone clicked **Send** on your link, but their
+browser and your PC could not finish connecting. The link is still open, so they can try again. If
+it keeps happening, a network on one side may be blocking the connection; see
+[The transfer never starts](#the-transfer-never-starts).
 
 ## On a self-hosted instance
 
@@ -473,8 +574,8 @@ That is expected. The signaling server has no access log and no startup banner, 
 "listening on" line, so `docker logs` on a healthy server is usually empty. A request the server
 refuses leaves one short line such as `Refused a request with 403.`; see
 [Operations](/self-hosting/operations#the-server-logs-very-little). Use `GET /health`, which
-returns `{"status":"healthy","uptime":<seconds>}`, to confirm it is alive and to see whether a
-restart landed.
+returns `{"status":"healthy","uptime":<seconds>,"features":[...]}`, to confirm it is alive and to
+see whether a restart landed.
 
 ### `docker compose ps` never shows the client as healthy
 

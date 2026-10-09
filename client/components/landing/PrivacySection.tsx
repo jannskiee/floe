@@ -11,6 +11,18 @@ const handled: ReactNode[] = [
     // The lede promises this is the COMPLETE list, so the per-IP rate limiting in
     // server.js has to appear here or the promise is false.
     'Your IP address, held in memory only long enough to rate-limit abuse',
+    // Request links (server.js request rooms, D-130, D-176): the reservation
+    // keeps SHA-256(hostToken), never the token; a sealed close leaves a used
+    // mark for 24 h, and every other end an ended mark (endedLinks: the id and
+    // the end time only) until 24 h after the link's end, which for a link that
+    // lapsed while its PC was away can be its whole life later (W3 R1-02,
+    // C1-01); requestCreates keeps create times, and liveByKey
+    // the count of open links, under sealDigest(rateKey) for the 20-a-day and
+    // 10-open budgets. The grace sweep makes "about 10 minutes" 10 to 11. All in
+    // memory. No denylist exists (E-25).
+    'For a request link, a hash of its secret token while the link is open and for about 10 minutes after Floe Desktop disconnects, then its id with a mark that it was used or ended, until a day after it closes or ends',
+    'For 24 hours, when each network made new request links, under a keyed hash of its address',
+    'While request links are open, how many each network has open, under the same keyed hash',
 ];
 
 const neverSees: ReactNode[] = [
@@ -19,6 +31,7 @@ const neverSees: ReactNode[] = [
         Your share link. The <code className="font-mono text-[12px] text-zinc-300">#room</code>{' '}
         fragment never travels in an HTTP request, referrer, or analytics event
     </>,
+    "The id in a request link's address, which only the web host sees",
     'Any transfer traffic. Once the peers connect, the data channel bypasses it entirely',
     'Relayed traffic in the clear. Relay packets stay encrypted end to end',
 ];

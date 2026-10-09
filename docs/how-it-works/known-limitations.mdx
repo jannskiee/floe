@@ -46,10 +46,15 @@ A direct connection is two devices talking to each other, which means each one k
 other is. That is not a leak; it is how any peer-to-peer connection works, and a video call
 does the same thing.
 
+With a [request link](/desktop/request-links), that happens as soon as the sender clicks **Send**
+and connects, before the person who made the link accepts or declines. Declining does not take it
+back.
+
 **What you can do:** Floe Desktop has a [Hide my IP address](/desktop/settings#hide-my-ip-address)
 switch that forces every transfer through the relay, so the other side sees the relay's address
 instead of yours, and the CLI's `--relay-only` flag does the same. The web app has no
-equivalent. The trade is speed and the 2 GB session cap.
+equivalent, but the page a sender opens from a request link has its own Hide my IP switch. The
+trade is speed and the 2 GB session cap.
 
 ## The relay sees more than the signaling server does
 
@@ -88,18 +93,25 @@ the [CLI](/cli/receive), which write straight to disk and have no such ceiling. 
 use a normal Chrome or Edge window, and save files one at a time rather than zipping when the
 total is large.
 
-## Floe does not hash your files
+## The SHA-256 check covers the transfer, not your disk afterward
 
 A completed file is checked against the size the sender announced, and a mismatch in either
-direction discards it. That catches a truncated or over-run transfer, which is what actually
-happens when a connection dies partway.
+direction discards it. When the sender provides a SHA-256 as well, the receiver hashes the file
+while writing it and deletes it if the two do not match, so the file you keep is the bytes that
+left the other machine.
 
-It is not a content checksum. Floe computes no hash of file contents anywhere, so the docs never
-claim one. In practice the transport already authenticates every packet, so silent corruption in
-flight is not the gap; the gap is that Floe cannot tell you the file on disk is byte-identical to
-the one that left.
+Two things the check does not do. It never reads the file back from disk, so it cannot notice
+damage that happens on your disk after the file was written. And a file that comes without a
+digest is checked against its size and nothing more. A sender that predates the check sends none.
+A browser sender waits for a file's SHA-256 at most 45 seconds after the file's last byte and then
+sends the file without one, because a CLI or desktop receiver gives up on a transfer that goes 60
+seconds without data. A browser receiver checks a file once it has arrived, and with more files to
+come it stops after at most 90 seconds and keeps the file unchecked, because the sender stops waiting
+for its answer at 120 seconds. Either way the file is kept, and no check mark or `SHA-256 matched`
+line appears.
 
-**What you can do:** compare hashes yourself when that guarantee matters. `sha256sum` on Linux,
+**What you can do:** compare hashes yourself when you need proof about the file as it sits on
+disk. `sha256sum` on Linux,
 `shasum -a 256` on macOS, `Get-FileHash` on Windows.
 
 ## Windows cannot keep two names that differ only by a reserved character
@@ -119,6 +131,52 @@ keep both names as they were sent, because those characters are legal there.
 a macOS or Linux receiver. The progress line and the transfer history both show the name that
 was actually written, so you can always tell what landed where.
 
+## Very deep or very long paths are refused
+
+Before it writes anything, Floe Desktop and `floe receive` refuse a file whose path inside the
+transfer is more than 32 levels deep or longer than 235 characters, or that starts at a drive or a
+root. The receive stops there and tells the sender why. Files saved before it are kept, and no
+setting or flag turns the limits off.
+
+**What you can do:** zip deeply nested folders before sending them. See
+[what the desktop app shows](/desktop/receiving#paths-too-deep-or-too-long).
+
+## Floe does not scan received files
+
+Floe does not scan received files for malware. On Windows, Floe Desktop and `floe receive` mark each
+file as downloaded, the way a browser does, so SmartScreen and Office Protected View treat it like any
+download. The mark needs a drive that keeps it, such as NTFS; FAT32 and exFAT drives, like most USB
+sticks and SD cards, and many network shares do not, and a file saved there arrives without it.
+
+**What you can do:** open files you did not expect with the same care as any download, and save
+to an NTFS drive when the mark matters. A drop through a request link also renames file types that
+File Explorer opens by itself; see [Renamed files](/desktop/request-links#renamed-files).
+
+## Windows decides where a notification appears {#notifications}
+
+Floe Desktop sends standard Windows notifications, and Windows decides how they show: on which screen,
+in which corner, for how long, and whether Focus or Do Not Disturb hides them. Floe cannot pick a screen
+or a corner. A notification also stays in Notification Center after the request it announced has ended, or
+after you have answered it, until you clear it. Clicking a notification is not a way back to the request yet: switch to Floe to answer it.
+
+**What you can do:** open Windows' notification settings, where Floe has its own entry (Floe Desktop for the Microsoft Store build), with **Open** under
+[Windows notification settings](/desktop/settings#windows-notification-settings) in Settings. Turn
+notifications off there, or in Floe, if you would rather not have them. A request still flashes the taskbar button, the window title
+reads `(1) Floe`, and a notice appears inside Floe. See
+[With notifications off](/desktop/settings#notifications-off).
+
+## A request link works only while your PC is on
+
+A request link is a live transfer, not a mailbox. Files move only while Floe Desktop is open on
+your PC and the PC is awake and online, and only while the sender's browser tab stays open. There
+is no resume: if the connection drops, the file that was moving starts over through a new link.
+A drop that runs for hours can also be cut short by Windows restarting for updates outside your
+active hours.
+
+**What you can do:** keep the PC plugged in and awake for a long drop, and set Windows Update's
+active hours to cover it. The sender keeps the tab in front, and pins it for a long drop. See
+[Request links](/desktop/request-links).
+
 ## The public counter is a vanity metric
 
 The total on the homepage is fed by receivers reporting a byte count after a transfer. It is
@@ -132,7 +190,8 @@ avoids. It carries no file names, no per-transfer records, and no link to anyone
 
 ## A self-hosted server runs as a single process
 
-Rooms, room codes, and the rate limiters all live in one process's memory. Running two replicas
+Rooms, room codes, request-link reservations, and the rate limiters all live in one process's
+memory. Running two replicas
 behind a load balancer does not scale Floe out; it silently breaks pairing, because the two
 peers can land on different replicas and never see each other.
 

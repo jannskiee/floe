@@ -63,9 +63,11 @@ right-click menu.
 | Show a QR code | Yes | Yes | No |
 | Join with a link | Yes | Yes | Yes |
 | Join with a short code | No | Yes | Yes |
+| Make a [request link](/desktop/request-links), so someone can send to you | No | Yes, in Beta | No |
+| Send through someone's request link | Yes, in current Chrome and Edge on a computer | No, it opens the link in your browser | Yes, `floe send --to` |
 | Where received files go | Your browser's downloads, after the whole file has arrived in the browser | Straight to disk, in a folder you choose | Straight to disk, in `-o` or the current directory |
 | Folder structure on arrival | Flattened when saved one at a time, rebuilt inside **Download ZIP** | Rebuilt | Rebuilt |
-| Confirm before receiving | No, it starts on its own | No, it starts on its own | Yes, unless you pass `-y` |
+| Confirm before receiving | No, it starts on its own | No for a code or a link; yes for a request link, unless you turn on Auto-accept for it | Yes, unless you pass `-y` |
 | Refuse the relay | Yes, the **Network relay fallback** checkbox | No | Yes, `--no-relay` |
 | Force the relay to hide your IP | No | Yes, **Hide my IP address** | Yes, `--relay-only` |
 | Transfer history | No | The last 50, stored on your device | No |
@@ -85,7 +87,8 @@ These are properties of the transfer itself, so they do not change with the clie
 - **The sender stays connected** for the whole transfer. Closing the tab, quitting the app, or
   stopping the process ends it.
 - **Versions do not need to match.** A browser sender and a two-year-old CLI receiver transfer
-  normally. See [Protocol versioning](/reference/transfer-protocol#protocol-versioning).
+  normally. See [Protocol versioning](/reference/transfer-protocol#protocol-versioning). Request
+  links are the exception: they need a current Floe Desktop and a server that offers them.
 
 ## Mixing them
 

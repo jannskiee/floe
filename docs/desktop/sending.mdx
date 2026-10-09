@@ -45,9 +45,8 @@ standing replaces it, so if you cleared a note, undo it before you clear a file 
 
 `Ctrl` `R` starts over, which clears the selection along with everything else on the card.
 It asks first if a transfer is already moving bytes, if the text box holds a note that has not
-been sent (the dialog reads "The text you typed has not been sent yet. Starting over will clear
-it."), or if you cleared a note that had never been sent and its Undo is still standing, since
-starting over discards it. Clicking the Floe lockup in the title bar starts over too, with the
+been sent (the dialog reads "Starting over clears your unsent text"), or if you cleared a note that
+had never been sent and its Undo is still standing, since starting over discards it. Clicking the Floe lockup in the title bar starts over too, with the
 same confirmations, but only the shortcut is held back while you are typing.
 
 Adding the same path twice does nothing, so dragging a file you already staged is safe. One
@@ -110,6 +109,9 @@ devices have started connecting, the link turns away anyone on a network other t
 recipient's. Send again for a second recipient. See
 [How a transfer works](/how-it-works/signaling#a-room-holds-exactly-two-people).
 
+A [request link](/desktop/request-links), which lets someone send files to you, is different: it is
+used up after one drop.
+
 Floe handles one transfer at a time, so wait for the current one to finish before starting the
 next. There is no queue.
 
@@ -121,23 +123,31 @@ The badge at the top right of the card tells you what is happening:
 
 | Badge | Meaning |
 |---|---|
-| **READY** | Idle, nothing in flight. |
+| **READY** | Idle, nothing in flight. A [request link](/desktop/request-links#the-status-at-the-top) waiting for files reads **READY** too. |
+| **AUTO-ACCEPT** | A [request link](/desktop/request-links#auto-accept) made with Auto-accept is waiting; a drop that qualifies will save without asking. |
 | **ACTIVE** | A transfer is under way: either waiting for the other side to join, or connected and still working out which route it took. |
 | **DIRECT** | Connected device to device. No server in the middle, and no size limit. |
 | **RELAY** | Connected through the encrypted TURN relay. The 2 GB cap applies. |
+
+The dot beside the word is green, or amber when the transfer goes through the relay or Hide my IP
+is on. An amber **READY** means Hide my IP is on, so the next transfer will be relayed and capped at
+2 GB; it is the one state that explains itself when you point at it.
 
 Below it, a progress bar shows the current file, the percentage, the speed, and the estimated
 time remaining. **Cancel** stops the transfer at any point.
 
 You can minimize the window and the transfer keeps running, because the transfer happens in
 Floe's core rather than in the window. Windows is also asked not to sleep while a transfer is
-connected. Closing the window during a transfer asks first; choosing **Close anyway** stops
-the transfer and closes Floe.
+connected. Closing the window during a transfer asks first; choosing **Close** stops the
+transfer and closes Floe, and **Keep open** goes back.
 
-When it finishes you get a Windows notification and the card reads **Sent 1 item**, or
-**Sent 4 items** for four. It counts what you staged, not what crossed the wire, so a single folder
-holding fifty files reads **Sent 1 item**. A text note is one item too, since it travels as a
-single `message.txt`.
+When it finishes the card reads **Sent 1 item**, or **Sent 4 items** for four. It counts what you
+staged, not what crossed the wire, so a single folder holding fifty files reads **Sent 1 item**. A
+text note is one item too, since it travels as a single `message.txt`. A green check mark appears
+beside it when the other side reports that every file's SHA-256 matched (see
+[The check mark](/desktop/request-links#the-sha-256-check)). With notifications on, Floe also shows a
+Windows notification when a transfer finishes or fails while it is in the background. See
+[Notifications](/desktop/settings#notifications).
 
 ## Send from File Explorer
 

@@ -11,6 +11,7 @@ import {
     sectionIndex,
 } from '@/components/legal/LegalShell';
 import { sharedOpenGraph, sharedTwitter } from '@/lib/socialMetadata';
+import { REQUEST_REPORT_ADDRESS } from '@/lib/request/report';
 
 export const metadata: Metadata = {
     // Bare title: the "%s - Floe" template in app/layout.tsx adds the suffix.
@@ -29,6 +30,17 @@ export const metadata: Metadata = {
 // Every sentence below was checked against the code it describes on
 // 2026-09-05 (server/server.js, server/turn.js, client/sentry.*.config.ts,
 // client/app/layout.tsx, cli/, desktop/) and against docs/security-privacy.mdx.
+// The request link sentences were checked on 2026-10-03 against feat cda29a4
+// (server/server.js request rooms, client/lib/scrubUrl.ts,
+// client/lib/analyticsPath.ts, client/lib/request/report.ts,
+// client/lib/request/lostRecord.ts, desktop/transfer.go endRequestDrop,
+// desktop/frontend/src/history.ts).
+// The desktop paragraph's Make link clause and the Notifications row follow
+// the H7 spec (no Beta switch, Settings > Notifications). They, the History
+// row's Auto-accept clause (history.ts entry.auto), the ended mark and the
+// open-link count (server.js endedLinks, liveByKey) and the reservation grace
+// (10 to 11 minutes with the sweep, so "about 10") were rechecked on
+// 2026-10-08 against rl/QA-FIX 04a5eee.
 // The received-files paragraph and the device-memory item were rechecked on
 // 2026-10-02 against client/lib/transfer/receiver.ts,
 // client/components/P2PTransfer.tsx and Chromium's blob storage
@@ -52,6 +64,8 @@ export default function PrivacyPolicy() {
         <LegalShell
             document="privacy"
             title="Privacy policy"
+            // TODO F-13 (S1-REL-02, DOC-S1-12): move Last updated to the month
+            // the request link sentences publish.
             dates={[{ label: 'Last updated', iso: '2026-10', text: 'October 2026' }]}
             historyHref="https://github.com/jannskiee/floe/commits/main/client/app/privacy/page.tsx"
             toc={toc}
@@ -115,6 +129,14 @@ export default function PrivacyPolicy() {
                     fallback&quot; checkbox does the opposite, turning the relay off so only a direct
                     connection is attempted.
                 </p>
+                <p>
+                    A request link works the other way around. You make it in Floe Desktop and send it
+                    to someone, and they open it in their browser to send files to your PC. That page
+                    joins nothing until they click Send. From then on, the two of you learn each
+                    other&apos;s IP address, before you accept or decline, unless that side has Hide my
+                    IP on: the request link page has its own &quot;Hide my IP (relay only, 2 GB per
+                    drop)&quot; switch, and Floe Desktop&apos;s setting covers your side.
+                </p>
             </LegalSection>
 
             <LegalSection id="collect" index={sectionIndex(toc, 'collect')} title="Information we collect">
@@ -134,7 +156,14 @@ export default function PrivacyPolicy() {
                                     between them. It forwards them from memory, unread, and keeps
                                     nothing once the room closes. When the sender uses the CLI or Floe
                                     Desktop, the server also maps a random three-word code to the room
-                                    id for ten minutes.
+                                    id for ten minutes. A request link is the one exception: the server
+                                    holds its room, with a hash of the link&apos;s secret token and
+                                    never the token itself, while the link is open and for about 10
+                                    minutes after Floe Desktop disconnects. Once someone has used the
+                                    link it keeps a mark saying so for a day. For any other link it
+                                    keeps the link&apos;s id and end time until a day after it ends,
+                                    so a late visitor can be told it ended. All of it is in memory
+                                    only.
                                 </p>
                             ),
                         },
@@ -156,12 +185,14 @@ export default function PrivacyPolicy() {
                                 <>
                                     <p>
                                         When a transfer completes, the receiving side reports only the
-                                        number of bytes it received. We add this to one shared,
-                                        all-time counter of total bytes transferred, shown on our
-                                        homepage and stored as a single number in a hosted Redis
-                                        database (Upstash). The sender never reports. We do not store
-                                        file names, file contents, or any link between this number and
-                                        you.
+                                        number of bytes it received. A request link drop that stops
+                                        after it was accepted reports the bytes of the files it saved,
+                                        once, unless you turned off the switch below. We add this to
+                                        one shared, all-time counter of total bytes transferred, shown
+                                        on our homepage and stored as a single number in a hosted
+                                        Redis database (Upstash). The sender never reports. We do not
+                                        store file names, file contents, or any link between this
+                                        number and you.
                                     </p>
                                     <p>
                                         You can opt out: uncheck &quot;Contribute to global stats&quot;
@@ -186,8 +217,13 @@ export default function PrivacyPolicy() {
                                     web servers, the reverse proxy in front of it and the providers
                                     that host us may log connection request IP addresses for security
                                     and abuse prevention. We do not link any of this to your identity.
-                                    Who else sees your IP address, and how to hide it from the other
-                                    person, is under How the transfer works.
+                                    To hold each network to 20 new request links a day, the server
+                                    keeps the times of new links for 24 hours under a keyed hash of the
+                                    address, never the address itself, and under the same hash it
+                                    counts the links each network has open, to hold it to 10 at a
+                                    time. Who else sees your IP address,
+                                    and how to hide it from the other person, is under How the transfer
+                                    works.
                                 </p>
                             ),
                         },
@@ -243,6 +279,16 @@ export default function PrivacyPolicy() {
                     made. Neither is written to a log.
                 </p>
                 <p>
+                    A request link looks like <InlineCode>floe.one/r/&lt;link id&gt;#&lt;key&gt;</InlineCode>
+                    . The key after the <InlineCode>#</InlineCode> works like a share link&apos;s room
+                    id and stays out of logs the same way. The link id before it is part of the page
+                    address, so Vercel&apos;s request logs see it; it names one link without the key, so
+                    a report or a block can point at that one link, and our signaling server never
+                    receives it. Our analytics script does not load on a request link&apos;s page at
+                    all, and our error monitoring removes the link id from the address before anything
+                    is sent. Mail security services that rewrite links may see the whole link.
+                </p>
+                <p>
                     Please refer to each provider&apos;s privacy policy regarding data handling:{' '}
                     <LegalLink href="https://vercel.com/legal/privacy-notice">Vercel</LegalLink>,{' '}
                     <LegalLink href="https://www.microsoft.com/privacy/privacystatement">
@@ -260,7 +306,7 @@ export default function PrivacyPolicy() {
                     Cloudflare&apos;s TURN relay network (<InlineCode>turn.cloudflare.com</InlineCode>
                     ). The relay forwards encrypted packets it cannot decrypt: the keys exist only on
                     the two devices. It does not store or inspect file contents. Relay sessions are
-                    limited to 2 GB per session.
+                    limited to 2 GB per session, which for a request link means per drop.
                 </p>
                 <p>
                     Cloudflare is involved before the route is decided, not only when a relay is
@@ -314,7 +360,8 @@ export default function PrivacyPolicy() {
                 <p>
                     Sentry does <strong>not</strong> capture file names, file contents, or any
                     personally identifiable information. The room link is stripped from every error
-                    report, breadcrumb, and performance trace before it is sent.{' '}
+                    report, breadcrumb, and performance trace before it is sent, and on a request
+                    link&apos;s page the link id in the address is removed as well.{' '}
                     <LegalLink href="https://sentry.io/privacy/">Sentry Privacy Policy</LegalLink>.
                 </p>
             </LegalSection>
@@ -340,8 +387,9 @@ export default function PrivacyPolicy() {
                     visitor for a while without keeping the address, and the hash is tied to
                     floe.one, so it cannot follow you to other websites. File names and file contents
                     are never recorded. It is configured to drop the URL fragment and the query string
-                    before reporting a page view, so the room link never reaches it. If your browser
-                    sends the Do Not Track signal, Umami records nothing at all for your visit.{' '}
+                    before reporting a page view, so the room link never reaches it. Umami does not
+                    load on a request link&apos;s page at all. If your browser sends the Do Not Track
+                    signal, Umami records nothing at all for your visit.{' '}
                     <LegalLink href="https://umami.is/privacy">Umami Privacy Policy</LegalLink>.
                 </p>
             </LegalSection>
@@ -351,7 +399,7 @@ export default function PrivacyPolicy() {
                     The web app keeps a few small things in your browser, and none of them leave it.
                     So that floe.one loads quickly and can open without a network, your browser caches
                     the app&apos;s pages and build files, the same files every visitor downloads; that
-                    cache never holds file data or anything from our API. Your &quot;Contribute to
+                    cache never holds file data, anything from our API, or a request link&apos;s page. Your &quot;Contribute to
                     global stats&quot; choice is remembered in this browser&apos;s local storage, and a
                     timestamp is kept for the life of the tab to avoid reload loops after a new version
                     is deployed.
@@ -361,8 +409,12 @@ export default function PrivacyPolicy() {
                     memory, or, for large files in Chrome and Edge, partly in the browser&apos;s own
                     temporary files on your disk, which it deletes when the page closes or, if it
                     quits unexpectedly, the next time it starts. Closing the tab discards anything
-                    you did not save, and nothing about a transfer&apos;s files is written to the
-                    storage a website can read back. While a transfer is running
+                    you did not save. Nothing about a transfer&apos;s files is written to the storage
+                    a website can read back, with one exception: while a request link&apos;s page is
+                    sending, it keeps two numbers in the tab&apos;s own storage, how many files
+                    arrived and how many there are, so it can still say how far the drop got if the
+                    browser discards the tab. It never stores the link, the room, or a file name, and
+                    it clears them when the drop ends. While a transfer is running
                     the app asks your browser to keep the screen awake and releases that when the
                     transfer ends. The app writes to your clipboard only when you press Copy and never
                     reads it, and it never asks for notification permission.
@@ -374,9 +426,11 @@ export default function PrivacyPolicy() {
                     Floe Desktop runs the same peer-to-peer engine as the CLI and speaks the same
                     protocol as the web app, as a Windows application. It talks to the same servers
                     the web app does: it contacts our signaling server to pair you with your peer (and
-                    to register the three-word code it shows), fetches relay credentials, and then
-                    streams file data directly between devices, or through the relay described above
-                    when no direct path exists or when &quot;Hide my IP address&quot; is on. Two more
+                    to register the three-word code it shows, or, only when you click Make link, to
+                    check that the server offers request links and to hold the link&apos;s room
+                    while the link is open), fetches relay credentials, and then streams file data
+                    directly between devices, or through the relay described above when no direct path
+                    exists or when &quot;Hide my IP address&quot; is on. Two more
                     requests happen only when you ask for them: the Test button in Settings contacts
                     only the server address you typed, and if the Microsoft WebView2 runtime that
                     draws the interface is missing, the app offers to download it from Microsoft
@@ -431,10 +485,14 @@ export default function PrivacyPolicy() {
                                     The app keeps a list of your last 50 transfers on your device: for
                                     each one, the direction, the file names (for a received transfer,
                                     the names as saved and the folder they went to), the file count,
-                                    the total size, and the time. It never leaves your device. Remove
-                                    one entry with Remove inside its row, or all of them with Clear in
-                                    the History view. Reset in Settings and uninstalling the app both
-                                    leave it in place.
+                                    the total size, and the time. A drop through a request link that
+                                    saved files adds one row too, with your label, how many files
+                                    matched their SHA-256 or were renamed, whether Auto-accept took
+                                    the drop, and why it stopped if it did; the link itself is never
+                                    kept. It never leaves your device. Remove one entry
+                                    with Remove inside its row, or all of them with Clear in the History
+                                    view. Reset in Settings and uninstalling the app both leave it in
+                                    place.
                                 </p>
                             ),
                         },
@@ -468,7 +526,14 @@ export default function PrivacyPolicy() {
                             body: (
                                 <p>
                                     The app shows standard Windows notifications when a transfer
-                                    completes or fails.
+                                    completes or fails and its window is in the background, when
+                                    someone wants to send you files through your request link, and
+                                    when a drop starts by itself through a link made with
+                                    Auto-accept.
+                                    A notification never shows a file name, your label, or anything
+                                    the sender chose. &quot;Notifications&quot; in Settings turns
+                                    them off or makes them silent; a request then still flashes the
+                                    taskbar button and shows in the window title.
                                 </p>
                             ),
                         },
@@ -576,10 +641,23 @@ export default function PrivacyPolicy() {
                     automatically, and that is the extent of what the service does on its own.
                 </p>
                 <p>
+                    To report a request link, use &quot;Report this link&quot; at the bottom of its page,
+                    or write to{' '}
+                    <LegalLink href={`mailto:${REQUEST_REPORT_ADDRESS}`}>{REQUEST_REPORT_ADDRESS}</LegalLink>{' '}
+                    with the part of the link before the <InlineCode>#</InlineCode>. Never post a whole
+                    request link anywhere public: the part after the <InlineCode>#</InlineCode> lets
+                    anyone use it. During the Beta, what we can do about a reported request link is
+                    limited as well: we can turn request links off for everyone, or wait for the link to
+                    end on its own, which it does within about 7 days of being made. We still cannot tell who made it
+                    or who used it.
+                </p>
+                <p>
                     If you believe Floe is being used to send you illegal or harmful content, do not
                     open further links or codes from that sender (a transfer only starts when you open
                     one, and the command line asks before it accepts) and report the details as
-                    described above.
+                    described above. If someone you did not expect tries to send you files through
+                    your request link, click Decline (or Cancel drop, on a link made with
+                    Auto-accept), close the link, and report it.
                 </p>
             </LegalSection>
         </LegalShell>
