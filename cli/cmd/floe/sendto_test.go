@@ -1487,7 +1487,8 @@ func TestSendToRelayOnlyWithoutARelayEndsBeforeTheJoin(t *testing.T) {
 // their own lines before the ICE fetch or any connect, through the command
 // (review lens A, M5: only the engine's precheck was tested, so nothing told
 // the two lines apart). Real files, walked as the send walks them: the
-// second's name is 150 ampersands, which JSON writes as & each.
+// second is a file two folders deep whose path the wire escapes past one
+// control message.
 func TestSendToPickTimeLimitsEndBeforeAnyNetwork(t *testing.T) {
 	for _, c := range []struct {
 		name  string
@@ -1509,8 +1510,14 @@ func TestSendToPickTimeLimitsEndBeforeAnyNetwork(t *testing.T) {
 		{"a description over one control message (TL-31)", func(t *testing.T) string {
 			// U+2028, which the wire still writes as a six-byte escape; & is one
 			// byte there since the metadata frame dropped HTML escaping (T13-F2).
-			p, _ := oneFile(t, t.TempDir(), strings.Repeat(string(rune(0x2028)), 160)+".bin", 16)
-			return p
+			// It is three bytes on disk, so a single name of 160 is longer than
+			// the 255 bytes ext4 allows a name (CI's ubuntu runner, 2026-10-09);
+			// two folders of 80 each fit and still put 960 escaped bytes in the
+			// path the frame carries.
+			dir := filepath.Join(t.TempDir(), "deep")
+			seg := strings.Repeat(string(rune(0x2028)), 80)
+			oneFile(t, filepath.Join(dir, seg, seg), "a.bin", 16)
+			return dir
 		}, []string{"A folder path is too long to send. Zip deeply nested folders first."}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
