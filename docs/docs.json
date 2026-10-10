@@ -177,7 +177,8 @@
         "group": "Web app",
         "pages": [
           "web-app/sending",
-          "web-app/receiving"
+          "web-app/receiving",
+          "web-app/request-links"
         ]
       },
       {
@@ -216,6 +217,7 @@
           "self-hosting/reverse-proxy",
           "self-hosting/production",
           "self-hosting/turn-relay",
+          "self-hosting/request-links",
           "self-hosting/operations"
         ]
       },
