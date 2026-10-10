@@ -53,10 +53,13 @@ export const IGNORED_ERROR_PATTERNS: (string | RegExp)[] = [
     // browserExtensions.test.ts deliberately asserts that no denyUrls pattern
     // may match an app:// prefix. A message entry is the only lever left.
     //
-    // Sentry ships the sibling wording /^Java exception was raised during
-    // method invocation$/ in DEFAULT_IGNORE_ERRORS, credited to the same
-    // Facebook mobile browser (sentry-javascript#15065); this one is simply not
-    // on that list yet. Matched on the bridge's own words rather than on
+    // Sentry ships the sibling wording "Java exception was raised during
+    // method invocation" in DEFAULT_IGNORE_ERRORS, credited to the same
+    // Facebook mobile browser (sentry-javascript#15065), and from @sentry/core
+    // 10.74.0 that list carries /Java object is gone$/ as well
+    // (sentry-javascript#23733). This entry stays regardless: it holds on an
+    // SDK older than that, and it does not lean on a default list we do not
+    // control. Matched on the bridge's own words rather than on
     // "Error invoking postMessage", so it also covers the other bridge methods.
     'Java object is gone',
     // A FontFace that failed to load (FLOE-K). Chromium rejects load() with a
