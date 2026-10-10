@@ -379,7 +379,7 @@ link (Stage 2) only with evidence.
 ## Dev commands
 
 ```
-# Engine + CLI (from repo root; go.mod requires Go 1.25)
+# Engine + CLI (from repo root; go.mod requires Go 1.26)
 go -C cli build ./...
 go -C cli test ./...
 

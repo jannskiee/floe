@@ -14,7 +14,7 @@ running. For the plain-language version, see [How a transfer works](/how-it-work
 |-----------|---------|------|--------------|
 | Client | Next.js 16 (React 19) | 3000 | The browser UI and its WebRTC peer, via simple-peer |
 | Server | Node.js (Express 5, Socket.IO 4, ws 8) | 3001 | Brokers signaling, issues relay credentials |
-| CLI | Go 1.25 (Pion WebRTC v4) | - | Headless sender and receiver |
+| CLI | Go 1.26 (Pion WebRTC v4) | - | Headless sender and receiver |
 | Desktop | Wails v2 (Go backend, React frontend) | - | Windowed sender and receiver. Windows amd64 today |
 | TURN relay | Cloudflare Realtime TURN on floe.one, or your own coturn | 3478 and 5349 for coturn | Forwards encrypted packets when no direct path exists |
 
