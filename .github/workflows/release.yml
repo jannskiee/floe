@@ -36,10 +36,14 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
-          # A release builds on the newest 1.26 patch, never on whichever one
-          # the runner image has cached. Without this, setup-go takes the cached
-          # patch that satisfies the spec, and the image trails upstream: on
-          # 2026-10-10 it still held 1.26.8, two days after 1.26.9 was tagged.
+          # A release builds on the newest 1.26 patch in the actions/go-versions
+          # manifest, not on whichever one the runner image has cached. Without
+          # this, setup-go takes the cached patch that satisfies the spec, and
+          # the image trails upstream: on 2026-10-10 it still held 1.26.8, two
+          # days after 1.26.9 was tagged. If the manifest cannot be read,
+          # setup-go quietly falls back to the cached patch, so the step never
+          # fails for it. ci.yml sets the same flag on every Go job, so the
+          # patch a release picks is one CI has already built and tested.
           check-latest: true
           # No module cache in the release build: this workflow publishes
           # binaries from a tag push, and a cache entry poisoned by any other

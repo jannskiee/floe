@@ -10,7 +10,9 @@ go 1.26.0
 // or desktop/go.mod when a dependency needs a newer Go, but never this one, and
 // every Go command then stops with "module . listed in go.work file requires
 // go >= X, but go.work lists go Y" (#504 sat red for that reason). Move all
-// three together, with the go-version pins in .github/workflows/.
+// three together, with the go-version pins in .github/workflows/ and the Go
+// floor quoted in CONTRIBUTING.md, DESKTOP.md, docs/cli/installation.mdx,
+// docs/reference/architecture.mdx and .claude/skills/ship-it/references/lanes.md.
 use (
 	./cli
 	./desktop

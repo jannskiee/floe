@@ -354,6 +354,9 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
+          # The patch a release builds on (see release.yml), so a release never
+          # ships on a Go patch that CI has not compiled and tested.
+          check-latest: true
           cache-dependency-path: cli/go.sum
 
       - name: Vet
@@ -390,6 +393,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
+          check-latest: true # as on the first Go job: test what a release builds on
           cache: false
 
       - name: Check gofmt
@@ -445,6 +449,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
+          check-latest: true # as on the first Go job: test what a release builds on
           cache-dependency-path: desktop/go.sum
 
       - name: Setup Node
@@ -578,6 +583,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
+          check-latest: true # as on the first Go job: test what a release builds on
           cache-dependency-path: cli/go.sum
 
       - name: Setup Node.js
@@ -703,6 +709,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
+          check-latest: true # as on the first Go job: test what a release builds on
           cache-dependency-path: cli/go.sum
 
       - name: Setup Node.js
