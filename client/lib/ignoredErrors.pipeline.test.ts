@@ -152,7 +152,7 @@ describe('ignoreErrors in the Sentry event pipeline', () => {
         expect(runEventFilters(makeFloeHEvent(), { ignoreErrors: IGNORED_ERROR_PATTERNS })).toBeNull();
     });
 
-    it('keeps the same event when ignoreErrors is absent (guards a false pass)', () => {
+    it('keeps the event without our entry and drops it with ours alone (guards a false pass)', () => {
         // Without this, the test above could pass for a reason unrelated to the
         // fix. DEFAULT_IGNORE_ERRORS is merged in unless disableErrorDefaults is
         // set, and from @sentry/core 10.74.0 it carries /Java object is gone$/
@@ -189,9 +189,15 @@ describe('ignoreErrors in the Sentry event pipeline', () => {
 
     it('drops on the top-level message alone, with no exception', () => {
         // getPossibleEventMessages' first candidate, for the SDK paths that
-        // produce a message-only event.
+        // produce a message-only event. SDK defaults off, so it is our entry
+        // that matches the message and not the default list's.
         const event: Event = { type: undefined, level: 'error', message: FLOE_H_VALUE };
-        expect(runEventFilters(event, { ignoreErrors: IGNORED_ERROR_PATTERNS })).toBeNull();
+        expect(
+            runEventFilters(event, {
+                ignoreErrors: IGNORED_ERROR_PATTERNS,
+                disableErrorDefaults: true,
+            })
+        ).toBeNull();
     });
 
     it('only ever tests the LAST exception value', () => {
