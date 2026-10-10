@@ -354,8 +354,9 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
-          # The patch a release builds on (see release.yml), so a release never
-          # ships on a Go patch that CI has not compiled and tested.
+          # The same newest patch a release resolves (see release.yml), so a
+          # release builds on a Go patch CI has already run, unless a new one
+          # reached the manifest after the last CI run and before the tag.
           check-latest: true
           cache-dependency-path: cli/go.sum
 

@@ -43,7 +43,9 @@ jobs:
           # days after 1.26.9 was tagged. If the manifest cannot be read,
           # setup-go quietly falls back to the cached patch, so the step never
           # fails for it. ci.yml sets the same flag on every Go job, so the
-          # patch a release picks is one CI has already built and tested.
+          # patch a release picks is normally one CI has already built and
+          # tested. The exception is a tag pushed after a new patch reaches the
+          # manifest and before any CI run.
           check-latest: true
           # No module cache in the release build: this workflow publishes
           # binaries from a tag push, and a cache entry poisoned by any other
