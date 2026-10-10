@@ -39,7 +39,11 @@ function assertSync(result: ProcessEventResult | undefined): Event | null {
 // ignoreErrors" case reuse the "with ignoreErrors" options and pass for free.
 function runEventFilters(
     event: Event,
-    options: { ignoreErrors?: (string | RegExp)[]; denyUrls?: RegExp[] } = {}
+    options: {
+        ignoreErrors?: (string | RegExp)[];
+        denyUrls?: RegExp[];
+        disableErrorDefaults?: boolean;
+    } = {}
 ): Event | null {
     const integration = eventFiltersIntegration(options);
     return assertSync(integration.processEvent?.(event, EMPTY_HINT, CLIENT));
@@ -150,12 +154,22 @@ describe('ignoreErrors in the Sentry event pipeline', () => {
 
     it('keeps the same event when ignoreErrors is absent (guards a false pass)', () => {
         // Without this, the test above could pass for a reason unrelated to the
-        // fix. DEFAULT_IGNORE_ERRORS is merged in unconditionally and carries
-        // /^Java exception was raised during method invocation$/, close enough
-        // in wording to be worth ruling out and anchored so it cannot match.
-        // _isUselessError cannot drop it either: it has both a stacktrace and a
-        // value. It must be OUR entry that drops FLOE-H.
-        expect(runEventFilters(makeFloeHEvent())).not.toBeNull();
+        // fix. DEFAULT_IGNORE_ERRORS is merged in unless disableErrorDefaults is
+        // set, and from @sentry/core 10.74.0 it carries /Java object is gone$/
+        // itself (sentry-javascript#23733), so on a newer SDK the default list
+        // alone drops FLOE-H and this control would fail for a reason that has
+        // nothing to do with our entry. So the SDK defaults are switched off,
+        // and the control has two halves. With no entry of ours the event is
+        // kept, which also rules out _isUselessError (it has both a stacktrace
+        // and a value). With only our entries it is dropped. It is OUR entry
+        // that drops FLOE-H, whichever SDK version is installed.
+        expect(runEventFilters(makeFloeHEvent(), { disableErrorDefaults: true })).not.toBeNull();
+        expect(
+            runEventFilters(makeFloeHEvent(), {
+                ignoreErrors: IGNORED_ERROR_PATTERNS,
+                disableErrorDefaults: true,
+            })
+        ).toBeNull();
     });
 
     it('is not something denyUrls could have done', () => {
@@ -163,9 +177,13 @@ describe('ignoreErrors in the Sentry event pipeline', () => {
         // stored is already app://, the injected logger's included, so
         // _getLastValidUrl hands BROWSER_EXTENSION_URL_PATTERNS a string none of
         // them match, by design: browserExtensions.test.ts asserts that no
-        // pattern may match an app:// prefix.
+        // pattern may match an app:// prefix. SDK defaults off for the same
+        // reason as the control above: this case is about denyUrls alone.
         expect(
-            runEventFilters(makeFloeHEvent(), { denyUrls: BROWSER_EXTENSION_URL_PATTERNS })
+            runEventFilters(makeFloeHEvent(), {
+                denyUrls: BROWSER_EXTENSION_URL_PATTERNS,
+                disableErrorDefaults: true,
+            })
         ).not.toBeNull();
     });
 
