@@ -92,7 +92,10 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.25'
+          go-version: '1.26'
+          # The newest 1.26 patch, not the one the runner image has cached: see
+          # the same line in release.yml.
+          check-latest: true
           # Release builds run without the shared module cache: a cache entry
           # poisoned by any other workflow would flow straight into the shipped
           # artifacts.
