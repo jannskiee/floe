@@ -199,7 +199,7 @@ try { policyStore.reload(); } catch { /* fails closed: the store starts off */ }
 
 // ---------------------------------------------------------------------------
 // Code phrase API  (/api/code)
-// CLI callers use this to generate and resolve short human-readable codes.
+// The CLI and Floe Desktop use this to generate and resolve short human-readable codes.
 // ---------------------------------------------------------------------------
 
 // Per-IP limiter for the code endpoints (register + resolve). These were the
@@ -303,7 +303,7 @@ function generateCode(pick = () => words[crypto.randomInt(words.length)]) {
     return `${pick()}-${pick()}-${pick()}-${pick()}`;
 }
 
-// POST /api/code — register a code for a room ID (called by CLI sender)
+// POST /api/code: register a code for a room ID (called by a CLI or Floe Desktop sender)
 //
 // One live code per room. A sender that registers twice (a retry, a restart)
 // used to leave both phrases working, so a guess against either opened the same
@@ -335,7 +335,7 @@ function registerCodeHandler(req, res) {
 }
 app.post('/api/code', codeRateLimiter, registerCodeHandler);
 
-// GET /api/code/:code — resolve a code to a room ID (called by CLI receiver)
+// GET /api/code/:code: resolve a code to a room ID (called by a CLI or Floe Desktop receiver)
 //
 // The budget is spent before the lookup, never after, so a caller that has run
 // out learns nothing from the answer: the 429 is byte-identical whether the
@@ -510,7 +510,7 @@ const cleanupInterval = setInterval(() => cleanupTick(), 60000).unref();
 // ---------------------------------------------------------------------------
 // Unified room registry
 //
-// Both Socket.IO (browser) and WebSocket (CLI) peers share this registry.
+// Both Socket.IO (browser) and WebSocket (CLI and Floe Desktop) peers share this registry.
 // Each "peer" is a plain object with:
 //   { id, type, key, roomId, send(type, data) }
 // where key is the rateKey of the address the connection was admitted under.
@@ -529,11 +529,11 @@ const rooms = new Map(); // roomId → [peer, peer]
 const roomMeta = new Map(); // roomId → { keys: Set<sealDigest(rateKey)> }
 
 // The seal tells keys apart without keeping them. A rate key is an address (an
-// IPv4 address in full, an IPv6 /64), a room can live for hours, and the
-// privacy page promises an IP address is kept at most about two minutes. So a
-// room keeps an HMAC-SHA256 of each key under a secret drawn once per process:
-// equal keys still match within this process, hashing every IPv4 address does
-// not reverse a digest, and every digest means nothing after a restart. The
+// IPv4 address in full, an IPv6 /64), a room can live for hours, and the privacy page
+// promises an address is held only while its socket is open and about two minutes past
+// its last request. So a room keeps an HMAC-SHA256 of each key under a secret drawn once
+// per process: equal keys still match within this process, hashing every IPv4 address
+// does not reverse a digest, and every digest means nothing after a restart. The
 // secret lives in this binding only. Never log, print, export or persist it.
 const SEAL_SECRET = crypto.randomBytes(32);
 
@@ -544,10 +544,10 @@ function sealDigest(key) {
     return crypto.createHmac('sha256', SEAL_SECRET).update(String(key)).digest('base64');
 }
 
-// The single way a room stops existing. A room that is gone must not leave a
-// working code behind it: the phrase is the whole secret, and a code outliving
-// its room is a phrase an attacker can still guess for whatever is created at
-// that id next. Every rooms.delete goes through here.
+// The single way an ordinary room stops existing. A room that is gone must not
+// leave a working code behind it: the phrase is the whole secret, and a code
+// that outlives its room can be guessed for whatever is created at that id
+// next. Request-room paths call rooms.delete directly: such a room has no code.
 //
 // A request room is the one exception to "the record dies with the room": its
 // reservation outlives the empty room so the host can reclaim its seat with the
@@ -618,9 +618,9 @@ function destroyRoom(roomId) {
 //
 // Privacy: the record holds a digest of the host's rate key (sealDigest), never
 // the key, and requestCreates is keyed the same way; a reservation can live for
-// days and the privacy page promises an address is kept at most about two
-// minutes. Nothing here logs: no id, token, key or address, and no per-attempt
-// line (a flood lever).
+// days and the privacy page promises an address is held only while its socket is
+// open and about two minutes past its last request. Nothing here logs: no id,
+// token, key or address, and no per-attempt line (a flood lever).
 // ---------------------------------------------------------------------------
 
 // FLOE_TEST_REQUEST_GRACE_MS is a test knob like HEARTBEAT_MS, not an
@@ -1621,7 +1621,7 @@ io.on('connection', (socket) => {
 });
 
 // ---------------------------------------------------------------------------
-// WebSocket server — used by CLI clients
+// WebSocket server, used by the CLI and Floe Desktop
 // Path: /ws
 // ---------------------------------------------------------------------------
 

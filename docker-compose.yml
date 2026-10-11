@@ -14,8 +14,8 @@
 #
 # The `client` and `server` services run out of the box (STUN-only, which works on
 # most home and mobile networks). For a production deployment behind one domain,
-# see docs/self-hosting/reverse-proxy. The optional `coturn` relay is only started
-# with the `turn` profile and requires a public IP, domain, and TLS certificates.
+# see https://www.floe.one/docs/self-hosting/reverse-proxy. The optional `coturn`
+# relay is only started with the `turn` profile and requires a public IP, domain, and TLS certificates.
 
 services:
   server:
@@ -33,8 +33,8 @@ services:
       CLIENT_URL: ${CLIENT_URL:-http://localhost:3000}
       # Reverse-proxy hops in front of the server. This stack publishes ports
       # directly, so the default is 0. Set it to 1 when you put a proxy in front
-      # (see docs/self-hosting/reverse-proxy), or the per-IP rate limits read a
-      # client-supplied X-Forwarded-For and can be bypassed.
+      # (see https://www.floe.one/docs/self-hosting/reverse-proxy), or every visitor
+      # is counted under the proxy's address and shares one set of rate limits.
       TRUSTED_PROXY_COUNT: ${TRUSTED_PROXY_COUNT:-0}
       MAX_CONNECTIONS_PER_IP: ${MAX_CONNECTIONS_PER_IP:-30}
       MAX_TURN_REQUESTS_PER_IP: ${MAX_TURN_REQUESTS_PER_IP:-}

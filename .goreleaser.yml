@@ -90,7 +90,7 @@ scoops:
     description: "Secure peer-to-peer file transfer CLI"
     license: MIT
 
-# Winget (Windows, official Microsoft store).
+# Winget (Windows): the winget-pkgs community repository, not the Microsoft Store.
 # Requires: fork microsoft/winget-pkgs to jannskiee/winget-pkgs (same PAT).
 # PRs are auto-validated and typically merged within a few hours.
 # Install: winget install jannskiee.floe

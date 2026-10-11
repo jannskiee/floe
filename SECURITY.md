@@ -13,7 +13,8 @@ Please include as much of the following as possible:
 
 - A description of the vulnerability and its impact
 - Steps to reproduce it
-- The affected component (web client, signaling server, CLI, or desktop app)
+- The affected component: the web client or its request-link page, the signaling server, the CLI, Floe Desktop (and whether it came from the Microsoft Store or from a GitHub release), a container image, or an install script
+- The version you tested: the output of `floe version` for the CLI, **App version** under Settings > About for Floe Desktop, or the image tag for a self-hosted server
 - Any relevant logs, screenshots, or proof of concept
 
 ## What to Expect
@@ -24,8 +25,27 @@ Please include as much of the following as possible:
 
 ## Scope
 
-This policy covers the Floe web client, signaling server, CLI, and desktop app in this repository. The signaling server brokers connection setup only. File data travels peer-to-peer over end-to-end encrypted WebRTC data channels, directly when possible or through an encrypted TURN relay that cannot read it, and is never stored or inspected by Floe infrastructure.
+This policy covers everything that ships from this repository:
+
+- The web client, including the request-link page (`/r/...`) that a sender opens in a browser.
+- The signaling server.
+- The `floe` CLI and the shared transfer engine in `cli/engine/`, which Floe Desktop is built on too.
+- Floe Desktop for Windows: the Microsoft Store build, and the installer and portable builds from GitHub releases.
+- The container images for self-hosting, `ghcr.io/jannskiee/floe-server` and `ghcr.io/jannskiee/floe-client`.
+- The CLI install scripts, `install.sh` and `install.ps1`, which the web client serves at floe.one.
+
+The signaling server sets up connections and never carries file data. File data travels peer-to-peer over end-to-end encrypted WebRTC data channels, directly when possible or through an encrypted TURN relay that cannot read it, and is never stored or inspected by Floe infrastructure.
 
 ## Supported Versions
 
-Security fixes land on `main` and ship in the next release of the affected component. Floe has two release lines: the CLI releases as `v*` tags (the repository's Latest release) and the desktop app releases as `desktop-v*` pre-release tags, while the web client at floe.one always runs the newest `main`. Please make sure you are on the most recent release of the component you are reporting against.
+Security fixes land on `main` and ship in the next release of the affected component. Please make sure you are on the most recent release of the component you are reporting against.
+
+Floe has two release lines, and each component gets a fix through one of them:
+
+| Component | How a fix reaches you |
+| --- | --- |
+| `floe` CLI | The next `v*` tag, which becomes the repository's Latest release. |
+| Container images | The same `v*` tag publishes both images under the version number (for example `1.11.0`) and moves `latest`. Pull the new images, and move `FLOE_IMAGE_TAG` if you pinned a version. |
+| Floe Desktop, installer and portable builds | The next `desktop-v*` tag, published on GitHub as a pre-release. These builds do not update themselves; they show a notice when a newer release exists. |
+| Floe Desktop, Microsoft Store build | Packed from the same `desktop-v*` tag and delivered by the Microsoft Store, which updates it automatically once the submission has passed Microsoft's certification. It can trail the GitHub release for that reason. |
+| Web client at floe.one, including the request-link page and the install scripts | Always runs the newest `main`. |

@@ -200,9 +200,9 @@ export const RE = Object.freeze({
 
 /**
  * The request link host's fixed UI strings, quoted from the frozen copy
- * (work/16-design/cp-3/approved-copy-desktop.md, the row id beside each;
+ * table (kept outside the repository, the row id beside each;
  * desktop/frontend/src/requestCopy.ts and settings.ts carry the same bytes,
- * approvedCopy.test.ts checks them). Every action is a button in
+ * and approvedCopy.test.ts checks them when FLOE_APPROVED_COPY names the table). Every action is a button in
  * RequestLinkView.tsx and the save folder is an input found by its
  * placeholder. Settings has no Request links row since H7 (D-160, S1 to S5
  * cut): the REQUEST LINK choice is always on Receive. `lifetimes` maps each

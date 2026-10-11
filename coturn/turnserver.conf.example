@@ -21,7 +21,7 @@ listening-ip=0.0.0.0
 # Advertise your server's PUBLIC IP so relayed candidates are reachable.
 # external-ip=203.0.113.10
 
-# Relay port range — open these UDP ports on your firewall as well.
+# Relay port range. Open these UDP ports on your firewall as well.
 min-port=49152
 max-port=65535
 

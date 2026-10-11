@@ -514,6 +514,102 @@ function checkLinks(ctx) {
         }
     }
     checkFooterMirror(ctx);
+    checkAssets(ctx);
+    checkSnippets(ctx);
+    checkClientDocsPaths(ctx);
+}
+
+// An <img> or any other src= that names a file which is not under docs/
+// renders as a broken image, and nothing else looks: Mintlify's own link check
+// follows links, not image sources. A screenshot renamed or dropped without
+// its page is how this happens.
+const ASSET_SRC = /\bsrc="(\/[^"#?]+)"/g;
+
+function checkAssets(ctx) {
+    for (const [, rec] of ctx.pages) {
+        const text = stripFences(rec.text);
+        const where = rel(ctx.root, rec.file);
+        for (const m of text.matchAll(ASSET_SRC)) {
+            if (existsSync(join(ctx.docsDir, m[1].slice(1)))) continue;
+            ctx.report.hardLine(
+                'links',
+                `${where}:${lineOf(text, m.index)}`,
+                `src ${m[1]} has no file at docs${m[1]}`
+            );
+        }
+    }
+}
+
+// A page takes a snippet in with `import Name from '/snippets/x.mdx';` and
+// renders it as <Name />. A path that names no file fails that page's build on
+// Mintlify's side, and Mintlify then keeps serving the page's previous build
+// while every check reports success (what #506 did to troubleshooting.mdx by
+// another route). An import that is never rendered, and a snippet that no
+// page imports, are text nobody sees: both are NOTEs.
+const SNIPPET_IMPORT =
+    /^import\s+([A-Za-z_][\w]*)\s+from\s+['"](\/[^'"]+)['"];?[ \t]*$/gm;
+
+function checkSnippets(ctx) {
+    const imported = new Set();
+    for (const [, rec] of ctx.pages) {
+        const text = stripFences(rec.text);
+        const where = rel(ctx.root, rec.file);
+        for (const m of text.matchAll(SNIPPET_IMPORT)) {
+            const [, name, path] = m;
+            const at = `${where}:${lineOf(text, m.index)}`;
+            if (!existsSync(join(ctx.docsDir, path.slice(1)))) {
+                ctx.report.hardLine(
+                    'links',
+                    at,
+                    `import of ${path}: no file at docs${path}`
+                );
+                continue;
+            }
+            imported.add(path.slice(1).replace(/\.mdx$/, ''));
+            if (!new RegExp(`<${name}[\\s/>]`).test(text))
+                ctx.report.note(
+                    'links',
+                    at,
+                    `${name} is imported from ${path} and never rendered`
+                );
+        }
+    }
+    for (const [page, rec] of ctx.pages) {
+        if (!page.startsWith('snippets/') || imported.has(page)) continue;
+        ctx.report.note(
+            'links',
+            `${rel(ctx.root, rec.file)}:1`,
+            'snippet is imported by no page'
+        );
+    }
+}
+
+// The web client reaches the docs through the /docs rewrite, so a link it
+// writes as a bare path ('/docs/web-app/request-links') carries no site origin
+// and ABS_DOCS_URL cannot see it. The request page's help link is one
+// (REQUEST_LINK_DOCS_PATH in client/lib/request/constants.ts), and it went
+// unchecked when its target section moved to a page of its own. The character
+// class stops at ':' and '*', so a route pattern such as '/docs/:path*' is not
+// a match.
+const REL_DOCS_LITERAL =
+    /(['"`])\/docs(\/[A-Za-z0-9/_.-]*)?(#[A-Za-z0-9_-]+)?\1/g;
+
+function checkClientDocsPaths(ctx) {
+    for (const d of ['app', 'components', 'lib', 'hooks']) {
+        for (const file of walk(join(ctx.root, 'client', d), ['.ts', '.tsx'])) {
+            if (isTest(file)) continue;
+            const text = read(file);
+            const where = rel(ctx.root, file);
+            for (const m of text.matchAll(REL_DOCS_LITERAL)) {
+                checkTarget(
+                    ctx,
+                    `${where}:${lineOf(text, m.index)}`,
+                    m[2] || '/',
+                    m[3] || ''
+                );
+            }
+        }
+    }
 }
 
 // Footer.tsx `columns` and docs.json `footer.links` are documented mirrors

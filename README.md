@@ -30,7 +30,7 @@
 
 ## About
 
-Floe is an open-source peer-to-peer file transfer application built on WebRTC. Files stream directly between devices; the signaling server negotiates connections and never stores, inspects, or decrypts file data. When a direct path is blocked, an optional TURN relay bridges the transfer while the data stays end-to-end encrypted. The desktop app and the CLI contain no analytics or telemetry; the only things either sends are an optional, anonymous byte count that powers the public counter and an optional update check against GitHub (once a day in the desktop app, and only when you run `floe version` in the CLI), and you can turn both off in either. The floe.one website itself runs cookieless, aggregate analytics (including anonymous transfer outcomes) and error monitoring, detailed in the [security and privacy docs](https://www.floe.one/docs/security-privacy).
+Floe is an open-source peer-to-peer file transfer application built on WebRTC. Files stream directly between devices; the signaling server negotiates connections and never stores, inspects, or decrypts file data. When a direct path is blocked, an optional TURN relay bridges the transfer while the data stays end-to-end encrypted. Each file is checked when it arrives: the receiver compares its size and, when the sender supplied one, its SHA-256, and discards a file that does not match (see [File checks](https://www.floe.one/docs/how-it-works/file-checks)). The desktop app and the CLI contain no analytics or telemetry; the only things either sends are an optional, anonymous byte count that powers the public counter and an optional update check against GitHub (at most once a day in the desktop app's installer and portable builds, never in the Microsoft Store build, and only when you run `floe version` in the CLI), and you can turn both off in either. The floe.one website itself runs cookieless, aggregate analytics (including anonymous transfer outcomes) and error monitoring, detailed in the [security and privacy docs](https://www.floe.one/docs/security-privacy).
 
 Three clients share one wire protocol: the web app at [floe.one](https://floe.one), a Windows desktop app, and a Go CLI. Send from a browser tab and receive in the desktop app or the CLI, or any other combination, even across different networks.
 
@@ -44,13 +44,13 @@ The [quickstart guide](https://www.floe.one/docs/quickstart) walks through sendi
 
 ## Desktop
 
-Floe for Windows 10 and 11 (x64), currently in beta. The Microsoft Store build is signed by Microsoft and updates automatically.
+Floe Desktop runs on Windows 10 and 11 (x64) and is currently in Beta. The Microsoft Store build is signed by Microsoft and updates automatically.
 
 <a href="https://apps.microsoft.com/detail/9NBQ8ZQ1065L"><img src="client/public/ms-store-badge.svg" alt="Download from the Microsoft Store" width="161" height="44" /></a>
 
 Prefer a direct download? An installer and a portable build are on the [download page](https://www.floe.one/download). Setup details are in the [desktop installation guide](https://www.floe.one/docs/desktop/installation).
 
-Request links (Beta) let someone send files straight to your PC from a browser, and you accept each drop unless you turn on Auto-accept. See [Request links](https://www.floe.one/docs/desktop/request-links).
+Request links (Beta) let one person send files straight to your PC. You make a one-time link in Floe Desktop, and they open it in a browser or run `floe send <files> --to <link>`. During the Beta the browser page is supported in current Chrome and Edge on a computer. Nothing is saved until you accept, unless you turn on Auto-accept for that link. To make a link, see [Request links](https://www.floe.one/docs/desktop/request-links). If someone sent you one, see [Sending through a request link](https://www.floe.one/docs/web-app/request-links).
 
 ## CLI
 
@@ -59,12 +59,12 @@ Send and receive from terminals, servers, and scripts.
 ```sh
 brew install --cask jannskiee/tap/floe        # macOS
 winget install jannskiee.floe                 # Windows
-curl -fsSL https://floe.one/install.sh | sh   # Linux and other systems
+curl -fsSL https://floe.one/install.sh | sh   # Linux, or macOS without Homebrew
 ```
 
-Send with `floe send photo.jpg`, receive with `floe receive olive-tiger-castle`, and update in place with `floe update`.
+Send with `floe send photo.jpg`, receive with `floe receive olive-tiger-castle`, and update with `floe update`. An install that Homebrew, Scoop, or winget owns updates through that package manager instead, and `floe update` prints the command to run.
 
-Senders in the CLI and the desktop app produce both a short code and a browser link, so the receiver can join from any client. Other install channels, checksum verification, and PATH setup are covered in the [CLI installation guide](https://www.floe.one/docs/cli/installation).
+Senders in the CLI and the desktop app produce both a short code and a browser link, so the receiver can join from any client. `floe send <files> --to <link>` sends through a [request link](https://www.floe.one/docs/cli/send#send-through-a-request-link) made in Floe Desktop instead of creating a code. Other install channels, checksum verification, and PATH setup are covered in [Install the CLI](https://www.floe.one/docs/cli/installation).
 
 ## Self-hosting
 
@@ -75,13 +75,13 @@ curl -fsSLO https://raw.githubusercontent.com/jannskiee/floe/main/docker-compose
 docker compose up -d
 ```
 
-All three clients can point at a self-hosted server. Configuration, deployment behind HTTPS, and the optional TURN relay are covered in [SELF_HOSTING.md](SELF_HOSTING.md) and the [self-hosting docs](https://www.floe.one/docs/self-hosting/overview).
+All three clients can point at a self-hosted server. Configuration, deployment behind HTTPS, and the optional TURN relay are covered in [SELF_HOSTING.md](SELF_HOSTING.md) and the [self-hosting docs](https://www.floe.one/docs/self-hosting/overview). Request links are off on a self-hosted server until a policy file turns them on: see [Turn on request links](https://www.floe.one/docs/self-hosting/request-links).
 
 ## Documentation
 
 The [documentation](https://www.floe.one/docs) covers all three clients in depth, from your first transfer to a self-hosted deployment.
 
-The [FAQ](https://www.floe.one/docs/faq) answers the questions that come up most, from transfer limits to privacy, and the [troubleshooting guide](https://www.floe.one/docs/troubleshooting) starts from the symptom when something will not connect. The [changelog](https://www.floe.one/docs/changelog) tracks every release across web, desktop, and CLI.
+The [FAQ](https://www.floe.one/docs/faq) answers the questions that come up most, from transfer limits to privacy, and the [troubleshooting guide](https://www.floe.one/docs/troubleshooting) starts from the symptom when something will not connect. The [changelog](https://www.floe.one/docs/changelog) records every user-visible change to the web app, the desktop app, the CLI, and the self-hosted server.
 
 ## Contributing
 

@@ -1,5 +1,8 @@
 blank_issues_enabled: true
 contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/jannskiee/floe/blob/main/SECURITY.md
+    about: Do not open a public issue for a vulnerability. SECURITY.md explains how to report one privately.
   - name: Questions and ideas
     url: https://github.com/jannskiee/floe/discussions
     about: Ask a question or float an idea in Discussions. Bug reports and concrete feature requests belong in issues.

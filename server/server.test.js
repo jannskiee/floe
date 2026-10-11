@@ -298,10 +298,10 @@ describe('isAllowedOrigin', () => {
 
 describe('handleUpgradeRequest order', () => {
     it('keeps the error listener first and the origin check after both pass-through returns', () => {
-        // CLAUDE.md's kill list: the no-op socket error listener has to precede
-        // anything that can throw, and the Socket.IO pass-through has to precede
-        // anything that can refuse. A refusal placed above either return would
-        // write a status line into a socket engine.io owns. On the wire that is
+        // CLAUDE.md (File Size and Structure): the no-op socket error listener has
+        // to precede anything that can throw, and the Socket.IO pass-through has to
+        // precede anything that can refuse. A refusal placed above either return
+        // would write a status line into a socket engine.io owns. On the wire that is
         // invisible today, because engine.io refuses a foreign Origin itself
         // before this handler runs (crashguard.test.js has the live check), so
         // the order is pinned here as well, from the source.
@@ -981,9 +981,9 @@ describe('room seal', () => {
 
     it('roomMeta keeps a per-process digest of each key, never the key', () => {
         // A rate key is an address (an IPv4 address in full, an IPv6 /64), and a
-        // room can live for hours, past the "at most about two minutes" the
-        // privacy page promises for an IP address. The seal only has to tell
-        // keys apart, so it compares keyed digests instead.
+        // room can live for hours, past the open socket and the "about two
+        // minutes after your last request" the privacy page allows an address.
+        // The seal only has to tell keys apart, so it compares keyed digests instead.
         const other = '11111111-2222-4333-8444-555555555555';
         const raw = ['203.0.113.7', '2001:db8:1:2::/64', '198.51.100.9'];
         const pA = makePeer('peer-A', raw[0]);

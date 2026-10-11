@@ -7,6 +7,8 @@ body:
       value: |
         Thanks for taking the time to report a bug. Please fill out the information below.
 
+        Found a security vulnerability? Do not open a public issue. Report it privately, as [SECURITY.md](https://github.com/jannskiee/floe/blob/main/SECURITY.md) describes.
+
   - type: textarea
     id: description
     attributes:
@@ -40,10 +42,13 @@ body:
     id: surface
     attributes:
       label: Where were you using Floe?
+      description: "Pick the one the problem showed on. If the other side of the transfer used a different one, name it under Additional context."
       options:
         - Web app (floe.one)
-        - Desktop app (Windows)
-        - CLI
+        - Request link page (floe.one/r/...)
+        - Floe Desktop (Microsoft Store)
+        - Floe Desktop (installer or portable zip)
+        - CLI (floe)
         - Self-hosted server
         - Not sure
     validations:
@@ -53,8 +58,23 @@ body:
     id: version
     attributes:
       label: Version
-      description: "Desktop app: Settings > About. CLI: `floe --version`. Skip for the web app."
-      placeholder: e.g., desktop-v0.3.0 or v1.11.0
+      description: "Floe Desktop: Settings > About shows App version, and Copy there puts it on the clipboard with the server in use. CLI: `floe --version`. Self-hosted: the image tag you run. Skip for floe.one."
+      placeholder: desktop-v0.3.0 or floe 1.11.0
+    validations:
+      required: false
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      description: "The system the problem showed on. For the CLI, add the architecture (amd64 or arm64) under Additional context if you know it."
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Android
+        - iOS or iPadOS
+        - Other
     validations:
       required: false
 
@@ -63,9 +83,8 @@ body:
     attributes:
       label: Device
       options:
-        - Desktop
-        - Mobile (iOS)
-        - Mobile (Android)
+        - Computer
+        - Phone
         - Tablet
     validations:
       required: false
@@ -74,7 +93,8 @@ body:
     id: browser
     attributes:
       label: Browser
-      placeholder: e.g., Chrome 120, Safari 17, Firefox 121
+      description: For the web app and the request link page. Skip for the CLI and Floe Desktop.
+      placeholder: Chrome, Edge, Firefox, or Safari, with its version
     validations:
       required: false
 

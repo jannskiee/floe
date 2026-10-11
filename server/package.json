@@ -1,7 +1,7 @@
 {
   "name": "p2p-fileshare",
   "version": "1.0.0",
-  "description": "P2P file sharing backend using WebRTC and Socket.io",
+  "description": "Floe signaling server: relays WebRTC signaling between peers over Socket.IO and WebSocket, and never carries file data",
   "main": "server.js",
   "scripts": {
     "test": "node --test",

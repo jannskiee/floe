@@ -145,6 +145,94 @@ test('a link to an explicit {#id} passes silently', () => {
     assert.doesNotMatch(r.out, new RegExp(`docs/faq\\.mdx:${n}`));
 });
 
+test('an image src with no file under docs/ is HARD', () => {
+    const root = fresh();
+    const n = appendLine(
+        root,
+        'docs/faq.mdx',
+        '<img src="/images/web/ghost.png" alt="A capture that was never taken" />'
+    );
+    const r = run(root);
+    assert.equal(r.status, 1);
+    assert.match(
+        r.out,
+        new RegExp(
+            `HARD  links  docs/faq\\.mdx:${n}  src /images/web/ghost\\.png has no file`
+        )
+    );
+});
+
+test('a snippet import that names no file is HARD', () => {
+    const root = fresh();
+    const n = appendLine(
+        root,
+        'docs/faq.mdx',
+        "import Ghost from '/snippets/ghost.mdx';"
+    );
+    const r = run(root);
+    assert.equal(r.status, 1);
+    assert.match(
+        r.out,
+        new RegExp(
+            `HARD  links  docs/faq\\.mdx:${n}  import of /snippets/ghost\\.mdx`
+        )
+    );
+});
+
+test('a snippet imported and never rendered is a NOTE, and so is a snippet nothing imports', () => {
+    const root = fresh();
+    writeFileSync(join(root, 'docs', 'snippets', 'orphan.mdx'), 'Nobody imports this.\n');
+    const n = appendLine(
+        root,
+        'docs/faq.mdx',
+        "import StatsOptOut from '/snippets/stats-optout.mdx';"
+    );
+    const r = run(root);
+    assert.equal(r.status, 0, r.out);
+    assert.match(
+        r.out,
+        new RegExp(
+            `NOTE  links  docs/faq\\.mdx:${n}  StatsOptOut is imported from /snippets/stats-optout\\.mdx and never rendered`
+        )
+    );
+    assert.match(
+        r.out,
+        /NOTE  links  docs\/snippets\/orphan\.mdx:1  snippet is imported by no page/
+    );
+});
+
+test('a bare /docs path in client code that names no page is HARD', () => {
+    const root = fresh();
+    const n = appendLine(
+        root,
+        'client/lib/request/constants.ts',
+        "export const GHOST_DOCS_PATH = '/docs/web-app/ghost';"
+    );
+    const r = run(root);
+    assert.equal(r.status, 1);
+    assert.match(
+        r.out,
+        new RegExp(
+            `HARD  links  client/lib/request/constants\\.ts:${n}  /web-app/ghost has no docs/web-app/ghost\\.mdx`
+        )
+    );
+});
+
+test('a route pattern under /docs in client code is not read as a link', () => {
+    const root = fresh();
+    const n = appendLine(
+        root,
+        'client/lib/request/constants.ts',
+        "export const DOCS_ROUTE = '/docs/:path*';"
+    );
+    const r = run(root);
+    assert.equal(r.status, 0, r.out);
+    assert.doesNotMatch(
+        r.out,
+        new RegExp(`client/lib/request/constants\\.ts:${n}`)
+    );
+});
+
 test('a nav entry removed leaves an orphan page: HARD', () => {
     const root = fresh();
     edit(root, 'docs/docs.json', (t) => {
@@ -269,12 +357,12 @@ test('a server/.env.example value or comment default that contradicts server.js 
     const root = fresh();
     edit(root, 'server/.env.example', (t) => {
         assert.ok(
-            t.includes('(default: 30).') &&
+            t.includes('(default: 30 per IP per minute).') &&
                 t.includes('MAX_CONNECTIONS_PER_IP=30'),
             'fixture assumes the MAX_CONNECTIONS_PER_IP block shape'
         );
         return t
-            .replace('(default: 30).', '(default: 31).')
+            .replace('(default: 30 per IP per minute).', '(default: 31 per IP per minute).')
             .replace('MAX_CONNECTIONS_PER_IP=30', 'MAX_CONNECTIONS_PER_IP=32');
     });
     const r = run(root);

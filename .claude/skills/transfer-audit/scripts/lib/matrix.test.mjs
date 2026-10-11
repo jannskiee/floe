@@ -32,7 +32,7 @@ import { UsageError } from './args.mjs';
 
 const byId = (rows) => Object.fromEntries(rows.map((c) => [c.id, c]));
 
-test('catalogue sizes: quick 6, default 18 (15 executable + 3 NA), deep +17', () => {
+test('catalogue sizes: quick 6, default 18 (15 executable + 3 NA without --relay-only), deep +17', () => {
     assert.equal(QUICK_IDS.length, 6);
     assert.equal(DEFAULT_IDS.length, 18);
     assert.equal(DEEP_IDS.length, 17);
@@ -806,7 +806,7 @@ test('TA-10a: H-DIR-W2D-reqauto is head only, makes its link with Auto-accept on
     assert.equal(requestFlowOf('reqauto'), 'auto');
     assert.ok(REQUEST_VARIANTS.includes('reqauto'));
     assert.ok(REQUEST_IDS.includes('H-DIR-W2D-reqauto'));
-    assert.ok(!REQUEST_IDS.includes('S-DIR-W2D-reqauto'), 'no shipped build has the Auto-accept switch yet');
+    assert.ok(!REQUEST_IDS.includes('S-DIR-W2D-reqauto'), 'no shipped twin: only the wailsdev dev page can read the Auto-accept record');
     const [head] = requestPlan('head').filter((c) => c.id === 'H-DIR-W2D-reqauto');
     assert.ok(head, 'planned in a head run');
     assert.equal(head.verdict, null, 'it runs on the wailsdev lane');
@@ -848,7 +848,7 @@ test('TA-10a off the wailsdev lane SKIPs request-auto-wailsdev-only, with or wit
 
 test('TA-16 H-DIR-C2D-req: the CLI visitor on a desktop link, head only, 64 MiB, judged by the CLI oracles', () => {
     assert.ok(REQUEST_IDS.includes('H-DIR-C2D-req'));
-    assert.ok(!REQUEST_IDS.includes('S-DIR-C2D-req'), 'no shipped twin until a released CLI has --to');
+    assert.ok(!REQUEST_IDS.includes('S-DIR-C2D-req'), 'the shipped twin is not built yet');
     const head = byId(requestPlan('head'));
     const c = head['H-DIR-C2D-req'];
     assert.ok(c, 'planned in a head run');

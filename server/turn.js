@@ -27,9 +27,10 @@ const STUN_FALLBACK = [
 
 const turnRateLimits = new Map();
 const TURN_RATE_WINDOW = 60000;
-// Default 20/min is ample for real users (one fetch per page load or CLI
-// invocation); raise via MAX_TURN_REQUESTS_PER_IP in CI/staging where many
-// CLI runs share one IP - a 429 silently degrades clients to Google STUN.
+// Default 20/min is ample for real users (one fetch per page load, and one per CLI
+// or Floe Desktop transfer); raise via MAX_TURN_REQUESTS_PER_IP in CI/staging where many
+// CLI runs share one IP - a 429 leaves a client on Google STUN only (a browser
+// says nothing, the CLI prints a warning).
 const TURN_MAX_REQUESTS = parseInt(process.env.MAX_TURN_REQUESTS_PER_IP, 10) || 20;
 
 function generateCoturnCredentials() {

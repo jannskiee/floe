@@ -60,9 +60,11 @@ a peer.
   `GetLastInputInfo`) is the only mode that may raise a window, and this
   round never uses it.
 - The relay byte rule: direct cells move 12 MiB (64 MiB with a desktop
-  side), relay cells 4 MiB each (28 MiB per default run, seven relay cells,
-  plus 1 MiB when P3 runs; the cap cell moves zero). Never more than 200 MB
-  over TURN per run without the owner saying so.
+  side), relay cells 4 MiB each (32 MiB per default run, eight relay cells,
+  with a CLI that lists `--relay-only`, as every release since v1.10.6
+  does; 28 MiB over seven with an older one; plus 1 MiB when P3 runs; the
+  cap cell moves zero). Never more than 200 MB over TURN per run without
+  the owner saying so.
 - The update rule: the audit tests the latest release binary even when the
   installed one is stale. The shipped CLI is the `floe` on PATH when
   `floe --version` equals the latest `v*` tag, else a checksum-verified zip
@@ -186,8 +188,9 @@ when someone else owns the port), a `go build` CLI with `-X
 main.version=head-<sha7>`, `next dev`, and the desktop through `--desktop
 wailsdev` (the real app with real Go bindings served at
 `http://localhost:34115` to a Playwright page) or a `wails build` exe.
-Subsets: `--quick` (6 cells), default (18 rows: 15 executable on shipped,
-16 on head, where the CLI's `--relay-only` lifts S-REL-C2C's NA), `--deep`
+Subsets: `--quick` (6 cells), default (18 rows: 16 executable on either
+profile, because the CLI's `--relay-only` lifts S-REL-C2C's NA; 15 with a
+CLI older than v1.10.6, which has no such flag), `--deep`
 (17 more, 35 rows). `--cells S-REL-*,S-DIR-C2D` narrows; a pattern that names no
 executable cell (or only NA rows, or a deep id without `--deep`) is a usage
 error before anything is created. `--desktop
@@ -247,17 +250,19 @@ Pacing on production: a rolling 60 s ledger with 50 percent headroom (10
 TURN fetches, 15 connections, 30 code calls) and an 8 s floor between cell
 starts. A 429 symptom penalizes one window and retries once; two in a row
 mark the remaining production cells SKIP `infra-down` and exit 3. A TURN 429
-silently degrades a peer to STUN, which makes a relay-forced peer fail to
-connect, so the ledger is not optional.
+degrades a peer to STUN (a browser says nothing, the CLI prints a warning),
+which makes a relay-forced peer fail to connect or refuse to start, so the
+ledger is not optional.
 
 Relay forcing: the browser leg gets an init script that subclasses
 `window.RTCPeerConnection` with `iceTransportPolicy: 'relay'`; the desktop
-gets `hideIP:true`; the shipped CLI (1.10.5) has no forcer and prints no
-route; origin/main since #362 (`faedbc7`; a head build from an older
-worktree lacks it) accepts `--relay-only` (also `FLOE_RELAY_ONLY=1`) and
-prints ` Connected (direct)` or ` Connected (relay)` on every connect. The
-driver detects the flag from `floe send --help`, so `S-REL-C2C` flips from
-NA to executable on the first release that carries it, with no skill change.
+gets `hideIP:true`; the CLI gets `--relay-only` (also `FLOE_RELAY_ONLY=1`),
+which every release since v1.10.6 accepts (#362, `faedbc7`; 1.10.5 and a
+head build from an older worktree have no forcer and print no route), and
+a CLI that has it prints `  Connected (direct)` or `  Connected (relay)` on
+every connect. The driver detects the flag from `floe send --help`, so
+`S-REL-C2C` is executable with a CLI that lists it and NA
+`no-cli-relay-forcer` with one that does not, with no skill change.
 One relay-only side relays the pair, so the forced side's oracle is the
 proof and the other side's reading must agree.
 
@@ -291,7 +296,7 @@ the History list. Closing is `WM_CLOSE`; `Close anyway` is used only by
 
 ## 4. Read the table (a retry that passes is a bug, not a flake)
 
-`<out>/<runId>/audit.md` opens with one headline (`15/15 PASS, all surfaces
+`<out>/<runId>/audit.md` opens with one headline (`16/16 PASS, all surfaces
 on latest`, or `2 FAIL (ids); 1 SKIP, 1 FLAKY`; FLAKY and ERROR are counted
 on their own), then Cells, Versions, Infra, Safety, Failures and flakes,
 Legend; `run.json` carries the same data (schemaVersion 1) with room links
@@ -318,7 +323,8 @@ counts as PASS. SKIP names a machine or run precondition (`uia-setvalue`,
 `desktop-running`; `filtered`
 marks cells
 dropped by `--cells` and is never counted). NA is impossible with the
-shipped product (`single-instance`, `no-cli-relay-forcer`). ERROR is a
+product under test (`single-instance`; `no-cli-relay-forcer` only with a
+CLI older than v1.10.6). ERROR is a
 harness fault (for example `init-script-not-applied`), never a product
 verdict.
 
@@ -544,8 +550,11 @@ to it, so none ever runs as a plain cell.
   at all) and a local `/api/stats` delta of 0. A CLI that fails is judged
   after the host's own end, so a host stop code stays the finding. No
   used-up check: that needs a second visitor, and the web cells prove it.
-  It returns to the shipped profile (`S-DIR-C2D-req`) with the release
-  whose CLI lists `--to` (preflight's `cliHasTo`).
+  The released CLI has listed `--to` since v1.11.0, and preflight records
+  that as `cliHasTo`, but nothing plans a shipped twin from it yet:
+  `REQUEST_IDS` has no `S-DIR-C2D-req`, so the cell stays head only until
+  the driver (`scripts/lib/matrix.mjs`, with `references/matrix.md`) adds
+  one.
 - Before the run: the operator's `wails dev` app must already read
   `reportStats:false`, `migrated:true` and the local server
   (`GetSettings`), as for any wailsdev receiver; otherwise the cell is
@@ -708,8 +717,9 @@ staged path.
 Green is a gate, not a proof: a cell passes on this machine, today, against
 this infrastructure. All peers sit on one host (the WSL cell is the one
 non-loopback path), the portable build is not the Store package byte for
-byte, the browser has no release oracle of its own until `/api/config`
-carries `commit`, and throughput here says nothing about a real link. What
+byte, the browser has no release tag of its own (its one oracle is the
+`commit` that `/api/config` carries), and throughput here says nothing
+about a real link. What
 the table does prove is byte-exact delivery, the route actually taken, the
 receiver's opt-out, and the versions that did it.
 

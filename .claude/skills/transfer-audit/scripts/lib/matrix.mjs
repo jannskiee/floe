@@ -62,8 +62,8 @@ export const HASH_IDS = Object.freeze([
 // HASH_IDS they are outside DEFAULT_IDS and DEEP_IDS: a run reaches them
 // through --cells, and each SKIPs `server-no-request-1` until probe P10
 // finds request-1 in the server's /health features. TA-16 is head only
-// (H-DIR-C2D-req): no released CLI has --to yet, and S-DIR-C2D-req returns
-// to the shipped profile with the release that ships it. TA-14 (reqcaddy)
+// (H-DIR-C2D-req): its shipped twin, S-DIR-C2D-req, is not built yet, though
+// floe send has had --to since v1.11.0. TA-14 (reqcaddy)
 // is planned and SKIPs unless the run names --caddy (a local Docker Caddy,
 // lib/caddy.mjs).
 export const REQUEST_VARIANTS = Object.freeze([
@@ -85,7 +85,7 @@ export const REQUEST_IDS = Object.freeze([
     'H-DIR-W2D-reqblip', // TA-13
     'H-DIR-W2D-reqcaddy', // TA-14 (--caddy)
     'H-DIR-W2D-reqdecline', // TA-15
-    'H-DIR-W2D-reqauto', // TA-10a (head only, wailsdev host: no shipped build has the Auto-accept switch yet, D-173)
+    'H-DIR-W2D-reqauto', // TA-10a (head only, wailsdev host: only the dev page can read the Auto-accept record, D-173)
     ...REQUEST_OPEN_IDS, // TA-17
     'H-DIR-W2D-req', // head twin of TA-10
     'H-REL-W2D-req', // head twin of TA-11

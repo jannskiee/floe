@@ -16,17 +16,28 @@ From the repo root:
 `all` is the default; a single check name runs only that check; `--root` points it at
 another checkout (default: the repo the script lives in).
 
-Exit 1 is a decidable defect: a link target or anchor that does not exist, a nav entry
-without a file or a page outside the nav (or a docs.json the script cannot parse or walk),
-a page with no frontmatter block or missing title or description, an em or en dash, a
-documented server default that contradicts server/server.js, or the env extractor's
-self-check finding fewer keys than server.js reads. Fix, rerun. Exit 0 with NOTE lines is
-the normal outcome. Read every NOTE and decide; do not skim.
+Exit 1 is a decidable defect: a link target or anchor that does not exist, an image `src`
+or a snippet import that names a file which is not under docs/, a bare `/docs/...` path in
+client code that names no page, a nav entry without a file or a page outside the nav (or a
+docs.json the script cannot parse or walk), a page with no frontmatter block or missing
+title or description, an em or en dash, a documented server default that contradicts
+server/server.js, or the env extractor's self-check finding fewer keys than server.js
+reads. Fix, rerun. Exit 0 with NOTE lines is the normal outcome. Read every NOTE and
+decide; do not skim.
 
 - anchors: Mintlify keeps quotes, apostrophes and slashes in the ids it generates, so a
   heading containing one of those and no explicit `{#id}` is "unstable": a link to it is
   a NOTE (give the heading an explicit id and link to that), and every such heading gets
   one NOTE of its own. An anchor matching no stable heading and no explicit id is HARD.
+- snippets and images: a page renders a snippet with `import Name from '/snippets/x.mdx';`
+  and `<Name />`. A missing file is HARD, because Mintlify fails that page's build and
+  keeps serving its previous build while every check stays green. An import that is never
+  rendered and a snippet no page imports are NOTEs. Images are checked by their `src`, when it is
+  double-quoted and starts at the docs root (`src="/images/x.png"`); any other form is not read.
+- client docs paths: the web client links into the docs through the `/docs` rewrite, so a
+  path it writes without the site origin (`REQUEST_LINK_DOCS_PATH` in
+  client/lib/request/constants.ts) is checked like any other link. Move a docs section and
+  this is the link nobody remembers.
 - labels: prints each term-like link label against the target's title, sidebarTitle,
   anchor heading, and nav group. Report-only on purpose (a naive label heuristic is
   noisy). The #338 rule: a term-like label names the page by its title or sidebarTitle,

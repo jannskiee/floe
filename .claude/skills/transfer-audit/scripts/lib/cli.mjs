@@ -11,8 +11,8 @@
  * --no-relay only when the cell asks for it (the judge's C3: C2C and L2C
  * only, because every other pair has a peer with a route oracle).
  * --relay-only only when the cell forces the relay on this leg AND the
- * binary lists the flag in `send --help`; 1.10.5 does not, so the flag is
- * never sent to a shipped CLI and the S-REL-C2C cell stays NA until it ships.
+ * binary lists the flag in `send --help`. Every release since v1.10.6 does;
+ * an older CLI does not, so the flag is never sent to one and its S-REL-C2C cell is NA.
  *
  * Environment (buildEnv): PION_LOG_*, FLOE_SERVER, FLOE_WEB and FLOE_NO_STATS
  * are stripped from the inherited environment (main.go rootCmd reads
@@ -27,11 +27,11 @@
  * prints nothing about the report path, so the proof is what it was started
  * with, not what it did.
  *
- * Route evidence: the CLI prints nothing about the ICE path today. With
- * PION_LOG_TRACE=ice the pion agent logs "Set selected candidate pair: ..."
- * (ice/v4 agent.go:780, Trace level) whose local and remote halves name the
- * candidate types; a future "  Connected (direct|relay)" suffix is accepted
- * by the marker regex so no parser change is needed when it ships.
+ * Route evidence: since v1.10.6 the CLI prints "  Connected (direct)" or
+ * "  Connected (relay)"; an older one prints the bare word, and the marker
+ * regex accepts both. With PION_LOG_TRACE=ice the pion agent also logs
+ * "Set selected candidate pair: ..." (ice/v4 agent.go:780, Trace level), whose
+ * local and remote halves name the candidate types.
  *
  * Request-link visitor (TA-16, opts.requestLink): the sender leg runs
  *   <bin> send <paths...> --to <link> --server <s> [--relay-only]
@@ -81,7 +81,7 @@ export const REFUSAL_PREFIX =
     'Error: transfer blocked: relay connections are capped at 2 GB (selected ';
 
 // Stdout markers, cli/cmd/floe unless noted. "Connected" accepts the optional
-// route suffix a later CLI may print.
+// route suffix a CLI from v1.10.6 on prints.
 export const MARKERS = Object.freeze({
     turnWarning:
         /^ {2}Warning: could not reach signaling server for TURN credentials\. Using STUN only\.$/, // ice/credentials.go Fetch

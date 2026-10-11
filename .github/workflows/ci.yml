@@ -12,9 +12,9 @@ on:
   # full-suite run, so no path skips apply here.
   workflow_dispatch:
 
-# Least-privilege default for the GITHUB_TOKEN in every job. The only token
-# use is back-compat's gh release view/download against this repo's public
-# releases, which contents: read covers.
+# Least-privilege default for the GITHUB_TOKEN in every job. Three steps pass it
+# to gh, each to read public releases: the actionlint download, the desktop
+# release asset check and back-compat's view/download. contents: read is enough.
 permissions:
   contents: read
 
@@ -32,12 +32,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      # 'true' unless every changed file is under docs/. Negation-based on
-      # purpose: anything not under docs/ counts as code, so a new top-level
-      # file or directory can never silently skip CI.
+      # 'true' unless every changed file is under docs/ or .claude/skills/.
+      # Negation-based on purpose: anything else counts as code, so a new
+      # top-level file or directory can never silently skip CI.
       code: ${{ steps.filter.outputs.code }}
-      # 'true' when any changed file is under .github/workflows/. Gates the
-      # actionlint job; push events always report true, same as code.
+      # 'true' when any changed file is under .github/workflows/ or .github/scripts/.
+      # Gates the actionlint job; push events always report true, same as code.
       workflows: ${{ steps.filter.outputs.workflows }}
       # 'true' when any changed file is under .claude/skills/. Gates the skills
       # job; push events always report true, same as code.
@@ -157,9 +157,9 @@ jobs:
 
       - name: Lint shell scripts
         # actionlint shellchecks the shell embedded in workflow YAML, but not the
-        # scripts that YAML calls out to. images.yml runs
-        # .github/scripts/smoke-image.sh, so check it directly. shellcheck is
-        # preinstalled on ubuntu-latest.
+        # scripts that YAML calls out to. images.yml and the docker-smoke job
+        # below run scripts from .github/scripts/, so check every one directly.
+        # shellcheck is preinstalled on ubuntu-latest.
         run: shellcheck .github/scripts/*.sh
 
   guardrails:
@@ -197,8 +197,8 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.skills == 'true'
     # Deliberately NOT in the CI green gate's needs yet. CLAUDE.md's exception
-    # for deterministic linters would permit going straight in, but 19 of the
-    # 26 suites write files, spawn processes or fetch, and one of them tests a
+    # for deterministic linters would permit going straight in, but most of the
+    # suites write files, spawn processes or fetch, and one of them tests a
     # deletion tool. It soaks outside the gate (visible, non-blocking) and gets
     # promoted once a few runs have shown it is hermetic.
     #
@@ -219,7 +219,7 @@ jobs:
         shell: bash
         # A GLOB, not a directory: `node --test <dir>` fails on Node 22, which
         # docs-check.test.mjs records. Quoted so node expands it, not bash.
-        # 26 files, 13,203 lines, run by nothing until now.
+        # Before this job, nothing ran these suites.
         run: node --test ".claude/skills/**/*.test.mjs"
 
   build-and-lint:
@@ -276,14 +276,14 @@ jobs:
         run: pnpm build
         working-directory: client
         env:
-          # Use the live signaling server — matches the default in client/.env.example
+          # The live signaling server, the URL floe.one's own deploy compiles in
           NEXT_PUBLIC_SOCKET_URL: https://api.floe.one
 
       # Reads the prerendered HTML the Build step just produced. It has to be
       # the built output: the tab title is assembled at render time from
       # title.template in app/layout.tsx plus a bare title on each page, so no
       # test that imports a module can see the string a visitor actually gets.
-      # A step rather than a job on purpose — this rides an already-gated job, so
+      # A step rather than a job on purpose: this rides an already-gated job, so
       # CI green's needs list is untouched.
       - name: Check page titles
         run: node scripts/check-titles.mjs
@@ -375,8 +375,8 @@ jobs:
 
   gofmt:
     name: Go formatting
-    # Its own job rather than a step in `cli`: `e2e` and `back-compat` need
-    # `cli`, so a formatting slip inside `cli` would skip them.
+    # Its own job rather than a step in `cli`: `cli` is a three-OS matrix that
+    # works in cli/ only, and this checks every tracked Go file, once.
     # Linux only: with core.autocrlf=true (the Git for Windows default),
     # `gofmt -l` lists every CRLF file.
     runs-on: ubuntu-latest
@@ -906,7 +906,7 @@ jobs:
     timeout-minutes: 5
     # Every job in this workflow must be listed here, or its failure is
     # invisible to branch protection. One job is soaking outside the gate right
-    # now: `skills`, which runs the 26 skill test suites. It is deliberately
+    # now: `skills`, which runs the skill test suites. It is deliberately
     # absent from this list until a few runs have shown it hermetic, because
     # most of those suites write files or spawn processes. `guardrails` and
     # `gofmt` went straight in, as CLAUDE.md's exception for deterministic

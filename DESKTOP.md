@@ -38,30 +38,47 @@ the same Go transfer engine as the CLI and the same visual design as the web app
 
 ```
 cli/
-  cmd/floe/            CLI binary (unchanged behavior)
+  cmd/floe/            CLI binary: send, receive, version, update
+    sendto.go          floe send --to, the CLI sender of a request link
   engine/              shared transfer engine (public)
     transfer/          protocol, sender, receiver, format  (ProtocolVersion here)
+                       limits.go, refusal.go, decide.go, blockshell.go: what a receive refuses or renames
     peer/              Pion WebRTC setup
-    signaling/         WebSocket signaling client
+    signaling/         WebSocket signaling client; hosttoken.go makes a request link's token and ids
     ice/               STUN/TURN credential fetch
     code/              short room-code register and resolve
     serverurl/         normalizes user-supplied server URLs
     verify/            short authentication string from DTLS fingerprints (retained, unwired)
   internal/
     selfupdate/        CLI-only self updater (stays private)
+    e2ehost/           test-only Go host that the Playwright suite drives (never ships)
+    rlvisitor/         test-only hostile request-link sender for desktop QA (never ships)
 desktop/               Wails app: imports cli/engine/...
   frontend/            web UI (shared design with client/)
-  app.go               Go methods bound to the UI
+  build/               icons, the NSIS installer project, the MSIX packaging (see build/README.md)
+  app.go               the App struct: startup and shutdown, launch files, paste, the notification gate
   main.go              Wails bootstrap
   transfer.go          drives a send or a receive end to end and emits the UI events
   transferstate.go     one-transfer-at-a-time state machine, CancelTransfer, close guard
-  endpoints.go         which server and web app this build talks to
+  requestlink.go       the Request link lane: make a link, wait, prompt, receive, close
+  requestauto.go       Auto-accept for one link, and which drops still ask
+  requestconn.go       the bound on a peer that vanished mid-transfer
+  savedir.go           turns a typed save folder into the absolute folder Floe writes to
+  endpoints.go         which server and web app this build talks to, and the settings setters
   reveal.go            Show in folder: the platform commands and the path checks before them
-  serverprobe.go       the Settings Test button: probes a server URL in stages
+  serverprobe.go       the Settings Test button, and the check that a server offers request links
   updatecheck.go       once-a-day check for a newer desktop release, notice only
   config.go            desktop.json: persisted settings kept outside the WebView
   contextmenu.go       the Explorer "Send with Floe" toggle: its registry key and the bound methods
-go.work                ties cli + desktop for local dev
+  closequit.go         asks for a quit the app agreed to again until shutdown runs
+  clipboard.go         Ctrl+V: files or an image from the clipboard
+  wake.go              keeps the PC awake while a transfer or a drop runs
+  power.go             whether this PC may run on a battery (the laptop line on the Receiving view)
+  toast_windows.go     Windows notifications, sent through go-toast's COM path
+  attention_windows.go the taskbar flash for a waiting request, and the "Floe is in front" rule
+  *_windows.go         the Windows half of a concern (packaged, volume, fatal, and the ones above),
+  *_other.go           each with a stub that keeps the module building elsewhere
+go.work                joins cli + desktop into one workspace, active for every build
 ```
 
 ## Phases
@@ -94,19 +111,31 @@ go.work                ties cli + desktop for local dev
       QR panel behind a Show QR toggle (react-qr-code; shipped, the earlier "deferred" note
       was stale). No Share button on Windows: WebView2 does not expose `navigator.share`,
       and the button is feature-gated on it.
-- [x] Folder sends, a "Browse..." save-folder picker, and "Show in folder" after receive
-- [x] OS notifications on transfer complete / failure (native Wails; auto toast AppUserModelID on Windows).
+- [x] Folder sends, a "Browse" save-folder picker, and "Show in folder" after receive
+- [x] OS notifications on transfer complete / failure. On Windows every one goes out through
+      go-toast's COM path (`toast_windows.go`), never through Wails' own notification, which adds a
+      PowerShell fallback. The Store build sends under its package's AppUserModelID (since 0.3.0;
+      before that Windows could drop its notifications), and the installer and portable builds under
+      the exe-name ID that Wails registers at startup, shown as "Floe".
       Settings > Notifications turns them off or silent and links to Windows' own notification
       settings; no toast while Floe is in front and the PC was used in the last minute. A request
       still flashes the taskbar, sets the `(1) Floe` title and shows the in-app notice with toasts off.
-- [x] Self-hosting: a Server section in Settings (server address plus an optional web address for share
-      links) persisted to `os.UserConfigDir()/floe/desktop.json`, with a Test button that probes
-      `/health`, `/ws` and `/api/turn-credentials` from Go. Leave both blank to use Floe's own servers.
-      The WebView cannot probe directly: `index.html` sets `connect-src 'self'`.
+- [x] Self-hosting: a Server row under Advanced in Settings (**Server address** plus an optional
+      **Share link address**) persisted to `os.UserConfigDir()/floe/desktop.json`, with a Test button
+      that probes `/health`, `/ws` and `/api/turn-credentials` from Go. Leave both blank to use Floe's
+      own servers. The WebView cannot probe directly: `index.html` sets `connect-src 'self'`.
+- [x] Request links (Beta, shipped in 0.3.0): Receive > Request link makes a one-time link that one
+      person sends through, from a browser or with `floe send --to`. Nothing is saved until the
+      owner accepts, unless the link was made with Auto-accept on (`requestauto.go`, which also
+      decides which drops still ask). The lane is `requestlink.go`, with its own slot so an open
+      link never blocks Send or a code receive; a typed save folder goes through `savedir.go`; the
+      view and its copy are `frontend/src/components/RequestLinkView.tsx` and
+      `frontend/src/requestCopy.ts`. No Settings switch: Make link asks the server, which offers
+      request links only while its policy file says so (`server/policy.js`).
 - [ ] System tray / minimize-to-tray (NOT in Wails v2 - `onhold`, deferred to the v3 migration). Transfers already keep running while the window is minimized.
 - [ ] Dark mode toggle (the app already ships dark by default)
-- [x] Update notice: GitHub builds check the releases list once a day and show a
-      dismissible notice (notice only, nothing installs; Store builds never check)
+- [x] Update notice: GitHub builds check the releases list at most once a day and show
+      a dismissible notice (notice only, nothing installs; Store builds never check)
 - [ ] App auto-update (Sparkle on macOS, WinSparkle on Windows)
 
 ### Phase 3 - Security keystone (ecosystem wide)  [IN PROGRESS]
@@ -149,22 +178,52 @@ verify the connection independently of the server.
       and verify the signature before applying in `internal/selfupdate`
 
 **3d - Quick wins**
-- [x] Dedupe/expand `server/words.json` (was 275 unique with 13 dupes; now 288 unique)
+- [x] Dedupe/expand `server/words.json` (was 275 unique with 13 dupes, then 288 unique; 1,247
+      words since v1.11.0)
 - [~] Shorten TURN credential TTL (24h -> 2h; REVERTED to 24h 2026-07-31: senders
       fetch ICE before an unbounded share-link wait and nothing refreshes, so the
       credential must outlive the wait, not the transfer)
 - [~] "Hide my IP" mode: engine (`peer.WithRelayOnly()` -> `iceTransportPolicy: 'relay'`) and
-      desktop (checkbox) shipped. The browser sender toggle did NOT: nothing in `client/`
-      sets `iceTransportPolicy`, and a grep for `hideIP` there returns nothing, so the half
-      this line used to claim was lost. The browser's only relay control is "Network relay
-      fallback", which is the opposite switch (off = direct only). Documented as an
-      asymmetry in `docs/how-it-works/relay-connection.mdx` rather than papered over.
-      Follow-up: ship the browser toggle, sender and receiver.
+      desktop (the **Hide my IP address** switch in Settings) shipped. In the browser it exists
+      in one place since v1.11.0: the request-link page, whose **Hide my IP (relay only, 2 GB
+      per drop)** switch (`client/components/request/HideMyIpSwitch.tsx`) sets
+      `iceTransportPolicy` in `client/lib/request/visitorState.ts`. The ordinary share-link
+      flow still has no such toggle: `P2PTransfer.tsx` and its hooks never set
+      `iceTransportPolicy`, and their only relay control is "Network relay fallback", which is
+      the opposite switch (off = direct only). Documented as an asymmetry in
+      `docs/how-it-works/relay-connection.mdx` rather than papered over.
+      Follow-up: ship the toggle for the share-link flow, sender and receiver.
+
+**3e - Receiver checks (shipped in v1.11.0 and desktop 0.3.0)**
+- [x] Per-file SHA-256. Both senders put a digest of the bytes they sent in each file's `end`
+      frame (`sendFileHashes` in `transfer/sender.go`, `SEND_FILE_HASHES` in
+      `client/lib/transfer/protocol.ts`), and both receivers compare it with the bytes as they
+      were written and discard a file that does not match (`transfer/receiver.go`,
+      `client/lib/transfer/receiver.ts`). The field is optional, so the protocol version did
+      not move, and a file from a sender that sends no digest is kept on the byte-count check.
+      In the browser the hash has a time bound on both sides (`END_DIGEST_WAIT_MS`,
+      `POST_END_HASH_WAIT_MS` and `hashBoundMs` in `protocol.ts`): past it the sender leaves
+      the digest out and the receiver keeps the file on the byte-count check.
+- [x] Delivery confirmation. Every Go receiver's ack carries `confirms: true`, and a Go sender
+      that reads it (`parseAckConfirms` in `transfer/sender.go`) ends a send only on the
+      receiver's `received` frame or on the close, never on a drained buffer. A request-link
+      drop always requires `received` (`RequireReceived`).
+- [x] Receive limits, in two layers (`transfer/limits.go`). Layer 1 is on for every Go
+      receiver and cannot be switched off: a relative path of at most 32 components and 235
+      UTF-16 units (`maxPathUnits` is 240 because it counts the `.part` suffix), never starting at a drive or a root, and a size the volume can hold. A
+      file that breaks one is refused before anything is saved, with a coded reason for the
+      sender (`transfer/refusal.go`). Layer 2 is the request link's own policy
+      (`ReceiveLimits`, set in `desktop/transfer.go`): at most 10,000 files, 2 GiB kept
+      free, the 2 GB relay cap checked on the host's side, and the file types Explorer parses
+      on sight saved as `<name>.floe-blocked` (`transfer/blockshell.go`).
 
 **Hardening audited 2026-07-04 (already solid, no change needed):**
 - [x] Receiver path-traversal: `transfer.safeJoin` strips volume names + `..`/`.`/empty
       segments and falls back to `received_file`; `TestSafeJoin` covers `../../etc/passwd`,
       `/etc/passwd`, `C:\...`, UNC `\\host\share\...`, dot-segments, empty. All pass.
+      Since v1.11.0 and desktop 0.3.0 a rooted or drive path no longer gets that far: the
+      receive limits (3e above) refuse it before anything is saved, and `safeJoin` stays as
+      the layer underneath.
 
 **Character sanitizing (added 2026-08-19, the traversal audit above missed it):**
 - [x] Traversal was solid, but `safeJoin` did no character filtering, so a name that is
@@ -210,11 +269,11 @@ verify the connection independently of the server.
 timeout and no cancel. Fixed since: `CancelTransfer` (transferstate.go) closes the signaling and
 peer connections to unblock both flows, and role selection carries a 20s timeout on the
 send and receive paths. The only remaining unbounded wait is the sender waiting for a
-receiver, which is deliberate (share a link and wait) and cancellable.
+receiver, which is deliberate (share a link and wait) and cancelable.
 
 ### Phase 4 - Release pipeline
 - [x] Release workflow: a plain `desktop-release.yml` on `desktop-v*` tags
-      (Windows-only for the beta; GoReleaser adds nothing for a Wails NSIS
+      (Windows-only for the Beta; GoReleaser adds nothing for a Wails NSIS
       build, and the native-runner matrix waits for the macOS/Linux era)
 - [ ] Code signing for the GitHub builds (no current provider: SignPath Foundation
       declined; the Store MSIX is already re-signed by Microsoft)
@@ -231,8 +290,8 @@ receiver, which is deliberate (share a link and wait) and cancellable.
       below; the old "unpackaged Win32" idea was wrong: the EXE submission path
       requires a purchased certificate and delivers no updates, while only MSIX
       is re-signed free by Microsoft)
-- [x] Homepage download buttons and the /download page (#235), and a five-page "Desktop"
-      docs group: installation, sending, receiving, settings, keyboard-shortcuts
+- [x] Homepage download buttons and the /download page (#235), and a six-page "Desktop app"
+      docs group: installation, sending, receiving, request-links, settings, keyboard-shortcuts
 
 ## Release history
 
@@ -242,8 +301,8 @@ receiver changes they both carry (per-file SHA-256 checks and the receive limits
 live in `cli/engine`, which reaches a desktop user only through a desktop tag, and
 the CLI half of the same change only reaches a `floe` user through a CLI tag.
 
-The list below is the verified order the first public release (0.1.0 beta)
-actually followed. Steps 1-3 shipped the GitHub beta; the plan then pivoted
+The list below is the verified order the first public release (0.1.0 Beta)
+actually followed. Steps 1-3 shipped the GitHub Beta; the plan then pivoted
 to the Microsoft Store as the primary Windows channel (see the Store plan
 below), which replaced the old steps 4-8.
 
@@ -251,9 +310,10 @@ below), which replaced the old steps 4-8.
       wails.json, per-user NSIS install (no UAC prompt), uninstaller deletes the
       context-menu HKCU key, pinned WebView2 profile path (2026-08-01, verified
       by a live install/uninstall round-trip plus profile adoption)
-- [x] 2. Desktop release workflow: fires on `desktop-v*` tags only, installs NSIS
+- [x] 2. Desktop release workflow: publishes on `desktop-v*` tags only (a manual
+      dispatch is a dry run that publishes nothing), installs NSIS
       on the runner, injects the version via ldflags, publishes with
-      `--prerelease` and `make_latest: false`, both now unconditional (the
+      `--prerelease` and `--latest=false`, both now unconditional (the
       back-compat job, install scripts, and `floe update` all resolve "latest",
       and prereleases are structurally excluded from that endpoint).
       (2026-08-01, rehearsed end to end with a throwaway desktop-v0.0.0 tag)
@@ -295,7 +355,11 @@ the real `%APPDATA%\floe` (so the CLI-shared config and settings survive), and
 the single-instance mutex crosses the package boundary (an NSIS build launched
 alongside the Store build focuses it instead of starting). The "Send with
 Floe" Explorer toggle is therefore hidden when packaged (`packaged_windows.go`
-gates it, fail-open to unpackaged); everything else runs unchanged from one
+gates it, fail-open to unpackaged). Two more things differ when packaged, and
+both read the package identity from that same file: the update check never runs
+and its Settings switch is hidden, because the Store updates the app
+(`updatecheck.go`), and since 0.3.0 notifications go out under the package's own
+AppUserModelID (`toast_windows.go`). Everything else runs unchanged from one
 binary.
 
 - [x] a. Packaged detection + context-menu gating; MSIX manifest template,
@@ -313,7 +377,7 @@ binary.
       the second peer (the desktop receive field accepts share links)
       (submitted 2026-08-02 to the private audience, in certification; every
       section re-verified against the saved state before submit)
-- [x] d. Private beta, then promoted to PUBLIC. The listing is live: the detail
+- [x] d. Private Beta, then promoted to PUBLIC. The listing is live: the detail
       URL answers 200, and winget resolves it
       (`winget install --id 9NBQ8ZQ1065L --source msstore`)
 - [x] e. floe.one /download leads with the Store badge (aeed0b4)
@@ -330,29 +394,33 @@ binary.
       values is the MDX comment at the top of `docs/changelog.mdx`.
       Then submit with `.claude/skills/store-submit/SKILL.md`, which renders the
       entry into Partner Center's plain-text "What's new in this version" field
-      (1500 characters, no markdown, no links to other channels) and drives the
+      (1,500 characters, no markdown, no links to other channels) and drives the
       submission. After the Store build lands, run
       `.claude/skills/transfer-audit/SKILL.md`: it drives real transfers across
       web, CLI and the installed desktop, direct and relayed, and reports which
       surface is behind. A release with
       nothing a user can see gets no entry, which is the point of writing it by
       hand. Judge that by what reaches a user, not by whether code changed:
-      `desktop-v0.2.1` did move the Store tile colour, so it earned the short
+      `desktop-v0.2.1` did move the Store tile color, so it earned the short
       entry it now has, whereas a release that is only CI or build plumbing
       earns nothing. The runbook is `.claude/skills/floe-release/SKILL.md`.
 - [ ] h. Each release after: once the GitHub release is published, launch the
       PREVIOUS build and confirm the update notice fires and names the new
-      version (the notice shipped in 0.2.3; the first release after it is the
-      first time that code runs against reality).
+      version (the notice shipped in 0.2.3). Use an installer or portable build:
+      the Store build never checks.
 
 ## Feature roadmap (what makes it best in class)
 
-**Must have (v1):** drag and drop send, folder send without zipping, receive
-streamed to disk with progress, system tray with background receive, OS
-notifications, pairing that interoperates with every surface (the web sends
-link+QR, the CLI code+link, the desktop all three), auto-update, dark mode.
+**Must have (v1):** shipped: drag and drop send, folder send without zipping,
+receive streamed to disk with progress, OS notifications, and pairing that
+interoperates with every surface (the web sends link+QR, the CLI code+link, the
+desktop all three). The app is dark by default and has no theme toggle. Still
+open: a system tray with background receive (waits for Wails v3) and auto-update
+(today the GitHub builds show an update notice and install nothing; the Store
+updates its own build).
 
-**Differentiators:** OS context-menu "Send with Floe" (shipped on Windows; the
+**Differentiators:** OS context-menu "Send with Floe" (shipped on Windows in the
+installer and portable builds, not in the Store build; the
 Finder half waits for macOS), a LAN fast path via local discovery (mDNS) for
 full-speed same-network transfers, send to self across your own devices, transfer
 history (shipped in 0.1.0), resume of interrupted transfers, connection
@@ -383,7 +451,15 @@ link (Stage 2) only with evidence.
 go -C cli build ./...
 go -C cli test ./...
 
-# Desktop (after Phase 1 scaffolding)
+# Desktop. Build the frontend first: main.go embeds frontend/dist, which is
+# not checked in, so every Go command in desktop/ fails until it exists.
+cd desktop/frontend
+npm install
+npm run build
+npm test
+
+cd ..
+go test ./...
 wails dev      # run the desktop app in dev mode with hot reload
-wails build    # produce a native binary
+wails build    # production build -> build/bin/floe-desktop.exe
 ```

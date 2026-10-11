@@ -32,6 +32,8 @@ reload by `navigate` to the same URL; bring a control into view with
 `computer` (`scroll_to` with its ref). A ref click worked on Start update,
 the Packages Save, Remove and dialog buttons, and no-op'd on the listing
 Save, Delete submission and View product details (measured 2026-08-28).
+Submit for certification has gone both ways: its ref click worked on
+2026-08-19 and 2026-08-28 and no-op'd on 2026-08-14 and 2026-10-09.
 The rule for every control: click the ref, wait 3 s, and when nothing
 changed take a fresh screenshot and click the visible button by
 coordinates; when that fails too, JS `.click()` on the `he-button` through
@@ -216,7 +218,9 @@ directly; a row click that changes nothing is the SPA no-op from
   `.../submissions/<id>`, to the overview, whose Packages chip now reads
   "Updated"; staying on Packages means nothing was saved: read the page for
   an error, fix it, Save again. Reopen Packages after a reload and confirm
-  the same lines.
+  the same lines. The struck-through package goes on Save: on 2026-10-09
+  (Submission 15) Packages listed only 1.3.0.0 afterward, the Store having
+  removed 1.2.12.0.
 
 ## 5. Store listing, en-US: What's new (programmatic sets are ignored; 2026-08-14)
 
@@ -254,6 +258,50 @@ name on a routine update; they carry over. Keyword chips silently drop when
 Save happens while the chip input has focus (2026-08-02); the only defense
 is never being in that field.
 
+### 5a. When the release changes the listing itself (done once: Submission 15, 2026-10-09)
+
+A routine update stops at What's new. A release that changes what the app
+does also changes the description, the feature list and the screenshots.
+All of them are on the same en-US listing page and one listing Save covers
+them, What's new included, so fill everything first and Save once.
+
+- Description: the textarea `#description-required`. It takes the same
+  native-setter idiom as What's new (the snippet above with that selector).
+  Submission 15 saved 3,296 characters.
+- Features: one input per feature, `#feature-0` to `#feature-N`. Set each
+  with the native `HTMLInputElement` value setter, then `input`, `change`
+  and `blur`, dispatched as composed events. "Add more" adds the next
+  input, and it took a JS `.click()` on its `he-button`. Submission 15
+  saved 11 features.
+- Screenshots: `file_upload` on the add tile's file input, repeated for
+  each image; the tile keeps the same ref after each upload. Remove an old
+  screenshot with the trash icon on its tile, by coordinates. A caption
+  goes through "Add image caption": a modal with a textarea, typed with
+  `computer` (`type`), then OK. Submission 15 removed the two old
+  screenshots and uploaded four at 1366x768, each with a caption.
+- Save, then `navigate` to the listing URL again and read every field
+  back: `len` and `djb2` for the two textareas, the number of features and
+  the length of each, and the captions in order.
+
+Left alone even then (Submission 15 touched none of them): pricing and
+availability, properties, age ratings, the keywords, the short
+description, the logos and the submission options.
+
+### 5b. Certification notes (they moved out of Submission options; 2026-10-09)
+
+The notes a tester reads belong to the product, not to a submission. The
+Submission options page no longer holds them: it points to Supplemental
+info > Additional Testing Information, a product-level page whose path
+ends `/suppinfo/additionaltestinginfo`. The field is
+`#certificationNotesDescription` (maximum 6000 characters). The page has
+its own "Save description" control and saving does not redirect, so the
+rule of steps 4 and 5 (no redirect means nothing was saved) does not hold
+on this page: the only proof is a reload and a read-back of `len` and
+`djb2`. A routine update leaves the
+notes as they are. Submission 15 replaced the 890-character notes with
+1,278 characters, and kept the old text before overwriting it; do the
+same.
+
 ## 6. Submit for certification (the record goes in the same message as the click)
 
 Standing authorization means you click Submit; it does not mean you click
@@ -268,15 +316,30 @@ Submitting Floe Desktop desktop-v0.2.8 as Submission <N, from the draft card>:
   untouched: audience, pricing, properties, age ratings, descriptions, screenshots, keywords, submission options
 ```
 
+When step 5a or 5b ran, the record says so instead of calling those fields
+untouched: one line per changed field with its length and fingerprint (the
+description, the feature count and each feature's length, the screenshots
+with their captions in order, the certification notes), and the `untouched`
+line lists only what really was. The Submission 15 row of the reference's
+history shows what such a record covered.
+
 - The "Submission options: Incomplete" badge is advisory; the Submit button
   enabling is the gate (2026-08-02, and every run since).
+- Since Submission 15 the listing shows request links, and Floe Desktop
+  makes one only against a server whose `/health` lists `request-1`
+  (`RequestLinkSupport` in `desktop/serverprobe.go`). Read
+  `https://api.floe.one/health` before the click and put its `features` in
+  the record; on 2026-10-09 it read `["request-1"]`.
 - `find` "Submit for certification" and click the ref (worked 2026-08-19 and
   2026-08-28). Wait 3 s; if nothing changed, take a fresh screenshot, `zoom`
   on the card to confirm the label (Delete submission is its neighbor), and
-  click the visible blue button by coordinates (what worked on 2026-08-14,
-  when the ref was a non-interactive wrapper). The flip itself can take a
-  few seconds more. Proof is the page flipping to "Update in certification" with the
-  submission timeline; nothing else counts.
+  click the visible blue button by coordinates (what worked on 2026-08-14
+  and again on 2026-10-09, both times because the ref was a non-interactive
+  wrapper). The flip itself can take longer than the click: on 2026-10-09
+  the coordinate click started a spinner and the page flipped within about
+  15 s. Proof is the page flipping to "Update in certification" with the
+  submission timeline (on 2026-10-09: "Submission" done, "Pre-processing"
+  current); nothing else counts.
 - A satisfaction survey pops up after submit: Cancel it. Never answer it for
   the user.
 
@@ -327,13 +390,15 @@ Submitting Floe Desktop desktop-v0.2.8 as Submission <N, from the draft card>:
   then `navigate` back to the overview; the draft survives server-side.
 - A ref click that does nothing: the control is an `he-button` wrapper
   (listing Save, Delete submission, View product details on 2026-08-28;
-  Submit on 2026-08-14). Screenshot, click the visible button by
-  coordinates, verify by the page changing.
+  Submit on 2026-08-14 and 2026-10-09; the listing's "Add more" on
+  2026-10-09, which took a JS `.click()`). Screenshot, click the visible
+  button by coordinates, verify by the page changing.
 - The SPA lies: a value shown is not a value saved (2026-08-14); a Save that
-  does not redirect saved nothing; the a11y ref for Submit can be a wrapper
-  (2026-08-14); a canceled twin run has no artifact (2026-08-27); textarea
-  values never appear in innerText (2026-08-02). Every read-back step above
-  exists because of one of these.
+  does not redirect saved nothing (the certification notes page of step 5b
+  is the exception: it never redirects); the a11y ref for Submit can be a
+  wrapper (2026-08-14, 2026-10-09); a canceled twin run has no artifact
+  (2026-08-27); textarea values never appear in innerText (2026-08-02).
+  Every read-back step above exists because of one of these.
 
 ## 9. Rehearsal (stop before Submit, then delete the draft; done 2026-08-28)
 
@@ -367,8 +432,9 @@ rehearsal. Not a release. Delete this draft.`), so the read-back is
   values you read before the rehearsal. Do not save anything there.
 - Every label, URL or selector that differs from the reference is corrected
   there with the date, in the same PR as the rehearsal report. The draft
-  consumed a submission number (11 on 2026-08-28); whether the next Start
-  update reuses it is measured at the next release.
+  consumed a submission number (11 on 2026-08-28). Whether a later Start
+  update reused it was never written down; the count had reached 15 by
+  2026-10-09.
 
 ## Done means
 
@@ -376,8 +442,10 @@ Submit clicked with the record message, the overview showing "Update in
 certification", and the report carrying: run id, artifact name and expiry,
 sha256, identity version, the preflight's `ok` lines, notes length and
 fingerprint from both the script and the read-back, submission number, and
-the submit time. Later: the certification email or the "Congrats" overview,
-and `Get-AppxPackage` showing the new version.
+the submit time. When step 5a or 5b ran, the report also carries each
+changed listing field and the certification notes as read back after a
+reload. Later: the certification email or the "Congrats" overview, and
+`Get-AppxPackage` showing the new version.
 
 ## Pointers
 
