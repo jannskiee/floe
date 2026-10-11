@@ -32,7 +32,7 @@
 
 Floe is an open-source peer-to-peer file transfer application built on WebRTC. Files stream directly between devices, so both people have to be online at the same time; the signaling server negotiates connections and never stores, inspects, or decrypts file data. When a direct path is blocked, an optional TURN relay bridges the transfer while the data stays end-to-end encrypted, and a relayed transfer is capped at 2 GB.
 
-Each file is checked when it arrives: the receiver compares its size and, when the sender supplied one, its SHA-256, and discards a file that does not match (see [File checks](https://www.floe.one/docs/how-it-works/file-checks)). A file that passes arrived intact. Floe does not scan files for malware.
+Each file is checked when it arrives: the receiver compares its size and, when the sender supplied one, its SHA-256, and discards a file that does not match (see [File checks](https://www.floe.one/docs/how-it-works/file-checks)). A file that passes both checks arrived intact. Floe does not scan files for malware.
 
 The desktop app and the CLI contain no analytics or telemetry. The only things either sends are an anonymous byte count that the receiving side reports to the public counter, and an update check against GitHub (at most once a day in the desktop app's installer and portable builds, never in the Microsoft Store build, and only when you run `floe version` in the CLI). Both are on by default, and you can turn both off in either. The floe.one website itself runs cookieless, anonymous analytics (including transfer outcomes) and error monitoring, detailed in the [security and privacy docs](https://www.floe.one/docs/security-privacy).
 

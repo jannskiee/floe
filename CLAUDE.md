@@ -219,11 +219,12 @@ Automated doc-maintenance PRs (style, links, SEO) are managed in the Mintlify da
 
 ci.yml also has a `workflow_dispatch` trigger: a dispatched run behaves exactly like a push (full suite, no path skips). Use it to recover from a lost push event or to re-roll the suite when investigating flaky tests. The e2e and back-compat jobs upload a Playwright evidence artifact (HTML report, traces, and stamped CLI transcripts) on every non-cancelled run, so a test that fails once and passes on the CI retry still leaves its first attempt inspectable.
 
-Four checks behind the gate run something the Commands section does not list. Run them before a push that touches their area:
+Five checks behind the gate run something the Commands section does not list. Run them before a push that touches their area:
 
 - `go vet ./...` in `cli/` and in `desktop/` (the `cli` and `desktop` jobs run it before the tests).
 - `git ls-files -z '*.go' | xargs -0 gofmt -l` from the repo root must print nothing (the `gofmt` job, Linux only: with `core.autocrlf=true` on Windows, `gofmt -l` lists every CRLF file).
 - `node .claude/skills/untrusted-peer-data/scripts/check-consumers.mjs` (`Repo guardrails`): fails when a `.go`, `.ts` or `.tsx` file starts referencing a peer-supplied field without a row in the consumer map (`.claude/skills/untrusted-peer-data/references/consumer-map.md`), or when a row's file or anchor symbol is gone. Adding or moving code that reads a wire field means updating that map in the same change.
+- `node .claude/skills/docs-verify/scripts/docs-check.mjs all` (`Repo guardrails`, the docs pre-flight step): fails on a docs link or anchor that goes nowhere, in `docs/` or in any code, workflow or Markdown file that links to the docs, on a table that will not render, on a documented server default that differs from `server/server.js`, and on an em or en dash in the Markdown it reads. A change to a server default or to a floe.one/docs URL in Go or TypeScript can therefore fail it.
 - `node scripts/check-titles.mjs` in `client/` after `pnpm build` (a step of `Build & Lint`).
 
 ## File Size and Structure
@@ -344,7 +345,7 @@ Tests follow the same rules, plus these conventions:
 
 Do not use em dashes in any markdown files or documentation. Use periods, commas, hyphens, or parentheses instead. In `docs/`, Vale checks this (`docs/.vale.ini` plus the `docs/styles/Floe/EmDash.yml` rule, surfaced as the Mintlify Grammar linter CI check), reinforced by the weekly Apply style guide automation.
 
-What Vale actually covers is narrower than this rule: it matches the em dash and en dash characters only, in `docs/` only. An ASCII `--` used as a dash is a human-review matter, because a token for it fires on every CLI flag in the docs. Markdown outside `docs/` has no style linter in CI (root Prettier can format it, but no job checks dash usage there). The docs-verify skill's `docs-check.mjs dashes` does check the root `*.md` files and the Markdown under `.github/` for both characters, when someone runs it.
+What Vale actually covers is narrower than this rule: it matches the em dash and en dash characters only, in `docs/` only. An ASCII `--` used as a dash is a human-review matter, because a token for it fires on every CLI flag in the docs. Markdown outside `docs/` has no style linter either (root Prettier can format it), but its dashes are checked: the docs-verify skill's `docs-check.mjs`, which CI runs on every pull request in `Repo guardrails`, fails on either character in the root `*.md` files, the Markdown under `.github/`, `unraid/` and `desktop/`, `.goreleaser.yml` and `docs/style.css`.
 
 Floe writes American English, in the docs and in user-facing product strings alike. In `docs/`, Vale enforces it (`docs/styles/Floe/Spelling.yml`), with `docs/changelog.mdx` exempted because its shipped entries describe releases whose UI really did say "Cancelling". The word list is short on purpose: it covers the pairs that have actually come up here rather than English generally, so extend it when a new one appears. The rule must stay at `level: error`, because `MinAlertLevel = error` makes Vale skip a lower-level rule entirely rather than merely hiding its output. Outside `docs/` this is a convention rather than a check, and it covers text a user can see (window titles, status lines, error messages, CLI output), not code comments or identifiers. Wails runtime names such as `WindowMinimise` are upstream API and stay as they are.
 

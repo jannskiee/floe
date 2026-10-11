@@ -443,7 +443,8 @@ test('an escaped pipe inside a cell is not a column boundary', () => {
 });
 
 // docs/style.css lowers the cell floor for a table with a fourth header cell,
-// so four columns fit at 1280. Five have no such rule.
+// so four columns fit at 1280. Five get the same floor and fill the column to
+// within 9 px, so they still need a look at the rendered page.
 test('a table of five columns is a NOTE, and one of four is not', () => {
     const root = fresh();
     for (const line of [
@@ -501,10 +502,88 @@ test('a straight quote that opens a table cell is HARD, and typed marks pass', (
     );
 });
 
+// The smart-quote pass sees the text and not the markup around it, and it
+// joins a row's cells with nothing between them. A quotation behind emphasis
+// or a link at the start of a cell therefore goes wrong the same way, in any
+// cell and in the header, and one that closes a cell after a colon or a
+// parenthesis is drawn as an opening mark (production showed that on two
+// request-link messages before #526).
+test('a quote at a cell edge is HARD behind markup, in any cell, and when it closes after punctuation', () => {
+    const table = (row, header = '| Message | Meaning |') => {
+        const root = fresh();
+        appendLine(root, 'docs/faq.mdx', '');
+        const h = appendLine(root, 'docs/faq.mdx', header);
+        appendLine(root, 'docs/faq.mdx', '|---|---|');
+        const n = appendLine(root, 'docs/faq.mdx', row);
+        return { r: run(root), h, n };
+    };
+    for (const [row, which] of [
+        ['| **"Open in your browser"** | x |', 'opens a table cell'],
+        ['| ["Open"](/faq) | x |', 'opens a table cell'],
+        ['| x | "Second cell" opens it |', 'opens a table cell'],
+        ['| Reads "low space on C:" | Because the drive is full |', 'closes a table cell after punctuation'],
+        ['| Make your proxy forward "/ws)" | y |', 'closes a table cell after punctuation'],
+    ]) {
+        const { r, n } = table(row);
+        assert.equal(r.status, 1, row);
+        assert.ok(
+            r.out.includes(`HARD  tables  docs/faq.mdx:${n}  a straight double quote ${which}`),
+            `${row}\n${r.out}`
+        );
+    }
+    const head = table('| a | b |', '| "Quoted" | Meaning |');
+    assert.equal(head.r.status, 1, head.r.out);
+    assert.ok(
+        head.r.out.includes(`HARD  tables  docs/faq.mdx:${head.h}  a straight double quote opens a table cell`),
+        head.r.out
+    );
+    // A quotation that ends a cell after a word or a full stop is drawn right.
+    for (const row of ['| Ends with a "word" | y |', '| Ends with "a sentence." | y |']) {
+        const { r } = table(row);
+        assert.equal(r.status, 0, `${row}\n${r.out}`);
+    }
+});
+
+// A tilde fence is a code block too, and a three-backtick fence shown inside
+// a four-backtick one does not end the outer block.
+test('a table drawn inside a tilde fence or a nested fence is not read as a table', () => {
+    const broken = ['| A | B |', '|---|---|---|', '| 1 | 2 |'];
+    const root = fresh();
+    for (const line of ['', '~~~', ...broken, '~~~', '', '````md', '```', ...broken, '```', '````'])
+        appendLine(root, 'docs/faq.mdx', line);
+    const r = run(root);
+    assert.equal(r.status, 0, r.out);
+
+    // The fences above really closed: the same block after them is caught.
+    appendLine(root, 'docs/faq.mdx', '');
+    const n = appendLine(root, 'docs/faq.mdx', broken[0]);
+    appendLine(root, 'docs/faq.mdx', broken[1]);
+    const after = run(root);
+    assert.equal(after.status, 1, after.out);
+    assert.ok(after.out.includes(`HARD  tables  docs/faq.mdx:${n + 1}  the header has 2 cells`), after.out);
+});
+
+// The path class of a docs URL has to allow a dot, so a URL that ends a
+// sentence used to be looked up with its full stop, and every such sentence in
+// code, a workflow or a Markdown file was a HARD "no such page".
+test('a docs URL that ends a sentence is checked without its full stop', () => {
+    const root = fresh();
+    appendLine(root, 'README.md', 'The flags are listed at https://www.floe.one/docs/cli/flags.');
+    const ok = run(root);
+    assert.equal(ok.status, 0, ok.out);
+
+    const n = appendLine(root, 'README.md', 'See https://www.floe.one/docs/cli/no-such-page.');
+    const r = run(root);
+    assert.equal(r.status, 1, r.out);
+    assert.ok(r.out.includes(`HARD  links  README.md:${n}  /cli/no-such-page has no docs/cli/no-such-page.mdx`), r.out);
+});
+
 // The dash rule covers every Markdown file, and this check used to look only
 // at the root and docs/. .goreleaser.yml's comments are the release runbook.
-test('an em dash in .goreleaser.yml or under unraid/ is HARD', () => {
-    for (const file of ['.goreleaser.yml', 'unraid/README.md']) {
+// desktop/build/README.md is on the list too and cannot be planted here: this
+// harness skips every directory named build when it copies the tree.
+test('an em dash in .goreleaser.yml, under unraid/ or desktop/, or in docs/style.css is HARD', () => {
+    for (const file of ['.goreleaser.yml', 'unraid/README.md', 'desktop/README.md', 'docs/style.css']) {
         const root = fresh();
         const n = appendLine(
             root,

@@ -17,16 +17,20 @@
  *   width      a page wider than the viewport (sideways scroll on a phone)
  *
  * Usage:
- *   node render-audit.mjs --base <url> [--root <repo>] [--out <file.json>]
- *        [--engines chromium,firefox,webkit] [--widths 1280,390]
- *        [--themes light,dark] [--pages a,b,c] [--jobs 4] [--css <file>]
+ *   node render-audit.mjs --base <url> [--root <repo>] [--playwright <repo>]
+ *        [--out <file.json>] [--engines chromium,firefox,webkit]
+ *        [--widths 1280,390] [--themes light,dark] [--pages a,b,c] [--jobs 4]
+ *        [--css <file>]
  *
  * --base is the docs root: https://www.floe.one/docs for production, or the
  * preview origin from the PR's deployment status (previews serve at the root).
  * Playwright is taken from client/node_modules, so run `pnpm install` there
- * first. Read-only: it loads pages and never writes to the site.
- * Exit 1 when a table is missing or a delimiter row shows as text; every other
- * number is for the reader to judge against the last run.
+ * first, or name a checkout that has it with --playwright (a linked worktree
+ * has the docs source and no install). Read-only: it loads pages and never
+ * writes to the site.
+ * Exit 1 when a table is missing, a delimiter row shows as text, a page did
+ * not answer 200 or did not load, or fewer pages loaded than were asked for;
+ * every other number is for the reader to judge against the last run.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -46,26 +50,34 @@ if (!root) {
 }
 const base = (opt('base', '') || '').replace(/\/+$/, '');
 if (!base || !existsSync(join(root, 'docs', 'docs.json'))) {
-    console.error('usage: node render-audit.mjs --base <docs root url> [--root <repo>] [--out file.json] [--engines ...] [--widths ...] [--themes ...] [--pages ...] [--jobs n] [--css file]');
+    console.error('usage: node render-audit.mjs --base <docs root url> [--root <repo>] [--playwright <repo>] [--out file.json] [--engines ...] [--widths ...] [--themes ...] [--pages ...] [--jobs n] [--css file]');
     process.exit(2);
 }
 const engines = opt('engines', 'chromium').split(',');
 const widths = opt('widths', '1280,390').split(',').map(Number);
 const themes = opt('themes', 'light,dark').split(',');
 const jobs = Number(opt('jobs', '4'));
+// Not a number or zero would start no worker, load no page and report 0 hard.
+if (!Number.isInteger(jobs) || jobs < 1) {
+    console.error('render-audit: --jobs takes a whole number, 1 or more');
+    process.exit(2);
+}
 const outFile = opt('out', null);
 // A stylesheet to add to every page before measuring: how a candidate
 // docs/style.css rule is tried against production without a deploy.
 const cssFile = opt('css', null);
 const extraCss = cssFile ? readFileSync(cssFile, 'utf8') : null;
 
-const require = createRequire(pathToFileURL(join(root, 'client', 'package.json')));
+// Playwright may come from another checkout than the one being measured: a
+// linked worktree holds the docs source but has no client install of its own.
+const playwrightRoot = opt('playwright', root);
+const require = createRequire(pathToFileURL(join(playwrightRoot, 'client', 'package.json')));
 let pw;
 try {
     pw = require('@playwright/test');
 } catch {
     console.error(
-        `render-audit: no Playwright under ${join(root, 'client', 'node_modules')}. Run the client install there first, or pass --root <a checkout that has it>.`
+        `render-audit: no Playwright under ${join(playwrightRoot, 'client', 'node_modules')}. Run the client install there first, or pass --playwright <a checkout that has it>.`
     );
     process.exit(2);
 }
@@ -90,16 +102,24 @@ function navPages(node, inPages = false, out = []) {
     return out;
 }
 
+// Fenced code and MDX comments blanked, as stripFences does in docs-check.mjs:
+// a block closes only on a line of the same fence character, at least as
+// long, with nothing after it.
 function blank(mdx) {
-    let inFence = false;
+    let open = null;
     return mdx
         .split('\n')
         .map((l) => {
-            if (/^\s*```/.test(l)) {
-                inFence = !inFence;
+            const m = l.match(/^\s*(`{3,}|~{3,})(.*)$/);
+            if (m && open === null) {
+                open = { mark: m[1][0], length: m[1].length };
                 return '';
             }
-            return inFence ? '' : l;
+            if (m && m[1][0] === open.mark && m[1].length >= open.length && m[2].trim() === '') {
+                open = null;
+                return '';
+            }
+            return open ? '' : l;
         })
         .join('\n')
         .replace(/\{\/\*[\s\S]*?\*\/\}/g, (m) => m.replace(/[^\n]/g, ''));
@@ -107,10 +127,15 @@ function blank(mdx) {
 
 function tablesInSource(mdx) {
     const lines = blank(mdx).split('\n');
+    const isDelimiter = (l) => {
+        const d = l.trim();
+        return d.includes('|') && /^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$/.test(d);
+    };
     let n = 0;
     for (let i = 1; i < lines.length; i++) {
-        const d = lines[i].trim();
-        if (d.includes('|') && /^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$/.test(d) && lines[i - 1].includes('|')) n++;
+        // A body row made of dashes sits under the real delimiter row and is
+        // not a second table.
+        if (isDelimiter(lines[i]) && lines[i - 1].includes('|') && !isDelimiter(lines[i - 1])) n++;
     }
     return n;
 }
@@ -150,8 +175,15 @@ function measure() {
             tallestRow: rowHeights.length ? Math.max(...rowHeights) : 0,
         };
     });
+    // Judged on the prose alone: a sentence that quotes a delimiter row in
+    // inline code is not a table that failed to parse.
+    const prose = (el) => {
+        const copy = el.cloneNode(true);
+        copy.querySelectorAll('code, pre').forEach((c) => c.remove());
+        return copy.textContent;
+    };
     const pipeText = [...area.querySelectorAll('p, li, td')]
-        .filter((el) => !inCode(el) && /\|\s*:?-{3,}:?\s*\|/.test(el.textContent))
+        .filter((el) => !inCode(el) && /\|\s*:?-{3,}:?\s*\|/.test(prose(el)))
         .map((el) => el.textContent.slice(0, 80));
 
     // Quotation marks. A closing mark cannot follow a space or open a block;
@@ -316,6 +348,13 @@ if (errors.length) {
     hard += errors.length;
     console.log(`\n${errors.length} page load(s) failed: ${errors.map((r) => `${r.page} (${r.error})`).join('; ')}`);
 }
+// Every page, in every engine, width and theme asked for: a run that loaded
+// fewer has not checked what it says it checked.
+const wanted = pages.length * engines.length * widths.length * themes.length;
+if (results.length !== wanted) {
+    hard += 1;
+    console.log(`\nonly ${results.length} of ${wanted} page loads ran`);
+}
 if (outFile) writeFileSync(outFile, JSON.stringify({ base, engines, widths, themes, pages: pages.length, results }, null, 1));
-console.log(`\nrender-audit: ${pages.length} pages, ${hard} hard`);
+console.log(`\nrender-audit: ${pages.length} pages, ${results.length} of ${wanted} loads, ${hard} hard`);
 process.exit(hard ? 1 : 0);

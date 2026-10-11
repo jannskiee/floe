@@ -49,16 +49,20 @@ changelog:
       order: 999
   filters:
     exclude:
-      # Commit types that change nothing a user of the CLI can see, with or
-      # without a scope: "docs:" and "docs(changelog):" alike. The unscoped
+      # Commit types that rarely change what a user of the CLI can see, with
+      # or without a scope: "docs:" and "docs(changelog):" alike. The unscoped
       # forms alone let every scoped subject through, which is nearly all of
-      # them: v1.11.0 listed nine such commits under Other.
-      - '^docs(\(.+\))?!?:'
-      - '^test(\(.+\))?!?:'
-      - '^chore(\(.+\))?!?:'
-      - '^style(\(.+\))?!?:'
-      - '^refactor(\(.+\))?!?:'
-      - '^ci(\(.+\))?!?:'
+      # them: v1.11.0 listed nine such commits under Other. A breaking subject
+      # ("chore!:", "refactor(cli)!:") matches none of these, so it still
+      # shows. A dependency bump that changes the binary ("chore(deps):") is
+      # dropped with the rest: when one matters to users it gets its line in
+      # the hand-written changelog, which the footer below links to.
+      - '^docs(\(.+\))?:'
+      - '^test(\(.+\))?:'
+      - '^chore(\(.+\))?:'
+      - '^style(\(.+\))?:'
+      - '^refactor(\(.+\))?:'
+      - '^ci(\(.+\))?:'
       - "^Merge pull request"
       - "^Merge branch"
       - "^Merge remote-tracking"

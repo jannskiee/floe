@@ -202,7 +202,8 @@ jobs:
         # every heavy job, and on a code PR, because half of what it compares
         # is code (the server's env defaults, the client's /docs links). It
         # reads files and nothing else: no network, no install, no subprocess,
-        # and the same output on Linux and Windows (compared 2026-10-11), so a
+        # and the same findings and exit code on Linux and Windows (compared
+        # 2026-10-11; only the order of two lines can differ), so a
         # failure here reproduces with this one command.
         #
         # Until now nothing in CI ran it. reference/limits shipped five tables

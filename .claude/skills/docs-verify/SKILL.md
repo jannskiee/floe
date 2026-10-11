@@ -85,10 +85,12 @@ preview, run
     node .claude/skills/docs-verify/scripts/render-audit.mjs --base <preview origin>
 
 and again with `--base https://www.floe.one/docs` after the merge. It loads every page in
-the navigation in a headless browser (Playwright from client/node_modules, so the client
-install has to exist) and prints one block per width and theme. Exit 1 means a table in
-the source did not come out as a table, or a delimiter row is showing as text. Every
-other number is for you to compare with the last run: on 2026-10-11 production read 0
+the navigation in a headless browser and prints one block per width and theme. Playwright
+comes from client/node_modules, so the client install has to exist; from a linked worktree
+that has none, add `--playwright <a checkout that has it>`, which leaves the docs source
+being compared where it is. Exit 1 means a table in the source did not come out as a
+table, a delimiter row is showing as text, or a page did not answer 200 or did not load.
+Every other number is for you to compare with the last run: on 2026-10-11 production read 0
 tables wider than their box at 1280, 0 wrong-way quotation marks of 786, 262 inline code
 chips split of 2,913, and no contents list over 30 entries. `--engines firefox,webkit`
 repeats it in the other two engines, and `--css <file>` adds a candidate stylesheet to
