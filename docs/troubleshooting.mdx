@@ -960,7 +960,10 @@ Ask the person who made it for a new link.
 
 On the sender's page, followed by "Ask for a new link." A request link takes one drop, and this one
 has had it, someone else is sending through it right now, or the person who made it declined a
-request and has not clicked **Keep waiting**. The server also gives this answer for a link that senders have joined more than 6 times in 1 minute, which clears by itself: wait 1 minute, then reload the page or run `floe send --to` again.
+request and has not clicked **Keep waiting**. A link also reads this way for about a day after the
+person who made it closed it while a request was waiting for their answer, or after a decline
+without clicking **Keep waiting**: someone had connected through it, so the server counts it as
+used, not as ["ended"](#this-link-has-ended). The server also gives this answer for a link that senders have joined more than 6 times in 1 minute, which clears by itself: wait 1 minute, then reload the page or run `floe send --to` again.
 
 Ask the person who made it for a new link.
 

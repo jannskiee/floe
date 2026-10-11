@@ -72,8 +72,6 @@ export default function PrivacyPolicy() {
         <LegalShell
             document="privacy"
             title="Privacy policy"
-            // TODO F-13 (S1-REL-02, DOC-S1-12): move Last updated to the month
-            // the request link sentences publish.
             dates={[{ label: 'Last updated', iso: '2026-10', text: 'October 2026' }]}
             historyHref="https://github.com/jannskiee/floe/commits/main/client/app/privacy/page.tsx"
             toc={toc}
@@ -88,10 +86,11 @@ export default function PrivacyPolicy() {
                         <strong>We do not store, view, or process your files.</strong> In direct
                         connections, files never touch our servers. In relay connections, encrypted
                         file data passes through a TURN relay in transit (on floe.one, Cloudflare&apos;s
-                        network) but is never stored or inspected. The only lasting tally our own
+                        network), which only forwards it and cannot decrypt or inspect it. The only
+                        lasting tally our own
                         servers keep is one anonymous number: the running total of bytes transferred
                         across all users, shown by the counter on our homepage, and you can opt out
-                        of contributing to it. The cookieless, aggregate analytics and the error
+                        of contributing to it. The cookieless, anonymous analytics and the error
                         monitoring the website uses are described below.
                     </p>
                     <p>
@@ -109,7 +108,8 @@ export default function PrivacyPolicy() {
                     steps aside. In most cases, data then flows directly between the two devices,
                     whether each one is a browser, Floe Desktop, or the CLI. When a direct path is not
                     available, a TURN relay (on floe.one, Cloudflare&apos;s network) bridges the
-                    connection. Even through the relay, files remain encrypted and are never stored.
+                    connection. Even through the relay, files remain encrypted, and the relay only
+                    forwards them.
                 </p>
                 <p>
                     The encryption is WebRTC&apos;s own (DTLS), with keys that exist only on the two
@@ -139,11 +139,14 @@ export default function PrivacyPolicy() {
                 </p>
                 <p>
                     A request link works the other way around. You make it in Floe Desktop and send it
-                    to someone, and they open it in their browser to send files to your PC. That page
-                    joins nothing until they click Send. From then on, the two of you learn each
-                    other&apos;s IP address, before you accept or decline, unless that side has Hide my
-                    IP on: the request link page has its own &quot;Hide my IP (relay only, 2 GB per
-                    drop)&quot; checkbox, and Floe Desktop&apos;s setting covers your side.
+                    to someone, and they open it in their browser, or run{' '}
+                    <InlineCode>floe send --to</InlineCode> with it, to send files to your PC. The
+                    browser page joins nothing until they click Send. From that click, or from the
+                    moment the command runs, the two of you learn each other&apos;s IP address,
+                    before you accept or decline, unless that side hides it: the request link page
+                    has its own &quot;Hide my IP (relay only, 2 GB per drop)&quot; checkbox, the CLI
+                    has <InlineCode>--relay-only</InlineCode>, and Floe Desktop&apos;s setting covers
+                    your side.
                 </p>
             </LegalSection>
 
@@ -157,25 +160,29 @@ export default function PrivacyPolicy() {
                         {
                             term: 'Connection setup',
                             body: (
-                                <p>
-                                    To pair two devices, our signaling server receives the room id and
-                                    relays the WebRTC connection messages (offers, answers, and ICE
-                                    candidates, which carry each device&apos;s network addresses)
-                                    between them. It checks each message&apos;s size and shape,
-                                    forwards it from memory without keeping or logging it, and keeps
-                                    nothing once the room closes. When the sender uses the CLI or Floe
-                                    Desktop, the server also maps a random three-word code to the room
-                                    id, and drops that mapping when the receiver joins or the room
-                                    closes, or after about ten minutes if neither happens. A request
-                                    link is the one exception: the server holds its room, with a hash
-                                    of the link&apos;s secret token and never the token itself, while
-                                    the link is open and for about 10 minutes after Floe Desktop
-                                    disconnects. When a link that someone has connected through is
-                                    closed, it keeps the link&apos;s room id with a mark saying it was
-                                    used, for a day. For any other link it keeps the room id and the
-                                    link&apos;s end time until a day after it ends, so a late visitor
-                                    can be told it ended. All of it is in memory only.
-                                </p>
+                                <>
+                                    <p>
+                                        To pair two devices, our signaling server receives the room id and
+                                        relays the WebRTC connection messages (offers, answers, and ICE
+                                        candidates, which carry each device&apos;s network addresses)
+                                        between them. It checks each message&apos;s size and shape,
+                                        forwards it from memory without keeping or logging it, and keeps
+                                        nothing once the room closes. When the sender uses the CLI or Floe
+                                        Desktop, the server also maps a random three-word code to the room
+                                        id, and drops that mapping when the receiver joins or the room
+                                        closes, or after about ten minutes if neither happens.
+                                    </p>
+                                    <p>
+                                        A request link is the one exception: the server holds its room, with a hash
+                                        of the link&apos;s secret token and never the token itself, while
+                                        the link is open and for about 10 minutes after Floe Desktop
+                                        disconnects. When a link that someone has connected through is
+                                        closed, it keeps the link&apos;s room id with a mark saying it was
+                                        used, for a day. For any other link it keeps the room id and the
+                                        link&apos;s end time until a day after it ends, so a late visitor
+                                        can be told it ended. All of it is in memory only.
+                                    </p>
+                                </>
                             ),
                         },
                         {
@@ -222,26 +229,34 @@ export default function PrivacyPolicy() {
                         {
                             term: 'IP addresses',
                             body: (
-                                <p>
-                                    Our signaling server holds your IP address in memory while your
-                                    app is connected to it and, to rate-limit abuse, for at most about
-                                    two minutes after your last request, and the server itself writes
-                                    no log of it. Like all web servers, the reverse proxy in front of
-                                    it and the providers that host us may log connection request IP
-                                    addresses for security and abuse prevention. We do not link any of
-                                    this to your identity. While a room made by a share link or a code
-                                    is open, the server also keeps a keyed hash of the network address
-                                    (an IPv4 address in full, an IPv6 address by its /64 prefix) of
-                                    each device that has sent connection messages through that room,
-                                    never the address itself and in memory only, so that a device on a
-                                    third network cannot take a seat in it; the hashes are deleted with
-                                    the room. To hold each network to 20 new request links a day, the
-                                    server keeps the times of new links for 24 hours under a keyed
-                                    hash of the address, never the address itself, and under the same
-                                    hash it counts the links each network has open, to hold it to 10
-                                    at a time. Who else sees your IP address, and how to hide it from
-                                    the other person, is under How the transfer works.
-                                </p>
+                                <>
+                                    <p>
+                                        Our signaling server holds your IP address in memory while your
+                                        app is connected to it and, to rate-limit abuse, for at most about
+                                        two minutes after your last request, and the server itself writes
+                                        no log of it. Like all web servers, the reverse proxy in front of
+                                        it and the providers that host us may log connection request IP
+                                        addresses for security and abuse prevention. We do not link any of
+                                        this to your identity.
+                                    </p>
+                                    <p>
+                                        While a room made by a share link or a code
+                                        is open, the server also keeps a keyed hash of the network address
+                                        (an IPv4 address in full, an IPv6 address by its /64 prefix) of
+                                        each device that has sent connection messages through that room,
+                                        never the address itself and in memory only, so that a device on a
+                                        third network cannot take a seat in it; the hashes are deleted with
+                                        the room.
+                                    </p>
+                                    <p>
+                                        To hold each network to 20 new request links a day, the
+                                        server keeps the times of new links for 24 hours under a keyed
+                                        hash of the address, never the address itself, and under the same
+                                        hash it counts the links each network has open, to hold it to 10
+                                        at a time. Who else sees your IP address, and how to hide it from
+                                        the other person, is under How the transfer works.
+                                    </p>
+                                </>
                             ),
                         },
                     ]}
@@ -324,7 +339,8 @@ export default function PrivacyPolicy() {
                     When a direct connection cannot be established, file data is routed through
                     Cloudflare&apos;s TURN relay network (<InlineCode>turn.cloudflare.com</InlineCode>
                     ). The relay forwards encrypted packets it cannot decrypt: the keys exist only on
-                    the two devices. It does not store or inspect file contents. Relay sessions are
+                    the two devices. Cloudflare states that it only relays those packets and cannot
+                    decrypt or inspect their content. Relay sessions are
                     limited to 2 GB per session, which for a request link means per drop.
                 </p>
                 <p>

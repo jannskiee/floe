@@ -38,14 +38,16 @@ export default function TermsOfUse() {
         <LegalShell
             document="terms"
             title="Terms of use"
-            // Effective when these terms were first published; the contact
+            // Effective is the month the text on this page took effect, not the
+            // month the terms were first published (May 2026): the contact
             // section arrived in August 2026, the acceptable-use wording
-            // changed in September 2026 and the request link terms in October
-            // 2026, so both dates are shown. F-13 checks that Last updated here
-            // and on the privacy page reads the month the request link terms
-            // publish (S1-REL-02, DOC-S1-33).
+            // changed in September 2026, and October 2026 added the request
+            // link terms and the line that Floe does not scan files. The two
+            // dates therefore move together (owner call, 2026-10-12). F-13
+            // checks that Last updated here and on the privacy page reads the
+            // month the request link terms publish (S1-REL-02, DOC-S1-33).
             dates={[
-                { label: 'Effective', iso: '2026-05', text: 'May 2026' },
+                { label: 'Effective', iso: '2026-10', text: 'October 2026' },
                 { label: 'Last updated', iso: '2026-10', text: 'October 2026' },
             ]}
             historyHref="https://github.com/jannskiee/floe/commits/main/client/app/terms/page.tsx"

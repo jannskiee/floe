@@ -265,7 +265,7 @@ export function LegalLink({ href, children }: { href: string; children: ReactNod
 
 export function InlineCode({ children }: { children: ReactNode }) {
     return (
-        <code className="rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[13px] text-zinc-300">
+        <code className="whitespace-nowrap rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[13px] text-zinc-300">
             {children}
         </code>
     );

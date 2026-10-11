@@ -39,6 +39,31 @@ way to detect the attack described above from inside Floe.
 **What you can do:** for anything where that attack is part of your threat model, self-host, or
 encrypt the file yourself before you send it.
 
+## Anyone with the link or code can receive {#anyone-with-the-link-or-code-can-receive}
+
+A share link or a room code is the only thing that protects a transfer. Floe has no accounts and
+no password step, so whoever opens the link or enters the code first, while the sender is still
+waiting, takes the receiving seat and gets the files. The sending app does not ask the sender to
+approve them.
+
+A room code is three words from a list of 1,247, so it can be guessed. The server allows each
+network address 10 wrong codes a minute (a self-hosted server can set
+[its own number](/self-hosting/configuration#max-failed-code-resolves)), and a code stops working
+when a receiver joins, when the sender leaves, or after 10 minutes: see
+[How long a code and a link last](/how-it-works/signaling#code-and-link-lifetime). A link carries a
+long random room id instead of words, which is far harder to guess, and it works for as long as
+its sender is still waiting.
+
+Once a sender and a receiver on two different networks have started connecting, a device on a
+third network is turned away for as long as the room exists, so a link that leaks later cannot be
+used from somewhere else to take the receiver's place. Devices that share one network address
+count as one, so a sender and a receiver on the same network are not covered. See
+[A room holds exactly two people](/how-it-works/signaling#a-room-holds-exactly-two-people).
+
+**What you can do:** send a link or a code only over a channel you trust, to the one person it is
+for. If either may have reached someone else before your receiver joined, stop the send and start
+a new one, which gets a new link and a new code.
+
 ## The other person learns your IP address
 
 A direct connection is two devices talking to each other, which means each one knows where the
@@ -97,6 +122,20 @@ the [CLI](/cli/receive), which write straight to disk and have no such ceiling. 
 use a normal Chrome or Edge window, and save files one at a time rather than zipping when the
 total is large.
 
+## A transfer that stops cannot be resumed {#no-resume}
+
+Floe has no resume. When a transfer stops partway, because a connection dropped or one side closed
+its app, the files that had finished are kept and everything else has to be sent again in a new
+transfer, including the file that was moving.
+
+What is kept depends on the receiver. Floe Desktop and `floe receive` leave the finished files in
+the save folder and discard the file that was arriving: see
+[If a transfer stops partway](/desktop/receiving#if-a-transfer-stops-partway). The web app keeps
+the finished files in its list until you leave the page, so save them before you reload.
+
+**What you can do:** keep both devices awake and online until the transfer ends. After a stop, ask
+which files arrived and send only the rest.
+
 ## The SHA-256 check covers the transfer, not your disk afterward
 
 Floe checks every file it receives against the size the sender announced and, when the sender
@@ -117,8 +156,10 @@ disk. `sha256sum` on Linux,
 ## Windows cannot keep two names that differ only by a reserved character
 
 Windows refuses `< > : " | ? *` in a file name, so Floe Desktop and `floe receive` on Windows
-replace each of them with `_` before writing. Names that were distinct on the sending machine can
-then land on the same name. A Linux folder holding `report:v1.pdf` and `report?v1.pdf`
+replace each of them with `_` before writing. One colon is dropped instead, the one in a name that
+starts like a drive name: see
+[Names Windows cannot represent are adjusted](/desktop/receiving#names-windows-cannot-represent-are-adjusted).
+Names that were distinct on the sending machine can then land on the same name. A Linux folder holding `report:v1.pdf` and `report?v1.pdf`
 arrives as `report_v1.pdf` and `report_v1 (1).pdf`, and nothing on disk says which was
 which. The numbered suffix follows the order the files arrived in, which is the order they
 were sent.
@@ -179,6 +220,16 @@ updates outside your active hours.
 **What you can do:** keep the PC plugged in and awake for a long drop, and set Windows Update's
 active hours to cover it. A sender in a browser keeps the tab in front, and pins it for a long
 drop. See [Request links](/desktop/request-links).
+
+## There are no accounts {#no-accounts}
+
+Floe has no accounts and no sign-in, so three things do not exist: a list of what you sent that
+follows you between devices, a way to take a file back once it has arrived, and a way to watch or
+stop a transfer from another device. Floe Desktop keeps a [History](/desktop/receiving#history) of
+its last 50 transfers on that PC only. The web app and the CLI keep none.
+
+**What you can do:** treat a file as out of your hands once the other side has it, and keep your
+own note of what you sent if you need one.
 
 ## The public counter is a vanity metric
 

@@ -138,6 +138,11 @@ The room code works for one receiver, and for 10 minutes at most. The link keeps
 long as Floe is still waiting, so for a longer wait, share the link. See
 [How a transfer works](/how-it-works/signaling#code-and-link-lifetime).
 
+The code and the link are all that protect the transfer. Whoever enters the code or opens the link
+first gets the files, and Floe Desktop does not ask you to approve them, so share them only over a
+channel you trust. See
+[Known limitations](/how-it-works/known-limitations#anyone-with-the-link-or-code-can-receive).
+
 If the server could not register a code, the panel shows the link and the QR code without one. The
 panel is there only while Floe waits: it goes away as soon as the other person joins.
 

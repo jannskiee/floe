@@ -39,9 +39,16 @@ rss: true
   8. Revisit the single-page shape at roughly 60 entries or one calendar year.
 */}
 
-Floe ships on two version lines. `vX.Y.Z` releases floe.one, the `floe` CLI, and the server you can run yourself. `desktop-vX.Y.Z` releases Floe Desktop for Windows. The two never need to match, and no release so far has changed the transfer protocol, so every version of Floe sends to and receives from every other one. Request links need a current Floe Desktop and a server that offers them.
+Floe ships on two version lines. `vX.Y.Z` releases the `floe` CLI and the container images for the server and web app you can run yourself. `desktop-vX.Y.Z` releases Floe Desktop for Windows. The web app at floe.one is on neither line: it runs the newest code as soon as it is merged, so a web app change can be live there before the `vX.Y.Z` entry that lists it. The two lines never need to match, and no release so far has changed the transfer protocol, so every version of Floe sends to and receives from every other one. Request links need a current Floe Desktop and a server that offers them.
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
+
+<Update label="Unreleased" tags={["CLI", "Web"]}>
+  **The install script prints `Checksum verified.` only after it has compared the checksum**
+
+  - `curl -fsSL https://floe.one/install.sh | sh` checks the archive it downloads against the release's `checksums.txt` with `sha256sum` or `shasum`. On a machine with neither tool it printed `Warning: no sha256 tool found, skipping checksum verification.` and then `Checksum verified.` anyway. It now prints `Checksum verified.` only when one of the two tools compared the SHA-256. With neither, the warning stands alone and the install goes on, as before. The script is served from floe.one, so the fix is already live and needs no `floe` update.
+  - Web app: three sentences on the transfer page were corrected. The **Direct** badge's tooltip says "No server carries them. Floe sets no size limit, but a receiving browser can only hold so much." where it said "No servers involved. Unlimited speed and size." The line under the drop area reads "No size limit from Floe over direct connections". The hint under **Network relay fallback** begins "Files go through it only when a direct connection isn't possible".
+</Update>
 
 <Update label="desktop-v0.3.0" description="2026-10-09" tags={["Desktop"]}>
   **Request links (Beta): make a one-time link in Floe Desktop, the person you send it to sends files from their browser, and nothing is saved until you accept, unless you turn on Auto-accept for that link**

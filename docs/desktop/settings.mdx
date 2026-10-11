@@ -109,8 +109,9 @@ unmetered. Connecting directly means each side learns the other's IP address, in
 a video call does.
 
 Turn this on and Floe stops trying for a direct path. Everything goes through the TURN relay
-instead, so the other person only ever sees the relay's address. Two consequences follow, and
-both are unavoidable rather than bugs:
+instead, so the other person only ever sees the relay's address. The relay's operator still sees
+your IP address: see [What the relay can see](/security-privacy#what-the-relay-can-see). Two
+consequences follow, and both are unavoidable rather than bugs:
 
 - **Transfers are slower**, because every byte takes a detour through the relay.
 - **Transfers are capped at 2 GB.** See [File size limits](/how-it-works/2gb-limit).
@@ -134,7 +135,7 @@ on `floe send` or `floe receive`, and `FLOE_RELAY_ONLY=1` keeps it on. See the
 [CLI flags reference](/cli/flags).
 
 <Warning>
-  Hide my IP address needs a relay to exist. On Floe's own server there is always one. If you point
+  Hide my IP address needs a relay to exist. Floe's own server offers one. If you point
   the app at [your own server](#server) that has no TURN relay configured, a relay-only
   connection has nowhere to go. Floe checks before it starts: the transfer stops immediately with
   `Error: Hide my IP needs a relay this server doesn't have`, rather than timing out after about
@@ -282,7 +283,7 @@ The two passes carry no prefix. Every failure starts with `Error: `.
 | `Error: Couldn't verify the server's certificate` | A TLS problem, often a self-signed certificate. | Give the server a certificate this PC trusts. |
 | `Error: That address answered HTTP 404 (likely the web app, not the server)` | Something answered, but not with a health check. The number is the status it sent. Usually it is the web app's address rather than the signaling server's. | Enter the signaling server's address. See [Troubleshooting](/troubleshooting#the-test-button-says-it-may-be-the-web-app-rather-than-the-signaling-server). |
 | `Error: That address isn't a Floe server` | Something else answered on that address. | Check the address and the port. |
-| `Error: The server refused the realtime connection (check that your proxy forwards /ws)` | Stage 2 failed. | Make your proxy forward `/ws`. See [Troubleshooting](/troubleshooting#the-test-button-says-the-realtime-connection-was-refused). |
+| `Error: The server refused the realtime connection (check that your proxy forwards /ws)` | Stage 2 failed. The usual cause is a proxy that does not forward `/ws`. A proxy that rewrites the `Host` header gives the same result when the address is not your `CLIENT_URL`, because the server's origin check then fails. | Make your proxy forward `/ws` and pass the original `Host` header. See [Troubleshooting](/troubleshooting#the-test-button-says-the-realtime-connection-was-refused). |
 | `Error: The API answered HTTP 404 (check that your proxy forwards /api/)` | Stage 3 answered with an error status. The number is the status it sent. | Make your proxy forward `/api/`. A `429` is the server's own rate limit instead: wait a minute and test again. See [Troubleshooting](/troubleshooting#the-test-button-says-the-api-answered-with-an-http-error). |
 | `Error: The server didn't return usable connection details` | Stage 3 answered, but not with a list Floe can connect with. | Check that `/api/` reaches the signaling server and not a web page. |
 

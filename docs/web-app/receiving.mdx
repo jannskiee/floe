@@ -114,6 +114,10 @@ what the sender announced, or whose SHA-256 does not match when the sender provi
 rest of the transfer stops with it. When every file arrived and every SHA-256 matched, the line
 "SHA-256 matched" appears under the list. See [File checks](/how-it-works/file-checks).
 
+Floe does not scan files for malware. A file that passes its checks arrived intact, which does not
+make it safe to open and says nothing about who sent it. See
+[Known limitations](/how-it-works/known-limitations#floe-does-not-scan-received-files).
+
 Files stay with the browser until you save them, so closing or reloading the tab discards
 anything you have not saved.
 

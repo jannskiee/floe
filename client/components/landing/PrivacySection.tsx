@@ -14,7 +14,7 @@ const handled: ReactNode[] = [
     'The room id that pairs two devices, which is the secret part of a share link, held in memory while the room is open and written to no log',
     // codeToRoom: forgetCode retires a code at pairing (handleJoinRoom), when
     // the room is destroyed and on re-register; the 10 min TTL is the ceiling.
-    'A short room code when the sender uses the CLI or desktop app, dropped when the receiver joins or the room closes, and after about 10 minutes at the latest',
+    'A short room code when the sender uses the CLI or desktop app, kept until the receiver joins or the room closes, and about 10 minutes at most',
     // turn.js: CF_TURN_TTL and the coturn ttl are both 24 h. On floe.one one set
     // is shared by every client inside a 5 minute window (CF_CACHE_MS).
     'TURN relay credentials, valid for 24 hours and not tied to you or an account',
@@ -28,7 +28,7 @@ const handled: ReactNode[] = [
     // (an IPv4 address in full, an IPv6 /64) of every peer that has routed a
     // signal in an ordinary room, under a secret drawn once per process. Deleted
     // with the room in destroyRoom. Not kept for a request room (handleSignal).
-    'While a room is open, a keyed hash of the network address (IPv4 in full, IPv6 by its /64) of each device that has sent connection messages through it, never the address itself, so that a third network cannot take a seat',
+    "While a room is open, a keyed hash of each device's network address, never the address itself, so that a third network cannot take a seat",
     // Request links (server.js request rooms, D-130, D-176): the reservation
     // keeps SHA-256(hostToken), never the token, with its own times (createdAt,
     // seatedAt, hostAbsentSince, endsAt); a sealed close leaves a used
@@ -40,9 +40,9 @@ const handled: ReactNode[] = [
     // 10-open budgets. The grace sweep makes "about 10 minutes" 10 to 11. All in
     // memory. No denylist exists (E-25). "Room id" here is the UUID after the #
     // of a request link; the link id before it never reaches this server.
-    'For a request link, a hash of its secret token and its timestamps (made, joined, left, due to end) while the link is open and for about 10 minutes after Floe Desktop disconnects, then its room id with a mark that it was used or ended, until a day after it closes or ends',
-    'For 24 hours, when each network made new request links, under a keyed hash of its address',
-    'While request links are open, how many each network has open, under the same keyed hash',
+    'For a request link, a hash of its secret token and its timestamps (made, joined, left, due to end) while the link is open, then its room id with a mark that it was used or ended, until a day after it closes or ends',
+    'The times each network made a request link, kept for 24 hours under a keyed hash of its address',
+    'How many request links each network has open, under the same keyed hash',
 ];
 
 const neverSees: ReactNode[] = [
@@ -97,7 +97,7 @@ export function PrivacySection() {
             <SectionHeader
                 eyebrow="Privacy"
                 headline="The server can't read what it never receives."
-                lede="Floe's signaling server exists to introduce two devices, and that is all it does. This is the complete list."
+                lede="Floe's signaling server exists to introduce two devices. This is the complete list of what it handles."
             />
             <div className="mt-12 grid gap-10 md:grid-cols-2 md:gap-12">
                 <LedgerColumn
@@ -113,7 +113,22 @@ export function PrivacySection() {
                     items={neverSees}
                 />
             </div>
-            <div className="mt-10">
+            {/* The two lists above are the signaling server's. The website has
+                two tools of its own (UmamiScript.tsx, sentry.client.config.ts),
+                and a reader who stops at this section should not conclude it
+                has none. Floe Desktop and the CLI import neither. */}
+            <p className="mt-10 max-w-2xl text-sm leading-relaxed text-zinc-500">
+                The floe.one website also runs cookieless analytics (Umami) and error monitoring
+                (Sentry). Floe Desktop and the CLI have neither. What they do send is in the{' '}
+                <a
+                    href="/privacy"
+                    className="text-zinc-400 underline decoration-white/20 underline-offset-2 transition hover:text-ice"
+                >
+                    privacy policy
+                </a>
+                .
+            </p>
+            <div className="mt-6">
                 <a
                     href="https://www.floe.one/docs/security-privacy"
                     target="_blank"

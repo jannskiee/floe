@@ -90,6 +90,10 @@ link gets a "Link Invalid" card, so create a fresh link for each person. Opening
 use it up: a recipient who drops off can open it again from the same network. See
 [How a transfer works](/how-it-works/signaling#a-room-holds-exactly-two-people). The link works for as long as this page stays open and connected: see [How long a code and a link last](/how-it-works/signaling#code-and-link-lifetime).
 
+The link is all that protects the transfer. Whoever opens it first gets the files, and this page
+does not ask you to approve them, so send it over a channel you trust. See
+[Known limitations](/how-it-works/known-limitations#anyone-with-the-link-or-code-can-receive).
+
 <Info>
 A share link is not a request link. A [request link](/desktop/request-links), made in Floe Desktop,
 works the other way around: the person who opens it sends files to the one who made it, and it is
@@ -168,8 +172,14 @@ If the receiving side discards a file because it did not match, the status reads
 instead, even when "All Files Sent!" was already showing, and the card says "The other side
 discarded a file that did not match what was sent. Try sending again." See [Troubleshooting](/troubleshooting#a-file-did-not-match-what-was-sent).
 
-The file list stays locked after a transfer. To send again, or to someone else, reload the page
-and create a new link.
+The file list stays locked after a transfer, and the link stays on screen. While this page is
+still connected to Floe's server, that link still works: if the recipient closes their page and
+opens the link again from the same network, Floe sends every file again.
+
+That stops, with no message on this page, once the page has lost its connection to Floe's server
+and reconnected, because after a finished transfer it does not rejoin its room. A browser that
+opens the link then waits for a sender who is not coming. To send to someone else, or to be sure
+the link works, reload the page and create a new link.
 
 ## Room codes are not a browser feature {#short-codes-are-not-a-browser-feature}
 
