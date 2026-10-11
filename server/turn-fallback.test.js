@@ -109,9 +109,14 @@ describe('generateCoturnCredentials', () => {
         process.env.TURN_SECRET = 'test-secret';
         process.env.TURN_DOMAIN = 'relay.example.org';
         const result = generateCoturnCredentials();
-        for (const entry of result) {
-            assert.ok(entry.urls.includes('relay.example.org'), entry.urls);
-        }
+        assert.deepEqual(
+            result.map((entry) => entry.urls),
+            [
+                'stun:relay.example.org:3478',
+                'turn:relay.example.org:3478',
+                'turns:relay.example.org:5349',
+            ]
+        );
     });
 
     it('username is {expiry}:floeuser with a 24h TTL', () => {

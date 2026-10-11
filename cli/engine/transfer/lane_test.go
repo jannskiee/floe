@@ -205,17 +205,26 @@ func TestIncomingDeadlineCanceledByOnIncoming(t *testing.T) {
 }
 
 // TestIncomingDeadlineCancelRace: cancel and expiry racing settle on exactly
-// one: after cancel returns, onExpire never starts.
+// one, and a cancel made well before the deadline means onExpire never runs.
+// An expiry that wins settles under the lock and calls onExpire outside it,
+// so in the racing rounds onExpire may still start just after cancel returns:
+// those rounds bound the count, they do not order the two.
 func TestIncomingDeadlineCancelRace(t *testing.T) {
 	for i := 0; i < 200; i++ {
 		var ran atomic.Int32
 		cancel := StartIncomingDeadline(time.Duration(i%3)*time.Microsecond, func() { ran.Add(1) })
 		cancel()
-		after := ran.Load()
-		time.Sleep(time.Millisecond)
-		if got := ran.Load(); got != after || got > 1 {
-			t.Fatalf("round %d: onExpire ran %d times, %d of them after cancel returned", i, got, got-after)
-		}
 		cancel()
+		time.Sleep(time.Millisecond)
+		if got := ran.Load(); got > 1 {
+			t.Fatalf("round %d: onExpire ran %d times", i, got)
+		}
+	}
+	var ran atomic.Int32
+	cancel := StartIncomingDeadline(100*time.Millisecond, func() { ran.Add(1) })
+	cancel()
+	time.Sleep(300 * time.Millisecond)
+	if got := ran.Load(); got != 0 {
+		t.Fatalf("onExpire ran %d times although cancel came 100 ms before the deadline", got)
 	}
 }

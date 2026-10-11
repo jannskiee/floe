@@ -488,9 +488,11 @@ func TestLivenessReadDeadlineDetectsSilentServer(t *testing.T) {
 			if elapsed := time.Since(start); elapsed < 250*time.Millisecond {
 				t.Fatalf("Down closed after %v, before the 300ms deadline could pass", elapsed)
 			}
+			// The read loop closes Down and then pushes PeerLeft, so a check
+			// made the instant Down closes can land between the two.
 			select {
 			case <-c.PeerLeft:
-			default:
+			case <-time.After(time.Second):
 				t.Fatal("PeerLeft got no push when the socket was lost")
 			}
 		})

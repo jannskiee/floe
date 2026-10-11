@@ -1848,7 +1848,10 @@ func TestSendToTreeEmptiedBeforeTheSendKeepsTheWalksError(t *testing.T) {
 	}
 	close(emptied)
 	r.wait(t, 30*time.Second)
-	if herr := h.wait(t); herr != nil {
+	// The visitor's channel can open before the host's offer() has returned,
+	// and the visitor leaves on its walk error at once, so the host's setup
+	// may truthfully end on ErrPeerLeft. Seen on ubuntu and macOS runners.
+	if herr := h.wait(t); herr != nil && !errors.Is(herr, peer.ErrPeerLeft) {
 		t.Fatalf("host: %v", herr)
 	}
 	r.read(o)

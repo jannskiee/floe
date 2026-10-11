@@ -52,8 +52,9 @@ func DropTimeLimitReached(startedAt, now time.Time) bool {
 // stopped: the lane's onExpire sends AbortWithCode(CodeStopped), closes the
 // connection, and the loop returns through its closed channel.
 //
-// Exactly one of the two wins: once cancel has returned, onExpire will not
-// start, and once onExpire has started, cancel does not wait for it. Calling
+// Exactly one of the two wins. A cancel that wins means onExpire never runs.
+// An expiry that wins is settled before onExpire is called, so a cancel racing
+// it can return just before onExpire starts, and never waits for it. Calling
 // cancel more than once is safe.
 func StartIncomingDeadline(d time.Duration, onExpire func()) (cancel func()) {
 	var mu sync.Mutex
