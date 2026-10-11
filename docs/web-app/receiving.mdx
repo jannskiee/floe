@@ -11,10 +11,17 @@ import StatsOptOut from '/snippets/stats-optout.mdx';
 Someone sent you a Floe link, or a QR code. Open it in any modern browser and the files arrive on
 their own. There is nothing to install, no account, and nothing to click to start.
 
+<Info>
+A link with `/r/` in it is a request link. It is for sending files to the person who made it, not
+for receiving: see [Sending through a request link](/web-app/request-links).
+</Info>
+
 ## Open the link
 
 Click the link, or point your phone's camera at the QR code. The page joins the sender's room by
-itself and starts negotiating the connection.
+itself and starts negotiating the connection. A link made in the web app works for as long as the
+sender keeps their page open: see
+[How a transfer works](/how-it-works/signaling#code-and-link-lifetime).
 
 ### If Floe says "Open in your browser" {#if-floe-says-open-in-your-browser}
 
@@ -22,9 +29,10 @@ Apps like Facebook, Messenger, Instagram, TikTok, Snapchat, LINE, X, and WeChat 
 their own built-in browser rather than in Chrome or Safari. Those built-in browsers handle file
 transfers poorly, so Floe recognizes them and shows this instead of the transfer view.
 
-Those eight are recognized by name. Any other Android app that opens links in a plain web view is
-caught by a general check and gets the same screen, worded "This in-app browser", so an app that
-is not on the list can still land you here.
+Those eight are recognized by name, and the screen names the app (it calls X "Twitter"). One more
+case is caught by a general check: an Android web view that reports no Chrome version gets the
+same screen, worded "This in-app browser". Any other app's built-in browser is not recognized, and
+the transfer view opens in it directly.
 
 <Frame caption="What Floe shows when a link is opened inside another app's browser">
   <img src="/images/web/06-in-app-browser.png" style={{ width: "100%", maxWidth: "320px", borderRadius: "12px" }} alt="A full-screen Floe prompt reading Open in your browser, with two numbered steps for reaching Safari, a Copy link to paste in browser button, and a Continue anyway link" />
@@ -33,8 +41,8 @@ is not on the list can still land you here.
 Follow the two steps, or tap **Copy link to paste in browser** and open it yourself in Chrome,
 Safari, Edge, or Firefox. **Continue anyway (some features may not work)** proceeds regardless.
 
-Until you do one of those, the page has not joined the room. That is deliberate: a room takes
-exactly one recipient, so an in-app browser cannot silently take that seat and lock the real
+Until you tap **Continue anyway**, the page has not joined the room. That is deliberate: a room
+takes exactly one recipient, so an in-app browser cannot silently take that seat and lock the real
 browser out.
 
 ## While you wait
@@ -52,23 +60,23 @@ tracks your own connection, so a green **Ready** does not mean the sender is rea
 readout next to it is shown to senders only.
 
 The transfer starts by itself, usually a couple of seconds after the connection is established.
-If it never starts, the sender's side may have stopped it: Floe checks the route before any bytes
-move and refuses a relayed connection when the sender turned relay fallback off or queued more
+If it never starts, the sender's side may have stopped it: a browser sender checks the route before
+any bytes move and refuses a relayed connection when they turned relay fallback off or queued more
 than 2 GB. See [Sending files](/web-app/sending#while-it-transfers).
 
 ### Contribute to global stats
 
-Floe's homepage carries a public, all-time count of bytes moved by everyone. When a transfer
-finishes, the receiving side adds this transfer's size to that total, and nothing else. No file
-names, no contents, nothing identifying, and the report never slows or blocks the transfer.
+Floe's homepage carries a public, all-time count of bytes moved by everyone. When the last file
+of a transfer lands, the receiving side adds this transfer's size to that total, and nothing else.
+No file names, no contents, nothing identifying, and the report never slows or blocks the
+transfer. A transfer that stops before its last file reports nothing.
 
 It is on by default. The checkbox disappears once the first file lands, so decide while you are
 waiting.
 
 <StatsOptOut />
 
-Your choice is stored in this browser and applies to every later transfer from it. The total is
-only ever shown on the homepage. See
+The total is only ever shown on the homepage. See
 [Security and privacy](/security-privacy#aggregate-statistics) for the full data-handling note.
 
 ## Saving what arrives
@@ -81,13 +89,15 @@ rest are still coming.
 </Frame>
 
 On a transfer of two or more files, **Download All** and **Download ZIP** appear as soon as the
-second file lands. They hide again while the next file is streaming and come back between files,
-so if they vanish mid-transfer nothing is wrong. Once the transfer finishes they stay put.
+second file lands. They hide again while the next file is arriving or being checked and come back
+between files, so if they vanish mid-transfer nothing is wrong. Once the transfer finishes they
+stay put.
 
-| Option | What it does |
-|--------|--------------|
-| **Download All** | Saves each file separately, about one every 300 ms. Your browser may ask you to allow multiple downloads. |
-| **Download ZIP** | Bundles everything into one archive named `floe_transfer_<timestamp>.zip`. The timestamp is milliseconds since the epoch, stamped when the archive finishes building rather than when you clicked, so on a large transfer the two differ. |
+- **Download All** saves each file separately, about one every 300 ms. Your browser may ask you to
+  allow multiple downloads.
+- **Download ZIP** bundles everything into one archive named `floe_transfer_<timestamp>.zip`. The
+  timestamp is milliseconds since the epoch, stamped when the archive finishes building rather
+  than when you clicked, so on a large transfer the two differ.
 
 The two differ in more than convenience. A ZIP keeps any folder structure the sender used and
 numbers duplicate names inside the archive. Saving files one at a time flattens the structure and
@@ -99,51 +109,55 @@ A single-file transfer shows only that file's own button, and no bulk options.
 inconsistently in Safari and in iOS web views. The exception is a very large transfer: zipping
 holds every file in memory at once, so if that fails, save them from their own rows instead.
 
+A file that fails a check never reaches the list. Floe discards a file whose size does not match
+what the sender announced, or whose SHA-256 does not match when the sender provides one, and the
+rest of the transfer stops with it. When every file arrived and every SHA-256 matched, the line
+"SHA-256 matched" appears under the list. See [File checks](/how-it-works/file-checks).
+
+Files stay with the browser until you save them, so closing or reloading the tab discards
+anything you have not saved.
+
 ## The sender has to stay connected
 
 Files stream from the sender's device, so if they close their tab, quit Floe Desktop, or stop the
-CLI before the transfer finishes, the connection drops and you need a new session.
+CLI before the transfer finishes, the connection drops and nothing resumes it.
 
-If **your** network blips before the first file arrives, Floe recovers on its own: it rejoins the
-room and the sender builds a fresh connection. Once files have started landing, signaling is
-finished and Floe stops rejoining, so a drop after that point ends the session and you need a new
-link for whatever did not arrive.
+If **your** connection to Floe's server blips while the two devices are still connecting, the page
+rejoins the room by itself. Whether that rescues the transfer depends on the sender. A browser
+sender builds a fresh connection. `floe send` and Floe Desktop treat it as you leaving and end the
+transfer, and a device that comes back on a different network can be refused. See
+[How a transfer works](/how-it-works/signaling#a-room-holds-exactly-two-people). Once the two
+devices are connected, a blip in the server connection no longer matters, and the page no longer
+rejoins.
 
-What you see when the sender drops depends on whether anything had arrived yet. Before the first
-file, the status reads **Peer disconnected. Waiting for reconnection**, and it does not resume by
-itself. After at least one file has landed, the status names what actually arrived: a partial
-multi-file transfer reads **Sender disconnected. 1 of 3 files received**, and only a batch where
-every announced file landed reads **Transfer complete**.
+What you see when the sender leaves depends on how far things had got:
 
-Either way, files that already finished stay in the list and stay downloadable.
+| When the sender left | What the page shows |
+|----------------------|---------------------|
+| Before the two devices connected | Nothing changes. The card stays on "Waiting for the sender to start". |
+| After they connected, before any file finished | A red banner, usually "The sender ended the transfer before it finished." or "The sender ended the transfer. Ask them to start it again." See [Troubleshooting](/troubleshooting#the-sender-ended-the-transfer). |
+| After at least one file finished | No message. The badge goes back to **Offline**, and the files that arrived stay listed with a count such as "1 file received". |
 
-A file that arrives incomplete is not offered to you at all. Floe compares what arrived against
-the size the sender announced and discards anything that does not match, in either direction,
-rather than handing you a file that looks whole and is not.
+In that last case the page does not say how many files were still to come. If the sender told you
+to expect more than the count shows, ask them to send the rest again.
 
-Two details follow from that. A mismatch stops the **rest** of the transfer too, so files queued
-behind the bad one never arrive either. And the check needs a size to compare against: if the
-sending peer announces none, which only very old releases do, the file is accepted as it stands.
-
-When the sender provides a SHA-256 for a file, Floe also checks the file against it once it has
-arrived, and a file that does not match is discarded the same way, stopping the rest of the
-transfer. When every file arrived and every one matched, a line reading "SHA-256 matched" appears
-under the files. Checking a large file takes a moment after its last byte, and with more files to
-come Floe waits at most 90 seconds for it, then keeps the file unchecked so the transfer goes on;
-that line then does not appear.
+Files that already arrived stay in the list and can still be saved for as long as the page stays
+open. To try again in the first two cases, reload the page: that works while a browser sender still
+has their page open.
 
 ## Receiving in the terminal or the desktop app instead
 
-Both write straight to disk, rebuild folder structure, and have no memory ceiling, which makes
-them the better choice for anything multi-gigabyte.
+Both write straight to disk as the bytes arrive and rebuild folder structure, which makes them the
+better choice for anything multi-gigabyte. A browser can only take what that browser can hold: see
+[Known limitations](/how-it-works/known-limitations#a-browser-receiver-is-limited-by-what-the-browser-can-hold).
 
 ```bash Terminal
 floe receive "https://www.floe.one/?s=8262e1b4#room=3f2b9c1e-7a4d-4c2e-9b1f-8e6d5c4b3a21"
 ```
 
-Links made in the browser carry the `?s=` value and links printed by `floe send` do not.
-`floe receive` accepts both, and so does the Floe Desktop **Receive** tab. If the sender gave you
-a three-word code instead, pass that:
+Links made in the browser and in Floe Desktop carry the `?s=` value and links printed by
+`floe send` do not. `floe receive` accepts both, and so does the Floe Desktop **Receive** tab. If
+the sender gave you a room code instead, pass that. The browser has no field for one.
 
 ```bash Terminal
 floe receive olive-tiger-castle
@@ -151,19 +165,14 @@ floe receive olive-tiger-castle
 
 See [floe receive](/cli/receive) and [Receive files in the desktop app](/desktop/receiving).
 
-## If the link does not work
+## If something goes wrong {#if-the-link-does-not-work}
 
-**"Link Invalid"** means the link is malformed or already in use, which are its only two causes.
-A room takes exactly
-one recipient, so a link that someone else is already receiving on will not work for you. Ask for
-a new one.
-
-**A short code that will not resolve** came from `floe send` or Floe Desktop and lasts ten
-minutes. Links from the web app carry no code and stay valid as long as the sender's tab is open.
-
-**Stuck connecting** is usually a network that blocks direct paths. The error
-`Could not connect. Ask the sender to enable "Network Relay" and try again.` covers every failure
-Floe treats as expected, so the relay is not always the culprit: the sender may have turned their
-**Network relay fallback** checkbox off, run `floe send --no-relay`, or simply closed their tab.
-
-See [Troubleshooting](/troubleshooting) for more.
+- "Link Invalid": the link is incomplete, someone else is already connected on it, or it has
+  already started connecting from a network other than the one you are on now, which includes
+  your own device after it switched networks. See [Troubleshooting](/troubleshooting#link-invalid).
+- The card stays on "Waiting for the sender to start": the sender may have closed their page, or
+  the two devices are still looking for a path. See
+  [Troubleshooting](/troubleshooting#the-transfer-never-starts).
+- `Could not connect. Ask the sender to enable "Network Relay" and try again.`: usually a network
+  that blocks direct paths, but the sender closing their tab produces it too. See
+  [Troubleshooting](/troubleshooting#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again).

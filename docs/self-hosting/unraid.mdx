@@ -5,8 +5,10 @@ description: "Install the Floe web client and signaling server as two coordinate
 keywords: ["unraid", "community applications", "template"]
 ---
 
-Floe is published as two containers because the web client and signaling server
-have separate network and security settings. Install both templates for a working
+This page installs Floe on an Unraid server from two templates, Floe-Server and
+Floe-Client, and covers the three ways to reach them: direct LAN ports, one domain, or
+two hostnames. Floe is published as two containers because the web client and signaling
+server have separate network and security settings. Install both templates for a working
 instance.
 
 Both templates pull the same multi-architecture images the Docker Compose stack
@@ -25,8 +27,8 @@ Choose how browsers will open Floe:
 - **Two hostnames behind a reverse proxy:** `https://floe.example.com` for the
   client and `https://floe-api.example.com` for the signaling server.
 
-The exact client origin matters in all three, because the signaling server uses it
-as its CORS allow-list entry.
+The exact client origin matters in all three, because it is the origin the
+signaling server accepts browser connections from.
 
 ## Direct LAN installation
 
@@ -63,16 +65,19 @@ as its CORS allow-list entry.
 
   </Step>
   <Step title="Open and test Floe">
-    Open the Floe-Client Web UI. Confirm that the connection indicator is online,
-    then create a link and open it in a second browser or device.
+    Open the Floe-Client Web UI. Confirm that the badge at the top right of the card
+    reads **Ready**, not **Offline**, then create a link and open it in a second
+    browser or device.
   </Step>
 </Steps>
 
+<Warning>
   The two templates hold each other's addresses, so a port change is never a
   one-sided edit. Change the Floe-Client host port and Floe-Server **Client URL**
   has to carry the new port. Change the Floe-Server host port and Floe-Client
   **Signaling Server URL** has to match it. A mismatch looks like a client that
   loads perfectly and never connects.
+</Warning>
 
 ## One domain behind a reverse proxy
 
@@ -82,22 +87,36 @@ talks to whatever origin served the page. The field is not blank by default: it
 ships holding the placeholder `http://YOUR-UNRAID-IP:3001`, and leaving that in
 place produces a client that loads perfectly and never connects.
 
-1. Proxy `https://floe.example.com` to the Floe-Client host port for everything
-   except the signaling paths.
-2. Proxy `/socket.io/`, `/ws`, `/api/`, and `/health` to the Floe-Server host port.
-3. Proxy `/api/config` back to the **client**, as an exception to the `/api/` rule
-   above.
-4. Set Floe-Server **Client URL** to `https://floe.example.com`.
-5. Set Floe-Server **Trusted Proxy Count** to the number of proxy hops, which is
-   `1` for a single reverse proxy.
-6. Clear Floe-Client **Signaling Server URL**, including the placeholder it ships with.
+<Steps>
+  <Step title="Proxy the domain to Floe-Client">
+    Send `https://floe.example.com` to the Floe-Client host port for everything
+    except the signaling paths.
+  </Step>
+  <Step title="Proxy the signaling paths to Floe-Server">
+    Send `/socket.io/`, `/ws`, `/api/`, and `/health` to the Floe-Server host port.
+  </Step>
+  <Step title="Keep the config route on the client">
+    Send `/api/config` back to the **client**, as an exception to the `/api/` rule
+    above.
+  </Step>
+  <Step title="Set Client URL to the domain">
+    Set Floe-Server **Client URL** to `https://floe.example.com`.
+  </Step>
+  <Step title="Set Trusted Proxy Count">
+    Set Floe-Server **Trusted Proxy Count** to the number of proxy hops, which is
+    `1` for a single reverse proxy.
+  </Step>
+  <Step title="Clear Signaling Server URL">
+    Clear Floe-Client **Signaling Server URL**, including the placeholder it ships with.
+  </Step>
+</Steps>
 
-  Step 3 is the one people miss. `GET /api/config` is served by the **client**,
-  not the signaling server. Route all of `/api/` to the server and that request
-  returns 404, so any **Signaling Server URL** you set is silently discarded and
-  the browser falls back to its own origin. On this layout that fallback is the
-  answer you wanted anyway, so the mistake stays invisible until the day you set
-  a value and it does nothing.
+Step 3 is the one people miss. `GET /api/config` is served by the **client**,
+not the signaling server. Route all of `/api/` to the server and that request
+returns 404, so any **Signaling Server URL** you set is silently discarded and
+the browser falls back to its own origin. On this layout that fallback is the
+answer you wanted anyway, so the mistake stays invisible until the day you set
+a value and it does nothing.
 
 Copy-pasteable Caddy and nginx configurations for exactly this routing, including
 the exact-path rule that keeps `/api/config` on the client, are in
@@ -105,20 +124,34 @@ the exact-path rule that keeps `/api/config` on the client, are in
 
 ## Two hostnames behind a reverse proxy
 
-Browsers require HTTPS for production use outside your trusted LAN. Proxy the
+Use HTTPS for anything reachable outside your trusted LAN. Proxy the
 client and server separately, and enable WebSocket forwarding for the server.
 
-1. Proxy the client hostname to the Floe-Client host port.
-2. Proxy the signaling hostname to the Floe-Server host port.
-3. Set Floe-Server **Client URL** to the public HTTPS client origin.
-4. Set Floe-Server **Trusted Proxy Count** to the number of proxy hops.
-5. Set Floe-Client **Signaling Server URL** to the complete public HTTPS server
-   origin.
-6. Keep the host name in the `Host` header when proxying the signaling hostname.
-   Nginx Proxy Manager and SWAG do by default. The CLI and Floe Desktop connect to
-   the signaling hostname, which is not your Client URL, so the server matches
-   their `Origin` against `Host`, and a proxy that rewrites `Host` to the
-   container address gets them refused with a `403`.
+<Steps>
+  <Step title="Proxy the client hostname">
+    Send the client hostname to the Floe-Client host port.
+  </Step>
+  <Step title="Proxy the signaling hostname">
+    Send the signaling hostname to the Floe-Server host port.
+  </Step>
+  <Step title="Set Client URL to the client origin">
+    Set Floe-Server **Client URL** to the public HTTPS client origin.
+  </Step>
+  <Step title="Count the proxy hops">
+    Set Floe-Server **Trusted Proxy Count** to the number of proxy hops.
+  </Step>
+  <Step title="Set Signaling Server URL">
+    Set Floe-Client **Signaling Server URL** to the complete public HTTPS server
+    origin.
+  </Step>
+  <Step title="Keep the hostname in the Host header">
+    Keep the hostname in the `Host` header when proxying the signaling hostname.
+    Nginx Proxy Manager and SWAG do by default. The CLI and Floe Desktop connect to
+    the signaling hostname, which is not your Client URL, so the server matches
+    their `Origin` against `Host`, and a proxy that rewrites `Host` to the
+    container address gets them refused with a `403`.
+  </Step>
+</Steps>
 
 For example:
 
@@ -127,6 +160,15 @@ Client URL: https://floe.example.com
 Signaling Server URL: https://floe-api.example.com
 Trusted Proxy Count: 1
 ```
+
+## The CLI and Floe Desktop
+
+Both connect to the signaling server, so give them the Floe-Server address: `--server` on
+the CLI, **Server address** in Floe Desktop. On the direct LAN and two-hostname layouts the
+web client lives at a different address, and the links both apps hand out have to carry it:
+add `--web` on the CLI and fill in **Share link address** in Floe Desktop, each with the
+Floe-Client address. On one domain neither is needed. See
+[Use a self-hosted server](/cli/self-hosted-server).
 
 ## TURN relay
 
@@ -138,17 +180,31 @@ self-hosted TURN domain and secret. See [TURN relay](/self-hosting/turn-relay).
 ## Request links
 
 [Request links](/desktop/request-links) stay off until a policy file turns them on. In the Floe-Server
-template, add a **Path** that maps a folder on the array, such as `/mnt/user/appdata/floe/policy`, to
+template, add a **Path** that maps a folder on the server, such as `/mnt/user/appdata/floe/policy`, to
 `/app/policy` in read-only mode. Put a file named `policy.json` in that folder containing
 `{"requestLinks": true}`, then set the advanced **Request Link Policy File** variable to
 `/app/policy/policy.json`. Map the folder, not the file. A server installed from an older template has no such
 variable: add a Variable with the key `POLICY_FILE` instead. To turn request links off again, and for what the
-server logs, see [Request links](/self-hosting/operations#request-links).
+server logs, see [Turn on request links](/self-hosting/request-links).
+
+## Other settings
+
+The Floe-Server template has fields for the client URL, the proxy count, the connection limit, the
+TURN options, the stats database, and the policy file. Any other server variable in
+[Configuration](/self-hosting/configuration), such as `MAX_TURN_REQUESTS_PER_IP`, has no field: add
+a Variable with that key to Floe-Server.
 
 ## Container updates
 
 Both templates follow the `latest` image tag, which changes only when Floe
 publishes a version tag. Use Unraid's normal container update flow to pull a new
 release. The containers store no files or application settings in volumes, so
-there is no appdata directory to migrate. To pin a specific version or a digest
+there is no appdata directory to migrate. The one thing to keep is the policy
+folder, if you added one for request links. To pin a specific version or a digest
 instead, see [Container images](/self-hosting/images).
+
+## If something goes wrong
+
+- The client loads and the badge stays on **Offline**: see [The browser cannot connect to my signaling server](/troubleshooting#the-browser-cannot-connect-to-my-signaling-server).
+- The CLI or Floe Desktop is refused on the two-hostname layout: see [The Test button says the realtime connection was refused](/troubleshooting#the-test-button-says-the-realtime-connection-was-refused).
+- Request links will not turn on: see [Request links are off on this server](/troubleshooting#request-links-are-turned-off-on-this-server).

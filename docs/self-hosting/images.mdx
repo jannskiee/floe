@@ -21,7 +21,7 @@ Both are public, so `docker pull` needs no login.
 | `latest` | The newest release | **The default.** What you get if you change nothing. |
 | `1.11.0` | One exact release | You want to control when you move between versions. |
 | `1.11` | The newest patch of a minor line | You want patches automatically but not minor bumps. |
-| `main` | The newest build of `client/` or `server/` on `main` | You want changes before they are released. `main` only advances by merged pull request, and every image is smoke-tested on real hardware before the tag moves. A docs-only merge leaves this tag where it is, since it starts no build. |
+| `main` | The newest build from `main` | You want changes before they are released. `main` only advances by merged pull request, and every image is smoke-tested on real hardware before the tag moves. It moves only when a merge touches `client/`, `server/`, or the image pipeline itself: any other merge, a docs-only one for example, starts no build and leaves the tag where it is. |
 | `sha-<short>` | One exact commit, for example `sha-fed7ebb` | You want a build that can never move under you. |
 
 Pin a tag with `FLOE_IMAGE_TAG`:
@@ -30,7 +30,7 @@ Pin a tag with `FLOE_IMAGE_TAG`:
 FLOE_IMAGE_TAG=1.11.0
 ```
 
-The variable is `FLOE_IMAGE_TAG`, not `FLOE_VERSION`. `FLOE_VERSION` belongs to the [CLI installer](/cli/installation) and is written with a leading `v`, as in `v1.11.0`. Image tags carry no `v`, so reusing that name would resolve to a tag that does not exist.
+The variable is `FLOE_IMAGE_TAG`, not `FLOE_VERSION`. `FLOE_VERSION` belongs to the CLI's install script (see [Install the CLI](/cli/installation)) and is written with a leading `v`, as in `v1.11.0`. Image tags carry no `v`, so reusing that name would resolve to a tag that does not exist.
 
 ## Pinning a digest
 
@@ -48,7 +48,7 @@ services:
     image: ghcr.io/jannskiee/floe-server@sha256:f7d9ff66...
 ```
 
-The digests a tag is built from are validated before it moves, and every tag is checked again afterwards, so a tag and its digest always refer to an image that was actually started and exercised. The second pass is detection rather than prevention: it runs after the tag moved, and its job is to make a bad publish loud instead of silent.
+The digests a tag is built from are validated before it moves, and every tag is checked again afterward, so a tag and its digest always refer to an image that was actually started and exercised. The second pass is detection rather than prevention: it runs after the tag moved, and its job is to make a bad publish loud instead of silent.
 
 ## Architectures
 
@@ -85,7 +85,7 @@ These have to be written into the HTML when the app is built, so a shared image 
 | Tag | In the published image |
 |-----|------------------------|
 | `<link rel="canonical">` | Emitted, but **relative** (`/privacy`). Valid and self-referencing on any host. |
-| `og:image`, `twitter:image` | Omitted. A relative image URL would resolve against `localhost` and render nothing. |
+| `og:image`, `twitter:image` | Omitted. A relative image URL would resolve against `localhost` and render nothing. The Twitter card falls back from `summary_large_image` to `summary`. |
 | JSON-LD `url` | Omitted. |
 | `/sitemap.xml` | Valid but empty. Sitemaps require absolute URLs. |
 | `/robots.txt` | Served, with no `Sitemap:` line. |
@@ -107,4 +107,4 @@ docker compose pull
 docker compose up -d
 ```
 
-See [Operations](/self-hosting/operations) for backups, logs, and health checks.
+See [Operations](/self-hosting/operations) for logs and health checks.

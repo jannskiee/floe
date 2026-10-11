@@ -1,0 +1,127 @@
+{
+  "app": "Floe Desktop",
+  "version": "desktop-v0.3.0",
+  "captured": "2026-10-10",
+  "method": "wails dev at the desktop-v0.3.0 tag with the version injected, driven through its dev page in headless Chromium; each shot is the card (or the Settings column) plus a 14 px margin, never the whole window",
+  "viewport": {
+    "width": 1140,
+    "height": 980
+  },
+  "deviceScaleFactor": 3,
+  "colorScheme": "dark",
+  "fixtures": "three synthetic files with neutral names; an isolated settings profile; the request-link shots come from one real link that the drop used up",
+  "shots": [
+    {
+      "name": "send-share.png",
+      "note": "Send card with a room open: room code, share link, QR shown, status Active",
+      "css": [
+        476,
+        734
+      ],
+      "pixels": [
+        1428,
+        2202
+      ],
+      "scale": 3,
+      "bytes": 134709
+    },
+    {
+      "name": "receive.png",
+      "note": "Receive card, Code selected, with the Code and Request link switch and its Beta tag",
+      "css": [
+        476,
+        420
+      ],
+      "pixels": [
+        1428,
+        1260
+      ],
+      "scale": 3,
+      "bytes": 83206
+    },
+    {
+      "name": "settings.png",
+      "note": "Settings from the header through Privacy, every switch at its default",
+      "css": [
+        480,
+        653
+      ],
+      "pixels": [
+        1440,
+        1959
+      ],
+      "scale": 3,
+      "bytes": 188211
+    },
+    {
+      "name": "settings-server.png",
+      "note": "Settings, Advanced: the Server card expanded",
+      "css": [
+        480,
+        337
+      ],
+      "pixels": [
+        1440,
+        1011
+      ],
+      "scale": 3,
+      "bytes": 79541
+    },
+    {
+      "name": "history.png",
+      "note": "History with one request-link drop open: file names, the check mark, the folder",
+      "css": [
+        476,
+        376
+      ],
+      "pixels": [
+        1428,
+        1128
+      ],
+      "scale": 3,
+      "bytes": 85818
+    },
+    {
+      "name": "request-link-waiting.png",
+      "note": "Receive, Request link: an open link waiting for files",
+      "css": [
+        476,
+        380
+      ],
+      "pixels": [
+        1428,
+        1140
+      ],
+      "scale": 3,
+      "bytes": 89414
+    },
+    {
+      "name": "request-link-request.png",
+      "note": "Receive, Request link: a request with its Accept countdown",
+      "css": [
+        476,
+        484
+      ],
+      "pixels": [
+        1428,
+        1452
+      ],
+      "scale": 3,
+      "bytes": 120735
+    },
+    {
+      "name": "request-link-finished.png",
+      "note": "Receive, Request link: the finished card with the check mark and the file list",
+      "css": [
+        476,
+        451
+      ],
+      "pixels": [
+        1428,
+        1353
+      ],
+      "scale": 3,
+      "bytes": 96436
+    }
+  ]
+}

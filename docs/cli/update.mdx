@@ -5,32 +5,19 @@ description: "Keep the floe CLI up to date on macOS, Windows, and Linux using th
 keywords: ["floe update", "upgrade floe", "self update"]
 ---
 
-## Package manager installs
+```bash floe update
+floe update [--check]
+```
 
-If you installed floe via a package manager, use the standard upgrade command for that tool.
-A binary built from source is checked first and stops with `Cannot update a dev build.` whatever
-its path, so the rest of this section applies only to release builds.
+Replaces the running `floe` binary with the latest release, or with `--check` only reports
+whether a newer one exists.
 
-`floe update` detects a package-managed install from the binary's path and stops with a message
-pointing you at the right command, rather than replacing the binary behind your package
-manager's back. The same guard applies to `floe update --check`.
-
-| Install method | Upgrade command |
-| -------------- | --------------- |
-| Homebrew (macOS) | `brew upgrade floe`, or `brew upgrade --cask floe` to name the cask explicitly |
-| Winget (Windows) | `winget upgrade jannskiee.floe` |
-| Scoop (Windows) | `scoop update floe` |
-
-Detection is a substring match for `homebrew`, `cellar`, `linuxbrew`, `scoop`, or `winget`
-anywhere in the binary's path, so a script install that happens to live under a directory
-containing one of those words is treated as package-managed too.
-
-This page is about the `floe` command-line tool only. Floe Desktop updates on its own track: the
-Microsoft Store build updates itself, and the GitHub `.exe` and `.zip` builds (0.2.3 and later)
-show a daily notice but never install anything, so you download and run the current build again.
-`floe update` never touches the desktop app. Desktop builds ship on their own `desktop-v*` tags as
-GitHub pre-releases, so neither `floe update` nor the install scripts ever pick them up. See
-[Update Floe Desktop](/desktop/installation#update).
+<Info>
+  `floe update` never touches Floe Desktop, which updates on its own track. Desktop builds ship on
+  their own `desktop-v*` tags as GitHub pre-releases, so neither `floe update` nor the install
+  scripts ever pick them up. See the Update section of
+  [Install the desktop app](/desktop/installation#update).
+</Info>
 
 ## Script and manual installs
 
@@ -40,8 +27,21 @@ Run the built-in update command:
 floe update
 ```
 
-This checks the latest release on GitHub, downloads the correct archive for your OS and
-architecture, verifies the SHA-256 checksum, and replaces the running binary in place.
+This asks GitHub for the latest release, downloads the correct archive for your OS and
+architecture, verifies its SHA-256 against the release's `checksums.txt`, and replaces the running
+binary in place:
+
+```text Output
+Current version: 1.10.11
+Checking for updates... v1.11.0
+Update available: 1.10.11 -> v1.11.0
+Downloading v1.11.0...
+Updated to v1.11.0
+```
+
+When nothing newer exists, it prints `Already up to date (1.11.0)` after the first two lines and
+stops. `floe update` installs nothing when the checksum does not match. Unlike the install
+scripts, it also installs nothing when the release lists no checksum for the archive.
 
 On macOS and Linux, if floe lives in a root-owned directory such as `/usr/local/bin` (the
 install script's default), the final swap needs elevation, so floe asks for your sudo password
@@ -56,6 +56,9 @@ To check for an update without installing:
 floe update --check
 ```
 
+It prints the same first lines and, when a newer release exists, ends with
+``Run `floe update` to install.`` instead of downloading anything.
+
 You can also re-run the original install script at any time to upgrade:
 
 ```bash Terminal
@@ -66,6 +69,33 @@ curl -fsSL https://floe.one/install.sh | sh
 irm https://floe.one/install.ps1 | iex
 ```
 
+## Package manager installs
+
+If you installed floe via a package manager, use the standard upgrade command for that tool.
+
+`floe update` detects a package-managed install from the binary's path and stops before it
+contacts GitHub, rather than replacing the binary behind your package manager's back. It names
+the right command and exits with status 1, for example:
+
+```text Output
+Error: installed via homebrew - run `brew upgrade floe` to update
+```
+
+The same guard applies to `floe update --check`.
+
+| Install method | Upgrade command |
+| -------------- | --------------- |
+| Homebrew (macOS) | `brew upgrade floe`, or `brew upgrade --cask floe` to name the cask explicitly |
+| Winget (Windows) | `winget upgrade jannskiee.floe` |
+| Scoop (Windows) | `scoop update floe` |
+
+Detection is a substring match for `homebrew`, `cellar`, `linuxbrew`, `scoop`, or `winget`
+anywhere in the binary's path, in any capitalization, so a script install that happens to live
+under a directory containing one of those words is treated as package-managed too.
+
+A binary built from source is checked before any of this and stops with
+`Cannot update a dev build.` whatever its path, so this section applies only to release builds.
+
 ## The update hint
 
 When a newer release exists, `floe version` prints an extra line:
@@ -74,15 +104,21 @@ When a newer release exists, `floe version` prints an extra line:
 Update available: v1.x.x  run `floe update` to upgrade
 ```
 
-Only `floe version` runs this check automatically, never `send` or `receive`. The result is
-cached for 24 hours in `floe/update-check.json` inside your user config directory (`~/.config`
-on Linux, `~/Library/Application Support` on macOS, `%AppData%` on Windows), so deleting that
-file forces a fresh check. `floe update --check` is a separate, deliberate check: it asks GitHub
-directly and ignores the cache.
-
-Set `FLOE_NO_UPDATE_CHECK=1` to suppress the hint entirely. Binaries compiled from source never
-check.
+Only `floe version` runs this check on its own, never `send` or `receive`, and it keeps the
+answer for 24 hours. `floe update` and `floe update --check` are a separate, deliberate check:
+they ask GitHub directly and ignore that cache. Set `FLOE_NO_UPDATE_CHECK=1` to suppress the hint
+entirely; it does not change what `floe update` does. See
+[The update check](/cli/version#the-update-check) for where the cache lives and how to clear it.
 
 ## Version compatibility
 
-You do not need to match versions with the person on the other end. Floe peers on different releases interoperate, so a small version difference is never a problem. In the rare case a release changes the transfer protocol in a breaking way, Floe detects it before any data moves and tells whichever side is older to update. See [Protocol versioning](/reference/transfer-protocol#protocol-versioning) for the details.
+You do not need to match versions with the person on the other end. Floe peers on different
+releases interoperate, so a version difference by itself is never a problem. If a release ever
+changes the transfer protocol in a breaking way, Floe detects it before any data moves and tells
+whichever side is older to update. See
+[Protocol versioning](/reference/transfer-protocol#protocol-versioning) for the details.
+
+Request links are the one exception. They are a newer feature, not a protocol change:
+`floe send --to` needs `floe` 1.11.0 or later (an older `floe` stops with
+`Error: unknown flag: --to`), and the link itself comes from Floe Desktop 0.3.0 or later on a
+server that offers request links.

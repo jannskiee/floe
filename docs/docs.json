@@ -169,6 +169,7 @@
           "how-it-works/relay-connection",
           "how-it-works/2gb-limit",
           "how-it-works/encryption",
+          "how-it-works/file-checks",
           "security-privacy",
           "how-it-works/known-limitations"
         ]
@@ -231,6 +232,7 @@
       {
         "group": "Reference",
         "pages": [
+          "reference/limits",
           "reference/architecture",
           "reference/http-api",
           "reference/transfer-protocol"

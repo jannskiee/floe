@@ -1,20 +1,28 @@
 ---
 title: "Use a self-hosted server"
 sidebarTitle: "Self-hosted server"
-description: "Point the floe CLI at your own self-hosted Floe signaling server instead of floe.one to send and receive files on your own infrastructure."
-keywords: ["--server", "FLOE_SERVER", "custom server", "self-hosted cli"]
+description: "Point the floe CLI at your own Floe signaling server with --server or FLOE_SERVER, and learn which links then need which server."
+keywords: ["--server", "FLOE_SERVER", "custom server", "self-hosted cli", "request link"]
 ---
 
-The `floe` CLI connects to `https://api.floe.one` by default. You can point it at any Floe signaling server using the `--server` flag.
+This page points `floe` at your own Floe signaling server instead of floe.one, for one command or
+for every command, and shows which links then work with which server. It is for anyone who runs a
+[self-hosted instance](/self-hosting/overview) or was given the address of one.
 
 ## Usage
 
-Both sender and receiver must use the same server:
+The `floe` CLI connects to `https://api.floe.one` by default. Name another Floe signaling server
+with the `--server` flag:
 
 ```bash Terminal
 floe send photo.jpg --server https://floe.example.com
 floe receive olive-tiger-castle --server https://floe.example.com
 ```
+
+<Info>
+  Both sides must use the same server. A room and its code exist on one server only, so someone on
+  your server cannot transfer with someone on floe.one.
+</Info>
 
 Point `--server` at the origin that serves `/api` and `/ws`. On a
 [one-domain deployment](/self-hosting/reverse-proxy) that is the same address your
@@ -46,6 +54,40 @@ floe send photo.jpg --server https://api.your-domain.com --web https://app.your-
 Without `--web`, that split deployment prints a link pointing at the signaling
 server, which serves no web app.
 
+## Links carry no server {#links-carry-no-server}
+
+`floe` never reads the server from a link. The server is always `--server`, then `FLOE_SERVER`,
+then floe.one, so a link or a code works only when it belongs to the server in effect:
+
+| You have | Server in effect | What happens |
+|---|---|---|
+| A code or a link from your server | Your server | It works. |
+| A link from your server | floe.one, because neither `--server` nor `FLOE_SERVER` is set | `floe receive` looks for the room on floe.one and ends with `Error: this code is no longer active; ask for a new one`. `floe send --to` stops before any network call with `Couldn't connect to their computer. Nothing was sent.` |
+| A link from floe.one | Your server | Refused before any network call, so that a floe.one room is not handed to your server. `floe receive` prints `That link is for floe.one, but this Floe is set to use another server. Unset FLOE_SERVER or use --server https://api.floe.one, then try again.` and `floe send --to` prints `Couldn't connect to their computer. Nothing was sent.` |
+| A code | A server it was not made on | `floe receive` ends with `Error: could not resolve "olive-tiger-castle": code "olive-tiger-castle" not found or expired (codes expire after 10 minutes)`. |
+
+With `FLOE_SERVER` set, use a floe.one link by naming floe.one's own server for that one command.
+The flag wins over the variable:
+
+```bash Terminal
+export FLOE_SERVER=https://floe.example.com
+floe receive "https://floe.one/#room=6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f" --server https://api.floe.one
+```
+
+## Request links on your server {#request-links-on-your-server}
+
+A [request link](/desktop/request-links) made by a Floe Desktop that uses your server carries your
+web app's address. To send through it from the terminal, `floe send --to` needs your server named,
+with `--server` or `FLOE_SERVER`:
+
+```bash Terminal
+floe send ./photos --to "https://floe.example.com/r/<link id>#<key>" --server https://floe.example.com
+```
+
+Without either, the send stops before any network call with
+`Couldn't connect to their computer. Nothing was sent.` The server also has to offer request links,
+which are off until you turn them on: see [Turn on request links](/self-hosting/request-links).
+
 ## Local testing
 
 To test against a local instance running on the default ports:
@@ -58,12 +100,13 @@ floe send photo.jpg --server http://localhost:3001
 floe receive olive-tiger-castle --server http://localhost:3001
 ```
 
-The browser link will point to `http://localhost:3000` automatically when using `localhost:3001`.
+The browser link points to `http://localhost:3000` automatically when the server is exactly
+`http://localhost:3001`.
 
 ## Desktop app
 
-The Floe desktop app can target a self-hosted server too. Open **Settings**, expand
-**Advanced**, and put your origin in **Server address**, then click **Test** to confirm
+The Floe desktop app can target a self-hosted server too. Open **Settings**, expand **Server**
+under **Advanced**, and put your origin in **Server address**, then click **Test** to confirm
 the app can reach it. Leave **Share link address** blank on a one-domain deployment:
 the app derives the share link from the server address using the same rule the CLI
 uses. Fill it in only when your web app has its own hostname. **Use default server**
@@ -71,4 +114,13 @@ appears once a custom address is set and clears both fields back to `api.floe.on
 See [Desktop app settings](/desktop/settings#advanced) for what Test checks and what each
 result means.
 
-See [Self-hosting](/self-hosting/overview) for instructions on running your own Floe instance.
+## If something goes wrong {#if-something-goes-wrong}
+
+- A code or a link from your server is `not found or expired`, or `no longer active`: the command
+  ran without `--server` or `FLOE_SERVER`, so it asked floe.one. See
+  [`this code is no longer active`](/troubleshooting#this-code-is-no-longer-active-ask-for-a-new-one).
+- `Warning: could not reach signaling server for TURN credentials. Using STUN only.`: the address
+  after `--server` is wrong, or the server is down. See
+  [`could not reach signaling server`](/troubleshooting#warning-could-not-reach-signaling-server-for-turn-credentials-using-stun-only).
+- `--relay-only needs a TURN relay`: your server offers no relay. See
+  [`--relay-only needs a TURN relay`](/troubleshooting#relay-only-needs-a-turn-relay).

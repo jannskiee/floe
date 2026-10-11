@@ -5,11 +5,11 @@ description: "Run your own Floe signaling server, web client, and optional TURN 
 keywords: ["self host", "run your own", "on premise", "private instance"]
 ---
 
-You can self-host the entire Floe stack independently of `floe.one`. The setup uses Docker Compose so the full stack comes up with a single command.
+You can run the whole Floe stack yourself, independently of `floe.one`: the web app, the signaling server, and an optional TURN relay. The standard setup is Docker Compose, which pulls two published images and starts the stack with one command. Unraid templates and a plain Node.js run are covered too.
 
 ## What you are hosting
 
-The signaling server brokers WebRTC connection setup (offer, answer, ICE candidates) and issues short-lived TURN credentials. **File data never passes through it.** Transfers go peer-to-peer over encrypted WebRTC data channels. TURN is optional and only relays (still encrypted) traffic when a direct connection is not possible.
+The signaling server brokers WebRTC connection setup (offer, answer, ICE candidates) and issues TURN credentials that last 24 hours. **File data never passes through it.** Transfers go peer-to-peer over encrypted WebRTC data channels. TURN is optional and relays (still encrypted) traffic only when a direct connection is not possible or a transfer is set to use the relay.
 
 ## Components
 
@@ -32,25 +32,42 @@ them can transfer with each other on your server.
 |--------|-------------------------------|
 | Web app | Loads from your `client` container. Nothing for your users to configure. |
 | CLI | `floe send --server https://floe.example.com`. See [Use a self-hosted server](/cli/self-hosted-server). |
-| Floe Desktop | Settings, **Advanced**, then **Server address**. **Test** checks the address before you rely on it, and **Use default server** returns the app to `api.floe.one`. See [Desktop app settings](/desktop/settings#server). |
+| Floe Desktop | In Settings, under **Advanced**, expand **Server** and fill in **Server address**. **Test** checks the address before you rely on it, and **Use default server** returns the app to `api.floe.one`. See [Desktop app settings](/desktop/settings#server). |
 
 Both peers must be on the same server. Servers do not talk to each other.
-
-## Run one instance, not several
-
-The signaling server keeps rooms, room codes, and its rate limiters in the memory of a single
-process. **Putting two replicas behind a load balancer does not scale Floe out; it breaks
-pairing**, because the two peers can land on different replicas and never find each other.
-
-One instance goes a long way. File data never passes through it, so it is brokering a handshake
-and then getting out of the way. If you need redundancy, use a failover pair rather than a
-load-balanced set, and accept that the switch loses every room and short code the old instance
-held, as a [restart](/self-hosting/operations#common-commands) does.
 
 `CLIENT_URL` governs browser traffic only. CLI and desktop peers connect over `/ws` and
 send your server's own address as their origin, which the server accepts when it is your
 `CLIENT_URL` or names the same host as the `Host` header your proxy forwards. They reach
 your server without `CLIENT_URL` listing them, as long as the proxy does not rewrite `Host`.
+
+## Off until you turn it on
+
+Two features need setup before a new instance has them.
+
+A new instance has no TURN relay. Two devices that cannot reach each other directly do not
+connect, and a transfer that insists on the relay (**Hide my IP address** in Floe Desktop,
+`--relay-only` on the CLI) stops with a message before it starts. See
+[TURN relay](/self-hosting/turn-relay).
+
+[Request links](/desktop/request-links) are off. Until a policy file turns them on,
+**Make link** in Floe Desktop answers "Request links are off on this server". See
+[Turn on request links](/self-hosting/request-links).
+
+## Run one instance, not several
+
+The signaling server keeps rooms, room codes, open request links, and its rate limiters in
+the memory of a single process.
+
+<Warning>
+  Putting two replicas behind a load balancer does not scale Floe out. It breaks pairing,
+  because the two peers can land on different replicas and never find each other.
+</Warning>
+
+One instance goes a long way. File data never passes through it, so it is brokering a handshake
+and then getting out of the way. If you need redundancy, use a failover pair rather than a
+load-balanced set, and accept that the switch loses every room and room code the old instance
+held, as a [restart](/self-hosting/operations#common-commands) does.
 
 ## Contents
 
@@ -68,7 +85,7 @@ your server without `CLIENT_URL` listing them, as long as the proxy does not rew
     Environment variable reference for all settings.
   </Card>
   <Card title="How the client finds the server" href="/self-hosting/build-time-url">
-    Runtime `SOCKET_URL` resolution, and the one value that is still baked in at build time.
+    Runtime `SOCKET_URL` resolution, and the site URL that is still baked in at build time.
   </Card>
   <Card title="Reverse proxy" href="/self-hosting/reverse-proxy">
     Serve the client and signaling server from one domain, with Caddy and nginx examples.
@@ -78,6 +95,9 @@ your server without `CLIENT_URL` listing them, as long as the proxy does not rew
   </Card>
   <Card title="TURN relay" href="/self-hosting/turn-relay">
     Use Cloudflare's managed TURN or add coturn to support peers behind strict NAT or CGNAT.
+  </Card>
+  <Card title="Turn on request links" href="/self-hosting/request-links">
+    Let Floe Desktop users on your server make request links, with a policy file you can switch without a restart.
   </Card>
   <Card title="Operations" href="/self-hosting/operations">
     Day-to-day commands, updates, and health checks.

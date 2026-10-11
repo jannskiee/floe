@@ -5,31 +5,38 @@ description: "Install Floe Desktop for Windows from the Microsoft Store or a Git
 keywords: ["install desktop", "microsoft store", "windows app", "smartscreen", "webview2"]
 ---
 
-Floe Desktop is the same peer-to-peer transfer as [floe.one](https://floe.one), running as a
-native Windows app. It uses the same transfer engine as the `floe` CLI, so it sends to and
-receives from browser peers and CLI peers without any extra setup.
+This page gets Floe Desktop onto a Windows PC, from the Microsoft Store or from a GitHub release,
+and covers checking, updating and removing it afterward. Floe Desktop is the same peer-to-peer
+transfer as [floe.one](https://floe.one) in a native Windows app. It is built on the same transfer
+engine as the `floe` CLI, so it sends to and receives from browsers and the CLI without any extra
+setup.
 
-It is **in beta and Windows only**. macOS and Linux are planned. On anything else, use the
-[web app](/web-app/sending) or the [CLI](/cli/installation).
+<Info>
+  Floe Desktop is in Beta and runs on Windows only. macOS and Linux are planned. On anything else,
+  use the [web app](/web-app/sending) or the [CLI](/cli/installation).
+</Info>
 
 ## Requirements
 
-- **From the Microsoft Store:** Windows 10 version 2004 (build 19041) or later. The package
-  itself declares that minimum version.
-- **From GitHub:** any Windows 10 or later. The installer stops on anything older.
-- **x64.** Both channels ship an x64 build only. On a native ARM64 machine the GitHub installer
-  refuses to run and says so; the portable zip has no such check and starts under Windows'
-  emulation instead, which works but is slower.
-- **The Microsoft Edge WebView2 Runtime**, which draws the interface. Windows 11 includes it, and
-  the vast majority of Windows 10 machines already have it. You do not normally need to do
-  anything about it.
+Which Windows and which processor you need depends on the channel you install from:
+
+| Channel | Windows | Processor |
+|---|---|---|
+| Microsoft Store | Windows 10 version 2004 (build 19041) or later. The package itself declares that minimum. | The package is x64. |
+| Installer from GitHub | Windows 10 or later. On anything older it stops with "This product is only supported on Windows 10 (Server 2016) and later." | x64 only. On any other processor, an ARM64 PC for example, it stops with "This product can't be installed on the current Windows architecture. Supports: amd64". |
+| Portable zip from GitHub | No check of its own. It holds the same program the installer installs. | The same x64 program, with no check. On an ARM64 PC running Windows 11 it starts under Windows' emulation instead, which works but is slower. |
+
+Every channel also needs the **Microsoft Edge WebView2 Runtime**, which draws the interface.
+Windows 11 includes it, and the vast majority of Windows 10 machines already have it. You do not
+normally need to do anything about it.
 
 If the runtime is missing, Floe offers to download and install it when you start the app, then
 carries on once that finishes. Decline, and Floe closes and asks again next time. The installer
 from GitHub also installs it during setup.
 
 One case needs care. If the machine cannot reach Microsoft's download at that moment, because it
-is offline or behind a filtering proxy, the runtime cannot install and Floe cannot start. Install
+is offline or behind a filtering proxy, the runtime cannot install and Floe cannot start. It shows
+a message that begins "Floe could not start." and names the runtime. Install
 [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) yourself, then start Floe
 again.
 
@@ -47,19 +54,20 @@ again.
     winget install --id 9NBQ8ZQ1065L --source msstore
     ```
 
-    Microsoft re-signs the package with its own certificate, so it installs with no warning,
-    and updates arrive automatically through the Store.
+    Microsoft re-signs the package with its own certificate, so it installs with no SmartScreen
+    warning, and updates arrive automatically through the Store.
 
-    Three things about the app itself differ from the GitHub build:
+    The app itself differs from the GitHub build in three ways:
 
     - The **Show in right-click menu** setting is not available, and the **Windows** section of
       Settings that contains it is hidden entirely. A packaged app's registry writes go to a
       private view that File Explorer never reads, so the entry could be written but would
-      never appear. Hidden beats shown and broken.
-    - Updates are handled by the Store, so there is nothing to download by hand. The Store
-      build also never runs the GitHub build's daily update check and does not show its
-      [Check for updates](/desktop/settings#check-for-updates) switch.
-    - No SmartScreen warning, because Microsoft signs the package.
+      never appear.
+    - It never runs the GitHub build's update check and does not show the
+      [Check for updates](/desktop/settings#check-for-updates) switch, because the Store updates
+      the app.
+    - Windows knows it as **Floe Desktop**, in its list of installed apps and as the sender of
+      its notifications, where the GitHub build is **Floe**.
 
     Both channels ship the same executable, so everything else about the app is identical,
     including how it handles a missing [WebView2 runtime](#requirements).
@@ -96,8 +104,9 @@ Every GitHub release ships `SHA256SUMS.txt`. To check a file you downloaded:
 Get-FileHash floe-desktop-setup-0.3.0.exe -Algorithm SHA256
 ```
 
-Compare the result with the matching line in `SHA256SUMS.txt`. Store installs need no check:
-the Store verifies the package signature itself.
+Compare the result with the matching line in `SHA256SUMS.txt`. The file writes its hashes in
+lowercase, so compare the characters and ignore their case. Store installs need no check: the
+Store verifies the package signature itself.
 
 ## Check the version
 
@@ -114,7 +123,14 @@ including in a bug report.
 | Channel | How to update |
 |---|---|
 | Microsoft Store | Automatic. The Store updates the app in the background. To force a check, open the Store, go to **Library**, then **Get updates**. |
-| GitHub release | Manual, with a built-in notice. Builds 0.2.3 and later ask GitHub once a day whether a newer release exists and show a dismissible notice when one does; earlier builds do not, so check the download page yourself. Nothing installs by itself: download the new installer and run it over your existing install, or unzip a new portable build. The daily check can be turned off in [Settings](/desktop/settings#check-for-updates). |
+| Installer from GitHub | Download the new installer and run it over your existing install. |
+| Portable zip from GitHub | Unzip the new build and run it in place of the old one. |
+
+Nothing from GitHub installs by itself, but from Floe Desktop 0.2.3 on, the app tells you when
+there is something to get. When it starts, and at most once a day, it asks GitHub whether a newer
+desktop release exists, and shows a dismissible notice when one does. Earlier builds do not, so
+check the download page yourself. The check can be turned off in
+[Settings](/desktop/settings#check-for-updates).
 
 Desktop builds are published as GitHub pre-releases, so they never appear under **Latest
 release** on the releases page. Watch [floe.one/download](https://floe.one/download) or the
@@ -123,24 +139,35 @@ release** on the releases page. Watch [floe.one/download](https://floe.one/downl
 Desktop releases carry their own `desktop-vX.Y.Z` version numbers, separate from the `vX.Y.Z`
 tags that release the CLI and the server. The two lines never need to match, and you never need
 to match versions with the person on the other end of a transfer. See
-[version compatibility](/desktop/settings#transfer-protocol).
+[version compatibility](/desktop/settings#transfer-protocol). A feature still needs a release that
+has it: [request links](/desktop/request-links) need Floe Desktop 0.3.0 or later.
 
 ## Uninstall
 
-Open **Settings** in Windows, go to **Apps**, and uninstall it. The GitHub install is listed as
-**Floe**; the Store install is listed under its Store name, **Floe Desktop**, and can also be
+Open **Settings** in Windows, go to **Apps**, and uninstall it. The installer build is listed as
+**Floe**; the Store build is listed under its Store name, **Floe Desktop**, and can also be
 uninstalled by right-clicking it in the Start menu.
 
-Uninstalling removes the app, its shortcuts, and, on the GitHub build, the File Explorer
-right-click entry if you turned it on. It deliberately leaves a few things behind, so a
-reinstall picks up where you left off:
+The portable build has no uninstaller. Turn off
+[Show in right-click menu](/desktop/settings#show-in-right-click-menu) in Floe first, then delete
+the files you unzipped. Deleting them with the switch still on leaves a **Send with Floe** entry in
+File Explorer that points at a program that is gone.
+
+Uninstalling removes the app, its shortcuts, and, on the installer build, the File Explorer
+right-click entry. It deliberately leaves a few things behind, so a reinstall picks up where you
+left off:
 
 - Your settings, in `%APPDATA%\floe\desktop.json`.
-- Your transfer history and save folder, stored in the app's local data.
+- Your transfer history and save folders, in `%APPDATA%\floe\webview`.
 - The update check's once-a-day cache, in `%APPDATA%\floe\desktop-update-check.json`.
 
-Delete the `%APPDATA%\floe` folder to remove those as well. Note that the `floe` CLI keeps its
-own files in that same folder, so only delete it if you are removing both.
+Delete the `%APPDATA%\floe` folder to remove those as well. The `floe` CLI keeps its own files in
+that same folder, so only delete it if you are removing both.
+
+The builds from GitHub leave two more things that are not in that folder: the per-user registry
+entry that names Floe on its Windows notifications, and a small icon file in your temp folder.
+[Security and privacy](/security-privacy#on-your-device-desktop) lists everything Floe Desktop
+keeps on a PC.
 
 ## Run alongside the CLI
 
@@ -148,3 +175,10 @@ The desktop app and the `floe` CLI share the `%APPDATA%\floe` folder, and both t
 signaling server by default, so a transfer started in one can be received by the other. Point
 either at a different server and they still interoperate as long as both use the same one. See
 [Settings](/desktop/settings#server).
+
+## If something goes wrong
+
+- [Floe will not start](/troubleshooting#floe-will-not-start): the WebView2 runtime is missing and
+  Floe could not download it.
+- [There is no right-click menu setting](/troubleshooting#there-is-no-right-click-menu-setting):
+  that is the Microsoft Store build, which hides the **Windows** section of Settings.

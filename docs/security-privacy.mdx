@@ -1,15 +1,16 @@
 ---
 title: "Security and privacy"
 sidebarTitle: "Security & privacy"
-description: "What Floe's signaling server, its relay, and floe.one can see about your transfers, what none of them can, and the switches for the optional parts."
-keywords: ["privacy", "security", "what data does floe collect", "telemetry", "analytics", "logs"]
+description: "What Floe's signaling server, the relay, and floe.one can see about a transfer, what stays on your device afterward, and the switches for the optional parts."
+keywords: ["privacy", "security", "what data does floe collect", "telemetry", "analytics", "logs", "history", "local storage"]
 ---
 
 import StatsOptOut from '/snippets/stats-optout.mdx';
 
-Your files travel directly between two devices, encrypted end to end. Floe's servers introduce the
-two devices and never see file data. That is the short version, and the rest of this page is the
-detail behind it.
+Your files travel between two devices encrypted end to end: directly when a direct path exists, and
+through a relay that cannot read them when it does not. Floe's signaling server introduces the two
+devices and never receives file data. The rest of this page is the detail behind those two
+sentences, down to what each app leaves on your own device.
 
 For the other half of an honest answer, the limits of all this, see
 [Known limitations](/how-it-works/known-limitations).
@@ -18,34 +19,53 @@ For the other half of an honest answer, the limits of all this, see
 
 The server at `api.floe.one` exists so two devices can find each other. It never touches the file.
 
-It does:
+What it does:
 
 - Put two devices in a room and decide which one sends. For a
   [request link](/desktop/request-links), the Floe Desktop that made it is the one that receives.
-- Pass the connection-setup messages between them.
-- Hand out relay credentials, valid for 24 hours, when a relay is configured. They are not tied to
-  you or to an account: on floe.one one credential set is minted from Cloudflare and served to
-  every client until the cached copy is refreshed.
-- Map a three-word code to a room id, when a sender asks for one, until the transfer starts or ten
-  minutes pass, whichever comes first.
+- Pass the connection-setup messages between them. It checks the size and shape of each one,
+  forwards it, and keeps no copy.
+- Hand out relay credentials when a relay is configured. Each set is valid for 24 hours and is not
+  tied to you or to an account: on floe.one a new set is minted from Cloudflare every few minutes
+  and served to every client that asks in the meantime.
+- Map a three-word room code to a room id when a sender asks for one, for 10 minutes at most. See
+  [How long a code and a link last](/how-it-works/signaling#code-and-link-lifetime).
 - Keep a single running total of bytes transferred, for the counter on the homepage.
 
-It never:
+What it never does:
 
-- Receive, store, or inspect file data.
-- Keep room or peer information past the session. A short code is dropped along with the room it
-  points at, so it does not outlive the session either. A code nobody uses lapses on its own ten
-  minutes after it was made, and even then it maps to nothing but a random id. A request link is the
-  one exception: the server holds its room for the Floe Desktop that made it, with a hash of that
-  app's secret token rather than the token, for about 10 minutes after the app disconnects. When a
-  link that someone connected through is closed, a mark that it was used stays for a day, and for
-  any other link a mark with its id and end time stays until a day after it ends. To limit new request
-  links to 20 a day from one network, it keeps their times under a keyed hash of the network
-  address, never the address itself, and under the same hash it counts the links each network has
-  open, to hold it to 10 at a time. All of it is in memory only.
-- Log what you transfer, your file names, or who you sent to.
+- Receive, store, or inspect file data. File names and sizes travel between the two devices on
+  the encrypted channel, and the only size the server is ever told is the byte total under
+  [Aggregate statistics](#aggregate-statistics).
+- Keep a record of who joined which room after the room has closed.
+- Log what you transfer, your file names, your IP address, a room id, or who you sent to.
 
-Once the data channel is open, the server plays no further part.
+Once the data channel is open, the server plays no further part in moving the files.
+
+### What it holds, and for how long {#what-it-holds}
+
+Everything in this table lives in the server's memory only, so a restart forgets all of it, and
+none of it is written to a log. The byte total under
+[Aggregate statistics](#aggregate-statistics) is the one thing the server stores for good.
+
+| What | Held until |
+| --- | --- |
+| The room id, and which two connections are seated in the room | The last device leaves the room |
+| A room code and the room id it stands for | The code is retired, which is about 10 minutes after it was made at the latest |
+| Your IP address | You disconnect, and for rate limiting about 2 minutes after your last request |
+| The room seal: a keyed hash of the network address of each device that has sent connection-setup messages through the room, never the address itself | The room closes |
+| For a request link: a hash of its secret token, never the token, with the times the link was made, joined, left and is due to end | The link ends, or about 10 minutes after the Floe Desktop that made it disconnects |
+| For a request link that has ended: its room id and end time, with a mark that it was used or ended | 24 hours after it closed or ended |
+| For the request-link limits: when each network made new links and how many it has open, under a keyed hash of the network address | 24 hours for each new link, and for as long as a link stays open |
+
+A keyed hash is an HMAC under a secret the server draws when it starts and never stores, so it can
+tell two addresses apart without keeping either, and it means nothing after a restart. The address
+it covers is an IPv4 address in full, or the /64 of an IPv6 address.
+
+The room seal is what lets the server turn away a device on a third network, as
+[A room holds exactly two people](/how-it-works/signaling#a-room-holds-exactly-two-people)
+describes. The request-link limits themselves are listed under
+[Turn on request links](/self-hosting/request-links#request-link-limits).
 
 ## What the relay can see
 
@@ -69,43 +89,46 @@ Routing through a relay also changes who learns your IP address. On a direct con
 devices learn each other's, which is how any peer-to-peer connection works. If you would rather
 not reveal yours, Floe Desktop's
 [Hide my IP address](/desktop/settings#hide-my-ip-address) forces the relay path so the other
-person sees the relay instead, and the CLI's `--relay-only` flag does the same. The web app has
-no equivalent, but the page a sender opens from a [request link](/desktop/request-links) has its
-own **Hide my IP** switch.
+person sees the relay instead, and the CLI's `--relay-only` flag does the same. Either way the
+transfer is then capped at 2 GB, as [File size limits](/how-it-works/2gb-limit) explains. The web
+app has no equivalent, but the page a sender opens from a
+[request link](/web-app/request-links) has its own **Hide my IP (relay only, 2 GB per drop)**
+checkbox.
 
-With a request link, the two sides learn each other's IP address as soon as the sender clicks
-**Send** and connects, before anyone accepts, unless that side has Hide my IP on. Declining
-afterward does not take it back.
+With a request link, each side learns the other's IP address as soon as the sender connects,
+before anyone accepts or declines, unless that side has Hide my IP on. See
+[Who sees your IP address](/desktop/request-links#who-sees-your-ip-address) if you made the link, and [What each side can see](/web-app/request-links#what-each-side-can-see) if you are sending through one.
 
 ## The room secret stays out of every server log
 
 A share link keeps the room id in the URL **fragment**, after the `#`, never in the query string.
-A link from the web app or the desktop app looks like
-`https://www.floe.one/?s=a1b2c3d4#room=...`, and one from the CLI looks like
+A link from the web app or Floe Desktop looks like `https://floe.one/?s=a1b2c3d4#room=...` (the
+web app starts it with the address you opened the site at), and one from the CLI looks like
 `https://floe.one/#room=...`. The `?s=` value is a random per-link marker carrying no information;
 it exists only so each link is a distinct page, which stops a device that already has Floe open
 from reusing a stale tab.
 
 Browsers never send the fragment to a server. So the room id is not in `Referer` headers when you
-click an outbound link, not in server access logs, and not captured by pageview analytics or
-third-party trackers. The signaling server learns it when a device joins that room over its own
-connection, and, for a transfer started from the CLI or Floe Desktop, when the sender registers the
-three-word code for it; either way no file bytes ever reach it.
+click an outbound link, not in the web host's access logs, and not captured by page view analytics
+or third-party trackers. The signaling server is the one server that does learn it, from the
+devices themselves: when a device joins that room over its own connection, and, for a transfer
+started from the CLI or Floe Desktop, when the sender registers the room code for it. It holds the
+room id in memory while the room is open and writes it to no log.
 
 A [request link](/desktop/request-links) looks like `https://floe.one/r/<link id>#<key>`. The key
-after the `#` is the secret, and it stays out of logs the same way. The link id before it is not
-secret: it sits in the address path, so it reaches the web host's request logs, and it exists so
-that a report, or a block on one address, can name one link without the key. The signaling server
-never receives the link id. On that page, Sentry strips the link id from the address before a
-report is sent, and Umami does not load at all.
+after the `#` is the link's room id and its secret, and it stays out of logs the same way. The
+link id before it is not secret: it sits in the address path, so it reaches the web host's request
+logs, and it exists so that a report, or a block on one address, can name one link without the key.
+The signaling server never receives the link id. On that page, Sentry strips the link id from the
+address before a report is sent, Umami does not load at all, and the browser sends no referrer.
 
 ## Aggregate statistics
 
 The homepage carries a public, all-time count of bytes moved across every Floe user. To feed it,
 the **receiving** side reports how many bytes it received after a transfer completes. Floe Desktop
 also reports a [request link](/desktop/request-links) drop that stops after it was accepted, with
-the bytes of the files it saved. The sender never reports. All three receivers contribute, and the total
-itself is only ever displayed in the browser.
+the bytes of the files it saved. The sender never reports. All three receivers contribute, and the
+total itself is only ever displayed in the browser.
 
 What is recorded: one cumulative integer. Nothing else.
 
@@ -114,50 +137,113 @@ to your identity or IP address. The reported figure is a size, added to a runnin
 
 <StatsOptOut />
 
-The counter is an honest best-effort metric with lightweight guardrails, a per-IP rate limit and a
-per-report size cap. It is not a tamper-proof audited figure, and reporting never blocks or slows a
-transfer. There is no server-side switch that refuses reports, so opting out is a choice each
-receiver makes on its own device. On a self-hosted instance the counter is local to that server,
-and without a Redis database configured it lives in memory and resets on restart.
+The counter is an honest best-effort metric with lightweight guardrails, a rate limit per address
+and a size cap per report. It is not a tamper-proof audited figure, and reporting never blocks or
+slows a transfer. There is no server-side switch that refuses reports, so opting out is a choice
+each receiver makes on its own device. On a self-hosted instance the counter is local to that
+server, and without a Redis database configured it lives in memory and resets on restart.
 
 ## Error monitoring and analytics
 
-**The CLI and the desktop app contain no analytics, no error monitoring, and no telemetry.**
-Beyond the transfer itself they make exactly two kinds of optional request, and both have an off
-switch: the byte-count report above, and an update check.
+<Info>
+  Sentry and Umami run on the floe.one website only. The CLI and Floe Desktop contain no analytics,
+  no error monitoring, and no telemetry.
+</Info>
+
+Beyond the transfer itself, and the requests you ask for yourself (`floe update`, or **Test** in
+Floe Desktop's Settings), the CLI and Floe Desktop make two kinds of request on their own, and
+each has an off switch: the byte-count report above, and an update check.
 
 The update check runs once a day in Floe Desktop (GitHub builds 0.2.3 and later). The CLI does it
-only when you run `floe version`, and never during a transfer; `floe update` and
-`floe update --check` also reach GitHub, but those are you asking for it. It asks GitHub whether a
-newer release exists. The request
-carries nothing about you beyond what any web request reveals, and nothing downloads or installs
-by itself. Turn off **Check for updates** in the desktop
-[Settings](/desktop/settings#check-for-updates), or set `FLOE_NO_UPDATE_CHECK=1` for either
-surface, and no request is made. Microsoft Store builds never check, because the Store updates
-them.
+only when you run `floe version`, at most once a day, and never during a transfer. It asks GitHub
+whether a newer release exists. The request carries nothing about you beyond what any web request
+reveals, and nothing downloads or installs by itself. Turn off **Check for updates** in the
+desktop [Settings](/desktop/settings#check-for-updates), or set `FLOE_NO_UPDATE_CHECK=1` for
+either surface, and no request is made. Microsoft Store builds never check, because the Store
+updates them.
 
-The rest of this section is about the **floe.one website only**.
+On the floe.one website:
 
 - **Sentry** records application errors and a 10% sample of browser performance traces. It is
   configured to attach no cookies and no IP address; each report carries the page address, the
-  browser's user agent, and the referring page. The room secret is stripped out of every error
-  report, breadcrumb, and performance trace before it is sent.
+  browser's user agent, and the referring page, and may add the connection type, whether relay
+  fallback was on, the transfer's progress, the file count, the total size, and the device's approximate memory at the time of an
+  error. The room secret is stripped out of every error report, breadcrumb, and performance trace
+  before it is sent. Each page you open also sends a session record: a random session id, the
+  time, the session's status and error count, the site's build version and environment name, and
+  the browser's user agent, with no page address.
 - **Session replay is not enabled and will not be added.** A replay records the page address, and
   on a receiver page that address contains the room link, which is the only thing protecting the
   transfer.
-- **Umami** records cookieless, aggregate page views and transfer outcomes: file count, total
-  bytes, direct or relay, success or failure. Page views carry the browser, operating system,
-  device type, screen size, language, and a location down to city, worked out from the IP
-  address, which Umami says it does not keep. It is configured to send neither the URL fragment
-  nor the query string, so the room secret never reaches it; it sets no cookies and cannot follow
-  you to other sites, though it recognizes a returning visitor for a while through a hashed,
-  salted fingerprint that rotates on a schedule. If your browser sends Do Not Track, it records
-  nothing at all.
+- **Umami** records cookieless, aggregate page views, transfer outcomes (file count, total bytes,
+  direct or relay, success or failure with one of 8 fixed reason labels), which download button
+  was clicked, and the name of an in-app browser the site was opened in. Page views carry the
+  browser, operating system, device type, screen size, language, and a location down to city,
+  worked out from the IP address, which Umami says it does not keep. It is configured to send
+  neither the URL fragment nor the query string, so the room secret never reaches it; it sets no
+  cookies and cannot follow you to other sites, though it recognizes a returning visitor for a
+  while through a hashed, salted fingerprint that rotates on a schedule. If your browser sends Do
+  Not Track, it records nothing at all.
 
 Both are enabled only when their key is supplied. The published container image sets neither, so a
 self-hosted instance ships with both off unless you add your own.
 
 See the full [Privacy Policy](https://floe.one/privacy) for the site-wide detail.
+
+## What stays on your device {#what-stays-on-your-device}
+
+Nothing in this section is sent anywhere. It is what a shared or borrowed computer still holds
+after a transfer, and how to remove it.
+
+### In the browser {#on-your-device-browser}
+
+| What | Where | Until |
+| --- | --- | --- |
+| Files you have received and not yet saved | The page's memory. In Chrome and Edge, part of a large file sits in the browser's own temporary files on disk | You close or leave the page. A file you saved is an ordinary download from then on |
+| Your **Contribute to global stats** choice | Local storage, key `floe:report-stats`. It is written on your first visit to the homepage, whether or not you receive anything | You clear the site's data |
+| The time of the last automatic reload after a new version of the site was deployed | Session storage, key `floe:stale-bundle-reloaded-at` | You close the tab |
+| On a request link's page, two numbers while a drop is sending: how many files have arrived and how many there are | Session storage, key `floe:r-lost` | The drop ends, or the page next loads |
+| The site's own pages and build files, so it can open without a network | Cache Storage, written by the site's service worker | You clear the site's data |
+
+That cache never holds a share link, a request link's page, an answer from the server, or these
+docs. The web app sets no cookies, uses no IndexedDB, writes to your clipboard only when you press
+a copy button and never reads it, and never asks for notification permission. How much a browser
+can hold while it receives is under
+[A browser receiver is limited by what the browser can hold](/how-it-works/known-limitations#a-browser-receiver-is-limited-by-what-the-browser-can-hold).
+
+### In Floe Desktop {#on-your-device-desktop}
+
+| What | Where | Until |
+| --- | --- | --- |
+| Settings | `%APPDATA%\floe\desktop.json`. See [Where settings are stored](/desktop/settings#where-settings-are-stored) | You delete the file. Uninstalling leaves it |
+| History: the last 50 transfers, with file names, folders, sizes and times, and for a request-link drop your label | The app's WebView2 profile, `%APPDATA%\floe\webview` | You remove a row or clear the list, as [History](/desktop/receiving#history) shows, or delete the folder. Reset and uninstalling leave it |
+| Your save folders, the tab you last used, your right-click menu choice, and, while a request link is open, the time it ends | The same profile | You delete the folder |
+| The update check's last answer (GitHub builds) | `%APPDATA%\floe\desktop-update-check.json` | The next check overwrites it, or you delete it |
+| The **Send with Floe** right-click entry (GitHub builds) | A per-user registry key, `HKCU\Software\Classes\*\shell\Floe` | You turn off [Show in right-click menu](/desktop/settings#show-in-right-click-menu), or uninstall the installer build |
+| The name Windows shows on Floe's notifications (GitHub builds) | A per-user registry key under `HKCU\Software\Classes\AppUserModelId`, and a small icon file in your temp folder | You delete them. Uninstalling leaves them |
+| A pasted screenshot waiting to be sent | A folder whose name starts `floe-paste-` in your temp folder | The next time Floe starts |
+| A text note being sent | A folder whose name starts `floe-text-` in your temp folder | That transfer ends |
+| A file that is still arriving | A `.part` file beside the place the finished file will take | It finishes and takes its real name, or the transfer fails or is canceled and the `.part` is deleted. One can remain after a power loss, a forced quit, or a finished file that could not be moved into place: see [If a transfer stops partway](/desktop/receiving#if-a-transfer-stops-partway) |
+
+A request link itself, its key and its secret token are held in memory only and are never written
+to disk. Received files stay where they were saved until you delete them, and on a drive that
+supports it Floe marks each one as a download: see
+[Received files are marked as downloads](/desktop/receiving#received-files-are-marked-as-downloads).
+[Uninstall](/desktop/installation#uninstall) lists what removing the app leaves behind.
+
+### On the command line {#on-your-device-cli}
+
+The CLI keeps no history, no log, and no settings file. It leaves two things:
+
+- **The update check's last answer.** `floe version` saves it in `floe/update-check.json` inside
+  your user config folder and reuses it for 24 hours. See
+  [The update check](/cli/version#the-update-check).
+- **The files you received**, in the folder you named with `-o` (the folder you ran the command
+  in, by default). Each file is written as a `.part` beside its final name and renamed when it is
+  complete, and a receive that fails or is interrupted deletes the unfinished `.part`. One can
+  remain after a killed process, a power loss, or a finished file that could not be renamed: see
+  [floe receive](/cli/receive#part-files). On Windows each finished file carries the same download
+  mark as in Floe Desktop.
 
 ## Browser hardening
 
@@ -172,19 +258,25 @@ addresses without a single click.
 The same header set blocks plugin content and `<base>` rewriting, restricts form submissions to
 floe.one, sends `X-Content-Type-Options: nosniff`, sets
 `Referrer-Policy: strict-origin-when-cross-origin`, denies camera, microphone, geolocation,
-payment, and USB access outright, and opts the site out of ad interest cohorts. The signaling
-server sends the standard hardening headers too.
+payment, and USB access outright, and opts the site out of ad interest cohorts. A request link's
+page sets `Referrer-Policy: no-referrer` instead, because its link id is in the address path. The
+signaling server sends the standard hardening headers too.
 
 ## On a self-hosted instance
 
-Everything above holds. The signaling server and the relay are architecturally incapable of
-receiving plaintext file data no matter who operates them, so running your own instance gives you
-the same encryption and puts the infrastructure under your control.
+A self-hosted server runs the same code, so everything above about what the signaling server sees
+and holds applies to yours, with you as the operator. The parts that name Cloudflare, Sentry, or
+Umami describe floe.one's own deployment. Most of the per-address limits are yours to set: see
+[Configuration](/self-hosting/configuration).
+
+The signaling server never receives file data and a relay only ever forwards encrypted packets, so
+running your own instance gives you the same encryption and puts the infrastructure under your
+control.
 
 It also removes the one dependency that encryption alone cannot cover, described in
 [Known limitations](/how-it-works/known-limitations#the-signaling-server-is-trusted-to-introduce-you-honestly).
 
-See [Self-hosting](/self-hosting/overview) to run one.
+See [Self-hosting overview](/self-hosting/overview) to run one.
 
 ## Reporting a vulnerability
 

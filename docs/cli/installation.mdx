@@ -5,7 +5,7 @@ description: "Install the floe CLI in one command on macOS, Windows, or Linux to
 keywords: ["install floe", "brew", "winget", "scoop", "go install", "download cli"]
 ---
 
-The `floe` CLI is a single self-contained binary with no runtime dependencies.
+This page installs `floe`, Floe's command-line client, on macOS, Windows, or Linux and confirms that it runs. It is for anyone who wants to send or receive from a terminal or a script. `floe` is a single self-contained binary with no runtime dependencies.
 
 If you would rather have a window than a terminal, [Floe Desktop](/desktop/installation) runs on
 this same transfer engine, so the two interoperate. It is Windows only; on macOS and Linux this
@@ -13,8 +13,8 @@ CLI and the [web app](/web-app/sending) are the options.
 
 ## Package managers
 
-The fastest way to install floe. Package manager installs also get updates via the
-standard upgrade command for that tool.
+The fastest way to install `floe`. A package manager install is also updated with that tool's
+standard upgrade command.
 
 <Tabs>
   <Tab title="macOS">
@@ -60,29 +60,29 @@ upgrades an existing install in place.
     curl -fsSL https://floe.one/install.sh | sh
     ```
 
-    To install a specific version, using any tag from the
+    To install a specific version, using any `vX.Y.Z` tag from the
     [releases page](https://github.com/jannskiee/floe/releases):
     ```bash Terminal
     curl -fsSL https://floe.one/install.sh | FLOE_VERSION=vX.Y.Z sh
     ```
 
-    The script detects your OS and architecture, downloads the correct archive, verifies the
-    SHA-256 checksum, and installs `floe` to `/usr/local/bin` (or `~/.local/bin` when
-    `/usr/local/bin` is not writable and `sudo` is unavailable).
+    The script detects your OS and architecture (64-bit Intel or ARM), downloads the matching archive, checks its SHA-256 against the release's `checksums.txt`, and installs `floe` to `/usr/local/bin`, asking for your `sudo` password when that directory is not writable.
+    Without `sudo` it installs to `~/.local/bin` instead, and says so if that directory is not on your `PATH`.
+    If the machine has neither `sha256sum` nor `shasum`, or the release lists no checksum for the archive, the script prints a warning and installs without the check.
   </Tab>
   <Tab title="Windows (PowerShell)">
     ```powershell Terminal
     irm https://floe.one/install.ps1 | iex
     ```
 
-    To install a specific version, using any tag from the
+    To install a specific version, using any `vX.Y.Z` tag from the
     [releases page](https://github.com/jannskiee/floe/releases):
     ```powershell Terminal
     $env:FLOE_VERSION = "vX.Y.Z"; irm https://floe.one/install.ps1 | iex
     ```
 
-    The script downloads the correct `.zip` for your architecture, verifies the SHA-256 checksum,
-    extracts to `%LOCALAPPDATA%\Programs\floe`, and adds that directory to your user `PATH`.
+    The script downloads the `.zip` for your architecture (x64 or ARM64), checks its SHA-256 against the release's `checksums.txt`, installs `floe.exe` to `%LOCALAPPDATA%\Programs\floe`, and adds that directory to your user `PATH`.
+    It asks for no administrator rights. If the release lists no checksum for the archive, the script prints a warning and installs without the check.
     Open a new terminal after running it.
   </Tab>
 </Tabs>
@@ -103,9 +103,8 @@ package managers and the install script above handle this for you.
   `go install` does not give you a release build. `cli` is a nested Go module and the
   repository carries no `cli/vX.Y.Z` tags, so `@latest` resolves to the current tip of `main`
   as a pseudo-version rather than to the newest release. The version string is stamped in at
-  release time, so a binary built this way reports `floe dev`, and `floe update` refuses to run
-  with "Cannot update a dev build." Use a package manager or the install script if you want a
-  released build with working self-update.
+  release time, so a binary built this way reports `floe dev`, and `floe update` stops with `Cannot update a dev build.`
+  Use a package manager or the install script if you want a released build with working self-update.
 </Warning>
 
 ## Verify the install
@@ -121,20 +120,19 @@ floe 1.x.x
 Docs: https://www.floe.one/docs
 ```
 
-If you pinned an older version, a third line appears once the update check completes:
+If the version you installed is not the newest release, a third line follows:
 
 ```text Output
 Update available: v1.x.x  run `floe update` to upgrade
 ```
 
-Set `FLOE_NO_UPDATE_CHECK=1` to silence it. See [floe version](/cli/version) for what that
-check does. A binary from `go install` or built from source prints `floe dev` instead of a
-version number.
+Set `FLOE_NO_UPDATE_CHECK=1` to silence it. See [`floe version`](/cli/version) for what that check does.
+A binary from `go install` or built from source prints `floe dev` instead of a version number.
 
 ## Verify the checksum (manual download)
 
 If you downloaded an archive directly from the [GitHub Releases page](https://github.com/jannskiee/floe/releases),
-each release includes a `checksums.txt` file. To verify:
+each release includes a `checksums.txt` file. To verify, run this in the directory that holds the archive:
 
 ```bash Terminal
 # Download checksums
@@ -146,6 +144,8 @@ shasum -a 256 --check --ignore-missing checksums.txt
 # Verify (Linux)
 sha256sum --check --ignore-missing checksums.txt
 ```
+
+On Windows, `Get-FileHash <archive> -Algorithm SHA256` in PowerShell prints the hash to compare with the archive's line in `checksums.txt`.
 
 ## Update
 
@@ -177,3 +177,13 @@ needs elevation: `sudo mv floe /usr/local/bin/`. A user-owned directory such as
 
 Like a `go install` build, a binary compiled this way reports `floe dev` and cannot update
 itself.
+
+## If something goes wrong {#if-something-goes-wrong}
+
+- `floe` is not found after installing: open a new terminal, which reads the changed `PATH`, and
+  check that the install directory is on it. See [`floe` is not found after installing](/troubleshooting#floe-is-not-found-after-installing).
+- `floe update` prints `Cannot update a dev build.`: the binary came from `go install` or a source
+  build. See [`Cannot update a dev build.`](/troubleshooting#cannot-update-a-dev-build).
+- `floe update` prints `installed via homebrew`, `scoop` or `winget`: a package manager owns the
+  binary, so use its upgrade command. See
+  [`installed via homebrew`](/troubleshooting#installed-via-homebrew-run-brew-upgrade-floe-to-update).

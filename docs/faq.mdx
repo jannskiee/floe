@@ -18,18 +18,27 @@ when a network forces a relay, that relay carries encrypted packets it cannot re
 
 ### How big a file can I send?
 
-There is no limit on a direct connection, which is what most transfers get. A relayed transfer is
-capped at 2 GB per session. [File size limits](/how-it-works/2gb-limit)
+Floe sets no limit on a direct connection, which is what most transfers get, and caps a relayed
+transfer at 2 GB. A browser on the receiving end adds a limit of its own: it can only take as much
+as that browser can hold. [File size limits](/how-it-works/2gb-limit)
 
 ### Can I send a folder?
 
-Yes from Floe Desktop and the CLI, which walk the folder and rebuild it on the other side. No from
-the browser, which has no folder picker. [Which Floe to use](/choosing-floe)
+Yes from Floe Desktop and the CLI, which walk the folder and rebuild it on the other side. In the
+browser, the Send page at floe.one cannot send a folder, and the page a request link opens can.
+[Which Floe to use](/choosing-floe)
+
+### How do I get files from someone who does not have Floe?
+
+Ask them to open floe.one, drop the files, and send you the link; they install nothing. Or make a
+request link (Beta) in Floe Desktop and send it to them: they open it in a browser, and the files
+land on your PC once you accept. [Request links](/desktop/request-links)
 
 ### How fast is it?
 
-As fast as the slower of the two internet connections, with no throttling of any kind. A relayed
-transfer is slower because every byte takes a detour. [Direct connections](/how-it-works/direct-connection)
+As fast as the slower of the two internet connections allows: Floe adds no throttling of its own.
+A relayed transfer is usually slower, because every byte takes a detour.
+[Direct connections](/how-it-works/direct-connection)
 
 ### How long does the sender have to stay connected?
 
@@ -38,31 +47,35 @@ stopping the process ends it. [Receiving files](/web-app/receiving#the-sender-ha
 
 ### Are my files stored anywhere?
 
-No. Nothing is stored on any server at any point, and once the session closes the server keeps no
-record of it, including the short code, which is dropped along with the room it pointed at. A code
-nobody uses lapses on its own ten minutes after it was made, and even then it maps to nothing but
-a random room id. A request link is the one exception: the server holds its room, with no file
-data, for about 10 minutes after the Floe Desktop that made it disconnects, so the app can come
-back to it. When a link that someone connected through is closed, a mark that it was used stays
-for a day, and for any other link a mark with its id and end time stays until a day after it ends.
-To limit new request links to 20 a day from one network, the server keeps their times for a day
-under a keyed hash of the network address, never the address itself, and under the same hash it
-counts the links each network has open, to hold it to 10 at a time. All of it is in memory only. [Security and privacy](/security-privacy#what-the-signaling-server-can-see)
+No: files are never stored on a server, because the signaling server never receives them and a
+relay only forwards encrypted packets. A room and its room code are dropped when the last device
+leaves. What the server does keep in memory for a while, mostly for request links, is listed under
+[Security and privacy](/security-privacy#what-it-holds).
+
+### Is a file checked when it arrives?
+
+Yes. The receiving side compares each file with the size the sender announced and, when the sender
+provides one, with its SHA-256, and discards a file that fails either check. When every file passes
+both, the app shows a mark that says so, which means the files arrived intact, not that they are
+safe to open; a browser that runs out of time for the SHA-256 check on a very large file keeps the
+file without the mark.
+[File checks](/how-it-works/file-checks)
 
 ### Why did a file not arrive?
 
-Floe discards anything whose size does not match what the sender announced, rather than handing
-you a file that looks whole and is not. Ask them to send it again.
+Floe discards a file whose size does not match what the sender announced or, when the sender
+provides one, whose SHA-256 does not match, rather than hand you a file that looks whole and is
+not. The transfer stops at that file, so ask them to send again.
 [Troubleshooting](/troubleshooting#a-file-did-not-appear-at-all)
 
 ## Using Floe
 
 ### Which browsers work?
 
-Any modern browser with WebRTC: Chrome, Firefox, Safari, Edge, and most Chromium-based browsers. A
-secure context is required, which means HTTPS or localhost. Sending through a
-[request link](/desktop/request-links) is narrower during Beta: current Chrome and Edge on a
-computer. [Sending files](/web-app/sending)
+Any current browser with WebRTC: Chrome, Edge, Firefox, Safari, and most Chromium-based browsers.
+The transfer itself does not need HTTPS, which is why a self-hosted instance also works over plain
+`http` on a local network. Sending through a request link is narrower during Beta: see
+[Sending through a request link](/web-app/request-links).
 
 ### Why does Floe tell me to open the link in a different browser?
 
@@ -72,21 +85,21 @@ page does not join the room until you switch or dismiss the prompt, so nothing i
 
 ### Why does it say Direct when the other device is on mobile data?
 
-Because it really is direct. WebRTC opens a path between two devices on completely different
+Because it really is direct. WebRTC can open a path between two devices on completely different
 networks without a server in the middle.
 [Direct connections](/how-it-works/direct-connection)
 
-### Can I type a short code in the browser?
+### Can I type a room code in the browser? {#can-i-type-a-short-code-in-the-browser}
 
-No. The web app has no code field and never mints one; codes are a desktop and CLI feature in both
-directions. A browser recipient always needs the link. [Which Floe to use](/choosing-floe)
+No. The web app has no code field and never makes a code; room codes are a desktop and CLI feature
+in both directions. A browser recipient always needs the link. [Which Floe to use](/choosing-floe)
 
 ### Do both people need the same version?
 
-No. Peers on different releases interoperate, and the only time a transfer is blocked is a
-breaking wire-format change, which Floe detects before any data moves. Request links are the
-exception: they need a current Floe Desktop and a server that offers them.
-[Protocol versioning](/reference/transfer-protocol#protocol-versioning)
+No. Every release so far speaks the same version of the transfer protocol, and a mismatch, if one
+ever comes, is detected before any data moves. Request links are the exception: they need Floe
+Desktop 0.3.0 or later, a server that has them turned on, and, to send from the terminal, `floe`
+1.11.0 or later. [Protocol versioning](/reference/transfer-protocol#protocol-versioning)
 
 ### Which one should I use?
 
@@ -97,7 +110,7 @@ The browser unless you need folders, a place on disk, or a script.
 
 ### Do I need an account?
 
-No. There is no account, no sign-up, and no registration on any surface.
+No. There is no account, no sign-up, and no registration on any surface. [Quickstart](/quickstart)
 
 ### What does Floe collect?
 
@@ -111,14 +124,26 @@ A public all-time total of bytes Floe has moved, fed by receivers reporting a si
 else. Every receiver can turn it off.
 [Aggregate statistics](/security-privacy#aggregate-statistics)
 
+### Is a transfer encrypted?
+
+Yes. Every transfer runs over an encrypted WebRTC data channel, direct or relayed, and nothing in
+between can read the files, Floe's own servers included. What that rests on is the next question.
+[Encryption](/how-it-works/encryption)
+
 ### What does Floe not protect against?
 
 The signaling server is trusted to introduce the two devices honestly, no client shows a
 verification code today, and a browser receiver can only take as much as the browser can hold.
-There are eight of these and they are all written down.
+Those and the rest are written down, each with what you can do about it.
 [Known limitations](/how-it-works/known-limitations)
 
 ### Is Floe open source?
 
-Yes, MIT licensed, all four parts. [GitHub](https://github.com/jannskiee/floe), and you can
-[run your own instance](/self-hosting/overview).
+Yes. The web app, the signaling server, the CLI and the desktop app are all MIT licensed, in one
+repository. [GitHub](https://github.com/jannskiee/floe)
+
+### Can I run my own server?
+
+Yes. The web app and the signaling server run from Docker Compose or straight from source, and the
+CLI and Floe Desktop can be pointed at your instance.
+[Self-hosting overview](/self-hosting/overview)

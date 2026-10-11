@@ -5,11 +5,10 @@ description: "Serve the Floe web client and signaling server from one domain usi
 keywords: ["nginx", "caddy", "reverse proxy", "one domain", "websocket upgrade"]
 ---
 
-Floe has two services, but your users do not need two addresses. Put both behind one
-reverse proxy and everything lives at `https://floe.example.com`.
-
-This is the recommended production layout. It means one certificate, one DNS record,
-one value to configure, and share links that work without any extra setup.
+This page puts the Floe web client and the signaling server behind one reverse proxy, so the
+whole instance lives at one address such as `https://floe.example.com`. It is for anyone taking
+the Docker stack to production, and it is the recommended layout: one certificate, one DNS
+record, and share links that need no extra setting.
 
 ## Route table
 
@@ -23,7 +22,7 @@ origin with no conflicts. Route them like this.
 | `/api/config` | client `:3000` | The client's own runtime config, which tells the browser where the signaling server is. The signaling server has no such route. |
 | `/api/` | server `:3001` | Room codes, TURN credentials, stats. |
 | `/health` | server `:3001` | Health probe. |
-| everything else | client `:3000` | The web app, including `/_next/` assets. |
+| everything else | client `:3000` | The web app, including `/_next/` assets and the request-link page under `/r/`. |
 
 `/api/config` is the one exception to the `/api/` rule, and it needs its own
 route in both configs below. Send it to the signaling server and it returns 404.
@@ -33,10 +32,11 @@ instance that sets a non-empty socket URL loses it silently.
 
 <Warning>
   `/ws` is matched by exact string equality on the signaling server. A trailing
-  slash or a path prefix does not match, and the upgrade is then simply never
-  handled, so the client hangs until its own timeout rather than being refused.
-  If you proxy from a subpath, strip the prefix so the server still sees exactly
-  `/ws`. The comparison is against the path alone, so a query string is fine.
+  slash or a path prefix does not match, and the server then never answers the
+  upgrade: it writes no response and no log line, and the connection is closed
+  about 1 second later, so nothing names the cause. If you proxy from a subpath,
+  strip the prefix so the server still sees exactly `/ws`. The comparison is
+  against the path alone, so a query string is fine.
 </Warning>
 
 ## Proxy configuration
@@ -78,7 +78,8 @@ instance that sets a non-empty socket URL loses it silently.
   </Tab>
   <Tab title="nginx">
     nginx needs the `Upgrade` and `Connection` headers set explicitly, or the
-    WebSocket handshake fails and transfers never start.
+    WebSocket handshake fails: the CLI and Floe Desktop cannot connect, and
+    browsers are left on HTTP long-polling.
 
     ```nginx nginx.conf
     map $http_upgrade $connection_upgrade {
@@ -132,7 +133,7 @@ instance that sets a non-empty socket URL loses it silently.
 
 ## Floe configuration
 
-Leave the socket URL **empty**. The browser then talks to whatever host it was
+Leave the socket URL empty. The browser then talks to whatever host it was
 loaded from, which behind this proxy is already the right answer.
 
 ```dotenv .env
@@ -151,9 +152,11 @@ docker compose up -d
 
 `NEXT_PUBLIC_SITE_URL` is the only build-time value here, which is why the
 comment above tells you the running stack does not read it. The published image
-cannot carry it, so canonical links and share previews are omitted rather than
-pointed somewhere wrong. See [Container images](/self-hosting/images) to build the
-client with your own domain baked in.
+cannot carry it, so its share previews have no image and its sitemap lists no
+pages, rather than pointing at somebody else's domain. The canonical link stays,
+as a relative path. See
+[Container images](/self-hosting/images#share-previews-and-canonical-links) for
+what the image emits and how to build the client with your own domain baked in.
 
 `CLIENT_URL` is matched exactly, including the scheme and with no trailing
 slash. `https://floe.example.com` and `https://www.floe.example.com` are
@@ -163,7 +166,9 @@ visit.
 `TRUSTED_PROXY_COUNT` must equal the number of proxy hops in front of the
 signaling server. One reverse proxy means `1`. A CDN in front of that proxy means
 `2`. Setting it higher than your real hop count lets clients forge
-`X-Forwarded-For` and slip past the per-IP rate limits.
+`X-Forwarded-For` and slip past the per-address rate limits. Leaving it at `0`,
+which is what Compose passes when `.env` does not set it, makes every user count
+as the proxy's own address, so all of them share one set of limits.
 
 ## Using the CLI and the desktop app with a one-domain instance
 
@@ -174,29 +179,36 @@ origin, so it opens the web client correctly with no extra flag:
 floe send --server https://floe.example.com photo.jpg
 ```
 
-The `--web` flag only exists for split deployments where the client lives on a
-different hostname from the signaling server.
+The `--web` flag only exists for split deployments where the client lives at a
+different address from the signaling server.
 
-The desktop app takes the same single address. Open Settings, expand
-**Advanced**, put `https://floe.example.com` in **Server address**, and click
-**Test**. The test runs three checks in order: that `/health` answers as a Floe
-signaling server, that the realtime `/ws` connection is accepted, and that
-`GET /api/turn-credentials` returns a usable connection list. A proxy that
-forwards only some of those is named in the failure message instead of breaking
-silently later. The result also says whether that list includes a TURN relay,
-which only [Hide my IP address](/desktop/settings#hide-my-ip-address) needs. Leave **Share link address** blank on a one-domain instance and
-the app derives the link from the server address. See
+The desktop app takes the same single address. Open Settings and, under
+**Advanced**, expand **Server**. Put `https://floe.example.com` in **Server
+address** and click **Test**. The test runs three checks in order: that
+`/health` answers as a Floe signaling server, that the realtime `/ws` connection
+is accepted, and that `GET /api/turn-credentials` returns a usable connection
+list. A proxy that forwards only some of those is named in the failure message
+instead of breaking silently later. A server with no TURN relay still passes,
+with "Connected, but there's no relay for Hide my IP", which matters to
+[Hide my IP address](/desktop/settings#hide-my-ip-address) and to any two devices
+that cannot reach each other directly. Leave **Share link address** blank on a
+one-domain instance and the app derives the link from the server address. See
 [Desktop app settings](/desktop/settings#server).
 
 The test deliberately does not follow redirects, so a proxy that answers
-`/health` with a 301 is reported as "may be the web app rather than the
-signaling server" rather than passing.
+`/health` with a 301 is reported as "Error: That address answered HTTP 301
+(likely the web app, not the server)" rather than passing.
 
 Both apps send the address you give them as their `Origin`. Here that address is
 your `CLIENT_URL`, which the server always accepts, so nothing about the `Host`
 header affects them on this layout. `Host` matters only when the apps use an
 address that is not exactly your `CLIENT_URL`, as on the
 [two-hostname layout](/self-hosting/production).
+
+Request links are off on a new server until its policy file turns them on. On
+this layout they need nothing else from Floe Desktop: the blank **Share link
+address** already points at the web client, which serves the page a sender opens.
+See [Turn on request links](/self-hosting/request-links).
 
 ## TURN does not go through the proxy
 
@@ -215,7 +227,7 @@ curl https://floe.example.com/api/turn-credentials
 ```
 
 Then open `https://floe.example.com` in a browser. The connection badge should read
-`Ready`. If it stays disconnected, the `/socket.io/` route is the first thing to
+**Ready**. If it reads **Offline**, the `/socket.io/` route is the first thing to
 check.
 
 ## Prefer two subdomains?
@@ -223,3 +235,12 @@ check.
 Splitting the client and server across `app.your-domain.com` and
 `api.your-domain.com` is still fully supported. See
 [Production deployment](/self-hosting/production).
+
+## If something goes wrong
+
+- The page loads but the badge stays **Offline**: see
+  [The browser cannot connect to my signaling server](/troubleshooting#the-browser-cannot-connect-to-my-signaling-server).
+- **Test** in Floe Desktop stops at the realtime connection: see
+  [The Test button says the realtime connection was refused](/troubleshooting#the-test-button-says-the-realtime-connection-was-refused).
+- People are turned away with `429` or "Rate limit exceeded" because `TRUSTED_PROXY_COUNT` does not
+  match your proxy: see [429, or Rate limit exceeded](/troubleshooting#429-or-rate-limit-exceeded).

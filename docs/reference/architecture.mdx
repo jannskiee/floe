@@ -5,20 +5,22 @@ description: "The parts of Floe, the two signaling transports they share, and ho
 keywords: ["architecture", "components", "signaling", "socket.io", "websocket", "design"]
 ---
 
-A map of the moving parts, for contributors and for self-hosters who want to know what they are
-running. For the plain-language version, see [How a transfer works](/how-it-works/signaling).
+This page maps Floe's moving parts for contributors and for self-hosters who want to know what they
+are running: the components, both signaling transports and every message on them, request rooms,
+the server's limits, room codes, and the byte counter. For the plain-language version, see
+[How a transfer works](/how-it-works/signaling).
 
 ## Components
 
 | Component | Runtime | Port | What it does |
 |-----------|---------|------|--------------|
 | Client | Next.js 16 (React 19) | 3000 | The browser UI and its WebRTC peer, via simple-peer |
-| Server | Node.js (Express 5, Socket.IO 4, ws 8) | 3001 | Brokers signaling, issues relay credentials |
+| Server | Node.js (Express 5, Socket.IO 4, ws 8) | 3001 | Brokers signaling, registers room codes, issues relay credentials, keeps the byte counter |
 | CLI | Go 1.26 (Pion WebRTC v4) | - | Headless sender and receiver |
 | Desktop | Wails v2 (Go backend, React frontend) | - | Windowed sender and receiver. Windows amd64 today |
 | TURN relay | Cloudflare Realtime TURN on floe.one, or your own coturn | 3478 and 5349 for coturn | Forwards encrypted packets when no direct path exists |
 
-The CLI and the desktop app share one Go transfer engine in `cli/engine/`, joined by the `go.work`
+The CLI and Floe Desktop share one Go transfer engine in `cli/engine/`, joined by the `go.work`
 workspace file, so they behave identically on the wire.
 
 **File data never passes through the signaling server**, and only end-to-end-encrypted packets
@@ -28,25 +30,29 @@ two peers.
 ## The server runs as one process
 
 Rooms, room codes, request-link reservations, and every rate limiter live in that process's memory.
-Nothing is persisted except the global byte counter, and only when a Redis database is configured.
+Nothing is persisted except the global byte counter, and only when a Redis database is configured,
+so a restart forgets every room, code, reservation, and limiter window.
 
-This has one consequence worth stating plainly: **running two replicas behind a load balancer does
-not scale Floe out.** It breaks pairing, because the two peers can land on different replicas and
-never see each other. Run one instance. A single small server goes a long way, since no file data
-passes through it.
+<Warning>
+  Running two replicas behind a load balancer does not scale Floe out. It breaks pairing, because
+  the two peers can land on different replicas and never see each other. Run one instance.
+</Warning>
+
+A single small server goes a long way, since no file data passes through it.
 
 ## Two signaling transports, one room registry
 
 | Transport | Path | Used by |
 |-----------|------|---------|
-| Socket.IO | `/socket.io/` | The web app |
+| Socket.IO | `/socket.io/` | The web app, including the page a request link opens |
 | WebSocket | `/ws` | The CLI and Floe Desktop |
 
 Both share the same in-memory `rooms` registry, `Map<roomId, [peer, peer]>`, which is what makes
 browser-to-CLI and browser-to-desktop transfers work with no translation layer.
 
-`/ws` is matched by **exact string equality**. A trailing slash or a path prefix does not match,
-and the connection is dropped with no error, which matters when you put Floe behind a proxy.
+The WebSocket path must be exactly `/ws`. A query string is fine, but a trailing slash or a path
+prefix does not match: the server then writes no response and closes the socket about a second
+later, which matters when you put Floe behind a proxy.
 
 ### Socket.IO events
 
@@ -54,51 +60,64 @@ Client to server:
 
 | Event | Payload | Description |
 |-------|---------|-------------|
-| `join-room` | `roomId: string` | Join a room. Must be a UUID. |
-| `signal` | `{ signal, target?, roomId? }` | Forward an SDP message or ICE candidate to the other peer. `roomId` is sent but ignored; routing uses the room the server already has this peer in. |
-| `ping` | callback | A round-trip latency probe, not a keepalive. The browser sends one every 2 seconds to drive the ping readout beside the connection dot. |
+| `join-room` | `roomId: string` | Join an ordinary room, or make it. Must be a UUID. |
+| `request-join` | `roomId: string` | Ask for the sending seat of a request room. The page a request link opens sends it. See [Request rooms](#request-rooms). |
+| `signal` | `{ signal, target?, roomId? }` | Forward an SDP message or ICE candidate to the other peer. `target`, when set, must be that peer's id. `roomId` is sent but ignored; routing uses the room the server already has this peer in. |
+| `ping` | callback | A round-trip latency probe, not a keepalive. The web app's transfer page sends one every 2 seconds, and the sender's view shows the result as the ping readout beside the connection dot. |
 
 Server to client:
 
 | Event | Payload | Description |
 |-------|---------|-------------|
-| `room-joined` | `{ role: "sender" \| "receiver" }` | Confirms the join and assigns a role. |
+| `room-joined` | `{ role: "sender" \| "receiver" }` | Confirms a `join-room` and assigns a role by join order: the first peer in is `sender`, the second is `receiver`. |
+| `request-joined` | `{ role: "visitor" }` | Confirms a `request-join`: this socket holds the sending seat of a request room. |
 | `user-connected` | `peerId: string` | The receiver arrived. Sent to the sender. |
 | `signal` | `{ signal, sender: peerId }` | A signal from the other peer. |
 | `peer-disconnected` | `{}` | The other peer left. |
-| `room-full` | `{}` | The room already holds two peers, or peers at two other addresses have already signaled through it. |
-| `error` | `{ message: string }` | Server error. |
+| `room-full` | `{}` | The room already holds two peers, or peers at two other addresses have already signaled through it. Request rooms use it too: for a `join-room` aimed at one, for a `request-join` whose seat is taken, whose link is sealed or used, or whose seating budget is spent, and for a seated sender the host unseats with `request-reopen`. |
+| `host-absent`, `link-ended`, `disabled` | `{}` | A `request-join` did not get the seat, or a seated sender lost it before the room sealed. See [Request rooms](#request-rooms). |
+| `error` | `{ message: string }` | The frame was refused. On this transport the only message is `Invalid room ID`, for a room id that is not a UUID string. |
 
 ### WebSocket messages
 
-Every message is a JSON object with a `type` field.
+Every message is a JSON object with a `type` field. A frame that is not a JSON object, or whose
+`type` the server does not know, is ignored with no reply.
 
 Client to server:
 
 | `type` | Other fields | Description |
 |--------|-------------|-------------|
-| `join-room` | `roomId: string` | Join a room. |
-| `signal` | `signal`, `roomId: string` | Forward a signal. |
-| `ping` | - | Answered with `{"type":"pong"}`. Supported, but no Floe client sends it. |
+| `join-room` | `roomId: string` | Join an ordinary room, or make it. |
+| `join-room` | `roomId: string`, `hostToken: string`, `endsIn?: number` | The host join that makes or reclaims a request room. Any `join-room` carrying `hostToken` takes this path. See [Request rooms](#request-rooms). |
+| `request-join` | `roomId: string` | Ask for the sending seat of a request room. `floe send --to` sends it. |
+| `request-seal`, `request-reopen`, `request-close` | `roomId: string` | The host's control messages for its request room. The server acts on one only when it comes from that room's seated host, and never answers it. |
+| `signal` | `signal`, `target?: string`, `roomId?: string` | Forward a signal. `target`, when set, must be the other peer's id. The Go client sends `roomId`, and the server ignores it as it does on Socket.IO. |
+| `ping` | - | Answered with `{"type":"pong"}`. Floe Desktop sends one every 25 seconds on the connection that holds a request link, and treats 60 seconds without a message from the server, this `pong` included, as a lost connection. `floe send`, `floe receive`, and Floe Desktop's ordinary transfers never send it. |
 
 Server to client:
 
 | `type` | Other fields | Description |
 |--------|-------------|-------------|
-| `room-joined` | `role: "sender" \| "receiver"` | Role assignment. |
-| `user-connected` | `id: string` | The receiver arrived. |
+| `room-joined` | `role: "sender" \| "receiver" \| "host"` | Role assignment. `host` answers a host join; the other two come from join order. |
+| `request-joined` | `role: "visitor"` | Confirms a `request-join`: this socket holds the sending seat of a request room. |
+| `user-connected` | `id: string` | The second peer arrived: the receiver of an ordinary room, or the sender on a request link. Sent to the first peer. |
 | `signal` | `signal`, `sender: string` | A signal from the other peer. |
 | `peer-disconnected` | - | The other peer left. |
-| `room-full` | - | The room already holds two peers, or peers at two other addresses have already signaled through it. |
+| `room-full` | - | The same cases as on Socket.IO, plus a host join for a link that was already used or whose token does not match the reservation. |
+| `host-absent`, `link-ended`, `disabled` | - | The same cases as on Socket.IO. |
+| `refused` | `code: "disabled" \| "limited" \| "busy"` | A host join was turned down, or the policy file turned request links off under a waiting host. Only a host receives it. See [Request rooms](#request-rooms). |
 | `pong` | - | Answer to a client `ping`. |
-| `error` | `message: string` | Server error. |
+| `error` | `message: string` | The frame was refused: `Invalid room ID`, or `Invalid host token` on a host join. |
 
-Both transports cap a single message at 1 MB. An oversized WebSocket frame is closed with code
-`1009`. Signaling messages are SDP and ICE candidates, so this is a guard rather than a limit
-anyone meets. The server also relays a `signal` only when it is plain JSON, at most 8 levels deep
-and at most 65,536 characters once written out; anything else is dropped with no answer, as a signal
-with nobody to receive it is. A real offer carrying every candidate of a many-adapter PC uses under a
-quarter of that.
+Both transports cap a single inbound message at 1 MB (1,000,000 bytes). An oversized WebSocket
+frame closes the connection with code `1009`. Signaling messages are SDP and ICE candidates, so
+this is a guard rather than a limit anyone meets. The server also relays a `signal` only when it is
+plain JSON, nested at most 8 levels deep, and at most 65,536 characters by the server's own count.
+That count charges 6 characters for every line break, quote, and backslash, so a signal that is
+mostly lines, as an SDP is, reaches the bound before its JSON text is 65,536 characters long.
+Anything else is dropped with no answer, as is a signal with nobody to receive it or one whose
+`target` is not the other peer. A real offer carrying every candidate of a many-adapter PC comes to
+under a quarter of the bound.
 
 A room outlives a one-sided drop. When a peer disconnects the server removes only that peer and
 keeps the room for the other one, which is what lets a browser rejoin the same room after its
@@ -109,143 +128,184 @@ the server routed to the other peer, a peer from a third address gets `room-full
 deleted. Joining alone does not count an address, so a sender that reconnects from a new address
 beside its own stale connection does not seal its own room. The address is the one the per-IP
 limits count (an IPv6 address counts by its /64), so peers that share one address are never sealed
-out.
+out. The server keeps a keyed hash of each counted address for as long as the room exists, never
+the address itself. A request room does not use this seal; it has its own, described under
+[Request rooms](#request-rooms). What the seal means for the people in a transfer is in
+[How a transfer works](/how-it-works/signaling#a-room-holds-exactly-two-people).
 
 The connection is kept alive below this layer. Every 30 seconds the server sends a WebSocket
-protocol-level ping to each `/ws` client and terminates any that did not answer the previous one.
-The Go client answers automatically, so nothing in Floe's own message set is involved. A reverse
-proxy therefore needs an idle read timeout longer than 30 seconds, or it cuts healthy connections.
+protocol-level ping to each `/ws` client and terminates any that did not answer the previous one
+with a matching pong. The Go client answers automatically, so nothing in Floe's own message set is
+involved; the `ping` message in the table above is a separate check that Floe Desktop runs from its
+own side. Socket.IO connections use that library's default heartbeat, a ping every 25 seconds. A
+reverse proxy therefore needs an idle read timeout longer than 30 seconds, or it cuts healthy
+connections.
+
+A `/ws` client that stops reading is cut off as well: once more than 1 MB of output is waiting for
+it, the server terminates the connection instead of sending more.
 
 ## Request rooms {#request-rooms}
 
 A [request link](/desktop/request-links) gets a room that is reserved for the Floe Desktop that
 made it, rather than seated by join order: that app holds the room and receives, and the person
 sending joins second. Request rooms exist only while the server's policy file turns request links
-on (see [the policy file](/self-hosting/operations#request-links)), and `GET /health` lists
+on (see [Turn on request links](/self-hosting/request-links)), and `GET /health` lists
 `request-1` in `features` while it does.
 
 | Sent by | Message | What it does |
 |---------|---------|--------------|
-| Floe Desktop, on `/ws` | `join-room` with `roomId`, `hostToken` and `endsIn` | Makes the room, or reclaims it. The room id must be derived from the token, and the server keeps only a SHA-256 of the token. `endsIn` is the link's remaining life in milliseconds, which the server keeps as its own clock's end time; a missing or out-of-range value is ignored. Answered with `room-joined` and role `host`, or with `refused` and a `code` of `disabled` (request links are off), `limited` (the network's daily budget) or `busy` (the network already holds its open links, or the server is full; see [Rate limiting](#rate-limiting)). |
-| The sender's page, on Socket.IO or `/ws` | `request-join` with the room id | Takes the sending seat, and never makes a room. Answered with `request-joined` and role `visitor`, after which the host gets `user-connected`. Otherwise `host-absent` (the app that made the link is not connected, which is also the answer for an id that is no request link at all, so it confirms nothing), `link-ended` (the link was closed or reached its end before anyone used it), `room-full` (the seat is taken, or the link is sealed or used), or `disabled`. |
-| Floe Desktop | `request-seal` | Seals the room once the data channel is open. |
-| Floe Desktop | `request-reopen` | After a Decline: sends a seated sender `room-full` and opens the seat to the next one. |
-| Floe Desktop | `request-close` | Ends the room. |
+| Floe Desktop, on `/ws` | `join-room` with `roomId`, `hostToken` and `endsIn` | Makes the room, or reclaims it. The token is 43 base64url characters, the room id must be derived from it, and the server keeps only a SHA-256 of the token. `endsIn` is the link's remaining life in milliseconds, which the server keeps as an end time on its own clock; a missing or out-of-range value is ignored. Answered with `room-joined` and role `host`, or with `refused` and a `code` of `disabled` (request links are off), `limited` (the network's daily budget) or `busy` (the network already holds its open links, or the server is full; see [Rate limiting](#rate-limiting)). A malformed room id or token, or a room id the token does not derive, answers `error`, even while request links are off. A link that was already used, or a token that does not match the reservation, answers `room-full`. |
+| The sender, on Socket.IO (the page a request link opens) or on `/ws` (`floe send --to`) | `request-join` with the room id | Takes the sending seat, and never makes a room. Answered with `request-joined` and role `visitor`, after which the host gets `user-connected`. Otherwise `host-absent` (the app that made the link is not connected, which is also the answer for an id that is no request link at all, so it confirms nothing), `link-ended` (the link was closed or reached its end before anyone used it), `room-full` (the seat is taken, the link is sealed or used, or the link's seating budget is spent), `disabled` (request links are off), or `error` (the id is not a UUID). |
+| Floe Desktop | `request-seal` | Seals the room once the data channel is open. It does nothing while no sender is seated. |
+| Floe Desktop | `request-reopen` | Unseals the room and unseats a seated sender with `room-full`, so the next `request-join` can take the seat. Floe Desktop sends it when a pairing ends without a drop, and when you click **Keep waiting** after a decline. |
+| Floe Desktop | `request-close` | Ends the room and its reservation. A sender seated in a room that has not sealed gets `link-ended`. |
 
 A request room seals as soon as both seats have routed a connection-setup message, or when the host
 sends `request-seal`, and from then on `request-join` answers `room-full`. A plain `join-room` into
-a request room also answers `room-full`, and `POST /api/code` refuses a request room's id, so no
-code ever points at one. If an ordinary room sits on a link's id after its reservation lapsed, the
-host that presents the link's token takes the id back: everyone in that room gets `room-full` and
-loses their seat.
+a request room also answers `room-full`. `POST /api/code` refuses a request room's id, and making
+the room retires any code already registered for that id, so no code ever points at one. If an
+ordinary room sits on a link's room id after its reservation lapsed, the host that presents the link's
+token takes the id back: everyone in that room gets `room-full` and loses their seat.
 
-The reservation outlives an empty room. When the host's socket closes, the server keeps it for 10
-minutes so Floe Desktop can reclaim its seat with the same token, which does not count as a new
-link. It ends then, or 7 days and 10 minutes after it was made, whichever comes first. A
-`request-close` for a room that was sealed leaves a mark that the link was used for 24 hours, during
-which `request-join` answers `room-full` and the link cannot be made again. A `request-close` for a
-room that still waited, which Floe Desktop sends for **Close link**, at the link's end time and when
-it quits, leaves a mark that the link ended for 24 hours instead, during which `request-join`
-answers `link-ended`; that mark holds no room and no seat, and making the link again with its token
-clears it. A reservation that lapses without a `request-close`, because the computer slept, went
-offline or was turned off, leaves the same mark from the end the host named in `endsIn`: until that
-end `request-join` still answers `host-absent`, since Floe Desktop may come back, and from it
-`link-ended`, for 24 hours. The server keeps that link's id and end time until then, and a link past
-the 7-day ceiling is marked ended at once. All of it is in memory: a restart forgets every
-reservation and every mark, and an open Floe Desktop makes its waiting link again when it reconnects.
+The reservation outlives an empty room. When the host's socket closes, the server keeps the
+reservation for about 10 minutes so Floe Desktop can reclaim its seat with the same token, which
+does not count as a new link. The edge is exact for the host: a host join up to 10 minutes after
+the socket closed is a reclaim, and a later one makes the link again, which counts toward the daily
+budget. The once-a-minute sweep then removes the reservation, so it lasts between 10 and 11
+minutes. When the host leaves, a sender seated in a room that has not sealed gets `host-absent` and
+loses the seat, and a sender in a sealed room keeps the seat and gets `peer-disconnected`.
 
-Turning request links off in the policy file ends every request room that is not sealed. A sealed
-one is left alone, because its drop runs on the data channel and needs nothing more from the
-server. Floe Desktop takes `refused` with `disabled` as its link's end, so once links are back on, a
-link whose host was told answers `link-ended` for 24 hours, and a link whose host was away answers
-from the end it named, as a lapsed one does.
+Whatever its host is doing, a reservation ends at the first sweep after it turns 7 days and 10
+minutes old. Nobody is sent a frame for that, a connected host included.
+
+What `request-join` answers afterward depends on how the link ended:
+
+| How the link ended | What the server keeps | What `request-join` answers |
+|--------------------|-----------------------|-----------------------------|
+| A `request-close` for a sealed room, which means the link was used | A mark that the link was used, for 24 hours | `room-full`. A host join with the link's token answers `room-full` too, so the link cannot be made again |
+| A `request-close` for a room that still waited. Floe Desktop sends it for **Close link**, at the link's end time, and when it quits | A mark that the link ended, for 24 hours. It holds no room and no seat, and making the link again with its token clears it | `link-ended` |
+| A lapse with no `request-close`, because the computer slept, went offline or was turned off | The room id and the end its host named in `endsIn`, until 24 hours after that end | `host-absent` until that end, since Floe Desktop may come back, then `link-ended` for 24 hours |
+
+A link past the 7-day ceiling is marked ended at once. Short of that, a lapsed link whose host
+named no end leaves no mark and keeps answering `host-absent`.
+
+All of it is in memory: a restart forgets every reservation and every mark. An open Floe Desktop
+makes its waiting link again when it reconnects, which counts toward its network's daily budget.
+
+Turning request links off in the policy file ends every request room that is not sealed, at the
+server's next once-a-minute read of the file: a seated host gets `refused` with `disabled`, and a
+seated sender gets `disabled`. A sealed room is left alone, because its drop runs on the data
+channel and needs nothing more from the server. Floe Desktop takes `refused` with `disabled` as its
+link's end, so once links are back on, a link whose host was told answers `link-ended` for 24
+hours, and a link whose host was away answers from the end it named, as a lapsed one does.
 
 ## A session, end to end
 
-1. The sender generates a UUID room id. All three surfaces put it in the **fragment** of a share
-   link, and browsers never send a fragment to a server, so opening the link keeps the room id out
-   of request URLs, `Referer` headers, and analytics. The CLI and the desktop app additionally
-   register it with `POST /api/code` to get a three-word phrase; the web app has no code UI. The
-   server therefore learns the room id from that registration if there is one, and otherwise only
-   when a peer joins.
-2. The sender joins the room. The server assigns the role `sender`.
-3. The sender displays the code, link, or QR code and waits.
-4. The receiver joins the same room. The server assigns `receiver` and tells the sender someone
-   arrived.
-5. The sender creates a WebRTC offer and sends it through the server.
-6. The receiver answers.
-7. Both exchange ICE candidates as they are gathered, rather than in one batch.
-8. The data channel opens and the signaling server plays no further part.
+1. The sender generates a UUID room id.
+2. The sender joins the room, which is the first time the server sees the room id. The server
+   assigns the role `sender`.
+3. The CLI and Floe Desktop then register the room id with `POST /api/code` to get a room code.
+   The web app never does.
+4. The sender displays what it has to share and waits: a link on every surface, a room code on the
+   CLI and Floe Desktop, and a QR code on the web app and Floe Desktop. All three surfaces put the
+   room id in the **fragment** of the link, and browsers never send a fragment to a server, so
+   opening the link keeps the room id out of request URLs, `Referer` headers, and analytics.
+5. The receiver joins the same room, after resolving the room code with `GET /api/code/:code` if
+   that is what it was given. The server assigns `receiver`, retires the room's code, and tells the
+   sender someone arrived.
+6. The sender creates a WebRTC offer and sends it through the server.
+7. The receiver answers.
+8. Both exchange ICE candidates as they are gathered, rather than in one batch.
+9. The data channel opens and the signaling server plays no further part.
+
+Each side fetches the ICE server list from `GET /api/turn-credentials` before it builds its peer
+connection.
 
 A request link turns the first half around. Floe Desktop joins first with its host token and
-receives. The sender's page comes second, through `request-join`, and sends. Floe Desktop still
-creates the offer, once the server tells it the sender arrived. See [Request rooms](#request-rooms).
+receives. The sender, on the page the link opens or in `floe send --to`, comes second through
+`request-join`, and sends. Floe Desktop still creates the offer, once the server tells it the
+sender arrived. See [Request rooms](#request-rooms).
 
 ## Rate limiting
 
+Every limit below lives in the server's memory. The ones with an environment variable have their
+home in [Configuration](/self-hosting/configuration), and this table repeats their defaults. The
+request-link limits are fixed in the server; what they mean for the people on a server is in
+[Turn on request links](/self-hosting/request-links#request-link-limits). For the limits of the web
+app, the CLI, and Floe Desktop as well, see [Limits](/reference/limits).
+
 | Limit | Value | Applies to |
 |-------|-------|-----------|
-| Connections | 30 per IP per 60 s (`MAX_CONNECTIONS_PER_IP`) | Socket.IO and `/ws`, shared |
-| TURN credentials | 20 per IP per 60 s (`MAX_TURN_REQUESTS_PER_IP`) | `GET /api/turn-credentials` |
-| Room codes | 60 per IP per 60 s (`MAX_CODE_REQUESTS_PER_IP`) | `POST /api/code` and `GET /api/code/:code`, shared |
-| Failed code lookups | 10 per IP per 60 s (`MAX_FAILED_CODE_RESOLVES`) | `GET /api/code/:code`, misses only |
-| Stats reports | 60 per IP per 60 s, **not configurable** | `POST /api/stats/report` |
-| Active codes | 10000 held in memory (`MAX_ACTIVE_CODES`) | `POST /api/code`, returns `503` when full |
-| New request links | 20 per IP per rolling 24 hours, **not configurable** | A host `join-room` that makes a request room; a reclaim is free. Answers `refused` with code `limited` |
+| Connections | 30 per IP per 60 seconds (`MAX_CONNECTIONS_PER_IP`) | Socket.IO and `/ws`, shared |
+| TURN credentials | 20 per IP per 60 seconds (`MAX_TURN_REQUESTS_PER_IP`) | `GET /api/turn-credentials` |
+| Room codes | 60 per IP per 60 seconds (`MAX_CODE_REQUESTS_PER_IP`) | `POST /api/code` and `GET /api/code/:code`, shared |
+| Failed code lookups | 10 per IP per 60 seconds (`MAX_FAILED_CODE_RESOLVES`) | `GET /api/code/:code`, misses only |
+| Stats reports | 60 per IP per 60 seconds, **not configurable** | `POST /api/stats/report` |
+| Active codes | 10,000 held in memory (`MAX_ACTIVE_CODES`) | `POST /api/code`, returns `503` when full |
+| New request links | 20 per IP per rolling 24 hours, **not configurable** | A host `join-room` that makes a request room. A reclaim is free; making a link again after its reservation ended counts. Answers `refused` with code `limited` |
 | Open request links | 10 per IP at a time, **not configurable** | Request rooms made from one address that have not ended or been used. A new one past the cap answers `refused` with code `busy` |
-| Request rooms | 5000 held in memory, **not configurable** | Open request links; a new one past the cap answers `refused` with code `busy` |
-| Used request links | 10000 marks held in memory, **not configurable** | Links someone connected through, outside the room cap; past the cap the oldest mark goes, and that link answers `host-absent` again and can be made again |
-| Ended request links | 20000 marks held in memory, **not configurable** | Links that ended before anyone used them: closed, lapsed past the end their host named, or ended by the policy file; past the cap the oldest mark goes, and that link answers `host-absent` again |
-| Request joins | 30 per connection per 60 s | `request-join`; a frame past the budget is dropped with no answer |
-| Seatings | 6 per request room in any 60 s | A `request-join` that would take the seat answers `room-full` instead |
+| Request rooms | 5,000 held in memory, **not configurable** | Open request links from every address together; a new one past the cap answers `refused` with code `busy` |
+| Used request links | 10,000 marks held in memory, **not configurable** | Links someone connected through, outside the room cap; past the cap the oldest mark goes, and that link answers `host-absent` again and can be made again |
+| Ended request links | 20,000 marks held in memory, **not configurable** | Links that ended before anyone used them: closed, lapsed past the end their host named, or ended by the policy file; past the cap the oldest mark goes, and that link answers `host-absent` again |
+| Request joins | 30 per connection per 60 seconds, **not configurable** | `request-join`; a frame past the budget is dropped with no answer |
+| Seatings | 6 per request room in any 60 seconds, **not configurable** | A `request-join` that would take the seat answers `room-full` instead |
 
-Counters live in plain `Map`s and are swept every 60 seconds. The three HTTP limiters and the
-failed-lookup budget answer `429`. The connection limiter is not an HTTP response: a Socket.IO
-handshake over the limit is rejected in middleware, which the browser sees as a `connect_error`,
-and a WebSocket over the limit is closed with code `1008`.
+A host join that is over more than one request-link limit answers `limited`, because the daily
+budget is checked before the two caps that answer `busy`.
 
-Every limiter records only what it admits. A refused connection attempt leaves no timestamp, just
-as the three HTTP limiters return the `429` before recording anything, so a client that keeps
-retrying gets back in as soon as its admitted connections age out of the 60-second window. One
-behavior does surprise people: setting any `MAX_*` variable to `0` does not disable a limit; it
-silently restores the default.
+The per-IP counters live in plain `Map`s and are swept every 60 seconds. The three HTTP limiters
+and the failed-lookup budget answer `429`. The connection limiter is not an HTTP response: a
+Socket.IO handshake over the limit is rejected in middleware, which the browser sees as a
+`connect_error` (the web app's transfer page then retries with a growing delay), and a `/ws`
+connection over the limit completes its handshake and is then closed with code `1008`.
+
+Every per-IP limiter records only what it admits. A refused connection attempt leaves no
+timestamp, just as the three HTTP limiters return the `429` before recording anything, so a client
+that keeps retrying gets back in as soon as its admitted connections age out of the 60-second
+window. One behavior does surprise people: setting any `MAX_*` variable to `0` does not disable a
+limit; it silently restores the default.
 
 The failed-lookup budget counts the other way around, on purpose: only a miss is recorded, a
 lookup that finds a live code costs nothing, and the budget is spent before the lookup runs, so a
-caller that has run out gets the same `429` whether the phrase it asked about is live, expired, or
-was never registered. It exists because the shared code limiter is a volume control rather than a
-guessing control: sixty requests a minute is sixty guesses a minute, indefinitely. Ten failures a
-minute is far more than a real receiver needs, since a receiver whose code works never spends any
-of the budget at all.
+caller that has run out gets the same `429` whether the code it asked about is live, expired, or
+was never registered. That includes a code that works: once an address has 10 misses inside the
+window, every lookup from it answers `429` until misses age out. The budget exists because the
+shared code limiter is a volume control rather than a guessing control: 60 requests a minute is 60
+guesses a minute, indefinitely. A budget of 10 failures a minute is far more than a real receiver
+needs, since a receiver whose code works never spends any of it.
 
 The active-code cap is global rather than per-IP, because it guards the size of the in-memory
 registry. It counts stored entries rather than genuinely live ones, so the number can briefly
 include codes that have already expired but that the once-a-minute sweeper has not cleared.
 
-Every per-IP limiter normalizes the client address before it counts. An IPv6 address keys on its
-`/64` prefix, so everyone sharing a `/64` shares one bucket. That stops a client from stepping
-past a limit by rotating the low 64 bits of its address. An IPv4-mapped IPv6 address
-(`::ffff:1.2.3.4`) unwraps to plain IPv4, so the same client reached through a dual-stack
-listener counts once rather than twice. Plain IPv4 is unchanged. On dual-stack deployments, size
+Every per-IP limiter normalizes the client address before it counts. A port that a proxy appended
+to the address is dropped first. An IPv6 address keys on its `/64` prefix, so everyone sharing a
+`/64` shares one bucket. That stops a client from stepping past a limit by rotating the low 64 bits
+of its address. An IPv4-mapped IPv6 address (`::ffff:1.2.3.4`) unwraps to plain IPv4, so the same
+client reached through a dual-stack listener counts once rather than twice. Plain IPv4 is
+unchanged. On dual-stack deployments, size
 `MAX_CONNECTIONS_PER_IP`, `MAX_TURN_REQUESTS_PER_IP`, `MAX_CODE_REQUESTS_PER_IP`, and
 `MAX_FAILED_CODE_RESOLVES` for a whole IPv6 `/64` rather than a single address.
 
 ## Room codes
 
-Three random words joined by hyphens, drawn from a 1247-word list in `server/words.json` (the EFF
-short word list without its hyphenated entry and without words that read badly in a shared code)
-using `crypto.randomInt`, a cryptographically secure source rather than `Math.random`. That matters
-because the phrase is the only secret guarding the transfer.
+A room code is three random words joined by hyphens, drawn from the 1,247-word list in
+`server/words.json` (the EFF short word list without its hyphenated entry and without words that
+read badly in a shared code) using `crypto.randomInt`, a cryptographically secure source rather than
+`Math.random`. That matters because the code is the only secret guarding the transfer.
 
-On a collision with a code that is still live, the server draws again, up to ten times, and only
-if all ten collide does it fall back to a four-word phrase. An expired code counts as free.
+On a collision with a code that is still live, the server draws again, up to 10 times, and only
+if all 10 collide does it fall back to a four-word code. An expired code counts as free.
 
-Ten minutes is the outside limit rather than the usual lifetime. A code is retired the moment its
-room pairs, the moment the room empties, and the moment the same room registers a new one, so a
-room never has two working phrases and a phrase stops working as soon as the transfer it was
-minted for is under way. Resolving a code is the one thing that does not retire it, which is what
-lets a receiver that fails after the lookup but before it takes its seat, with no relay
-credentials or an output path it cannot write, retry the same phrase.
+A code lasts 10 minutes at most, and that is the outside limit rather than the usual lifetime. The
+server retires a code the moment its room pairs, the moment the room empties, and the moment the
+same room registers a new one, so a room never has two working codes and a code stops working as
+soon as both seats of its room are taken. Two rarer events retire it too: a request link's host
+making its room on that id, and a server restart. Resolving a code is the one thing that does not
+retire it, which is what lets a receiver that fails after the lookup but before it takes its seat,
+with no relay credentials or an output path it cannot write, retry the same code. What this means
+for the people sharing a code is in
+[How a transfer works](/how-it-works/signaling#code-and-link-lifetime).
 
 ## Global statistics counter
 
@@ -255,13 +315,13 @@ never reaches the server, the counter is fed out of band: after a transfer compl
 is counted once, and the data-channel protocol is unchanged.
 
 One case reports without completing. When a [request link](/desktop/request-links) drop stops after
-the person at Floe Desktop accepted it, the desktop reports the bytes of the files it saved under
+the person at Floe Desktop accepted it, Floe Desktop reports the bytes of the files it saved under
 their final names, once, only with **Contribute to global stats** on. A drop that completes is
 reported by the receive itself, so no drop counts twice, and the CLI reports completed transfers
 only.
 
-The total is **viewable only in the browser**. The CLI and desktop receivers contribute to it and
-never fetch or display it.
+The total is **viewable only in the browser**. The CLI and Floe Desktop contribute to it when they
+receive, and never fetch or display it.
 
 The server keeps the running total in two places. An in-memory value answers every read, so
 homepage polling never touches Redis. Each accepted report additionally fires an atomic increment
@@ -273,7 +333,8 @@ Guardrails are deliberately light: a per-IP rate limit and a per-report size cap
 honest best-effort metric rather than an audited count, and the stored value is a single anonymous
 integer with no file names, no per-transfer rows, and no link to any user or IP. Every receiving
 surface can opt out, and the opt-out happens on the client before any request is made; the server
-has no role in it.
+has no role in it. The switch on each surface is listed under
+[Aggregate statistics](/security-privacy#aggregate-statistics).
 
 ## Where the details are
 

@@ -1,9 +1,12 @@
 ---
 title: "Day-to-day operations"
 sidebarTitle: "Operations"
-description: "Day-to-day operations for a self-hosted Floe instance: common Compose commands, updating to the latest images, the health endpoints to point a monitor at, and the request-link policy file."
-keywords: ["logs", "update containers", "health check", "restart", "request links", "policy file"]
+description: "Day-to-day operations for a self-hosted Floe instance: Compose commands, what a restart costs, updating and moving to 1.11.0, the logs, and health endpoints."
+keywords: ["logs", "update containers", "health check", "restart", "upgrade", "1.11.0"]
 ---
+
+Reference for a Floe instance that is already running under Docker Compose: the commands you will
+reach for, what a restart costs, how to update, what the server logs, and which endpoint to monitor.
 
 ## Common commands
 
@@ -14,13 +17,17 @@ docker compose down                     # stop and remove the stack
 docker compose restart server           # restart only the signaling server
 ```
 
-**Restarting the server is not free.** Rooms and room codes live in that process's memory, so a
-restart forgets every short code. A CLI or Floe Desktop sender still waiting for its receiver stops
-and has to start again; one in the web app reconnects on its own within a few seconds and keeps its
-link. A transfer that is already running keeps going, because file data never passes through the
-server, except between two browsers: the shutdown tells one that the other has left, and the
-transfer stops. One that was still connecting may need another try. There is no draining and no
-warning. Pick a quiet moment.
+<Warning>
+  Restarting the server is not free. Rooms and room codes live in that process's memory, so a
+  restart forgets every room code, and a CLI or Floe Desktop sender still waiting for its receiver
+  stops and has to start again. There is no draining and no warning. Pick a quiet moment.
+</Warning>
+
+A sender waiting in the web app fares better: it reconnects on its own within a few seconds and
+keeps its link. A transfer that is already running keeps going, because file data never passes
+through the server. A web client older than 1.11.0 is the exception: its transfer stops when the
+server tells the page that the other side has left, as a shutdown can. A transfer that was still
+connecting may need another try.
 
 A [request link](/desktop/request-links) that is waiting for a sender comes back on its own. The
 server forgets it too, but a Floe Desktop that is still open reconnects and makes the same link
@@ -39,12 +46,7 @@ docker compose pull
 docker compose up -d
 ```
 
-That pulls the newest [published images](/self-hosting/images) and restarts. Nothing is built locally, so there is no repository to keep in sync.
-
-Pulling never changes your `docker-compose.yml`. A copy from before v1.11.0 has no `POLICY_FILE` line, so before you
-turn on [request links](#request-links) on such an install, take the current
-[`docker-compose.yml`](https://github.com/jannskiee/floe/blob/main/docker-compose.yml) and copy your own changes
-across.
+That pulls the image tag you run, which is `latest` unless `FLOE_IMAGE_TAG` in `.env` names another, and restarts on it. See [Container images](/self-hosting/images) for the tags. Nothing is built locally, so there is no repository to keep in sync. If you pinned a version, change `FLOE_IMAGE_TAG` first, or the pull has nothing new to fetch. An update is a restart, with the cost described above.
 
 If you run the optional coturn relay, add its profile to both commands or Compose skips the service entirely, so a new coturn image is never pulled and a stopped relay is never restarted:
 
@@ -55,35 +57,74 @@ docker compose --profile turn up -d
 
 Setting `COMPOSE_PROFILES=turn` in your `.env` applies it to every later `docker compose` command.
 
-Changing `NEXT_PUBLIC_SOCKET_URL` needs only `docker compose up -d`; the client reads it at runtime. See [How the client finds the server](/self-hosting/build-time-url). `NEXT_PUBLIC_SITE_URL` is the exception: it is written into the page at build time, so the published image omits those tags entirely rather than pointing them at somebody else's domain. See [Container images](/self-hosting/images) if you want your own.
+Changing `NEXT_PUBLIC_SOCKET_URL` needs only `docker compose up -d`; the client reads it at runtime. See [How the client finds the server](/self-hosting/build-time-url). `NEXT_PUBLIC_SITE_URL` is the exception: it is written into the page at build time, so the published image cannot carry it and leaves your domain out of share previews and the sitemap rather than pointing them at somebody else's. See [Container images](/self-hosting/images#share-previews-and-canonical-links) for what the image emits and how to build your own.
+
+### Moving to 1.11.0 {#moving-to-1-11-0}
+
+Version 1.11.0 changed what a self-hosted instance needs. Go through these five points once, when
+you move up from an older version:
+
+- **Pass the `Host` header through your proxy.** This matters only when the CLI or Floe Desktop
+  reaches the server through a reverse proxy on a hostname that is not exactly your `CLIENT_URL`,
+  as on the [two-hostname layout](/self-hosting/production). From 1.11.0 the server checks the
+  origin of every WebSocket, and it lets those two clients in by comparing their `Origin` with the
+  hostname in `Host`. A proxy that rewrites `Host` to its upstream address gets them refused with a
+  `403`. Browsers on your `CLIENT_URL`, a [one-domain deployment](/self-hosting/reverse-proxy), and a
+  server reached without a proxy are not affected.
+- **Take the current `docker-compose.yml`.** Pulling images never changes your copy. One from
+  before v1.11.0 passes neither `POLICY_FILE` nor `MAX_FAILED_CODE_RESOLVES` to the server, so
+  setting them in `.env` does nothing. Download the one on
+  [GitHub](https://github.com/jannskiee/floe/blob/main/docker-compose.yml) and copy your own
+  changes across. You need it before you turn on [request links](/self-hosting/request-links),
+  which stay off until you do.
+- **Keep the client and the server on one version.** The page a request-link sender opens is part
+  of the web client, so a 1.11.0 server behind an older client hands out links to a page that does
+  not exist. Compose picks both images with `FLOE_IMAGE_TAG`; if you pinned `1.10.11`, move it to
+  `1.11.0`. See
+  [Keep the client and server on one version](/self-hosting/request-links#matching-versions).
+- **Know the new failed-lookup setting.** Each address gets 10 failed room-code lookups in 60
+  seconds, and the new optional `MAX_FAILED_CODE_RESOLVES` changes that number. A lookup that finds
+  a code costs nothing, but once an address has spent its 10, every lookup from it answers `429`
+  until the misses age out. Raise it only if many people behind one address mistype codes. See
+  [Configuration](/self-hosting/configuration).
+- **Expect IPv6 clients to share limits by /64.** Every per-address limit now counts an IPv6 client
+  by its /64 instead of its single address, so everyone inside one /64 shares one budget, as
+  everyone behind one IPv4 address always has. If a whole office or campus sits in one /64, raise
+  `MAX_CONNECTIONS_PER_IP` and the other limits to fit.
+
+The [Changelog](/changelog) lists everything else that changed in v1.11.0.
 
 ## The server logs very little
 
 Worth knowing before you go looking. The signaling server has no access log, no request log, and
 no startup banner, not even a line saying which port it bound. `docker compose logs server` on a
-healthy instance is usually empty, and that is expected rather than a symptom.
+healthy instance is usually empty, or holds the one line `request links: on`, and that is expected
+rather than a symptom.
 
-A request its error handler refuses gets one fixed line and no stack trace:
-`Refused a request with 403.` for a browser request from an origin it does not allow, or the same
-line with another status under 500, such as `400` for malformed JSON or `413` for a body over the
-size limit. The line carries the status and nothing else, never the origin, the path, or any of the
-request's text. An occasional one is some page or client sending a bad request, not a fault. If
-`403` lines show up each time someone uses your own web client, check `CLIENT_URL`.
+It never logs an accepted connection, a room, a code, a rate-limit refusal, or a request-link event,
+and no line is built from a client's address. These are all the lines it can write:
 
-It writes a stack trace in exactly three cases: when a server-side error (a `5xx`) reaches its
-error handler, when it cannot bind its port at startup (prefixed `HTTP server error:`, after which
-it exits), and when an unexpected exception reaches the process-level backstop. The last kind is
-prefixed `Unhandled error` and means the server caught something it did not anticipate and kept
-serving rather than exiting, so the transfers in progress survived. It is worth reporting. To
-confirm the server is alive, or that a restart actually landed, use the health endpoint below
+| Message | What it means | What to do |
+|---|---|---|
+| `request links: on` or `request links: off` | The request-link setting took effect: at startup when the policy file says on, and afterward whenever it changes. A server that starts with request links off writes neither. | Nothing. See [Turn on request links](/self-hosting/request-links). |
+| `policy file not found, request links off` | `POLICY_FILE` is set, but no file is at that path. Written once for as long as the file stays missing. | Check the volume mount and the path. |
+| `policy file unreadable, keeping previous policy` | The policy file is there but cannot be used, so the last good setting stays. Written once, until the file reads cleanly again. | Fix the file. See [how the server reads it](/self-hosting/request-links#how-the-server-reads-the-file). |
+| `Refused a request with 403.` | The error handler refused one HTTP request: `403` for a browser request from an origin the server does not allow, or another status under 500, such as `400` for malformed JSON or `413` for a body over the size limit. The line carries the status and nothing else, never the origin, the path, or any of the request's text. | An occasional one is some page or client sending a bad request, not a fault. If `403` lines show up each time someone uses your own web client, check `CLIENT_URL`. |
+| `Refused a connection on /ws from Origin "..." (Host "..."): not CLIENT_URL, a floe.one origin, or this server's own host. Further refusals on /ws are not logged.` | A WebSocket came from an origin the server does not accept. Written once for `/ws` and once for `/socket.io` until the next restart, however many connections are refused. | If the `Origin` is your own server and the `Host` is not, your proxy rewrites `Host`. See [Production deployment](/self-hosting/production#cors-note). |
+| `Cloudflare TURN mint failed (...)` | A request to Cloudflare for relay credentials failed. The parentheses hold the reason: `status` and an HTTP status, `no-ice-servers`, or an error name such as `TimeoutError`. At most one line every 5 minutes. | See [TURN relay](/self-hosting/turn-relay#verify). |
+| `HTTP server error:` and a stack trace | The server could not bind its port at startup. It exits. | Free the port, or change `PORT`. |
+| `Unhandled error (uncaughtException), server still serving:` and a stack trace | An exception nothing anticipated reached the process-level backstop. The word in parentheses can also be `unhandledRejection`. The server kept serving rather than exiting, so the transfers in progress survived. | It is worth reporting. |
+| A stack trace on its own | A server-side error (a `5xx`) reached the error handler. | It is worth reporting. |
+
+To confirm the server is alive, or that a restart actually landed, use the health endpoint below
 rather than the logs.
 
-`docker compose ps` is a similar case: **the client image ships no healthcheck**, so it never
+`docker compose ps` has a blank of its own: the client image ships no healthcheck, so it never
 reports a health state. Only the server does.
 
-On `SIGTERM` or `SIGINT` the server closes every WebSocket with code `1001` and the reason
-`Server shutting down`, stops accepting connections, and exits. If something is still holding it
-open ten seconds later it exits anyway.
+On `SIGTERM` or `SIGINT` the server closes every `/ws` connection with code `1001` and the reason
+`Server shutting down`, closes its Socket.IO connections, stops accepting new ones, and exits. If
+something is still holding it open 10 seconds later it exits anyway. It logs nothing on the way out.
 
 ## Health endpoints
 
@@ -98,10 +139,11 @@ Point a monitor at `/health`. It is the only one of the two that survives a
 [one-domain deployment](/self-hosting/reverse-proxy), where `/` belongs to the
 web client and returns a page rather than JSON. `GET /` on the signaling server
 is reachable only when you address the server directly, on `:3001` or on its own
-subdomain.
+subdomain. The server image runs the same check on itself every 30 seconds, which is the health
+state `docker compose ps` shows.
 
 `features` is `["request-1"]` while request links are on and `[]` while they are off. See
-[the HTTP API](/reference/http-api).
+[HTTP API](/reference/http-api#get-health).
 
 ## Request links {#request-links}
 

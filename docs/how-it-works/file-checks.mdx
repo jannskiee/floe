@@ -1,0 +1,174 @@
+---
+title: "How Floe checks that each file arrived intact"
+sidebarTitle: "File checks"
+description: "How Floe checks each received file against the size and SHA-256 its sender sent, what the check mark and the Verified row mean, and what they do not prove."
+keywords: ["sha-256", "checksum", "integrity", "verified", "delivery confirmation", "check mark", "was my file sent", "corrupted file"]
+---
+
+Floe checks every file it receives before it lets you keep it. The number of bytes must equal the
+size the sender announced, and, when the sender provides a SHA-256 of the file, the bytes must
+match that too. A file that fails either check is deleted and the transfer stops. When every file
+in a transfer passes both, the app shows a mark that says so.
+
+## The size check {#the-size-check}
+
+Every receiver runs this check on every file. The sender announces each file's size before its
+first byte, and when the sender marks the file as finished, the receiver compares what arrived
+with that size. The two must be equal. A file that is short was cut off, and a file that is long
+was not the file the sender described.
+
+Either way the receiver discards the file, tells the sender why, and stops the transfer, so files
+queued behind it do not arrive either. Files that finished before it are kept. See
+[a file did not appear at all](/troubleshooting#a-file-did-not-appear-at-all).
+
+Floe Desktop and `floe receive` do not wait for the end of a file that is too long. They stop at
+the first piece of data that would take a file past its announced size, so a sender cannot fill
+the disk.
+
+A browser receiver that is given no usable size accepts the file as it stands. Every current Floe
+sender announces one.
+
+## The SHA-256 check {#the-sha-256-check}
+
+The size check cannot see a file whose bytes changed while its length did not. The SHA-256 check
+can.
+
+The sender computes a SHA-256 of each file as it sends it, and sends that right after the file's
+last byte. The receiver computes its own SHA-256 of what arrived and compares the two:
+
+- Floe Desktop and `floe receive` compute it while they write the file, and compare before the
+  file takes its final name. They never read the file back from disk.
+- The web app computes it once the file's last byte has arrived, on the copy it holds for you to
+  save. The status reads "Verifying file 2 of 3" while it works.
+
+A file that does not match is never kept. Floe Desktop and `floe receive` delete it before it has
+its final name, the web app discards it, the sender is told that a file did not match, and the
+transfer stops. Files that finished before it are kept. A SHA-256 that arrives but cannot be read
+counts as a mismatch, not as a missing one. For what each side shows, see the troubleshooting
+entries for [the browser](/troubleshooting#a-file-did-not-match-what-was-sent),
+[the command line](/troubleshooting#a-file-did-not-match-the-sha-256), and
+[the desktop app](/troubleshooting#they-discarded-a-file).
+
+Senders provide a SHA-256 from `floe` 1.11.0, Floe Desktop 0.3.0, and the web app of the v1.11.0
+release (on a self-hosted instance, a client image of 1.11.0 or later). An older sender provides
+none, and the receiver then relies on the size check alone.
+
+Floe never shows the SHA-256 itself, and there is nothing for the two people to compare. Each app
+shows only whether every file matched.
+
+### When a browser runs out of time {#when-a-browser-runs-out-of-time}
+
+A browser computes the SHA-256 in the background, and with a very large file or a slow device the
+file can be finished before its SHA-256 is. Floe then lets the file through unchecked rather than
+fail a transfer whose bytes all arrived:
+
+- A browser that is **sending** waits for a file's SHA-256 at most 45 seconds after the file's
+  last byte, then sends the file without one. It cannot wait longer, because Floe Desktop and
+  `floe receive` give up on a transfer that goes 60 seconds without data.
+- A browser that is **receiving** with more files to come checks a file for at most 90 seconds,
+  then keeps it unchecked so the next file can start. The sender stops waiting for the next file
+  to be accepted after 120 seconds. The last file of a transfer has nothing waiting behind it, so
+  it gets as long as its size needs: the time the file would take at 10 MB per second, plus 30
+  seconds.
+
+Floe Desktop and the CLI compute the SHA-256 as they read and write the file, so they have no
+such wait. The frames and fields behind both checks are in
+[Transfer protocol](/reference/transfer-protocol#integrity).
+
+## Delivery confirmation {#delivery-confirmation}
+
+A sender can finish sending before the receiver has finished saving. The last file may still be
+crossing the connection, or the receiving app may still be checking it and moving it into place.
+So what "sent" means depends on whether the receiver reports back.
+
+| Sending from | To | The send is finished when |
+| --- | --- | --- |
+| `floe send` or Floe Desktop | `floe receive` or Floe Desktop, with `floe` 1.11.0 or Floe Desktop 0.3.0, or later, on both sides | The receiving app says it has saved every file, after its checks. A file it deleted or could not save at the last moment ends the send as a failure with the reason. |
+| `floe send` or Floe Desktop | A browser, or an older `floe` or Floe Desktop | Everything has left the sending device. |
+| The web app's Send page | Any receiver | Everything has left the browser, and the status reads "All Files Sent!". If the receiving app then reports a file it refused, the page replaces that status with the failure and its reason. |
+| A request link's page, or `floe send --to` | Floe Desktop | Floe Desktop says it has saved every file. Nothing less counts. |
+
+On the first and last rows the finished state means the files are saved on the other device:
+`Sent` in the summary of `floe send`, "Sent 3 items" in Floe Desktop, "ALL 3 FILES ARRIVED" on a
+request link's page. On the two rows between, it means the data left your device, which is not the
+receiver's word.
+
+Where the sender waits for the receiver's word, the wait has no time limit of its own: it lasts
+as long as the connection does. If the receiving device vanishes instead of answering, `floe send`
+and Floe Desktop give the connection up about 30 seconds after its last packet, and the send ends
+as a failure, never as a success. See the troubleshooting entries for
+[the command line](/troubleshooting#the-connection-closed-before-the-receiver-confirmed-delivery)
+and
+[the desktop app](/troubleshooting#the-connection-dropped-before-the-transfer-finished).
+
+## What you see in each app {#what-you-see-in-each-app}
+
+When every file of a transfer passed the SHA-256 check, the app says so, on both sides where it
+can. No app shows the SHA-256 itself.
+
+| Where | What you see when every file's SHA-256 matched |
+| --- | --- |
+| Web app, receiving | The line "SHA-256 matched" under "3 files received". |
+| Web app, the Send page | The line "SHA-256 matched" under "All Files Sent!". |
+| Web app, a request link's page | "Their app reports every file's SHA-256 matched." on the card "ALL 3 FILES ARRIVED". |
+| `floe receive` | A `Verified` row that reads `SHA-256 matched`, under `Received` in the summary. |
+| `floe send` | The same `Verified` row, between `Sent` and `Time`. |
+| `floe send --to` | The line `Their app reports every file's SHA-256 matched.` after the line that says the files arrived. |
+| Floe Desktop, sending | A green check mark in front of "Sent 3 items". |
+| Floe Desktop, receiving with a code or a link | A green check mark in front of "Saved to" and the folder. |
+| Floe Desktop, a request link | A green check mark after the heading, for example "RECEIVED 12 FILES, 38.0 GB", and beside the folder in that drop's row in History. |
+
+Floe Desktop draws the check mark without words. A screen reader reads it as "SHA-256 matched".
+
+On the sending side the mark is the receiver's report, not a check your own app made: your app
+sent the SHA-256, and the other side says every file matched it. See
+[When it finishes](/web-app/sending#when-it-finishes) for the web app's Send page.
+
+## When there is no mark {#when-there-is-no-mark}
+
+The mark is all or nothing. It shows only when every file of the transfer arrived and every one
+matched, so a single unchecked file removes it for the whole transfer.
+
+No mark does not mean a file is damaged. Every file that was kept passed the size check, and a
+file that fails the SHA-256 check is deleted, never kept without a mark. A transfer finishes
+without the mark when:
+
+- The sender sent no SHA-256 for some file. Either it is older than `floe` 1.11.0, Floe Desktop
+  0.3.0, or the web app of the v1.11.0 release, or it is a browser that had not finished computing
+  one [when its time ran out](#when-a-browser-runs-out-of-time).
+- The receiver is a browser that had not finished checking some file when its time ran out, or
+  that could not run the check.
+- You are the sender and the receiver is a browser, which never reports back. Between two
+  browsers, only the receiving side can show the line.
+- You are the sender and the receiver is an older `floe` or Floe Desktop, which reports that the
+  files arrived but not whether they matched.
+- Not every file arrived, because the transfer stopped partway.
+
+| Where | What you see without the mark |
+| --- | --- |
+| Web app | No "SHA-256 matched" line. Everything else reads the same. |
+| `floe send` and `floe receive` | No `Verified` row in the summary. |
+| `floe send --to` | Only the line that says the files arrived. |
+| Floe Desktop, sending or receiving with a code or a link | A gray check mark in place of the green one. |
+| Floe Desktop, a request link | No check mark after the heading or in History. |
+
+## What the checks prove and what they do not {#what-the-checks-prove}
+
+A file that passed both checks has exactly the bytes the sending app read and sent. That rules out
+a file cut short and a file whose bytes changed between the two apps.
+
+<Warning>
+  The mark means the files arrived intact. It does not mean they are safe to open. Floe does not
+  scan files for malware.
+</Warning>
+
+The checks also do not prove:
+
+- **Who sent the file.** The SHA-256 travels over the same connection as the file, so it is not a
+  signature and says nothing about who is at the other end. That question belongs to the
+  connection itself. See [Encryption](/how-it-works/encryption#what-it-does-not-protect-against).
+- **That the copy on your disk is still intact.** Floe Desktop and `floe receive` take the SHA-256
+  while they write and never read the file back, and the web app checks the copy it holds before
+  your browser saves it. Damage that happens on your disk afterward is outside the check. See
+  [Known limitations](/how-it-works/known-limitations#the-sha-256-check-covers-the-transfer-not-your-disk-afterward).
+- **That the sender chose the right file.** The check covers what was sent, not what was meant.

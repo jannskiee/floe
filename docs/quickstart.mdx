@@ -21,8 +21,8 @@ yourself, in two tabs, so nothing depends on anyone else being ready.
     have them scan the QR code with their phone.
   </Step>
   <Step title="Watch it arrive">
-    The transfer starts on its own after a couple of seconds. When the file lands, a download
-    button appears on its row in the second tab. Click it to save.
+    The transfer starts on its own, about 2 seconds after the two tabs connect. When the file
+    lands, a download button appears on its row in the second tab. Click it to save.
   </Step>
 </Steps>
 
@@ -30,34 +30,47 @@ yourself, in two tabs, so nothing depends on anyone else being ready.
 
 Your two tabs found each other through Floe's signaling server and then connected **directly**.
 The file went from one to the other without passing through any server, which is why there is no
-size limit and no upload to wait for.
+upload to wait for and why Floe sets no size limit on a direct connection.
 
 The badge at the top of the card said **Direct** once that path was open. On a network that
 blocks direct connections it would have said **Relay** instead, and the file would have traveled
-through an encrypted relay that cannot read it. See [How a transfer works](/how-it-works/signaling).
+through an encrypted relay that cannot read it, with a 2 GB cap. See
+[How a transfer works](/how-it-works/signaling) and [File size limits](/how-it-works/2gb-limit). What each part of Floe can and cannot see is in [Security and privacy](/security-privacy).
+
+Before the second tab offered that download button, it checked the file against the size and the
+SHA-256 the first tab sent with it. The line "SHA-256 matched" under the file is that check
+passing. See [File checks](/how-it-works/file-checks).
 
 ## The same thing from the desktop app or the terminal
 
-Both do everything the browser does, plus folders, plus writing straight to disk.
+Both send to and receive from the browser, and each other. Both also send folders and write what
+they receive straight to disk. They differ from the browser in smaller ways too, and
+[Which Floe to use](/choosing-floe) lists them.
 
-<CodeGroup>
-```bash CLI
-# install (macOS)
+### From the terminal
+
+Install the `floe` CLI, then send. This is Homebrew on macOS;
+[Installation](/cli/installation) has the other ways.
+
+```bash Terminal
 brew install --cask jannskiee/tap/floe
-
 floe send photo.jpg
-# prints a three-word code and a link; share either
 ```
 
-```powershell Desktop
+`floe send` prints a room code and a link, and either one works. The receiving side is
+`floe receive olive-tiger-castle`, with the code that was printed, or pasting the code or the link
+into Floe Desktop's **Receive** tab, or opening the link in a browser.
+
+### From Floe Desktop
+
+Install Floe Desktop from the Microsoft Store, or from a terminal:
+
+```powershell PowerShell
 winget install --id 9NBQ8ZQ1065L --source msstore
-# then: drop files on the window, click Send,
-# and share the room code, the link, or the QR
 ```
-</CodeGroup>
 
-The receiving side is `floe receive olive-tiger-castle`, or pasting the same code or link into
-Floe Desktop's **Receive** tab.
+Drop a file on the window and click **Send 1 item**. Floe shows a room code, a share link, and a
+**Show QR** button, and any of the three gets the other person in.
 
 ## Any Floe can talk to any other {#cross-platform-transfers}
 
@@ -76,26 +89,27 @@ all land in the same room, so every pairing works in both directions.
 | CLI | Desktop | Pastes the code or the link into the Receive tab |
 | CLI | CLI | `floe receive <code>` or `floe receive "<link>"` |
 
-One asymmetry is worth remembering. **A browser recipient always needs the link.** The web app has
-no field for a three-word code, and a browser sender never mints one. Codes come from `floe send`
-and Floe Desktop, and both of those also accept a link. When you do not know what the other person
-will use, share the link.
+A request link (Beta) is the one transfer that starts from the receiving side: Floe Desktop makes
+the link and receives, and the sender opens it in a browser or runs
+`floe send <files> --to "<link>"`. To make one, see [Request links](/desktop/request-links). If someone sent you one, see [Sending through a request link](/web-app/request-links).
 
-Folders are the other difference: the CLI and the desktop app send them and rebuild the structure
-on arrival, and the browser cannot send them at all. A browser recipient of a folder can still get
-the structure back by choosing **Download ZIP**, which rebuilds it inside the archive; saving files
-one at a time flattens them.
+<Info>
+A browser recipient always needs the link. The web app has no field for a room code, and a
+browser sender never makes one. Codes come from `floe send` and Floe Desktop, and both of those
+also accept a link. When you do not know what the other person will use, share the link.
+</Info>
 
-## Next
+Folders are the other difference. The CLI and the desktop app send them and rebuild the structure
+on arrival. In the browser, the Send page at floe.one cannot send a folder, and the page a request
+link opens can. A browser recipient of a folder can still get the structure back by choosing
+**Download ZIP**, which rebuilds it inside the archive; saving files one at a time flattens them.
 
-<Columns cols={3}>
-  <Card title="Which Floe to use" icon="git-compare" href="/choosing-floe">
-    A feature-by-feature comparison of the three.
-  </Card>
-  <Card title="File size limits" icon="scale" href="/how-it-works/2gb-limit">
-    When a cap applies, and how to stay on the unlimited path.
-  </Card>
-  <Card title="Security and privacy" icon="shield" href="/security-privacy">
-    What each part of Floe can and cannot see.
-  </Card>
-</Columns>
+## If something goes wrong {#next}
+
+- The second tab shows "Link Invalid": the pasted link was cut short, or the link is already open
+  in another tab. See [Troubleshooting](/troubleshooting#link-invalid).
+- The second tab stays on "Waiting for the sender to start": the first tab was closed or
+  reloaded. See [Troubleshooting](/troubleshooting#the-transfer-never-starts).
+- `Could not connect. Ask the sender to enable "Network Relay" and try again.` with a real
+  recipient: the two networks could not reach each other. See
+  [Troubleshooting](/troubleshooting#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again).

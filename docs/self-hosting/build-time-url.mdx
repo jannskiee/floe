@@ -14,10 +14,12 @@ The first match wins.
 
 | Order | Source | When it applies |
 |-------|--------|-----------------|
-| 1 | `NEXT_PUBLIC_SOCKET_URL` baked in at build time | Only if you deliberately built an image with a URL compiled in. Empty in the published image. |
+| 1 | `NEXT_PUBLIC_SOCKET_URL` baked in at build time | Only if you deliberately built the client with a URL compiled in. Empty in the published image. This is not the `.env` line of the same name: Compose turns that one into `SOCKET_URL`, which is step 3. |
 | 2 | `http://localhost:3001` | Development builds only (`pnpm dev`). |
 | 3 | `SOCKET_URL` on the running client container, served from `GET /api/config` | The normal path for a self-hosted instance. |
-| 4 | The page's own origin | When `SOCKET_URL` is empty, which is what you want [behind one domain](/self-hosting/reverse-proxy). |
+| 4 | The page's own origin | When `SOCKET_URL` is empty, which is what you want [behind one domain](/self-hosting/reverse-proxy), and whenever `/api/config` cannot be read. |
+
+A trailing slash on the address is ignored, and the browser asks `/api/config` at most once per page load.
 
 The same response also carries `commit`, the source revision the client was deployed from
 (`SOURCE_COMMIT` in the client's environment, `null` when unset). It plays no part in resolution
@@ -43,11 +45,15 @@ docker compose up -d
 ```
 
 Docker Compose maps your `NEXT_PUBLIC_SOCKET_URL` value to the container's
-`SOCKET_URL`, so the variable name in `.env` has not changed.
+`SOCKET_URL`, so the variable name in `.env` has not changed. Outside Compose
+(the Unraid template, `docker run`, a direct Node run) nothing does that mapping,
+so set `SOCKET_URL` itself.
 
 Leave the value **empty** when the client and the signaling server share one
 origin behind a reverse proxy. The browser then talks to whatever host it was
-loaded from, so there is nothing to configure and nothing to keep in sync.
+loaded from, so there is nothing to configure and nothing to keep in sync. Under
+Compose, empty means the line `NEXT_PUBLIC_SOCKET_URL=` with nothing after it:
+with the line removed, Compose falls back to `http://localhost:3001`.
 
 ## The address is used by the browser, not the server
 
@@ -60,10 +66,13 @@ machine as the server. For anything else use the server's LAN IP or public domai
 `NEXT_PUBLIC_SITE_URL` is genuinely build-time. It feeds canonical links, Open
 Graph tags, and the sitemap, which are rendered into the page rather than fetched.
 
-That is the one value a shared image cannot carry, because it would have to know
-which domain it will be served from before anyone downloads it. So the published
-image **omits** those tags rather than pointing them at floe.one, which would mean
+A shared image cannot carry it, because it would have to know which domain it
+will be served from before anyone downloads it. So the published image leaves its
+own address out rather than pointing those tags at floe.one, which would mean
 every self-hosted instance advertising somebody else's site as its canonical.
+Canonical links stay relative, and the share-preview image and the sitemap entries
+are left out. [Container images](/self-hosting/images#share-previews-and-canonical-links)
+has the full list.
 
 To put your own domain in them, build the client yourself:
 

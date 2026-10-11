@@ -6,14 +6,19 @@ keywords: ["floe", "docs", "peer to peer file transfer", "webrtc", "send a file"
 boost: 3
 ---
 
-**Your files never make a stop.** Floe sends them straight from one device to another over an
-encrypted connection: no account, no upload, and nothing kept on a server.
+**Your files never make a stop.** Floe sends them from one device to another over an encrypted
+connection: no account, no upload, and nothing kept on a server.
+
+<Info>
+Did someone send you a request link, a link with `/r/` in it? You are the one sending. See
+[Sending through a request link](/web-app/request-links).
+</Info>
 
 ## Start here
 
 <Columns cols={3}>
   <Card title="Send a file right now" icon="zap" href="/quickstart">
-    Under a minute, in a browser.
+    About a minute, in a browser.
   </Card>
   <Card title="Run my own instance" icon="server" href="/self-hosting/quickstart">
     Two commands with Docker Compose.
@@ -33,14 +38,14 @@ compatibility.
     Nothing to install. Open floe.one, drop a file, share the link.
   </Card>
   <Card title="Desktop app" icon="monitor" href="/desktop/installation">
-    Windows, in beta. Sends folders, pastes screenshots, saves where you choose.
+    Windows, in Beta. Sends folders, pastes screenshots, saves where you choose.
   </Card>
   <Card title="CLI" icon="terminal" href="/cli/installation">
     macOS, Windows, Linux. One binary for servers and scripts.
   </Card>
 </Columns>
 
-Not sure which? [Compare the three](/choosing-floe).
+Not sure which? See [Which Floe to use](/choosing-floe).
 
 ## What you should know
 
@@ -52,18 +57,26 @@ in between can read it, Floe's own servers included. See
 **No accounts, no uploads.** The signaling server introduces the two devices and then steps out
 of the way. File data never reaches it. See [How a transfer works](/how-it-works/signaling).
 
-**No size limit on a direct connection.** Most transfers connect directly. When a network makes
-that impossible and the transfer falls back to a relay, it is capped at 2 GB per session to keep
-Floe free. See [File size limits](/how-it-works/2gb-limit).
+**No size limit from Floe on a direct connection.** Most transfers connect directly. One that has
+to fall back to a relay is capped at 2 GB, and a browser on the receiving end can only take what
+that browser can hold. See [File size limits](/how-it-works/2gb-limit).
 
-## Going further
+**Every file is checked on arrival.** The receiving side compares each file with the size the
+sender announced, and with its SHA-256 when the sender provides one, and discards a file that does
+not match. See [File checks](/how-it-works/file-checks).
+
+**Request links, in Beta.** Floe Desktop can make a link that works the other way around: whoever
+opens it sends files to your PC from their browser, with nothing to install. See
+[Request links](/desktop/request-links).
+
+## Next steps {#going-further}
 
 <Columns cols={3}>
-  <Card title="Self-hosting" icon="container" href="/self-hosting/overview">
-    Run the whole stack on your own infrastructure.
+  <Card title="FAQ" icon="message-circle" href="/faq">
+    Short answers to the questions that come up most.
   </Card>
-  <Card title="Reference" icon="book-open" href="/reference/architecture">
-    The architecture, the HTTP API, and the wire protocol.
+  <Card title="Architecture" icon="book-open" href="/reference/architecture">
+    How the pieces fit together, with the HTTP API and the wire protocol beside it.
   </Card>
   <Card title="Changelog" icon="history" href="/changelog">
     Every release across web, desktop, and CLI.

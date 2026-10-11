@@ -1,13 +1,13 @@
 ---
 title: "Direct connections"
 sidebarTitle: "Direct connections"
-description: "A direct Floe transfer goes device to device with nothing in between, so there is no size limit. How two devices on different networks find each other."
+description: "A direct Floe transfer goes device to device with nothing in between, so Floe sets no size limit on it. How two devices on different networks find each other."
 keywords: ["direct connection", "peer to peer", "stun", "nat traversal", "hole punching"]
 ---
 
 A direct connection means the file goes from your device to theirs with nothing in between. No
-server carries it, so nobody is paying for the bandwidth and nothing caps the size. The speed is
-whatever the slower of your two internet connections can manage.
+server carries it, so nobody is paying for the bandwidth and Floe sets no limit on the size. The
+speed is whatever the slower of your two internet connections can manage.
 
 Most transfers are direct, including ones between a laptop on home Wi-Fi and a phone on mobile
 data on the other side of the country.
@@ -33,7 +33,9 @@ the picture the moment the connection exists.
 
 ## What direct means for you
 
-- **No size limit.** Nothing is metered, so nothing is capped.
+- **No size limit from Floe.** Nothing is metered, so Floe caps nothing. A browser that receives is
+  still limited by what that browser can hold. See
+  [Known limitations](/how-it-works/known-limitations#a-browser-receiver-is-limited-by-what-the-browser-can-hold).
 - **As fast as your connection allows.** Usually the sender's upload speed is the ceiling.
 - **Nothing to pay for and nothing to trust.** No server sees the traffic, encrypted or otherwise.
 
@@ -66,7 +68,7 @@ or university network.
   did not win.
 
   On floe.one the STUN endpoint is Cloudflare's, at `stun.cloudflare.com:3478`. When no relay
-  service is configured at all, which is the default for a fresh self-hosted instance, clients
-  fall back to Google's public STUN servers. A self-hosted coturn relay doubles as the STUN
-  server for that instance.
+  service is configured at all, which is the default for a fresh self-hosted instance, the
+  signaling server hands out Google's public STUN servers instead. A self-hosted coturn relay
+  doubles as the STUN server for that instance.
 </Accordion>

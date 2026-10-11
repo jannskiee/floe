@@ -1,14 +1,19 @@
 ---
 title: "Data-channel transfer protocol"
 sidebarTitle: "Transfer protocol"
-description: "The wire format Floe peers speak over the WebRTC data channel: message types, framing, protocol versioning, chunk sizing, backpressure, and every timeout."
-keywords: ["wire protocol", "data channel", "webrtc", "protocol version", "backpressure"]
+description: "The wire format Floe peers speak over the WebRTC data channel: message types, framing, refusal codes, protocol versioning, backpressure, and timeouts."
+keywords: ["wire protocol", "data channel", "webrtc", "protocol version", "backpressure", "refusal codes"]
 ---
 
-Once the WebRTC data channel opens, the signaling server is out of the picture and the two peers
-speak this protocol directly. The browser, the CLI, and Floe Desktop all implement it and are
-interoperable in every direction. The CLI and the desktop app share one implementation in
-`cli/engine/transfer`; the browser has its own in `client/lib/transfer`.
+This page describes the protocol two Floe peers speak over the WebRTC data channel, from the moment
+it opens and the signaling server is out of the picture. The browser, the CLI, and Floe Desktop all
+implement it and are interoperable in every direction. The CLI and the desktop app share one
+implementation in `cli/engine/transfer`; the browser has its own in `client/lib/transfer`.
+
+Everything travels on one data channel, opened by the side that makes the WebRTC offer: the sender
+for a room code or a share link, and the receiving Floe Desktop for a
+[request link](/desktop/request-links). A Go peer closes the connection if the other side opens a
+second channel.
 
 ## The sequence
 
@@ -26,26 +31,30 @@ What that order does not show:
 
 - **Step 3 is zero or more frames.** An empty file is `metadata`, `ack`, `end`, with no binary
   frame between them at all.
-- **There is no cancel message.** Canceling is a channel close, and a receiver declining at
-  the CLI's prompt closes the channel without sending anything. Every wait in the Go engine
-  watches for that close as a separate signal and gives up at once. The browser sender does not:
-  it sees a close only through its buffer-drain polls, so a decline reaches it as the full
-  ack timeout instead, 120 seconds by default.
-- **A peer that stops on purpose says why.** Canceling is still a bare close, but a side that
-  refuses a transfer for a reason it can name sends that reason first, in an `incompatible`
-  frame, and waits for it to flush before tearing the connection down. That covers the 2 GB relay
-  cap on the sending side and a file the receiver would not keep on the other. See
-  [incompatible](#incompatible).
 - **A person can sit between steps 1 and 2.** `floe receive` prints `Accept? [Y/n]` and waits for
   an answer before it sends the ack. That is the whole reason the ack deadline is 120 seconds by
   default. A request link moves that person to the far end of a link, so the sending side raises
   the deadline to 615 seconds for it.
-- **The end of a batch is a race, not a message, unless the receiver promised one.** A Go sender
-  finishes on whichever comes first: the `received` frame, its send buffer reaching zero, or a
-  full 60 seconds in which the buffer did not shrink at all. When the receiver's first `ack`
-  carried `"confirms": true`, as a current Go receiver's does, a drained buffer no longer counts:
-  the sender waits for `received` or a refusal, and a close before either is a failure. See
-  [ack](#ack).
+- **A peer that stops on purpose says why when it can.** It sends the cause first, in an
+  `incompatible` frame, and waits for the frame to flush before it closes. A receiver that stops,
+  refuses a file, or declines a request names a `code` for all but three causes. A sender names the
+  2 GB relay cap, a source file that changed, or its own cancel on a request link. Every other stop
+  sends no message: answering `n` at `floe receive`'s prompt closes the channel, canceling in Floe
+  Desktop outside a request link closes the connection, and Ctrl+C on a plain `floe send` exits
+  without sending anything. See [incompatible](#incompatible).
+- **A close ends a wait at once. A peer that vanishes does not.** Every wait in the Go engine
+  watches for the channel closing and gives up at once, and so does the browser sender's wait for an
+  ack. A decline at the CLI's prompt therefore reaches the sender without delay: `floe send`
+  prints `connection closed while waiting for the receiver (transfer declined or receiver exited)`,
+  and floe.one shows "Connection lost. The other device may have closed the tab." A peer that
+  goes away without closing, such as a killed process or a lost network, sends no close, and the
+  deadlines under [Timeouts](#timeouts) are what end the transfer.
+- **The end of a batch depends on what the receiver promised.** When the receiver's first `ack`
+  carried `"confirms": true`, as a current Go receiver's does, a Go sender succeeds only on
+  `received`: a refusal ends the send with that refusal, and a close before either is a failure.
+  Without the promise, as with a browser receiver, a Go sender succeeds on whichever comes first,
+  the `received` frame or its send buffer reaching zero, and fails after a full 60 seconds in which
+  the buffer did not shrink at all. See [ack](#ack) and [received](#received).
 
 ## How a frame is classified
 
@@ -59,26 +68,26 @@ arrive intact instead of being swallowed as an end marker.
 
 A text frame is then read as a control message when both of these hold:
 
-1. It is at most **1000 bytes**. A longer one is a protocol error and stops the transfer, rather
-   than being written to a file.
-2. It parses as JSON with a `type` field naming a message below.
+1. It is at most **1000 bytes**, measured on the encoded frame. A longer one is a protocol error
+   and stops the transfer, rather than being written to a file. A Go receiver tells the sender
+   first, with the code `path-too-long`, because what crosses the limit in practice is the
+   `metadata` of a deeply nested file.
+2. It is a JSON object with a `type` field naming a message below. JSON whitespace may come before
+   the opening brace.
 
-A text frame that parses but names a type the receiver does not know is **ignored**. That is what
-makes a new message type safe to add: an older peer drops it instead of writing it into whatever
-file is open.
+A text frame that is not a control message, because it does not parse or because it names a type
+the receiver does not know, is **ignored**. That is what makes a new message type safe to add: a
+peer that does not know it drops it instead of writing it into whatever file is open.
 
 The other direction, receiver to sender, carries no file data, so nothing there can be confused
 with a chunk and a sender accepts a control message in either framing. It has to: a Go receiver
-sends `ack`, `received` and `incompatible` as binary, and a browser receiver sends `ack` as a
-string and `incompatible` as binary.
+sends `ack`, `received`, and `incompatible` as binary, and a browser receiver sends `ack` as a
+string and `incompatible` as binary. A sender ignores a frame of more than 1000 bytes.
 
-If you are building another client, one rule falls out of all of this: **every frame you send to
-a receiver that is not file data has to be a text frame.** A binary one lands in somebody's file.
-
-One implementation detail worth knowing, because it is the one place the two disagree. The Go
-receiver skips leading whitespace before looking for the opening `{`; the browser requires the
-frame to start with it. So a control message padded with leading spaces is read by a Go receiver
-and treated as file data by a browser receiver. Nothing in Floe sends one.
+<Warning>
+  If you are building another client, every frame you send to a receiver that is not file data has
+  to be a text frame. A binary one is treated as file data and lands in whatever file is open.
+</Warning>
 
 ## Message types
 
@@ -105,11 +114,15 @@ Sender to receiver, before each file.
   A per-file identifier. The ack echoes it.
 </ResponseField>
 <ResponseField name="fileName" type="string" required>
-  The name as the sender sees it, including any relative path when a folder is being sent. The
-  receiver sanitizes it before writing.
+  The name as the sender sees it, including any relative path when a folder is being sent, with
+  forward slashes. The receiver sanitizes it before writing. The whole frame has to fit the
+  1000-byte limit, and a Go receiver refuses a path that is too deep or too long to save. See
+  [Limits](/reference/limits#files-and-paths).
 </ResponseField>
 <ResponseField name="fileSize" type="integer" required>
-  The file's length in bytes. The receiver checks the bytes it wrote against this value.
+  The file's length in bytes, a whole number from `0` to `2^53 - 1`. The receiver checks the bytes
+  it received against this value. A value that is not such a number makes the receiver refuse the
+  description and stop.
 </ResponseField>
 <ResponseField name="index" type="integer" required>
   Position in the batch, **1-based**.
@@ -118,8 +131,10 @@ Sender to receiver, before each file.
   How many files are in the batch.
 </ResponseField>
 <ResponseField name="totalBytes" type="integer" required>
-  The batch's total size. Older senders may send `0` for a single file, in which case a receiver
-  substitutes `fileSize`.
+  The batch's total size. Senders before v1.5.0 did not announce it, and a receiver reads an absent
+  or `0` total as not announced: for a single file a Go receiver uses `fileSize` instead. A total
+  that is smaller than `fileSize` is refused. A request link's host refuses a drop that announces
+  no total, unless its first file is empty.
 </ResponseField>
 <ResponseField name="pv" type="integer">
   Highest protocol version this peer speaks. Absent on releases before v1.6.0, which are treated
@@ -139,30 +154,44 @@ Sender to receiver, before each file.
 
 Receiver to sender, once per file, before any bytes move.
 
-```json ack
-{ "type": "ack", "id": "3f2b9c1e-...", "offset": 0, "pv": 1, "pvMin": 1, "ver": "1.11.0" }
+```json ack from a browser receiver
+{ "type": "ack", "id": "3f2b9c1e-...", "offset": 0, "pv": 1, "pvMin": 1 }
 ```
 
+<ResponseField name="id" type="string" required>
+  The `id` of the `metadata` this answers. A sender ignores an ack whose `id` is not the current
+  file's.
+</ResponseField>
 <ResponseField name="offset" type="integer" required>
   Where the sender should start reading. Reserved for mid-file resume: both senders honor a
-  non-zero value and seek to it. The Go receiver hard-codes `0`. The browser receiver would reply
-  with what it already holds if a second `metadata` arrived for a file id it had buffered bytes
-  for, but no current sender ever reuses an id that way, and no resume state is kept on disk or
-  across connections. **Against any current sender it is always `0`.**
+  non-zero value and seek to it, and fail the send when it is negative or past the end of the
+  file. The Go receiver hard-codes `0`. The browser receiver would reply with what it already
+  holds if a second `metadata` arrived for a file id it had buffered bytes for, but no current
+  sender ever reuses an id that way, and no resume state is kept on disk or across connections.
+  **Against any current sender it is always `0`.**
+</ResponseField>
+<ResponseField name="pv" type="integer">
+  As in `metadata`. The sender checks the range again on the first file's ack.
+</ResponseField>
+<ResponseField name="pvMin" type="integer">
+  As in `metadata`.
+</ResponseField>
+<ResponseField name="ver" type="string">
+  As in `metadata`. A Go receiver sends it; a browser receiver omits it.
 </ResponseField>
 <ResponseField name="confirms" type="boolean">
   The receiver's promise that it ends the batch with a word of its own: `received` after the last
   file is saved, or a refusal when it keeps a file out. Current Go receivers, the CLI and Floe
-  Desktop, send `true` on every ack; browser receivers never send it, and neither did older Go
-  receivers. A Go sender reads it from the first file's ack, and with it waits for that word
-  instead of ending at a drained send buffer, so a file the receiver deletes or cannot save after
-  the last byte is never reported as delivered. Only the JSON literal `true` counts. The string
-  `"true"`, `1`, `null` or any other value is no promise, and never an error. Older peers and the
-  browser ignore the field, so it needs no protocol version bump.
+  Desktop, send `true` on every ack. Browser receivers never send it, and neither did Go receivers
+  before `floe` 1.11.0 and Floe Desktop 0.3.0. A Go sender reads it from the first file's ack, and
+  with it waits for that word instead of ending at a drained send buffer, so a file the receiver
+  deletes or cannot save after the last byte is never reported as delivered. Only the JSON literal
+  `true` counts. The string `"true"`, `1`, `null`, or any other value is no promise, and never an
+  error. Older peers and the browser ignore the field, so it needs no protocol version bump.
 </ResponseField>
 
 ```json ack from a current Go receiver
-{ "type": "ack", "id": "3f2b9c1e-...", "offset": 0, "pv": 1, "pvMin": 1, "ver": "<release>", "confirms": true }
+{ "type": "ack", "id": "3f2b9c1e-...", "offset": 0, "pv": 1, "pvMin": 1, "ver": "1.11.0", "confirms": true }
 ```
 
 ### Binary chunks
@@ -186,10 +215,11 @@ Sender to receiver, after the last chunk of a file.
 ```
 
 The sender may add `sha256`, the SHA-256 of the bytes it sent for that file, as 64 lowercase hex
-characters. It is optional, and `type` comes first when it is present. A receiver commits a file
-without one after the byte count alone, and peers that predate the field ignore it. A browser
-sender hashes in a worker while it sends and holds `end` for the digest only so long (see
-[Timeouts](#timeouts)); past that it sends `end` without one. See [Integrity](#integrity).
+characters. It is optional, and `type` comes first when it is present. A sender leaves it off a
+file it resumed from a non-zero `offset`. A receiver commits a file without one after the byte
+count alone, and peers that predate the field ignore it. A browser sender hashes in a worker while
+it sends and holds `end` for the digest only so long (see [Timeouts](#timeouts)); past that it
+sends `end` without one. See [Integrity](#integrity).
 
 ```json end with a digest
 { "type": "end", "sha256": "<64 lowercase hex characters>" }
@@ -203,14 +233,19 @@ Receiver to sender, once, after every file in the batch is written.
 { "type": "received" }
 ```
 
-Only Go receivers send it. A Go sender exits as soon as it arrives instead of polling the SCTP
-buffer, and when the receiver's ack carried [`confirms`](#ack), it waits for this frame, or a
-refusal, rather than ending at a drained buffer: a close before either fails the send with
+Only Go receivers send it. A Go sender stops waiting as soon as it arrives, and when the
+receiver's ack carried [`confirms`](#ack), it accepts nothing else as success: a close that comes
+before either `received` or a refusal fails the send with
 `the connection closed before the receiver confirmed delivery`. That wait has no deadline of its
 own once the buffer has drained, so `floe send` and Floe Desktop close the connection when ICE gives
-up on it, about 30 seconds after the last packet from the receiver. The browser app's plain send
-shows nothing for `received` and ends when its own send buffer drains to zero. The request link
-page and `floe send --to` wait for `received` whatever the ack says.
+up on it, about 30 seconds after the last packet from the receiver. The request-link page and
+`floe send --to` wait for `received` whatever the ack says.
+
+floe.one's send page does not wait for it. That send is complete when its own send buffer drains to
+zero, and the page then reads "All Files Sent!". The page keeps listening afterward: a `received`
+that reports every file as verified adds the line "SHA-256 matched" (see
+[Sending files](/web-app/sending#when-it-finishes)), and a refusal that arrives in that window
+replaces the success with the refusal.
 
 After sending `received`, a Go receiver keeps the connection open until the sender closes it, which
 a Go sender does as soon as it reads the frame. With a sender that does not close, such as a
@@ -218,11 +253,12 @@ browser, it waits 5 seconds, and longer while the frame is still in its send buf
 seconds from sending it.
 
 A Go receiver also reports `verified`, the number of files whose `sha256` was present and
-matched. It is always present, and `0` means no file carried a digest. A sender shows
-`SHA-256 matched` only when `verified` equals the number of files it sent, and a count that is
-not a whole number from 0 to that number is ignored, never rounded or capped into a match. It is
-the receiver's report, not a check the sender makes. Browser receivers never send `received`, so
-they never report `verified`.
+matched. It is always present, and `0` means no file carried a digest. A sender shows its
+SHA-256 mark only when `verified` equals the number of files it sent, and a count that is not a
+whole number from 0 to that number is ignored, never rounded or capped into a match. It is the
+receiver's report, not a check the sender makes. Browser receivers never send `received`, so they
+never report `verified`. What each app shows is in
+[File checks](/how-it-works/file-checks#what-you-see-in-each-app).
 
 ```json received with a count
 { "type": "received", "verified": 2 }
@@ -233,48 +269,87 @@ they never report `verified`.
 Two jobs, told apart by the `pv` range it carries.
 
 **A version mismatch.** Sent by the receiver **in place of the ack** when the two protocol version
-ranges do not overlap. The receiver aborts before creating any file, so the sender fails fast
+ranges do not overlap. The receiver stops before creating any file, so the sender fails fast
 rather than waiting for an ack that never comes. Senders that predate this message type ignore it
 safely.
 
-**A deliberate abort with a reason**, when the `pv` range **does** overlap. A peer reads the
-overlap as "this is not about versions" and prints the `reason` verbatim instead of rebuilding a
-version remedy from `pv` and `pvMin`. That is what lets a side that is stopping on purpose name
-the cause without a new message type and without a `ProtocolVersion` bump. It carries the relay
-cap and a source file that changed under the send from a sender, and a discarded file, a
-sender that overran its announced size, or a refused file description from a receiver.
+**A deliberate stop with a reason**, when the `pv` range **does** overlap. A peer reads the overlap
+as "this is not about versions" and does not rebuild a version remedy from `pv` and `pvMin`. That is
+what lets a side that is stopping on purpose name the cause without a new message type and without
+a `ProtocolVersion` bump.
+
+A sender that stops says why in `reason` alone. Every sender does so for the 2 GB relay cap. A Go
+sender does so for a source file that changed while it was being sent. On a request link, a
+sender does so for its own cancel: the request-link page and `floe send --to` both send
+`The sender stopped.` A receiver shows the reason in place of a lost-connection message. Floe
+Desktop, as the host of a request link, shows wording of its own instead.
+
+A receiver that stops says why in `reason` and, when the cause is in the table below, in two
+optional fields. `code` names the cause from a fixed list of twelve values, so the sender can use
+its own wording instead of the receiver's prose. `saved` is the number of files the receiver had
+already saved under their final names, or, in a browser, handed to the page.
+
+| `code` | Sent when | Sent by |
+|---|---|---|
+| `declined` | The person at the receiver said no to a request, before any file was created. | Floe Desktop, for a request link |
+| `disk-full` | A write failed because the drive is full, or, on a request link, the drive would not keep 2 GB free after the next file. The partial file is removed. | Go receivers |
+| `expired` | Nobody answered a request within 9 minutes 45 seconds. | Floe Desktop, for a request link |
+| `file-too-large-for-folder` | A file is larger than the save drive can hold: more than 4,294,967,295 bytes on a FAT or FAT32 drive. Checked on Windows receivers. | Go receivers |
+| `hash-mismatch` | A file did not match the `sha256` its sender sent, or that digest could not be read. The file is not kept. | Go receivers and browser receivers |
+| `over-approved` | The drop announced more than 10,000 files, more bytes arrived than the first `metadata` announced, or a later `metadata` disagreed with the first. | Floe Desktop, for a request link |
+| `path-too-long` | A file's path is too deep or too long to save, or starts at a drive or a root, or a `metadata` frame is over 1000 bytes. | Go receivers |
+| `relay-cap` | The receiver's own reading of the connection says it is relayed, and the drop would pass 2 GB. | Floe Desktop, for a request link |
+| `save-blocked` | A finished file could not be moved to its final name. The complete file stays under its `.part` name. | Go receivers |
+| `stopped` | The person at the receiver stopped the transfer: Ctrl+C on `floe receive`, or **Cancel drop** or **Close link** in Floe Desktop. A request link's host also sends it to a sender that announces no file within 30 seconds. | `floe receive`, and Floe Desktop for a request link |
+| `time-limit` | A drop through a [request link](/desktop/request-links) ran for 24 hours. | Floe Desktop, for a request link |
+| `write-failed` | The receiver could not create a file or finish writing one, for a reason other than a full drive. A browser receiver sends it when the tab runs out of memory or an internal error stops it. | Go receivers and browser receivers |
+
+Three receiver stops carry a `reason` and no `code`: a file description the receiver cannot read,
+a file whose byte count did not match the size announced, and a sender that kept sending past
+that size.
+
+Both fields ride only `incompatible`, never `ack`, and neither changes the protocol version.
+Older peers ignore both and show `reason`. A reader that does not know a `code` treats the frame
+as if it had none. No reader displays either value as sent, and each clamps `saved` to the number
+of files in the transfer. For a `code` it knows, the Go engine and the request-link page show a
+fixed sentence of their own and nothing of the receiver's `reason`. floe.one's send page has its
+own sentence for `hash-mismatch` only, and shows the cleaned `reason` for every other stop.
 
 Framing depends on direction, and this is the one rule another client has to get right.
-Receiver to sender is binary, which is what every Floe receiver has always sent. **Sender to
-receiver has to be text**, because on that path a binary frame is file data by definition, and
+Receiver to sender is binary, which is what every Floe receiver has always sent. Sender to
+receiver has to be text, because on that path a binary frame is file data by definition, and
 Go receivers from v1.1.0 to v1.5.5 will write a binary one into the file being received.
 
-The whole encoded frame stays within 1000 bytes, reason included, or a browser receiver stops
-reading it as a control message. Whichever side displays it caps the reason again, at 300
-characters.
-
-A receiver that stops on purpose can add two optional fields. `code` names the cause from a fixed
-list, so the sender can pick its own wording instead of showing the receiver's prose. The list has
-twelve values: `declined`, `disk-full`, `expired`, `file-too-large-for-folder`, `hash-mismatch`,
-`over-approved`, `path-too-long`, `relay-cap`, `save-blocked`, `stopped`, `time-limit` and
-`write-failed`. For example, `write-failed` is sent when the receiver could not finish writing a
-file to disk and deleted the partial copy, `hash-mismatch` when a file did not match the SHA-256
-its sender sent, or that digest could not be read, and the receiver deleted it, and `time-limit`
-when a drop through a [request link](/desktop/request-links) reached its 24-hour limit. `saved` is
-the number of files the receiver had already saved under their final names. Older peers ignore both and show `reason`. A reader treats a `code` it does not know as a
-plain stop, never displays either value as sent, and clamps `saved` to the number of files in the
-transfer. Both ride only `incompatible`, never `ack`, and neither changes the protocol version.
+The whole encoded frame stays within 1000 bytes, reason included: the peer that builds it
+shortens the `reason` until the frame fits, and never drops `code` or `saved` to make room.
+Whichever side displays the reason caps it again, at 300 characters.
 
 Both Go peers wait for the send buffer to drain, up to 2 seconds, before closing, and so does a
-browser sender. Without that wait the frame is routinely lost: closing a pion connection aborts
+browser sender. Without that wait the frame is routinely lost: closing a Pion connection aborts
 the SCTP association and discards whatever was still queued, so the peer would see the close and
 report a lost connection rather than the reason. A browser receiver sends without waiting,
-because it does not close the connection afterwards.
+because it does not close the connection afterward.
 
-```json incompatible
+```json incompatible from a receiver that stopped
 {
   "type": "incompatible",
-  "reason": "Cannot transfer: your floe is too old for this peer. ...",
+  "reason": "receiver stopped the transfer",
+  "pv": 1,
+  "pvMin": 1,
+  "ver": "1.11.0",
+  "code": "stopped",
+  "saved": 2
+}
+```
+
+No two released peers can produce a version mismatch, because every release speaks version 1. A
+Floe Desktop 0.3.0 receiver that was offered a file by a sender announcing only version 2 would
+answer with this:
+
+```json incompatible for a version mismatch
+{
+  "type": "incompatible",
+  "reason": "Cannot transfer: peer's floe is too old.\n  You: protocol 2  Peer: protocol 1 (desktop-v0.3.0)\n  Ask the other side to update Floe.",
   "pv": 1,
   "pvMin": 1,
   "ver": "desktop-v0.3.0"
@@ -321,7 +396,8 @@ The sender pauses when the SCTP send buffer reaches **8 MB** and resumes once it
 **4 MB**. Both implementations use the same two numbers.
 
 If the buffer has not shrunk at all after 60 seconds, the Go sender gives up on the transfer.
-A wait that is merely slow does not trigger it; only a buffer that never moves does.
+A wait that is merely slow does not trigger it; only a buffer that never moves does. The browser
+sender has no such deadline: its wait ends when the buffer drains or the connection goes away.
 
 The browser adds two drains the Go engine does not have: it waits for the buffer to fall below
 64 KB before sending each file's metadata, and it drains to zero before declaring the batch
@@ -329,66 +405,84 @@ complete.
 
 ## Integrity
 
-A file is committed only when the bytes written match `fileSize` exactly. A mismatch in either
+A file is committed only when the bytes received match `fileSize` exactly. A mismatch in either
 direction discards the file, because a short count means truncation and an over-count means a
-frame boundary was wrong, which corrupts the result just as thoroughly.
+frame boundary was wrong, which corrupts the result just as thoroughly. A Go receiver does not
+wait for `end` to catch an over-count: it stops at the first chunk that would pass `fileSize`.
 
-The sender holds itself to the same number. It reads at most `fileSize` bytes, so a
-file that grows after its size is announced cannot overrun the announcement, and if
-the file changed on disk in that window the sender fails locally and sends no end
-marker, so the receiver is told the file changed rather than left to report a byte count that
-reads like a network fault.
+The sender holds itself to the same number. Both senders read at most `fileSize` bytes, so a file
+that grows after its size is announced cannot overrun the announcement. A Go sender that finds its
+file shrank or grew while it was being read fails locally, sends no end marker, and tells the
+receiver the file changed, so the receiver does not report a byte count that reads like a network
+fault. A browser sender that can no longer read its file stops without an end marker.
 
-A sender can also put a SHA-256 of the file in its `end` frame. A receiver that checks it hashes
-the bytes as it writes them and compares once the byte count has passed, so a short file still
+A sender can also put a SHA-256 of the file in its `end` frame. A Go receiver hashes the bytes as
+it writes them and never reads the file back from disk; a browser receiver hashes the assembled
+file after `end`. Either compares only once the byte count has passed, so a short file still
 reports a short file. A file whose digest does not match, or whose digest is not 64 lowercase hex
-characters, is deleted before it takes its final name, and the receiver stops the transfer with
-the `hash-mismatch` code. A missing digest is not an error: the file is kept on the byte count
-alone, exactly as before. The digest is taken while writing and never by reading the file back
-from disk. The transport already authenticates every packet, so the digest is not covering
-corruption in flight; it ties the file written on one machine to the bytes read on the other.
+characters, is discarded before it takes its final name or is handed to the page, and the receiver
+stops the transfer with the `hash-mismatch` code. A missing digest is not an error: the file is
+kept on the byte count alone, exactly as before. The transport already authenticates every
+packet, so the digest is not covering corruption in flight; it ties the file written on one
+machine to the bytes read on the other. What the check means for the person receiving is in
+[File checks](/how-it-works/file-checks).
 
-The two implementations disagree on one input. If a peer announces no usable `fileSize`, the
-browser skips the check and keeps whatever arrived, while the Go receiver reads the missing size
-as `0` and therefore discards the file. Only a peer predating the field can produce that, and none
-has shipped in a long time.
+The two implementations disagree on one input. If a peer announces no `fileSize` at all, the
+browser skips the size check and keeps whatever arrived, while the Go receiver reads the missing
+size as `0` and stops at the first chunk. No Floe sender omits the field. A `fileSize` that is
+present but is not a byte count is refused by both.
 
 Receivers that write to disk stage each file under a name ending in `.part` and rename it only
-after that check passes, so a killed transfer never leaves a file sitting under its final name.
+after those checks pass, so a killed transfer never leaves a file sitting under its final name.
 See [Known limitations](/how-it-works/known-limitations).
 
 ## Timeouts
 
-Every value the Go engine enforces. The browser shares two of them: the default 120-second ack
-deadline and the 2-second wait for an abort reason to reach the wire. The request-link page waits its
-own longer deadline for every file's ack, as `floe send --to` does, because the host acks a file only
-after it has committed the one before.
+These are the waits the Go engine enforces around a transfer. The browser shares three of them: the
+default 120-second ack deadline, the 2-second wait for an abort reason to reach the wire, and, on
+the request-link page, the 10-second wait for the server to answer a `request-join`. The
+request-link page waits its own longer deadline for every file's ack, as `floe send --to` does,
+because the host acks a file only after it has committed the one before.
 
 | Phase | Limit | What happens |
 |---|---|---|
-| Waiting for the peer's offer or answer | 30 s | Connection attempt fails |
+| Waiting for the peer's offer or answer | 30 s | `timed out waiting for the peer's offer` or `timed out waiting for the peer to answer` |
 | ICE, DTLS, and the data channel opening | 30 s | `timed out establishing a connection` |
-| Data channel grace after the peers connect | 10 s | Connection attempt fails |
-| Sender waiting for a file's ack | 120 s by default, 615 s for a request link | Transfer fails. Sized for a human answering the CLI's `Accept? [Y/n]` prompt; a caller that puts the deciding person behind a link raises it through `SendOptions.AckTimeout` to `VisitorAckTimeout` plus `VisitorAckGrace` |
-| Sender's send buffer not draining at all | 60 s | Transfer fails |
+| Data channel grace after the peers connect | 10 s | `connected but the data channel did not open` |
+| Server answering a `request-join` | 10 s | `floe send --to` ends with `Request links are not available on this Floe server.` |
+| Sender waiting for a file's ack | 120 s by default, 615 s for a request link | `timed out waiting for ack`, or from `floe send --to` before the host accepted, `They did not answer in time. Nothing was sent.` Sized for a human answering the CLI's `Accept? [Y/n]` prompt; a caller that puts the deciding person behind a link raises it through `SendOptions.AckTimeout` to `VisitorAckTimeout` plus `VisitorAckGrace` |
+| Sender's send buffer not draining at all | 60 s | `backpressure stall: peer not draining` |
 | Sender waiting for delivery confirmation | 60 s with no drain | `timed out waiting for delivery confirmation from peer` |
 | Sender waiting for `received` from a receiver whose ack carried `confirms` | None of its own once the buffer drains; `floe send` and Floe Desktop close the connection when ICE gives up, about 30 s after the last packet | `the connection closed before the receiver confirmed delivery` |
 | Receiver connected, no data yet | 30 s | `connected, but no data arrived from the sender within 30s` |
-| Receiver mid-transfer with no progress | 60 s | Transfer fails |
+| Receiver mid-transfer with no progress | 60 s | `transfer stalled`, and the unfinished file is deleted |
 | Receiver grace before teardown | 5 s, then up to 35 s from sending `received` while that frame is still in its send buffer | Lets the final acknowledgment reach the sender; a sender's close ends it at once |
 | The byte-count report | 5 s | Abandoned; never affects the files |
-| Flushing an abort reason before closing | 2 s | Best effort; the close goes out either way |
-| Fetching TURN credentials over HTTP | 30 s | Warns and falls back to STUN only |
+| Flushing an abort reason before closing | 2 s, or 750 ms for Ctrl+C on `floe receive` | Best effort; the close goes out either way |
+| Fetching TURN credentials over HTTP | 30 s | Falls back to STUN only; the CLI prints a warning |
 | Registering or resolving a room code over HTTP | 30 s | `could not register code` or `could not reach signaling server` |
+
+A request link's host, Floe Desktop, runs four more clocks, and each ends in a
+[code](#incompatible):
+
+| Clock | Limit | Code sent |
+|---|---|---|
+| The owner answering a request | 9 minutes 45 seconds | `expired` |
+| The sender's first `metadata` after the channel opens | 30 seconds | `stopped` |
+| One accepted drop | 24 hours | `time-limit` |
+| Moving a finished file to its final name | Retried once a second for 5 minutes | `save-blocked` |
+
+Every other Go receive tries that move 5 times, 200 ms apart, before it sends `save-blocked`.
 
 One deadline sits outside the engine. `floe send` and `floe receive` give the server 20 seconds
 to answer `join-room` before failing with `timed out waiting for the server to assign a role`.
-Floe Desktop has always used the same 20 seconds.
+Floe Desktop uses the same 20 seconds.
 
-A browser sender waits about 2 seconds after the peers connect before it checks the route and
-sends the first byte. A `floe receive` can linger for up to about 10 seconds after printing its
-summary, which is the teardown grace plus the report, and up to about 40 seconds when its
-`received` frame is slow to reach the sender.
+A browser sender waits 2 seconds after the peers connect before it checks the route and sends the
+first byte. When the sender does not close the connection, as a browser sender does not, a
+`floe receive` can linger for up to about 10 seconds after printing its summary, which is the
+teardown grace plus the report, and up to about 40 seconds when its `received` frame is slow to
+reach the sender.
 
 The browser's SHA-256 work has two waits of its own, each sized under a Go deadline above. Its
 bound for hashing a file is the file's size at 10 MB/s plus 30 seconds. A browser sender holds a
@@ -401,14 +495,21 @@ file of a batch gets the whole bound. A file kept unverified never counts toward
 
 ## One SDP detail worth knowing
 
-Pion, the WebRTC stack behind the CLI and the desktop app, omits `a=max-message-size` from the
-answer it generates. RFC 8841 makes the absent default 65536, and Chrome then rejects every chunk
-larger than that. So when the Go side answers, as `floe receive` and the desktop app's Receive do,
-the engine patches the attribute into its answer with a value of 1 GB before sending it; without
-that patch no browser could send to a Go receiver. When the Go side makes the offer, the browser
-writes the answer itself and nothing needs patching.
+`a=max-message-size` in a session description tells the other side how large a message this side
+accepts. RFC 8841 makes the absent default 65536 bytes, and Chrome refuses to send a message larger
+than the peer advertised. Both Floe senders size their chunks to the negotiated maximum (see
+[Binary chunks](#binary-chunks)), so a small value does not break a transfer. It only shrinks the
+chunks.
 
-If you are building another client against Floe, this is the non-obvious part.
+Pion, the WebRTC stack behind the CLI and the desktop app, has written the attribute into every
+description it generates since v4, with a ceiling of its own just under 1 GB. When the Go side
+answers, as `floe receive`, the desktop app's Receive, and `floe send --to` do, the engine rewrites
+the value in the answer it sends to 1073741824 bytes, 1 GB. The rewrite dates from Pion v3, which
+omitted the attribute and so left a browser sender at the 65536 default. Today it only pins a
+number Pion already sends. When the Go side makes the offer, nothing is rewritten.
+
+If you are building another client against Floe, advertise at least 262144 bytes (256 KB) in the
+descriptions you generate, or senders use smaller chunks.
 
 ## Related
 

@@ -51,20 +51,6 @@
       "bytes": 95738
     },
     {
-      "name": "03-connection-indicator.png",
-      "note": "the connection badge with its in-product explanation open",
-      "css": [
-        532,
-        630.75
-      ],
-      "pixels": [
-        1596,
-        1890
-      ],
-      "scale": 3,
-      "bytes": 167231
-    },
-    {
       "name": "05-receive-downloads.png",
       "note": "per-file rows plus Download All and Download ZIP",
       "css": [
@@ -91,6 +77,20 @@
       ],
       "scale": 3,
       "bytes": 126357
+    },
+    {
+      "name": "07-request-ready.png",
+      "note": "the request link page with three files chosen, before Send (captured through a real link that the drop then used up; not produced by docs-screenshots.mjs)",
+      "css": [
+        604,
+        585
+      ],
+      "pixels": [
+        1812,
+        1755
+      ],
+      "scale": 3,
+      "bytes": 183496
     }
   ]
 }

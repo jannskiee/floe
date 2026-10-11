@@ -1,16 +1,18 @@
 Every receiving surface can turn the report off, and turning it off means the byte count is never
 sent, rather than sent and ignored.
 
-- **Browser:** uncheck **Contribute to global stats** on the receiver view before the first file
-  lands. The choice is saved in that browser and applies to every later transfer from it.
+- **Browser:** uncheck **Contribute to global stats** on the receiver view, where it is shown until
+  the first file arrives. The choice is saved in that browser and applies to every later transfer
+  in it.
 - **Floe Desktop:** turn off **Contribute to global stats** in
   [Settings](/desktop/settings#contribute-to-global-stats). It is saved with your other settings.
 - **CLI:** pass `--no-report` to `floe receive` for one transfer, or set `FLOE_NO_STATS=1` in your
-  environment to opt out for good.
+  environment to opt out of every transfer run from it.
 
 The sender never reports on any surface, so this only ever concerns transfers you receive.
 
 This switch covers the public counter and nothing else. On floe.one the site's own anonymous
 analytics record a transfer's outcome separately, and are described under
-[Error monitoring and analytics](/security-privacy#error-monitoring-and-analytics). The CLI, the
-desktop app, and any self-hosted instance without an analytics key send neither.
+[Error monitoring and analytics](/security-privacy#error-monitoring-and-analytics). The CLI and
+Floe Desktop contain no analytics and no error monitoring, and a self-hosted web app sends neither
+unless its operator set a key for it.

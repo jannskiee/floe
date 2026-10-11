@@ -1,9 +1,12 @@
 ---
 title: "CLI flags reference"
 sidebarTitle: "Flags"
-description: "Complete reference for every floe CLI flag: global server, relay and interface options, receive and update flags, and supported environment variables."
-keywords: ["flags", "options", "environment variables", "exit codes", "timeouts"]
+description: "Reference for every floe CLI flag and environment variable, with exit codes, timeouts, and what to know before running floe in a script or CI job."
+keywords: ["flags", "options", "environment variables", "exit codes", "timeouts", "scripts", "ci"]
 ---
+
+Every flag and environment variable that `floe` reads, its exit codes and timeouts, and what a
+script needs to know.
 
 ## Global flags
 
@@ -14,10 +17,36 @@ Every command accepts these, but only `send` and `receive` act on them. `floe ve
 | `--server <url>` | `https://api.floe.one` | Signaling server URL. Use `http://localhost:3001` for local testing or your self-hosted server URL. |
 | `--no-relay` | `false` | Drop every TURN entry from **your** ICE list, so you offer nothing relayed. It is one-sided: the peer can still offer a relay, and if that path wins the CLI proceeds over it, so pass the flag on **both** ends when it has to be a guarantee. When no path forms at all the failure is a generic connection error after about 30 seconds, never a message about the relay. |
 | `--relay-only` | `false` | Route everything through the TURN relay and never try a direct path, so the other side sees the relay's address instead of yours. It is the command-line twin of the desktop app's **Hide my IP address** switch, and it applies to your side only. While it is on, the 2 GB relay cap applies to every transfer, even on a network that could have connected directly; see [File size limits](/how-it-works/2gb-limit). It needs a relay to exist: against a server that offers STUN only, the command stops before the transfer starts and names the flag, rather than timing out about 30 seconds later. Cannot be combined with `--no-relay`. Also settable with `FLOE_RELAY_ONLY=1`. |
-| `--web <url>` | _(auto-detected)_ | Web app URL included in the browser link printed by `floe send`. Auto-detected from `--server`: `https://api.floe.one` maps to `https://floe.one`, `http://localhost:3001` maps to `http://localhost:3000`, and any other server maps to itself, on the assumption that one origin serves both the API and the web app. Set `--web` only when your web app has its own hostname. |
-| `--iface <name>` | _(all interfaces)_ | Restrict WebRTC to network interfaces whose name contains this value (case-insensitive). Repeat the flag or separate names with commas, so `--iface Ethernet --iface Wi-Fi` and `--iface Ethernet,Wi-Fi` do the same thing. Use it when a VPN or virtual-machine adapter (Tailscale, VMware, WSL, Hyper-V) slows connection setup. See [Troubleshooting](/troubleshooting). |
+| `--web <url>` | _(auto-detected)_ | Web app URL included in the browser link printed by a plain `floe send`, the only command that reads it. Auto-detected from `--server`: `https://api.floe.one` maps to `https://floe.one`, `http://localhost:3001` maps to `http://localhost:3000`, and any other server maps to itself, on the assumption that one origin serves both the API and the web app. Set `--web` only when your web app has its own hostname. |
+| `--iface <name>` | _(all interfaces)_ | Restrict WebRTC to network interfaces whose name contains this value (case-insensitive). Repeat the flag or separate names with commas, so `--iface Ethernet --iface Wi-Fi` and `--iface Ethernet,Wi-Fi` do the same thing. Use it when a VPN or virtual-machine adapter (Tailscale, VMware, WSL, Hyper-V) slows connection setup; see [slow to connect](/troubleshooting#slow-to-connect-when-a-vpn-or-virtual-machine-is-running). |
 
-The desktop app has equivalents for three of these. `--server` and `--web` are **Server address** and **Share link address**, under Advanced in **Settings**, and `--relay-only` is the **Hide my IP address** toggle under Privacy. `--no-relay` has no desktop equivalent: Floe Desktop can require the relay but never refuse it. See [Desktop app settings](/desktop/settings).
+The desktop app has equivalents for three of these. `--server` and `--web` are **Server address** and **Share link address**, under Advanced in **Settings**, and `--relay-only` is the **Hide my IP address** toggle under Privacy. `--no-relay` and `--iface` have no desktop equivalent: Floe Desktop can require the relay but never refuse it. See [Desktop app settings](/desktop/settings).
+
+## `floe send` flags {#floe-send-flags}
+
+Specific to the `send` command.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--to <link>` | _(none)_ | Send through a [request link](/desktop/request-links) made in Floe Desktop instead of creating a room code. Put the whole link in quotes, including everything after the `#`. No link is printed, so `--web` has no effect with it, and the link has to belong to the server in effect. See [Send through a request link](/cli/send#send-through-a-request-link). |
+
+## `floe receive` flags {#floe-receive-flags}
+
+Specific to the `receive` command.
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--output <dir>` | `-o` | `.` | Directory to save received files. Created if it does not exist, before Floe connects. |
+| `--yes` | `-y` | `false` | Accept incoming files without the confirmation prompt. |
+| `--no-report` | | `false` | Do not report the transferred byte count to Floe's public global counter. See [Opting out of the global counter](#opting-out-of-the-global-counter) below. |
+
+## `floe update` flags {#floe-update-flags}
+
+Specific to the `update` command.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--check` | `false` | Report whether a newer release exists and exit without installing it. On an up-to-date binary the flag changes nothing: `floe update` prints `Already up to date (1.11.0)` and stops either way (the installed version carries no leading `v`). On a package-managed install the update guard runs first, so `--check` stops with the upgrade command for your package manager instead of a version report. See [Update the CLI](/cli/update). |
 
 ## Help and version flags
 
@@ -32,15 +61,17 @@ These come from the CLI framework rather than from Floe itself.
 
 ## Environment variables
 
-Floe reads five environment variables. If you run your own signaling server, set it once in your environment instead of passing `--server` on every command.
+`floe` has five environment variables of its own. If you run your own signaling server, set it once in your environment instead of passing `--server` on every command.
 
 | Variable | Equivalent flag | Description |
 |----------|-----------------|-------------|
-| `FLOE_SERVER` | `--server` | Signaling server URL, used by every command. To send through a request link made on floe.one with `floe send --to`, or to receive a floe.one link with `floe receive`, unset it or pass `--server https://api.floe.one` (either one is refused before any network call otherwise); see [Send through a request link](/cli/send#send-through-a-request-link) and [`floe receive`](/cli/receive). |
-| `FLOE_WEB` | `--web` | Web app URL used for the browser link printed by `floe send`. |
+| `FLOE_SERVER` | `--server` | Signaling server URL for `send` and `receive`. Any non-empty value counts. While it names your own server, a link made on floe.one is refused before any network call, by `floe receive` and by `floe send --to`: pass `--server https://api.floe.one` for that command. See [Use a self-hosted server](/cli/self-hosted-server#links-carry-no-server). |
+| `FLOE_WEB` | `--web` | Web app URL used for the browser link printed by `floe send`. Any non-empty value counts. |
 | `FLOE_RELAY_ONLY` | `--relay-only` | Set to `1` to route every transfer through the relay, hiding your IP address from the other side. A typed `--no-relay` overrides it for that one command, since the two can never both be on. |
 | `FLOE_NO_STATS` | `--no-report` | Set to `1` to never report byte counts. Applies to `floe receive`. See [Opting out of the global counter](#opting-out-of-the-global-counter). |
 | `FLOE_NO_UPDATE_CHECK` | _(no flag)_ | Set to `1` to suppress the "Update available" hint that `floe version` prints. It does not affect transfers or `floe update` itself. |
+
+The last three act only on the exact value `1`: `true`, `yes` or any other value does nothing.
 
 A flag always beats its variable, so you can override the setting for a single command without unsetting anything:
 
@@ -61,31 +92,20 @@ Trailing slashes are trimmed, so `https://floe.example.com/` and `https://floe.e
 
 Set `FLOE_WEB` only when your web app runs on a different host from your signaling server. Leave it unset and share links point at the same host as your server, which is what you want when one domain serves both. The only exceptions are Floe's own deployment and the local dev pair, which are special-cased to their web hosts as described under `--web` above.
 
-## `floe send` flags
+Pion, the WebRTC library inside `floe`, reads log settings of its own from `PION_LOG_` variables. Left alone, `floe` turns some of Pion's log lines off. For every command, those are the relay client's, which can quote an unauthenticated reply, and the packet mux's, which is internal noise. During `floe send --to`, they are also the peer connection's and the data channel's, which can quote text the other side chose. Setting a variable that turns a Pion log level on, such as `PION_LOG_TRACE=ice`, leaves all of them on, so set one only while debugging.
 
-Specific to the `send` command.
+## In scripts and CI {#in-scripts}
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--to <link>` | _(none)_ | Send through a [request link](/desktop/request-links) made in Floe Desktop instead of creating a code. Put the whole link in quotes, including everything after the `#`. The command exits `0` only after the other side's Floe confirms every file arrived. `--web` has no effect with it, because no link is printed. A link made on floe.one needs the default server, `https://api.floe.one`: with `--server` or `FLOE_SERVER` naming another, it stops before Floe contacts any server. See [Send through a request link](/cli/send#send-through-a-request-link). |
+`floe` reads no configuration file and asks one question, so a job needs only flags, environment variables and exit codes.
 
-## `floe receive` flags
-
-Specific to the `receive` command.
-
-| Flag | Short | Default | Description |
-|------|-------|---------|-------------|
-| `--output <dir>` | `-o` | `.` | Directory to save received files. Created automatically if it does not exist. |
-| `--yes` | `-y` | `false` | Accept incoming files without the confirmation prompt. |
-| `--no-report` | | `false` | Do not report the transferred byte count to Floe's public global counter. See [Opting out of the global counter](#opting-out-of-the-global-counter) below. |
-
-## `floe update` flags
-
-Specific to the `update` command.
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--check` | `false` | Report whether a newer release exists and exit without installing it. On an up-to-date binary the flag changes nothing: `floe update` prints `Already up to date (1.11.0)` and stops either way (the installed version carries no leading `v`). On a package-managed install the update guard runs first, so `--check` stops with the upgrade command for your package manager instead of a version report. See [Update the CLI](/cli/update). |
+- **Accept without a prompt.** `floe receive` asks `Accept? [Y/n]` before it saves anything. Pass `-y` to skip the question.
+- **A closed stdin accepts too.** The prompt declines only on `n` or `no`. A closed or piped stdin gives it an empty answer, which accepts, so `echo | floe receive <code>` receives without `-y`. Leaving `-y` out therefore does not stop a job from receiving. Pass it anyway, so the intent is on the command line rather than in the shell's plumbing.
+- **Exit codes.** `0` is success, `1` is any error, and `130` is an interrupt (`Ctrl+C` or `SIGTERM`). There are no others. See [Exit codes](#exit-codes).
+- **What success means for a send.** `floe send --to` exits `0` only after the other side's Floe confirmed that every file arrived. A plain `floe send` to `floe receive` 1.11.0 or later, or to Floe Desktop 0.3.0 or later, exits `0` only after the receiver said it saved every file. To a browser, or to an older receiver, it exits `0` once the other side's connection has acknowledged all the data. See [File checks](/how-it-works/file-checks#delivery-confirmation).
+- **A send waits as long as it takes.** `floe send` has no time limit of its own while it waits for the other side to connect, so give the job a timeout if it must not hang.
+- **Pass the link when the wait may be long.** A room code stops working after 10 minutes at most, and the link works for as long as that `floe send` runs: see [How long a code and a link last](/how-it-works/signaling#code-and-link-lifetime). `floe receive` takes either.
+- **Environment variables.** Set the server once with `FLOE_SERVER`. Set `FLOE_NO_STATS=1` on a job that receives, so test transfers do not add to the public counter, and `FLOE_NO_UPDATE_CHECK=1` if the job runs `floe version`. See [Environment variables](#environment-variables).
+- **Streams.** Status lines, the boxes, the prompt, progress and `Warning:` lines go to stdout. Errors, every refusal line and the `Canceled.` line go to stderr.
 
 ## Opting out of the global counter
 
@@ -108,14 +128,14 @@ floe receive olive-tiger-castle
 
 When opted out, no request is sent to the server and the global counter is not incremented for that transfer. The transfer itself is unaffected.
 
-In the desktop app the same choice is the **Contribute to global stats** toggle in **Settings**, and turning it off is the equivalent of `--no-report`.
+The browser and Floe Desktop have a switch of their own for the same report. See [Aggregate statistics](/security-privacy#aggregate-statistics).
 
 ## Exit codes
 
 | Code | Meaning |
 |------|---------|
-| `0` | Success. Also what `floe update` returns on a build compiled from source, which prints `Cannot update a dev build.` and stops. `floe send --to` returns it only after the other side's Floe confirms every file arrived. |
-| `1` | Any error: a transfer that failed, a code that would not resolve, a declined transfer, or a package-managed install refusing to self-update. Every outcome of `floe send --to` other than success. |
+| `0` | Success. For `floe send --to`, only after the other side's Floe confirmed that every file arrived. Also what `floe update` returns on a build compiled from source, which prints `Cannot update a dev build.` and stops. |
+| `1` | Any error: a usage mistake, a transfer that failed, a code that would not resolve, a declined transfer, a refused link, or a package-managed install refusing to self-update. Every outcome of `floe send --to` other than success and `Ctrl+C`. |
 | `130` | Interrupted, by `Ctrl+C` or by `SIGTERM`. Floe prints `Canceled.` to stderr and removes the `.part` file it was writing, waiting at most 5 seconds for that before it exits. `floe send --to` prints its own line instead, `Canceled. Nothing was sent.` or `You stopped this drop.` with how many files were saved. |
 
 `floe` with no arguments prints help and exits `0`.
@@ -127,17 +147,19 @@ meet:
 
 | Phase | Limit |
 |-------|-------|
-| Establishing the connection | 30 seconds, then `timed out establishing a connection` |
-| Receiver connected, sender never starts | 30 seconds, then `connected, but no data arrived from the sender within 30s` |
-| Sender waiting for the receiver to accept | 120 seconds, sized for a human answering the `Accept? [Y/n]` prompt. With `--to`, just under 10 minutes, the request link's answer window |
+| Sender waiting for the other side to join | No limit |
+| Establishing the connection | 30 seconds, then [`timed out establishing a connection`](/troubleshooting#timed-out-establishing-a-connection). A peer that leaves during setup ends it at once, with [`the other side left before the connection was established`](/troubleshooting#the-other-side-left-before-the-connection-was-established) |
+| Receiver connected, sender never starts | 30 seconds, then [`connected, but no data arrived from the sender within 30s`](/troubleshooting#connected-but-no-data-arrived-from-the-sender-within-30s) |
+| Sender waiting for the receiver to accept | 120 seconds, sized for a human answering the `Accept? [Y/n]` prompt, then [`timed out waiting for ack`](/troubleshooting#timed-out-waiting-for-ack). With `--to`, 9 minutes 45 seconds, the request link's answer window, then `They did not answer in time. Nothing was sent.` |
 | A transfer that stops making progress | 60 seconds |
-| Sender waiting, after the last byte, for a current `floe receive` or Floe Desktop to say it saved everything | No limit while the connection lasts; about 30 seconds after the receiver goes silent, `the connection closed before the receiver confirmed delivery` |
+| Sender waiting, after the last byte, for `floe receive` 1.11.0 or later or Floe Desktop 0.3.0 or later to say it saved everything | No limit while the connection lasts; about 30 seconds after the receiver goes silent, [`the connection closed before the receiver confirmed delivery`](/troubleshooting#the-connection-closed-before-the-receiver-confirmed-delivery) |
 | The byte-count report after a transfer | 5 seconds, and it never affects the files |
 
-A `floe receive` can sit for up to about ten seconds after printing its summary. That is a five-second
+A `floe receive` can sit for up to about 10 seconds after printing its summary. That is a 5-second
 grace period so the final acknowledgment reaches the sender, plus the report. When that
 acknowledgment is slow to reach the sender, it waits up to 35 seconds from sending it before the
-report. The full list is in the [transfer protocol reference](/reference/transfer-protocol#timeouts).
+report. The full list is in the [transfer protocol reference](/reference/transfer-protocol#timeouts),
+and every Floe limit is collected in [Limits](/reference/limits).
 
 ## Examples
 

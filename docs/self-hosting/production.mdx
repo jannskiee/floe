@@ -1,31 +1,35 @@
 ---
 title: "Production deployment"
 sidebarTitle: "Production"
-description: "Deploy a self-hosted Floe instance in production with HTTPS, a reverse proxy, custom domain, WebSocket support, and secure TURN relay credentials."
-keywords: ["production", "https", "subdomain", "deploy"]
+description: "Deploy a self-hosted Floe instance on two hostnames, one for the web client and one for the signaling server, each behind a reverse proxy with HTTPS."
+keywords: ["production", "https", "subdomain", "deploy", "two hostnames", "origin"]
 ---
 
-For a deployment accessible beyond a single machine, follow these steps.
+This page deploys Floe on two hostnames: the web client on one and the signaling server on the
+other, each behind a reverse proxy with HTTPS. It is for an instance that people reach from other
+machines and that cannot share one domain.
 
-The simplest production layout puts the client and the signaling server behind
-**one** domain, so there is a single certificate and a single URL to configure.
-See [Run behind one domain](/self-hosting/reverse-proxy) for copy-pasteable Caddy and
-nginx configuration. This page covers the two-subdomain layout, which is still
-fully supported.
+<Info>
+  Most instances are simpler behind one domain, with a single certificate and a single address
+  for every client. See [Run behind one domain](/self-hosting/reverse-proxy) for copy-pasteable
+  Caddy and nginx configuration. The two-hostname layout on this page is still fully supported.
+</Info>
 
 ## Steps
 
 <Steps>
   <Step title="Put both services behind a reverse proxy with HTTPS">
-    Browsers require a secure context (HTTPS) for WebRTC and the Screen Wake Lock API. Use Nginx, Caddy, Traefik, or a managed platform like Render or Fly.
-
-    Proxy each service to a hostname you control:
+    Use nginx, Caddy, Traefik, or a managed platform like Render or Fly, and proxy each service to a hostname you control:
     - `app.your-domain.com` to the client on `:3000`
     - `api.your-domain.com` to the signaling server on `:3001`
 
+    Serve both over HTTPS. Outside a secure context (HTTPS, or `localhost`) a browser withholds the Screen Wake Lock, the clipboard API, and service workers, and the web app runs without them.
+
     The signaling server uses WebSockets. Make sure your proxy forwards the `Upgrade` and `Connection` headers.
 
-    Keep the host name in the `Host` header as the client sent it. Caddy and Traefik do by default, and nginx does with `proxy_set_header Host $host`. The CLI and the desktop app connect to `api.your-domain.com`, which is not your `CLIENT_URL`, so the server lets them in by matching their `Origin` against the host name in `Host`. A proxy that rewrites `Host` to the upstream address (`localhost:3001`, the nginx default without that line) gets them refused with a `403`.
+    <Warning>
+      Keep the hostname in the `Host` header as the client sent it. Caddy and Traefik do by default, and nginx does with `proxy_set_header Host $host`. The CLI and the desktop app connect to `api.your-domain.com`, which is not your `CLIENT_URL`, so the server lets them in by matching their `Origin` against the hostname in `Host`. A proxy that rewrites `Host` to the upstream address (`localhost:3001`, the nginx default without that line) gets them refused with a `403`. [Origins the server accepts](#cors-note) shows what each side reports when that happens.
+    </Warning>
   </Step>
   <Step title="Set NEXT_PUBLIC_SOCKET_URL">
     In `.env`:
@@ -34,11 +38,7 @@ fully supported.
     NEXT_PUBLIC_SOCKET_URL=https://api.your-domain.com
     ```
 
-    Then recreate the containers. There is no rebuild: Compose maps this value onto the client container's `SOCKET_URL`, and the browser reads it from `GET /api/config` on every page load.
-
-    ```bash Terminal
-    docker compose up -d
-    ```
+    Nothing is rebuilt for this. Compose maps the value onto the client container's `SOCKET_URL`, and the browser reads it from `GET /api/config` on every page load.
   </Step>
   <Step title="Set CLIENT_URL">
     In `.env`:
@@ -47,16 +47,23 @@ fully supported.
     CLIENT_URL=https://app.your-domain.com
     ```
 
-    This adds your client origin to the server's CORS allow-list. Without it, browser requests from your domain will be blocked.
+    This adds your client origin to the server's allow-list. It is matched exactly, including the scheme and with no trailing slash. Without it, HTTP requests from the web app on your domain are refused with a `403`, and its signaling connection is refused too.
   </Step>
   <Step title="Set TRUSTED_PROXY_COUNT">
-    Set this to the number of proxy hops in front of the signaling server so per-IP rate limiting reads real client IPs instead of proxy IPs:
+    Set this to the number of proxy hops in front of the signaling server, so the per-address rate limits read real client addresses instead of the proxy's:
 
     ```dotenv .env
     TRUSTED_PROXY_COUNT=1
     ```
 
-    One reverse proxy is `1`, a CDN in front of that proxy is `2`. The server's own default is `1`; Docker Compose passes `0` explicitly, which is correct only when the container ports are published directly. Setting it higher than your real hop count lets clients forge `X-Forwarded-For` and bypass the per-IP rate limits, so if you expose the server directly with no proxy, set `0` deliberately rather than leaving it unset.
+    One reverse proxy is `1`, a CDN in front of that proxy is `2`. The server's own default is `1`; Docker Compose passes `0` explicitly, which is correct only when the container ports are published directly. Left at `0` behind a proxy, every user counts as the proxy's address and shares one set of limits. Setting it higher than your real hop count lets clients forge `X-Forwarded-For` and bypass the limits, so if you expose the server directly with no proxy, set `0` deliberately rather than leaving it unset.
+  </Step>
+  <Step title="Recreate the containers">
+    ```bash Terminal
+    docker compose up -d
+    ```
+
+    Compose applies a changed `.env` only when it recreates a container, so run this again after any later change to that file.
   </Step>
   <Step title="Point the CLI and the desktop app at your instance">
     A split deployment has two addresses, so both clients need both. The CLI takes them as flags, or as `FLOE_SERVER` and `FLOE_WEB` in the environment:
@@ -67,10 +74,34 @@ fully supported.
 
     Without `--web`, the share link points at the signaling API rather than the web app, because a self-hosted server is otherwise assumed to serve both from one origin.
 
-    In the desktop app, open Settings, expand **Advanced**, and fill in both **Server address** (`https://api.your-domain.com`) and **Share link address** (`https://app.your-domain.com`), then click **Test**. See [Desktop app settings](/desktop/settings#server).
+    In the desktop app, open Settings and, under **Advanced**, expand **Server**. Fill in both **Server address** (`https://api.your-domain.com`) and **Share link address** (`https://app.your-domain.com`), then click **Test**. See [Desktop app settings](/desktop/settings#server).
+
+    Request links are built from **Share link address** as well, and they stay off until the server's policy file turns them on. See [Turn on request links](/self-hosting/request-links).
   </Step>
 </Steps>
 
-## CORS note
+## Origins the server accepts {#cors-note}
 
-The server's allow-list also includes the official `floe.one` origins (`https://floe.one` and `https://www.floe.one`) plus `http://localhost:3000` for local development. Your `CLIENT_URL` is added on top of these, so browser clients on your domain and on floe.one can both reach your server. If you are running a private fork and want a strict allow-list, remove the hard-coded entries from `server/server.js`.
+A browser is accepted only from an origin on the server's allow-list. The list always holds the official `floe.one` origins (`https://floe.one` and `https://www.floe.one`) plus `http://localhost:3000` for local development, and your `CLIENT_URL` is added on top of these, so pages served from your domain and from floe.one are both allowed. If you are running a private fork and want a strict allow-list, remove the hard-coded entries from `server/server.js`.
+
+Two more cases are accepted. A request with no `Origin` header gets through, which covers the plain HTTP calls the CLI and the desktop app make. A WebSocket whose `Origin` names the same hostname as the request's `Host` header gets through too (with the same port, when `Host` carries one other than the scheme's default), which is how the CLI and the desktop app connect to `api.your-domain.com`. That second rule is why the proxy has to pass `Host` through.
+
+A refused origin looks different on each side:
+
+| Message | What it means | What to do |
+|---|---|---|
+| `Error: failed to connect to signaling server: cannot connect to signaling server at wss://api.your-domain.com/ws: websocket: bad handshake` | `floe send` or `floe receive`. The server answered the `/ws` handshake with `403`. | Make the proxy pass `Host` through, as in step 1. |
+| "Error: The server refused the realtime connection (check that your proxy forwards /ws)" | **Test** in Floe Desktop. Its `/ws` connection was refused, or never reached the server. | Check that the proxy forwards `/ws`, then that it passes `Host` through. |
+| `Refused a connection on /ws from Origin "https://api.your-domain.com" (Host "localhost:3001"): not CLIENT_URL, a floe.one origin, or this server's own host. Further refusals on /ws are not logged.` | The server's log. It is written once for `/ws` and once for `/socket.io` until the next restart, and it shows the `Origin` and the `Host` the server compared. | An `Origin` that is your own server next to a `Host` that is an upstream address means the proxy rewrites `Host`. |
+| `Refused a request with 403.` | The server's log, once per request. An HTTP request came from a browser origin that is not on the allow-list. | Set `CLIENT_URL` to the exact origin your users open, then recreate the containers. |
+
+A browser shows no message of its own for a refused origin. The web app's badge stays **Offline**.
+
+## If something goes wrong
+
+- The web app loads but its badge stays **Offline**: see
+  [The browser cannot connect to my signaling server](/troubleshooting#the-browser-cannot-connect-to-my-signaling-server).
+- The browser reports a CORS failure and the server logs `Refused a request with 403.`: see
+  [Browser requests are blocked, and the server answers HTTP 403](/troubleshooting#browser-requests-are-blocked-and-the-server-answers-http-403).
+- **Test** in Floe Desktop stops at the realtime connection: see
+  [The Test button says the realtime connection was refused](/troubleshooting#the-test-button-says-the-realtime-connection-was-refused).

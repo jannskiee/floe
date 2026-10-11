@@ -5,6 +5,8 @@ description: "Spin up a local Floe instance with Docker Compose in a few minutes
 keywords: ["docker compose", "try self hosting", "get started"]
 ---
 
+Two commands give you a complete Floe instance on one machine: the web app on port 3000 and the signaling server on port 3001, both from published images. This page is for trying self-hosting locally before you put an instance behind a domain.
+
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) and Docker Compose v2 (`docker compose`, bundled with Docker Desktop and modern Docker Engine).
@@ -22,10 +24,10 @@ keywords: ["docker compose", "try self hosting", "get started"]
     ```bash Terminal
     docker compose up -d
     ```
-    Docker pulls the [prebuilt images](/self-hosting/images) and starts the client and server containers. Nothing is compiled locally.
+    Docker pulls the [prebuilt images](/self-hosting/images) and starts the server, then the client once the server reports healthy. Nothing is compiled locally.
   </Step>
   <Step title="Open the app">
-    Open [http://localhost:3000](http://localhost:3000) in your browser. Pick a file and click **Create secure link**, then paste that link into a second tab to join as the receiver. **Show QR** renders the same link as a scannable code, which is how you receive on a phone once the app is reachable from one (see the note below).
+    Open [http://localhost:3000](http://localhost:3000) in your browser. The badge at the top right of the card reads **Ready** once the page has reached the signaling server. Pick a file and click **Create secure link**, then paste that link into a second tab to join as the receiver. **Show QR** renders the same link as a scannable code, which is how you receive on a phone once the app is reachable from one (see [Open it from another device](#open-it-from-another-device)).
   </Step>
 </Steps>
 
@@ -35,11 +37,19 @@ A `.env` file is optional. Every setting has a working default, so the two comma
 curl -fsSL https://raw.githubusercontent.com/jannskiee/floe/main/.env.docker.example -o .env
 ```
 
+Compose reads `.env` when it creates the containers, so run `docker compose up -d` again after each edit. Every variable is described in [Configuration](/self-hosting/configuration).
+
 ## What this runs
 
-This starts the stack in **STUN-only** mode. Floe uses direct peer-to-peer connections, which work on most home and mobile networks. No files pass through the server.
+This starts the stack in **STUN-only** mode: with no relay configured, the server hands every client two public Google STUN servers and nothing else. Floe uses direct peer-to-peer connections, which work on most home and mobile networks. No files pass through the server.
 
 To support peers behind strict firewalls, symmetric NAT, or CGNAT, add a [TURN relay](/self-hosting/turn-relay).
+
+[Request links](/desktop/request-links) are off in this stack until a policy file turns them on. See [Turn on request links](/self-hosting/request-links).
+
+The CLI and Floe Desktop work with this instance too. They connect to the signaling server, so give them `http://localhost:3001`, not the web app's port. See [Use a self-hosted server](/cli/self-hosted-server).
+
+## Open it from another device
 
 The defaults assume the browser and the server are on the same machine. To reach the app from another device on your network, set **both** of these in `.env` to your machine's LAN IP:
 
@@ -54,6 +64,39 @@ docker compose up -d
 
 Then open the app at `http://192.168.1.x:3000` on the sending machine too, not `localhost:3000`. The share link and its QR code carry whichever address the page was loaded from, so a sender sitting on `localhost` hands the phone an address that only resolves back to the phone.
 
-No rebuild: the client reads its server address at runtime. `CLIENT_URL` matters as much as the socket URL, because it is the origin the server's CORS check allows, and without it the browser is blocked even though the page loads.
+No rebuild: the client reads its server address at runtime. `CLIENT_URL` matters as much as the socket URL, because it is the origin the server's CORS check and its WebSocket origin check allow, and without it the browser is blocked even though the page loads.
 
-Ports are configurable. Set `CLIENT_PORT` and `PORT` in `.env` to publish the web app and the signaling server somewhere other than 3000 and 3001. If you change `PORT`, update `NEXT_PUBLIC_SOCKET_URL` to match and run `docker compose up -d`, or the browser will keep looking for the old port. No rebuild is needed; the client reads that address at runtime.
+The CLI and Floe Desktop on another device take the server's address on port 3001. For the links they hand out to open the web app, also give them its address on port 3000, as `--web` or **Share link address**: only `localhost` pairs the two ports for them automatically.
+
+## Change the ports
+
+Set `PORT` and `CLIENT_PORT` in `.env` to publish the signaling server and the web app on host ports other than 3001 and 3000. Neither is a one-line change, because each port is also written into a second setting:
+
+- Change `PORT`, and `NEXT_PUBLIC_SOCKET_URL` has to name the server's address on the new port, or the browser keeps looking for the old one.
+- Change `CLIENT_PORT`, and `CLIENT_URL` has to name the web app's address on the new port, or the server refuses the page's connections.
+
+For example, to move both:
+
+```dotenv .env
+PORT=4001
+NEXT_PUBLIC_SOCKET_URL=http://localhost:4001
+
+CLIENT_PORT=8080
+CLIENT_URL=http://localhost:8080
+```
+
+```bash Terminal
+docker compose up -d
+```
+
+No rebuild is needed for either one.
+
+<Warning>
+  Change `CLIENT_PORT` without `CLIENT_URL` and the page still loads, but it never connects: the badge stays on **Offline**. `CLIENT_URL` names the browser origin the server accepts and defaults to `http://localhost:3000`, so a page served from any other port fails both the server's CORS check and its WebSocket origin check.
+</Warning>
+
+## If something goes wrong
+
+- The page loads and the badge stays on **Offline**: see [The browser cannot connect to my signaling server](/troubleshooting#the-browser-cannot-connect-to-my-signaling-server).
+- The server answers `403` after you changed an address or a port: see [Browser requests are blocked, and the server answers HTTP 403](/troubleshooting#browser-requests-are-blocked-and-the-server-answers-http-403).
+- Two devices on different networks never connect: see [The transfer never starts](/troubleshooting#the-transfer-never-starts).

@@ -5,20 +5,22 @@ description: "When a direct connection is impossible, Floe routes the transfer t
 keywords: ["relay", "turn", "cgnat", "firewall", "why is my transfer slow", "amber"]
 ---
 
-Some networks make it impossible for two devices to reach each other directly. Strict corporate
-and university firewalls do it deliberately, and carrier-grade NAT, where a mobile provider puts
-many customers behind one shared address, does it as a side effect.
+When two devices cannot reach each other directly, Floe routes the transfer through a **relay**: a
+server both devices can reach, which forwards packets between them and cannot read them. A relayed
+transfer takes a detour, so it is usually slower, and it is capped at 2 GB per session.
 
-When that happens, Floe routes the transfer through a **relay**: a server both devices can reach,
-which forwards packets between them. Think of a courier carrying a locked box. It gets the box
-where it needs to go and cannot open it.
+Think of a courier carrying a locked box. It gets the box where it needs to go and cannot open it.
+
+Some networks make a direct path impossible. Strict corporate and university firewalls do it
+deliberately, and carrier-grade NAT, where a mobile provider puts many customers behind one shared
+address, does it as a side effect.
 
 ## Direct and relayed, side by side
 
 | | Direct | Relayed |
 |---|---|---|
 | Speed | Whatever your connections allow | Depends on the relay and the detour |
-| Size limit | None | 2 GB per session |
+| Size limit | None from Floe | 2 GB per session |
 | Who pays for the bandwidth | Nobody | Floe, or you, if you self-host |
 | Encryption | End to end | End to end, unchanged |
 | Typical networks | Home Wi-Fi, hotspots, most mobile | Corporate, university, carrier-grade NAT |
@@ -69,9 +71,9 @@ floe receive olive-tiger-castle --relay-only
 rather than yours. That means every transfer is relayed and every transfer is capped at 2 GB while
 it is on.
 
-Nothing in Floe offers a direct-only mode in the desktop app, and the web app has no relay-only
-mode. The one relay-only switch in a browser is on the page a sender opens from a
-[request link](/desktop/request-links): **Hide my IP (relay only, 2 GB per drop)**, which does the
+Nothing in Floe offers a direct-only mode in the desktop app, and the web app's Send page has no
+relay-only mode. The one relay-only switch in a browser is on the page a sender opens from a
+[request link](/web-app/request-links): **Hide my IP (relay only, 2 GB per drop)**, which does the
 same for that drop.
 
 <Accordion title="How the route is chosen, and how Floe knows which it got">
@@ -79,15 +81,16 @@ same for that drop.
   the nominated pair has a `relay` candidate on either side. Host and reflexive candidates are
   still gathered and offered in that case; they simply lost.
 
-  Turning the relay off does not veto a relayed connection after the fact. It removes the relay
-  entries from the address list the client uses, so it has nothing relayed to offer. The other
-  side can still offer one, though, and if that path wins the two surfaces then behave
-  differently. The **browser** notices and blocks the transfer before any file data moves. The
-  **CLI does not**: `--no-relay` is ICE filtering and nothing more, so a `floe send --no-relay`
+  Turning the relay off removes the relay entries from the address list that side uses, so it has
+  nothing relayed to offer. It does not stop the other side from offering one, and if that path
+  wins, the two surfaces behave differently. The **browser** notices and blocks the transfer
+  before any file data moves, with
+  [`Connection failed. Enable "Network Relay" to connect across restrictive networks.`](/troubleshooting#connection-failed-enable-network-relay-to-connect-across-restrictive-networks)
+  The **CLI does not**: `--no-relay` is ICE filtering and nothing more, so a `floe send --no-relay`
   whose peer supplied the winning relay candidate goes ahead over it. Treat the flag as "do not
   offer a relay" rather than as a guarantee.
 
-  The browser re-reads the connection statistics every five seconds and flips the badge to amber
+  The browser re-reads the connection statistics every 5 seconds and flips the badge to amber
   when the nominated pair is relayed. Floe Desktop and the CLI each read it once, when the
   connection is established, so their indicators are a snapshot rather than a live reading: the
   desktop badge, and the CLI's `Connected (direct)` or `Connected (relay)` line. When the CLI

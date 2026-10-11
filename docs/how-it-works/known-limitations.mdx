@@ -1,8 +1,8 @@
 ---
 title: "Known limitations"
 sidebarTitle: "Known limitations"
-description: "An honest list of what Floe does not protect against: what the signaling server could do, what the relay sees, and why there is no verification code yet."
-keywords: ["threat model", "security limits", "mitm", "privacy limits", "caveats"]
+description: "An honest list of what Floe does not do: what the signaling server could do, what the relay sees, what a browser can hold, and what the file checks miss."
+keywords: ["threat model", "security limits", "mitm", "privacy limits", "caveats", "browser memory", "large files in the browser"]
 ---
 
 Floe encrypts every transfer end to end and never puts your files on a server. Both of those
@@ -27,15 +27,14 @@ operator who publishes the client, which is the ordinary situation for any hoste
 
 ## There is no verification code to compare
 
-The usual defense against the previous item is a short code, derived from both certificate
-fingerprints, that the two people read to each other over a channel an attacker does not
-control. If the codes match, nobody is in the middle.
+The usual defense against the previous item is a short verification code, derived from both
+certificate fingerprints, that the two people read to each other over a channel an attacker does
+not control. If the codes match, nobody is in the middle.
 
-Floe still carries the code that derives it, but nothing calls it. **No client computes or
-displays it today.** It has been added and
-removed more than once, and it is not in the web app, Floe Desktop, or the CLI as it ships now.
-Until one of them shows it, there is no way to detect the attack described above from inside
-Floe.
+No client computes or displays that code today. Floe's source still carries the function that
+derives it, but nothing calls it. It has been added and removed more than once, and it is not in
+the web app, Floe Desktop, or the CLI as they ship now. Until one of them shows it, there is no
+way to detect the attack described above from inside Floe.
 
 **What you can do:** for anything where that attack is part of your threat model, self-host, or
 encrypt the file yourself before you send it.
@@ -46,15 +45,15 @@ A direct connection is two devices talking to each other, which means each one k
 other is. That is not a leak; it is how any peer-to-peer connection works, and a video call
 does the same thing.
 
-With a [request link](/desktop/request-links), that happens as soon as the sender clicks **Send**
-and connects, before the person who made the link accepts or declines. Declining does not take it
-back.
+With a [request link](/desktop/request-links), that happens as soon as the sender starts the send
+and the two devices connect, before the person who made the link accepts or declines. Declining
+does not take it back.
 
 **What you can do:** Floe Desktop has a [Hide my IP address](/desktop/settings#hide-my-ip-address)
 switch that forces every transfer through the relay, so the other side sees the relay's address
-instead of yours, and the CLI's `--relay-only` flag does the same. The web app has no
-equivalent, but the page a sender opens from a request link has its own Hide my IP switch. The
-trade is speed and the 2 GB session cap.
+instead of yours, and the CLI's `--relay-only` flag does the same. The web app's Send page has no
+equivalent, but the page a sender opens from a request link has its own
+**Hide my IP (relay only, 2 GB per drop)** checkbox. The trade is speed and the 2 GB session cap.
 
 ## The relay sees more than the signaling server does
 
@@ -63,7 +62,7 @@ anything: the data is encrypted before it arrives and decrypted only on the reci
 
 But the relay is an endpoint that both peers connect to, so it observes both IP addresses and
 the timing and size of what it forwards. On `floe.one` that relay is Cloudflare's Realtime TURN
-network, which is infrastructure Floe does not own, and your provider may log that metadata for
+network, which is infrastructure Floe does not own, and its operator may log that metadata for
 its own security purposes.
 
 **What you can do:** stay on a direct connection where you can, or self-host with
@@ -71,19 +70,24 @@ its own security purposes.
 
 ## A browser receiver is limited by what the browser can hold
 
-The web app collects each incoming file inside your browser until you download it, so how much it
-can take depends on the browser.
+The web app keeps every file it receives inside the browser until you leave the page, so that you
+can still save it. What counts is therefore the size of the whole transfer, not of its largest
+file, and how much fits depends on the browser.
 
 - **Chrome, Edge, and other Chromium browsers, in a normal window:** the tab holds no more than
   about 16 MB of a file at a time. The browser keeps some of what has arrived in memory (about 2 GB
   on a computer) and moves the rest into temporary files of its own on disk, up to a limit it sets
-  from the size of the disk. Past that limit the transfer stops and says the browser ran out of
-  memory.
+  from the size of the disk. Past that limit the transfer stops and says
+  [the browser ran out of memory](/troubleshooting#this-browser-ran-out-of-memory).
 - **A private or Incognito window in those browsers:** nothing goes to disk, so everything received
   in private windows shares the memory part alone, about 2 GB on a computer and much less on a
   phone. Past that the transfer stops the same way.
-- **Firefox, Safari, and every browser on iPhone and iPad:** each file is held in memory. A large
-  enough file exhausts the tab, and on a phone that ceiling arrives sooner than you would like.
+- **Firefox, Safari, and every browser on iPhone and iPad:** every file is held in memory. A large
+  enough transfer runs the tab out of memory, and on a phone that ceiling arrives sooner than you
+  would like.
+
+When a transfer stops this way, the files that had already arrived stay in the list and can still
+be saved.
 
 Zipping compounds it in every browser: **Download ZIP** reads every file back into the tab at once
 before it writes the archive.
@@ -95,20 +99,16 @@ total is large.
 
 ## The SHA-256 check covers the transfer, not your disk afterward
 
-A completed file is checked against the size the sender announced, and a mismatch in either
-direction discards it. When the sender provides a SHA-256 as well, the receiver hashes the file
-while writing it and deletes it if the two do not match, so the file you keep is the bytes that
-left the other machine.
+Floe checks every file it receives against the size the sender announced and, when the sender
+provides one, against the sender's SHA-256 of the file, and it deletes a file that fails either.
+[File checks](/how-it-works/file-checks) has the whole account.
 
-Two things the check does not do. It never reads the file back from disk, so it cannot notice
-damage that happens on your disk after the file was written. And a file that comes without a
-digest is checked against its size and nothing more. A sender that predates the check sends none.
-A browser sender waits for a file's SHA-256 at most 45 seconds after the file's last byte and then
-sends the file without one, because a CLI or desktop receiver gives up on a transfer that goes 60
-seconds without data. A browser receiver checks a file once it has arrived, and with more files to
-come it stops after at most 90 seconds and keeps the file unchecked, because the sender stops waiting
-for its answer at 120 seconds. Either way the file is kept, and no check mark or `SHA-256 matched`
-line appears.
+Two things the check does not do. It covers the file as it arrived, so it cannot notice damage
+that happens on your disk afterward: Floe Desktop and `floe receive` take the SHA-256 while they
+write the file and never read it back, and the web app checks the copy it holds, before your
+browser saves it. And a file that comes without a SHA-256, or whose check did not finish
+[in the time allowed](/how-it-works/file-checks#when-a-browser-runs-out-of-time), is checked against its
+size and nothing more. That file is kept, and no green check mark or `SHA-256 matched` line appears.
 
 **What you can do:** compare hashes yourself when you need proof about the file as it sits on
 disk. `sha256sum` on Linux,
@@ -116,37 +116,40 @@ disk. `sha256sum` on Linux,
 
 ## Windows cannot keep two names that differ only by a reserved character
 
-Windows refuses `< > : " | ? *` in a file name, so a receiver running on Windows replaces
-each of them with `_` before writing. Names that were distinct on the sending machine can
+Windows refuses `< > : " | ? *` in a file name, so Floe Desktop and `floe receive` on Windows
+replace each of them with `_` before writing. Names that were distinct on the sending machine can
 then land on the same name. A Linux folder holding `report:v1.pdf` and `report?v1.pdf`
 arrives as `report_v1.pdf` and `report_v1 (1).pdf`, and nothing on disk says which was
 which. The numbered suffix follows the order the files arrived in, which is the order they
 were sent.
 
 Nothing is overwritten and nothing is lost. The receiver never replaces an existing file, so
-the second one is saved beside the first rather than on top of it. macOS and Linux receivers
-keep both names as they were sent, because those characters are legal there.
+the second one is saved beside the first rather than on top of it. `floe receive` on macOS and
+Linux keeps both names as they were sent, because those characters are legal there. The web app
+replaces the same characters on every operating system, because a ZIP it builds may be opened on
+Windows.
 
 **What you can do:** if the distinction matters, rename the files before sending, or send to
-a macOS or Linux receiver. The progress line and the transfer history both show the name that
-was actually written, so you can always tell what landed where.
+`floe receive` on macOS or Linux. The progress line of `floe receive` and the History in Floe
+Desktop both show the name that was actually written, so you can always tell what landed where.
 
 ## Very deep or very long paths are refused
 
-Before it writes anything, Floe Desktop and `floe receive` refuse a file whose path inside the
-transfer is more than 32 levels deep or longer than 235 characters, or that starts at a drive or a
-root. The receive stops there and tells the sender why. Files saved before it are kept, and no
-setting or flag turns the limits off.
+Before they write a file, Floe Desktop and `floe receive` refuse one whose path inside the
+transfer is too deep or too long, or that starts at a drive or a root. The receive stops there and
+tells the sender why. Files saved before it are kept, and no setting or flag turns the limits off.
+The numbers are in [Limits](/reference/limits#files-and-paths).
 
 **What you can do:** zip deeply nested folders before sending them. See
-[what the desktop app shows](/desktop/receiving#paths-too-deep-or-too-long).
+[what the desktop app shows](/desktop/receiving#paths-too-deep-or-too-long) and
+[what `floe receive` prints](/cli/receive#paths-too-deep-or-too-long).
 
 ## Floe does not scan received files
 
 Floe does not scan received files for malware. On Windows, Floe Desktop and `floe receive` mark each
 file as downloaded, the way a browser does, so SmartScreen and Office Protected View treat it like any
-download. The mark needs a drive that keeps it, such as NTFS; FAT32 and exFAT drives, like most USB
-sticks and SD cards, and many network shares do not, and a file saved there arrives without it.
+download. The mark needs a drive that can keep it, and not every drive does. See
+[Received files are marked as downloads](/desktop/receiving#received-files-are-marked-as-downloads).
 
 **What you can do:** open files you did not expect with the same care as any download, and save
 to an NTFS drive when the mark matters. A drop through a request link also renames file types that
@@ -168,20 +171,20 @@ reads `(1) Floe`, and a notice appears inside Floe. See
 ## A request link works only while your PC is on
 
 A request link is a live transfer, not a mailbox. Files move only while Floe Desktop is open on
-your PC and the PC is awake and online, and only while the sender's browser tab stays open. There
-is no resume: if the connection drops, the file that was moving starts over through a new link.
-A drop that runs for hours can also be cut short by Windows restarting for updates outside your
-active hours.
+your PC and the PC is awake and online, and only while the sender's page, or their `floe send --to`,
+stays open. There is no resume: if the connection drops, the file that was moving starts over
+through a new link. A drop that runs for hours can also be cut short by Windows restarting for
+updates outside your active hours.
 
 **What you can do:** keep the PC plugged in and awake for a long drop, and set Windows Update's
-active hours to cover it. The sender keeps the tab in front, and pins it for a long drop. See
-[Request links](/desktop/request-links).
+active hours to cover it. A sender in a browser keeps the tab in front, and pins it for a long
+drop. See [Request links](/desktop/request-links).
 
 ## The public counter is a vanity metric
 
 The total on the homepage is fed by receivers reporting a byte count after a transfer. It is
-protected by a per-IP rate limit and a per-report size cap, and nothing else. Anyone can post a
-plausible number to it.
+protected by a per-address rate limit and a per-report size cap, and nothing else. Anyone can post
+a plausible number to it.
 
 It is an honest best-effort figure, not an audited one, and it is deliberately built that way:
 adding real integrity would mean identifying the reporter, which is exactly what the counter
@@ -197,7 +200,7 @@ peers can land on different replicas and never see each other.
 
 **What you can do:** run one instance. A single small server handles a lot, since file data
 never passes through it. If you need redundancy, use a failover pair rather than a load-balanced
-set, and accept that the switch loses every room and short code the old instance held, as a
+set, and accept that the switch loses every room and room code the old instance held, as a
 [restart](/self-hosting/operations#common-commands) does.
 
 ## Reporting something that is not on this list

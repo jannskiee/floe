@@ -36,14 +36,20 @@ the honest limits are worth knowing rather than discovering.
 The one that matters most: the two devices agree on keys by exchanging certificate fingerprints,
 and those fingerprints travel through the signaling server. A server that wanted to could hand
 each side a fingerprint it controls, sit in the middle, and read everything. This is true of every
-application built on WebRTC, and the usual defense is a short code the two people compare out of
-band. **Floe computes that code internally but no client shows it today.**
+application built on WebRTC, and the usual defense is a short verification code the two people
+compare out of band.
+
+<Warning>
+  Floe has no such code today. No client computes or shows one, so nothing inside Floe can detect
+  that attack. Where it matters, run your own server or encrypt the file yourself before you send
+  it.
+</Warning>
 
 Read [Known limitations](/how-it-works/known-limitations) for that and the
 others in plain language. A privacy claim is worth more when the exceptions are published
 alongside it.
 
-<Accordion title="The mechanism, for the curious">
+<Accordion title="How the encryption works">
   Floe uses WebRTC data channels, which run SCTP over **DTLS**. DTLS is TLS adapted for datagrams:
   the same cipher suites and the same handshake, over a transport that does not guarantee ordering.
   This is distinct from DTLS-SRTP, which is what WebRTC uses for audio and video.
@@ -58,8 +64,8 @@ alongside it.
   Keys are ephemeral and per-session. They are created when the connection is created and
   discarded when it closes.
 
-  Floe adds no encryption layer of its own on top of this. Integrity in transit comes from DTLS;
-  the finished file is checked against the size the sender announced and, when the sender provides
-  one, against a SHA-256 taken while the file is written. See
-  [the transfer protocol reference](/reference/transfer-protocol#integrity).
+  Floe adds no encryption layer of its own on top of this. Integrity in transit comes from DTLS.
+  On top of that, the receiving app checks each finished file against the size the sender
+  announced and, when the sender provides one, against the sender's SHA-256 of the file. See
+  [File checks](/how-it-works/file-checks).
 </Accordion>
