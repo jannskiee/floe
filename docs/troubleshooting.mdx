@@ -40,12 +40,13 @@ you are. See [Receiving files](/web-app/receiving#if-floe-says-open-in-your-brow
 
 ### The transfer never starts {#the-transfer-never-starts}
 
-No message appears: both sides sit and wait. Both people have to be present at the same time, and
-the connection is made directly between the two devices, so three things can hold it up.
+Usually no error appears: both sides sit and wait. Both people have to be present at the same
+time, and the connection is made directly between the two devices, so three things can hold it up.
 
 - **The sender left.** Closing the browser tab, quitting Floe Desktop, or stopping `floe send`
-  ends the session, and nothing resumes it. A browser that opens the link afterward shows no
-  error: it stays on "Waiting for the sender to start".
+  ends the session, and nothing resumes it. A browser that opens the link afterward says
+  ["The sender is not connected"](#the-sender-is-not-connected). A self-hosted web app on version 1.11.0 or earlier
+  shows no message there: it stays on "Waiting for the sender to start".
 - **The recipient has not answered.** In the browser and in Floe Desktop a transfer starts by
   itself once both sides are connected. `floe receive` asks first, so a sender can sit connected
   with no progress while the recipient has not answered the `Accept? [Y/n]` prompt. The sender
@@ -60,8 +61,10 @@ link or answer the prompt, then ask the sender to allow the relay and start a ne
 
 ### "Link Invalid" {#link-invalid}
 
-A card in place of the transfer on the receiving page. It reads "This link is either expired,
-already in use, or does not exist." and has a **Back to Home** button. Three things produce it:
+A card in place of the transfer on the receiving page. It reads "This link is incomplete, already
+in use, or locked to the networks that first used it." and has a **Back to Home** button. (A self-hosted web app on version 1.11.0 or earlier
+words it "This link is either expired, already in use, or does not exist.", and the
+causes are the same.) Three things produce it:
 
 - **Someone is already connected on this link,** including you in another tab. A room takes one
   sender and one receiver.
@@ -71,8 +74,29 @@ already in use, or does not exist." and has a **Back to Home** button. Three thi
   mobile data. See
   [A device that changed networks is refused](#a-device-that-changed-networks-is-refused).
 
-A link whose sender has simply left does not show this card. The page waits instead, as in
-[The transfer never starts](#the-transfer-never-starts).
+A link whose sender has simply left does not show this card. The page says
+["The sender is not connected"](#the-sender-is-not-connected) instead.
+
+### "The sender is not connected" {#the-sender-is-not-connected}
+
+On the receiving page, as the second step of the card, with "Keep this page open if they are
+coming back. Otherwise ask them for a new link." under it. Your page reached Floe's server and
+found nobody on the sending side of this link: the sender closed their page or app, their device
+is asleep or offline, their connection to the server dropped before the two devices connected, or
+the link is from a transfer that already ended.
+
+What happens next depends on the sender. A sender in the browser whose page is still open comes
+back by itself when its connection returns, and the transfer then starts with nothing more from
+you. A link from `floe send` or Floe Desktop does not come back, because those senders never
+rejoin a room, and neither does a browser link whose transfer already finished. If nothing
+changes after a minute or two, ask the sender for a new link.
+
+One case still reads "Waiting for the sender to start" with nobody there: when another browser
+already has the same link open, the server tells the second page that someone is in the room,
+and the page cannot tell that it is not the sender.
+
+A self-hosted web app on version 1.11.0 or earlier never shows this line. It shows "Waiting for the
+sender to start" for as long as the page stays open.
 
 Close the other tab and reload if you opened the link twice, or copy the whole link again if it
 was cut. Otherwise ask the sender to start a new transfer.
@@ -91,7 +115,7 @@ What each side then sees differs:
 |---|---|
 | A receiver in the browser | The ["Link Invalid"](#link-invalid) card. |
 | `floe receive` or Floe Desktop, given the link again | [`room is full (someone else may already be receiving)`](#room-is-full-someone-else-may-already-be-receiving) |
-| A sender in the browser | Nothing. The page keeps its last status line, and nobody who opens its link reaches it anymore. |
+| A sender in the browser | The status line reads ["Reconnecting to your link"](#reconnecting-to-your-link) for about a minute, then a red banner says the link stopped working. A self-hosted web app on version 1.11.0 or earlier shows nothing: the page keeps its last status line, and nobody who opens its link reaches it anymore. |
 
 Start a new transfer: the sender makes a new link, which in the browser means reloading the page
 and adding the files again, and the receiver opens that one. See
@@ -153,6 +177,29 @@ recipient's page no longer rejoins by itself, so a connection that drops after t
 transfer.
 
 Keep the page open and ask the recipient to open the link again.
+
+### "Reconnecting to your link" {#reconnecting-to-your-link}
+
+On the sending page, as the status line under the share link, after your page lost its connection
+to Floe's server and came back. The server would not put the page back in its own room, because
+the room looked full: usually the page's old connection had not been cleared yet, which can take
+up to about 45 seconds, and a recipient had already opened the link. The page tries again by
+itself for about a minute, and the status goes back to "Waiting for peer" once it is in. You do
+not need to do anything, and the recipient can keep their page open.
+
+### "This link stopped working. Reload the page, add the files again, and share the new link." {#this-link-stopped-working}
+
+On the sending page, in a red banner, with the status "Link stopped working". It follows about a
+minute of ["Reconnecting to your link"](#reconnecting-to-your-link): the server kept refusing to
+put your page back in its own room. Either two other devices hold the link, or the room is
+[closed to new networks](#a-device-that-changed-networks-is-refused) and your device came back on
+a different one.
+
+Do what the banner says: reload the page, add the files again, create a new link and share that
+one. The old link will not work again.
+
+A self-hosted web app on version 1.11.0 or earlier shows neither message. Its page keeps its last
+status line and its link, and nobody who opens that link reaches it.
 
 ### "Transfer blocked. Relay limit exceeded." {#transfer-blocked-relay-limit-exceeded}
 

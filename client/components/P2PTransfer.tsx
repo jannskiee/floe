@@ -41,6 +41,8 @@ import {decideReceiverClose} from '@/lib/receiverClose';
 import {describeSenderStop, senderCloseInterrupted} from '@/lib/senderStop';
 import {verifiedLine, VERIFIED_LINE} from '@/lib/verifiedLine';
 import {receiveSummary} from '@/lib/receiveSummary';
+import {INITIAL_SEAT, seatStep, type SeatEvent} from '@/lib/roomSeat';
+import {rejoinDelay} from '@/lib/rejoinRetry';
 import {peerDisconnectAction, teardownClaimsClose} from '@/lib/peerDisconnect';
 import {copyText} from '@/lib/clipboard';
 import {resolveSocketUrl} from '@/lib/socketUrl';
@@ -95,6 +97,9 @@ export function P2PTransfer() {
     // receiver engine stopped on a failure. Never derived from `status`, which
     // onDisconnect also writes when only this side's signaling socket blinked.
     const [receiveEnded, setReceiveEnded] = useState(false);
+    // A receiver page only: the server's messages say nobody is on the
+    // sending side of this link right now. See lib/roomSeat.ts.
+    const [senderAbsent, setSenderAbsent] = useState(false);
     const [copied, setCopied] = useState(false);
     const [error, setError] = useState('');
     const [transferSpeed, setTransferSpeed] = useState('');
@@ -207,6 +212,27 @@ export function P2PTransfer() {
         connectionTypeRef.current = connectionType;
     });
 
+    // The receiver's seat in the room, fed from the server's own messages.
+    // Returns true when this page should give its seat back by re-joining.
+    const seatRef = useRef(INITIAL_SEAT);
+    const applySeat = (event: SeatEvent): boolean => {
+        const step = seatStep(seatRef.current, event);
+        seatRef.current = step.state;
+        setSenderAbsent(step.state.senderAbsent);
+        return step.yieldSeat;
+    };
+
+    // The sender's retry of a join its own room refused (lib/rejoinRetry.ts).
+    // At most one is pending, and it never outlives the answer it waits for: a
+    // second join-room from a socket the server has seated would move this
+    // page behind its own receiver.
+    const rejoinTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const rejoinAttemptRef = useRef(0);
+    const clearRejoin = () => {
+        if (rejoinTimerRef.current) clearTimeout(rejoinTimerRef.current);
+        rejoinTimerRef.current = null;
+    };
+
     const { requestWakeLock, releaseWakeLock } = useWakeLock();
 
     const {
@@ -220,6 +246,9 @@ export function P2PTransfer() {
         onRoomJoined,
     } = useSignaling({
         onSignal: (data) => {
+            // Only a sender signals first, so on a receiver page any signal
+            // means one is there, whatever happens to this particular frame.
+            if (joinedRoomRef.current && seatRef.current.senderAbsent) applySeat({ type: 'offer' });
             const peer = peerRef.current;
             if (!peer || peer.destroyed) return;
             const sig = data?.signal;
@@ -264,6 +293,11 @@ export function P2PTransfer() {
                 });
                 return;
             }
+            // A receiver page is alone in the room from here on, and says so.
+            // If the sender comes back it arrives BEHIND this page, which then
+            // gives the first seat back (see the user-connected handler in
+            // joinRoomAsReceiver).
+            if (joinedRoomRef.current) applySeat({ type: 'peer-left' });
             // A wire reason wins. The peer told us why it stopped, and the
             // signaling socket it drops about two seconds later is a
             // consequence of that, not a second opinion: a CLI receiver
@@ -299,6 +333,10 @@ export function P2PTransfer() {
             releaseWakeLock();
         },
         onDisconnect: () => {
+            // A retry emitted while the socket is down would be buffered and
+            // sent next to the reconnect handler's own join: two joins, and
+            // the second one moves a seated sender behind its receiver.
+            clearRejoin();
             // The same latch as onPeerDisconnected: this side's own socket
             // going away is not news that overrides the peer's account.
             if (wireReasonRef.current) return;
@@ -313,6 +351,10 @@ export function P2PTransfer() {
         },
         onReconnect: () => {
             setError('');
+            // A new socket is a new attempt at the room: the join below is the
+            // only one in flight, and a refusal starts the schedule again.
+            clearRejoin();
+            rejoinAttemptRef.current = 0;
             // A Socket.IO auto-reconnect comes back under a fresh socket.id,
             // and the server room only ever contained the old id, so this
             // client is no longer in its room. Re-join while the WebRTC data
@@ -425,6 +467,37 @@ export function P2PTransfer() {
             }
             setError('Link Expired or Busy');
             setStatus('Access Denied');
+        });
+
+        // The role the server names is the only word on whether anyone was
+        // already here: a receiver page named "sender" opened a link nobody
+        // holds. Registered before the join, so the answer cannot be missed.
+        // A server that sent no role would leave this page as it was before.
+        onRoomJoined((data) => {
+            applySeat({ type: 'joined', role: typeof data?.role === 'string' ? data.role : '' });
+        });
+
+        // Announced only to the first seat. On a receiver page that means a
+        // peer arrived behind it: a sender coming back, whose own page waits
+        // for this same notice before it offers. Give the first seat back by
+        // re-joining, once (lib/roomSeat.ts says why once), with a fresh peer
+        // as the socket reconnect path builds one.
+        onUserConnected(() => {
+            const yieldSeat = applySeat({
+                type: 'peer-arrived',
+                connected: peerRef.current?.connected === true,
+                hasFile: receivedFilesRef.current.length > 0 || transferCompleteRef.current,
+            });
+            if (!yieldSeat || !joinedRoomRef.current) return;
+            Sentry.addBreadcrumb({
+                category: 'webrtc',
+                message: 'Receiver gave the first seat back to an arriving peer',
+                level: 'info',
+            });
+            closedByUsRef.current = peerRef.current;
+            peerRef.current?.destroy();
+            hasJoinedRef.current = false;
+            joinRoomAsReceiver(joinedRoomRef.current);
         });
 
         joinRoom(roomId);
@@ -723,6 +796,7 @@ export function P2PTransfer() {
             if (linkAckFallbackRef.current) clearTimeout(linkAckFallbackRef.current);
             if (iceProbeRef.current) clearTimeout(iceProbeRef.current);
             if (copyResetRef.current) clearTimeout(copyResetRef.current);
+            if (rejoinTimerRef.current) clearTimeout(rejoinTimerRef.current);
         };
         // joinRoomAsReceiver is intentionally excluded: this effect must run once on mount only.
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -796,6 +870,35 @@ export function P2PTransfer() {
         onRoomJoined(() => {
             if (linkAckFallbackRef.current) clearTimeout(linkAckFallbackRef.current);
             setGeneratedLink(link);
+            // Seated, so nothing may join again: a retry still pending would
+            // move this page out of its seat (lib/rejoinRetry.ts).
+            clearRejoin();
+            if (rejoinAttemptRef.current > 0) {
+                rejoinAttemptRef.current = 0;
+                setStatus((s) => (s === 'Reconnecting to your link' ? 'Waiting for peer' : s));
+            }
+        });
+        // The server refused this page's own room. That only follows a
+        // re-join after a reconnect: the socket that died may still hold its
+        // seat for up to about 45 s, and a receiver that arrived meanwhile
+        // makes the room full. Nothing listened for the answer, so the page
+        // kept showing a link into a room it was not in, and the receiver
+        // waited for an offer nobody would make. Try again until the dead
+        // socket is gone, then say so if the room is still closed to us.
+        onRoomFull(() => {
+            if (rejoinTimerRef.current) return;
+            const delay = rejoinDelay(rejoinAttemptRef.current);
+            if (delay === null) {
+                setError('This link stopped working. Reload the page, add the files again, and share the new link.');
+                setStatus('Link stopped working');
+                return;
+            }
+            rejoinAttemptRef.current += 1;
+            setStatus('Reconnecting to your link');
+            rejoinTimerRef.current = setTimeout(() => {
+                rejoinTimerRef.current = null;
+                joinRoom(newRoomId);
+            }, delay);
         });
         joinRoom(newRoomId);
         setStatus('Waiting for peer');
@@ -1126,8 +1229,8 @@ export function P2PTransfer() {
                                     Link Invalid
                                 </h3>
                                 <p className="text-sm text-zinc-500 max-w-[260px] mx-auto">
-                                    This link is either expired, already in use,
-                                    or does not exist.
+                                    This link is incomplete, already in use, or
+                                    locked to the networks that first used it.
                                 </p>
                             </div>
                             <Button
@@ -1323,6 +1426,7 @@ export function P2PTransfer() {
                                     receivedFiles={receivedFiles}
                                     status={status}
                                     isConnected={isConnected}
+                                    senderAbsent={senderAbsent}
                                     reportStatsEnabled={reportStatsEnabled}
                                     onReportStatsChange={setReportStatsEnabled}
                                     isZipping={isZipping}

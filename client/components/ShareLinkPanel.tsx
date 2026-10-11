@@ -30,6 +30,10 @@ export function ShareLinkPanel({
     verifiedLine,
 }: ShareLinkPanelProps) {
     const isComplete = status === 'All Files Sent!' || status.includes('Transfer complete');
+    // A status that has ended does not spin: the spinner beside it said the
+    // page was still working on something, under a banner saying it was not.
+    const hasEnded =
+        status === 'Link stopped working' || status === 'Connection failed' || status === 'Transfer failed';
 
     return (
         <div className="rounded-xl bg-black/40 p-4 border border-white/[0.08] mb-4">
@@ -102,7 +106,7 @@ export function ShareLinkPanel({
             <div className="mt-3 flex w-full items-center justify-center gap-2 text-xs transition-colors duration-300">
                 {isComplete ? (
                     <CheckCircle2 className="h-3 w-3 shrink-0 text-green-400" />
-                ) : (
+                ) : hasEnded ? null : (
                     <Loader2 className="h-3 w-3 shrink-0 animate-spin text-zinc-500" />
                 )}
                 <span

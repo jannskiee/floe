@@ -24,10 +24,28 @@ test('a malformed room id shows the Link Invalid card, not an endless wait', asy
 test('a well-formed room id is not rejected and reaches the handshake pipeline', async ({
     page,
 }) => {
-    // Guards against over-rejection: a syntactically valid id must still join and
-    // wait for a sender rather than tripping the client-side validity check.
+    // Guards against over-rejection: a syntactically valid id must still join
+    // rather than tripping the client-side validity check.
     await page.goto('/#room=6f207790-92a6-4662-bb68-4c4059f75139');
 
     await expect(page.getByText('Secure room joined')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: 'Link Invalid' })).toHaveCount(0);
+});
+
+test('a link nobody holds says the sender is not connected, not that it is about to start', async ({
+    page,
+}) => {
+    // Nobody is in this room, so the server seats the page first and names it
+    // "sender". The page used to ignore the name and show a spinner beside
+    // "Waiting for the sender to start" for as long as it stayed open.
+    await page.goto('/#room=0b8f3d2a-5c41-4e7b-9a16-3d2e8f7c6b51');
+
+    await expect(page.getByText('The sender is not connected')).toBeVisible({ timeout: 15_000 });
+    await expect(
+        page.getByText('Keep this page open if they are coming back. Otherwise ask them for a new link.'),
+    ).toBeVisible();
+    await expect(page.getByText('Waiting for the sender to start')).toHaveCount(0);
+    // The room did take the page: this is not the Link Invalid card.
+    await expect(page.getByText('Secure room joined')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Link Invalid' })).toHaveCount(0);
 });

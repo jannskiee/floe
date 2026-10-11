@@ -28,8 +28,11 @@ export interface PeerDisconnectInputs {
  * Once the data channel is open, signaling has done its job and the notice is
  * ignored. A peer that really died is still ended by WebRTC itself (an ICE
  * failure or a channel close surfaces as simple-peer `close` or `error`).
- * Before that, the negotiation cannot finish without signaling, and the other
- * side re-offers after it rejoins, so today's teardown stays.
+ * Before that, the negotiation cannot finish without signaling, so today's
+ * teardown stays. A sender re-offers after its receiver rejoins. The other
+ * order needs help: a sender that rejoins lands in the seat behind a waiting
+ * receiver and is never told to offer, so the receiver gives the first seat
+ * back (lib/roomSeat.ts).
  */
 export function peerDisconnectAction(inputs: PeerDisconnectInputs): PeerDisconnectAction {
     return inputs.hasPeer && inputs.peerConnected ? 'ignore' : 'teardown';

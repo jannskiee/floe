@@ -138,7 +138,7 @@ What you see when the sender leaves depends on how far things had got:
 
 | When the sender left | What the page shows |
 |----------------------|---------------------|
-| Before the two devices connected | Nothing changes. The card stays on "Waiting for the sender to start". |
+| Before the two devices connected | The second step of the card changes to "The sender is not connected". If a sender in the browser comes back, the transfer starts by itself. See [Troubleshooting](/troubleshooting#the-sender-is-not-connected). |
 | After they connected, before any file finished | A red banner, usually "The sender ended the transfer before it finished." or "The sender ended the transfer. Ask them to start it again." See [Troubleshooting](/troubleshooting#the-sender-ended-the-transfer). |
 | After at least one file finished, with more still to come | The badge goes back to **Offline**, the progress row goes away, and an amber line under the list says how far the transfer got, such as "Received 1 of 3 files. The transfer ended before the rest arrived." The files that arrived stay listed. See [Troubleshooting](/troubleshooting#the-transfer-ended-before-the-rest-arrived). |
 
@@ -181,8 +181,10 @@ See [floe receive](/cli/receive) and [Receive files in the desktop app](/desktop
 - "Link Invalid": the link is incomplete, someone else is already connected on it, or it has
   already started connecting from a network other than the one you are on now, which includes
   your own device after it switched networks. See [Troubleshooting](/troubleshooting#link-invalid).
-- The card stays on "Waiting for the sender to start": the sender may have closed their page, or
-  the two devices are still looking for a path. See
+- "The sender is not connected": nobody is on the sending side of the link right now. See
+  [Troubleshooting](/troubleshooting#the-sender-is-not-connected).
+- The card stays on "Waiting for the sender to start": the two devices are still looking for a
+  path, or the sender's side has not started. See
   [Troubleshooting](/troubleshooting#the-transfer-never-starts).
 - `Could not connect. Ask the sender to enable "Network Relay" and try again.`: usually a network
   that blocks direct paths, but the sender closing their tab produces it too. See

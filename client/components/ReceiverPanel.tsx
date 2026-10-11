@@ -11,6 +11,10 @@ interface ReceiverPanelProps {
     receivedFiles: ReceivedFile[];
     status: string;
     isConnected: boolean;
+    // The server's messages say nobody is on the sending side of this link
+    // right now: a link nobody holds, or a sender that dropped before the two
+    // devices connected. See lib/roomSeat.ts.
+    senderAbsent: boolean;
     reportStatsEnabled: boolean;
     onReportStatsChange: (enabled: boolean) => void;
     isZipping: boolean;
@@ -42,6 +46,7 @@ export function ReceiverPanel({
     receivedFiles,
     status,
     isConnected,
+    senderAbsent,
     reportStatsEnabled,
     onReportStatsChange,
     isZipping,
@@ -72,14 +77,29 @@ export function ReceiverPanel({
                             )}
                             Secure room joined
                         </div>
-                        <div className={`flex items-center gap-2.5 text-sm ${isConnected ? 'text-zinc-200' : 'text-zinc-600'}`}>
-                            {isConnected ? (
-                                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-zinc-400" />
-                            ) : (
-                                <Circle className="h-3.5 w-3.5 shrink-0 text-zinc-700" />
-                            )}
-                            Waiting for the sender to start
-                        </div>
+                        {isConnected && senderAbsent ? (
+                            // No spinner: nothing is in progress. The second
+                            // line promises nothing, because a finished link
+                            // and a CLI or desktop sender never come back.
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-2.5 text-sm text-amber-200">
+                                    <Circle className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+                                    The sender is not connected
+                                </div>
+                                <p className="pl-6 text-xs leading-relaxed text-zinc-500">
+                                    Keep this page open if they are coming back. Otherwise ask them for a new link.
+                                </p>
+                            </div>
+                        ) : (
+                            <div className={`flex items-center gap-2.5 text-sm ${isConnected ? 'text-zinc-200' : 'text-zinc-600'}`}>
+                                {isConnected ? (
+                                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-zinc-400" />
+                                ) : (
+                                    <Circle className="h-3.5 w-3.5 shrink-0 text-zinc-700" />
+                                )}
+                                Waiting for the sender to start
+                            </div>
+                        )}
                         <div className="flex items-center gap-2.5 text-sm text-zinc-600">
                             <Circle className="h-3.5 w-3.5 shrink-0 text-zinc-700" />
                             Files stream in below
