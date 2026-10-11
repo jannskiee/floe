@@ -6,6 +6,7 @@ import { isInjectedScriptError } from './lib/injectedScripts';
 import { isNonBrowserRuntimeError } from './lib/nonBrowserRuntimes';
 import { isStaleBundleError } from './lib/staleBundle';
 import { scrubBreadcrumb, scrubErrorEvent, scrubSpanJson, scrubTransactionEvent } from './lib/scrubUrl';
+import { withoutBrowserSession } from './lib/sentryIntegrations';
 import { tracesSampler } from './lib/traceSampling';
 
 // One budget per page load: no single error is sent more than a few times,
@@ -21,6 +22,14 @@ Sentry.init({
     // Never attach cookies/headers/user IP by default. The room secret travels
     // in the URL, which we additionally scrub below.
     sendDefaultPii: false,
+
+    // No session record. The SDK's default set includes an integration that
+    // tells Sentry about every page load and route change, error or not, for
+    // its Release Health screens, which Floe does not use. The privacy page
+    // says no such record is sent, so this line and that sentence move
+    // together. The function form on purpose: an array is added to the
+    // defaults and could not remove one. See lib/sentryIntegrations.ts.
+    integrations: withoutBrowserSession,
 
     // Filter out non-actionable errors caused by browser extensions and
     // restricted environments. The list lives in lib/ignoredErrors.ts, which

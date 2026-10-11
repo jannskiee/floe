@@ -142,6 +142,7 @@ export function scrubSpanJson<T extends ScrubbableSpan>(span: T): T {
 export function scrubTransactionEvent<T extends ScrubbableTransaction>(event: T): T {
     if (typeof event.transaction === 'string') event.transaction = scrubTransactionName(event.transaction);
     if (event.request?.url) event.request.url = scrubUrl(event.request.url);
+    scrubRequestReferer(event.request);
     scrubAttributes(event.contexts?.trace?.data);
     for (const span of event.spans ?? []) scrubSpanJson(span);
     // A transaction carries the scope's breadcrumbs as an error does
@@ -178,6 +179,7 @@ export interface ScrubbableErrorEvent {
 // skipped and left as it is.
 export function scrubErrorEvent<T extends ScrubbableErrorEvent>(event: T): T {
     if (typeof event.request?.url === 'string') event.request.url = scrubUrl(event.request.url);
+    scrubRequestReferer(event.request);
     if (typeof event.transaction === 'string') event.transaction = scrubTransactionName(event.transaction);
     if (Array.isArray(event.breadcrumbs)) event.breadcrumbs = event.breadcrumbs.map((crumb: unknown) => scrubEventBreadcrumb(crumb));
     const values: unknown = event.exception?.values;
@@ -199,6 +201,33 @@ export function scrubErrorEvent<T extends ScrubbableErrorEvent>(event: T): T {
 
 function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
+}
+
+// The Referer header on a browser event, scrubbed in place.
+//
+// The browser SDK copies document.referrer into request.headers.Referer
+// (getHttpRequestData in @sentry/browser), and both hooks above rewrote
+// request.url only. A browser never puts a fragment in a referrer, so a
+// share link of today's #room= shape cannot get there, and /r sends no
+// referrer at all (next.config.mjs). A legacy ?room=<id> link can: after a
+// full navigation away from one, such as the Link Invalid card's Back to
+// Home, the next page's errors and sampled traces carried the room id in this
+// header (WEB-21).
+//
+// Scrubbed, not deleted: the privacy page says a report carries the referring
+// page, and the address without its secret is what makes "the user came from
+// a share link" readable in an issue. The server-side scrub below does delete
+// it, with every other header but the user agent, because a server event's
+// headers are the visitor's own request. The header is matched in any letter
+// case, and anything that is not the shape the SDK writes is left alone.
+function scrubRequestReferer(request: unknown): void {
+    if (!isObject(request) || !isObject(request.headers)) return;
+    const headers = request.headers;
+    for (const key of Object.keys(headers)) {
+        if (key.toLowerCase() !== 'referer') continue;
+        const value = headers[key];
+        if (typeof value === 'string' && mayHoldSecret(value)) headers[key] = scrubUrl(value);
+    }
 }
 
 // Server and edge events carry what a browser event never does: the request's
