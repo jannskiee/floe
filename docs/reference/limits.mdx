@@ -15,37 +15,37 @@ page that explains each. Sizes are binary: 2 GB means 2,147,483,648 bytes.
 The one size limit Floe sets on purpose is on relayed connections. The other rows come from the
 receiving device, or from how the protocol writes a size.
 
-| Limit | Value | At the limit | Explained in |
+| Limit | Value | At the limit |
 |---|---|---|---|
-| A transfer over a direct connection | No limit from Floe | Nothing in Floe stops it. What runs out first is the receiving disk or the receiving browser. | [File size limits](/how-it-works/2gb-limit) |
-| A transfer, or one request-link drop, over a relayed connection | 2 GB in total. Exactly 2 GB passes and 1 byte more does not | The sender checks once, before any file data moves, and sends nothing. The browser says "Transfer blocked. Relay limit exceeded." and the CLI says `relay connections are capped at 2 GB`. | [File size limits](/how-it-works/2gb-limit#what-you-see-when-it-stops-you) |
-| What a browser can receive | Set by the browser and the device, not by Floe | The transfer stops and the page says the browser ran out of memory. Floe Desktop and the CLI save straight to disk and have no such ceiling. | [Known limitations](/how-it-works/known-limitations#a-browser-receiver-is-limited-by-what-the-browser-can-hold) |
-| One file saved to a FAT or FAT32 drive by Floe Desktop or `floe receive` on Windows | 4,294,967,295 bytes, which is 1 byte under 4 GB | The receive stops before any of that file is written. `floe receive` prints `receive stopped: a file is larger than the save drive can hold`. | [floe receive](/cli/receive#paths-too-deep-or-too-long) |
-| The size a sender can announce for one file, or for a whole batch | 9,007,199,254,740,991 bytes (`2^53 - 1`) | The receiver refuses the file's description and the transfer stops. | [Transfer protocol](/reference/transfer-protocol#metadata) |
+| A transfer over a direct connection | No limit from Floe | Nothing in Floe stops it. What runs out first is the receiving disk or the receiving browser. See [File size limits](/how-it-works/2gb-limit). |
+| A transfer, or one request-link drop, over a relayed connection | 2 GB in total. Exactly 2 GB passes and 1 byte more does not | The sender checks once, before any file data moves, and sends nothing. The browser says "Transfer blocked. Relay limit exceeded." and the CLI says `relay connections are capped at 2 GB`. See [File size limits](/how-it-works/2gb-limit#what-you-see-when-it-stops-you). |
+| What a browser can receive | Set by the browser and the device, not by Floe | The transfer stops and the page says the browser ran out of memory. Floe Desktop and the CLI save straight to disk and have no such ceiling. See [Known limitations](/how-it-works/known-limitations#a-browser-receiver-is-limited-by-what-the-browser-can-hold). |
+| One file saved to a FAT or FAT32 drive by Floe Desktop or `floe receive` on Windows | 4,294,967,295 bytes, which is 1 byte under 4 GB | The receive stops before any of that file is written. `floe receive` prints `receive stopped: a file is larger than the save drive can hold`. See [floe receive](/cli/receive#paths-too-deep-or-too-long). |
+| The size a sender can announce for one file, or for a whole batch | 9,007,199,254,740,991 bytes (`2^53 - 1`) | The receiver refuses the file's description and the transfer stops. See [Transfer protocol](/reference/transfer-protocol#metadata). |
 
 ## Files and paths {#files-and-paths}
 
 Floe Desktop and `floe receive` check where each file would be saved before they write anything.
 A browser keeps what it receives inside the browser, so only the last two rows apply to it.
 
-| Limit | Value | At the limit | Explained in |
+| Limit | Value | At the limit |
 |---|---|---|---|
-| Files in one transfer by room code or share link | No limit from Floe | Nothing stops it. A request-link drop is the exception. | [Request links](#request-links) |
-| Folder depth of a file's path inside the transfer | 32 levels: 31 folders and the file | The receive stops before that file is written, the sender is told, and files saved before it are kept. `floe receive` prints `receive stopped: a file's path is too deep or too long to save in this folder`. | [floe receive](/cli/receive#paths-too-deep-or-too-long) and [Receiving files](/desktop/receiving#paths-too-deep-or-too-long) |
-| Length of that path | 235 UTF-16 code units, which is 235 characters for most names. A character outside the Basic Multilingual Plane, such as most emoji, counts as 2 | The same stop. | The same two pages |
-| A path that starts at a drive or a root, such as `C:\x` or `/x` | Never accepted | The same stop. | The same two pages |
-| A file's name with its folder path, as the sender announces it | It has to fit, with the rest of the file's description, in one 1,000-byte message | Floe Desktop and `floe receive` stop the receive and tell the sender. A receiving browser stops with "The sender sent a control message larger than 1000 bytes, so the transfer was stopped." A request link's page and `floe send --to` check first and send nothing. | [Transfer protocol](/reference/transfer-protocol#how-a-frame-is-classified) |
-| A file name shown on screen | 200 characters | A longer name is shortened on screen, with its extension kept. Floe Desktop and the CLI do not shorten the name the file is saved under. | [floe receive](/cli/receive) |
+| Files in one transfer by room code or share link | No limit from Floe | Nothing stops it. A request-link drop is the exception. See [Request links](#request-links). |
+| Folder depth of a file's path inside the transfer | 32 levels: 31 folders and the file | The receive stops before that file is written, the sender is told, and files saved before it are kept. `floe receive` prints `receive stopped: a file's path is too deep or too long to save in this folder`. See [floe receive](/cli/receive#paths-too-deep-or-too-long) and [Receiving files](/desktop/receiving#paths-too-deep-or-too-long). |
+| Length of that path | 235 UTF-16 code units, which is 235 characters for most names. A character outside the Basic Multilingual Plane, such as most emoji, counts as 2 | The same stop. See the same two pages. |
+| A path that starts at a drive or a root, such as `C:\x` or `/x` | Never accepted | The same stop. See the same two pages. |
+| A file's name with its folder path, as the sender announces it | It has to fit, with the rest of the file's description, in one 1,000-byte message | Floe Desktop and `floe receive` stop the receive and tell the sender. A receiving browser stops with "The sender sent a control message larger than 1000 bytes, so the transfer was stopped." A request link's page and `floe send --to` check first and send nothing. See [Transfer protocol](/reference/transfer-protocol#how-a-frame-is-classified). |
+| A file name shown on screen | 200 characters | A longer name is shortened on screen, with its extension kept. Floe Desktop and the CLI do not shorten the name the file is saved under. See [floe receive](/cli/receive). |
 
 ## Codes, links and rooms {#codes-links-and-rooms}
 
-| Limit | Value | At the limit | Explained in |
+| Limit | Value | At the limit |
 |---|---|---|---|
-| How long a room code works | At most 10 minutes. It stops sooner when the receiver joins, when the room empties, or when the sender registers a new code | The code is not found. `floe receive` prints `code "olive-tiger-castle" not found or expired (codes expire after 10 minutes)`. | [How a transfer works](/how-it-works/signaling#code-and-link-lifetime) |
-| Words in a room code | 3, drawn from a list of 1,247 | After 10 draws in a row that collide with a live code, the server issues a code of 4 words. | [Architecture](/reference/architecture#room-codes) |
-| How long a share link works | No time limit | It works for as long as its room exists, which is while the sender stays connected. After that `floe receive` prints `this code is no longer active; ask for a new one`. | [How a transfer works](/how-it-works/signaling#code-and-link-lifetime) |
-| Devices in one room | 2: one sender and one receiver | A third device is turned away. The browser shows "Link Invalid" and `floe receive` prints `room is full (someone else may already be receiving)`. | [How a transfer works](/how-it-works/signaling#a-room-holds-exactly-two-people) |
-| Networks that can use one room | 2. One network is one IPv4 address, or one IPv6 /64 | Once devices on two networks have exchanged connection-setup messages in a room, a device on a third network is turned away the same way, for as long as the room exists. | [How a transfer works](/how-it-works/signaling#a-room-holds-exactly-two-people) |
+| How long a room code works | At most 10 minutes. It stops sooner when the receiver joins, when the room empties, or when the sender registers a new code | The code is not found. `floe receive` prints `code "olive-tiger-castle" not found or expired (codes expire after 10 minutes)`. See [How a transfer works](/how-it-works/signaling#code-and-link-lifetime). |
+| Words in a room code | 3, drawn from a list of 1,247 | After 10 draws in a row that collide with a live code, the server issues a code of 4 words. See [Architecture](/reference/architecture#room-codes). |
+| How long a share link works | No time limit | It works for as long as its room exists, which is while the sender stays connected. After that `floe receive` prints `this code is no longer active; ask for a new one`. See [How a transfer works](/how-it-works/signaling#code-and-link-lifetime). |
+| Devices in one room | 2: one sender and one receiver | A third device is turned away. The browser shows "Link Invalid" and `floe receive` prints `room is full (someone else may already be receiving)`. See [How a transfer works](/how-it-works/signaling#a-room-holds-exactly-two-people). |
+| Networks that can use one room | 2. One network is one IPv4 address, or one IPv6 /64 | Once devices on two networks have exchanged connection-setup messages in a room, a device on a third network is turned away the same way, for as long as the room exists. See [How a transfer works](/how-it-works/signaling#a-room-holds-exactly-two-people). |
 
 ## Request links {#request-links}
 
@@ -65,22 +65,22 @@ is in [Architecture](/reference/architecture#request-rooms).
 Each row is a wait that ends a step when it runs out. The CLI and Floe Desktop run the same
 engine, so they share these waits and word the result differently.
 
-| Wait | Limit | When it runs out | Explained in |
+| Wait | Limit | When it runs out |
 |---|---|---|---|
-| The server assigning a role after the CLI or Floe Desktop joins a room | 20 seconds | `timed out waiting for the server to assign a role` in the CLI, "Can't reach the server" in Floe Desktop. | [Troubleshooting](/troubleshooting#could-not-reach-the-server) for Floe Desktop, and [Transfer protocol](/reference/transfer-protocol#timeouts) |
-| The other device's offer or answer | 30 seconds | `timed out waiting for the peer's offer` or `timed out waiting for the peer to answer` in the CLI, "Both people need Floe open at the same time" in Floe Desktop. | [Troubleshooting](/troubleshooting#timed-out-waiting-for-the-peers-offer) for the CLI and [Troubleshooting](/troubleshooting#both-people-need-floe-open-at-the-same-time) for Floe Desktop |
-| The connection being established | 30 seconds, then 10 seconds more for the data channel | `timed out establishing a connection` in the CLI, "Couldn't connect the two devices" in Floe Desktop. | [Troubleshooting](/troubleshooting#timed-out-establishing-a-connection) for the CLI and [Troubleshooting](/troubleshooting#could-not-connect-the-two-devices) for Floe Desktop |
-| The receiver accepting each file | 120 seconds | The send fails: `timed out waiting for ack` in the CLI, "Transfer timed out waiting for receiver. Please try again." in the browser. | [Troubleshooting](/troubleshooting#timed-out-waiting-for-ack) for the CLI and [Troubleshooting](/troubleshooting#transfer-timed-out-waiting-for-receiver-please-try-again) for the browser |
-| The owner of a request link answering a request | 9 minutes 45 seconds. The sender waits 10 minutes 15 seconds | Only that request ends, and the link keeps waiting. The sender sees "They did not answer in time. Nothing was sent." | [Request links](/desktop/request-links#accept-or-decline) |
-| The server answering a join through a request link | 10 seconds | "Request links are not available on this Floe server." | [Troubleshooting](/troubleshooting#request-links-are-not-available-on-this-floe-server) |
-| A sender on a request link announcing its first file | 30 seconds after it connects | That sender is dropped and the link waits again, with "The sender couldn't connect". | [Troubleshooting](/troubleshooting#the-sender-could-not-connect) |
-| First data after the devices connect, in `floe receive` and Floe Desktop | 30 seconds | `connected, but no data arrived from the sender within 30s` in the CLI, "The sender never started sending" in Floe Desktop. | [Troubleshooting](/troubleshooting#connected-but-no-data-arrived-from-the-sender-within-30s) |
-| No progress in the middle of a transfer, in the CLI and Floe Desktop | 60 seconds | The transfer fails, and a receiver deletes the file it was writing. | [Transfer protocol](/reference/transfer-protocol#timeouts) |
-| The receiver confirming delivery to `floe send` or Floe Desktop | No fixed limit. A receiver that vanished is given up on about 30 seconds after its last packet | `the connection closed before the receiver confirmed delivery` in the CLI. | [Troubleshooting](/troubleshooting#the-connection-closed-before-the-receiver-confirmed-delivery) |
-| A browser working out a file's SHA-256 | At most 45 seconds after the file's last byte when sending. At most 90 seconds when receiving with more files to come | The file is still kept, without the SHA-256 mark. | [File checks](/how-it-works/file-checks#when-a-browser-runs-out-of-time) |
-| The CLI or Floe Desktop fetching relay details, or a room code | 30 seconds | Without relay details the transfer goes on with no relay, and one that was told to use only the relay stops. Without an answer for a code, `floe receive` fails and `floe send` shows its link alone. | [Transfer protocol](/reference/transfer-protocol#timeouts) |
-| Reporting the byte count after a receive | 5 seconds | The report is dropped. The files are not affected. | [Transfer protocol](/reference/transfer-protocol#timeouts) |
-| `floe` cleaning up after Ctrl+C | 5 seconds | It exits anyway, and a `.part` file can remain. | [floe receive](/cli/receive) |
+| The server assigning a role after the CLI or Floe Desktop joins a room | 20 seconds | `timed out waiting for the server to assign a role` in the CLI, "Can't reach the server" in Floe Desktop. See [Troubleshooting](/troubleshooting#could-not-reach-the-server) for Floe Desktop, and [Transfer protocol](/reference/transfer-protocol#timeouts). |
+| The other device's offer or answer | 30 seconds | `timed out waiting for the peer's offer` or `timed out waiting for the peer to answer` in the CLI, "Both people need Floe open at the same time" in Floe Desktop. See [Troubleshooting](/troubleshooting#timed-out-waiting-for-the-peers-offer) for the CLI and [Troubleshooting](/troubleshooting#both-people-need-floe-open-at-the-same-time) for Floe Desktop. |
+| The connection being established | 30 seconds, then 10 seconds more for the data channel | `timed out establishing a connection` in the CLI, "Couldn't connect the two devices" in Floe Desktop. See [Troubleshooting](/troubleshooting#timed-out-establishing-a-connection) for the CLI and [Troubleshooting](/troubleshooting#could-not-connect-the-two-devices) for Floe Desktop. |
+| The receiver accepting each file | 120 seconds | The send fails: `timed out waiting for ack` in the CLI, "Transfer timed out waiting for receiver. Please try again." in the browser. See [Troubleshooting](/troubleshooting#timed-out-waiting-for-ack) for the CLI and [Troubleshooting](/troubleshooting#transfer-timed-out-waiting-for-receiver-please-try-again) for the browser. |
+| The owner of a request link answering a request | 9 minutes 45 seconds. The sender waits 10 minutes 15 seconds | Only that request ends, and the link keeps waiting. The sender sees "They did not answer in time. Nothing was sent.". See [Request links](/desktop/request-links#accept-or-decline). |
+| The server answering a join through a request link | 10 seconds | "Request links are not available on this Floe server.". See [Troubleshooting](/troubleshooting#request-links-are-not-available-on-this-floe-server). |
+| A sender on a request link announcing its first file | 30 seconds after it connects | That sender is dropped and the link waits again, with "The sender couldn't connect". See [Troubleshooting](/troubleshooting#the-sender-could-not-connect). |
+| First data after the devices connect, in `floe receive` and Floe Desktop | 30 seconds | `connected, but no data arrived from the sender within 30s` in the CLI, "The sender never started sending" in Floe Desktop. See [Troubleshooting](/troubleshooting#connected-but-no-data-arrived-from-the-sender-within-30s). |
+| No progress in the middle of a transfer, in the CLI and Floe Desktop | 60 seconds | The transfer fails, and a receiver deletes the file it was writing. See [Transfer protocol](/reference/transfer-protocol#timeouts). |
+| The receiver confirming delivery to `floe send` or Floe Desktop | No fixed limit. A receiver that vanished is given up on about 30 seconds after its last packet | `the connection closed before the receiver confirmed delivery` in the CLI. See [Troubleshooting](/troubleshooting#the-connection-closed-before-the-receiver-confirmed-delivery). |
+| A browser working out a file's SHA-256 | At most 45 seconds after the file's last byte when sending. At most 90 seconds when receiving with more files to come | The file is still kept, without the SHA-256 mark. See [File checks](/how-it-works/file-checks#when-a-browser-runs-out-of-time). |
+| The CLI or Floe Desktop fetching relay details, or a room code | 30 seconds | Without relay details the transfer goes on with no relay, and one that was told to use only the relay stops. Without an answer for a code, `floe receive` fails and `floe send` shows its link alone. See [Transfer protocol](/reference/transfer-protocol#timeouts). |
+| Reporting the byte count after a receive | 5 seconds | The report is dropped. The files are not affected. See [Transfer protocol](/reference/transfer-protocol#timeouts). |
+| `floe` cleaning up after Ctrl+C | 5 seconds | It exits anyway, and a `.part` file can remain. See [floe receive](/cli/receive). |
 
 ## Server limits {#server-limits}
 
@@ -89,15 +89,15 @@ The values are the built-in defaults. A self-hosted server can change the ones t
 in [Configuration](/self-hosting/configuration), which also explains
 [how an address is counted](/self-hosting/configuration#two-things-about-the-limits).
 
-| Limit | Value | At the limit | Explained in |
+| Limit | Value | At the limit |
 |---|---|---|---|
-| New connections | 30 per address per 60 seconds | The connection is refused. A refused attempt is not counted, so the next one succeeds once earlier connections are 60 seconds old. | [Configuration](/self-hosting/configuration) |
-| Requests for relay credentials | 20 per address per 60 seconds | The server answers `429`. | [Configuration](/self-hosting/configuration) |
-| Requests to make or look up a room code | 60 per address per 60 seconds | The server answers `429`. | [Configuration](/self-hosting/configuration) |
-| Failed room code lookups | 10 per address per 60 seconds | The server answers `429`, whatever code was asked for. | [Configuration](/self-hosting/configuration) |
-| Byte-count reports | 60 per address per 60 seconds. This one has no setting | The server answers `429` and the count is not added. | [Configuration](/self-hosting/configuration#two-things-about-the-limits) |
-| Room codes held at once | 10,000 | Making a code answers `503`. `floe send` goes on with its link alone. | [Troubleshooting](/troubleshooting#503-server-busy-try-again-shortly) |
-| One byte-count report | 5,497,558,138,880 bytes (5 TiB) | The server answers `400` and the count is not added. | [Configuration](/self-hosting/configuration) |
-| One message to the server on either signaling connection | 1,000,000 bytes | A `/ws` connection is closed with code `1009`. | [Architecture](/reference/architecture) |
-| One connection-setup message passed to the other device | 65,536 characters by the server's own count, in which a line break, quote or backslash counts as 6, nested at most 8 levels deep | The message is dropped with no answer. | [Architecture](/reference/architecture) |
-| One HTTP request body | 102,400 bytes | The server answers `413`. | [HTTP API](/reference/http-api#behavior-shared-by-every-endpoint) |
+| New connections | 30 per address per 60 seconds | The connection is refused. A refused attempt is not counted, so the next one succeeds once earlier connections are 60 seconds old. See [Configuration](/self-hosting/configuration). |
+| Requests for relay credentials | 20 per address per 60 seconds | The server answers `429`. See [Configuration](/self-hosting/configuration). |
+| Requests to make or look up a room code | 60 per address per 60 seconds | The server answers `429`. See [Configuration](/self-hosting/configuration). |
+| Failed room code lookups | 10 per address per 60 seconds | The server answers `429`, whatever code was asked for. See [Configuration](/self-hosting/configuration). |
+| Byte-count reports | 60 per address per 60 seconds. This one has no setting | The server answers `429` and the count is not added. See [Configuration](/self-hosting/configuration#two-things-about-the-limits). |
+| Room codes held at once | 10,000 | Making a code answers `503`. `floe send` goes on with its link alone. See [Troubleshooting](/troubleshooting#503-server-busy-try-again-shortly). |
+| One byte-count report | 5,497,558,138,880 bytes (5 TiB) | The server answers `400` and the count is not added. See [Configuration](/self-hosting/configuration). |
+| One message to the server on either signaling connection | 1,000,000 bytes | A `/ws` connection is closed with code `1009`. See [Architecture](/reference/architecture). |
+| One connection-setup message passed to the other device | 65,536 characters by the server's own count, in which a line break, quote or backslash counts as 6, nested at most 8 levels deep | The message is dropped with no answer. See [Architecture](/reference/architecture). |
+| One HTTP request body | 102,400 bytes | The server answers `413`. See [HTTP API](/reference/http-api#behavior-shared-by-every-endpoint). |
