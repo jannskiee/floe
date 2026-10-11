@@ -16,7 +16,7 @@ The one size limit Floe sets on purpose is on relayed connections. The other row
 receiving device, or from how the protocol writes a size.
 
 | Limit | Value | At the limit |
-|---|---|---|---|
+|---|---|---|
 | A transfer over a direct connection | No limit from Floe | Nothing in Floe stops it. What runs out first is the receiving disk or the receiving browser. See [File size limits](/how-it-works/2gb-limit). |
 | A transfer, or one request-link drop, over a relayed connection | 2 GB in total. Exactly 2 GB passes and 1 byte more does not | The sender checks once, before any file data moves, and sends nothing. The browser says "Transfer blocked. Relay limit exceeded." and the CLI says `relay connections are capped at 2 GB`. See [File size limits](/how-it-works/2gb-limit#what-you-see-when-it-stops-you). |
 | What a browser can receive | Set by the browser and the device, not by Floe | The transfer stops and the page says the browser ran out of memory. Floe Desktop and the CLI save straight to disk and have no such ceiling. See [Known limitations](/how-it-works/known-limitations#a-browser-receiver-is-limited-by-what-the-browser-can-hold). |
@@ -29,7 +29,7 @@ Floe Desktop and `floe receive` check where each file would be saved before they
 A browser keeps what it receives inside the browser, so only the last two rows apply to it.
 
 | Limit | Value | At the limit |
-|---|---|---|---|
+|---|---|---|
 | Files in one transfer by room code or share link | No limit from Floe | Nothing stops it. A request-link drop is the exception. See [Request links](#request-links). |
 | Folder depth of a file's path inside the transfer | 32 levels: 31 folders and the file | The receive stops before that file is written, the sender is told, and files saved before it are kept. `floe receive` prints `receive stopped: a file's path is too deep or too long to save in this folder`. See [floe receive](/cli/receive#paths-too-deep-or-too-long) and [Receiving files](/desktop/receiving#paths-too-deep-or-too-long). |
 | Length of that path | 235 UTF-16 code units, which is 235 characters for most names. A character outside the Basic Multilingual Plane, such as most emoji, counts as 2 | The same stop. See the same two pages. |
@@ -40,7 +40,7 @@ A browser keeps what it receives inside the browser, so only the last two rows a
 ## Codes, links and rooms {#codes-links-and-rooms}
 
 | Limit | Value | At the limit |
-|---|---|---|---|
+|---|---|---|
 | How long a room code works | At most 10 minutes. It stops sooner when the receiver joins, when the room empties, or when the sender registers a new code | The code is not found. `floe receive` prints `code "olive-tiger-castle" not found or expired (codes expire after 10 minutes)`. See [How a transfer works](/how-it-works/signaling#code-and-link-lifetime). |
 | Words in a room code | 3, drawn from a list of 1,247 | After 10 draws in a row that collide with a live code, the server issues a code of 4 words. See [Architecture](/reference/architecture#room-codes). |
 | How long a share link works | No time limit | It works for as long as its room exists, which is while the sender stays connected. After that `floe receive` prints `this code is no longer active; ask for a new one`. See [How a transfer works](/how-it-works/signaling#code-and-link-lifetime). |
@@ -66,7 +66,7 @@ Each row is a wait that ends a step when it runs out. The CLI and Floe Desktop r
 engine, so they share these waits and word the result differently.
 
 | Wait | Limit | When it runs out |
-|---|---|---|---|
+|---|---|---|
 | The server assigning a role after the CLI or Floe Desktop joins a room | 20 seconds | `timed out waiting for the server to assign a role` in the CLI, "Can't reach the server" in Floe Desktop. See [Troubleshooting](/troubleshooting#could-not-reach-the-server) for Floe Desktop, and [Transfer protocol](/reference/transfer-protocol#timeouts). |
 | The other device's offer or answer | 30 seconds | `timed out waiting for the peer's offer` or `timed out waiting for the peer to answer` in the CLI, "Both people need Floe open at the same time" in Floe Desktop. See [Troubleshooting](/troubleshooting#timed-out-waiting-for-the-peers-offer) for the CLI and [Troubleshooting](/troubleshooting#both-people-need-floe-open-at-the-same-time) for Floe Desktop. |
 | The connection being established | 30 seconds, then 10 seconds more for the data channel | `timed out establishing a connection` in the CLI, "Couldn't connect the two devices" in Floe Desktop. See [Troubleshooting](/troubleshooting#timed-out-establishing-a-connection) for the CLI and [Troubleshooting](/troubleshooting#could-not-connect-the-two-devices) for Floe Desktop. |
@@ -90,7 +90,7 @@ in [Configuration](/self-hosting/configuration), which also explains
 [how an address is counted](/self-hosting/configuration#two-things-about-the-limits).
 
 | Limit | Value | At the limit |
-|---|---|---|---|
+|---|---|---|
 | New connections | 30 per address per 60 seconds | The connection is refused. A refused attempt is not counted, so the next one succeeds once earlier connections are 60 seconds old. See [Configuration](/self-hosting/configuration). |
 | Requests for relay credentials | 20 per address per 60 seconds | The server answers `429`. See [Configuration](/self-hosting/configuration). |
 | Requests to make or look up a room code | 60 per address per 60 seconds | The server answers `429`. See [Configuration](/self-hosting/configuration). |
