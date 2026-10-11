@@ -7,34 +7,36 @@ keywords: ["environment variables", "CLIENT_URL", "settings", "env file"]
 
 Every environment variable you can set on a self-hosted Floe instance, with its default, and the per-address rate limits the signaling server applies.
 
-Under Docker Compose, set these in an optional `.env` file next to `docker-compose.yml`, then run `docker compose up -d` to apply the change. Each one has a working default, so you only need the file to change something. The annotated template is `.env.docker.example`. A few of them behave differently outside Compose, and the rows that do say so.
+Under Docker Compose, set these in an optional `.env` file next to `docker-compose.yml`, then run `docker compose up -d` to apply the change. Each one has a working default, so you only need the file to change something. The annotated template is `.env.docker.example`. A few of them behave differently outside Compose, and the entries that do say so.
 
 ## Variables
 
-| Variable | Service | Required | Default | Purpose |
-|----------|---------|----------|---------|---------|
-| `NEXT_PUBLIC_SOCKET_URL` | client (runtime) | No | `http://localhost:3001` | URL the **browser** uses to reach the signaling server. Read at runtime, so changing it needs only `docker compose up -d`, no rebuild. Set it **empty** when both services share one origin behind a [reverse proxy](/self-hosting/reverse-proxy); the browser then uses its own. Empty means the line `NEXT_PUBLIC_SOCKET_URL=` with nothing after it: remove the line and the default comes back. Docker Compose passes this into the client container as `SOCKET_URL`, which is the name the container itself reads, so outside Compose set `SOCKET_URL` directly. `SOCKET_URL` has no default of its own: unset, the browser uses the page's origin. See [How the client finds the server](/self-hosting/build-time-url). |
-| `FLOE_IMAGE_TAG` | compose | No | `latest` | Which published image tag both containers run, for example `1.11.0`, `1.11`, `main`, or `sha-fed7ebb`. See [Container images](/self-hosting/images). Not to be confused with `FLOE_VERSION`, which belongs to the CLI installer and carries a leading `v`. |
-| `NEXT_PUBLIC_SITE_URL` | client (build) | No | _(none)_ | Public origin of your client (for example `https://app.your-domain.com`), written into canonical links, share previews, the JSON-LD block, and the sitemap. Inlined at build time, so a pulled image ignores it: the published image leaves its own address out of those instead of claiming `floe.one`, as [Container images](/self-hosting/images#share-previews-and-canonical-links) lists. It takes effect only when you build the client yourself. A build that does not go through the official Dockerfile and leaves it unset falls back to `https://www.floe.one`. |
-| `SOURCE_COMMIT` | client (runtime) | No | _(none)_ | Source revision the client reports as `commit` from `GET /api/config`, so anyone can check which build an instance is running. Read at request time from the client container's environment; the field is `null` when it is unset. Compose does not pass it through, so add it to the client service's `environment` yourself if you want it served. On Vercel the field comes from `VERCEL_GIT_COMMIT_SHA` instead, which is how floe.one gets its value. See the [HTTP API](/reference/http-api) reference. |
-| `PORT` | server | No | `3001` | **Host** port the signaling server is published on. Inside the container it always listens on 3001; Docker Compose maps `${PORT}` to it. Outside Docker this is the port the server process binds directly. Change this and you must also update `NEXT_PUBLIC_SOCKET_URL` to match, then run `docker compose up -d`, or browsers keep dialing the old port. No rebuild is needed, because the client reads that address at runtime. |
-| `CLIENT_PORT` | compose | No | `3000` | **Host** port the web client is published on. Inside the container it always listens on 3000. Change this and you must also set `CLIENT_URL` to the new origin, for example `http://localhost:8080`, then run `docker compose up -d`. `CLIENT_URL` names the origin the server accepts your web client from, so a page served from a port it does not name loads and never connects. Compose-only; it has no effect outside Docker. |
-| `NODE_ENV` | server | No | `production` (set by the image) | Standard Node.js runtime flag. The server image sets it to `production`, and Compose passes no value from `.env`, so under Docker there is nothing to set. On a direct Node run it is unset unless you set it, which Express reads as `development`; `server/.env.example` sets `production`, so keep that line. Floe never reads it, and registers its own final error handler that returns a generic JSON error at every setting, so this is not a stack-trace leak. Keep `production` anyway: it is what the published image runs and therefore what is actually exercised. |
-| `CLIENT_URL` | server | Yes (prod) | _(none)_; Compose passes `http://localhost:3000` | Frontend origin allowed by CORS and by the WebSocket origin check. Matched exactly, including the scheme and the port, and with no trailing slash. Use `https://floe.example.com` for a [one-domain deployment](/self-hosting/reverse-proxy), or `https://app.your-domain.com` when the client has its own subdomain. If you change `CLIENT_PORT`, this has to carry the new port. Holds **one** origin: a comma-separated list matches nothing at all. It governs browser traffic only: the CLI and Floe Desktop reach your server regardless of it, as long as any proxy in front passes the `Host` header through. That rule, and the origins the server always accepts, are in [Origins the server accepts](/self-hosting/production#cors-note). |
-| `TRUSTED_PROXY_COUNT` | server | No | `1`; Compose and the Unraid template pass `0` | Number of trusted reverse-proxy hops in front of the server, used for correct `X-Forwarded-For` parsing and per-address rate limiting. Use `1` behind a single reverse proxy, `2` behind a proxy plus a CDN, and `0` when the server is exposed directly with no proxy. Docker Compose passes `0` explicitly, because publishing container ports directly is its default, so raise it when you put a proxy in front of a Compose stack. Setting it above your real hop count lets clients forge `X-Forwarded-For` and bypass the rate limits, so set it to `0` deliberately rather than leaving it unset on a directly exposed host. Setting it below your real hop count makes every visitor arrive as the proxy's address and share one set of limits. |
-| `MAX_CONNECTIONS_PER_IP` | server | No | `30` | Maximum new connections admitted per address per 60 seconds, counted across Socket.IO and WebSocket together. A connection over the cap is refused with `Rate limit exceeded`, and a refused attempt is not counted. Raise this in staging or test environments that drive many connections from one address. |
-| `MAX_TURN_REQUESTS_PER_IP` | server | No | `20` | Maximum `GET /api/turn-credentials` requests per address per 60 seconds. Requests over the cap get `429`, and the client falls back to STUN-only: silently in the browser and Floe Desktop, with a printed warning on the CLI. A transfer that insists on the relay (Floe Desktop with **Hide my IP address** on, `--relay-only` on the CLI) stops instead. Raise this in CI or staging suites that start many transfers from one address. |
-| `MAX_CODE_REQUESTS_PER_IP` | server | No | `60` | Maximum requests per address per 60 seconds against the room-code endpoints, counted across `POST /api/code` and `GET /api/code/:code` together. Requests over the cap get `429`. Raise this in CI or staging suites that mint many codes from one address. |
-| `MAX_FAILED_CODE_RESOLVES` | server | No | `10` | Maximum **failed** lookups on `GET /api/code/:code` per address per 60 seconds. This is the guessing budget; `MAX_CODE_REQUESTS_PER_IP` above is the volume ceiling, and both apply. Only misses count: a lookup that finds a live code costs nothing, so a receiver holding a real code is never turned away by its own retries. The budget is checked before the lookup, so an address that has used it up gets the same `429` whatever it asks about, a working code included, until its misses are more than 60 seconds old. Raise this only if a shared address legitimately mistypes codes more than 10 times a minute. |
-| `MAX_ACTIVE_CODES` | server | No | `10000` | Maximum number of simultaneously live room codes, across all addresses. Once this cap is reached, `POST /api/code` returns `503` until slots free up. A code gives its slot back as soon as it is retired, which in normal use is long before its 10-minute limit; see [How long a code and a link last](/how-it-works/signaling#code-and-link-lifetime). A sweeper clears whatever is left over once a minute, so the count can briefly include codes that have already expired. Bounds memory use of the code registry; raise it only if you legitimately expect more than 10,000 pending transfers at once. |
-| `POLICY_FILE` | server | No | _(none)_ | Absolute path to the request-link policy file, a small JSON file such as `{"requestLinks": true}` that turns [request links](/desktop/request-links) on. Unset, or naming a file that does not exist, means request links are off; a set path the server cannot find also logs `policy file not found, request links off` once, which is how a volume that was not mounted shows. The path is read once at startup and the file is re-read every 60 seconds, so turning request links on or off needs no restart. The image never contains the file: under Compose, uncomment the `volumes` example in `docker-compose.yml`, which mounts `./policy` at `/app/policy`, and set this to the path inside the container, such as `/app/policy/policy.json`. See [Turn on request links](/self-hosting/request-links). |
-| `CLOUDFLARE_TURN_KEY_ID` | server | No | _(none)_ | Turn Token ID of a [Cloudflare Realtime TURN](https://developers.cloudflare.com/realtime/turn/) key. With the API token below, the server mints TURN credentials, each valid for 24 hours, from Cloudflare's managed network, so you need no public IP, extra ports, or TLS certificates. Takes precedence over the coturn variables. Both Cloudflare variables are read once at startup, and setting only one of them leaves Cloudflare unused with no warning. |
-| `CLOUDFLARE_TURN_KEY_API_TOKEN` | server | No | _(none)_ | API token that pairs with `CLOUDFLARE_TURN_KEY_ID`. Keep it secret. |
-| `TURN_SECRET` | server | No | _(none)_ | Shared HMAC secret for self-hosted coturn credentials. Used when the Cloudflare variables are unset, and as the fallback when Cloudflare returns nothing usable. Needs `TURN_DOMAIN` as well: with only one of the two set, coturn is skipped with no warning. If no TURN option is configured, the server returns STUN-only and no relay is offered. Must match coturn's `static-auth-secret`. |
-| `TURN_DOMAIN` | server | No | _(none)_ | Public hostname of your self-hosted TURN server (for example `turn.your-domain.com`). Must match coturn's `realm`. |
-| `UPSTASH_REDIS_REST_URL` | server | No | _(none)_ | REST URL of an [Upstash Redis](https://upstash.com) database, used to durably persist the global transfer counter shown on the homepage. If empty, the counter runs in memory only and resets to 0 on every restart. |
-| `UPSTASH_REDIS_REST_TOKEN` | server | No | _(none)_ | REST token that pairs with `UPSTASH_REDIS_REST_URL`. Both must be set together for durable stats. Use the **read+write** token (the default one in the Upstash console), not the read-only token. The server needs write access to increment the counter; with a read-only token, writes are silently rejected and the total never persists. |
-| `MAX_REPORT_BYTES` | server | No | `5497558138880` (5 TiB) | Maximum bytes accepted in a single `POST /api/stats/report` request. A larger report is refused with `400`, which keeps implausibly large single-transfer reports out of the counter. |
+Only `CLIENT_URL` is required, and only in production. Every other variable is optional. Each name links to its entry under [Variable reference](#variable-reference).
+
+| Variable | Service | Default |
+|----------|---------|---------|
+| [`NEXT_PUBLIC_SOCKET_URL`](#next-public-socket-url) | client (runtime) | `http://localhost:3001` |
+| [`FLOE_IMAGE_TAG`](#floe-image-tag) | compose | `latest` |
+| [`NEXT_PUBLIC_SITE_URL`](#next-public-site-url) | client (build) | _(none)_ |
+| [`SOURCE_COMMIT`](#source-commit) | client (runtime) | _(none)_ |
+| [`PORT`](#port) | server | `3001` |
+| [`CLIENT_PORT`](#client-port) | compose | `3000` |
+| [`NODE_ENV`](#node-env) | server | `production` (set by the image) |
+| [`CLIENT_URL`](#client-url) | server | _(none)_; Compose passes `http://localhost:3000` |
+| [`TRUSTED_PROXY_COUNT`](#trusted-proxy-count) | server | `1`; Compose and the Unraid template pass `0` |
+| [`MAX_CONNECTIONS_PER_IP`](#max-connections-per-ip) | server | `30` |
+| [`MAX_TURN_REQUESTS_PER_IP`](#max-turn-requests-per-ip) | server | `20` |
+| [`MAX_CODE_REQUESTS_PER_IP`](#max-code-requests-per-ip) | server | `60` |
+| [`MAX_FAILED_CODE_RESOLVES`](#max-failed-code-resolves) | server | `10` |
+| [`MAX_ACTIVE_CODES`](#max-active-codes) | server | `10000` |
+| [`POLICY_FILE`](#policy-file) | server | _(none)_ |
+| [`CLOUDFLARE_TURN_KEY_ID`](#cloudflare-turn-key-id) | server | _(none)_ |
+| [`CLOUDFLARE_TURN_KEY_API_TOKEN`](#cloudflare-turn-key-api-token) | server | _(none)_ |
+| [`TURN_SECRET`](#turn-secret) | server | _(none)_ |
+| [`TURN_DOMAIN`](#turn-domain) | server | _(none)_ |
+| [`UPSTASH_REDIS_REST_URL`](#upstash-redis-rest-url) | server | _(none)_ |
+| [`UPSTASH_REDIS_REST_TOKEN`](#upstash-redis-rest-token) | server | _(none)_ |
+| [`MAX_REPORT_BYTES`](#max-report-bytes) | server | `5497558138880` (5 TiB) |
 
 The client also reads `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT`, and `NEXT_PUBLIC_UMAMI_WEBSITE_ID`, for error reporting and analytics. The published image is built with none of them set and Compose passes none, so a self-hosted instance sends no error reports and loads no analytics script unless you add your own. See [Security and privacy](/security-privacy#error-monitoring-and-analytics).
 
@@ -53,6 +55,96 @@ accepts `0`, which is what you want when the server is exposed directly with no 
 
 **The request-link limits have none either.** They are constants in the server. See
 [Turn on request links](/self-hosting/request-links#request-link-limits).
+
+## Variable reference {#variable-reference}
+
+### `NEXT_PUBLIC_SOCKET_URL` {#next-public-socket-url}
+
+URL the **browser** uses to reach the signaling server. Read at runtime, so changing it needs only `docker compose up -d`, no rebuild. Set it **empty** when both services share one origin behind a [reverse proxy](/self-hosting/reverse-proxy); the browser then uses its own. Empty means the line `NEXT_PUBLIC_SOCKET_URL=` with nothing after it: remove the line and the default comes back. Docker Compose passes this into the client container as `SOCKET_URL`, which is the name the container itself reads, so outside Compose set `SOCKET_URL` directly. `SOCKET_URL` has no default of its own: unset, the browser uses the page's origin. See [How the client finds the server](/self-hosting/build-time-url).
+
+### `FLOE_IMAGE_TAG` {#floe-image-tag}
+
+Which published image tag both containers run, for example `1.11.0`, `1.11`, `main`, or `sha-fed7ebb`. See [Container images](/self-hosting/images). Not to be confused with `FLOE_VERSION`, which belongs to the CLI installer and carries a leading `v`.
+
+### `NEXT_PUBLIC_SITE_URL` {#next-public-site-url}
+
+Public origin of your client (for example `https://app.your-domain.com`), written into canonical links, share previews, the JSON-LD block, and the sitemap. Inlined at build time, so a pulled image ignores it: the published image leaves its own address out of those instead of claiming `floe.one`, as [Container images](/self-hosting/images#share-previews-and-canonical-links) lists. It takes effect only when you build the client yourself. A build that does not go through the official Dockerfile and leaves it unset falls back to `https://www.floe.one`.
+
+### `SOURCE_COMMIT` {#source-commit}
+
+Source revision the client reports as `commit` from `GET /api/config`, so anyone can check which build an instance is running. Read at request time from the client container's environment; the field is `null` when it is unset. Compose does not pass it through, so add it to the client service's `environment` yourself if you want it served. On Vercel the field comes from `VERCEL_GIT_COMMIT_SHA` instead, which is how floe.one gets its value. See the [HTTP API](/reference/http-api) reference.
+
+### `PORT` {#port}
+
+**Host** port the signaling server is published on. Inside the container it always listens on 3001; Docker Compose maps `${PORT}` to it. Outside Docker this is the port the server process binds directly. Change this and you must also update `NEXT_PUBLIC_SOCKET_URL` to match, then run `docker compose up -d`, or browsers keep dialing the old port. No rebuild is needed, because the client reads that address at runtime.
+
+### `CLIENT_PORT` {#client-port}
+
+**Host** port the web client is published on. Inside the container it always listens on 3000. Change this and you must also set `CLIENT_URL` to the new origin, for example `http://localhost:8080`, then run `docker compose up -d`. `CLIENT_URL` names the origin the server accepts your web client from, so a page served from a port it does not name loads and never connects. Compose-only; it has no effect outside Docker.
+
+### `NODE_ENV` {#node-env}
+
+Standard Node.js runtime flag. The server image sets it to `production`, and Compose passes no value from `.env`, so under Docker there is nothing to set. On a direct Node run it is unset unless you set it, which Express reads as `development`; `server/.env.example` sets `production`, so keep that line. Floe never reads it, and registers its own final error handler that returns a generic JSON error at every setting, so this is not a stack-trace leak. Keep `production` anyway: it is what the published image runs and therefore what is actually exercised.
+
+### `CLIENT_URL` {#client-url}
+
+Required in production. Frontend origin allowed by CORS and by the WebSocket origin check. Matched exactly, including the scheme and the port, and with no trailing slash. Use `https://floe.example.com` for a [one-domain deployment](/self-hosting/reverse-proxy), or `https://app.your-domain.com` when the client has its own subdomain. If you change `CLIENT_PORT`, this has to carry the new port. Holds **one** origin: a comma-separated list matches nothing at all. It governs browser traffic only: the CLI and Floe Desktop reach your server regardless of it, as long as any proxy in front passes the `Host` header through. That rule, and the origins the server always accepts, are in [Origins the server accepts](/self-hosting/production#cors-note).
+
+### `TRUSTED_PROXY_COUNT` {#trusted-proxy-count}
+
+Number of trusted reverse-proxy hops in front of the server, used for correct `X-Forwarded-For` parsing and per-address rate limiting. Use `1` behind a single reverse proxy, `2` behind a proxy plus a CDN, and `0` when the server is exposed directly with no proxy. Docker Compose passes `0` explicitly, because publishing container ports directly is its default, so raise it when you put a proxy in front of a Compose stack. Setting it above your real hop count lets clients forge `X-Forwarded-For` and bypass the rate limits, so set it to `0` deliberately rather than leaving it unset on a directly exposed host. Setting it below your real hop count makes every visitor arrive as the proxy's address and share one set of limits.
+
+### `MAX_CONNECTIONS_PER_IP` {#max-connections-per-ip}
+
+Maximum new connections admitted per address per 60 seconds, counted across Socket.IO and WebSocket together. A connection over the cap is refused with `Rate limit exceeded`, and a refused attempt is not counted. Raise this in staging or test environments that drive many connections from one address.
+
+### `MAX_TURN_REQUESTS_PER_IP` {#max-turn-requests-per-ip}
+
+Maximum `GET /api/turn-credentials` requests per address per 60 seconds. Requests over the cap get `429`, and the client falls back to STUN-only: silently in the browser and Floe Desktop, with a printed warning on the CLI. A transfer that insists on the relay (Floe Desktop with **Hide my IP address** on, `--relay-only` on the CLI) stops instead. Raise this in CI or staging suites that start many transfers from one address.
+
+### `MAX_CODE_REQUESTS_PER_IP` {#max-code-requests-per-ip}
+
+Maximum requests per address per 60 seconds against the room-code endpoints, counted across `POST /api/code` and `GET /api/code/:code` together. Requests over the cap get `429`. Raise this in CI or staging suites that mint many codes from one address.
+
+### `MAX_FAILED_CODE_RESOLVES` {#max-failed-code-resolves}
+
+Maximum **failed** lookups on `GET /api/code/:code` per address per 60 seconds. This is the guessing budget; `MAX_CODE_REQUESTS_PER_IP` above is the volume ceiling, and both apply. Only misses count: a lookup that finds a live code costs nothing, so a receiver holding a real code is never turned away by its own retries. The budget is checked before the lookup, so an address that has used it up gets the same `429` whatever it asks about, a working code included, until its misses are more than 60 seconds old. Raise this only if a shared address legitimately mistypes codes more than 10 times a minute.
+
+### `MAX_ACTIVE_CODES` {#max-active-codes}
+
+Maximum number of simultaneously live room codes, across all addresses. Once this cap is reached, `POST /api/code` returns `503` until slots free up. A code gives its slot back as soon as it is retired, which in normal use is long before its 10-minute limit; see [How long a code and a link last](/how-it-works/signaling#code-and-link-lifetime). A sweeper clears whatever is left over once a minute, so the count can briefly include codes that have already expired. Bounds memory use of the code registry; raise it only if you legitimately expect more than 10,000 pending transfers at once.
+
+### `POLICY_FILE` {#policy-file}
+
+Absolute path to the request-link policy file, a small JSON file such as `{"requestLinks": true}` that turns [request links](/desktop/request-links) on. Unset, or naming a file that does not exist, means request links are off; a set path the server cannot find also logs `policy file not found, request links off` once, which is how a volume that was not mounted shows. The path is read once at startup and the file is re-read every 60 seconds, so turning request links on or off needs no restart. The image never contains the file: under Compose, uncomment the `volumes` example in `docker-compose.yml`, which mounts `./policy` at `/app/policy`, and set this to the path inside the container, such as `/app/policy/policy.json`. See [Turn on request links](/self-hosting/request-links).
+
+### `CLOUDFLARE_TURN_KEY_ID` {#cloudflare-turn-key-id}
+
+Turn Token ID of a [Cloudflare Realtime TURN](https://developers.cloudflare.com/realtime/turn/) key. With the API token below, the server mints TURN credentials, each valid for 24 hours, from Cloudflare's managed network, so you need no public IP, extra ports, or TLS certificates. Takes precedence over the coturn variables. Both Cloudflare variables are read once at startup, and setting only one of them leaves Cloudflare unused with no warning.
+
+### `CLOUDFLARE_TURN_KEY_API_TOKEN` {#cloudflare-turn-key-api-token}
+
+API token that pairs with `CLOUDFLARE_TURN_KEY_ID`. Keep it secret.
+
+### `TURN_SECRET` {#turn-secret}
+
+Shared HMAC secret for self-hosted coturn credentials. Used when the Cloudflare variables are unset, and as the fallback when Cloudflare returns nothing usable. Needs `TURN_DOMAIN` as well: with only one of the two set, coturn is skipped with no warning. If no TURN option is configured, the server returns STUN-only and no relay is offered. Must match coturn's `static-auth-secret`.
+
+### `TURN_DOMAIN` {#turn-domain}
+
+Public hostname of your self-hosted TURN server (for example `turn.your-domain.com`). Must match coturn's `realm`.
+
+### `UPSTASH_REDIS_REST_URL` {#upstash-redis-rest-url}
+
+REST URL of an [Upstash Redis](https://upstash.com) database, used to durably persist the global transfer counter shown on the homepage. If empty, the counter runs in memory only and resets to 0 on every restart.
+
+### `UPSTASH_REDIS_REST_TOKEN` {#upstash-redis-rest-token}
+
+REST token that pairs with `UPSTASH_REDIS_REST_URL`. Both must be set together for durable stats. Use the **read+write** token (the default one in the Upstash console), not the read-only token. The server needs write access to increment the counter; with a read-only token, writes are silently rejected and the total never persists.
+
+### `MAX_REPORT_BYTES` {#max-report-bytes}
+
+Maximum bytes accepted in a single `POST /api/stats/report` request. A larger report is refused with `400`, which keeps implausibly large single-transfer reports out of the counter.
 
 ## Minimal local configuration
 
