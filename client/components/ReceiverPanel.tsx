@@ -1,10 +1,11 @@
 import type { RefObject } from 'react';
-import { CheckCircle2, Circle, Download, FileArchive, Loader2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Circle, Download, FileArchive, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { StatsContributionToggle } from '@/components/StatsContributionToggle';
 import { ReceivedFilesList } from '@/components/ReceivedFilesList';
 import { formatBytes } from '@/lib/utils';
 import type { ReceivedFile } from '@/hooks/useDownloadManager';
+import type { ReceiveSummary } from '@/lib/receiveSummary';
 
 interface ReceiverPanelProps {
     receivedFiles: ReceivedFile[];
@@ -21,6 +22,9 @@ interface ReceiverPanelProps {
     // 'SHA-256 matched' once every announced file arrived and every one of them
     // verified, else null. Never a digest value (D-101).
     verifiedLine: string | null;
+    // The count line and whether it may carry the check: complete, still
+    // waiting on files, or ended short. See lib/receiveSummary.ts.
+    summary: ReceiveSummary;
 }
 
 /**
@@ -47,6 +51,7 @@ export function ReceiverPanel({
     onDownloadZip,
     listRef,
     verifiedLine,
+    summary,
 }: ReceiverPanelProps) {
     // 'Verifying file N of M' is the same slot as 'Receiving file N of M': the
     // file's bytes are all here and its SHA-256 is being checked. Without this
@@ -154,19 +159,31 @@ export function ReceiverPanel({
                 <p className="text-[10px] text-zinc-600 text-center mt-1">Tip: Use &quot;Download ZIP&quot; for the best experience on iOS.</p>
             )}
 
-            {busy ? (
+            {/* An early end comes first: it is a latched fact, and it must not
+                wait behind a status that still says a file is arriving. The
+                check belongs to a full count alone. It used to follow the list,
+                so one file of three with the sender gone read as finished. */}
+            {summary.kind === 'short' ? (
+                <div role="status" className="flex w-full items-start justify-center gap-2 text-xs leading-relaxed text-amber-300 pt-2">
+                    <AlertTriangle className="h-3 w-3 shrink-0 mt-[3px] text-amber-400" />
+                    <span>{summary.text}</span>
+                </div>
+            ) : busy ? (
                 <div className="flex w-full items-center justify-center gap-2 text-xs text-zinc-400 animate-pulse pt-2">
                     <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
                     <span className="truncate max-w-[200px] sm:max-w-[280px]">
                         {status}
                     </span>
                 </div>
-            ) : receivedFiles.length > 0 && (
+            ) : summary.kind === 'complete' ? (
                 <div className="flex w-full items-center justify-center gap-2 text-xs text-zinc-400 pt-2">
                     <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500" />
-                    <span>
-                        {receivedFiles.length} {receivedFiles.length === 1 ? 'file' : 'files'} received
-                    </span>
+                    <span>{summary.text}</span>
+                </div>
+            ) : summary.kind === 'waiting' && (
+                <div className="flex w-full items-center justify-center gap-2 text-xs text-zinc-400 pt-2">
+                    <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                    <span>{summary.text}</span>
                 </div>
             )}
 

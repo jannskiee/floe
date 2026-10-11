@@ -40,6 +40,7 @@ import {classifyPeerError} from '@/lib/peerErrors';
 import {decideReceiverClose} from '@/lib/receiverClose';
 import {describeSenderStop, senderCloseInterrupted} from '@/lib/senderStop';
 import {verifiedLine, VERIFIED_LINE} from '@/lib/verifiedLine';
+import {receiveSummary} from '@/lib/receiveSummary';
 import {peerDisconnectAction} from '@/lib/peerDisconnect';
 import {copyText} from '@/lib/clipboard';
 import {resolveSocketUrl} from '@/lib/socketUrl';
@@ -90,6 +91,10 @@ export function P2PTransfer() {
     // The file count the sender announced. expectedFilesRef holds the same
     // number but is a ref, so it does not re-render the success line.
     const [expectedFiles, setExpectedFiles] = useState(0);
+    // Latched when this receive is over: the peer connection closed, or the
+    // receiver engine stopped on a failure. Never derived from `status`, which
+    // onDisconnect also writes when only this side's signaling socket blinked.
+    const [receiveEnded, setReceiveEnded] = useState(false);
     const [copied, setCopied] = useState(false);
     const [error, setError] = useState('');
     const [transferSpeed, setTransferSpeed] = useState('');
@@ -394,6 +399,8 @@ export function P2PTransfer() {
         joinedRoomRef.current = roomId;
 
         setStatus('Connecting');
+        // A rebuilt peer starts a receive that has not ended.
+        setReceiveEnded(false);
 
         onRoomFull(() => {
             // Deliberately not receiveOutcome(): this branch is unreachable and
@@ -466,6 +473,7 @@ export function P2PTransfer() {
                     // left the connected badge and the last status line on screen
                     // after the sender had walked away.
                     setIsConnected(false);
+                    setReceiveEnded(true);
                     if (decision.kind === 'outcome') {
                         setStatus(receiveOutcome());
                     } else {
@@ -482,6 +490,10 @@ export function P2PTransfer() {
             });
         });
         peer.on('error', (err) => {
+            // Read now, not inside the wait below: the close that follows this
+            // error clears the progress line (rx.dispose) before the wait
+            // resolves, and the report would say 0% again.
+            const progressAtError = progressRef.current;
             // Waits for a SHA-256 check in progress, like the close handler, so
             // a file that is about to be handed over is counted before this
             // decides whether anything arrived.
@@ -525,7 +537,7 @@ export function P2PTransfer() {
                             role: 'receiver',
                             connectionType,
                             filesReceived: receivedFilesRef.current.length,
-                            progressPercent: progressRef.current,
+                            progressPercent: progressAtError,
                         });
                         Sentry.captureException(err);
                     });
@@ -606,6 +618,7 @@ export function P2PTransfer() {
                 // explanation they get.
                 setError(msg);
                 setStatus('Transfer failed');
+                setReceiveEnded(true);
                 if (failure && !failure.senderSentVersion) {
                     // The receiver told the sender why, but a browser sender
                     // reads nothing while it sends a file, so it would push the
@@ -1309,6 +1322,11 @@ export function P2PTransfer() {
                                     onDownloadZip={handleDownloadZip}
                                     listRef={fileListRef}
                                     verifiedLine={verifiedLine(receivedFiles, expectedFiles)}
+                                    summary={receiveSummary({
+                                        received: receivedFiles.length,
+                                        expected: expectedFiles,
+                                        ended: receiveEnded,
+                                    })}
                                 />
                             )}
                         </>

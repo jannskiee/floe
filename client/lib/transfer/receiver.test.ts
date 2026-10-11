@@ -769,6 +769,63 @@ describe('receiver: a throw stops the transfer once', () => {
         expect(h.errors).toEqual([]);
     });
 
+    // The progress line is drawn while the last reported percent is above 0 and
+    // labels itself "Receiving...", so a stop that leaves the percent where it
+    // was keeps saying a file is arriving. Every other stop already reset it.
+    function progressHarness() {
+        const progress: number[] = [];
+        let speedResets = 0;
+        const errors: string[] = [];
+        const rx = createReceiver({
+            send: () => {},
+            onProgress: (pct) => progress.push(pct),
+            onSpeedReset: () => {
+                speedResets += 1;
+            },
+            onError: (m) => errors.push(m),
+        });
+        return { rx, progress, errors, speedResets: () => speedResets };
+    }
+
+    it('clears the progress line when the connection closes mid-file', () => {
+        const h = progressHarness();
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 6, 1, 1, 6));
+        h.rx.handleMessage(enc.encode('abcdef').subarray(0, 3));
+        h.rx.handleMessage(enc.encode('abcdef').subarray(3, 6));
+        expect(h.progress[h.progress.length - 1]).toBe(100);
+        const resetsBefore = h.speedResets();
+        h.rx.dispose();
+        expect(h.progress[h.progress.length - 1]).toBe(0);
+        expect(h.speedResets()).toBe(resetsBefore + 1);
+        expect(h.errors).toEqual([]);
+    });
+
+    it('clears the progress line when the sender stops with a reason mid-file', () => {
+        const h = progressHarness();
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 6, 1, 1, 6));
+        h.rx.handleMessage(enc.encode('abcdef'));
+        expect(h.progress[h.progress.length - 1]).toBe(100);
+        const resetsBefore = h.speedResets();
+        h.rx.handleMessage(incompatibleMessage('Transfer blocked.'));
+        expect(h.progress[h.progress.length - 1]).toBe(0);
+        expect(h.speedResets()).toBe(resetsBefore + 1);
+        expect(h.errors).toEqual(['Transfer blocked.']);
+    });
+
+    it('still closes quietly when the progress callback throws', () => {
+        // dispose runs as a close listener on the peer: a throw from it would
+        // escape into the emitter and skip the listeners registered after it.
+        const rx = createReceiver({
+            send: () => {},
+            onProgress: (pct) => {
+                if (pct === 0) throw new Error('render failed');
+            },
+        });
+        rx.handleMessage(metadataMessage('a', 'a.bin', 6, 1, 1, 6));
+        rx.handleMessage(enc.encode('abcdef'));
+        expect(() => rx.dispose()).not.toThrow();
+    });
+
     it('says whether the sender announced a version, which only Go senders do', () => {
         const h = harness(() => new RangeError('Array buffer allocation failed'));
         h.rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 1, 3, '1.10.11'));

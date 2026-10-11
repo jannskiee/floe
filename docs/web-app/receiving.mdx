@@ -140,10 +140,17 @@ What you see when the sender leaves depends on how far things had got:
 |----------------------|---------------------|
 | Before the two devices connected | Nothing changes. The card stays on "Waiting for the sender to start". |
 | After they connected, before any file finished | A red banner, usually "The sender ended the transfer before it finished." or "The sender ended the transfer. Ask them to start it again." See [Troubleshooting](/troubleshooting#the-sender-ended-the-transfer). |
-| After at least one file finished | No message. The badge goes back to **Offline**, and the files that arrived stay listed with a count such as "1 file received". |
+| After at least one file finished, with more still to come | The badge goes back to **Offline**, the progress row goes away, and an amber line under the list says how far the transfer got, such as "Received 1 of 3 files. The transfer ended before the rest arrived." The files that arrived stay listed. See [Troubleshooting](/troubleshooting#the-transfer-ended-before-the-rest-arrived). |
 
-In that last case the page does not say how many files were still to come. If the sender told you
-to expect more than the count shows, ask them to send the rest again.
+In that last case, save what arrived and ask the sender to send the rest in a new transfer: Floe
+[cannot resume](/how-it-works/known-limitations#no-resume) one that stopped. A self-hosted web app
+on version 1.11.0 or earlier shows no such line. Its list keeps a green check and a count such as
+"1 file received", and a progress row for the file that never finished can stay on screen, so
+there the count is the only sign that files are missing.
+
+While a transfer of several files is still running, the same place reads "Received 1 of 3 files.
+Waiting for the next file" between files. The green check and a count such as "3 files received"
+appear only once every file the sender announced has arrived.
 
 Files that already arrived stay in the list and can still be saved for as long as the page stays
 open. To try again in the first two cases, reload the page: that works while a browser sender still

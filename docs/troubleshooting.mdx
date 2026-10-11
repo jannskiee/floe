@@ -187,11 +187,27 @@ nothing, and that reads as
 instead.
 
 A sender that stops on purpose says why, and the banner then carries its reason, or "The sender
-stopped the transfer." when it gave none. When some files had already arrived there is no banner
-at all: the finished files stay in the list, and the rest never come.
+stopped the transfer." when it gave none. When some files had already arrived and the sender gave
+no reason, there is no red banner: the page shows
+[how far the transfer got](#the-transfer-ended-before-the-rest-arrived) instead.
 
 Save any files that did arrive, then ask the sender to start a new transfer for the rest. Nothing
 resumes.
+
+### "Received 1 of 3 files. The transfer ended before the rest arrived." {#the-transfer-ended-before-the-rest-arrived}
+
+On the receiving page, in amber under the file list, with your own numbers in it. The connection
+ended after at least one file had arrived and before every file the sender announced had. The line
+names no cause on purpose, because several look the same from here: the sender closed their page
+or app, their device went to sleep, or a network failed on either side. When there is a known
+reason, because the sender's app gave one or a file failed a check on your side, a red banner
+above the list carries it as well.
+
+The files that arrived are whole and stay in the list, and the file that was arriving is gone.
+Save what arrived, then ask the sender to send the rest in a new transfer. Nothing resumes.
+
+A self-hosted web app on version 1.11.0 or earlier does not show this line. It shows a green check
+and a count such as "1 file received" instead, as if the transfer had finished.
 
 ### "The connection closed before the transfer finished." {#the-connection-closed-before-the-transfer-finished}
 
