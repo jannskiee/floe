@@ -20,7 +20,7 @@ For most contributions (UI, pages, components), you only need to run the client.
 
 ### Prerequisites
 
-- **Node.js 22 or newer.** The client needs it: pnpm 11 does not run on an older Node, and CI builds and tests the client on Node 22. CI tests the signaling server on Node 20, and the published container images run both services on Node 24. No `package.json` in the repository declares an `engines` range, so an older Node is not refused up front. It fails later, when something needs a newer one.
+- **Node.js 22.13 or newer.** The client needs it: pnpm 11 requires at least Node.js 22.13, and CI builds and tests the client on Node 22. CI tests the signaling server on Node 20, and the published container images run both services on Node 24. No `package.json` in the repository declares an `engines` range, so an older Node is not refused up front. It fails later, when something needs a newer one.
 - **pnpm 11** for the client. The repo pins `pnpm@11.1.2` through the `packageManager` field: install it directly with `npm install -g pnpm@11`, or run `corepack enable` once (Corepack ships with Node 22 through 24 and picks up the pinned version automatically; Node 25 dropped it, so run `npm install -g corepack` first there; on Windows run it from an elevated terminal).
 - **Go 1.26 or newer** for the CLI and the desktop app.
 - **Docker** (optional) for the full-stack Compose setup below.
@@ -142,7 +142,7 @@ Before you open a docs PR, run the pre-flight from the repository root:
 node .claude/skills/docs-verify/scripts/docs-check.mjs
 ```
 
-It checks links and anchors, the navigation, frontmatter, link labels, the environment-variable tables, and em and en dashes, in `docs/` and in the root Markdown files. It exits 1 on a defect it can decide and prints everything else as `NOTE` lines for you to read.
+It checks links and anchors, the navigation, frontmatter, link labels, table shape, the environment-variable tables, and em and en dashes, in `docs/` and in the root Markdown files. It exits 1 on a defect it can decide and prints everything else as `NOTE` lines for you to read. CI runs the same command on every pull request, in the `Repo guardrails` job, so a defect it can decide blocks the merge.
 
 `docs/changelog.mdx` is written by hand. When your change is one a user can see, it needs a line there: add a bullet to the `Unreleased` entry at the top of the timeline (start one if the newest entry already carries a release tag), following the authoring contract in the comment at the top of that file, or say in the PR that it needs one. A change nobody outside the repository can notice needs no entry.
 

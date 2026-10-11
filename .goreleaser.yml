@@ -49,17 +49,22 @@ changelog:
       order: 999
   filters:
     exclude:
-      - "^docs:"
-      - "^test:"
-      - "^chore:"
-      - "^style:"
-      - "^refactor:"
+      # Commit types that change nothing a user of the CLI can see, with or
+      # without a scope: "docs:" and "docs(changelog):" alike. The unscoped
+      # forms alone let every scoped subject through, which is nearly all of
+      # them: v1.11.0 listed nine such commits under Other.
+      - '^docs(\(.+\))?!?:'
+      - '^test(\(.+\))?!?:'
+      - '^chore(\(.+\))?!?:'
+      - '^style(\(.+\))?!?:'
+      - '^refactor(\(.+\))?!?:'
+      - '^ci(\(.+\))?!?:'
       - "^Merge pull request"
       - "^Merge branch"
       - "^Merge remote-tracking"
       - "^initial commit"
 
-# Homebrew Cask (macOS) — published into the shared jannskiee/homebrew-tap.
+# Homebrew Cask (macOS), published into the shared jannskiee/homebrew-tap.
 # This tap is reused across projects; floe is one cask inside it.
 # Requires: create jannskiee/homebrew-tap repo and add TAP_GITHUB_TOKEN secret.
 # Install: brew install --cask jannskiee/tap/floe
@@ -75,7 +80,7 @@ homebrew_casks:
     description: "Secure peer-to-peer file transfer CLI"
     license: "MIT"
 
-# Scoop (Windows) — published into the shared jannskiee/scoop-bucket.
+# Scoop (Windows), published into the shared jannskiee/scoop-bucket.
 # This bucket is reused across projects; floe is one manifest inside it.
 # Requires: create jannskiee/scoop-bucket repo (same TAP_GITHUB_TOKEN).
 # Install: scoop bucket add jannskiee https://github.com/jannskiee/scoop-bucket && scoop install floe
@@ -139,3 +144,9 @@ release:
   github:
     owner: jannskiee
     name: floe
+  # The list GoReleaser writes above this line comes from commit subjects. What
+  # changed for a user is in the hand-written docs changelog, whose entry for a
+  # release is anchored by its tag with the dots as hyphens (v1.11.0 is
+  # #v1-11-0), so the link lands on that entry instead of the top of the page.
+  footer: |
+    **What changed:** https://www.floe.one/docs/changelog#{{ replace .Tag "." "-" }}

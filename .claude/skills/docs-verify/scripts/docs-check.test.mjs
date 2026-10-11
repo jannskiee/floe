@@ -442,14 +442,19 @@ test('an escaped pipe inside a cell is not a column boundary', () => {
     assert.doesNotMatch(r.out, /(HARD|NOTE)  tables  docs\/faq\.mdx/);
 });
 
-test('a wide table is a NOTE, and quotes that open cells are one NOTE per page', () => {
+// docs/style.css lowers the cell floor for a table with a fourth header cell,
+// so four columns fit at 1280. Five have no such rule.
+test('a table of five columns is a NOTE, and one of four is not', () => {
     const root = fresh();
     for (const line of [
         '',
-        '| Message | Meaning | Do | See |',
+        '| A | B | C | D |',
         '|---|---|---|---|',
-        '| "Open in your browser" | x | y | z |',
-        '| "Second message" | x | y | z |',
+        '| 1 | 2 | 3 | 4 |',
+        '',
+        '| A | B | C | D | E |',
+        '|---|---|---|---|---|',
+        '| 1 | 2 | 3 | 4 | 5 |',
     ])
         appendLine(root, 'docs/faq.mdx', line);
     const r = run(root);
@@ -457,15 +462,65 @@ test('a wide table is a NOTE, and quotes that open cells are one NOTE per page',
     const notes = r.out
         .split('\n')
         .filter((l) => l.startsWith('NOTE  tables  docs/faq.mdx'));
-    assert.equal(notes.length, 2, r.out);
-    assert.ok(notes.some((l) => l.includes('4 columns')));
-    assert.ok(
-        notes.some((l) =>
-            l.includes(
-                '2 table row(s) open a cell with a straight double quote'
-            )
+    assert.equal(notes.length, 1, r.out);
+    assert.match(notes[0], /5 columns/);
+});
+
+// Mintlify's smart-quote pass renders a straight quote that opens a cell as a
+// closing mark. #526 typed all 93 of them, and the rule went from NOTE to
+// HARD so the next one is caught before it ships.
+test('a straight quote that opens a table cell is HARD, and typed marks pass', () => {
+    const typed = fresh();
+    for (const line of [
+        '',
+        '| Message | Meaning |',
+        '|---|---|',
+        '| “Open in your browser” | x |',
+        '| Reads "Offline" at the top | y |',
+    ])
+        appendLine(typed, 'docs/faq.mdx', line);
+    const ok = run(typed);
+    assert.equal(ok.status, 0, ok.out);
+
+    const root = fresh();
+    appendLine(root, 'docs/faq.mdx', '');
+    appendLine(root, 'docs/faq.mdx', '| Message | Meaning |');
+    appendLine(root, 'docs/faq.mdx', '|---|---|');
+    const n = appendLine(
+        root,
+        'docs/faq.mdx',
+        '| "Open in your browser" | x |'
+    );
+    const r = run(root);
+    assert.equal(r.status, 1);
+    assert.match(
+        r.out,
+        new RegExp(
+            `HARD  tables  docs/faq\\.mdx:${n}  a straight double quote opens a table cell`
         )
     );
+});
+
+// The dash rule covers every Markdown file, and this check used to look only
+// at the root and docs/. .goreleaser.yml's comments are the release runbook.
+test('an em dash in .goreleaser.yml or under unraid/ is HARD', () => {
+    for (const file of ['.goreleaser.yml', 'unraid/README.md']) {
+        const root = fresh();
+        const n = appendLine(
+            root,
+            file,
+            `# A comment ${EM_DASH} with a dash.`
+        );
+        const r = run(root);
+        assert.equal(r.status, 1, file);
+        assert.match(
+            r.out,
+            new RegExp(
+                `HARD  dashes  ${file.replace(/[.]/g, '\\.')}:${n}:`
+            ),
+            file
+        );
+    }
 });
 
 // cli/self-hosted-server's description named `--server` on 2026-10-11 and the

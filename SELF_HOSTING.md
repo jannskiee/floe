@@ -20,6 +20,10 @@ docker compose up -d
 
 Open [http://localhost:3000](http://localhost:3000).
 
+These defaults work only when the browser is on the same machine. To open Floe from
+another device, or to change a port, set `CLIENT_URL` and `NEXT_PUBLIC_SOCKET_URL`
+to the address and ports that browser uses. Otherwise the page loads and never connects.
+
 A `.env` file is optional; every value has a working default. To change something,
 fetch the annotated example next to the compose file:
 

@@ -22,7 +22,9 @@ letter case), a bare `/docs/...` path in client code that names no page, a nav e
 without a file or a page outside the nav (or a docs.json the script cannot parse or walk),
 a page with no frontmatter block or missing title or description, two hyphens in a title,
 sidebarTitle or description, a table whose delimiter row and header differ in cell count,
-an em or en dash, a documented server default that contradicts server/server.js, or one
+a straight double quote that opens a table cell, an em or en dash (in the docs, the root
+and unraid Markdown, the desktop READMEs, `.goreleaser.yml` and `docs/style.css`), a
+documented server default that contradicts server/server.js, or one
 of the env self-checks failing (fewer keys than server.js reads, or a configuration page
 that yields no variable rows). Fix, rerun. Exit 0 with NOTE lines is the normal outcome.
 Read every NOTE and decide; do not skim.
@@ -39,10 +41,13 @@ Read every NOTE and decide; do not skim.
   Paths are compared in exact letter case, on Windows too: Mintlify builds on Linux.
 - tables: what Mintlify does to a table is invisible in the source. A delimiter row that
   does not match its header in cell count is HARD, because the block then renders as a
-  paragraph of raw pipes (reference/limits shipped five of those in #518). A table of four
-  or more columns is a NOTE: the theme gives every cell a 150 px floor, so it is cut at
-  1280 wide. A straight double quote that opens a cell is a NOTE, one line per page:
-  Mintlify's smart quotes turn it the wrong way, so type that pair as curly marks.
+  paragraph of raw pipes (reference/limits shipped five of those in #518). A straight
+  double quote that opens a cell is HARD too: Mintlify's smart quotes render it as a
+  closing mark, so type that quotation with curly marks (the docs had 93 before #526). A
+  table of five or more columns is a NOTE. The theme gives every cell a 150 px floor, and
+  `docs/style.css` lowers it only for a table with a fourth header cell, so that the
+  four-column comparison grid on choosing-floe fits at 1280. Three columns is still the
+  rule for any other table.
 - frontmatter: `--` in a title, sidebarTitle or description is HARD. Mintlify renders it
   as an em dash in the visible page, so a flag named there comes out wrong.
 - client docs paths: the web client links into the docs through the `/docs` rewrite, so a
@@ -69,6 +74,29 @@ Tests: `node --test .claude/skills/docs-verify/scripts/docs-check.test.mjs` (a d
 argument fails on Node 22). That file is a self-test of the script over the tree the
 skill lives in, with injected defects; it says nothing about the PR you are checking.
 Run the script itself for that.
+
+### After the PR exists: the rendered check
+
+Some defects only exist once Mintlify has rendered the page, and the source looks fine:
+a table that did not parse, a table wider than its box, a quotation mark turned the wrong
+way, a flag broken at its hyphens, a contents list that outgrew its box. Once the PR has a
+preview, run
+
+    node .claude/skills/docs-verify/scripts/render-audit.mjs --base <preview origin>
+
+and again with `--base https://www.floe.one/docs` after the merge. It loads every page in
+the navigation in a headless browser (Playwright from client/node_modules, so the client
+install has to exist) and prints one block per width and theme. Exit 1 means a table in
+the source did not come out as a table, or a delimiter row is showing as text. Every
+other number is for you to compare with the last run: on 2026-10-11 production read 0
+tables wider than their box at 1280, 0 wrong-way quotation marks of 786, 262 inline code
+chips split of 2,913, and no contents list over 30 entries. `--engines firefox,webkit`
+repeats it in the other two engines, and `--css <file>` adds a candidate stylesheet to
+every page, which is how a `docs/style.css` rule is measured against production before
+it is committed.
+
+Run it again after any fix made in response to it. reference/limits broke because a fix
+that followed a rendered check was merged without a second look at the rendered page.
 
 ## 2. Claim check
 

@@ -36,11 +36,11 @@
  * Why `tables` exists: Mintlify renders what no local check sees. A delimiter
  * row with one cell more than its header is not a table to GFM, so the block
  * renders as a paragraph of raw pipes (reference/limits shipped five of those
- * in #518, found on production the next day). A table of four or more columns
- * is cut at 1280 wide by the theme's 150 px cell floor, and a straight quote
- * that opens a cell is turned the wrong way by the smart-quote pass. The first
- * is decidable and HARD; the other two depend on the rendered page and print
- * as NOTE.
+ * in #518, found on production the next day). A straight quote that opens a
+ * cell is turned the wrong way by the smart-quote pass, every time. Both are
+ * decidable from the source and HARD. A table of five or more columns is cut
+ * at 1280 wide by the theme's cell floor unless the stylesheet makes room for
+ * it, which depends on the rendered page, so that one prints as NOTE.
  *
  * Usage:
  *   node docs-check.mjs [all|links|nav|frontmatter|labels|tables|env|dashes] [--root <dir>]
@@ -101,6 +101,7 @@ export const SURFACES = [
     '.env.docker.example',
     'docker-compose.yml',
     'unraid',
+    '.goreleaser.yml',
 ];
 
 // ---------------------------------------------------------------------------
@@ -185,8 +186,13 @@ const ENV_IGNORE_CLIENT = new Set([
 ]);
 // A table this wide or wider gets a NOTE. Mintlify's theme gives every cell a
 // 150 px minimum and the article column is 529 px at 1280, so three columns
-// fit and four are cut mid-word with no scrollbar shown (measured 2026-10-11).
-const WIDE_TABLE_COLUMNS = 4;
+// fit and four were cut mid-word with no scrollbar shown (measured
+// 2026-10-11). docs/style.css now lowers that floor to 104 px for a table with
+// a fourth header cell, which is what lets the four-column comparison grid on
+// choosing-floe fit. Five columns have no such rule and need a look at the
+// rendered page. Three is still the docs' own limit for anything that is not
+// a comparison grid.
+const WIDE_TABLE_COLUMNS = 5;
 // Frontmatter keys Mintlify typesets: two hyphens in any of them render as one
 // em dash in the visible page while the meta tag keeps both, so a description
 // naming `--server` showed a flag that does not exist (cli/self-hosted-server,
@@ -846,7 +852,6 @@ function tablesIn(mdx) {
 function checkTables(ctx) {
     for (const [, rec] of ctx.pages) {
         const where = rel(ctx.root, rec.file);
-        const quoteLines = [];
         for (const t of tablesIn(rec.text)) {
             if (t.header.length !== t.delimiter.length) {
                 ctx.report.hardLine(
@@ -862,23 +867,19 @@ function checkTables(ctx) {
                     `${where}:${t.headerLine}`,
                     `${t.header.length} columns: check the rendered table at 1280 wide, where the theme's cell floor cuts a table this wide`
                 );
+            // HARD since the docs were cleared of these (#526 typed all 93).
+            // Mintlify's smart-quote pass reads a straight quote that opens a
+            // cell as a closing mark, every time, so this is decidable from
+            // the source and wrong whenever it appears.
             const all = [{ cells: t.header, line: t.headerLine }, ...t.rows];
-            for (const row of all)
-                if (row.cells.some((c) => c.startsWith('"')))
-                    quoteLines.push(row.line);
-        }
-        // One line per page, not one per row: the two request-link guides
-        // have about forty such rows each, and a wall of identical lines
-        // buries every other NOTE.
-        if (quoteLines.length) {
-            const shown =
-                quoteLines.slice(0, 6).join(', ') +
-                (quoteLines.length > 6 ? ', ...' : '');
-            ctx.report.note(
-                'tables',
-                `${where}:${quoteLines[0]}`,
-                `${quoteLines.length} table row(s) open a cell with a straight double quote (lines ${shown}): Mintlify turns that mark the wrong way. Type the pair as “ and ”`
-            );
+            for (const row of all) {
+                if (!row.cells.some((c) => c.startsWith('"'))) continue;
+                ctx.report.hardLine(
+                    'tables',
+                    `${where}:${row.line}`,
+                    'a straight double quote opens a table cell: Mintlify renders it as a closing mark. Type that quotation with curly marks, “ and ”'
+                );
+            }
         }
     }
 }
@@ -1585,6 +1586,20 @@ function checkDashes(ctx) {
             files.push(join(root, name));
     }
     files.push(...walk(join(root, '.github'), ['.md']));
+    // Markdown and reader-facing config outside the two places above. The rule
+    // in CLAUDE.md covers every Markdown file, and this check only ever looked
+    // at the root and docs/: .goreleaser.yml carried two em dashes for months
+    // (its comments are the release runbook people read). desktop/build is
+    // named because walk() skips any directory called build.
+    files.push(...walk(join(root, 'unraid'), ['.md']));
+    for (const f of [
+        'desktop/README.md',
+        'desktop/build/README.md',
+        '.goreleaser.yml',
+        'docs/style.css',
+    ]) {
+        if (existsSync(join(root, f))) files.push(join(root, f));
+    }
     for (const file of files) {
         const text = read(file);
         const where = rel(root, file);

@@ -190,6 +190,25 @@ jobs:
         # caught it.
         run: node .claude/skills/untrusted-peer-data/scripts/check-consumers.mjs
 
+      - name: Docs pre-flight
+        # Exit 1 on any HARD line: a dead link or anchor, a nav entry without a
+        # page, a table whose delimiter row does not match its header (it
+        # renders as raw pipes), a quotation mark Mintlify will turn the wrong
+        # way, a documented default that contradicts the server, an em dash.
+        # NOTE lines print and never fail the step.
+        #
+        # A step of this job rather than a job of its own, for the same reason
+        # the map above is here: it must run on a docs-only PR, which skips
+        # every heavy job, and on a code PR, because half of what it compares
+        # is code (the server's env defaults, the client's /docs links). It
+        # reads files and nothing else: no network, no install, no subprocess,
+        # and the same output on Linux and Windows (compared 2026-10-11), so a
+        # failure here reproduces with this one command.
+        #
+        # Until now nothing in CI ran it. reference/limits shipped five tables
+        # as paragraphs of pipe text in #518 with every check green.
+        run: node .claude/skills/docs-verify/scripts/docs-check.mjs all
+
   skills:
     name: Skill test suites
     runs-on: windows-latest

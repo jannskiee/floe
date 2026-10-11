@@ -25,7 +25,7 @@ visible inside the container. Add a Path that maps the folder holding the file,
 read-only, to a container folder such as `/app/policy`, then set the variable to
 the file's path inside the container, such as `/app/policy/policy.json`. The steps
 are in the
-[Request links](https://www.floe.one/docs/self-hosting/unraid#request-links)
+[Request links on Unraid](https://www.floe.one/docs/self-hosting/unraid#request-links)
 section of the Unraid guide.
 
 See [Deploy on Unraid](https://www.floe.one/docs/self-hosting/unraid) for
