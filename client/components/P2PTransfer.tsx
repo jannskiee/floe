@@ -1317,7 +1317,7 @@ export function P2PTransfer() {
 
                 <CardFooter className="justify-center border-t border-white/[0.06] !pt-4">
                     {isSender && !generatedLink ? (
-                        <p className="text-[10px] uppercase tracking-wide text-zinc-500 text-center leading-relaxed">
+                        <p className="text-balance text-[10px] uppercase tracking-wide text-zinc-500 text-center leading-relaxed">
                             End-to-end encrypted. Files are never stored on a server.
                         </p>
                     ) : (

@@ -180,8 +180,8 @@ export default function HowItWorks() {
                         Want the full technical detail?
                     </h2>
                     <p className="mt-4 max-w-lg text-base leading-relaxed text-zinc-400">
-                        Six pages take each stop on the line apart at depth, the known limitations
-                        included.
+                        Seven pages take each stop on the line apart at depth, the known
+                        limitations included.
                     </p>
                     <div className="mt-8">
                         <a
