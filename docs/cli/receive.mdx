@@ -115,7 +115,7 @@ One `.part` file is worth keeping. When `floe receive` ends with `Error: receive
 
 A name your system cannot represent is adjusted before the file is written, and the progress line shows the adjusted name.
 
-- **On Windows**, the characters `< > : " | ? *` become underscores, trailing dots and spaces are removed, and a name that is exactly a reserved device name (such as `NUL`) gets an underscore in front. Two names that differed only in one of those characters therefore arrive as a name and its numbered twin. A backslash, which macOS and Linux allow in a name, is a folder separator on Windows: `back\slash.txt` arrives as `slash.txt` in a folder named `back`, and a leading one is dropped.
+- **On Windows**, the characters `< > : " | ? *` become underscores, trailing dots and spaces are removed, and a name that is exactly a reserved device name (such as `NUL`) gets an underscore in front. Two names that differed only in one of those characters therefore arrive as a name and its numbered twin. One colon is dropped, not replaced: a file or top-level folder whose name begins with one letter (A to Z) or one digit and then a colon loses those two characters, because a start like that is read as a drive name, so `P:L 2025.xlsx` is saved as `L 2025.xlsx`. A backslash, which macOS and Linux allow in a name, is a folder separator on Windows: `back\slash.txt` arrives as `slash.txt` in a folder named `back`, and a leading one is dropped.
 - **On macOS and Linux**, all of those are valid, and names are left exactly as sent.
 - **On every platform**, control characters and text-direction marks are replaced with underscores, since a file name is not a place for either. A browser receiver strips them instead of replacing them, so the same file can land under slightly different names on the two surfaces.
 
@@ -123,7 +123,9 @@ The name shown in the `Incoming` box is cleaned the same way and shortened to 20
 
 ### Windows marks the files as downloads {#windows-marks-the-files-as-downloads}
 
-On Windows, each received file is tagged with the mark of the web (a `Zone.Identifier` stream), so SmartScreen and Office Protected View treat it like a browser download when it is opened. Not every drive can keep the mark: see [where it is and is not kept](/desktop/receiving#received-files-are-marked-as-downloads).
+On Windows, each received file is tagged with the mark of the web (a `Zone.Identifier` stream), so SmartScreen and Office Protected View treat it like a browser download when it is opened. Not every drive can keep the mark: see [where it is and is not kept](/desktop/receiving#received-files-are-marked-as-downloads). On macOS and Linux, `floe receive` adds no download mark of any kind, the macOS quarantine flag included.
+
+Floe does not scan files for malware on any system. A file that passes its checks arrived intact, which does not make it safe to open and says nothing about who sent it. See [Known limitations](/how-it-works/known-limitations#floe-does-not-scan-received-files).
 
 ## Paths that are too deep or too long {#paths-too-deep-or-too-long}
 

@@ -43,7 +43,9 @@ A relayed transfer is usually slower, because every byte takes a detour.
 ### How long does the sender have to stay connected?
 
 For the whole transfer. Files stream from their device, so closing the tab, quitting the app, or
-stopping the process ends it. [Receiving files](/web-app/receiving#the-sender-has-to-stay-connected)
+stopping the process ends it. A transfer that stops cannot be resumed: files that finished are
+kept, and the rest has to be sent again in a new transfer.
+[Receiving files](/web-app/receiving#the-sender-has-to-stay-connected)
 
 ### Are my files stored anywhere?
 
@@ -114,7 +116,7 @@ No. There is no account, no sign-up, and no registration on any surface. [Quicks
 
 ### What does Floe collect?
 
-The website runs cookieless aggregate analytics and error monitoring. The CLI and the desktop app
+The website runs cookieless, anonymous analytics and error monitoring. The CLI and the desktop app
 contain none of that: their only optional requests are a byte count and an update check, and both
 have an off switch. [Security and privacy](/security-privacy)
 
@@ -132,7 +134,8 @@ between can read the files, Floe's own servers included. What that rests on is t
 
 ### What does Floe not protect against?
 
-The signaling server is trusted to introduce the two devices honestly, no client shows a
+A link or a room code is all that protects a transfer, so whoever uses it first receives the
+files. The signaling server is trusted to introduce the two devices honestly, no client shows a
 verification code today, and a browser receiver can only take as much as the browser can hold.
 Those and the rest are written down, each with what you can do about it.
 [Known limitations](/how-it-works/known-limitations)

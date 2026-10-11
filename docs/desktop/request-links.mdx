@@ -335,7 +335,9 @@ The check mark means the files arrived intact. It does not mean they are safe.
 ## If a drop stops {#if-a-drop-stops}
 
 The card reads **DROP STOPPED** with one sentence saying why and how many files were saved. Files saved
-before the stop stay in the drop's folder, and **Show in folder** opens it when there is one. The file that
+before the stop stay in the drop's folder, and **Show in folder** opens it when there is one. One stop is the
+exception: the card for the 2 GB relay limit reads "Nothing saved" and has no **Show in folder** even when
+earlier files were saved, so check the drop's folder or History after it. The file that
 was arriving is deleted, with one exception: when Windows will not let Floe move a finished file into place
 (often because another program is holding it), Floe retries for 5 minutes, and if it still fails, the
 complete file stays in the drop's folder with a `.part` ending. With notifications on, Windows shows "Floe -
@@ -434,7 +436,7 @@ When a drop stops, the card reads **DROP STOPPED** with one of these, and **Make
 | “A file didn't match what was sent and was deleted” | A file's SHA-256 on your PC did not match the sender's. | Send a new link; they can send the rest again. |
 | “A folder path was too long for Windows” | A file's path in the drop was too deep or too long to save. | Ask the sender to zip deeply nested folders first. |
 | “More data arrived than you accepted” | The sender's browser sent more than the count and size you accepted, often because files changed after they chose them. | Send a new link; they choose the files again. |
-| “Over the 2 GB relay limit · Nothing saved” | The drop went through the relay and would have gone past 2 GB. | Turn off Hide my IP, or ask for under 2 GB per drop. |
+| “Over the 2 GB relay limit · Nothing saved” | The drop went through the relay and would have gone past 2 GB. The card always reads "Nothing saved" and has no **Show in folder** for this stop, even when files that arrived before the limit were saved. In that case History has a row for the drop, and it too reads as if nothing arrived: "Drop stopped before any file: over the 2 GB relay limit". | Look in the drop's folder inside your **Save to** folder, or use **Show in folder** on its History row, for files that were saved. Then turn off Hide my IP, or ask for under 2 GB per drop. |
 | “A file is too large for this drive” | The save drive cannot hold a file that large, such as 4 GB or more on FAT32. | Save to an NTFS or exFAT drive. |
 | “Windows couldn't write to the folder” | Windows refused a write into the drop's folder. | Check the save folder, then send a new link. |
 | “Windows blocked Floe from saving a file” | Floe could not move a finished file into place, often because another program held it. Floe retried for 5 minutes first. | A second line says "The complete file was kept with a .part ending". The file is complete: remove the `.part` ending to use it. |

@@ -150,10 +150,12 @@ special meaning. Floe adjusts the name before writing the file, and the progress
 
 The characters `< > : " | ? *` become underscores, and so do control characters and
 text-direction marks. Trailing dots and spaces are removed, and a name that is a reserved device
-name (such as `NUL`) gets an underscore in front. A backslash, which macOS and Linux allow in a
-name, is a folder separator on Windows: `back\slash.txt` arrives as `slash.txt` in a folder named
-`back`, and a leading one is dropped. If two files end up with the same adjusted name, the second
-is numbered exactly as above.
+name (such as `NUL`) gets an underscore in front. One colon is dropped, not replaced: a file or
+top-level folder whose name begins with one letter (A to Z) or one digit and then a colon loses
+those two characters, because a start like that is read as a drive name, so `P:L 2025.xlsx` is
+saved as `L 2025.xlsx`. A backslash, which macOS and Linux allow in a name, is a folder separator
+on Windows: `back\slash.txt` arrives as `slash.txt` in a folder named `back`, and a leading one is
+dropped. If two files end up with the same adjusted name, the second is numbered exactly as above.
 
 The incoming preview shows the name with control characters and text-direction marks replaced,
 and a long name shortened with its extension kept. The progress line and History show the name
@@ -185,8 +187,8 @@ these. A receive with a code or a link applies none of them.
 
 On Windows, Floe tags each file it writes with the mark of the web, the same tag Windows puts
 on a browser download. SmartScreen and Office Protected View then treat it like anything else
-from the internet: an executable prompts before running, and a document opens read-only until
-you choose to enable editing.
+from the internet: an executable that Windows does not recognize prompts before running, and an
+Office document opens read-only until you choose to enable editing.
 
 This is deliberate. Files arrive from another person's device, and Windows should apply its
 normal caution.

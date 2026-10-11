@@ -149,7 +149,8 @@ While the tab is hidden, its title shows the state instead, such as "Waiting for
 ## Messages {#messages}
 
 A link that ended before anyone used it, because the person who made it clicked **Close link** or quit Floe,
-or because its end time passed, says "This link has ended" for about 24 hours afterward. A link that was used
+or because its end time passed, says "This link has ended" for about 24 hours afterward. A link that was used,
+or that was closed while a request was waiting for an answer or after a decline without being reopened,
 says "This link has already been used" for about 24 hours after it closed. A server restart forgets both
 sooner. After that, and for a link that never existed, the page reads "Their computer is not connected right
 now", as it does while the computer that made the link is asleep or offline.
@@ -169,11 +170,11 @@ now", as it does while the computer that made the link is asleep or offline.
 | “Some files in this folder could not be read. Nothing was added.” | The browser could not read part of a folder you dropped, so none of it was added. | Check the folder, or zip it and send the archive. |
 | “Their computer is not connected right now”, then “They may have closed Floe. Your files stay selected.” | Floe cannot reach the computer that made the link: it is asleep or offline, or Floe there stopped without closing the link. It also covers a link that never existed, or that ended more than about a day ago. | Click **Try again** once they have Floe open, or ask for a new link. |
 | “This link has ended”, then “Ask them for a new link.” | The link was closed, or reached its end time, before anyone used it. There is no **Try again**. | Ask them for a new link. |
-| “This link has already been used”, then “Ask for a new link.” | The link took its one drop, someone else is connected through it now, or the person who made it declined a request and has not reopened the link. The server also gives this answer for a link that senders have joined more than 6 times in 1 minute. | Ask the person who made it for a new link. If you had just tried several times in a row, wait 1 minute and reload the page first. |
+| “This link has already been used”, then “Ask for a new link.” | The link took its one drop, someone else is connected through it now, the person who made it declined a request and has not reopened the link, or they closed the link while a request was waiting for their answer or after a decline without reopening it. The server also gives this answer for a link that senders have joined more than 6 times in 1 minute. | Ask the person who made it for a new link. If you had just tried several times in a row, wait 1 minute and reload the page first. |
 | “Request links are turned off right now” | The server has turned request links off. A link that was waiting for a sender when that happened has ended. | Try again later. If the page then says "This link has ended", ask for a new link. |
 | “Request links are not available on this Floe server.” | The server did not answer the page within 10 seconds, as a server older than request links does not. | Ask the person who made the link. |
 | “Couldn't connect to their computer. Nothing was sent.” | Your browser and their PC could not finish connecting. | Click **Try again**. If it keeps happening, a network on one side may be blocking the connection. |
-| “This Floe server has no relay right now. Turn off Hide my IP to send directly.” | Hide my IP needs a relay, and the server offers none. | Do what the message says. |
+| “This Floe server has no relay right now. Turn off Hide my IP to send directly.” | Hide my IP needs a relay, and the page found none. Either the server offers none, or the page could not read the server's relay list: the request failed, or the server was limiting requests from your network. | Click **Send** again first: your files stay selected, and the page asks the server again on every try. If the message comes back, wait 1 minute and try once more, or turn off Hide my IP to send directly. |
 | “Too many connections from this network. Trying again shortly.” | The server is limiting connections from your network for a moment. | Wait: the page tries again by itself. |
 | “They declined. Nothing was sent.” | They clicked **Decline**. | Ask them before you send again. |
 | “They did not answer in time. Nothing was sent.” | Nobody clicked **Accept** or **Decline** in time. The link stays open. | Ask them to be at their PC, then send again. |

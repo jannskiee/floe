@@ -9,7 +9,7 @@ This page runs the signaling server and the web client straight from a clone of 
 
 ## Prerequisites
 
-- **Node.js 22 or later**, for both processes. The client sets that floor: it pins pnpm 11, which needs Node.js 22, and Next.js 16 asks for 20.9 or later. The signaling server's runtime dependencies ask only for Node.js 18, and its `package.json` has no `engines` field, so nothing stops you from starting it on something older. The oldest version anything tests is Node.js 20, which CI runs the server's tests on. CI builds the client on Node.js 22, and both published images run Node.js 24.
+- **Node.js 22.13 or later**, for both processes. The client sets that floor: it pins pnpm 11.1.2, which refuses to run on anything older than Node.js 22.13, and Next.js 16 asks for 20.9 or later. The signaling server's runtime dependencies ask only for Node.js 18, and its `package.json` has no `engines` field, so nothing stops you from starting it on something older. The oldest version anything tests is Node.js 20, which CI runs the server's tests on. CI builds the client on Node.js 22, and both published images run Node.js 24.
 - **pnpm 11**, for the client. `client/package.json` pins `pnpm@11.1.2`. Install that version, for example with `npm install -g pnpm@11.1.2`, which is what the image build does.
 - **Git**, to clone the repository and to update it later.
 

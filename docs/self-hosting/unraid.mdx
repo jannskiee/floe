@@ -2,7 +2,7 @@
 title: "Deploy on Unraid"
 sidebarTitle: "Unraid"
 description: "Install the Floe web client and signaling server as two coordinated Unraid containers, with direct LAN, single domain, and two hostname configuration examples."
-keywords: ["unraid", "community applications", "template"]
+keywords: ["unraid", "docker template", "add container"]
 ---
 
 This page installs Floe on an Unraid server from two templates, Floe-Server and
@@ -11,9 +11,8 @@ two hostnames. Floe is published as two containers because the web client and si
 server have separate network and security settings. Install both templates for a working
 instance.
 
-Both templates pull the same multi-architecture images the Docker Compose stack
-uses, so amd64 and arm64 Unraid hosts are covered by the same template and nothing
-is built on your server. See [Container images](/self-hosting/images).
+Both templates pull the same images the Docker Compose stack uses, so nothing is
+built on your server. See [Container images](/self-hosting/images).
 
 ## Before you start
 
@@ -30,12 +29,53 @@ Choose how browsers will open Floe:
 The exact client origin matters in all three, because it is the origin the
 signaling server accepts browser connections from.
 
+## Add the templates to Unraid {#add-the-templates-to-unraid}
+
+Floe's templates are not in Community Applications, so a search on the **Apps** tab
+does not find them. Put the two template files in Unraid's user templates folder
+yourself, then start each container from **Add Container**. These steps are for
+Unraid 6.10.0 and later, which has no field for a template address.
+
+<Steps>
+  <Step title="Open a terminal on the server">
+    In the Unraid web interface, open the web terminal, shown as `>_` at the top
+    right. SSH as root works too.
+  </Step>
+  <Step title="Download both templates">
+    Save them in the user templates folder on the boot device:
+
+    ```bash Terminal
+    mkdir -p /boot/config/plugins/dockerMan/templates-user
+    wget -O /boot/config/plugins/dockerMan/templates-user/my-Floe-Server.xml https://raw.githubusercontent.com/jannskiee/floe/main/unraid/floe-server.xml
+    wget -O /boot/config/plugins/dockerMan/templates-user/my-Floe-Client.xml https://raw.githubusercontent.com/jannskiee/floe/main/unraid/floe-client.xml
+    ```
+
+    Unraid lists every `.xml` file in that folder. The `my-<Name>.xml` form is the
+    name Unraid gives a template it saves, so your settings go back into the same
+    file.
+  </Step>
+  <Step title="Open Add Container">
+    Open the **Docker** tab and click **Add Container**. The tab is there only
+    while Docker is enabled in Unraid's settings.
+  </Step>
+  <Step title="Pick the template">
+    In the **Template** list at the top of the page, pick **Floe-Server** under
+    **User templates**. Unraid fills the form from the template.
+  </Step>
+  <Step title="Fill in the fields and apply">
+    Set the fields as the section for your layout below describes, then click
+    **Apply**. Unraid pulls the image and creates the container. Repeat from
+    **Add Container** for **Floe-Client**.
+  </Step>
+</Steps>
+
 ## Direct LAN installation
 
 <Steps>
   <Step title="Install Floe-Server">
-    Install the **Floe-Server** template first. Keep **Signaling Port** at `3001`
-    unless that host port is already used.
+    Add the **Floe-Server** container first, from its template: see
+    [Add the templates to Unraid](#add-the-templates-to-unraid). Keep
+    **Signaling Port** at `3001` unless that host port is already used.
 
     Set **Client URL** to the URL that browsers will use for the client. With the
     default client port, an example is:
@@ -48,8 +88,9 @@ signaling server accepts browser connections from.
 
   </Step>
   <Step title="Install Floe-Client">
-    Install the **Floe-Client** template. Keep **Web UI Port** at `3000` unless it
-    conflicts with another container.
+    Add the **Floe-Client** container from its template
+    [the same way](#add-the-templates-to-unraid). Keep **Web UI Port** at `3000`
+    unless it conflicts with another container.
 
     Set **Signaling Server URL** to the full origin browsers use to reach
     Floe-Server, including the scheme and the host port, with no trailing slash:

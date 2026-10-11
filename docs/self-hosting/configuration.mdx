@@ -140,7 +140,7 @@ REST URL of an [Upstash Redis](https://upstash.com) database, used to durably pe
 
 ### `UPSTASH_REDIS_REST_TOKEN` {#upstash-redis-rest-token}
 
-REST token that pairs with `UPSTASH_REDIS_REST_URL`. Both must be set together for durable stats. Use the **read+write** token (the default one in the Upstash console), not the read-only token. The server needs write access to increment the counter; with a read-only token, writes are silently rejected and the total never persists.
+REST token that pairs with `UPSTASH_REDIS_REST_URL`. Both must be set together for durable stats. Use the **Standard** token, the one the Upstash console shows by default, not the **Read Only** token. The server needs write access to increment the counter; with a read-only token, writes are silently rejected and the total never persists.
 
 ### `MAX_REPORT_BYTES` {#max-report-bytes}
 

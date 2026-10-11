@@ -49,6 +49,8 @@ After reading your files, `floe send` shows a summary of what will be sent, then
 
 Give the **code** to someone using `floe receive` or Floe Desktop, or the **link** to someone using a browser. `floe receive` and Floe Desktop take the link too. A room code is good for one receiver and for at most 10 minutes, and the link for as long as this `floe send` keeps running: see [how long a code and a link last](/how-it-works/signaling#code-and-link-lifetime). `floe send` itself waits for the other side with no time limit.
 
+The code and the link are all that protect the transfer. Whoever enters the code or opens the link first gets the files, and `floe send` does not ask you to approve them, so share them only over a channel you trust. See [Known limitations](/how-it-works/known-limitations#anyone-with-the-link-or-code-can-receive).
+
 For a single file, the `Sending` line shows the file's name in place of the count. If the server does not hand out a code (for example, because it is limiting requests from your network), `floe send` prints `Warning: could not generate short code:` with the cause, shows the panel with the `Link` row alone, and continues.
 
 Once the receiver connects, Floe negotiates the WebRTC connection and sends the files in the order you listed them, each with a live progress bar:
@@ -118,7 +120,13 @@ and exits with status 1. Files the recipient saved before that one stay there. S
 
 A send that worked exits with status 0 after the `Sent` box. To `floe receive` 1.11.0 or later or Floe Desktop 0.3.0 or later, the box prints only after the receiver has said it saved every file. To a browser, or to an older receiver, it prints once the other side's connection has acknowledged all the data. See [File checks](/how-it-works/file-checks#delivery-confirmation).
 
-Press `Ctrl+C` at any time to cancel the transfer and close the session. `floe send` prints `Canceled.` and exits with status 130, and the receiver sees the connection close.
+Press `Ctrl+C` at any time to cancel. `floe send` prints `Canceled.` and exits with status 130. It sends the receiver no message and does not close the connection between the two devices, so what the other side sees depends on how far it had got:
+
+- `floe receive` or Floe Desktop that was still connecting is told at once that you left: `floe receive` prints [`the other side left before the connection was established`](/troubleshooting#the-other-side-left-before-the-connection-was-established), and Floe Desktop shows "[They left before the connection was made](/troubleshooting#they-left-before-the-connection-was-made)".
+- `floe receive` and Floe Desktop, once connected, wait 60 seconds for data that does not come, then stop: `floe receive` with [`transfer stalled: no data for 1m0s`](/troubleshooting#transfer-stalled), and Floe Desktop with "[The transfer stalled](/troubleshooting#the-transfer-stalled)". Files that had finished are kept.
+- A browser that was already receiving says nothing until the browser itself gives up on the connection. If no file had finished, it then shows `Could not connect. Ask the sender to enable "Network Relay" and try again.`: see [Troubleshooting](/troubleshooting#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again).
+
+Tell the other person you stopped, so they do not wait.
 
 When the other side ends the transfer, `floe send` prints one line and exits with status 1:
 

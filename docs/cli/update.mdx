@@ -93,6 +93,13 @@ Detection is a substring match for `homebrew`, `cellar`, `linuxbrew`, `scoop`, o
 anywhere in the binary's path, in any capitalization, so a script install that happens to live
 under a directory containing one of those words is treated as package-managed too.
 
+That rule misses Homebrew in its default folder on an Intel Mac, `/usr/local`. Neither path of that
+install contains one of those words: the command is `/usr/local/bin/floe`, and the cask it points
+to sits under `/usr/local/Caskroom`. `floe update` therefore does not recognize the install and
+carries on as for a script install, so use `brew upgrade floe` there. Homebrew's default folders on
+Apple silicon (`/opt/homebrew`) and on Linux (`/home/linuxbrew`) do contain one, so those installs
+are recognized.
+
 A binary built from source is checked before any of this and stops with
 `Cannot update a dev build.` whatever its path, so this section applies only to release builds.
 

@@ -73,8 +73,8 @@ When a direct path is impossible, traffic goes through a TURN relay. On floe.one
 Cloudflare's Realtime TURN network; a self-hosted instance can run its own coturn instead.
 
 The relay sees encrypted packets, plus the metadata that being the middle hop entails: both IP
-addresses, and the timing and size of what it forwards. Your infrastructure provider may log that
-for its own security purposes.
+addresses, and the timing and size of what it forwards. The relay's operator may log that for its
+own security purposes: on floe.one that is Cloudflare, not your own internet provider.
 
 The relay does not see the contents of those packets. Files are encrypted before they reach it and
 decrypted only on the recipient's device.
@@ -175,7 +175,7 @@ On the floe.one website:
 - **Session replay is not enabled and will not be added.** A replay records the page address, and
   on a receiver page that address contains the room link, which is the only thing protecting the
   transfer.
-- **Umami** records cookieless, aggregate page views, transfer outcomes (file count, total bytes,
+- **Umami** records cookieless, anonymous page views, transfer outcomes (file count, total bytes,
   direct or relay, success or failure with one of 8 fixed reason labels), which download button
   was clicked, and the name of an in-app browser the site was opened in. Page views carry the
   browser, operating system, device type, screen size, language, and a location down to city,
@@ -187,6 +187,25 @@ On the floe.one website:
 
 Both are enabled only when their key is supplied. The published container image sets neither, so a
 self-hosted instance ships with both off unless you add your own.
+
+### Other services floe.one relies on {#other-services}
+
+Four more companies can see a request, and none of them sees a file.
+
+| Service | What it does for floe.one | What it can see |
+| --- | --- | --- |
+| Vercel | Hosts the web app. | The IP address and page address of each request, which it may log, as any web host can. |
+| Microsoft Azure | Hosts the signaling server. | The IP address of each connection to the server, which the host and the reverse proxy in front of the server may log. The server itself logs none. |
+| Google's public STUN servers | A fallback. An app asks `stun.l.google.com` for its own public address when it cannot get the server's connection list, because the server is unreachable or is limiting requests from your network, and when the server has no relay to hand out. | Your IP address, and nothing about the transfer. |
+| Mintlify | Serves these docs at floe.one/docs. | Requests for docs pages, and page-view data it may collect with its own scripts. |
+
+A self-hosted instance uses neither of the first two. Until you configure a relay it uses Google's
+STUN servers on every connection, because the server then hands every client two Google STUN
+addresses. With a relay configured, only the fallback in the table does. See
+[TURN relay](/self-hosting/turn-relay).
+
+One more service never sees a request from you. The total behind the homepage counter is stored as
+a single number in a Redis database at Upstash, written by Floe's server and never by your device.
 
 See the full [Privacy Policy](https://floe.one/privacy) for the site-wide detail.
 
