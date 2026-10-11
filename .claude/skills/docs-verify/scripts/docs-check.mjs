@@ -33,8 +33,17 @@
  * root, from a node:test temp copy, and on a machine with no pnpm or jq on
  * PATH (both have been missing here).
  *
+ * Why `tables` exists: Mintlify renders what no local check sees. A delimiter
+ * row with one cell more than its header is not a table to GFM, so the block
+ * renders as a paragraph of raw pipes (reference/limits shipped five of those
+ * in #518, found on production the next day). A table of four or more columns
+ * is cut at 1280 wide by the theme's 150 px cell floor, and a straight quote
+ * that opens a cell is turned the wrong way by the smart-quote pass. The first
+ * is decidable and HARD; the other two depend on the rendered page and print
+ * as NOTE.
+ *
  * Usage:
- *   node docs-check.mjs [all|links|nav|frontmatter|labels|env|dashes] [--root <dir>]
+ *   node docs-check.mjs [all|links|nav|frontmatter|labels|tables|env|dashes] [--root <dir>]
  * Tests:
  *   node --test .claude/skills/docs-verify/scripts/docs-check.test.mjs
  * Output lines: `HARD  <check>  <file>:<line>  <message>` and the same with
@@ -45,7 +54,15 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const CHECKS = ['links', 'nav', 'frontmatter', 'labels', 'env', 'dashes'];
+const CHECKS = [
+    'links',
+    'nav',
+    'frontmatter',
+    'labels',
+    'tables',
+    'env',
+    'dashes',
+];
 const SKIP_DIRS = new Set(['node_modules', '.next', 'dist', 'build', '.git']);
 const SITE = 'https://www.floe.one';
 
@@ -166,6 +183,15 @@ const ENV_IGNORE_CLIENT = new Set([
     'CI',
     'VERCEL_GIT_COMMIT_SHA',
 ]);
+// A table this wide or wider gets a NOTE. Mintlify's theme gives every cell a
+// 150 px minimum and the article column is 529 px at 1280, so three columns
+// fit and four are cut mid-word with no scrollbar shown (measured 2026-10-11).
+const WIDE_TABLE_COLUMNS = 4;
+// Frontmatter keys Mintlify typesets: two hyphens in any of them render as one
+// em dash in the visible page while the meta tag keeps both, so a description
+// naming `--server` showed a flag that does not exist (cli/self-hosted-server,
+// 2026-10-11).
+const TYPESET_KEYS = ['title', 'sidebarTitle', 'description'];
 // The server modules read exactly 16 keys between them today. Fewer means the
 // extractor regex broke, not that the server lost a setting; raise this when a
 // key is added. Counting across the directory rather than one file is what
@@ -203,6 +229,60 @@ function read(file) {
 
 function unquote(v) {
     return v.trim().replace(/^["']|["']$/g, '');
+}
+
+// existsSync follows the file system's own rule, and on Windows and macOS that
+// rule ignores letter case. Mintlify builds on Linux, where /images/Send.png
+// and /images/send.png are two files, so a path that only resolves by case
+// folding is a broken image or a failed snippet import in production. This
+// walks the path one segment at a time against the real directory listing.
+const dirListings = new Map();
+function existsExact(base, relPath) {
+    let dir = base;
+    for (const seg of relPath.split('/').filter(Boolean)) {
+        if (!dirListings.has(dir)) {
+            let names = [];
+            try {
+                names = readdirSync(dir);
+            } catch {
+                names = [];
+            }
+            dirListings.set(dir, new Set(names));
+        }
+        if (!dirListings.get(dir).has(seg)) return false;
+        dir = join(dir, seg);
+    }
+    return existsSync(dir);
+}
+
+// Why a path failed, for the message: nothing there at all, or a file whose
+// name differs only by letter case.
+function missingReason(base, relPath) {
+    return existsSync(join(base, relPath))
+        ? ' (a file exists there under a different letter case; Mintlify builds on Linux, where case matters)'
+        : '';
+}
+
+// One Markdown table row as trimmed cells, or null when the line is not a
+// row. `\|` is a literal pipe inside a cell, in code spans too (GFM), so it is
+// taken out before the split and put back after.
+function tableCells(line) {
+    const t = line.trim();
+    if (!t.includes('|')) return null;
+    const body = t
+        .replace(/\\\|/g, '\u0000')
+        .replace(/^\|/, '')
+        .replace(/\|$/, '');
+    return body.split('|').map((c) => c.replace(/\u0000/g, '\\|').trim());
+}
+
+function isDelimiterRow(line) {
+    const cells = tableCells(line);
+    return (
+        cells !== null &&
+        cells.length > 0 &&
+        cells.every((c) => /^:?-+:?$/.test(c))
+    );
 }
 
 function frontmatter(mdx) {
@@ -384,7 +464,7 @@ function resolveDocsPath(ctx, path) {
     if (clean === '' || clean === '/') return { kind: 'root' };
     const page = clean.slice(1);
     if (/\.[a-z0-9]+$/i.test(page)) {
-        return existsSync(join(ctx.docsDir, page))
+        return existsExact(ctx.docsDir, page)
             ? { kind: 'asset' }
             : { kind: 'missing' };
     }
@@ -530,11 +610,11 @@ function checkAssets(ctx) {
         const text = stripFences(rec.text);
         const where = rel(ctx.root, rec.file);
         for (const m of text.matchAll(ASSET_SRC)) {
-            if (existsSync(join(ctx.docsDir, m[1].slice(1)))) continue;
+            if (existsExact(ctx.docsDir, m[1].slice(1))) continue;
             ctx.report.hardLine(
                 'links',
                 `${where}:${lineOf(text, m.index)}`,
-                `src ${m[1]} has no file at docs${m[1]}`
+                `src ${m[1]} has no file at docs${m[1]}${missingReason(ctx.docsDir, m[1].slice(1))}`
             );
         }
     }
@@ -557,11 +637,11 @@ function checkSnippets(ctx) {
         for (const m of text.matchAll(SNIPPET_IMPORT)) {
             const [, name, path] = m;
             const at = `${where}:${lineOf(text, m.index)}`;
-            if (!existsSync(join(ctx.docsDir, path.slice(1)))) {
+            if (!existsExact(ctx.docsDir, path.slice(1))) {
                 ctx.report.hardLine(
                     'links',
                     at,
-                    `import of ${path}: no file at docs${path}`
+                    `import of ${path}: no file at docs${path}${missingReason(ctx.docsDir, path.slice(1))}`
                 );
                 continue;
             }
@@ -718,6 +798,86 @@ function checkFrontmatter(ctx) {
                 'frontmatter',
                 where,
                 'missing sidebarTitle (falls back to title)'
+            );
+        }
+        for (const key of TYPESET_KEYS) {
+            if (!rec.fm[key] || !rec.fm[key].includes('--')) continue;
+            ctx.report.hardLine(
+                'frontmatter',
+                where,
+                `${key} contains "--": Mintlify renders two hyphens there as an em dash, so a flag name comes out wrong. Name the flag in the body, in code`
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// tables
+// ---------------------------------------------------------------------------
+
+// A table is a header row directly above a delimiter row. Rows are read until
+// the first line that is not a row. Fenced code and MDX comments are blanked
+// first, so a table drawn inside either is never read.
+function tablesIn(mdx) {
+    const lines = stripFences(mdx).split('\n');
+    const tables = [];
+    for (let i = 1; i < lines.length; i++) {
+        if (!isDelimiterRow(lines[i]) || !lines[i].includes('|')) continue;
+        const header = tableCells(lines[i - 1]);
+        if (header === null || isDelimiterRow(lines[i - 1])) continue;
+        const rows = [];
+        let j = i + 1;
+        for (; j < lines.length; j++) {
+            const cells = tableCells(lines[j]);
+            if (cells === null || lines[j].trim() === '') break;
+            rows.push({ cells, line: j + 1 });
+        }
+        tables.push({
+            header,
+            headerLine: i,
+            delimiter: tableCells(lines[i]),
+            rows,
+        });
+        i = j;
+    }
+    return tables;
+}
+
+function checkTables(ctx) {
+    for (const [, rec] of ctx.pages) {
+        const where = rel(ctx.root, rec.file);
+        const quoteLines = [];
+        for (const t of tablesIn(rec.text)) {
+            if (t.header.length !== t.delimiter.length) {
+                ctx.report.hardLine(
+                    'tables',
+                    `${where}:${t.headerLine + 1}`,
+                    `the header has ${t.header.length} cells and the delimiter row under it has ${t.delimiter.length}: that is not a table, and the block renders as a paragraph of raw pipes`
+                );
+                continue;
+            }
+            if (t.header.length >= WIDE_TABLE_COLUMNS)
+                ctx.report.note(
+                    'tables',
+                    `${where}:${t.headerLine}`,
+                    `${t.header.length} columns: check the rendered table at 1280 wide, where the theme's cell floor cuts a table this wide`
+                );
+            const all = [{ cells: t.header, line: t.headerLine }, ...t.rows];
+            for (const row of all)
+                if (row.cells.some((c) => c.startsWith('"')))
+                    quoteLines.push(row.line);
+        }
+        // One line per page, not one per row: the two request-link guides
+        // have about forty such rows each, and a wall of identical lines
+        // buries every other NOTE.
+        if (quoteLines.length) {
+            const shown =
+                quoteLines.slice(0, 6).join(', ') +
+                (quoteLines.length > 6 ? ', ...' : '');
+            ctx.report.note(
+                'tables',
+                `${where}:${quoteLines[0]}`,
+                `${quoteLines.length} table row(s) open a cell with a straight double quote (lines ${shown}): Mintlify turns that mark the wrong way. Type the pair as “ and ”`
             );
         }
     }
@@ -979,22 +1139,37 @@ function clientEnv(root) {
     return keys;
 }
 
+// Reads every table on the page whose header names a Variable, a Service and a
+// Default column, in any order and with any other columns beside them. The
+// columns are found by name because the earlier parser counted cells: it read
+// "name, then exactly three more", so a table that merged, dropped or reordered
+// a column either matched nothing or read the service cell as the default, and
+// in both cases the HARD default comparison stopped firing with exit 0. A name
+// may be plain (`KEY`) or a link to its own entry ([`KEY`](#key)). The first
+// row for a key wins.
 function parseConfigurationMdx(root) {
     const file = join(root, 'docs', 'self-hosting', 'configuration.mdx');
     const rows = new Map();
     if (!existsSync(file)) return { rows, file };
-    const text = read(file);
-    let n = 0;
-    for (const line of text.split('\n')) {
-        n++;
-        const m = line.match(
-            /^\|\s*`([A-Z_][A-Z0-9_]*)`\s*\|\s*([^|]*)\|\s*([^|]*)\|\s*([^|]*)\|/
-        );
-        if (!m) continue;
-        const cell = m[4].trim();
-        const tok = cell.match(/`([^`]*)`/);
-        const def = /_\(none\)_/.test(cell) ? null : tok ? tok[1] : null;
-        rows.set(m[1], { service: m[2].trim(), def, line: n });
+    for (const t of tablesIn(read(file))) {
+        const col = (name) =>
+            t.header.findIndex((h) => h.toLowerCase() === name);
+        const [vi, si, di] = [col('variable'), col('service'), col('default')];
+        if (vi < 0 || si < 0 || di < 0) continue;
+        for (const row of t.rows) {
+            const name = (row.cells[vi] || '').match(
+                /^(?:\[)?`([A-Z_][A-Z0-9_]*)`(?:\]\([^)]*\))?$/
+            );
+            if (!name || rows.has(name[1])) continue;
+            const cell = row.cells[di] || '';
+            const tok = cell.match(/`([^`]*)`/);
+            const def = /_\(none\)_/.test(cell) ? null : tok ? tok[1] : null;
+            rows.set(name[1], {
+                service: row.cells[si] || '',
+                def,
+                line: row.line,
+            });
+        }
     }
     return { rows, file };
 }
@@ -1176,6 +1351,15 @@ function checkEnv(ctx) {
 
     const confRel = rel(root, conf.file);
     const contribRel = rel(root, contrib.file);
+    // The page exists and gave no variable rows: its table changed shape. The
+    // default comparison below would then compare nothing and pass, so this
+    // is a failure of the check itself, like the server extractor's above.
+    if (existsSync(conf.file) && conf.rows.size === 0)
+        report.hardLine(
+            'env',
+            `${confRel}:1`,
+            'no variable rows found: the page needs a table whose header names Variable, Service and Default, with each variable in backticks'
+        );
     const anywhere = (k) =>
         conf.rows.has(k) ||
         contrib.client.has(k) ||
@@ -1462,6 +1646,7 @@ export function run(args) {
         nav: checkNav,
         frontmatter: checkFrontmatter,
         labels: checkLabels,
+        tables: checkTables,
         env: checkEnv,
         dashes: checkDashes,
     };

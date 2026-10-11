@@ -1,6 +1,6 @@
 ---
 name: 'docs-verify'
-description: 'Docs pre-flight for Floe: docs-check.mjs (links, nav, frontmatter, link labels, env-var fan-out, em dashes), then the claim map to diff each user-facing claim against its source symbol. Use when editing docs/**, README.md, CONTRIBUTING.md, SELF_HOSTING.md, DESKTOP.md, or .github templates, or when adding, renaming or changing a user-facing flag, limit, env var, default, or CLI string that the docs quote or should quote.'
+description: 'Docs pre-flight for Floe: docs-check.mjs (links, nav, frontmatter, link labels, table shape, env-var fan-out, em dashes), then the claim map to diff each user-facing claim against its source symbol. Use when editing docs/**, README.md, CONTRIBUTING.md, SELF_HOSTING.md, DESKTOP.md, or .github templates, or when adding, renaming or changing a user-facing flag, limit, env var, default, or CLI string that the docs quote or should quote.'
 ---
 
 # docs-verify
@@ -11,19 +11,21 @@ Two layers. The script settles what a script can settle; you settle the rest aga
 
 From the repo root:
 
-    node .claude/skills/docs-verify/scripts/docs-check.mjs [all|links|nav|frontmatter|labels|env|dashes] [--root <dir>]
+    node .claude/skills/docs-verify/scripts/docs-check.mjs [all|links|nav|frontmatter|labels|tables|env|dashes] [--root <dir>]
 
 `all` is the default; a single check name runs only that check; `--root` points it at
 another checkout (default: the repo the script lives in).
 
 Exit 1 is a decidable defect: a link target or anchor that does not exist, an image `src`
-or a snippet import that names a file which is not under docs/, a bare `/docs/...` path in
-client code that names no page, a nav entry without a file or a page outside the nav (or a
-docs.json the script cannot parse or walk), a page with no frontmatter block or missing
-title or description, an em or en dash, a documented server default that contradicts
-server/server.js, or the env extractor's self-check finding fewer keys than server.js
-reads. Fix, rerun. Exit 0 with NOTE lines is the normal outcome. Read every NOTE and
-decide; do not skim.
+or a snippet import that names a file which is not under docs/ (or names it in a different
+letter case), a bare `/docs/...` path in client code that names no page, a nav entry
+without a file or a page outside the nav (or a docs.json the script cannot parse or walk),
+a page with no frontmatter block or missing title or description, two hyphens in a title,
+sidebarTitle or description, a table whose delimiter row and header differ in cell count,
+an em or en dash, a documented server default that contradicts server/server.js, or one
+of the env self-checks failing (fewer keys than server.js reads, or a configuration page
+that yields no variable rows). Fix, rerun. Exit 0 with NOTE lines is the normal outcome.
+Read every NOTE and decide; do not skim.
 
 - anchors: Mintlify keeps quotes, apostrophes and slashes in the ids it generates, so a
   heading containing one of those and no explicit `{#id}` is "unstable": a link to it is
@@ -34,6 +36,15 @@ decide; do not skim.
   keeps serving its previous build while every check stays green. An import that is never
   rendered and a snippet no page imports are NOTEs. Images are checked by their `src`, when it is
   double-quoted and starts at the docs root (`src="/images/x.png"`); any other form is not read.
+  Paths are compared in exact letter case, on Windows too: Mintlify builds on Linux.
+- tables: what Mintlify does to a table is invisible in the source. A delimiter row that
+  does not match its header in cell count is HARD, because the block then renders as a
+  paragraph of raw pipes (reference/limits shipped five of those in #518). A table of four
+  or more columns is a NOTE: the theme gives every cell a 150 px floor, so it is cut at
+  1280 wide. A straight double quote that opens a cell is a NOTE, one line per page:
+  Mintlify's smart quotes turn it the wrong way, so type that pair as curly marks.
+- frontmatter: `--` in a title, sidebarTitle or description is HARD. Mintlify renders it
+  as an em dash in the visible page, so a flag named there comes out wrong.
 - client docs paths: the web client links into the docs through the `/docs` rewrite, so a
   path it writes without the site origin (`REQUEST_LINK_DOCS_PATH` in
   client/lib/request/constants.ts) is checked like any other link. Move a docs section and
@@ -44,7 +55,9 @@ decide; do not skim.
   case-sensitive. Escapes: prose labels (lowercase first word, backticks, more than 12
   words) and changelog.mdx. Never tune the escapes until it says nothing.
 - env defaults: a contradiction is HARD in docs/self-hosting/configuration.mdx (the
-  Default column of a server row) and in the CONTRIBUTING.md tables (`default:` in
+  Default column of a server row; the table is found by its Variable, Service and Default
+  column names, so it may gain, lose or reorder other columns, but renaming one of those
+  three makes the page yield no rows, which is HARD) and in the CONTRIBUTING.md tables (`default:` in
   backticks); it is a NOTE in server/.env.example (the value line and the comment above
   it), .env.docker.example, docker-compose.yml `:-` defaults and unraid/\*.xml. Presence
   gaps are NOTEs; the deliberate subsets in SELF_HOSTING.md and unraid/ are one info

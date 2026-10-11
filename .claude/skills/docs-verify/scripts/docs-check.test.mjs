@@ -18,6 +18,7 @@ import {
     cpSync,
     existsSync,
     mkdtempSync,
+    readdirSync,
     readFileSync,
     rmSync,
     writeFileSync,
@@ -294,15 +295,18 @@ test('an em dash is HARD with file:line', () => {
 test('a documented server default that contradicts server.js is HARD', () => {
     const root = fresh();
     edit(root, 'docs/self-hosting/configuration.mdx', (t) => {
-        const row = '| `MAX_CONNECTIONS_PER_IP` | server | No | `30` |';
+        // The variable's table row, whatever columns the table has and
+        // whether the name is plain or a link to its entry.
+        const row = t
+            .split('\n')
+            .find((l) =>
+                /^\|\s*\[?`MAX_CONNECTIONS_PER_IP`/.test(l.replace(/\r$/, ''))
+            );
         assert.ok(
-            t.includes(row),
-            'fixture assumes the MAX_CONNECTIONS_PER_IP row shape'
+            row && row.includes('`30`'),
+            'fixture assumes a MAX_CONNECTIONS_PER_IP table row whose default is `30`'
         );
-        return t.replace(
-            row,
-            '| `MAX_CONNECTIONS_PER_IP` | server | No | `31` |'
-        );
+        return t.replace(row, row.replace('`30`', '`31`'));
     });
     const r = run(root);
     assert.equal(r.status, 1);
@@ -382,5 +386,210 @@ test('a server/.env.example value or comment default that contradicts server.js 
         notes.some(
             (l) => l.includes('default 31') && l.includes('defaults to 30')
         )
+    );
+});
+
+// reference/limits shipped five of these in #518: the rows went from four
+// cells to three and the delimiter rows did not, so production showed each
+// table as a paragraph of raw pipes.
+test('a table whose delimiter row is wider than its header is HARD', () => {
+    const root = fresh();
+    appendLine(root, 'docs/faq.mdx', '');
+    const n = appendLine(
+        root,
+        'docs/faq.mdx',
+        '| Limit | Value | At the limit |'
+    );
+    appendLine(root, 'docs/faq.mdx', '|---|---|---|---|');
+    appendLine(root, 'docs/faq.mdx', '| One | 2 | three |');
+    const r = run(root);
+    assert.equal(r.status, 1);
+    assert.match(
+        r.out,
+        new RegExp(
+            `HARD  tables  docs/faq\\.mdx:${n + 1}  the header has 3 cells and the delimiter row under it has 4`
+        )
+    );
+});
+
+test('a table drawn inside a code fence is not read as a table', () => {
+    const root = fresh();
+    for (const line of [
+        '',
+        '```text Example',
+        '| A | B |',
+        '|---|---|---|',
+        '```',
+    ])
+        appendLine(root, 'docs/faq.mdx', line);
+    const r = run(root);
+    assert.equal(r.status, 0, r.out);
+});
+
+// If `\|` were a column boundary this row would have three cells, and its
+// third would open with a straight quote.
+test('an escaped pipe inside a cell is not a column boundary', () => {
+    const root = fresh();
+    for (const line of [
+        '',
+        '| Field | Type |',
+        '|---|---|',
+        '| `kind` | `"a" \\| "b"` |',
+    ])
+        appendLine(root, 'docs/faq.mdx', line);
+    const r = run(root);
+    assert.equal(r.status, 0, r.out);
+    assert.doesNotMatch(r.out, /(HARD|NOTE)  tables  docs\/faq\.mdx/);
+});
+
+test('a wide table is a NOTE, and quotes that open cells are one NOTE per page', () => {
+    const root = fresh();
+    for (const line of [
+        '',
+        '| Message | Meaning | Do | See |',
+        '|---|---|---|---|',
+        '| "Open in your browser" | x | y | z |',
+        '| "Second message" | x | y | z |',
+    ])
+        appendLine(root, 'docs/faq.mdx', line);
+    const r = run(root);
+    assert.equal(r.status, 0, r.out);
+    const notes = r.out
+        .split('\n')
+        .filter((l) => l.startsWith('NOTE  tables  docs/faq.mdx'));
+    assert.equal(notes.length, 2, r.out);
+    assert.ok(notes.some((l) => l.includes('4 columns')));
+    assert.ok(
+        notes.some((l) =>
+            l.includes(
+                '2 table row(s) open a cell with a straight double quote'
+            )
+        )
+    );
+});
+
+// cli/self-hosted-server's description named `--server` on 2026-10-11 and the
+// rendered page showed an em dash followed by "server".
+test('two hyphens in a description are HARD', () => {
+    const root = fresh();
+    edit(root, 'docs/faq.mdx', (t) =>
+        t.replace(
+            /^description:.*$/m,
+            'description: "Point the CLI at a server with --server."'
+        )
+    );
+    const r = run(root);
+    assert.equal(r.status, 1);
+    assert.match(
+        r.out,
+        /HARD  frontmatter  docs\/faq\.mdx:1  description contains "--"/
+    );
+});
+
+// Windows and macOS resolve this path by folding case. Mintlify builds on
+// Linux, where it names no file.
+test('an image path that differs from the file only by letter case is HARD', () => {
+    const root = fresh();
+    const real = readdirSync(join(root, 'docs', 'images', 'web')).find((n) =>
+        /[a-z]/.test(n)
+    );
+    assert.ok(real, 'fixture assumes at least one image under docs/images/web');
+    const wrong = real.replace(/[a-z]/, (c) => c.toUpperCase());
+    const n = appendLine(
+        root,
+        'docs/faq.mdx',
+        `<img src="/images/web/${wrong}" alt="x" />`
+    );
+    const r = run(root);
+    assert.equal(r.status, 1);
+    assert.match(
+        r.out,
+        new RegExp(`HARD  links  docs/faq\\.mdx:${n}  src /images/web/`)
+    );
+});
+
+// The configuration page in the shape "one entry per variable": the table
+// keeps the three columns the check reads and the description moves out. The
+// earlier parser counted cells and would have read none of these rows.
+function configurationPage(header, row) {
+    const columns = header.split('|').slice(1, -1);
+    return [
+        '---',
+        'title: "Configuration reference"',
+        'sidebarTitle: "Configuration"',
+        'description: "Every variable."',
+        '---',
+        '',
+        '## Variables',
+        '',
+        header,
+        `|${columns.map(() => ' --- ').join('|')}|`,
+        row,
+        '',
+        '### `MAX_CONNECTIONS_PER_IP` {#max-connections-per-ip}',
+        '',
+        'Connections per address per minute.',
+        '',
+    ].join('\n');
+}
+
+function envHards(out) {
+    return out.split('\n').filter((l) => l.startsWith('HARD  env'));
+}
+
+test('the configuration table is read by column name, whatever its shape', () => {
+    const shapes = [
+        // Three columns, the name a link to its entry.
+        [
+            '| Variable | Service | Default |',
+            (d) =>
+                `| [\`MAX_CONNECTIONS_PER_IP\`](#max-connections-per-ip) | server | \`${d}\` |`,
+        ],
+        // The same columns in another order.
+        [
+            '| Default | Variable | Service |',
+            (d) => `| \`${d}\` | \`MAX_CONNECTIONS_PER_IP\` | server |`,
+        ],
+        // Today's five columns.
+        [
+            '| Variable | Service | Required | Default | Purpose |',
+            (d) =>
+                `| \`MAX_CONNECTIONS_PER_IP\` | server | No | \`${d}\` | Limit. |`,
+        ],
+    ];
+    for (const [header, row] of shapes) {
+        const wrong = fresh();
+        writeFileSync(
+            join(wrong, 'docs/self-hosting/configuration.mdx'),
+            configurationPage(header, row('31'))
+        );
+        const bad = envHards(run(wrong).out);
+        assert.equal(bad.length, 1, `${header}\n${bad.join('\n')}`);
+        assert.match(bad[0], /MAX_CONNECTIONS_PER_IP documented default 31/);
+
+        const right = fresh();
+        writeFileSync(
+            join(right, 'docs/self-hosting/configuration.mdx'),
+            configurationPage(header, row('30'))
+        );
+        assert.deepEqual(envHards(run(right).out), [], header);
+    }
+});
+
+test('a configuration page that yields no variable rows is HARD, not a silent pass', () => {
+    const root = fresh();
+    // The columns merged into one: nothing names a Service column any more.
+    writeFileSync(
+        join(root, 'docs/self-hosting/configuration.mdx'),
+        configurationPage(
+            '| Variable | Used by and default |',
+            '| `MAX_CONNECTIONS_PER_IP` | server, `31` |'
+        )
+    );
+    const hards = envHards(run(root).out);
+    assert.equal(hards.length, 1, hards.join('\n'));
+    assert.match(
+        hards[0],
+        /HARD  env  docs\/self-hosting\/configuration\.mdx:1  no variable rows found/
     );
 });
