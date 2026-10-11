@@ -20,7 +20,7 @@
         1683
       ],
       "scale": 3,
-      "bytes": 125141
+      "bytes": 126638
     },
     {
       "name": "02-send-share-panel.png",
@@ -34,7 +34,7 @@
         1776
       ],
       "scale": 3,
-      "bytes": 127129
+      "bytes": 125919
     },
     {
       "name": "04-receive-waiting.png",
@@ -48,21 +48,21 @@
         1116
       ],
       "scale": 3,
-      "bytes": 95738
+      "bytes": 95072
     },
     {
       "name": "05-receive-downloads.png",
       "note": "per-file rows plus Download All and Download ZIP",
       "css": [
         512,
-        512.75
+        540.75
       ],
       "pixels": [
         1536,
-        1539
+        1623
       ],
       "scale": 3,
-      "bytes": 103598
+      "bytes": 111236
     },
     {
       "name": "06-in-app-browser.png",
@@ -76,7 +76,7 @@
         1506
       ],
       "scale": 3,
-      "bytes": 126357
+      "bytes": 127666
     },
     {
       "name": "07-request-ready.png",
