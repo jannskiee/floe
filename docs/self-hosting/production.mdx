@@ -91,7 +91,7 @@ A refused origin looks different on each side:
 | Message | What it means | What to do |
 |---|---|---|
 | `Error: failed to connect to signaling server: cannot connect to signaling server at wss://api.your-domain.com/ws: websocket: bad handshake` | `floe send` or `floe receive`. The server answered the `/ws` handshake with `403`. | Make the proxy pass `Host` through, as in step 1. |
-| "Error: The server refused the realtime connection (check that your proxy forwards /ws)" | **Test** in Floe Desktop. Its `/ws` connection was refused, or never reached the server. | Check that the proxy forwards `/ws`, then that it passes `Host` through. |
+| “Error: The server refused the realtime connection (check that your proxy forwards /ws)” | **Test** in Floe Desktop. Its `/ws` connection was refused, or never reached the server. | Check that the proxy forwards `/ws`, then that it passes `Host` through. |
 | `Refused a connection on /ws from Origin "https://api.your-domain.com" (Host "localhost:3001"): not CLIENT_URL, a floe.one origin, or this server's own host. Further refusals on /ws are not logged.` | The server's log. It is written once for `/ws` and once for `/socket.io` until the next restart, and it shows the `Origin` and the `Host` the server compared. | An `Origin` that is your own server next to a `Host` that is an upstream address means the proxy rewrites `Host`. |
 | `Refused a request with 403.` | The server's log, once per request. An HTTP request came from a browser origin that is not on the allow-list. | Set `CLIENT_URL` to the exact origin your users open, then recreate the containers. |
 

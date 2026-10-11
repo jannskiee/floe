@@ -142,9 +142,9 @@ address, or one IPv6 /64.
 
 | Limit | Value | What Floe Desktop shows at the limit |
 |---|---|---|
-| New links from one network | 20 in any 24 hours | "This network reached today's link limit" |
-| Links open at once from one network | 10 | "Couldn't make a link" |
-| Links open at once on the whole server | 5,000 | "Couldn't make a link" |
+| New links from one network | 20 in any 24 hours | “This network reached today's link limit” |
+| Links open at once from one network | 10 | “Couldn't make a link” |
+| Links open at once on the whole server | 5,000 | “Couldn't make a link” |
 
 These limits are fixed in the server and have no setting. A link that ends frees its place among the
 open ones but still counts toward the 20, and a restart clears all three counts. Behind a reverse
@@ -191,9 +191,9 @@ asks the server nothing until someone clicks **Make link**, which first checks t
 
 | Message | What it means | What to do |
 |---|---|---|
-| "Request links are off on this server" | `/health` does not list `request-1`: there is no policy file, the file says off, or the server is older than 1.11.0. It also replaces an open link when you turn request links off. | Follow [Turn request links on](#request-links). |
-| "This network reached today's link limit" | 20 links were made from that network in the last 24 hours. | Wait. The limit has no setting: see [Limits](#request-link-limits). |
-| "Couldn't make a link" | The server could not be reached, that network already has 10 links open, or the server holds 5,000. | Run **Test** under Settings, then close links that are no longer needed. |
+| “Request links are off on this server” | `/health` does not list `request-1`: there is no policy file, the file says off, or the server is older than 1.11.0. It also replaces an open link when you turn request links off. | Follow [Turn request links on](#request-links). |
+| “This network reached today's link limit” | 20 links were made from that network in the last 24 hours. | Wait. The limit has no setting: see [Limits](#request-link-limits). |
+| “Couldn't make a link” | The server could not be reached, that network already has 10 links open, or the server holds 5,000. | Run **Test** under Settings, then close links that are no longer needed. |
 
 Every other message on a link's own screen is in
 [Request links](/desktop/request-links#messages-on-your-pc).

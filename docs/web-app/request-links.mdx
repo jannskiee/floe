@@ -2,7 +2,7 @@
 title: "Send files through a request link"
 sidebarTitle: "Sending through a request link"
 description: "Send files and folders straight to someone's computer through the request link they sent you, from current Chrome or Edge on a computer. In Beta."
-keywords: ["request link", "send files to someone", "send to a computer", "accept", "beta"]
+keywords: ["request link", "request links", "send files to someone", "send to a computer", "accept", "beta"]
 ---
 
 import RequestLinkVisibility from '/snippets/request-link-visibility.mdx';
@@ -88,8 +88,8 @@ advice:
 
 | Time left | The page adds |
 |---|---|
-| More than 20 minutes | "Keep this computer plugged in and awake, and pin this tab." |
-| More than 2 hours | "If the connection drops, the file that was moving starts over." |
+| More than 20 minutes | “Keep this computer plugged in and awake, and pin this tab.” |
+| More than 2 hours | “If the connection drops, the file that was moving starts over.” |
 | More than 24 hours | For example, "This drop would take about 26h 3m on this connection and will stop at 24 hours. Send fewer files." |
 
 The lines add up: a drop with more than 2 hours left shows the first two.
@@ -136,11 +136,11 @@ self-hosted server the button still writes to Floe's maintainers, who cannot act
 
 | State | What you see | What you can do |
 |---|---|---|
-| Ready | "SEND FILES THROUGH THIS LINK" with a **Beta** tag, the drop area with **Choose files** and **Choose folder**, the Hide my IP check, and **Report this link**. After a pick: an **Add more files** strip in place of the drop area, the count, such as "3 FILES, 1.2 GB", **Send 3 files** and **Clear**. | Pick files, then click **Send**. |
-| Connecting | "Connecting to their computer" | Wait. **Cancel** returns to your files. |
-| Waiting | "Waiting for them to accept", the minutes they have left, and a **DIRECT** or **RELAY** badge | Keep the page open. **Cancel** returns to your files. |
+| Ready | “SEND FILES THROUGH THIS LINK” with a **Beta** tag, the drop area with **Choose files** and **Choose folder**, the Hide my IP check, and **Report this link**. After a pick: an **Add more files** strip in place of the drop area, the count, such as “3 FILES, 1.2 GB”, **Send 3 files** and **Clear**. | Pick files, then click **Send**. |
+| Connecting | “Connecting to their computer” | Wait. **Cancel** returns to your files. |
+| Waiting | “Waiting for them to accept”, the minutes they have left, and a **DIRECT** or **RELAY** badge | Keep the page open. **Cancel** returns to your files. |
 | Sending | For example "SENDING 2 OF 12", the file's path, its progress, the speed and the time left, and the **ARRIVED** list | Keep the tab in front. **Cancel** asks first, then stops the drop. |
-| Arrived | "ALL 12 FILES ARRIVED", or "1 FILE ARRIVED", then the size, the time taken and the route | Nothing more. The link is used up. |
+| Arrived | “ALL 12 FILES ARRIVED”, or “1 FILE ARRIVED”, then the size, the time taken and the route | Nothing more. The link is used up. |
 | Stopped | One of the [messages](#messages) below. "Their computer is not connected right now", "Couldn't connect to their computer. Nothing was sent." and "Connection lost. Nothing was sent." offer **Try again**; a decline, a missed answer and "Relay limit" offer **Back to files**. | Follow the message. Where there is no button, ask for a new link. |
 
 While the tab is hidden, its title shows the state instead, such as "Waiting for them to accept - Floe" or
@@ -158,32 +158,32 @@ now", as it does while the computer that made the link is asleep or offline.
 
 | Message | What it means | What to do |
 |---|---|---|
-| "Open in your browser" | The link was opened inside another app's built-in browser, such as a chat app's. Nothing of the page loads until you continue. | Open the link in your own browser instead. See [Open in your browser](/troubleshooting#open-in-your-browser). |
-| "This link looks incomplete", then "Copy the whole link again, including everything after the # sign." | The link was cut short, often at the `#`. | Copy the whole link again from where you got it. |
-| "This browser cannot send through Floe", then "Open the link in current Chrome or Edge." | This browser cannot open a WebRTC data channel, which is the one thing the page checks for. | Open the link in current Chrome or Edge. |
-| "This browser cannot pick folders. Drag the folder in, or zip it first." | This browser has no working folder picker, or a folder you dropped could not be read as one. | Do what the message says. |
-| "Empty folders are not sent." | A folder you dropped held an empty folder. The files are still selected. | Nothing. Zip the folder first if the empty folders matter. |
-| "Relayed drops are capped at 2 GB. Turn off Hide my IP, or remove files." | With Hide my IP on, the drop goes through the relay, and your selection is over 2 GB. | Turn off Hide my IP, or click **Clear** and pick 2 GB or less. |
-| "This drop has more than 10,000 files. Zip them first." | A drop can hold up to 10,000 files. Nothing from that pick was added. | Zip them and send the archive. |
-| "A folder path is too long to send. Zip deeply nested folders first." | A file sits too deep in its folders, or its name is too long, to be sent. Nothing from that pick was added. | Do what the message says. |
-| "Some files in this folder could not be read. Nothing was added." | The browser could not read part of a folder you dropped, so none of it was added. | Check the folder, or zip it and send the archive. |
-| "Their computer is not connected right now", then "They may have closed Floe. Your files stay selected." | Floe cannot reach the computer that made the link: it is asleep or offline, or Floe there stopped without closing the link. It also covers a link that never existed, or that ended more than about a day ago. | Click **Try again** once they have Floe open, or ask for a new link. |
-| "This link has ended", then "Ask them for a new link." | The link was closed, or reached its end time, before anyone used it. There is no **Try again**. | Ask them for a new link. |
-| "This link has already been used", then "Ask for a new link." | The link took its one drop, someone else is connected through it now, or the person who made it declined a request and has not reopened the link. The server also gives this answer for a link that senders have joined more than 6 times in 1 minute. | Ask the person who made it for a new link. If you had just tried several times in a row, wait 1 minute and reload the page first. |
-| "Request links are turned off right now" | The server has turned request links off. A link that was waiting for a sender when that happened has ended. | Try again later. If the page then says "This link has ended", ask for a new link. |
-| "Request links are not available on this Floe server." | The server did not answer the page within 10 seconds, as a server older than request links does not. | Ask the person who made the link. |
-| "Couldn't connect to their computer. Nothing was sent." | Your browser and their PC could not finish connecting. | Click **Try again**. If it keeps happening, a network on one side may be blocking the connection. |
-| "This Floe server has no relay right now. Turn off Hide my IP to send directly." | Hide my IP needs a relay, and the server offers none. | Do what the message says. |
-| "Too many connections from this network. Trying again shortly." | The server is limiting connections from your network for a moment. | Wait: the page tries again by itself. |
-| "They declined. Nothing was sent." | They clicked **Decline**. | Ask them before you send again. |
-| "They did not answer in time. Nothing was sent." | Nobody clicked **Accept** or **Decline** in time. The link stays open. | Ask them to be at their PC, then send again. |
-| "Relay limit", then "This connection needs a relay, and relayed drops are capped at 2 GB. Remove files, or try another network." | The connection goes through the relay, because the two networks allow nothing else or because their Floe has Hide my IP on, and your selection is over 2 GB. Nothing was sent. | Click **Back to files**, then **Clear**, and pick 2 GB or less. Or try another network, or ask them to turn off Hide my IP if it is on. See [File size limits](/how-it-works/2gb-limit). |
-| "This computer may have slept. If the connection drops, the file that was moving starts over." | While you were away from the tab, the computer's clock jumped ahead of the page's, as it does after a sleep. | Keep the computer awake until the last file arrives. |
-| "You stopped this drop." | You clicked **Cancel** after they accepted, and confirmed. | Ask for a new link to send the rest. |
-| "Their Floe needs an update." | Their Floe and this page speak versions of the transfer protocol that do not overlap. | Ask them to update Floe. |
-| "Connection lost", then for example "4 of 12 files arrived. Ask them for a new link to send the other 8." | The connection dropped after they accepted, or the browser discarded the tab during the drop. There is no resume. | Do what the message says. |
-| "Connection lost. Nothing was sent." | The connection dropped before they accepted. | Click **Try again**. |
-| "Could not read a file", then the file's path and "may have been moved or renamed, or its drive disconnected." | A file you picked could not be read when its turn came. On Windows that includes a file whose full path is over 260 characters, which Chrome and Edge cannot read. | Check the file, then ask for a new link to send the rest. |
+| “Open in your browser” | The link was opened inside another app's built-in browser, such as a chat app's. Nothing of the page loads until you continue. | Open the link in your own browser instead. See [Open in your browser](/troubleshooting#open-in-your-browser). |
+| “This link looks incomplete”, then “Copy the whole link again, including everything after the # sign.” | The link was cut short, often at the `#`. | Copy the whole link again from where you got it. |
+| “This browser cannot send through Floe”, then “Open the link in current Chrome or Edge.” | This browser cannot open a WebRTC data channel, which is the one thing the page checks for. | Open the link in current Chrome or Edge. |
+| “This browser cannot pick folders. Drag the folder in, or zip it first.” | This browser has no working folder picker, or a folder you dropped could not be read as one. | Do what the message says. |
+| “Empty folders are not sent.” | A folder you dropped held an empty folder. The files are still selected. | Nothing. Zip the folder first if the empty folders matter. |
+| “Relayed drops are capped at 2 GB. Turn off Hide my IP, or remove files.” | With Hide my IP on, the drop goes through the relay, and your selection is over 2 GB. | Turn off Hide my IP, or click **Clear** and pick 2 GB or less. |
+| “This drop has more than 10,000 files. Zip them first.” | A drop can hold up to 10,000 files. Nothing from that pick was added. | Zip them and send the archive. |
+| “A folder path is too long to send. Zip deeply nested folders first.” | A file sits too deep in its folders, or its name is too long, to be sent. Nothing from that pick was added. | Do what the message says. |
+| “Some files in this folder could not be read. Nothing was added.” | The browser could not read part of a folder you dropped, so none of it was added. | Check the folder, or zip it and send the archive. |
+| “Their computer is not connected right now”, then “They may have closed Floe. Your files stay selected.” | Floe cannot reach the computer that made the link: it is asleep or offline, or Floe there stopped without closing the link. It also covers a link that never existed, or that ended more than about a day ago. | Click **Try again** once they have Floe open, or ask for a new link. |
+| “This link has ended”, then “Ask them for a new link.” | The link was closed, or reached its end time, before anyone used it. There is no **Try again**. | Ask them for a new link. |
+| “This link has already been used”, then “Ask for a new link.” | The link took its one drop, someone else is connected through it now, or the person who made it declined a request and has not reopened the link. The server also gives this answer for a link that senders have joined more than 6 times in 1 minute. | Ask the person who made it for a new link. If you had just tried several times in a row, wait 1 minute and reload the page first. |
+| “Request links are turned off right now” | The server has turned request links off. A link that was waiting for a sender when that happened has ended. | Try again later. If the page then says "This link has ended", ask for a new link. |
+| “Request links are not available on this Floe server.” | The server did not answer the page within 10 seconds, as a server older than request links does not. | Ask the person who made the link. |
+| “Couldn't connect to their computer. Nothing was sent.” | Your browser and their PC could not finish connecting. | Click **Try again**. If it keeps happening, a network on one side may be blocking the connection. |
+| “This Floe server has no relay right now. Turn off Hide my IP to send directly.” | Hide my IP needs a relay, and the server offers none. | Do what the message says. |
+| “Too many connections from this network. Trying again shortly.” | The server is limiting connections from your network for a moment. | Wait: the page tries again by itself. |
+| “They declined. Nothing was sent.” | They clicked **Decline**. | Ask them before you send again. |
+| “They did not answer in time. Nothing was sent.” | Nobody clicked **Accept** or **Decline** in time. The link stays open. | Ask them to be at their PC, then send again. |
+| “Relay limit”, then “This connection needs a relay, and relayed drops are capped at 2 GB. Remove files, or try another network.” | The connection goes through the relay, because the two networks allow nothing else or because their Floe has Hide my IP on, and your selection is over 2 GB. Nothing was sent. | Click **Back to files**, then **Clear**, and pick 2 GB or less. Or try another network, or ask them to turn off Hide my IP if it is on. See [File size limits](/how-it-works/2gb-limit). |
+| “This computer may have slept. If the connection drops, the file that was moving starts over.” | While you were away from the tab, the computer's clock jumped ahead of the page's, as it does after a sleep. | Keep the computer awake until the last file arrives. |
+| “You stopped this drop.” | You clicked **Cancel** after they accepted, and confirmed. | Ask for a new link to send the rest. |
+| “Their Floe needs an update.” | Their Floe and this page speak versions of the transfer protocol that do not overlap. | Ask them to update Floe. |
+| “Connection lost”, then for example “4 of 12 files arrived. Ask them for a new link to send the other 8.” | The connection dropped after they accepted, or the browser discarded the tab during the drop. There is no resume. | Do what the message says. |
+| “Connection lost. Nothing was sent.” | The connection dropped before they accepted. | Click **Try again**. |
+| “Could not read a file”, then the file's path and “may have been moved or renamed, or its drive disconnected.” | A file you picked could not be read when its turn came. On Windows that includes a file whose full path is over 260 characters, which Chrome and Edge cannot read. | Check the file, then ask for a new link to send the rest. |
 
 ### When their Floe stops the drop {#when-their-floe-stops-the-drop}
 
@@ -192,17 +192,17 @@ file was saved." for a single file) or "Nothing was sent.", and the files that a
 
 | Message | What it means | What to do |
 |---|---|---|
-| "Their computer ran out of space" | Their save drive filled up, or the next file would have left it with less than the 2 GB it has to keep free. | Ask them to free space, then ask for a new link. |
-| "Their computer could not save a file" | Windows refused a write on their side. | Ask them to check their save folder. |
-| "A file changed or was damaged on the way, so their Floe deleted it", and after the count "Ask them for a new link to send the rest." | A file's SHA-256 did not match on their side. | Do what the message says. |
-| "Relayed drops are capped at 2 GB", with "Nothing was sent. Send under 2 GB." in place of the count when nothing was saved | Their Floe found the drop going through the relay and past 2 GB. | Send under 2 GB, or ask them to turn off Hide my IP. |
-| "A folder path is too long for their computer", and after the count "Zip deeply nested folders first." | A file's path was too deep or too long to save on their side. | Do what the message says. |
-| "A file is too large for the drive they save to" | Their save drive cannot hold a file that large. | Ask them to save to another drive. |
-| "Their computer blocked saving a file" | Their Floe could not move a finished file into place, after 5 minutes of retries. The complete file stays there with a `.part` ending. | Ask them about that file before you send it again. |
-| "More data arrived than they accepted", and after the count "If files changed after you chose them, ask them for a new link." | Your browser sent more than the count and size they accepted. | Do what the message says. |
-| "They stopped this drop." | They clicked **Cancel drop**, or closed the link or quit Floe while your request was waiting. | Ask them before you send again. |
-| "This drop reached the 24-hour limit" | A single drop stops at 24 hours. | Ask for a new link and send fewer files. |
-| "The drop stopped on their computer." | Their Floe stopped the drop for another reason. | Ask them what happened. |
+| “Their computer ran out of space” | Their save drive filled up, or the next file would have left it with less than the 2 GB it has to keep free. | Ask them to free space, then ask for a new link. |
+| “Their computer could not save a file” | Windows refused a write on their side. | Ask them to check their save folder. |
+| “A file changed or was damaged on the way, so their Floe deleted it”, and after the count “Ask them for a new link to send the rest.” | A file's SHA-256 did not match on their side. | Do what the message says. |
+| “Relayed drops are capped at 2 GB”, with “Nothing was sent. Send under 2 GB.” in place of the count when nothing was saved | Their Floe found the drop going through the relay and past 2 GB. | Send under 2 GB, or ask them to turn off Hide my IP. |
+| “A folder path is too long for their computer”, and after the count “Zip deeply nested folders first.” | A file's path was too deep or too long to save on their side. | Do what the message says. |
+| “A file is too large for the drive they save to” | Their save drive cannot hold a file that large. | Ask them to save to another drive. |
+| “Their computer blocked saving a file” | Their Floe could not move a finished file into place, after 5 minutes of retries. The complete file stays there with a `.part` ending. | Ask them about that file before you send it again. |
+| “More data arrived than they accepted”, and after the count “If files changed after you chose them, ask them for a new link.” | Your browser sent more than the count and size they accepted. | Do what the message says. |
+| “They stopped this drop.” | They clicked **Cancel drop**, or closed the link or quit Floe while your request was waiting. | Ask them before you send again. |
+| “This drop reached the 24-hour limit” | A single drop stops at 24 hours. | Ask for a new link and send fewer files. |
+| “The drop stopped on their computer.” | Their Floe stopped the drop for another reason. | Ask them what happened. |
 
 ## If something goes wrong {#if-something-goes-wrong}
 

@@ -652,3 +652,106 @@ html:not(.dark) #content-area a.link {
 .dark #content-area > div.my-8.flex.flex-col a:hover {
   color: rgb(255 255 255);
 }
+
+/* Tables of four or more columns, made to fit the article column.
+
+   Mintlify puts a 150 px minimum on every table cell (the class
+   [&_td]:min-w-[150px] on the table element), and the article column is
+   529 px wide at 1280 and never more than 721 px. Three columns fit. Four
+   are 600 px, so the last one was cut 71 px short with no scrollbar shown,
+   and the cut landed mid-word in the column a reader needs most (measured on
+   floe.one/docs, 2026-10-11: five tables on four pages).
+
+   The docs' own rule is three columns at most, and the flag and component
+   tables were folded to three. This rule is for the table that cannot be:
+   the comparison grid on choosing-floe compares three products, so it has
+   four columns by nature. 6.5rem (104 px) lets four columns sit in 416 px.
+
+   It is scoped to wide tables on purpose. Lowering the floor everywhere made
+   53 of the 61 tables that scroll sideways on a phone fit it, and made the
+   tables 16 percent taller doing it, with single rows over 900 px. Those
+   tables scroll sideways inside their own box on a phone, as before.
+
+   The hook is the table's own shape (a fourth header cell), not a Mintlify
+   class, so it survives a markup change. If a four-column table is cut again
+   at 1280, the 150 px floor moved off the td: re-read the rendered table. No
+   !important is needed: the utility is in a layer and this sheet is not. */
+#content-area table:has(thead th:nth-child(4)) td {
+  min-width: 6.5rem;
+}
+
+/* Inline code in running text stays whole.
+
+   Mintlify sets inline code to word-break: break-word, so a chip breaks
+   wherever the line happens to end. A flag broke at its hyphens ("--" at the
+   end of one line, "server" at the start of the next) and read as two
+   things; a variable name or a path broke mid-word. Measured on
+   floe.one/docs at 1280, 2026-10-11: 429 of 2,913 chips were split, 48 of
+   them naming a flag.
+
+   As an inline-block the chip moves to the next line whole when it fits
+   there, and wraps inside its own box only when it is longer than the line.
+   With this rule 263 are still split at 1280: chips inside table cells,
+   which this rule leaves alone, and chips longer than a line.
+
+   Table cells are excluded on purpose. Message tables set whole sentences as
+   code in a 150 px column; made unbreakable, those rows grew by half or more
+   (137 to 225 px on cli/send). Line spacing in paragraphs is unchanged in
+   the rendered page (the summed height of all 46 articles moved by 0.3
+   percent). */
+#content-area :not(pre) > code:not(td code) {
+  display: inline-block;
+  max-width: 100%;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Troubleshooting: the contents list shows the six sections, not 107 entries.
+
+   The page has 101 entries under six sections, and every entry is a heading
+   so that an error message can be linked and searched. The right-hand list
+   was 5,224 px long in an 812 px box whose scrollbar is hidden, and the box
+   does not follow the reader, so past the first twenty entries it showed the
+   top of the page and no sign of where the reader was.
+
+   Hiding the entry level leaves the six sections. Mintlify marks a section
+   active while the reader is inside any of its entries (data-active on the
+   depth 0 item, checked 2026-10-11), so the current section stays
+   highlighted by the active rule above, and every hidden entry is still a
+   heading with its own anchor.
+
+   Scoped to this page by two links only its contents list has. The page
+   path cannot be used: html[data-current-path] reads "/" in the served HTML
+   and is only filled in after hydration. One id is not enough either:
+   security-privacy has a heading that generates on-a-self-hosted-instance
+   too. Checked on all 46 pages: only this list changes (107 entries to 6).
+   If the full list comes back, one of the two ids was renamed. */
+#table-of-contents:has(a[href="#still-stuck"]):has(a[href="#in-the-browser"]) .toc-item[data-depth="1"] {
+  display: none;
+}
+
+/* Field names and the selected code tab, neutral in the light theme.
+
+   Mintlify paints a ResponseField or ParamField name and the selected tab
+   of a code group text-primary, which the ice colors config turns #00A3C9.
+   On the white page that is 2.97:1 for a 14 px field name and 2.75:1 for a
+   12 px tab label on its gray strip, both under AA (measured 2026-10-11 on
+   reference/http-api and reference/transfer-protocol). The ice accent is
+   reserved for the page label above the title, link underlines and focus
+   rings, and the Tabs component above already went neutral for the same
+   reason. These two were missed because they carry no tabs-list hook.
+
+   Light only (user call, 2026-10-12): only --primary is redefined, and the
+   dark utilities read --primary-light, so the dark theme is untouched. The
+   page label keeps its ice in both themes; that exception was accepted in
+   August. Field names measure 18.88:1 and the tab label 17.49:1 after.
+
+   Variables, not `color`, for the reason given at the theme menu rule: the
+   tab's underline and hover read the same variable. data-component-part
+   "field-name" and the tablist's aria-label "Code examples" are the observed
+   hooks (2026-10-11 DOM). If either goes ice again, that hook moved. */
+#content-area [data-component-part="field-name"],
+#content-area [role="tablist"][aria-label="Code examples"] {
+  --primary: 17 17 17;
+  --color-primary: rgb(17 17 17);
+}

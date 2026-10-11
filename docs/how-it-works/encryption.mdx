@@ -49,23 +49,23 @@ Read [Known limitations](/how-it-works/known-limitations) for that and the
 others in plain language. A privacy claim is worth more when the exceptions are published
 alongside it.
 
-<Accordion title="How the encryption works">
-  Floe uses WebRTC data channels, which run SCTP over **DTLS**. DTLS is TLS adapted for datagrams:
-  the same cipher suites and the same handshake, over a transport that does not guarantee ordering.
-  This is distinct from DTLS-SRTP, which is what WebRTC uses for audio and video.
+## How the encryption works {#how-the-encryption-works}
 
-  Each peer generates a certificate and key pair for the session. The fingerprints of those
-  certificates are carried in the SDP offer and answer during setup, and the DTLS handshake
-  verifies the certificate it receives against the fingerprint it was promised. An attacker
-  sitting on the network path cannot substitute a certificate, because they cannot also change the
-  fingerprint that arrived through the signaling channel. An attacker who controls the signaling
-  channel itself can, which is the limitation described above.
+Floe uses WebRTC data channels, which run SCTP over **DTLS**. DTLS is TLS adapted for datagrams:
+the same cipher suites and the same handshake, over a transport that does not guarantee ordering.
+This is distinct from DTLS-SRTP, which is what WebRTC uses for audio and video.
 
-  Keys are ephemeral and per-session. They are created when the connection is created and
-  discarded when it closes.
+Each peer generates a certificate and key pair for the session. The fingerprints of those
+certificates are carried in the SDP offer and answer during setup, and the DTLS handshake
+verifies the certificate it receives against the fingerprint it was promised. An attacker
+sitting on the network path cannot substitute a certificate, because they cannot also change the
+fingerprint that arrived through the signaling channel. An attacker who controls the signaling
+channel itself can, which is the limitation described above.
 
-  Floe adds no encryption layer of its own on top of this. Integrity in transit comes from DTLS.
-  On top of that, the receiving app checks each finished file against the size the sender
-  announced and, when the sender provides one, against the sender's SHA-256 of the file. See
-  [File checks](/how-it-works/file-checks).
-</Accordion>
+Keys are ephemeral and per-session. They are created when the connection is created and
+discarded when it closes.
+
+Floe adds no encryption layer of its own on top of this. Integrity in transit comes from DTLS.
+On top of that, the receiving app checks each finished file against the size the sender
+announced and, when the sender provides one, against the sender's SHA-256 of the file. See
+[File checks](/how-it-works/file-checks).

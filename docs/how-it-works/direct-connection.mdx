@@ -52,23 +52,23 @@ If you want to improve your odds of a direct connection, the levers are: use a n
 personal network, disconnect from any VPN, and try a personal hotspot when you are on a corporate
 or university network.
 
-<Accordion title="How Floe decides a connection counts as direct">
-  WebRTC gathers **candidates**, which are address-and-port combinations a device might be
-  reachable on, and tries pairs of them until one works. Candidates come in four kinds: `host`
-  (an address on the local network), `srflx` (server-reflexive, the public address STUN reported),
-  `prflx` (peer-reflexive, learned during the connectivity checks themselves), and `relay` (an
-  address on a TURN relay).
+## How Floe decides a connection counts as direct {#how-floe-decides-a-connection-counts-as-direct}
 
-  Candidates are sent as they are discovered rather than in one batch at the end, which is called
-  trickle ICE and cuts setup time noticeably.
+WebRTC gathers **candidates**, which are address-and-port combinations a device might be
+reachable on, and tries pairs of them until one works. Candidates come in four kinds: `host`
+(an address on the local network), `srflx` (server-reflexive, the public address STUN reported),
+`prflx` (peer-reflexive, learned during the connectivity checks themselves), and `relay` (an
+address on a TURN relay).
 
-  Floe calls a connection relayed only when the pair that actually won has a `relay` candidate on
-  one side or the other. Every other outcome is direct. Note that this is decided by the winning
-  pair, not by what was offered: relay candidates are usually gathered and offered too, they just
-  did not win.
+Candidates are sent as they are discovered rather than in one batch at the end, which is called
+trickle ICE and cuts setup time noticeably.
 
-  On floe.one the STUN endpoint is Cloudflare's, at `stun.cloudflare.com:3478`. When no relay
-  service is configured at all, which is the default for a fresh self-hosted instance, the
-  signaling server hands out Google's public STUN servers instead. A self-hosted coturn relay
-  doubles as the STUN server for that instance.
-</Accordion>
+Floe calls a connection relayed only when the pair that actually won has a `relay` candidate on
+one side or the other. Every other outcome is direct. Note that this is decided by the winning
+pair, not by what was offered: relay candidates are usually gathered and offered too, they just
+did not win.
+
+On floe.one the STUN endpoint is Cloudflare's, at `stun.cloudflare.com:3478`. When no relay
+service is configured at all, which is the default for a fresh self-hosted instance, the
+signaling server hands out Google's public STUN servers instead. A self-hosted coturn relay
+doubles as the STUN server for that instance.

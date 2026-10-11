@@ -76,29 +76,29 @@ relay-only mode. The one relay-only switch in a browser is on the page a sender 
 [request link](/web-app/request-links): **Hide my IP (relay only, 2 GB per drop)**, which does the
 same for that drop.
 
-<Accordion title="How the route is chosen, and how Floe knows which it got">
-  ICE tries the candidate pairs it gathered and nominates one that works. Traffic is relayed when
-  the nominated pair has a `relay` candidate on either side. Host and reflexive candidates are
-  still gathered and offered in that case; they simply lost.
+## How the route is chosen, and how Floe knows which it got {#how-the-route-is-chosen-and-how-floe-knows-which-it-got}
 
-  Turning the relay off removes the relay entries from the address list that side uses, so it has
-  nothing relayed to offer. It does not stop the other side from offering one, and if that path
-  wins, the two surfaces behave differently. The **browser** notices and blocks the transfer
-  before any file data moves, with
-  [`Connection failed. Enable "Network Relay" to connect across restrictive networks.`](/troubleshooting#connection-failed-enable-network-relay-to-connect-across-restrictive-networks)
-  The **CLI does not**: `--no-relay` is ICE filtering and nothing more, so a `floe send --no-relay`
-  whose peer supplied the winning relay candidate goes ahead over it. Treat the flag as "do not
-  offer a relay" rather than as a guarantee.
+ICE tries the candidate pairs it gathered and nominates one that works. Traffic is relayed when
+the nominated pair has a `relay` candidate on either side. Host and reflexive candidates are
+still gathered and offered in that case; they simply lost.
 
-  The browser re-reads the connection statistics every 5 seconds and flips the badge to amber
-  when the nominated pair is relayed. Floe Desktop and the CLI each read it once, when the
-  connection is established, so their indicators are a snapshot rather than a live reading: the
-  desktop badge, and the CLI's `Connected (direct)` or `Connected (relay)` line. When the CLI
-  cannot read the route it prints `Connected` alone and carries on. The sender consults the route
-  a second time only to decide whether the size cap applies.
+Turning the relay off removes the relay entries from the address list that side uses, so it has
+nothing relayed to offer. It does not stop the other side from offering one, and if that path
+wins, the two surfaces behave differently. The **browser** notices and blocks the transfer
+before any file data moves, with
+[`Connection failed. Enable "Network Relay" to connect across restrictive networks.`](/troubleshooting#connection-failed-enable-network-relay-to-connect-across-restrictive-networks)
+The **CLI does not**: `--no-relay` is ICE filtering and nothing more, so a `floe send --no-relay`
+whose peer supplied the winning relay candidate goes ahead over it. Treat the flag as "do not
+offer a relay" rather than as a guarantee.
 
-  On floe.one the signaling server hands out three endpoints and no more: a STUN URL, a TURN URL
-  over UDP, and a TURN URL over TLS on port 443, which looks like ordinary HTTPS to a network that
-  blocks everything else. Cloudflare offers more variants, but every extra URL multiplies the
-  connectivity checks each client runs during setup, so the list is trimmed before it is served.
-</Accordion>
+The browser re-reads the connection statistics every 5 seconds and flips the badge to amber
+when the nominated pair is relayed. Floe Desktop and the CLI each read it once, when the
+connection is established, so their indicators are a snapshot rather than a live reading: the
+desktop badge, and the CLI's `Connected (direct)` or `Connected (relay)` line. When the CLI
+cannot read the route it prints `Connected` alone and carries on. The sender consults the route
+a second time only to decide whether the size cap applies.
+
+On floe.one the signaling server hands out three endpoints and no more: a STUN URL, a TURN URL
+over UDP, and a TURN URL over TLS on port 443, which looks like ordinary HTTPS to a network that
+blocks everything else. Cloudflare offers more variants, but every extra URL multiplies the
+connectivity checks each client runs during setup, so the list is trimmed before it is served.
