@@ -40,7 +40,7 @@ const handled: ReactNode[] = [
     // 10-open budgets. The grace sweep makes "about 10 minutes" 10 to 11. All in
     // memory. No denylist exists (E-25). "Room id" here is the UUID after the #
     // of a request link; the link id before it never reaches this server.
-    'For a request link, a hash of its secret token and its timestamps (made, joined, left, due to end), then its room id with a mark that it was used or ended, for a day',
+    'For a request link, a hash of its secret token and its timestamps (made, joined, left, due to end) while the link is open, then its room id with a mark that it was used or ended, until a day after it closes or ends',
     'The times each network made a request link, kept for 24 hours under a keyed hash of its address',
     'How many request links each network has open, under the same keyed hash',
 ];
@@ -119,7 +119,14 @@ export function PrivacySection() {
                 has none. Floe Desktop and the CLI import neither. */}
             <p className="mt-10 max-w-2xl text-sm leading-relaxed text-zinc-500">
                 The floe.one website also runs cookieless analytics (Umami) and error monitoring
-                (Sentry). Floe Desktop and the CLI have neither.
+                (Sentry). Floe Desktop and the CLI have neither. What they do send is in the{' '}
+                <a
+                    href="/privacy"
+                    className="text-zinc-400 underline decoration-white/20 underline-offset-2 transition hover:text-ice"
+                >
+                    privacy policy
+                </a>
+                .
             </p>
             <div className="mt-6">
                 <a

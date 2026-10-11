@@ -168,13 +168,13 @@ export const FAQSection = () => {
                             Yes. All transfers use DTLS encryption built into WebRTC, with keys that
                             exist only on the two devices. Whether your connection is direct or
                             relayed, everything in between, the relay included, handles only encrypted
-                            packets and cannot read your files. One limit is worth knowing: the
+                            packets and cannot read your files. Two limits are worth knowing. The
                             certificate fingerprints the two devices use to agree on those keys pass
                             through Floe&apos;s signaling server, so that server is trusted to
                             introduce you honestly, and no Floe app shows a verification code to check
-                            it today. The link or code is also the only key: whoever opens it first,
-                            while the sender is waiting, receives the files, so send it over a channel
-                            you trust. The full list of what Floe does not protect against is in{' '}
+                            it today. And the link or code is all that protects a transfer: whoever
+                            uses it first, while the sender is waiting, receives the files, so send it
+                            over a channel you trust. The full list of what Floe does not protect against is in{' '}
                             <a
                                 href="https://www.floe.one/docs/how-it-works/known-limitations"
                                 target="_blank"
@@ -193,9 +193,9 @@ export const FAQSection = () => {
                         <p>
                             Floe checks every file for you. Each one must match the size the sender
                             announced, and when the sender provides a SHA-256 of the file, the receiver
-                            also compares that with what actually arrived. A sender older than floe
-                            1.11.0 or Floe Desktop 0.3.0 provides none, and a browser can run out of
-                            time before it has one. A file that does not match is discarded instead
+                            also compares that with what actually arrived. A floe CLI older than
+                            1.11.0 or a Floe Desktop older than 0.3.0 provides none, and a browser can
+                            run out of time before it has one. A file that does not match is discarded instead
                             of saved. When every file matched, the browser and
                             the CLI show &quot;SHA-256 matched&quot; and Floe Desktop shows a green
                             check mark; without that, at least one file was checked by size only. The
