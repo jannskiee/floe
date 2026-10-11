@@ -11,7 +11,7 @@ const handled: ReactNode[] = [
     'WebRTC offers, answers, and ICE candidates',
     // rooms and roomMeta, both deleted in destroyRoom. The room id is the secret
     // half of a share link, and no console call ever prints it.
-    'The room id that pairs two devices, which is the secret part of a share link, held in memory while the room is open',
+    'The room id that pairs two devices, which is the secret part of a share link, held in memory while the room is open and written to no log',
     // codeToRoom: forgetCode retires a code at pairing (handleJoinRoom), when
     // the room is destroyed and on re-register; the 10 min TTL is the ceiling.
     'A short room code when the sender uses the CLI or desktop app, dropped when the receiver joins or the room closes, and after about 10 minutes at the latest',
@@ -52,10 +52,8 @@ const neverSees: ReactNode[] = [
     // desktop app), so "your share link" cannot sit in this column. What stays
     // true is where the fragment never travels.
     <>
-        Your share link in a page request, referrer, or analytics event. The{' '}
-        <code className="font-mono text-[12px] text-zinc-300">#room</code> fragment travels in none
-        of them; the server is handed the room id by the devices themselves, to pair them, and
-        writes it to no log
+        The <code className="font-mono text-[12px] text-zinc-300">#room</code> part of your share
+        link in any page request, referrer, or analytics event. It travels in none of them
     </>,
     "The link id in a request link's address (the part before the #), which only the web host sees",
     'Any transfer traffic. Once the peers connect, the data channel bypasses it entirely',

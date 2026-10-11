@@ -32,7 +32,7 @@ const items: {
     {
         icon: FolderTree,
         title: 'Folders stay folders',
-        body: 'The CLI and Floe Desktop send a folder whole and rebuild its structure when they receive one. A browser keeps the structure in Download ZIP.',
+        body: 'The CLI and Floe Desktop send a folder whole and rebuild its structure when they receive one. A browser keeps the structure when you use "Download ZIP".',
     },
     {
         icon: Activity,
@@ -42,7 +42,7 @@ const items: {
     {
         icon: FileCheck,
         title: 'Checked on arrival',
-        body: 'Each file is checked against the size the sender announced and, when the sender sends one, its SHA-256. A mismatch is discarded. A CLI or Desktop receiver then confirms delivery to the sender.',
+        body: 'Each file is checked against its announced size and, when the sender sends one, its SHA-256. A mismatched file is discarded. CLI and Floe Desktop receivers confirm delivery.',
         href: 'https://www.floe.one/docs/how-it-works/file-checks',
     },
     {

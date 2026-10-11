@@ -190,8 +190,8 @@ export const FAQSection = () => {
                     answer={
                         <p>
                             Floe checks every file for you. Each one must match the size the sender
-                            announced, and the sender also computes a SHA-256 of each file, which the
-                            receiver compares with what actually arrived. A file that does not match
+                            announced, and when the sender provides a SHA-256 of the file, the receiver
+                            also compares that with what actually arrived. A file that does not match
                             is discarded instead of saved. When every file matched, the browser and
                             the CLI show &quot;SHA-256 matched&quot; and Floe Desktop shows a green
                             check mark; without that, at least one file was checked by size only. The

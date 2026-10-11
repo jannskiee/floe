@@ -17,7 +17,7 @@ export function CliSection() {
             <SectionHeader
                 eyebrow="Command line"
                 headline="The same transfer, without the browser."
-                lede="floe is a single static binary that talks to the same signaling infrastructure as the web app. Browser to terminal works in every direction, and a folder arrives with its structure intact in the CLI and Floe Desktop, or inside Download ZIP in a browser."
+                lede="floe is a single static binary that talks to the same signaling infrastructure as the web app. Browser to terminal works in every direction, and a folder arrives with its structure intact in the CLI and Floe Desktop, or inside &quot;Download ZIP&quot; in a browser."
             />
             <div className="mt-12 grid gap-10 lg:grid-cols-12 lg:gap-12">
                 <div className="min-w-0 lg:col-span-5">
