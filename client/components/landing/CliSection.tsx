@@ -6,8 +6,9 @@ import { InstallTabs } from './InstallTabs';
 
 const COMMANDS = [
     { cmd: 'floe send <path>', desc: 'Share files or entire folders' },
+    { cmd: 'floe send <path> --to <link>', desc: 'Send through a Floe Desktop request link (Beta)' },
     { cmd: 'floe receive <code>', desc: 'A short code is all the other side needs' },
-    { cmd: 'floe update', desc: 'The binary updates itself' },
+    { cmd: 'floe update', desc: 'Updates itself in place, unless a package manager installed it' },
 ];
 
 export function CliSection() {
@@ -16,7 +17,7 @@ export function CliSection() {
             <SectionHeader
                 eyebrow="Command line"
                 headline="The same transfer, without the browser."
-                lede="floe is a single static binary that talks to the same signaling infrastructure as the web app. Browser to terminal works in every direction, and folders arrive with their structure intact."
+                lede="floe is a single static binary that talks to the same signaling infrastructure as the web app. Browser to terminal works in every direction, and a folder arrives with its structure intact in the CLI and Floe Desktop, or inside Download ZIP in a browser."
             />
             <div className="mt-12 grid gap-10 lg:grid-cols-12 lg:gap-12">
                 <div className="min-w-0 lg:col-span-5">
@@ -36,7 +37,8 @@ export function CliSection() {
                     </ul>
                     <p className="mt-6 text-[13px] leading-relaxed text-zinc-500">
                         Also available via Scoop, a PowerShell one-liner, and{' '}
-                        <code className="font-mono text-[12px]">go install</code>.{' '}
+                        <code className="font-mono text-[12px]">go install</code>, which gives a dev
+                        build that cannot update itself.{' '}
                         <a
                             href="https://www.floe.one/docs/cli/installation"
                             target="_blank"

@@ -6,7 +6,7 @@ interface RelayFallbackToggleProps {
 }
 
 /**
- * Sender-side "Network Relay Fallback" checkbox card, shown after files are
+ * Sender-side "Network relay fallback" checkbox card, shown after files are
  * picked but before the share link is created. Purely presentational; the
  * relayEnabled state lives in P2PTransfer (via useRelayConfiguration).
  */
@@ -35,7 +35,7 @@ export function RelayFallbackToggle({ relayEnabled, onChange }: RelayFallbackTog
                 <div className="min-w-0 space-y-1">
                     <p className="text-sm font-medium text-zinc-200 leading-none">Network relay fallback</p>
                     <p className="text-xs text-zinc-500 leading-relaxed">
-                        Only used when a direct connection isn&apos;t possible; most transfers stay direct. 2 GB limit when relayed.{' '}
+                        Files go through it only when a direct connection isn&apos;t possible; most transfers stay direct. 2 GB limit when relayed.{' '}
                         <a
                             href="/how-it-works#relay"
                             target="_blank"

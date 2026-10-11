@@ -8,15 +8,23 @@
 // with the browser.
 //
 // The receiver never reports to the public byte counter: POST /api/stats/report
-// is aborted at the network layer for every context, and the run fails if one
-// is attempted. That lets the "Contribute to global stats" checkbox be captured
-// in its true default state instead of having to be unticked first.
+// is aborted at the network layer for every context, before it leaves the
+// browser, and the attempts are counted in the manifest (statsAttempts). That
+// lets the "Contribute to global stats" checkbox be captured in its true
+// default state instead of having to be unticked first.
 //
 // deviceScaleFactor 3 so the PNGs stay sharp on high-DPI screens. Every capture
 // is a tight element clip, never a full window: tight crops read better inline
 // and survive a UI change far longer.
 import { chromium } from '@playwright/test';
-import { mkdirSync, writeFileSync, rmSync, readFileSync, statSync } from 'fs';
+import {
+    mkdirSync,
+    writeFileSync,
+    rmSync,
+    readFileSync,
+    statSync,
+    existsSync,
+} from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { randomBytes } from 'crypto';
@@ -136,7 +144,7 @@ const ctxOpts = {
 };
 
 // ---------------------------------------------------------------------------
-// Sender and receiver: one real transfer, five shots.
+// Sender and receiver: one real transfer, four shots.
 // ---------------------------------------------------------------------------
 const senderCtx = await browser.newContext(ctxOpts);
 await guardStats(senderCtx);
@@ -191,60 +199,6 @@ await shot(
     '04-receive-waiting.png',
     'three-step pipeline and the stats checkbox'
 );
-
-console.log('sender: connection indicator and progress');
-// The badge resolves to Direct or Relay a couple of seconds after the peers meet.
-await sender
-    .getByText(/^(Direct|Relay)$/)
-    .first()
-    .waitFor({ timeout: 30_000 });
-// Open the badge's own explanation. The info affordance exists only once the
-// route is known, so this is the first moment it can be clicked.
-const infoIcon = sender.locator('main svg[class*="info"]').first();
-try {
-    await infoIcon.click({ timeout: 3000, force: true });
-    await sender
-        .getByText(/Direct Connection|Relay Connection/)
-        .first()
-        .waitFor({ timeout: 3000 });
-} catch {
-    console.log('  (badge explanation did not open; capturing without it)');
-}
-await sender.waitForTimeout(300);
-// The explanation pops above the card's top edge, so an element clip of the
-// card alone decapitates it. Clip the union of the two instead.
-{
-    const a = await card(sender).boundingBox();
-    const tipHeading = sender
-        .getByText(/Direct Connection|Relay Connection/)
-        .first();
-    const b = (await tipHeading.count()) ? await tipHeading.boundingBox() : a;
-    // Clamp to the viewport. A clip that runs past the edge is silently
-    // truncated, and then the recorded size no longer matches the file, which
-    // makes the scale check below meaningless.
-    const pad = 10;
-    const x = Math.max(0, Math.min(a.x, b.x) - pad);
-    const y = Math.max(0, Math.min(a.y, b.y) - pad * 3);
-    const width = Math.min(
-        Math.max(a.x + a.width, b.x + b.width) - x + pad,
-        VIEWPORT.width - x
-    );
-    const height = Math.min(
-        Math.max(a.y + a.height, b.y + b.height) - y + pad,
-        VIEWPORT.height - y
-    );
-    await sender.screenshot({
-        path: join(OUT, '03-connection-indicator.png'),
-        clip: { x, y, width, height },
-        scale: 'device',
-    });
-    record(
-        '03-connection-indicator.png',
-        'the connection badge with its in-product explanation open',
-        width,
-        height
-    );
-}
 
 console.log('receiver: waiting for the transfer to finish');
 await receiver
@@ -328,8 +282,20 @@ try {
 
 await browser.close();
 
+// A shot this script cannot make keeps its manifest entry: 07-request-ready.png
+// needs a real request link, which the drop then uses up. Without this a rerun
+// would drop the entry and verify-screenshots.py would stop checking the file.
+const manifestPath = join(OUT, 'capture-manifest.json');
+let kept = [];
+try {
+    const made = new Set(manifest.map((s) => s.name));
+    kept = JSON.parse(readFileSync(manifestPath, 'utf8')).shots.filter(
+        (s) => !made.has(s.name) && existsSync(join(OUT, s.name))
+    );
+} catch {}
+
 writeFileSync(
-    join(OUT, 'capture-manifest.json'),
+    manifestPath,
     JSON.stringify(
         {
             base: BASE,
@@ -337,7 +303,7 @@ writeFileSync(
             deviceScaleFactor: SCALE,
             roomDead,
             statsAttempts,
-            shots: manifest,
+            shots: [...manifest, ...kept],
         },
         null,
         2
@@ -350,8 +316,8 @@ console.log(
 );
 console.log(`captured room now returns "Link Invalid": ${roomDead}`);
 console.log(`wrote ${manifest.length} shots to ${OUT}`);
-if (manifest.length !== 6) {
-    console.error('expected 6 shots');
+if (manifest.length !== 5) {
+    console.error('expected 5 shots');
     process.exitCode = 1;
 }
 if (!roomDead) {

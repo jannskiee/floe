@@ -12,7 +12,7 @@ interface ConnectionStatusBadgeProps {
  * The connection status indicator in the transfer card's header bar: the
  * sender's Wifi/ping readout, the direct/relay/ready/offline halo dot and
  * label, and the Info tooltip explaining the active connection type. Purely
- * presentational — it owns only the tooltip's open/close state.
+ * presentational: it owns only the tooltip's open/close state.
  */
 export function ConnectionStatusBadge({
     isSender,
@@ -80,7 +80,7 @@ export function ConnectionStatusBadge({
                                     <>
                                         <p className="text-[10px] font-bold text-green-400 uppercase tracking-wider mb-1">Direct Connection</p>
                                         <p className="text-[10px] font-normal normal-case tracking-normal text-zinc-400 leading-relaxed font-sans">
-                                            Your files go directly to the other device, even across different networks like mobile data. No servers involved. Unlimited speed and size.{' '}
+                                            Your files go directly to the other device, even across different networks like mobile data. No server carries them. Floe sets no size limit, but a receiving browser can only hold so much.{' '}
                                             <a href="/how-it-works#direct" target="_blank" rel="noreferrer" className="text-zinc-500 hover:text-white underline underline-offset-2 transition-colors">
                                                 Learn more
                                             </a>

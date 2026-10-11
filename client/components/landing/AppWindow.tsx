@@ -13,20 +13,24 @@ import { DESKTOP_VERSION } from '@/lib/desktopRelease';
  * zinc-950 canvas continues the page background inside a frame the site
  * already owns.
  *
- * The states replay a real session: files staged via paste, then a live room
+ * The states replay a real session: three files staged, then a live room
  * with the code the server actually issued.
  */
 
 // The -2x suffix is part of the contract, not decoration: a re-capture must
 // land on a NEW filename or the image optimizer and the CDN keep serving the
-// old bytes under the old URL.
+// old bytes under the old URL. The version in the name is the release the
+// capture shows, so a set that no longer matches the app is visible in a diff:
+// the previous set carried sentences the app had already taken back.
 const STATES = [
-    { src: '/screenshots/desktop-idle-2x.png', caption: 'waiting for files' },
-    { src: '/screenshots/desktop-staged-2x.png', caption: '3 files staged' },
+    { src: '/screenshots/desktop-idle-v030-2x.png', caption: 'waiting for files' },
+    { src: '/screenshots/desktop-staged-v030-2x.png', caption: '3 files staged' },
     // -noqr-: shot with the QR panel collapsed. Expanded, the panel is ~770 CSS
     // px against the app's 684, so the capture baked in a scrollbar and a card
     // clipped by the bottom edge. Collapsed it fits with room to spare.
-    { src: '/screenshots/desktop-share-noqr-2x.png', caption: 'room open' },
+    // The room it shows closed with the capture session on 2026-10-10, so its
+    // link and code lead nowhere.
+    { src: '/screenshots/desktop-share-noqr-v030-2x.png', caption: 'room open' },
 ] as const;
 
 const FINAL = STATES.length - 1;
@@ -185,7 +189,7 @@ export function AppWindow({
                         <>
                             <span className="text-zinc-700">·</span>
                             <span className="whitespace-nowrap">
-                                code <span className="text-ice">frost-tint-ulnar</span>
+                                code <span className="text-ice">quiet-fetch-sled</span>
                             </span>
                         </>
                     )}
@@ -196,8 +200,8 @@ export function AppWindow({
                 the caption row is aria-hidden. The QR is one click away in the
                 app but is not visible in the shot, so it is not claimed here. */}
             <p className="sr-only">
-                Demo of the Floe desktop app: three files are pasted and staged, then a share panel
-                opens a live room with the code frost-tint-ulnar and a share link, waiting for the
+                Demo of the Floe desktop app: three files are staged, then a share panel opens a
+                live room with the code quiet-fetch-sled and a share link, waiting for the
                 receiver.
             </p>
         </div>

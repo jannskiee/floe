@@ -52,14 +52,14 @@ export const metadata: Metadata = {
         canonical: '/',
     },
     // siteName, type, locale and the conditional images now live in
-    // lib/socialMetadata so the four child pages can spread them back in. They
+    // lib/socialMetadata so the child pages can spread them back in. They
     // have to: metadata merging is shallow, so a page that declares openGraph
     // replaces this whole object rather than merging into it.
     openGraph: {
         ...sharedOpenGraph,
         title: 'Floe: Encrypted P2P File Transfer. No Uploads.',
         description:
-            'Send files directly from your device to anyone in the world. No accounts, no file storage, no size limits on direct transfers. Fully end-to-end encrypted with WebRTC.',
+            'Send files directly from your device to anyone in the world. No accounts, no file storage, no size limit from Floe on direct transfers (a receiving browser can only hold so much). End-to-end encrypted with WebRTC.',
     },
     twitter: {
         ...sharedTwitter,

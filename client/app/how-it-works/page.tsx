@@ -12,7 +12,10 @@ import { sharedOpenGraph, sharedTwitter } from '@/lib/socialMetadata';
 // visible copy on purpose, and every sentence is literally true of the current
 // release (checked against docs/how-it-works/*.mdx, docs/security-privacy.mdx,
 // client/lib/relay.ts, server/server.js, server/turn.js and
-// cli/engine/transfer/relay.go on 2026-09-07).
+// cli/engine/transfer/relay.go on 2026-09-07; the code in that list was read
+// again on 2026-10-11, at v1.11.0 and desktop-v0.3.0, together with
+// client/lib/transfer/receiver.ts and docs/how-it-works/known-limitations.mdx
+// for what a browser receiver can hold).
 //
 // A Server Component with no client island: the figure's motion is CSS that
 // plays once on paint (see the .hiw-* rules in globals.css), so
@@ -130,9 +133,10 @@ export default function HowItWorks() {
                             <span className="sr-only">Direct. </span>Straight across, most of the time.
                         </h2>
                         <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-                            Device to device, with no server carrying the file. There is no size limit,
-                            and speed is whatever the slower of your two connections allows. The badge
-                            shows {BADGE_DIRECT} with a green dot.
+                            Device to device, with no server carrying the file. Floe sets no size limit,
+                            but a receiving browser can only hold so much, and speed is whatever the
+                            slower of your two connections allows. The badge shows {BADGE_DIRECT} with a
+                            green dot.
                         </p>
                     </section>
                     <section id="relay" className="max-w-lg scroll-mt-[calc(7rem_+_env(safe-area-inset-top))]">

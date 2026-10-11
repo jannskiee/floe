@@ -28,7 +28,7 @@ except ImportError:
 SCALE = 3
 MAX_BYTES = 500 * 1024
 # Shots whose header shows a resolved connection badge.
-BADGE_SHOTS = ("03-connection-indicator.png", "04-receive-waiting.png", "05-receive-downloads.png")
+BADGE_SHOTS = ("04-receive-waiting.png", "05-receive-downloads.png")
 
 
 def dot_rgb(path):

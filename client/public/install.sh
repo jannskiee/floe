@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # Floe CLI installer for macOS and Linux
 # Usage: curl -fsSL https://floe.one/install.sh | sh
-#        curl -fsSL https://floe.one/install.sh | FLOE_VERSION=v1.2.0 sh
+#        curl -fsSL https://floe.one/install.sh | FLOE_VERSION=vX.Y.Z sh
 # Re-running upgrades an existing install in place.
 
 set -e
@@ -44,7 +44,7 @@ fi
 if [ -z "${FLOE_VERSION}" ]; then
   echo "Could not determine latest version." >&2
   echo "Set FLOE_VERSION=vX.Y.Z to install a specific version, e.g.:" >&2
-  echo "  curl -fsSL https://floe.one/install.sh | FLOE_VERSION=v1.0.0 sh" >&2
+  echo "  curl -fsSL https://floe.one/install.sh | FLOE_VERSION=vX.Y.Z sh" >&2
   exit 1
 fi
 
@@ -71,6 +71,7 @@ curl -fsSL "${CHECKSUMS_URL}" -o "${TMP_DIR}/checksums.txt"
 # Verify SHA-256 checksum
 EXPECTED="$(grep " ${ARCHIVE}" "${TMP_DIR}/checksums.txt" | awk '{print $1}')"
 if [ -n "${EXPECTED}" ]; then
+  HASH_COMPARED=1
   if command -v sha256sum >/dev/null 2>&1; then
     ACTUAL="$(sha256sum "${TMP_DIR}/${ARCHIVE}" | awk '{print $1}')"
   elif command -v shasum >/dev/null 2>&1; then
@@ -78,6 +79,7 @@ if [ -n "${EXPECTED}" ]; then
   else
     echo "Warning: no sha256 tool found, skipping checksum verification." >&2
     ACTUAL="${EXPECTED}"
+    HASH_COMPARED=0
   fi
   if [ "${ACTUAL}" != "${EXPECTED}" ]; then
     echo "Checksum verification failed!" >&2
@@ -85,7 +87,9 @@ if [ -n "${EXPECTED}" ]; then
     echo "  Got:      ${ACTUAL}" >&2
     exit 1
   fi
-  echo "Checksum verified."
+  if [ "${HASH_COMPARED}" = 1 ]; then
+    echo "Checksum verified."
+  fi
 else
   echo "Warning: checksum not found for ${ARCHIVE}, skipping verification." >&2
 fi

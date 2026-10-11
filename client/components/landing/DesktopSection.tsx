@@ -12,6 +12,7 @@ const FEATURES = [
     { name: 'Paste to send', desc: 'Ctrl+V a screenshot or files copied in Explorer' },
     { name: 'Folders', desc: 'Sent as folders, no zipping' },
     { name: 'History', desc: 'What you sent and received, stored locally' },
+    { name: 'Request link', desc: 'Someone sends files to your PC from their browser (Beta)' },
 ];
 
 /**
@@ -50,7 +51,7 @@ export function DesktopSection() {
                             Get the desktop app
                         </Link>
                         <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.2em] text-zinc-600">
-                            v{DESKTOP_VERSION} beta · Windows
+                            v{DESKTOP_VERSION} Beta · Windows
                         </p>
                     </div>
                 </div>

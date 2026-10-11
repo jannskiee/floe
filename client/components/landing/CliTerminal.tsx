@@ -3,15 +3,18 @@
 import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { RotateCcw } from 'lucide-react';
 
-// Mirrors the real `floe send` output format (cli/cmd/floe): keep this session
-// consistent with what the CLI actually prints.
+// Mirrors the real `floe send` output format: the status lines come from
+// cli/cmd/floe and the summary box from cli/engine/transfer. Keep this session
+// consistent with what the CLI actually prints. The three progress rows are the
+// one simplification: the real ones are drawn by the progressbar library, with
+// a percentage before the bar and a byte count and rate after it.
 const COMMAND = 'floe send vacation-photos/';
 const DIVIDER = '─'.repeat(49);
 // Narrower than the real CLI's bar so the widest progress line stays ~50ch:
 // phones scroll the session horizontally, and every column narrower than the
 // bar run is the difference between "peek at the numbers" and "amputated".
 const BAR_WIDTH = 12;
-const FINAL_STAGE = 11;
+const FINAL_STAGE = 12;
 
 const FILES = [
     { name: 'IMG_2041.jpg', sizeMB: 5.2, total: '5.2 MB' },
@@ -139,8 +142,10 @@ export function CliTerminal() {
                         <RotateCcw className="h-3.5 w-3.5" />
                     </button>
                 </div>
-                {/* min-height matches the completed session so replay does not shift the layout;
-                    dropped on short-landscape viewports where a 480px reservation cannot fit */}
+                {/* min-height matches the completed session so replay does not shift the layout:
+                    22 lines of 21.25px plus the 32px of padding is 499.5px. It was 480px until
+                    the Verified row added a line. Dropped on short-landscape viewports where a
+                    500px reservation cannot fit */}
                 {/* Below sm the widest session lines scroll horizontally; the right-edge
                     fade makes the cut look intentional instead of amputated. */}
                 {/* tabIndex 0, not -1: below sm the session scrolls horizontally and a
@@ -155,7 +160,7 @@ export function CliTerminal() {
                     tabIndex={0}
                     role="group"
                     aria-label="Example terminal session, scrollable"
-                    className="custom-scrollbar [@media(min-height:481px)]:min-h-[480px] overflow-x-auto px-4 py-4 focus-visible:outline-2 focus-visible:outline-ice max-sm:[mask-image:linear-gradient(to_right,black_calc(100%_-_24px),transparent)]"
+                    className="custom-scrollbar [@media(min-height:501px)]:min-h-[500px] overflow-x-auto px-4 py-4 focus-visible:outline-2 focus-visible:outline-ice max-sm:[mask-image:linear-gradient(to_right,black_calc(100%_-_24px),transparent)]"
                 >
                     <div className="min-w-max whitespace-pre font-mono text-[12.5px] leading-[1.7] text-zinc-300" aria-hidden="true">
                         <div>
@@ -196,7 +201,7 @@ export function CliTerminal() {
                         {shownStage >= 7 && <div className="text-zinc-500">{'  Connecting...'}</div>}
                         {shownStage >= 8 && (
                             <>
-                                <div className="text-green-400">{'  Connected'}</div>
+                                <div className="text-green-400">{'  Connected (direct)'}</div>
                                 <div> </div>
                             </>
                         )}
@@ -214,17 +219,28 @@ export function CliTerminal() {
                                 <div className="text-zinc-700">{`  ${DIVIDER}`}</div>
                             </>
                         )}
+                        {/* The summary box pads every label to its widest one, here
+                            Verified, then adds three spaces (PrintBox in
+                            cli/engine/transfer/format.go), so Sent and Time carry
+                            seven. The CLI prints the Verified row only when the
+                            receiver reported every file's SHA-256 as matched. */}
                         {shownStage >= 10 && (
                             <div>
                                 <span className="text-zinc-500">{'  Sent'}</span>
-                                {'   3 files (10.1 MB)'}
+                                {'       3 files (10.1 MB)'}
                             </div>
                         )}
                         {shownStage >= 11 && (
+                            <div>
+                                <span className="text-zinc-500">{'  Verified'}</span>
+                                {'   SHA-256 matched'}
+                            </div>
+                        )}
+                        {shownStage >= 12 && (
                             <>
                                 <div>
                                     <span className="text-zinc-500">{'  Time'}</span>
-                                    {'   8s · avg 1.3 MB/s'}
+                                    {'       8s · avg 1.3 MB/s'}
                                 </div>
                                 <div className="text-zinc-700">{`  ${DIVIDER}`}</div>
                             </>
@@ -240,8 +256,9 @@ export function CliTerminal() {
             </div>
             <p className="sr-only">
                 Example terminal session: floe send shares three files totaling 10.1 MB, prints the
-                short code olive-tiger-castle and a link, connects to the peer, and completes the
-                transfer in 8 seconds at an average of 1.3 MB per second.
+                short code olive-tiger-castle and a link, connects directly to the peer, and
+                completes the transfer in 8 seconds at an average of 1.3 MB per second. Its summary
+                includes the line Verified, SHA-256 matched.
             </p>
         </div>
     );

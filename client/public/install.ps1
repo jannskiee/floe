@@ -1,6 +1,6 @@
 # Floe CLI installer for Windows
 # Usage: irm https://floe.one/install.ps1 | iex
-#        $env:FLOE_VERSION = "v1.2.0"; irm https://floe.one/install.ps1 | iex
+#        $env:FLOE_VERSION = "vX.Y.Z"; irm https://floe.one/install.ps1 | iex
 # Re-running upgrades an existing install in place.
 
 $ErrorActionPreference = "Stop"

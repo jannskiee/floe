@@ -3,14 +3,16 @@ import {
     Activity,
     ArrowLeftRight,
     ArrowUpRight,
+    FileCheck,
     FolderTree,
     Infinity as InfinityIcon,
-    Scale,
     Server,
     LucideIcon,
 } from 'lucide-react';
 import { SectionHeader, sectionClass } from './SectionHeader';
 
+// Six tiles on purpose: the smallest count that fills the last row at both
+// the 2 and the 3 column widths.
 const items: {
     icon: LucideIcon;
     title: string;
@@ -19,18 +21,18 @@ const items: {
 }[] = [
     {
         icon: InfinityIcon,
-        title: 'Unlimited direct transfers',
-        body: 'No size cap on direct connections. Relayed sessions cap at 2 GB, and the badge shows which one you are on.',
+        title: 'No size limit from Floe',
+        body: 'Floe sets no size limit on a direct connection; a browser that receives is limited by what that browser can hold. Relayed sessions cap at 2 GB, and the badge shows which one you are on.',
     },
     {
         icon: ArrowLeftRight,
         title: 'Browser to terminal',
-        body: 'The web app and the CLI share one protocol. Send from a server, receive on a phone, any direction.',
+        body: 'The web app, Floe Desktop, and the CLI share one protocol. Send from a server, receive on a phone, any direction.',
     },
     {
         icon: FolderTree,
         title: 'Folders stay folders',
-        body: 'The CLI walks directories recursively and preserves their structure on the other side.',
+        body: 'The CLI and Floe Desktop send a folder whole and rebuild its structure when they receive one. A browser keeps the structure in Download ZIP.',
     },
     {
         icon: Activity,
@@ -38,16 +40,16 @@ const items: {
         body: 'Per-file bars with live speed and ETA, in the browser and in the terminal.',
     },
     {
-        icon: Server,
-        title: 'Self-hostable',
-        body: 'Run your own signaling server and relay with Docker. The docs cover production setup.',
-        href: 'https://www.floe.one/docs/self-hosting/overview',
+        icon: FileCheck,
+        title: 'Checked on arrival',
+        body: 'Each file is checked against the size the sender announced and, when the sender sends one, its SHA-256. A mismatch is discarded. A CLI or Desktop receiver then confirms delivery to the sender.',
+        href: 'https://www.floe.one/docs/how-it-works/file-checks',
     },
     {
-        icon: Scale,
-        title: 'Open source, MIT',
-        body: 'Client, server, and CLI. Every line is on GitHub.',
-        href: 'https://github.com/jannskiee/floe',
+        icon: Server,
+        title: 'Open source, self-hostable',
+        body: 'MIT licensed, every line on GitHub. Run your own signaling server and relay with Docker; the docs cover production setup.',
+        href: 'https://www.floe.one/docs/self-hosting/overview',
     },
 ];
 

@@ -84,13 +84,19 @@ export default function TermsOfUse() {
             <LegalSection id="responsibility" index={sectionIndex(toc, 'responsibility')} title="User responsibility">
                 <p>
                     Since Floe is a peer-to-peer service, you are solely responsible for the content
-                    you send. We do not (and cannot) moderate file contents. You agree to indemnify the
+                    you send. We do not (and cannot) moderate file contents, and Floe does not scan
+                    files for malware. You agree to indemnify the
                     developers of Floe against any legal claims arising from your use of the service.
                 </p>
                 <p>
                     If you make a request link, you are responsible for who you send it to and for
                     what you ask them to send. Sending files through someone else&apos;s request link
                     is sending, and the paragraph above applies to it in full.
+                </p>
+                <p>
+                    Request links are in Beta, and Floe Desktop and the request link page both label
+                    them that way. During the Beta we can turn request links off for everyone, as the
+                    privacy policy describes.
                 </p>
             </LegalSection>
 
@@ -136,7 +142,8 @@ export default function TermsOfUse() {
                 <p>
                     Because transfers are peer-to-peer, we cannot inspect or remove content sent
                     between users, and our signaling server keeps no record of who took part in a
-                    transfer. Automatic per-address rate limits are the only restriction the service
+                    transfer once its room has closed. Automatic per-address rate limits and a few
+                    fixed caps, such as the 2 GB relay limit, are the only restrictions the service
                     applies on its own.
                 </p>
             </LegalSection>

@@ -1185,7 +1185,7 @@ export function P2PTransfer() {
                                     <p className="font-mono text-[11px] text-zinc-500">
                                         {connectionType === 'relay'
                                             ? '2 GB limit over relay'
-                                            : 'No size limit over direct connections'}
+                                            : 'No size limit from Floe over direct connections'}
                                     </p>
                                     <Input
                                         type="file"

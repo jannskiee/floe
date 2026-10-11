@@ -39,7 +39,7 @@ export const CONTROL_FRAME_WORST_CASE_ID = '00000000-0000-4000-8000-000000000000
  * upper bound.
  *
  * The value is a width, not a version. It is the widest shape this project
- * actually ships: the desktop tag form (`desktop-v0.2.12` today, and
+ * actually ships: the desktop tag form (`desktop-v0.3.0` as of October 2026, and
  * `cli/engine/transfer/format.go` records the family as "v1.2.3",
  * "desktop-v0.1.2", "dev"), widened to two-digit components and a prerelease
  * suffix. 25 characters, which costs 34 bytes of the 1000-byte frame once the
@@ -56,9 +56,10 @@ export const CONTROL_FRAME_WORST_CASE_VER = 'desktop-v99.99.99-beta.99';
 // Connection timing and fixed wire text for the visitor (S1-WEB-03).
 // ---------------------------------------------------------------------------
 
-/** After request-join, an answer (request-joined, host-absent, room-full,
- *  disabled) must arrive within this. Silence means a server that predates
- *  request links, so the page says "not available on this Floe server". */
+/** After request-join, an answer (request-joined, host-absent, link-ended,
+ *  room-full, disabled or error) must arrive within this. Silence means a
+ *  server that predates request links, so the page says "not available on
+ *  this Floe server". */
 export const JOIN_NO_ANSWER_MS = 10_000;
 
 /** From request-joined to an open data channel. The host fetches its ICE
@@ -123,7 +124,8 @@ export const RELAY_BLOCK_REASON =
  *  page puts on the wire. */
 export const VISITOR_CANCEL_REASON = 'The sender stopped.';
 
-/** Where "What is a request link?" goes: the request-link docs page the docs
- *  plan names (DOC-S1-27, docs/desktop/request-links.mdx), served under the
- *  site's /docs rewrite. */
-export const REQUEST_LINK_DOCS_PATH = '/docs/desktop/request-links';
+/** Where "What is a request link?" goes: the docs page written for the person
+ *  who was sent a link (docs/web-app/request-links.mdx), served under the
+ *  site's /docs rewrite. The page for whoever makes links is
+ *  docs/desktop/request-links.mdx, which this pointed at through 1.11.0. */
+export const REQUEST_LINK_DOCS_PATH = '/docs/web-app/request-links';

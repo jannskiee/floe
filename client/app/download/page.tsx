@@ -26,7 +26,7 @@ export const metadata: Metadata = {
     // badge and its body carries no route to "/", so promising a browser option
     // here would be advertising something this page does not offer.
     description:
-        'Get Floe Desktop for Windows from the Microsoft Store (beta), or install the floe CLI: free, encrypted, peer-to-peer file transfer.',
+        'Get Floe Desktop for Windows from the Microsoft Store (Beta), or install the floe CLI: free, encrypted, peer-to-peer file transfer.',
     alternates: { canonical: '/download' },
     // Spread before overriding, never a bare object: declaring either key
     // replaces the root layout's whole block, so the spread is what keeps
@@ -77,7 +77,7 @@ const OTHER_WAYS: {
         desc: 'A single static binary for servers, scripts, and headless machines.',
         actions: [
             {
-                name: 'Install guide',
+                name: 'Install the CLI',
                 href: 'https://www.floe.one/docs/cli/installation',
                 external: true,
                 umami: { 'data-umami-event': 'download-page-cli' },
@@ -95,7 +95,7 @@ const OTHER_WAYS: {
     },
     {
         label: 'Feedback',
-        desc: 'Found a bug in the beta? A report is the most useful thing you can send.',
+        desc: 'Found a bug in the Beta? A report is the most useful thing you can send.',
         actions: [
             {
                 name: 'Open an issue',
@@ -155,7 +155,7 @@ export default function Download() {
                     </div>
 
                     <p className="mt-6 font-mono text-xs text-zinc-500">
-                        v{DESKTOP_VERSION} beta <span className="text-zinc-700">·</span>{' '}
+                        v{DESKTOP_VERSION} Beta <span className="text-zinc-700">·</span>{' '}
                         {DESKTOP_RELEASE_DATE} <span className="text-zinc-700">·</span>{' '}
                         {/* whitespace-nowrap: when the meta line wraps at 320px the link
                             drops to the next line whole instead of splitting mid-label */}
@@ -173,10 +173,14 @@ export default function Download() {
                         {/* Name the channel: the no-warnings/auto-update promise is true of
                             the Store build only, and this same page tells visitors two
                             sections later that the GitHub builds trip SmartScreen. The
-                            version floor is what the MSIX manifest actually declares
-                            (MinVersion 10.0.19041), not a generic "Windows 10 or later". */}
+                            version floor is per channel too: the Store's is what the MSIX
+                            manifest declares (MinVersion 10.0.19041), while the GitHub
+                            installer only asks for Windows 10. Both are built for x64 alone
+                            (ProcessorArchitecture="x64" in the manifest, amd64 in the
+                            installer), so the line says x64 rather than 64-bit: an ARM64 PC
+                            is 64-bit too, and the installer refuses to run on one. */}
                         <p>From the Microsoft Store it installs with no warnings, and updates arrive automatically.</p>
-                        <p>Requires Windows 10 version 2004 (build 19041) or later, 64-bit, with Microsoft WebView2.</p>
+                        <p>Requires x64 Windows 10 or later with Microsoft WebView2; the Store build needs version 2004 (build 19041) or later.</p>
                     </div>
                 </div>
 

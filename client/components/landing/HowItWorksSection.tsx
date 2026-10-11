@@ -12,12 +12,12 @@ const steps: { index: string; title: string; body: ReactNode }[] = [
     {
         index: '02',
         title: 'Share either one',
-        body: 'Your peer opens the link in any browser, scans the QR, or pastes the link into the desktop app or the CLI. No account on either side.',
+        body: 'Your peer opens the link in a modern browser, scans the QR, or pastes the link into the desktop app or the CLI. No account on either side.',
     },
     {
         index: '03',
         title: 'Watch it stream',
-        body: 'Bytes move device to device over the encrypted channel. Close the tab and the transfer stops. Nothing is left behind.',
+        body: 'Bytes move device to device over the encrypted channel. Close the tab and the transfer stops. No file is ever left on a server.',
     },
 ];
 

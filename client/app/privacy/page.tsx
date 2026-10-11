@@ -17,7 +17,7 @@ export const metadata: Metadata = {
     // Bare title: the "%s - Floe" template in app/layout.tsx adds the suffix.
     title: 'Privacy Policy',
     description:
-        'How Floe handles your data: files stream peer to peer and are never stored, and the only tally we keep is one anonymous global byte total.',
+        'How Floe handles your data: files stream peer to peer and are never stored. What the signaling server, the relay, analytics and error monitoring each see.',
     alternates: {
         canonical: '/privacy',
     },
@@ -45,6 +45,14 @@ export const metadata: Metadata = {
 // 2026-10-02 against client/lib/transfer/receiver.ts,
 // client/components/P2PTransfer.tsx and Chromium's blob storage
 // (blob_memory_controller.cc).
+// Rechecked on 2026-10-11: when a code is retired (server.js forgetCode,
+// destroyRoom), the relay credential window (turn.js CF_CACHE_MS), the room
+// seal (server.js sealDigest, roomMeta.keys), the address a peer object holds
+// while its socket is open (createSocketIOPeer, createWSPeer), the Sentry
+// session record (the SDK's browserSessionIntegration, on by default) and
+// relayEnabled context, the eight Umami reason labels (lib/peerErrors.ts,
+// lib/transfer/receiver.ts ReceiveFailure, P2PTransfer.tsx 'peer-reason') and
+// the request link save folder (desktop/requestlink.go requestDefaultDirFn).
 // When a flag, label, hostname or number changes, this page changes with it.
 const toc = [
     { id: 'transfer', label: 'How the transfer works' },
@@ -80,11 +88,11 @@ export default function PrivacyPolicy() {
                         <strong>We do not store, view, or process your files.</strong> In direct
                         connections, files never touch our servers. In relay connections, encrypted
                         file data passes through a TURN relay in transit (on floe.one, Cloudflare&apos;s
-                        network) but is never stored or inspected. The only tally we keep is one
-                        anonymous number: the running total of bytes transferred across all users,
-                        shown by the counter on our homepage, and you can opt out of contributing to
-                        it. The cookieless, aggregate analytics and the error monitoring the website
-                        uses are described below.
+                        network) but is never stored or inspected. The only lasting tally our own
+                        servers keep is one anonymous number: the running total of bytes transferred
+                        across all users, shown by the counter on our homepage, and you can opt out
+                        of contributing to it. The cookieless, aggregate analytics and the error
+                        monitoring the website uses are described below.
                     </p>
                     <p>
                         This policy describes floe.one and the servers we run for it. Floe is open
@@ -135,7 +143,7 @@ export default function PrivacyPolicy() {
                     joins nothing until they click Send. From then on, the two of you learn each
                     other&apos;s IP address, before you accept or decline, unless that side has Hide my
                     IP on: the request link page has its own &quot;Hide my IP (relay only, 2 GB per
-                    drop)&quot; switch, and Floe Desktop&apos;s setting covers your side.
+                    drop)&quot; checkbox, and Floe Desktop&apos;s setting covers your side.
                 </p>
             </LegalSection>
 
@@ -153,17 +161,20 @@ export default function PrivacyPolicy() {
                                     To pair two devices, our signaling server receives the room id and
                                     relays the WebRTC connection messages (offers, answers, and ICE
                                     candidates, which carry each device&apos;s network addresses)
-                                    between them. It forwards them from memory, unread, and keeps
+                                    between them. It checks each message&apos;s size and shape,
+                                    forwards it from memory without keeping or logging it, and keeps
                                     nothing once the room closes. When the sender uses the CLI or Floe
                                     Desktop, the server also maps a random three-word code to the room
-                                    id for ten minutes. A request link is the one exception: the server
-                                    holds its room, with a hash of the link&apos;s secret token and
-                                    never the token itself, while the link is open and for about 10
-                                    minutes after Floe Desktop disconnects. Once someone has used the
-                                    link it keeps a mark saying so for a day. For any other link it
-                                    keeps the link&apos;s id and end time until a day after it ends,
-                                    so a late visitor can be told it ended. All of it is in memory
-                                    only.
+                                    id, and drops that mapping when the receiver joins or the room
+                                    closes, or after about ten minutes if neither happens. A request
+                                    link is the one exception: the server holds its room, with a hash
+                                    of the link&apos;s secret token and never the token itself, while
+                                    the link is open and for about 10 minutes after Floe Desktop
+                                    disconnects. When a link that someone has connected through is
+                                    closed, it keeps the link&apos;s room id with a mark saying it was
+                                    used, for a day. For any other link it keeps the room id and the
+                                    link&apos;s end time until a day after it ends, so a late visitor
+                                    can be told it ended. All of it is in memory only.
                                 </p>
                             ),
                         },
@@ -173,9 +184,10 @@ export default function PrivacyPolicy() {
                                 <p>
                                     Filenames and sizes travel between the two devices over the
                                     encrypted data channel so the receiver can see what is arriving.
-                                    They never reach our signaling server. On a relayed transfer they
-                                    pass through the relay in the same encrypted stream as the file
-                                    data, which the relay cannot read.
+                                    File names never reach our signaling server, and the only size it
+                                    is ever told is the byte total in the next row. On a relayed
+                                    transfer they pass through the relay in the same encrypted stream
+                                    as the file data, which the relay cannot read.
                                 </p>
                             ),
                         },
@@ -211,19 +223,24 @@ export default function PrivacyPolicy() {
                             term: 'IP addresses',
                             body: (
                                 <p>
-                                    Our signaling server keeps your IP address in memory only long
-                                    enough to rate-limit abuse (at most about two minutes after your
-                                    last request), and the server itself writes no log of it. Like all
-                                    web servers, the reverse proxy in front of it and the providers
-                                    that host us may log connection request IP addresses for security
-                                    and abuse prevention. We do not link any of this to your identity.
-                                    To hold each network to 20 new request links a day, the server
-                                    keeps the times of new links for 24 hours under a keyed hash of the
-                                    address, never the address itself, and under the same hash it
-                                    counts the links each network has open, to hold it to 10 at a
-                                    time. Who else sees your IP address,
-                                    and how to hide it from the other person, is under How the transfer
-                                    works.
+                                    Our signaling server holds your IP address in memory while your
+                                    app is connected to it and, to rate-limit abuse, for at most about
+                                    two minutes after your last request, and the server itself writes
+                                    no log of it. Like all web servers, the reverse proxy in front of
+                                    it and the providers that host us may log connection request IP
+                                    addresses for security and abuse prevention. We do not link any of
+                                    this to your identity. While a room made by a share link or a code
+                                    is open, the server also keeps a keyed hash of the network address
+                                    (an IPv4 address in full, an IPv6 address by its /64 prefix) of
+                                    each device that has sent connection messages through that room,
+                                    never the address itself and in memory only, so that a device on a
+                                    third network cannot take a seat in it; the hashes are deleted with
+                                    the room. To hold each network to 20 new request links a day, the
+                                    server keeps the times of new links for 24 hours under a keyed
+                                    hash of the address, never the address itself, and under the same
+                                    hash it counts the links each network has open, to hold it to 10
+                                    at a time. Who else sees your IP address, and how to hide it from
+                                    the other person, is under How the transfer works.
                                 </p>
                             ),
                         },
@@ -275,13 +292,15 @@ export default function PrivacyPolicy() {
                     the room to be paired with your peer, and, for a transfer started from the CLI or
                     Floe Desktop, when it registers the three-word code that stands in for the link.
                     Both are held in memory only: the room is dropped when the last device leaves it,
-                    and a code&apos;s mapping to its room id expires ten minutes after the code was
-                    made. Neither is written to a log.
+                    and a code&apos;s mapping to its room id is dropped when the receiver joins or the
+                    room closes, and about ten minutes after the code was made at the latest. Neither
+                    is written to a log.
                 </p>
                 <p>
                     A request link looks like <InlineCode>floe.one/r/&lt;link id&gt;#&lt;key&gt;</InlineCode>
-                    . The key after the <InlineCode>#</InlineCode> works like a share link&apos;s room
-                    id and stays out of logs the same way. The link id before it is part of the page
+                    . The key after the <InlineCode>#</InlineCode> is the link&apos;s room id: it works
+                    like a share link&apos;s and stays out of logs the same way. The link id before
+                    it is part of the page
                     address, so Vercel&apos;s request logs see it; it names one link without the key, so
                     a report or a block can point at that one link, and our signaling server never
                     receives it. Our analytics script does not load on a request link&apos;s page at
@@ -321,9 +340,10 @@ export default function PrivacyPolicy() {
                 </p>
                 <p>
                     Before connecting, your app fetches relay credentials from our signaling server.
-                    On floe.one these are one shared credential set, minted from Cloudflare and valid
-                    for 24 hours, served to every client until we refresh it. They are not tied to
-                    you, your device, or an account.
+                    On floe.one the server mints a new credential set from Cloudflare every few
+                    minutes, each valid for 24 hours, and hands the same set to every client that asks
+                    until the next one is minted. They are not tied to you, your device, or an
+                    account.
                 </p>
                 <p>
                     The relay is a hop both devices connect to, so Cloudflare sees both IP addresses
@@ -339,16 +359,19 @@ export default function PrivacyPolicy() {
             <LegalSection id="errors" index={sectionIndex(toc, 'errors')} title="Error monitoring">
                 <p>
                     The <strong>web app</strong> uses Sentry to monitor application errors and a 10%
-                    sample of page performance traces. This applies to the floe.one website only; the
-                    desktop app and the CLI contain no error monitoring. Sentry is configured to attach
-                    no cookies and no IP address to what it sends; each report does carry the page
-                    address, your browser&apos;s user agent, and the page that referred you. It may
-                    capture:
+                    sample of page performance traces. Each page you open also sends Sentry a session
+                    record: a random session id, the time, the session&apos;s status and error count,
+                    the site&apos;s build version and environment name, and your browser&apos;s user
+                    agent, with no page address. This applies to the floe.one website only; the desktop
+                    app and the CLI contain no error monitoring. Sentry is configured to attach no
+                    cookies and no IP address to what it sends; each error report and trace does carry
+                    the page address, your browser&apos;s user agent, and the page that referred you. It
+                    may capture:
                 </p>
                 <LegalList
                     items={[
                         'Error stack traces and browser metadata (browser version, OS, device type, approximate device memory, language, and time zone)',
-                        'Connection type (direct or relay), transfer progress, file count, and total size at the time of an error',
+                        'Connection type (direct or relay), whether relay fallback was on, transfer progress, file count, and total size at the time of an error',
                     ]}
                 />
                 <p>
@@ -375,7 +398,7 @@ export default function PrivacyPolicy() {
                 </p>
                 <LegalList
                     items={[
-                        'Transfer outcomes: for a completed transfer, the number of files, the total size in bytes, whether you were sending or receiving, and whether the connection was direct or relayed; for a failure, your role, one of five fixed labels (for example "ice-failed"), and, when you were sending, the file count and total size',
+                        'Transfer outcomes: for a completed transfer, the number of files, the total size in bytes, whether you were sending or receiving, and whether the connection was direct or relayed; for a failure, your role, one of eight fixed labels (for example "ice-failed" or "out-of-memory"), and, when you were sending, the file count and total size',
                         "Which download button you clicked on the download page, the homepage, or the navigation bar, and, when Floe opens inside another app's built-in browser (such as Facebook or Instagram), the name of that app and whether it was Android or iOS",
                         'Standard page view data: the page path, referring site, browser, operating system, device type, screen size, language, and approximate location (country, region, and city), derived from your IP address by Umami, which does not store the address',
                     ]}
@@ -474,7 +497,10 @@ export default function PrivacyPolicy() {
                             body: (
                                 <p>
                                     Received files are written to the folder you choose (your Downloads
-                                    folder by default). Nothing is uploaded anywhere.
+                                    folder by default). A drop through a request link goes into a new
+                                    folder of its own inside the folder you choose for that link (a
+                                    Floe folder inside Downloads by default). Nothing is uploaded
+                                    anywhere.
                                 </p>
                             ),
                         },
@@ -635,9 +661,10 @@ export default function PrivacyPolicy() {
                     as encrypted packets it cannot read. We cannot see, store, or remove files that
                     users send to each other. What we can do in response to a report is limited, and
                     we would rather say so plainly. Our signaling server keeps no record of who joined
-                    which room, and the relay credentials it hands out are shared by every client
-                    rather than issued per person, so we cannot identify a particular sender after the
-                    fact or cut off their relay access alone. Per-address rate limits apply to everyone
+                    which room once that room has closed, and the relay credentials it hands out are
+                    shared by everyone who asks within the same few minutes rather than issued per
+                    person, so we cannot identify a particular sender after the fact or cut off their
+                    relay access alone. Per-address rate limits and a few fixed caps apply to everyone
                     automatically, and that is the extent of what the service does on its own.
                 </p>
                 <p>

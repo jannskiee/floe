@@ -99,7 +99,7 @@ function Variant({ g, className }: { g: RouteGeometry; className: string }) {
                     <i className="h-1.5 w-1.5 rounded-full bg-green-500" />
                     Direct
                     <span className="max-[768px]:hidden text-zinc-500">·</span>
-                    <span className="max-[768px]:hidden text-zinc-400">No size limit</span>
+                    <span className="max-[768px]:hidden text-zinc-400">No size limit from Floe</span>
                 </span>
                 <span
                     className="hiw-lbl-relay absolute flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 whitespace-nowrap pl-[0.2em] text-zinc-300"
@@ -151,7 +151,7 @@ export function RouteFigure() {
                 A line runs from You to Them. Two thin spurs rise from each device and meet at the
                 signaling server above them: it introduces the two devices and then takes no further
                 part, carrying no file data itself. The direct line runs straight across, labeled
-                Direct, and carries no size limit. A
+                Direct, with no size limit from Floe. A
                 dotted second path dips through a relay and rejoins at Them, labeled Relay, and is
                 capped at {RELAY_CAP} per session.
             </figcaption>
