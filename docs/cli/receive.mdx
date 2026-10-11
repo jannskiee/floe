@@ -198,8 +198,8 @@ no report is sent. See [Opting out of the global counter](/cli/flags#opting-out-
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--output <dir>`, `-o` | `.` (current directory) | Directory to save received files. Created if it does not exist, before Floe connects, so a receive that then fails can leave an empty directory behind. |
-| `--yes`, `-y` | `false` | Accept incoming files without the confirmation prompt. |
+| `--output <dir>`<br />`-o` | `.` (current directory) | Directory to save received files. Created if it does not exist, before Floe connects, so a receive that then fails can leave an empty directory behind. |
+| `--yes`<br />`-y` | `false` | Accept incoming files without the confirmation prompt. |
 | `--no-report` | `false` | Do not report the transferred byte count to Floe's public global counter. Set `FLOE_NO_STATS=1` to opt out permanently. |
 
 See [CLI flags reference](/cli/flags) for the global flags that matter here (`--server`, `--no-relay`, `--relay-only`, `--iface`).
