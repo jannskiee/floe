@@ -1,8 +1,12 @@
 import { Progress } from '@/components/ui/progress';
+import { sendProgressLabel, type SendEnd } from '@/lib/sendSummary';
 
 interface TransferProgressBarProps {
     isSender: boolean;
+    /** The receiver's own status sentence. A sender's label never reads it. */
     status: string;
+    /** How the send ended. Only read on a sender. */
+    sendEnd: SendEnd;
     currentFileIndex: number;
     filesCount: number;
     transferSpeed: string;
@@ -18,6 +22,7 @@ interface TransferProgressBarProps {
 export function TransferProgressBar({
     isSender,
     status,
+    sendEnd,
     currentFileIndex,
     filesCount,
     transferSpeed,
@@ -30,15 +35,13 @@ export function TransferProgressBar({
                 <span>
                     {/* A refusal that lands after the last byte leaves this row
                         on screen, and "Sending file X of N..." would then be a
-                        false claim about a transfer that stopped. The failed
-                        status drops the label rather than inventing a new
-                        string; the banner above already says what happened. */}
+                        false claim about a transfer that stopped. A failed send
+                        drops the label rather than inventing a new string; the
+                        banner above already says what happened. The sender's
+                        words come from how the send ended, not from the status
+                        sentence: see lib/sendSummary.ts. */}
                     {isSender
-                        ? status === 'All Files Sent!'
-                            ? `Sent ${filesCount} ${filesCount === 1 ? 'file' : 'files'}`
-                            : status === 'Transfer failed'
-                                ? ''
-                                : `Sending file ${currentFileIndex + 1} of ${filesCount}...`
+                        ? sendProgressLabel({ end: sendEnd, currentFileIndex, filesCount })
                         : status.includes('Receiving') || status.includes('Verifying')
                             ? status
                             : 'Receiving...'}

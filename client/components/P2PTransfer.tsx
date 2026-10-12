@@ -41,6 +41,7 @@ import {decideReceiverClose} from '@/lib/receiverClose';
 import {describeSenderStop, senderCloseInterrupted} from '@/lib/senderStop';
 import {verifiedLine, VERIFIED_LINE} from '@/lib/verifiedLine';
 import {receiveSummary} from '@/lib/receiveSummary';
+import type {SendEnd} from '@/lib/sendSummary';
 import {INITIAL_SEAT, seatStep, type SeatEvent} from '@/lib/roomSeat';
 import {REJOIN_FAILED_STATUS, REJOINING_STATUS, rejoinAllowed, rejoinDelay, statusOnceSeated} from '@/lib/rejoinRetry';
 import {peerDisconnectAction, teardownClaimsClose} from '@/lib/peerDisconnect';
@@ -91,6 +92,12 @@ export function P2PTransfer() {
     // The sender's own record of the receiver's delivery report, reduced to a
     // boolean in the callback. The count itself never reaches a render.
     const [allVerified, setAllVerified] = useState(false);
+    // How this page's send ended, for the file rows and the progress row.
+    // A fact latched where the send engine reports it, never read back from
+    // the status sentence, which three handlers rewrite after a finished send
+    // (lib/sendSummary.ts). Every write below is tied to the peer it is
+    // about: a session that was replaced must not mark the one that replaced it.
+    const [sendEnd, setSendEnd] = useState<SendEnd>('open');
     // The file count the sender announced. expectedFilesRef holds the same
     // number but is a ref, so it does not re-render the success line.
     const [expectedFiles, setExpectedFiles] = useState(0);
@@ -944,6 +951,12 @@ export function P2PTransfer() {
             // to be down before the next peer can set it.
             wireReasonRef.current = false;
             setAllVerified(false);
+            // A new recipient is a new send. Without this the rows kept the
+            // last send's marks, and its last row spun at 100% for the two
+            // seconds before the first file starts.
+            setSendEnd('open');
+            setCurrentFileIndex(0);
+            setProgress(0);
             setStatus('Peer joined. Starting transfer');
             requestWakeLock();
 
@@ -1079,6 +1092,8 @@ export function P2PTransfer() {
                 ) {
                     setError((prev) => prev || 'The connection closed before the transfer finished.');
                     setStatus('Connection interrupted');
+                    // The file that was moving stops spinning.
+                    if (peerRef.current === peer) setSendEnd((end) => (end === 'open' ? 'failed' : end));
                 }
             });
             peer.on('error', (err) => {
@@ -1088,6 +1103,10 @@ export function P2PTransfer() {
                 if (wireReasonRef.current) return;
                 if (transferCompleteRef.current || progressRef.current > 0) {
                     setStatus('Connection interrupted');
+                    // A send that was still open stops here. One that was
+                    // delivered stays delivered: every file had left this
+                    // browser before the connection went.
+                    if (peerRef.current === peer) setSendEnd((end) => (end === 'open' ? 'failed' : end));
                     return;
                 }
 
@@ -1172,13 +1191,18 @@ export function P2PTransfer() {
                     setTransferSpeed('');
                     setEstimatedTime('');
                 },
+                // Also how a refusal that arrives after the last byte is
+                // reported (onStopped follows it in the same tick), so this
+                // is where a delivered send becomes a failed one.
                 onError: (msg) => {
                     setError(msg);
                     setStatus('Transfer failed');
+                    if (peerRef.current === peer) setSendEnd('failed');
                 },
                 onAllSent: () => {
                     setStatus('All Files Sent!');
                     setProgress(100);
+                    if (peerRef.current === peer) setSendEnd('delivered');
                     transferCompleteRef.current = true;
                     releaseWakeLock();
                     track('transfer-complete', {
@@ -1304,6 +1328,7 @@ export function P2PTransfer() {
                                 <TransferProgressBar
                                     isSender={isSender}
                                     status={status}
+                                    sendEnd={sendEnd}
                                     currentFileIndex={currentFileIndex}
                                     filesCount={files.length}
                                     transferSpeed={transferSpeed}
@@ -1413,7 +1438,7 @@ export function P2PTransfer() {
                                             currentFileIndex={currentFileIndex}
                                             progress={progress}
                                             filesLocked={filesLocked}
-                                            status={status}
+                                            sendEnd={sendEnd}
                                             onDeleteFile={handleDeleteFile}
                                             listRef={fileListRef}
                                         />

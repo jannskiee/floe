@@ -3,6 +3,7 @@ import { CheckCircle2, Loader2, X } from 'lucide-react';
 import { FileIcon } from '@/components/FileIcon';
 import { formatBytes } from '@/lib/utils';
 import { fileListScrolls } from '@/lib/fileListScroll';
+import { sendRowMark, type SendEnd } from '@/lib/sendSummary';
 import type { FileWithId } from '@/hooks/useFileManagement';
 
 interface SelectedFilesListProps {
@@ -10,7 +11,7 @@ interface SelectedFilesListProps {
     currentFileIndex: number;
     progress: number;
     filesLocked: boolean;
-    status: string;
+    sendEnd: SendEnd;
     onDeleteFile: (id: string) => void;
     listRef: RefObject<HTMLDivElement | null>;
 }
@@ -19,15 +20,16 @@ interface SelectedFilesListProps {
  * Sender-side scrollable list of the files queued for transfer. While the set
  * is still editable each row has a delete button; once it is sealed (Create
  * clicked) it shows a
- * per-file checkmark or spinner. Purely presentational; the file state and the
- * scroll ref live in P2PTransfer.
+ * per-file checkmark or spinner, decided by lib/sendSummary.ts from how the
+ * send ended and never from the status sentence. Purely presentational; the
+ * file state and the scroll ref live in P2PTransfer.
  */
 export function SelectedFilesList({
     files,
     currentFileIndex,
     progress,
     filesLocked,
-    status,
+    sendEnd,
     onDeleteFile,
     listRef,
 }: SelectedFilesListProps) {
@@ -35,6 +37,7 @@ export function SelectedFilesList({
     const listClass = fileListScrolls(files.length)
         ? 'space-y-3 max-h-[300px] overflow-y-auto pr-1 pb-1 custom-scrollbar'
         : 'space-y-3 pb-1';
+    const marks = files.map((_, index) => sendRowMark({ index, currentFileIndex, progress, end: sendEnd }));
     return (
         <div
             ref={listRef}
@@ -77,14 +80,9 @@ export function SelectedFilesList({
                             >
                                 <X className="h-4 w-4" strokeWidth={3} />
                             </button>
-                        ) : i <
-                            currentFileIndex ||
-                            status ===
-                            'All Files Sent!' ? (
+                        ) : marks[i] === 'sent' ? (
                             <CheckCircle2 className="h-4 w-4 text-green-500" />
-                        ) : i ===
-                            currentFileIndex &&
-                            progress > 0 ? (
+                        ) : marks[i] === 'sending' ? (
                             <Loader2 className="h-4 w-4 animate-spin text-white" />
                         ) : null}
                     </div>
