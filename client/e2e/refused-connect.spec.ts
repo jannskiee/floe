@@ -145,3 +145,40 @@ test('a sender whose reconnect is refused joins its room again exactly once', as
         await ctx.close();
     }
 });
+
+test('an incomplete link keeps its Link Invalid card through a reconnect and a refusal', async ({ browser }) => {
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    const card = page.getByRole('heading', { name: 'Link Invalid' });
+
+    try {
+        const wire = await onTheWire(page);
+        // The page never joins a room for this link, so nothing is coming to
+        // replace the card: it has to survive whatever the socket does.
+        await page.goto('/#room=not-a-valid-uuid');
+        await expect(card).toBeVisible();
+        await expect(page.getByText('Ready', { exact: true })).toBeVisible({ timeout: 15_000 });
+
+        // A plain blip. The reconnect handler used to clear the card here.
+        await ctx.setOffline(true);
+        await expect(page.getByText('Offline', { exact: true })).toBeVisible({ timeout: 15_000 });
+        await ctx.setOffline(false);
+        await expect(page.getByText('Ready', { exact: true })).toBeVisible({ timeout: 20_000 });
+        await expect(card, 'the card was lost to a reconnect').toBeVisible();
+        await expect(page.getByText('Secure room joined')).toHaveCount(0);
+
+        // And a reconnect the server refuses, then admits.
+        wire.refuseNextConnect();
+        await ctx.setOffline(true);
+        await expect(page.getByText('Offline', { exact: true })).toBeVisible({ timeout: 15_000 });
+        await ctx.setOffline(false);
+        await expect.poll(() => wire.refused(), { timeout: 30_000 }).toBe(1);
+        await expect(page.getByText('Ready', { exact: true })).toBeVisible({ timeout: 20_000 });
+        await expect(card, 'the card was lost to a refused reconnect').toBeVisible();
+        // The banner never took the card's place, and no join went out.
+        await expect(page.getByText(BANNER)).toHaveCount(0);
+        expect(eventFrames(wire.sentSinceArmed(), 'join-room')).toHaveLength(0);
+    } finally {
+        await ctx.close();
+    }
+});

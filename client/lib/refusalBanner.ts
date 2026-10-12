@@ -26,3 +26,14 @@ export function withRefusalBanner(current: string): string {
 export function withoutRefusalBanner(current: string): string {
     return current === REFUSAL_BANNER ? '' : current;
 }
+
+/** What a reconnect leaves of the banner state. It clears it, as it always
+ *  has: a new socket is a new attempt, and a message about the last one must
+ *  not sit over it. The exception is the Link Invalid card's value on a page
+ *  with no room to go back to (an incomplete link never joins one). Nothing
+ *  is coming to replace that card, and with it cleared the page read "Secure
+ *  room joined" over a room it was never in. A receiver that does hold a room
+ *  is about to join it again, so its card goes, as before. */
+export function afterReconnect(current: string, rejoining: boolean): string {
+    return current.includes('Link Expired') && !rejoining ? current : '';
+}
