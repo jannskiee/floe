@@ -47,7 +47,7 @@ export const FAQSection = () => {
             <div className="mt-10 max-w-3xl border-t border-white/[0.06]">
                 <FAQItem
                     question="What is Floe?"
-                    answer="Floe is a free file-sharing tool that lets you send files directly to another person, with no sign-up and no files stored on any server. There is nothing to install: it runs right in your browser, with an optional desktop app and CLI if you want them. Think of it like handing a USB drive to someone, but over the internet. Floe sets no size limit on a direct connection, though a receiving browser can only hold so much; relay connections are capped at 2 GB per session."
+                    answer="Floe is a free file-sharing tool that lets you send files directly to another person, with no sign-up and no files stored on any server. There is nothing to install: it runs right in your browser, with an optional desktop app and CLI if you want them. Think of it like handing a USB drive to someone, but over the internet. Floe sets no size limit on a direct connection, though a receiving browser can only hold so much; relay connections are capped at 2&nbsp;GB per session."
                 />
                 <FAQItem
                     question="What does 'Peer-to-Peer' (P2P) mean?"
@@ -85,7 +85,16 @@ export const FAQSection = () => {
                 />
                 <FAQItem
                     question="Can I use Floe from the terminal?"
-                    answer="Yes. The floe CLI installs as a single binary and talks to the same infrastructure as the web app, so browser-to-terminal transfers work in every direction. Run floe send with a file or folder and share what it prints: the link opens in a browser, and the link or the code works with floe receive and in Floe Desktop."
+                    answer={
+                        <p>
+                            Yes. The floe CLI installs as a single binary and talks to the same
+                            infrastructure as the web app, so browser-to-terminal transfers work in every
+                            direction. Run <code className={ANSWER_CODE}>floe send</code> with a file or
+                            folder and share what it prints: the link opens in a browser, and the link or
+                            the code works with <code className={ANSWER_CODE}>floe receive</code> and in
+                            Floe Desktop.
+                        </p>
+                    }
                 />
                 <FAQItem
                     question="Is there a desktop app?"
