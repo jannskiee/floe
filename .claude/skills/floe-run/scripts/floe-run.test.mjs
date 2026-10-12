@@ -323,6 +323,11 @@ async function stack(name, flags, env) {
 
 let ON;
 let OFF;
+// No switch, but a POLICY_FILE the session already carried: what a
+// POLICY_FILE line in server/.env does to a real server, which the script
+// cannot see and does not clear.
+let ENV_ON;
+let OWN_POLICY;
 
 before(async () => {
     BASE = fs.mkdtempSync(path.join(os.tmpdir(), 'floe-run-test-'));
@@ -347,9 +352,12 @@ before(async () => {
         FLOE_LOCAL_TURN_DOMAIN: DOMAIN,
         FLOE_LOCAL_TURN_SECRET: SECRET,
     };
-    [ON, OFF] = await Promise.all([
+    OWN_POLICY = path.join(freshDir('own-policy'), 'policy.json');
+    fs.writeFileSync(OWN_POLICY, '{"requestLinks":true}\n');
+    [ON, OFF, ENV_ON] = await Promise.all([
         stack('on', ['--relaxed', '--request-links', '--local-turn'], local),
         stack('off', ['--relaxed'], local),
+        stack('env-on', [], { POLICY_FILE: OWN_POLICY }),
     ]);
 });
 
@@ -545,6 +553,107 @@ describe('floe-run start switches', () => {
             assert.deepEqual(report.features, features);
             assert.equal(report.turn, turn);
             assert.equal(report.totalBytes, 0);
+        }
+    });
+
+    test('READY and check say request links on or off, read from /health', () => {
+        for (const [run, word, flag] of [
+            [ON, 'on', true],
+            [OFF, 'off', false],
+        ]) {
+            assert.match(
+                run.start.stdout,
+                new RegExp(`^request links: ${word}$`, 'm'),
+                run.start.stdout
+            );
+            assert.ok(
+                run.check.stdout
+                    .split(/\r?\n/)
+                    .includes(`request links: ${word}`),
+                run.check.stdout
+            );
+            assert.equal(JSON.parse(run.checkJson.stdout).requestLinks, flag);
+        }
+    });
+
+    test('request links turned on by a POLICY_FILE the switch did not set read as on, and READY says so', () => {
+        assert.match(ENV_ON.start.stdout, /^READY$/m, ENV_ON.start.stderr);
+        // The switch was off, so the script wrote no policy file of its own.
+        assert.equal(ENV_ON.env.POLICY_FILE, OWN_POLICY);
+        assert.equal(
+            fs.existsSync(path.join(ENV_ON.dir, 'floe-run-policy.json')),
+            false
+        );
+        assert.match(ENV_ON.start.stdout, /^features: \["request-1"\]$/m);
+        assert.match(
+            ENV_ON.start.stdout,
+            /^request links: on \(not from --request-links: a POLICY_FILE in the environment or in server\/\.env turned them on\)$/m
+        );
+        assert.ok(
+            ENV_ON.check.stdout.split(/\r?\n/).includes('request links: on'),
+            ENV_ON.check.stdout
+        );
+        assert.equal(JSON.parse(ENV_ON.checkJson.stdout).requestLinks, true);
+        // stop deletes the file the switch writes, never one it was handed.
+        assert.equal(ENV_ON.stop.code, 0, ENV_ON.stop.stderr);
+        assert.deepEqual(JSON.parse(readText(OWN_POLICY)), {
+            requestLinks: true,
+        });
+    });
+
+    test('with request links on, READY prints the visitor line and both ways to host a link', () => {
+        const visitor =
+            '     floe send <files> --to "<link>" --server http://localhost:3001';
+        const desktop =
+            'link host: Floe Desktop with Server address set to exactly http://localhost:3001';
+        const windowless =
+            'go run ./internal/e2ehost request -out <folder> -timeout 30m';
+        for (const run of [ON, ENV_ON]) {
+            const out = run.start.stdout;
+            assert.ok(
+                out.split(/\r?\n/).some((l) => l.startsWith(visitor)),
+                out
+            );
+            assert.ok(out.includes(desktop), out);
+            assert.ok(out.includes(windowless), out);
+        }
+        // Off: none of it, so nobody is sent to make a link the server refuses.
+        assert.ok(
+            !OFF.start.stdout.includes('--to "<link>"'),
+            OFF.start.stdout
+        );
+        assert.ok(!OFF.start.stdout.includes('link host:'), OFF.start.stdout);
+        assert.ok(!OFF.start.stdout.includes('e2ehost'), OFF.start.stdout);
+    });
+
+    test('the READY block still reads the way the transfer-audit skill parses it', () => {
+        // transfer-audit's parseReady takes the FIRST line that starts with
+        // each of these keys and ends the block at "stop: ". A new READY line
+        // that began with one of them would be read in place of the real one.
+        for (const run of [ON, OFF, ENV_ON]) {
+            const lines = run.start.stdout.split(/\r?\n/);
+            const block = lines.slice(lines.indexOf('READY') + 1);
+            for (const key of [
+                'stats',
+                'server',
+                'web',
+                'limiters',
+                'pidfile',
+            ]) {
+                assert.equal(
+                    block.filter((l) => l.startsWith(`${key}:`)).length,
+                    1,
+                    `${key}: ${run.start.stdout}`
+                );
+            }
+            const stops = block.filter((l) => /^stop: /.test(l));
+            assert.equal(stops.length, 1, run.start.stdout);
+            assert.match(
+                block.find((l) => l.startsWith('limiters:')),
+                run === ENV_ON
+                    ? /^limiters: server defaults$/
+                    : /^limiters: relaxed to 1000\/min per IP/
+            );
         }
     });
 

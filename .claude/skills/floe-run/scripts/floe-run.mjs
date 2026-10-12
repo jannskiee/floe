@@ -36,7 +36,12 @@
  * it to nothing else: no other child, file, pidfile or printed line. Both
  * report through READY and check: `features` is what /health lists, and
  * `turn` is one word decided from the URL schemes of /api/turn-credentials,
- * whose body carries live credentials and is never printed.
+ * whose body carries live credentials and is never printed. `request links`
+ * is `on` or `off` from that same /health list, because the switch is not the
+ * only way on: a POLICY_FILE in the launching environment or in server/.env
+ * reaches the server too, and this script neither reads that file nor clears
+ * the variable. When they are on, READY also prints how to send to a link
+ * and the two ways to host one locally.
  *
  * Modes: start [--client] [--relaxed] [--request-links] [--local-turn] |
  * check [--json] | stop
@@ -168,6 +173,25 @@ function describeFeatures(features, flags) {
     return flags.requestLinks && !features.includes('request-1')
         ? `${text} (--request-links is set, but this server does not list request-1)`
         : text;
+}
+
+// Whether a client pointed at this server will be offered request links: the
+// one word READY and check print, read from /health and never from the
+// switch. The switch is not the only way on: start spreads its environment
+// into the server and dotenv fills in the rest, so a POLICY_FILE the session
+// carries, or one named in server/.env, turns them on with the switch off.
+// null when /health gave no list.
+function requestLinksOn(features) {
+    return features ? features.includes('request-1') : null;
+}
+
+function describeRequestLinks(features, flags) {
+    const on = requestLinksOn(features);
+    if (on === null) return 'unreadable (/health did not answer with JSON)';
+    if (on && flags.requestLinks === false) {
+        return 'on (not from --request-links: a POLICY_FILE in the environment or in server/.env turned them on)';
+    }
+    return on ? 'on' : 'off';
 }
 
 function describeTurn(turn, flags) {
@@ -606,6 +630,7 @@ async function start(flags) {
         `server: ${SERVER_URL}  (/health, /api/stats, /api/turn-credentials)`
     );
     console.log(`features: ${describeFeatures(features, flags)}`);
+    console.log(`request links: ${describeRequestLinks(features, flags)}`);
     console.log(`turn: ${describeTurn(turn, flags)}`);
     if (children.client) {
         console.log(
@@ -618,8 +643,23 @@ async function start(flags) {
         `cli: floe send <file> --server ${SERVER_URL} --web ${CLIENT_URL}`
     );
     console.log(`     floe receive <code> --server ${SERVER_URL}`);
+    if (requestLinksOn(features)) {
+        // A local link's host is not floe.one, and floe send --to ends before
+        // any network call for such a link unless a server is chosen.
+        console.log(
+            `     floe send <files> --to "<link>" --server ${SERVER_URL}  (a request link; a local link needs --server or FLOE_SERVER)`
+        );
+        // Exactly this address: it is the one the app maps to the web app on
+        // :3000. Any other spelling (127.0.0.1) makes a link to the server.
+        console.log(
+            `link host: Floe Desktop with Server address set to exactly ${SERVER_URL} (Settings, Advanced), then Receive, Request link, Make link`
+        );
+        console.log(
+            '           or with no window, from cli/: go run ./internal/e2ehost request -out <folder> -timeout 30m  (the "link" event carries the link; it accepts without asking)'
+        );
+    }
     console.log(
-        `limiters: ${flags.relaxed ? 'relaxed to 1000/min per IP' : 'server defaults'}`
+        `limiters: ${flags.relaxed ? 'relaxed to 1000/min per IP (connections, room codes, TURN; the request-link limits are fixed in the server)' : 'server defaults'}`
     );
     console.log(`pidfile: ${PIDFILE} (wrapper pid ${process.pid})`);
     console.log(`stop: ${SELF} stop`);
@@ -664,6 +704,7 @@ async function check(flags) {
             healthy,
             totalBytes,
             features,
+            requestLinks: requestLinksOn(features),
             turn,
             clientBound,
             owned: own.owned,
@@ -689,6 +730,7 @@ async function check(flags) {
         );
         if (serverBound) {
             console.log(`features: ${describeFeatures(features, {})}`);
+            console.log(`request links: ${describeRequestLinks(features, {})}`);
             console.log(`turn: ${describeTurn(turn, {})}`);
         }
         const clientPid =
