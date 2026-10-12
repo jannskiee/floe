@@ -20,6 +20,11 @@
  * those (and none of fileName, fileSize, totalBytes, ver, reason or the message
  * struct names) would be invisible to this check.
  *
+ * Scope limitation, also on purpose: only `.go`, `.ts` and `.tsx` under the
+ * roots in scanFiles are read. client/app, server/ (JavaScript) and client/e2e
+ * are never scanned, so a peer value that reached one of them would need a
+ * hand-written row and gets no staleness check from here.
+ *
  * Anchors are substring matches. A second pass warns (never fails) when an
  * anchor is found only inside a longer identifier, so a row pinned to
  * `byteCount` that really matched `byteCountTotal` is visible; prefer the
@@ -65,6 +70,9 @@ export const FIELDS = {
             'parseReceived',
             'parseAckConfirms',
             'FileDone',
+            // The protocol range every metadata, ack and incompatible carries.
+            'Pv',
+            'PvMin',
         ],
         // Code and Saved are the optional incompatible fields; both words are
         // too common to search for bare ("Saved to" is a receiver print).
@@ -90,7 +98,12 @@ export const FIELDS = {
             'verifiedCountOf',
             'ackConfirmsOf',
         ],
-        member: ['ver', 'reason', 'code', 'saved', 'sha256', 'verified', 'confirms'],
+        // pv and pvMin are member tokens although the names are wire-unique:
+        // as bare words they match three tests that build frames by hand, which
+        // would be three more unmapped-test warnings for no new consumer.
+        // role is the signaling server's room-joined answer, not a
+        // data-channel field; the browser compares it (lib/roomSeat.ts).
+        member: ['ver', 'reason', 'code', 'saved', 'sha256', 'verified', 'confirms', 'pv', 'pvMin', 'role'],
     },
 };
 // Files the map keeps although no token appears in them, for either of two
@@ -113,6 +126,14 @@ export const FIELDS = {
 // desktop/frontend/src/components/Toasts.tsx is the second kind too: its one
 // row records that the Request link notice (RequestNotice) shows only the
 // constant N1 and N2 strings, never a label, count, size or name.
+//
+// The five client files at the end are the first kind, on the /r page and the
+// browser's signaling: visitorCopy.ts takes the host's refusal code, saved
+// count and verified count as `refusal`, `savedCount` and `verifiedCount`, and
+// RequestStatus.tsx renders the card it builds; requestLink.ts and report.ts
+// read the request link, which the other party wrote, as `pathname`, `hash`
+// and `linkId`; useSignaling.ts hands the server's answers and the relayed
+// signal to its callbacks unread.
 export const TOKEN_FREE = new Set([
     'desktop/frontend/src/errors.ts',
     'desktop/frontend/src/history.ts',
@@ -124,6 +145,11 @@ export const TOKEN_FREE = new Set([
     'desktop/app.go',
     'desktop/toast_windows.go',
     'desktop/toast_other.go',
+    'client/lib/request/visitorCopy.ts',
+    'client/components/request/RequestStatus.tsx',
+    'client/lib/request/requestLink.ts',
+    'client/lib/request/report.ts',
+    'client/hooks/useSignaling.ts',
 ]);
 const tokenRegex = (f) =>
     new RegExp(`\\b(${f.word.join('|')})\\b|\\.(${f.member.join('|')})\\b`);
