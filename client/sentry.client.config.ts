@@ -26,9 +26,10 @@ Sentry.init({
     // No session record. The SDK's default set includes an integration that
     // tells Sentry about every page load and route change, error or not, for
     // its Release Health screens, which Floe does not use. The privacy page
-    // says no such record is sent, so this line and that sentence move
-    // together. The function form on purpose: an array is added to the
-    // defaults and could not remove one. See lib/sentryIntegrations.ts.
+    // lists what Sentry is sent and names no such record, so this line and
+    // that list move together. The function form on purpose: an array is
+    // added to the defaults and could not remove one. See
+    // lib/sentryIntegrations.ts.
     integrations: withoutBrowserSession,
 
     // Filter out non-actionable errors caused by browser extensions and

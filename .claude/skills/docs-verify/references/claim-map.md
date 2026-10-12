@@ -104,7 +104,7 @@ The map names where a value is stated; grep the old literal repo-wide before fin
 
 ## Error monitoring (the web client)
 
-- client/sentry.client.config.ts: `sendDefaultPii: false`, `tracesSampler` (client/lib/traceSampling.ts), the scrubbing hooks (client/lib/scrubUrl.ts), and no Replay integration (the comment there says why it must never come back). The file sets no `integrations`, so the SDK's defaults run, `browserSessionIntegration` among them: that is the session record the privacy text describes.
+- client/sentry.client.config.ts: `sendDefaultPii: false`, `tracesSampler` (client/lib/traceSampling.ts), the scrubbing hooks (client/lib/scrubUrl.ts, which cover the page address and the `Referer` header), `integrations: withoutBrowserSession` (client/lib/sentryIntegrations.ts, which takes the SDK's default `BrowserSession` integration out of the set, so no session record is sent and the privacy texts must not list one), and no Replay integration (the comment there says why it must never come back).
 - Docs: client/app/privacy/page.tsx "Error monitoring", docs/security-privacy.mdx "Error monitoring and analytics". The two must list the same things as sent and as not sent.
 
 ## WebSocket origin check

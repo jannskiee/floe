@@ -35,16 +35,20 @@ describe('withoutBrowserSession', () => {
 
     // The filter matches by name, and a name is a string the SDK is free to
     // change. If it does, the filter silently stops matching and every page
-    // load sends a session record again, with the privacy page saying none is
-    // sent. This reads the name from the SDK that is actually installed, by
+    // load sends a session record again, while the privacy page lists none.
+    // This reads the name from the SDK that is actually installed, by
     // walking the dependency chain the client resolves it through.
+    //
+    // The explicit timeout is for the load itself. Requiring the SDK's
+    // CommonJS build takes under a second alone and took 7.9 s once inside the
+    // full suite on a cold disk, past vitest's 5 s default.
     it('names the session integration the installed SDK ships', () => {
         const fromHere = createRequire(import.meta.url);
         const fromNext = createRequire(fromHere.resolve('@sentry/nextjs'));
         const fromReact = createRequire(fromNext.resolve('@sentry/react'));
         const browser = fromReact('@sentry/browser') as { browserSessionIntegration: () => { name: string } };
         expect(browser.browserSessionIntegration().name).toBe(BROWSER_SESSION_INTEGRATION);
-    });
+    }, 30_000);
 
     // The config imports the SDK and cannot load here, so its wiring is read as
     // text, as traceSampling.test.ts does. The function form matters: an array
