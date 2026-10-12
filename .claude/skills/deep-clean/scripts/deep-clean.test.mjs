@@ -1041,8 +1041,14 @@ describe('DC2: the request-link default folder, Downloads/Floe under the home di
      * realpathed afterwards.
      */
     it('binds under both spellings of the home directory', () => {
-        const real = path.join(BASE, 'home-real');
-        fs.mkdirSync(path.join(real, 'Downloads'), { recursive: true });
+        const made = path.join(BASE, 'home-real');
+        fs.mkdirSync(path.join(made, 'Downloads'), { recursive: true });
+        // The real spelling is what realpath gives, not what os.tmpdir()
+        // handed out: on a GitHub Windows runner the temp directory comes as
+        // an 8.3 short name (C:\Users\RUNNER~1), a third spelling that is
+        // under neither allow root, so the fence refused it for that and the
+        // rule was never the reason (the skills job, PR #538).
+        const real = fs.realpathSync.native(made);
         const alias = tryLink(real, path.join(BASE, 'home-alias'));
         if (!alias) return; // no symlink rights here
         withHome(alias, () => {
@@ -1145,8 +1151,10 @@ describe('DC2: the request-link default folder, Downloads/Floe under the home di
     });
 
     it('Y2-2: the fallback rule binds under both spellings of the home directory', () => {
-        const real = path.join(BASE, 'home2-real');
-        fs.mkdirSync(real, { recursive: true });
+        const made = path.join(BASE, 'home2-real');
+        fs.mkdirSync(made, { recursive: true });
+        // realpath, for the reason the Downloads test above gives.
+        const real = fs.realpathSync.native(made);
         const alias = tryLink(real, path.join(BASE, 'home2-alias'));
         if (!alias) return; // no symlink rights here
         withHome(alias, () => {
