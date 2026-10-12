@@ -680,6 +680,50 @@ html:not(.dark) #content-area a.link {
   min-width: 6.5rem;
 }
 
+/* A table that scrolls sideways shows that it does.
+
+   On a phone most tables are wider than the page and scroll inside their own
+   box, and nothing said so: the scrollbar is hidden and the last column that
+   fits ends at the page edge like any other (measured on floe.one/docs at
+   390, 2026-10-12). The edge that still has more behind it now fades out.
+
+   Mintlify wraps each table in a scroll area that already knows all of this.
+   It keeps data-overflow-x-start and data-overflow-x-end on the scrolling box
+   as it is scrolled, and sets --scroll-area-fade-size on it (32 px), with no
+   rule that draws the fade. This is that rule. A mask, so it needs no
+   background color and is the same in both themes.
+
+   Only a table that overflows carries either attribute, so one that fits is
+   untouched at any width. The hook is Mintlify's markup, which it does not
+   document: if tables lose their fade, re-read the attributes on the element
+   inside [data-table-wrapper]. Nothing else depends on it. */
+#content-area [data-table-wrapper] > [data-overflow-x-end]:not([data-overflow-x-start]) {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--scroll-area-fade-size, 32px)), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - var(--scroll-area-fade-size, 32px)), transparent);
+}
+
+#content-area [data-table-wrapper] > [data-overflow-x-start]:not([data-overflow-x-end]) {
+  -webkit-mask-image: linear-gradient(to left, #000 calc(100% - var(--scroll-area-fade-size, 32px)), transparent);
+  mask-image: linear-gradient(to left, #000 calc(100% - var(--scroll-area-fade-size, 32px)), transparent);
+}
+
+#content-area [data-table-wrapper] > [data-overflow-x-start][data-overflow-x-end] {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--scroll-area-fade-size, 32px),
+    #000 calc(100% - var(--scroll-area-fade-size, 32px)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--scroll-area-fade-size, 32px),
+    #000 calc(100% - var(--scroll-area-fade-size, 32px)),
+    transparent
+  );
+}
+
 /* Inline code in running text stays whole.
 
    Mintlify sets inline code to word-break: break-word, so a chip breaks
