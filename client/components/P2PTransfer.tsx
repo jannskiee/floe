@@ -950,6 +950,16 @@ export function P2PTransfer() {
             // may be cleared: both are per peer, and the wire-reason latch has
             // to be down before the next peer can set it.
             wireReasonRef.current = false;
+            // So are these two, and they were never cleared. Once one send
+            // had finished, every later one was read through it: a second
+            // recipient who stopped mid-file and then left the room turned
+            // the status to a green "Transfer complete", where a first
+            // recipient doing the same leaves "Peer disconnected. Waiting for
+            // reconnection". The handlers that read them (the two disconnect
+            // callbacks above, onReconnect, the room-full retry, and this
+            // peer's close and error handlers) now see the send in hand.
+            transferCompleteRef.current = false;
+            progressRef.current = 0;
             setAllVerified(false);
             // A new recipient is a new send. Without this the rows kept the
             // last send's marks, and its last row spun at 100% for the two
@@ -1228,15 +1238,20 @@ export function P2PTransfer() {
                 // the receiver's count is a claim, and no number goes on screen.
                 onDelivered: ({ allVerified: ok }) => setAllVerified(ok),
                 onStopped: (stop) => {
-                    const sentence = describeSenderStop({ ...stop, files: fileList.length });
-                    if (!sentence) return;
                     // Latched for the same reason the receiver's onError is:
                     // this is the protocol's own account, and the close and
-                    // error events that follow must not talk over it. onStopped
-                    // runs after onError inside reportStop, so this overwrites
-                    // the generic wording in the same tick; every other code
-                    // keeps that wording.
+                    // error events that follow must not talk over it. For
+                    // every stop the peer reports, not only the one with a
+                    // sentence of its own below: a refusal with any other
+                    // code after the last byte left "Transfer failed" under
+                    // its banner, and the next socket drop or the peer's
+                    // leaving wrote "Transfer complete" over it.
                     wireReasonRef.current = true;
+                    const sentence = describeSenderStop({ ...stop, files: fileList.length });
+                    if (!sentence) return;
+                    // onStopped runs after onError inside reportStop, so this
+                    // overwrites the generic wording in the same tick; every
+                    // other code keeps that wording.
                     setError(sentence);
                     setStatus('Transfer failed');
                     setAllVerified(false);
