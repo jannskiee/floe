@@ -298,7 +298,7 @@ A first job, `Detect changed paths`, decides which of the jobs below run, and `C
 
 | CI job | Runs when | What it checks | Local command |
 |--------|-----------|----------------|---------------|
-| `Repo guardrails` | Every PR | That every file reading a value the other peer chose is listed in the peer-data consumer map, and the docs pre-flight: links and anchors, tables, documented server defaults, and em and en dashes | From the repository root: `node .claude/skills/untrusted-peer-data/scripts/check-consumers.mjs` and `node .claude/skills/docs-verify/scripts/docs-check.mjs all` |
+| `Repo guardrails` | Every PR | That every file reading a value the other peer chose is listed in the peer-data consumer map, and the docs pre-flight: links and anchors, tables, headings MDX cannot compile, documented server defaults, and em and en dashes | From the repository root: `node .claude/skills/untrusted-peer-data/scripts/check-consumers.mjs` and `node .claude/skills/docs-verify/scripts/docs-check.mjs all` |
 | `Build & Lint` | Code changed | Client lint, unit tests, production build and page titles, plus a check that the desktop release named in `client/lib/desktopRelease.ts` has its assets on GitHub | In `client/`: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm test`, `pnpm build`, `node scripts/check-titles.mjs` |
 | `Server (Node.js)` | Code changed | Server tests, on Node 20 | In `server/`: `npm ci`, `npm test` |
 | `CLI (Go, <os>)` | Code changed | Vet, tests and build, on Linux, Windows and macOS | In `cli/`: `go vet ./...`, `go test -count=1 ./...`, `go build ./cmd/floe` |
