@@ -2,6 +2,7 @@ import React from 'react';
 import type { Metadata } from 'next';
 import { InAppBrowserGuard } from '@/components/InAppBrowserGuard';
 import { RequestShell } from '@/components/request/RequestShell';
+import { visitorCopy } from '@/lib/request/visitorCopy';
 import { sharedOpenGraph, sharedTwitter } from '@/lib/socialMetadata';
 
 /**
@@ -86,10 +87,16 @@ export default function RequestLinkPage() {
     // what stops a page inside a webview from acting on the link at all. Its
     // copy of location.href includes the fragment; that is correct here, because
     // the fragment is the visitor's own link.
+    //
+    // The notice's last sentence is this page's own. The guard's default says
+    // "Chrome or Safari", which is right for a share link and wrong here, where
+    // the support line reads "current Chrome and Edge on a computer". The steps
+    // for leaving the app's browser stay: that is still the first move, and
+    // the page it leads to states its support under the heading.
     return (
         <>
             <style>{PAGE_CANVAS}</style>
-            <InAppBrowserGuard>
+            <InAppBrowserGuard advice={visitorCopy.inAppAdvice}>
                 <RequestShell />
             </InAppBrowserGuard>
         </>

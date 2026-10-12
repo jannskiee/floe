@@ -275,6 +275,40 @@ test.describe('request privacy', () => {
         expect(signaling).toEqual([]);
     });
 
+    test('E2E-12b an in-app browser is told what this page works in, and opens no socket', async ({ browser }) => {
+        // Facebook's browser on an iPhone, the shape lib/inAppBrowser.test.ts
+        // uses. A request link is something sent to another person, often in a
+        // chat app, so this is a likely first screen.
+        const ctx = await browser.newContext({
+            userAgent:
+                'Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [FBAN/FBIOS;FBAV/440.0.0.35.108;FBBV/542017005;FBDV/iPhone14,2;FBMD/iPhone;FBSN/iOS;FBSV/17.1;FBSS/3;FBID/phone;FBLC/en_US;FBOP/5]',
+            viewport: { width: 390, height: 844 },
+        });
+        const page = await ctx.newPage();
+        const signaling = watchSignaling(page);
+        try {
+            await page.goto(LINK);
+
+            await expect(page.getByRole('heading', { name: 'Open in your browser' })).toBeVisible();
+            await expect(page.getByText(visitorCopy.inAppAdvice)).toBeVisible();
+            // The home page's sentence names Safari, which no request link
+            // page lists as supported.
+            await expect(page.getByText(/Chrome or Safari/)).toHaveCount(0);
+            // The longer sentence still fits a phone: no sideways scroll.
+            expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+            // Withheld, not covered: nothing of the page behind is rendered.
+            await expect(page.getByText(visitorCopy.readyEyebrow)).toHaveCount(0);
+            await page.waitForTimeout(1_000);
+            expect(signaling).toEqual([]);
+
+            await page.getByRole('button', { name: /Continue anyway/ }).click();
+            await expect(page.getByText(visitorCopy.readyEyebrow)).toBeVisible();
+            await expect(page.getByText(visitorCopy.betaSupport)).toBeVisible();
+        } finally {
+            await ctx.close();
+        }
+    });
+
     test('E2E-13 incomplete link opens no socket', async ({ page }) => {
         const signaling = watchSignaling(page);
 

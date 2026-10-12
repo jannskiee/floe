@@ -330,4 +330,17 @@ describe('the /r page boundaries', () => {
         expect(anchors.map((a) => /href="([^"]*)"/.exec(a)?.[1])).toEqual(['/privacy', '/terms']);
         for (const a of anchors) expect(a, a).toContain('rel="noreferrer"');
     });
+
+    // The in-app browser notice is one component on two pages, and its advice
+    // is right for only one of them: "Chrome or Safari" suits a share link on
+    // the home page, and no request link page lists Safari. So /r hands the
+    // notice the approved row, and the notice keeps its own sentence as the
+    // default for the home page.
+    it('the in-app browser notice takes its advice from the approved copy on /r only', () => {
+        expect(read('app/r/[linkId]/page.tsx')).toContain('<InAppBrowserGuard advice={visitorCopy.inAppAdvice}>');
+        expect(read('app/page.tsx')).toContain('<InAppBrowserGuard>');
+        const guard = read('components/InAppBrowserGuard.tsx');
+        expect(guard).toContain("advice = 'Open Floe in Chrome or Safari for the best experience.'");
+        expect(guard).toContain('has limited support for file transfers. {advice}');
+    });
 });

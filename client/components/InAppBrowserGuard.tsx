@@ -8,9 +8,17 @@ import type { UmamiWindow } from '@/hooks/useTransferAnalytics';
 
 interface Props {
     children: React.ReactNode;
+    /** The notice's last sentence: where to open the page instead. The default
+     *  suits a share link, which works in any current browser. A page that
+     *  works in fewer passes its own, as /r does: "Chrome or Safari" there
+     *  sent people to a browser no request link page lists. */
+    advice?: string;
 }
 
-export function InAppBrowserGuard({ children }: Props) {
+export function InAppBrowserGuard({
+    children,
+    advice = 'Open Floe in Chrome or Safari for the best experience.',
+}: Props) {
     const [{ detectedApp, android, currentUrl, ready }, setInit] = useState<{
         detectedApp: DetectedApp | null;
         android: boolean;
@@ -98,7 +106,7 @@ export function InAppBrowserGuard({ children }: Props) {
                                     Open in your browser
                                 </h2>
                                 <p className="text-sm leading-relaxed text-zinc-400">
-                                    {appName === 'this app' ? 'This in-app browser' : `${appName}’s browser`} has limited support for file transfers. Open Floe in Chrome or Safari for the best experience.
+                                    {appName === 'this app' ? 'This in-app browser' : `${appName}’s browser`} has limited support for file transfers. {advice}
                                 </p>
                             </div>
                         </div>
