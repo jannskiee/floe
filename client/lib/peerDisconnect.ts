@@ -34,3 +34,26 @@ export interface PeerDisconnectInputs {
 export function peerDisconnectAction(inputs: PeerDisconnectInputs): PeerDisconnectAction {
     return inputs.hasPeer && inputs.peerConnected ? 'ignore' : 'teardown';
 }
+
+/**
+ * Whether the teardown may mark the peer as closed by this side, which keeps
+ * the close that follows quiet.
+ *
+ * The quiet close is for a peer that is torn down to be rebuilt: still
+ * negotiating, nothing received. Two cases must stay loud, because the close
+ * handler is what tells a receiver its transfer is over:
+ *
+ * - A peer that has already closed. Its close handler defers its answer while
+ *   a file's SHA-256 is checked, and the server's notice can land in between.
+ *   Claiming the dead peer then turned that answer silent: a receive that had
+ *   ended short stayed on "Waiting for the next file", with the connected
+ *   badge, for as long as the page was open.
+ * - A receiver that already holds a file. It does not rejoin, so nothing is
+ *   rebuilt, and the same handler has to report how far the receive got. It
+ *   does so after any pending check, which is why the teardown does not report
+ *   it itself: saying "ended" while the last file was still being checked would
+ *   show a complete transfer as cut short for as long as the check took.
+ */
+export function teardownClaimsClose(inputs: { hasPeer: boolean; peerDestroyed: boolean; receivedCount: number }): boolean {
+    return inputs.hasPeer && !inputs.peerDestroyed && inputs.receivedCount === 0;
+}

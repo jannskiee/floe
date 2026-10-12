@@ -270,6 +270,9 @@ export function createReceiver(
         partialDownloads.clear();
         currentMetadata = null;
         expectedSize = null;
+        // The verdict of the check returns early after a stop, so it never
+        // reaches its own reset.
+        clearProgress();
         cb.onError?.(message);
     }
 
@@ -527,6 +530,7 @@ export function createReceiver(
                 partialDownloads.clear();
                 currentMetadata = null;
                 expectedSize = null;
+                clearProgress();
                 cb.onError?.(
                     'The sender sent a control message larger than ' +
                         `${CONTROL_MSG_MAX} bytes, so the transfer was stopped.`
@@ -550,6 +554,7 @@ export function createReceiver(
                     partialDownloads.clear();
                     currentMetadata = null;
                     expectedSize = null;
+                    clearProgress();
                     try {
                         const enc = new TextEncoder().encode(incompatibleMessage(`receiver rejected the file description: ${problem}`));
                         cb.send(new Uint8Array(enc));

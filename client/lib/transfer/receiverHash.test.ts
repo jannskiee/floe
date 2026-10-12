@@ -560,6 +560,29 @@ describe('receiver: per-file SHA-256', () => {
             expect(progress.slice(before)).toEqual([0]);
         });
 
+        it('a stop during the check clears the progress line itself', async () => {
+            // After such a stop the verdict hands nothing over and returns
+            // early, so it never reaches the reset it would normally do.
+            const held = heldHash();
+            const progress: number[] = [];
+            const errors: string[] = [];
+            const rx = createReceiver(
+                { send: () => {}, onProgress: (pct) => progress.push(pct), onError: (m) => errors.push(m) },
+                { hashBlob: held.hashBlob }
+            );
+            const a = payload(400);
+            rx.handleMessage(metadataMessage('a', 'a.bin', a.byteLength, 1, 2, a.byteLength));
+            rx.handleMessage(a);
+            rx.handleMessage(endMessage(digestOf(a)));
+            expect(progress[progress.length - 1]).toBe(100);
+            rx.handleMessage('{"type":"metadata","pad":"' + 'x'.repeat(CONTROL_MSG_MAX) + '"}');
+            expect(errors).toHaveLength(1);
+            expect(progress[progress.length - 1]).toBe(0);
+            held.release(digestOf(a));
+            await rx.settled();
+            expect(progress[progress.length - 1]).toBe(0);
+        });
+
         it('still refuses a file that does not match, and says so', async () => {
             const held = heldHash();
             const h = harness({ hashBlob: held.hashBlob });

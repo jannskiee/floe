@@ -41,7 +41,7 @@ import {decideReceiverClose} from '@/lib/receiverClose';
 import {describeSenderStop, senderCloseInterrupted} from '@/lib/senderStop';
 import {verifiedLine, VERIFIED_LINE} from '@/lib/verifiedLine';
 import {receiveSummary} from '@/lib/receiveSummary';
-import {peerDisconnectAction} from '@/lib/peerDisconnect';
+import {peerDisconnectAction, teardownClaimsClose} from '@/lib/peerDisconnect';
 import {copyText} from '@/lib/clipboard';
 import {resolveSocketUrl} from '@/lib/socketUrl';
 
@@ -284,8 +284,18 @@ export function P2PTransfer() {
                 }
             }
             // Set before destroy, so the close handler this triggers sees it.
-            closedByUsRef.current = peerRef.current;
-            if (peerRef.current) peerRef.current.destroy();
+            // Not for a peer that already closed or a receiver that holds
+            // files: their close has to be heard. See teardownClaimsClose.
+            if (
+                teardownClaimsClose({
+                    hasPeer: current !== null,
+                    peerDestroyed: current?.destroyed === true,
+                    receivedCount: receivedFilesRef.current.length,
+                })
+            ) {
+                closedByUsRef.current = current;
+            }
+            current?.destroy();
             releaseWakeLock();
         },
         onDisconnect: () => {
