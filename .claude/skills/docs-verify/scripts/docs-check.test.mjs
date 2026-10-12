@@ -17,6 +17,7 @@ import { spawnSync } from 'node:child_process';
 import {
     cpSync,
     existsSync,
+    mkdirSync,
     mkdtempSync,
     readdirSync,
     readFileSync,
@@ -28,10 +29,11 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
 import {
+    SERVER_KEY_FLOOR,
     SURFACES,
     headingSlugs,
+    headingTagProblems,
     slug,
-    unclosedHeadingTags,
 } from './docs-check.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url).replace(/\.test\.mjs$/, '.mjs');
@@ -733,92 +735,250 @@ test('a configuration page that yields no variable rows is HARD, not a silent pa
     );
 });
 
-test('the server reading one key fewer than today is HARD: the extractor floor is the real count', () => {
-    const root = fresh();
-    // The floor catches an extractor that stopped matching, and it can only do
-    // that while it equals what the server reads. Hiding one read from the
-    // regex stands in for a regex that lost one. The baseline test pins the
-    // other side: a floor above the count would fail the untouched copy.
-    let hidden = 0;
-    edit(root, 'server/server.js', (t) =>
-        t.replaceAll('process.env.FLOE_TEST_REQUEST_GRACE_MS', () => {
-            hidden++;
-            return "process.env['FLOE_TEST_REQUEST_GRACE_MS']";
-        })
+// A tree that holds only what the env check needs: a docs.json, and a server/
+// that reads `count` keys. Nothing in it is the repository's own server/, so
+// a product change that adds or drops a key cannot move the test below.
+function envTree(count) {
+    const tmp = mkdtempSync(join(tmpdir(), 'docs-check-env-'));
+    made.push(tmp);
+    mkdirSync(join(tmp, 'docs'));
+    writeFileSync(join(tmp, 'docs', 'docs.json'), '{"navigation":{}}\n');
+    mkdirSync(join(tmp, 'server'));
+    writeFileSync(
+        join(tmp, 'server', 'server.js'),
+        Array.from(
+            { length: count },
+            (_, i) => `const k${i} = process.env.FIXTURE_KEY_${i} || 'x';\n`
+        ).join('')
     );
+    return tmp;
+}
+
+test('the server key floor: fewer keys is HARD, more is a NOTE to raise it, the same number is silent', () => {
+    const env = (count) => {
+        const r = spawnSync(
+            process.execPath,
+            [SCRIPT, 'env', '--root', envTree(count)],
+            { encoding: 'utf8' }
+        );
+        return { status: r.status, out: r.stdout + r.stderr };
+    };
+
+    // One key more than the floor is what a pull request that adds a setting
+    // looks like. It must pass, and it must say the floor needs raising.
+    const behind = env(SERVER_KEY_FLOOR + 1);
+    assert.equal(behind.status, 0, behind.out);
     assert.ok(
-        hidden > 0,
-        'server.js no longer reads FLOE_TEST_REQUEST_GRACE_MS: hide another key'
+        behind.out
+            .split(/\r?\n/)
+            .includes(
+                `NOTE  env  server/server.js:1  the floor is behind: ${SERVER_KEY_FLOOR + 1} keys read, floor ${SERVER_KEY_FLOOR}; raise SERVER_KEY_FLOOR in docs-check.mjs`
+            ),
+        behind.out
     );
-    const r = run(root);
-    assert.equal(r.status, 1, r.out);
+    assert.doesNotMatch(behind.out, /extractor found/);
+
+    const level = env(SERVER_KEY_FLOOR);
+    assert.equal(level.status, 0, level.out);
+    assert.doesNotMatch(level.out, /the floor is behind|extractor found/);
+
+    // One fewer is the extractor losing a key: the one case that fails.
+    const broken = env(SERVER_KEY_FLOOR - 1);
+    assert.equal(broken.status, 1, broken.out);
     assert.match(
-        r.out,
-        /HARD  env  server\/server\.js:1  extractor found \d+ keys; the regex no longer matches the source/
+        broken.out,
+        new RegExp(
+            `HARD  env  server/server\\.js:1  extractor found ${SERVER_KEY_FLOOR - 1} keys; the regex no longer matches the source`
+        )
     );
+    assert.doesNotMatch(broken.out, /the floor is behind/);
 });
 
-test('unclosedHeadingTags: what MDX can and cannot close inside a heading', () => {
-    // Every row was run through @mdx-js/mdx 3.1.1 on 2026-10-12: the rows that
-    // return a tag are the ones the compiler refuses ("Expected a closing tag
-    // for `<name>` before the end of `atxHeading`"), and the empty rows compile.
+test('headingTagProblems agrees with the MDX compiler on every heading here, both ways', () => {
+    // Each string was compiled as "### <string>" by @mdx-js/mdx 3.1.1 on
+    // 2026-10-12. REFUSED is what the compiler stops on and COMPILED is what it
+    // accepts. The check sits in the required gate, so both directions count:
+    // a miss lets a page through that cannot build, and a false flag blocks a
+    // correct pull request.
+    const REFUSED = [
+        // A tag that opens and never closes, or closes what is not open.
+        'Could not read <name>',
+        'floe send <files> --to "<link>"',
+        'Paste the <link>',
+        'Line one <br> two',
+        'Set <KEY>',
+        '<img src="x">',
+        '<b>bold',
+        '<>x',
+        'Paste the </name>',
+        'x</b>',
+        'A <b>bold</i> c',
+        '<b><i>x</b></i>',
+        '<name> ###',
+        '**<name>**',
+        '[<name>](/y)',
+        // A "<" with no space after it that does not start a tag at all.
+        'Relay transfers <2 GB',
+        'Sizes <= 2 GB',
+        'x <3 y',
+        'a <',
+        'a < ',
+        '<& x',
+        '<<name>>',
+        '<!-- note -->',
+        // An autolink is not MDX: the compiler reads it as a tag too.
+        '<https://floe.one>',
+        'See <https://floe.one> now',
+        'Mail <a@b.co>',
+        // A tag that starts and is never finished.
+        'Under <$5',
+        'a<b',
+        'a <b>x</b> <c',
+        '<X a=b />',
+        '<X a="unterminated />',
+        '<X a={1 />',
+        // What looks escaped and is not.
+        '\\\\<name>',
+        '`open <name>',
+        '`{` <name>',
+        "{'}'} <name>",
+        '[x](<a>) <name>',
+        // Shaped like a link destination, and not one.
+        '](<b>',
+        '\\[t](<u v>)',
+    ];
+    const COMPILED = [
+        // Escaped, in code, or in an expression.
+        'Could not read &lt;name&gt;',
+        'Could not read \\<name>',
+        'Run `floe send <files>` now',
+        'Run ``floe <a>`` now',
+        '``a ` <b> `` c',
+        "{'<name>'}",
+        '{`<x>`}',
+        "{a} <b>x</b> {'<'}",
+        // A "<" followed by a space or a tab is text.
+        'Files < 2 GB',
+        '1 < 2 and 3 > 2',
+        'a <\tb',
+        '< name>',
+        'a > b',
+        // Tags that close, however they are written.
+        'Install <Badge>Beta</Badge>',
+        'A <b>bold <i>it</i></b> c',
+        '<b>x</b><i>y</i>',
+        '<Foo>x</Foo>',
+        '<a href="x">link</a>',
+        '[<b>x</b>](/y)',
+        '<b>x</b >',
+        '<b>x</ b>',
+        '<name >x</name>',
+        '<a.b>x</a.b>',
+        '<a-b>x</a-b>',
+        '<_x>y</_x>',
+        '<></>',
+        '<>x</>',
+        'Line one <br /> two',
+        '<br/>',
+        '<svg:rect />',
+        '<$x />',
+        'Use <Icon icon="x" /> here',
+        '<Icon icon="a" / >',
+        '<X a />',
+        '<X {...p} />',
+        '<X a="1" b={2} c />',
+        // A ">" inside a quoted attribute or an expression does not end the tag.
+        '<Icon icon="arrow->" />',
+        "<Icon icon='a>b' />",
+        '<Badge color={n > 1 ? "a" : "b"} />',
+        // A Markdown link or image destination in angle brackets.
+        '[x](<my guide.md>)',
+        '![alt](<a b.png>)',
+        '[t](<u> "a title")',
+        '[a [b] c](<x y>)',
+    ];
+    for (const h of REFUSED)
+        assert.notDeepEqual(headingTagProblems(h), [], `passed, and MDX refuses it: ${h}`);
+    for (const h of COMPILED)
+        assert.deepEqual(headingTagProblems(h), [], `flagged, and MDX compiles it: ${h}`);
+    // The explicit id every docs heading carries is Mintlify's own syntax
+    // (stock MDX refuses it as an expression). The check has no opinion on
+    // what is inside braces, so it stays silent on the id and still sees
+    // the tag beside it.
+    assert.deepEqual(headingTagProblems('Plain heading {#an-id}'), []);
+    assert.deepEqual(headingTagProblems('Read <name> {#an-id}'), ['<name>']);
+});
+
+test('headingTagProblems names what it found, in the order it is written', () => {
     const cases = [
         ['Could not read <name>', ['<name>']],
         ['floe send <files> --to "<link>"', ['<files>', '<link>']],
-        ['Paste the <link>', ['<link>']],
+        ['A <b>bold</i> c', ['<b>', '</i>']],
         ['Line one <br> two', ['<br>']],
-        ['Set <KEY>', ['<KEY>']],
-        ['Paste the </name>', ['</name>']],
-        ['A <b>bold</i> c', ['</i>', '<b>']],
-        ['Could not read &lt;name&gt;', []],
-        ['Could not read \\<name>', []],
-        ['Run `floe send <files>` now', []],
-        ['Run ``floe <a>`` now', []],
-        ['Install <Badge>Beta</Badge>', []],
-        ['Line one <br /> two', []],
-        ['Use <Icon icon="x" /> here', []],
-        ['A <b>bold <i>it</i></b> c', []],
-        ['Files < 2 GB', []],
-        ['a > b', []],
+        ['<>x', ['<>']],
+        ['Relay transfers <2 GB', ['<2']],
+        ['Sizes <= 2 GB', ['<=']],
+        ['Under <$5', ['<$5']],
+        ['See <https://floe.one> now', ['<https://floe.one>']],
+        ['a <', ['<']],
     ];
     for (const [heading, want] of cases)
-        assert.deepEqual(unclosedHeadingTags(heading), want, heading);
+        assert.deepEqual(headingTagProblems(heading), want, heading);
 });
 
-test('a raw <word> in a heading is HARD, and the escaped, code and fenced forms are not', () => {
-    const root = fresh();
-    const raw = appendLine(
-        root,
-        'docs/faq.mdx',
-        '### Could not read <name> on that drive'
+test('a raw "<" in a heading is HARD, and the escaped, code, fenced, valid and frontmatter forms are not', () => {
+    // A tree of its own, one page: nothing in the repository's docs can move
+    // this test, and `headings` is the only check that runs.
+    const root = mkdtempSync(join(tmpdir(), 'docs-check-headings-'));
+    made.push(root);
+    mkdirSync(join(root, 'docs'));
+    writeFileSync(
+        join(root, 'docs', 'docs.json'),
+        '{"navigation":{"pages":["page"]}}\n'
     );
-    const escaped = appendLine(
-        root,
-        'docs/faq.mdx',
-        '### Could not read &lt;name&gt; on that drive'
+    const lines = [
+        '---',
+        'title: "A page"',
+        // A YAML comment starts with "#" and is not a heading.
+        '# a comment that names <name>',
+        'description: "For the headings check."',
+        '---',
+        '',
+        '### Could not read <name> on that drive',
+        '### Relay transfers <2 GB',
+        '### Could not read &lt;name&gt; on that drive',
+        '### Run `floe send <files>` first',
+        "### {'<name>'} stays text",
+        '### <Icon icon="arrow->" /> Next',
+        '### <Badge color={n > 1 ? "a" : "b"} /> New',
+        '### [the guide](<my guide.md>)',
+        '### Files < 2 GB {#files-under-2-gb}',
+        '```md',
+        '### Could not read <files>',
+        '```',
+    ];
+    writeFileSync(join(root, 'docs', 'page.mdx'), `${lines.join('\n')}\n`);
+    const at = (line) => lines.indexOf(line) + 1;
+    const r = spawnSync(
+        process.execPath,
+        [SCRIPT, 'headings', '--root', root],
+        { encoding: 'utf8' }
     );
-    const coded = appendLine(
-        root,
-        'docs/faq.mdx',
-        '### Run `floe send <files>` first'
+    const out = r.stdout + r.stderr;
+    assert.equal(r.status, 1, out);
+    // Exactly the two broken headings, so every other line above passed.
+    const hard = out.split(/\r?\n/).filter((l) => l.startsWith('HARD'));
+    assert.equal(hard.length, 2, out);
+    assert.ok(
+        hard[0].startsWith(
+            `HARD  headings  docs/page.mdx:${at('### Could not read <name> on that drive')}  <name> in a heading: `
+        ),
+        out
     );
-    appendLine(root, 'docs/faq.mdx', '```md');
-    const fenced = appendLine(
-        root,
-        'docs/faq.mdx',
-        '### Could not read <name>'
+    assert.ok(
+        hard[1].startsWith(
+            `HARD  headings  docs/page.mdx:${at('### Relay transfers <2 GB')}  <2 in a heading: `
+        ),
+        out
     );
-    appendLine(root, 'docs/faq.mdx', '```');
-    const r = run(root);
-    assert.equal(r.status, 1, r.out);
-    assert.match(
-        r.out,
-        new RegExp(`HARD  headings  docs/faq\\.mdx:${raw}  <name> `)
-    );
-    for (const line of [escaped, coded, fenced])
-        assert.doesNotMatch(
-            r.out,
-            new RegExp(`HARD  headings  docs/faq\\.mdx:${line}  `)
-        );
-    assert.match(r.out, /docs-check: 1 hard/);
 });

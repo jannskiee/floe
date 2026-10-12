@@ -26,7 +26,7 @@ or a snippet import that names a file which is not under docs/ (or names it in a
 letter case), a bare `/docs/...` path in client code that names no page, a nav entry
 without a file or a page outside the nav (or a docs.json the script cannot parse or walk),
 a page with no frontmatter block or missing title or description, two hyphens in a title,
-sidebarTitle or description, a tag in a heading that opens and never closes, a table whose
+sidebarTitle or description, a `<` in a heading that MDX cannot read as a closed tag, a table whose
 delimiter row and header differ in cell count, a straight double quote that opens a table
 cell or closes one after punctuation, an em or en dash (in the docs, the root
 and unraid Markdown, the desktop READMEs, `.goreleaser.yml` and `docs/style.css`), a
@@ -63,10 +63,17 @@ do not skim.
 - headings: nothing in this repo compiles MDX, here or in CI. A heading that quotes a
   string with a placeholder, `### Could not read <name>`, is a tag that never closes, and
   the page stops compiling on Mintlify while every check stays green (it happened on a
-  release day). A tag opened and not closed in the same heading is HARD, and so is `<br>`
-  without its slash. Write `&lt;name&gt;` or put it in backticks. Body text is not checked:
-  a raw `<word>` in a paragraph or a table cell breaks the page the same way, and only the
-  rendered page will show it, so open every page you touched on the preview.
+  release day). MDX reads any `<` with no space after it as the start of a tag, so HARD
+  is: a tag opened and not closed in the same heading (`<br>` without its slash too), a
+  closing tag with nothing open, and a `<` that starts no tag (`<2 GB`, `<=`, an autolink
+  such as `<https://floe.one>`). Write `&lt;` or put the text in backticks. Not flagged,
+  because MDX accepts them: `< 2 GB` with a space, a tag that closes, a `>` inside a
+  quoted attribute or an attribute's braces, a `[text](<dest>)` link destination, and
+  anything inside braces, which the script skips whole and never judges (`{#id}` is
+  Mintlify's own). The rule is held to @mdx-js/mdx 3.1.1 by a table in the test file.
+  Body text is not checked: a raw `<word>` in a paragraph or a table cell breaks the page
+  the same way, and only the rendered page will show it, so open every page you touched
+  on the preview.
 - nav and footer: a page listed twice in docs.json is a NOTE. So is each item where
   docs.json `footer.links` and Footer.tsx `columns` differ; the script cannot know which
   side is right.
@@ -86,9 +93,11 @@ do not skim.
   backticks); it is a NOTE in server/.env.example (the value line and the comment above
   it), .env.docker.example, docker-compose.yml `:-` defaults and unraid/\*.xml. Presence
   gaps are NOTEs; the deliberate subsets in SELF_HOSTING.md and unraid/ are one info
-  line each (the `CURATED` constant). Only the summary table of configuration.mdx is
-  compared: the entry per variable under "Variable reference" states windows, limits and
-  behavior in sentences, and those are yours to read.
+  line each (the `CURATED` constant). When the server reads more keys than
+  `SERVER_KEY_FLOOR`, a NOTE says the floor is behind: raise the constant in the PR that
+  adds the key (fewer keys than the floor is the HARD above). Only the summary table of
+  configuration.mdx is compared: the entry per variable under "Variable reference" states
+  windows, limits and behavior in sentences, and those are yours to read.
 - What no script sees: stale comments, numbers inside sentences, "always" and "never"
   claims. That is layer 2.
 
@@ -109,8 +118,8 @@ preview, run
 and again with `--base https://www.floe.one/docs` after the merge. It loads every page in
 the navigation in a headless browser and prints one block per width and theme. Playwright
 comes from client/node_modules, so the client install has to exist, and so do the browser
-binaries (`pnpm exec playwright install chromium` in client/, plus firefox or webkit when
-you ask for them); from a linked worktree that has no install, add
+binaries (`corepack pnpm exec playwright install chromium` in client/, plus firefox or
+webkit when you ask for them); from a linked worktree that has no install, add
 `--playwright <a checkout that has it>`, which leaves the docs source being compared where
 it is. CI does not run it.
 

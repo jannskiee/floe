@@ -101,9 +101,11 @@ export const FIELDS = {
         // pv and pvMin are member tokens although the names are wire-unique:
         // as bare words they match three tests that build frames by hand, which
         // would be three more unmapped-test warnings for no new consumer.
-        // role is the signaling server's room-joined answer, not a
-        // data-channel field; the browser compares it (lib/roomSeat.ts).
-        member: ['ver', 'reason', 'code', 'saved', 'sha256', 'verified', 'confirms', 'pv', 'pvMin', 'role'],
+        // The signaling server's `role` is deliberately not a token: `.role`
+        // is also every ARIA role a React component reads, and a new file
+        // that did would fail CI until someone wrote it a row. The files that
+        // read the server's role are kept by TOKEN_FREE below instead.
+        member: ['ver', 'reason', 'code', 'saved', 'sha256', 'verified', 'confirms', 'pv', 'pvMin'],
     },
 };
 // Files the map keeps although no token appears in them, for either of two
@@ -127,13 +129,14 @@ export const FIELDS = {
 // row records that the Request link notice (RequestNotice) shows only the
 // constant N1 and N2 strings, never a label, count, size or name.
 //
-// The five client files at the end are the first kind, on the /r page and the
+// The six client files at the end are the first kind, on the /r page and the
 // browser's signaling: visitorCopy.ts takes the host's refusal code, saved
 // count and verified count as `refusal`, `savedCount` and `verifiedCount`, and
 // RequestStatus.tsx renders the card it builds; requestLink.ts and report.ts
 // read the request link, which the other party wrote, as `pathname`, `hash`
 // and `linkId`; useSignaling.ts hands the server's answers and the relayed
-// signal to its callbacks unread.
+// signal to its callbacks unread; roomSeat.ts compares the role the signaling
+// server named, a value with no token of its own (see FIELDS.ts.member).
 export const TOKEN_FREE = new Set([
     'desktop/frontend/src/errors.ts',
     'desktop/frontend/src/history.ts',
@@ -150,6 +153,7 @@ export const TOKEN_FREE = new Set([
     'client/lib/request/requestLink.ts',
     'client/lib/request/report.ts',
     'client/hooks/useSignaling.ts',
+    'client/lib/roomSeat.ts',
 ]);
 const tokenRegex = (f) =>
     new RegExp(`\\b(${f.word.join('|')})\\b|\\.(${f.member.join('|')})\\b`);

@@ -47,10 +47,15 @@
  * quotes an in-app string with a placeholder in it, `### Could not read
  * <name>`, is a JSX tag with no closing tag to the compiler, and the page
  * stops building on Mintlify's side while every local check and every CI job
- * stays green (it happened on a release day). A heading is one line, so
- * "opened and not closed in the same heading" is decidable from the source
- * without a parser. Body prose is not checked: a JSX block there may close
- * many lines later, and telling that from a stray tag needs the real compiler.
+ * stays green (it happened on a release day). So does any other `<` with no
+ * space after it that is not a complete tag: `<2 GB`, `<=`, an autolink. A
+ * heading is one line, so "is every such `<` a tag that closes in the same
+ * heading" is decidable from the source with a small scanner, and the scanner
+ * is held to the compiler's answer in both directions by the test's table
+ * (this runs in the required gate, where a false flag blocks a correct PR).
+ * Braces are skipped whole and never judged. Body prose is not checked: a
+ * JSX block there may close many lines later, and telling that from a stray
+ * tag needs the real compiler.
  *
  * Usage:
  *   node docs-check.mjs [all|links|nav|frontmatter|headings|labels|tables|env|dashes] [--root <dir>]
@@ -219,12 +224,15 @@ const TYPESET_KEYS = ['title', 'sidebarTitle', 'description'];
 // regex broke, not that the server lost a setting; raise this when a key is
 // added, in the same PR. It stood at 16 for two keys after #503 added
 // POLICY_FILE and FLOE_TEST_REQUEST_GRACE_MS, so the extractor could have lost
-// two keys with nothing said; a test now fails when the floor falls behind
-// the count. Counting across the directory rather than one file is what keeps
+// two keys with nothing said; the env check now prints a NOTE whenever the
+// count is above the floor, on the PR that adds the key and without failing
+// it. Exported so the test can build trees around it instead of reading the
+// repository's own server/, whose count a product PR is free to change.
+// Counting across the directory rather than one file is what keeps
 // a module extraction from tripping this: the five TURN keys moving to
 // server/turn.js would otherwise have read as five lost, and the hard fail
 // below returns early, taking every downstream env comparison with it.
-const SERVER_KEY_FLOOR = 18;
+export const SERVER_KEY_FLOOR = 18;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -853,46 +861,192 @@ function checkFrontmatter(ctx) {
 // headings
 // ---------------------------------------------------------------------------
 
-// The tags in one heading's text that MDX cannot close, as written. MDX reads
-// `<` directly followed by a name as a JSX tag, and a heading is a single
-// block, so a tag opened in it has to close in it: `<name>` alone, `<br>`
-// without its slash, and a closing tag with nothing open all stop the page
-// compiling. A code span is literal text and a backslash escapes the bracket,
-// so neither is a tag; `<Badge>Beta</Badge>` and `<br />` close and pass. The
-// name's meaning is not judged: whether a component exists is Mintlify's call.
-// Each case in the test's table was run through @mdx-js/mdx 3.1.1.
-export function unclosedHeadingTags(heading) {
-    const bare = heading.replace(/(`+)[\s\S]*?\1/g, (m) =>
-        ' '.repeat(m.length)
-    );
+// What can start a JSX name and what can continue one, and the characters a
+// backslash escapes in Markdown (the ASCII punctuation).
+const JSX_NAME_START = /[\p{L}$_]/u;
+const JSX_NAME_PART = /[\p{L}\p{N}$_-]/u;
+const ASCII_PUNCTUATION = /[!-\/:-@[-`{-~]/;
+// A Markdown link destination in angle brackets, an optional title, and the
+// `)` that closes the link: `<my guide.md>)` or `<a b.png> "title")`.
+const LINK_DESTINATION = /^<[^<>]*>\s*(?:"[^"]*"|'[^']*'|\([^()]*\))?\s*\)/;
+
+// The index after the `}` that closes the `{` at `at`, or -1 when nothing
+// closes it. A quoted string inside is skipped, so a brace in one is text.
+function expressionEnd(text, at) {
+    let depth = 0;
+    for (let i = at; i < text.length; i++) {
+        const c = text[i];
+        if (c === '"' || c === "'" || c === '`') {
+            let j = i + 1;
+            while (j < text.length && text[j] !== c)
+                j += text[j] === '\\' ? 2 : 1;
+            if (j >= text.length) return -1;
+            i = j;
+        } else if (c === '{') depth++;
+        else if (c === '}' && --depth === 0) return i + 1;
+    }
+    return -1;
+}
+
+// The JSX tag that starts at the `<` at `at`, as { kind, name, end }, or null
+// when what follows cannot be one. kind is open, close or self; a fragment
+// has the empty name. A `>` inside a quoted attribute value or inside an
+// attribute's braces does not end the tag.
+function jsxTagAt(text, at) {
+    const blank = (i) => {
+        while (text[i] === ' ' || text[i] === '\t') i++;
+        return i;
+    };
+    // The end of the name that starts at `i`, or -1 when none does.
+    const nameEnd = (i) => {
+        if (i >= text.length || !JSX_NAME_START.test(text[i])) return -1;
+        while (i < text.length && JSX_NAME_PART.test(text[i])) i++;
+        return i;
+    };
+    let i = at + 1;
+    const closing = text[i] === '/';
+    if (closing) i = blank(i + 1);
+    const start = i;
+    let end = nameEnd(i);
+    if (end < 0 && text[i] !== '>') return null;
+    // a.b.c, or one ns:local, each part a name of its own.
+    while (end >= 0 && (text[end] === '.' || text[end] === ':')) {
+        const local = text[end] === ':';
+        end = nameEnd(end + 1);
+        if (end < 0) return null;
+        if (local) break;
+    }
+    if (end >= 0) i = end;
+    const name = text.slice(start, i);
+    if (closing) {
+        i = blank(i);
+        return text[i] === '>' ? { kind: 'close', name, end: i + 1 } : null;
+    }
+    for (;;) {
+        i = blank(i);
+        if (text[i] === '>') return { kind: 'open', name, end: i + 1 };
+        if (text[i] === '/') {
+            i = blank(i + 1);
+            return text[i] === '>' ? { kind: 'self', name, end: i + 1 } : null;
+        }
+        if (text[i] === '{') {
+            i = expressionEnd(text, i);
+            if (i < 0) return null;
+            continue;
+        }
+        // An attribute: a name, then perhaps `=` and a quoted or braced value.
+        let attr = nameEnd(i);
+        if (attr >= 0 && text[attr] === ':') attr = nameEnd(attr + 1);
+        if (attr < 0) return null;
+        i = blank(attr);
+        if (text[i] !== '=') continue;
+        i = blank(i + 1);
+        if (text[i] === '"' || text[i] === "'") {
+            const quote = text.indexOf(text[i], i + 1);
+            if (quote < 0) return null;
+            i = quote + 1;
+        } else if (text[i] === '{') {
+            i = expressionEnd(text, i);
+            if (i < 0) return null;
+        } else return null;
+    }
+}
+
+// What in one heading's text stops MDX compiling the page, as written and in
+// the order written; an empty list is a heading the compiler accepts.
+//
+// MDX reads a `<` as the start of a JSX tag unless a space or a tab follows
+// it, and a heading is one block, so the tag has to be complete and has to
+// close inside the heading. Three things therefore break the page: a tag left
+// open (`<name>`, `<br>` without its slash), a closing tag with nothing open
+// to close, and a `<` that starts no tag at all (`<2 GB`, `<=`, a `<` at the
+// end, and an autolink such as `<https://floe.one>`, which is Markdown and
+// not MDX). Nothing else is a tag: a code span, a backslash escape, a
+// `<...>` link destination straight after `](`, and anything inside braces.
+// Braces are skipped whole, because what is inside is JavaScript to MDX and
+// the `{#id}` every heading here carries is Mintlify's own syntax, so a
+// broken expression is not this check's to find. Whether a component exists
+// is not judged either. The test's two lists (what the compiler refuses and
+// what it accepts) were each run through @mdx-js/mdx 3.1.1, and this function
+// has to agree with every entry.
+export function headingTagProblems(heading) {
+    const text = heading.trimEnd();
     const open = [];
-    const stray = [];
-    for (const m of bare.matchAll(/(\\*)<(\/?)([A-Za-z][\w.:-]*)([^<>]*)>/g)) {
-        if (m[1].length % 2) continue;
-        const tag = m[0].slice(m[1].length);
-        if (m[2]) {
-            if (open.length && open[open.length - 1].name === m[3]) open.pop();
-            else stray.push(tag);
-        } else if (!m[4].trimEnd().endsWith('/')) {
-            open.push({ name: m[3], tag });
+    const found = [];
+    // Whether a `[` that could open a link has been read: one that is not
+    // escaped and not inside a code span or braces.
+    let bracket = false;
+    for (let i = 0; i < text.length; ) {
+        const c = text[i];
+        if (c === '\\' && ASCII_PUNCTUATION.test(text[i + 1] ?? '')) {
+            i += 2;
+        } else if (c === '[') {
+            bracket = true;
+            i++;
+        } else if (c === '`') {
+            // A code span closes on a run of the same length. Without one the
+            // backticks are text and what follows is still read.
+            const run = text.slice(i).match(/^`+/)[0].length;
+            let close = -1;
+            for (const m of text.slice(i + run).matchAll(/`+/g)) {
+                if (m[0].length !== run) continue;
+                close = i + run + m.index + run;
+                break;
+            }
+            i = close < 0 ? i + run : close;
+        } else if (c === '{') {
+            const end = expressionEnd(text, i);
+            if (end < 0) break;
+            i = end;
+        } else if (c !== '<' || text[i + 1] === ' ' || text[i + 1] === '\t') {
+            i++;
+        } else if (
+            // A link or image destination: `[` somewhere before, `](` right
+            // before, and the `)` that ends the link after the `>`.
+            bracket &&
+            text.slice(Math.max(0, i - 2), i) === '](' &&
+            LINK_DESTINATION.test(text.slice(i))
+        ) {
+            i = text.indexOf('>', i) + 1;
+        } else {
+            const tag = jsxTagAt(text, i);
+            if (!tag) {
+                // The compiler stops here, so nothing after it is read.
+                found.push({
+                    at: i,
+                    text: text.slice(i).match(/^<[^\s>]*>?/)[0],
+                });
+                break;
+            }
+            const written = text.slice(i, tag.end);
+            if (tag.kind === 'open') {
+                open.push({ at: i, name: tag.name, text: written });
+            } else if (tag.kind === 'close') {
+                if (open.length && open[open.length - 1].name === tag.name)
+                    open.pop();
+                else found.push({ at: i, text: written });
+            }
+            i = tag.end;
         }
     }
-    return [...stray, ...open.map((o) => o.tag)];
+    return [...found, ...open].sort((a, b) => a.at - b.at).map((p) => p.text);
 }
 
 function checkHeadings(ctx) {
     for (const [, rec] of ctx.pages) {
         const where = rel(ctx.root, rec.file);
         const lines = stripFences(rec.text).split('\n');
-        for (let i = 0; i < lines.length; i++) {
+        // A YAML comment in the frontmatter starts with "#" and is no heading.
+        const fmEnd = lines[0] === '---' ? lines.indexOf('---', 1) : -1;
+        for (let i = fmEnd + 1; i < lines.length; i++) {
             const h = lines[i].match(/^#{1,6}\s+(.*)$/);
             if (!h) continue;
-            const tags = unclosedHeadingTags(h[1]);
-            if (!tags.length) continue;
+            const found = headingTagProblems(h[1]);
+            if (!found.length) continue;
             ctx.report.hardLine(
                 'headings',
                 `${where}:${i + 1}`,
-                `${tags.join(', ')} in a heading: MDX reads it as a tag that never closes, and the page stops compiling on Mintlify while every local check stays green. Write &lt; and &gt;, or put it in backticks`
+                `${found.join(', ')} in a heading: MDX reads a "<" with no space after it as the start of a tag, and unless that tag closes in the same heading the page stops compiling on Mintlify while every local check stays green. Write &lt; for the bracket, or put the text in backticks`
             );
         }
     }
@@ -1430,6 +1584,15 @@ function checkEnv(ctx) {
         );
         return;
     }
+    // More keys than the floor is what an ordinary PR that adds a setting
+    // looks like. Nothing is wrong with it, but until the floor is raised the
+    // check above cannot notice the extractor losing that many keys.
+    if (serverKeys.length > SERVER_KEY_FLOOR)
+        report.note(
+            'env',
+            `${serverFile}:1`,
+            `the floor is behind: ${serverKeys.length} keys read, floor ${SERVER_KEY_FLOOR}; raise SERVER_KEY_FLOOR in docs-check.mjs`
+        );
     const client = clientEnv(root);
     const conf = parseConfigurationMdx(root);
     const contrib = parseContributing(root);
