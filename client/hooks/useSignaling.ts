@@ -45,6 +45,10 @@ export interface UseSignalingCallbacks {
     onDisconnect: () => void;
     // Socket connect failed (e.g. rate limit).
     onConnectError: (err: Error) => void;
+    // Socket connected: the first time, after a Manager reconnect, and after
+    // the manual retry of a refusal, which is the one path onReconnect never
+    // hears about. Nothing may join a room from here: see the connect handler.
+    onConnect: () => void;
     // Socket reconnected (the component clears the error banner).
     onReconnect: () => void;
 }
@@ -89,10 +93,16 @@ export function useSignaling(callbacks: UseSignalingCallbacks) {
 
             if (socket.connected) setIsConnected(true);
 
+            // By the time this fires, anything emitted while the socket was not
+            // connected has already been sent: socket.io-client keeps it in a
+            // buffer through a refusal and flushes the buffer first. So a join
+            // made by onReconnect before a refusal is on the wire here, and a
+            // join from onConnect would be a second one.
             socket.on('connect', () => {
                 setIsConnected(true);
                 clearRetry();
                 backoff.reset();
+                cbRef.current.onConnect();
             });
             socket.on('disconnect', () => {
                 setIsConnected(false);

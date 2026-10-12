@@ -44,6 +44,7 @@ import {receiveSummary} from '@/lib/receiveSummary';
 import {INITIAL_SEAT, seatStep, type SeatEvent} from '@/lib/roomSeat';
 import {REJOIN_FAILED_STATUS, REJOINING_STATUS, rejoinAllowed, rejoinDelay, statusOnceSeated} from '@/lib/rejoinRetry';
 import {peerDisconnectAction, teardownClaimsClose} from '@/lib/peerDisconnect';
+import {withRefusalBanner, withoutRefusalBanner} from '@/lib/refusalBanner';
 import {copyText} from '@/lib/clipboard';
 import {resolveSocketUrl} from '@/lib/socketUrl';
 
@@ -346,9 +347,12 @@ export function P2PTransfer() {
         },
         onConnectError: (err) => {
             if (err.message === 'Rate limit exceeded') {
-                setError('Too many refreshes. Reconnecting');
+                setError(withRefusalBanner);
             }
         },
+        // The retry of a refusal ends here and not in onReconnect, so this is
+        // where its banner comes down. Nothing else: see lib/refusalBanner.ts.
+        onConnect: () => setError(withoutRefusalBanner),
         onReconnect: () => {
             setError('');
             // A new socket is a new attempt at the room: the join below is the
