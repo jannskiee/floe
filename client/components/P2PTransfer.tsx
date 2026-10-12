@@ -627,11 +627,17 @@ export function P2PTransfer() {
                     // The other branch names no control: this page cannot know
                     // what kind of sender it has, and the relay is a checkbox
                     // in the browser, --no-relay on the CLI, and always on in
-                    // Floe Desktop.
+                    // Floe Desktop. It cannot know the relay was off either:
+                    // a sender that slept, lost its network or was stopped
+                    // raises the same two errors, so the relay is an "if". And
+                    // it says the connection failed, not that nothing
+                    // connected: the guard above counts finished files, so
+                    // this also shows after the channel opened, with the first
+                    // file on its way.
                     setError(
                         reason === 'abort'
                             ? 'The sender ended the transfer. Ask them to start it again.'
-                            : 'Could not connect. Ask the sender to try again with the relay allowed.'
+                            : 'Connection failed. Ask the sender to try again. If they turned the relay off, ask them to leave it on.'
                     );
                 } else {
                     // Unexpected error — capture for investigation.

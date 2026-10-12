@@ -40,7 +40,7 @@ describe('teardownClaimsClose', () => {
         // SHA-256. The peer's close handler waits for that check before it
         // says how the receive ended, and the server's notice arrives in
         // between. Claiming the dead peer here turned that answer silent: a
-        // receive of 2 of 3 files stayed on "Waiting for the next file", with
+        // receive of 2 of 3 files stayed on "Waiting for the rest", with
         // the connected badge, for as long as the page was open.
         expect(teardownClaimsClose({ hasPeer: true, peerDestroyed: true, receivedCount: 0 })).toBe(false);
         expect(teardownClaimsClose({ hasPeer: true, peerDestroyed: true, receivedCount: 2 })).toBe(false);

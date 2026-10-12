@@ -151,7 +151,7 @@ on version 1.11.0 or earlier shows no such line. Its list keeps a green check an
 there the count is the only sign that files are missing.
 
 While a transfer of several files is still running, the same place reads "Received 1 of 3 files.
-Waiting for the next file" between files. The green check and a count such as "3 files received"
+Waiting for the rest" between files. The green check and a count such as "3 files received"
 appear only once every file the sender announced has arrived.
 
 Files that already arrived stay in the list and can still be saved for as long as the page stays
@@ -186,6 +186,7 @@ See [floe receive](/cli/receive) and [Receive files in the desktop app](/desktop
 - "The sender is not connected", or the card stays on "Waiting for the sender to start": nobody
   is on the sending side right now, or the two devices are still looking for a path. See
   [Troubleshooting](/troubleshooting#the-transfer-never-starts).
-- `Could not connect. Ask the sender to try again with the relay allowed.`: usually a network
-  that blocks direct paths, but the sender closing their tab produces it too. See
+- `Connection failed. Ask the sender to try again. If they turned the relay off, ask them to leave it on.`:
+  usually a network that blocks direct paths with no relay on offer, but a sender whose device
+  went to sleep or lost its network produces it too. See
   [Troubleshooting](/troubleshooting#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again).

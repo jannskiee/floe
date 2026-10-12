@@ -45,11 +45,16 @@ describe('receiveSummary', () => {
         expect(receiveSummary({ received: 4, expected: 3, ended: false }).kind).toBe('complete');
     });
 
+    // "The rest", not "the next file": this line can be on screen while the
+    // next file is already arriving. When the page's own signaling socket
+    // drops mid-file the status is rewritten, the line shows, and the progress
+    // row under it is still moving.
     it('says how far a transfer still running has got', () => {
         expect(receiveSummary({ received: 1, expected: 3, ended: false })).toEqual({
             kind: 'waiting',
-            text: 'Received 1 of 3 files. Waiting for the next file',
+            text: 'Received 1 of 3 files. Waiting for the rest',
         });
+        expect(JSON.stringify(receiveSummary({ received: 2, expected: 3, ended: false }))).not.toContain('next file');
     });
 
     it('says a transfer that ended early is not complete', () => {

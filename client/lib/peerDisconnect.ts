@@ -49,7 +49,7 @@ export function peerDisconnectAction(inputs: PeerDisconnectInputs): PeerDisconne
  * - A peer that has already closed. Its close handler defers its answer while
  *   a file's SHA-256 is checked, and the server's notice can land in between.
  *   Claiming the dead peer then turned that answer silent: a receive that had
- *   ended short stayed on "Waiting for the next file", with the connected
+ *   ended short stayed on "Waiting for the rest", with the connected
  *   badge, for as long as the page was open.
  * - A receiver that already holds a file. It does not rejoin, so nothing is
  *   rebuilt, and the same handler has to report how far the receive got. It
