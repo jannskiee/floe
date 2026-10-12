@@ -11,9 +11,15 @@
 // rows apply unchanged. TA-16 (flow accept, request.visitor 'cli') runs the
 // same attempt with the CLI as the visitor: `floe send <files> --to <link>`
 // through the CLI adapter's own leg (lib/cli.mjs, opts.requestLink), whose
-// exit and printed lines stand in for the web visitor's status card.
+// exit and printed lines stand in for the web visitor's status card; the
+// auto flow takes the CLI visitor too (S-DIR-C2D-reqauto).
 // runOpenLinkAttempt runs TA-17: the quick cell's own attempt, with the host
 // holding a link open beside it (runAttempt hooks).
+//
+// On an exe host (the UIA request verbs) no Invoke presses Accept or Decline,
+// so a prompted flow ends as SKIP request-accept-undrivable once its prompt
+// is on record; the auto flow is the one that delivers there. On the Store
+// build the release also puts the Make link form's Save to field back.
 //
 // The link is a secret for its life: the full value goes to the visitor's
 // page.goto and nowhere else. The record carries the redacted form, every
@@ -374,6 +380,19 @@ async function startHost(
         ctx.shared = ctx.shared || {};
         ctx.shared.requestLimited = true;
         throw dailyLimit('the server answered Make link with limited');
+    } finally {
+        // B2: on the Store lane the Save to field's old value goes to the
+        // log the moment the driver knows it. releaseHost puts it back; a
+        // run that dies before then still leaves the owner what to restore.
+        const before =
+            host.mode === 'store' &&
+            typeof host.driver?.requestSaveDirBefore === 'function'
+                ? host.driver.requestSaveDirBefore()
+                : null;
+        if (before !== null && ctx.log)
+            ctx.log(
+                `${cell.id}: the Make link form's Save to field read ${JSON.stringify(before)} before this cell; it is put back when the host is released`
+            );
     }
     const read = await host.driver.readRequestLink();
     st.link = read.link;
@@ -425,6 +444,36 @@ async function releaseHost(st, rec) {
         }
     } catch (e) {
         fail(`host release: ${e.message}`);
+    }
+    // B2: the Store app is the one exe on the owner's own profile, where the
+    // Save to folder a cell typed into the Make link form outlives the run
+    // (UiaDriver.restoreRequestSaveDir). Put back what the field read before,
+    // once the link is closed or its result put away, whoever made the link.
+    if (
+        host.mode === 'store' &&
+        typeof host.driver?.restoreRequestSaveDir === 'function'
+    ) {
+        const undone =
+            'the Save to field of the Make link form was not put back';
+        try {
+            const back = await host.driver.restoreRequestSaveDir();
+            if (back.restored !== null) {
+                rec.request.saveTo = {
+                    before: back.before,
+                    restored: back.restored,
+                };
+                if (!back.restored)
+                    fail(
+                        `host release: ${undone} (it reads "${back.after}", not "${back.before}"); set it by hand on Receive > Request link`
+                    );
+            }
+        } catch (e) {
+            const before = host.driver.requestSaveDirBefore();
+            rec.request.saveTo = { before, restored: false };
+            fail(
+                `host release: ${undone} (${e.message}); it read "${before ?? ''}" before the cell, set it by hand on Receive > Request link`
+            );
+        }
     }
     if (st.addresses) {
         try {
@@ -676,16 +725,40 @@ async function runFlow(cell, ctx, rec, st, fixture, T) {
     if (req.flow === 'auto') {
         // TA-10a (D-173): while the automatic link waits, the chip reads
         // AUTO-ACCEPT (H4); then the drop starts by itself, with no prompt
-        // at any point, and nothing is clicked on the host.
+        // at any point, and nothing is clicked on the host. The visitor is
+        // a web page, or the CLI (S-DIR-C2D-reqauto), which joins and waits
+        // by itself as in TA-16.
+        const cli = req.visitor === 'cli';
         const pill = await host.driver.readText(RE.pillAuto);
-        rec.request.auto = { pill: pill[0] ?? null, started: null };
-        if (!pill.some((w) => w.toLowerCase() === REQUEST_STRINGS.autoAcceptPill.toLowerCase()))
+        rec.request.auto = {
+            pill: pill[0] ?? null,
+            started: null,
+            proof: null,
+        };
+        if (
+            !pill.some(
+                (w) =>
+                    w.toLowerCase() ===
+                    REQUEST_STRINGS.autoAcceptPill.toLowerCase()
+            )
+        )
             throw flow(
                 'request',
                 `the header chip reads ${JSON.stringify(pill[0] ?? null)} while the automatic link waits, not AUTO-ACCEPT`
             );
-        const v = await open('visitor-1');
-        await v.send(st.clock);
+        let v = cli ? null : await open('visitor-1');
+        // The app reads the drive a moment after Make link (requestauto.go
+        // watchAutoSpace) and then says so on the link: below the floor an
+        // unattended drop must leave, every drop asks. Named here, before
+        // anything is sent, instead of as a prompt nobody answers.
+        const waiting = await snapshotOf(host);
+        if (waiting.autoAsks)
+            throw flow(
+                'request',
+                `the link now reads Asks first (${safeCode(waiting.autoAsks)}): the drive under the run folder is below the free space an unattended drop must leave, so every drop on it asks. Point --out at an NTFS drive with more room`
+            );
+        if (cli) v = await newCliVisitor(cell, ctx, rec, st, fixture);
+        else await v.send(st.clock);
         // A small drop can finish between two polls, so done counts too; a
         // prompt at any point is the finding.
         const s = await awaitHostState(
@@ -1069,13 +1142,31 @@ async function verifyRequest(cell, ctx, rec, st, fixture, T) {
         );
     // TA-10a: the host's own record says the link took the drop by itself
     // (History's HA1 line reads this mark); a prompted drop is never marked.
+    // An exe shows no such record on the done view, so there the proof is
+    // what the lane did see: the link block said "Accepts automatically"
+    // when it was made (the driver's autoAccept), and the drop then started
+    // with no prompt on record and no answer given, which on a lane that
+    // cannot press Accept means nobody accepted it. autoAccepted stays null:
+    // the mark itself is the dev page lane's oracle.
     if (cell.request.flow === 'auto') {
         rec.request.result.autoAccepted = r.autoAccepted ?? null;
-        if (snap.autoAccept !== true || r.autoAccepted !== true)
+        if (uia) {
+            if (
+                snap.autoAccept !== true ||
+                rec.request.prompts.length ||
+                rec.request.answers.length
+            )
+                throw flow(
+                    'verify',
+                    `the drop is not proven automatic (link said Accepts automatically ${snap.autoAccept === true}, prompts ${rec.request.prompts.length}, answers ${rec.request.answers.length})`
+                );
+        } else if (snap.autoAccept !== true || r.autoAccepted !== true)
             throw flow(
                 'verify',
                 `the host's result is not marked as accepted automatically (link autoAccept ${snap.autoAccept === true}, result autoAccepted ${r.autoAccepted === true})`
             );
+        if (rec.request.auto)
+            rec.request.auto.proof = uia ? 'link-block' : 'host-record';
     } else if (r.autoAccepted === true)
         throw flow('verify', 'the host marked a drop it prompted for as accepted automatically');
     const view = await host.driver.readRequestResult();
@@ -1197,6 +1288,9 @@ function newRequestRecord(cell) {
         usedUp: null,
         // TA-16: the CLI visitor's exit code (web cells leave it null).
         visitorExit: null,
+        // B2, Store lane only: what the Make link form's Save to field read
+        // before the cell, and whether the release put it back.
+        saveTo: null,
         released: null,
         swept: null,
     };

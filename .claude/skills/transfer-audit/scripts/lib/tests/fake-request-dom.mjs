@@ -121,6 +121,14 @@ export function fakeRequestDom({
     autoSwitchStuck = false,
     autoAsks = false,
     autoChip = true,
+    // What the link block's scope line says on an automatic link while it
+    // waits (requestCopy.ts scopeLine): 'auto' is W5a, the end time and then
+    // "Accepts automatically"; 'low-space' is W5b, a link whose drive is
+    // already under its floor, so every drop asks (the snapshot's autoAsks);
+    // 'none' is a build whose line does not say either. It lives on
+    // dom.autoScope, so a test can turn a waiting link to W5b the way the
+    // app does once its drive has answered (requestauto.go watchAutoSpace).
+    autoScope = 'auto',
 } = {}) {
     const clock = { t: 0, waiters: [] };
     const dom = {
@@ -162,6 +170,7 @@ export function fakeRequestDom({
         autoOn: false,
         switched: [],
         autoAccept: false,
+        autoScope,
         closed: false,
         screenshots: [],
         setSettingsCalls: [],
@@ -397,6 +406,11 @@ export function fakeRequestDom({
             saveDir: dom.state === 'ready' ? '' : dom.linkSaveDir,
             expiresAt: 0,
             autoAccept: dom.autoAccept,
+            // requestlink.go AutoAsks (omitempty): only on an automatic link
+            // whose drive is under its floor.
+            ...(dom.autoAccept && hasLink && dom.autoScope === 'low-space'
+                ? { autoAsks: 'low-space' }
+                : {}),
             route: dom.route,
             suggestClose: false,
             ...(dom.state === 'deciding' && dom.prompt ? { prompt: { ...dom.prompt } } : {}),
@@ -433,6 +447,22 @@ export function fakeRequestDom({
         const head = twin ? [chip, word, twin] : [chip, word];
         const out = [];
         if (!onRequestView()) return head;
+        // W5 under the link block in every link phase, one <p>: the end time,
+        // and on an automatic link that still says so (requestLink.ts
+        // autoAcceptShown: waiting, reconnecting, connecting) its tail.
+        if (LINK_STATES.has(dom.state)) {
+            const says =
+                dom.autoAccept &&
+                ['waiting', 'reconnecting', 'connecting'].includes(dom.state);
+            const tail = !says
+                ? ''
+                : dom.autoScope === 'auto'
+                  ? ' · Accepts automatically'
+                  : dom.autoScope === 'low-space'
+                    ? ' · Asks first, low space on C:'
+                    : '';
+            out.push(`Ends Oct 13, 9:41 PM${tail}`);
+        }
         switch (dom.state) {
             case 'waiting':
                 out.push('Waiting for files');
@@ -760,7 +790,21 @@ export function fakeRequestDom({
             lifetimeOptions: () => (formShowing() ? [...LIFETIME_OPTIONS] : []),
             pickLifetime: (label) => pickLifetime(label),
             setSaveDir: (v) => {
-                if (!saveDirStuck) dom.saveDir = String(v);
+                // dom.saveDirStuck: a field that stops taking values part way
+                // through a cell (the restore of B2).
+                if (!saveDirStuck && !dom.saveDirStuck) dom.saveDir = String(v);
+            },
+            // The Make link form's Auto-accept check as the UIA lane meets
+            // it: a CheckBox named by its label, on the form only, absent on
+            // a build made before it, and one set through TogglePattern.
+            autoCheck: () =>
+                autoSwitch && formShowing()
+                    ? { name: AUTO_SWITCH, on: dom.autoOn }
+                    : null,
+            setAutoCheck: (on) => {
+                if (autoSwitchStuck || dom.autoOn === Boolean(on)) return;
+                dom.autoOn = Boolean(on);
+                dom.switched.push(AUTO_SWITCH);
             },
             switches: () =>
                 SWITCHES.map((sw) => ({

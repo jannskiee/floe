@@ -13,7 +13,11 @@ import path from 'node:path';
 import { after, test } from 'node:test';
 
 import { runCell } from './cell.mjs';
-import { ACCEPT_WAIT_MS, PlaywrightDriver } from './desktop.mjs';
+import {
+    ACCEPT_UNDRIVABLE,
+    ACCEPT_WAIT_MS,
+    PlaywrightDriver,
+} from './desktop.mjs';
 import { SKIP_REASONS, cellPlan } from './matrix.mjs';
 import { Ledger } from './pacing.mjs';
 import { buildRunJson, newSafety, renderMarkdown } from './report.mjs';
@@ -44,10 +48,17 @@ const plan = Object.fromEntries(
             // TA-14 plans only when the run names --caddy.
             caddy: true,
         }),
-        // TA-12 exists as a shipped id only; the runner does not care.
+        // TA-12 and the Auto-accept twins exist as shipped ids only. A real
+        // shipped run cannot ask for the dev page, so its host is an exe;
+        // this plan is made only to get the cells, and the runner does not
+        // care which profile an id carries.
         ...cellPlan({
             profile: 'shipped',
-            cells: ['S-REL-W2D-reqhideip'],
+            cells: [
+                'S-REL-W2D-reqhideip',
+                'S-DIR-W2D-reqauto',
+                'S-DIR-C2D-reqauto',
+            ],
             probe: FEATURE,
             desktopMode: 'wailsdev',
         }),
@@ -759,7 +770,7 @@ test("the server's daily create refusal (limited) is SKIP request-daily-limit, o
     assert.match(r5.note, /Make link ended in error \(disabled\)/);
 });
 
-test('an exe host without --user-away SKIPs request-host-away-only before anything opens, in the plan and in the runner (G2-F1)', async () => {
+test('an exe host without --user-away never opens: the runner SKIPs request-host-away-only before anything launches, and the plan SKIPs it first, as present or (with only --allow-foreground) away-only (G2-F1)', async () => {
     const w = fakeRequestWorld({ lane: 'uia' });
     const ctx = ctxFor(w, { buildFor: EXE_BUILD });
     const r = await runCell(small('H-DIR-W2D-req'), ctx);
@@ -769,13 +780,21 @@ test('an exe host without --user-away SKIPs request-host-away-only before anythi
     assert.equal(w.dom.clicks.length, 0);
     assert.equal(w.visitors.length, 0);
     // And the plan says so before any run: a request cell off wailsdev.
-    const off = cellPlan({
-        profile: 'head',
-        cells: ['H-DIR-W2D-req'],
-        probe: FEATURE,
-        server: LOCAL,
-        desktopMode: 'auto',
-    }).find((c) => c.id === 'H-DIR-W2D-req');
+    const planned = (flags) =>
+        cellPlan({
+            profile: 'head',
+            cells: ['H-DIR-W2D-req'],
+            probe: FEATURE,
+            server: LOCAL,
+            desktopMode: 'auto',
+            ...flags,
+        }).find((c) => c.id === 'H-DIR-W2D-req');
+    assert.equal(
+        planned({}).reason,
+        'present',
+        'nothing on an exe lane is driven by default'
+    );
+    const off = planned({ allowForeground: true });
     assert.equal(off.reason, AWAY_ONLY);
     const away = cellPlan({
         profile: 'head',
@@ -788,42 +807,71 @@ test('an exe host without --user-away SKIPs request-host-away-only before anythi
     assert.equal(away.verdict, null, 'with --user-away the exe host runs');
 });
 
-test('TA-10 on an exe host (UIA, away-only): no Beta switch is seeded or toggled, Accept waits out the guard, the prompt size is read as the view renders it, and the drop verifies from the done view', async () => {
-    const w = fakeRequestWorld({ lane: 'uia' });
-    const ctx = ctxFor(w, { buildFor: EXE_BUILD, userAway: true });
-    const r = await runCell(small('H-DIR-W2D-req'), ctx);
-    assert.equal(r.verdict, 'PASS', r.note);
-    const a = r.attempts[0];
-    assert.equal('requestLinks' in w.launchEdits[0], false, 'desktop.json carries no Beta key');
-    assert.equal(w.dom.madeWith.requestLinks, undefined);
-    assert.equal(a.request.tab.via, 'uia');
-    assert.equal(
-        w.uiaClient.calls.filter(([c]) => c === 'toggle').length,
-        0,
-        'no switch was toggled'
-    );
-    // The prompt's size as P2 renders it, compared in that form.
-    assert.deepEqual(a.request.prompts, [
-        { files: 1, totalBytes: null, sizeText: '4.0 KB', warnings: [] },
-    ]);
-    // Every Accept came at least 1.2 s after the prompt mounted.
-    const accepts = w.uiaClient.calls.filter(([c, p]) => c === 'click' && p.name === 'Accept');
-    assert.ok(accepts.length >= 1);
-    for (const [, , t] of accepts) assert.ok(t - w.dom.promptMountedAt >= ACCEPT_WAIT_MS);
-    assert.deepEqual(w.dom.ignored, []);
-    // The done view is the host's account on this lane.
-    assert.deepEqual(a.request.result, { files: 1, saved: 1, verified: 1, renamed: 0 });
-    assert.equal(a.request.hostView.verifiedLine, true);
-    assert.equal(r.integrity.ok, true);
-    assert.equal(r.integrity.subfolder, 'Floe request 1');
-    assert.equal(a.request.usedUp, 'This link has already been used');
-    // Every pattern call was preceded by an idle check, and the host was
-    // left as found: the result put away.
-    const calls = w.uiaClient.calls.map(([c]) => c);
-    const patterns = calls.filter((c) => ['click', 'set-value', 'toggle'].includes(c)).length;
-    assert.ok(calls.filter((c) => c === 'foreground-check').length >= patterns);
-    assert.equal(a.request.released, 'ready');
-    assertNoRoom(ctx, r, 'H-DIR-W2D-req');
+// F2: on a built exe a UIA Invoke cannot press Accept (the prompt's guard
+// re-arms on every focus change, and an Invoke is one). A prompted cell on
+// that lane therefore proves everything up to the prompt and stops as SKIP
+// request-accept-undrivable, with the prompt on record and nothing invoked.
+// It used to try three Invokes and end FAIL unknown or ERROR exception.
+test('TA-10 on an exe host (UIA, away-only): the link is made, the prompt is read as the view renders it, and the cell stops as SKIP request-accept-undrivable with no Accept invoked and the host left as found', async () => {
+    for (const lostForeground of [false, true]) {
+        const w = fakeRequestWorld({ lane: 'uia' });
+        if (lostForeground) {
+            // Once a visitor sends, the window is no longer the foreground one.
+            const origSend = w.visitorSend;
+            w.visitorSend = (v) => {
+                if (w.uiaClient) w.uiaClient.state.focused = false;
+                return origSend(v);
+            };
+        }
+        const ctx = ctxFor(w, { buildFor: EXE_BUILD, userAway: true });
+        const r = await runCell(small('H-DIR-W2D-req'), ctx);
+        assert.equal(r.verdict, 'SKIP', r.note);
+        assert.equal(r.reason, ACCEPT_UNDRIVABLE);
+        assert.equal(r.triage, null);
+        assert.equal(r.attempts.length, 1, 'never retried');
+        const a = r.attempts[0];
+        assert.equal(a.failedPhase, 'request');
+        assert.equal(
+            'requestLinks' in w.launchEdits[0],
+            false,
+            'desktop.json carries no Beta key'
+        );
+        assert.equal(a.request.tab.via, 'uia');
+        assert.equal(
+            w.uiaClient.calls.filter(([c]) => c === 'toggle').length,
+            0,
+            'no switch was toggled'
+        );
+        // What the lane did prove: the link, and the prompt with the
+        // visitor's own count and its size as P2 renders it.
+        assert.match(a.request.link, /#<room>$/);
+        assert.deepEqual(a.request.prompts, [
+            { files: 1, totalBytes: null, sizeText: '4.0 KB', warnings: [] },
+        ]);
+        assert.deepEqual(a.request.answers, [], 'nothing was answered');
+        assert.equal(
+            w.uiaClient.calls.filter(
+                ([c, p]) => c === 'click' && p.name === 'Accept'
+            ).length,
+            0,
+            'no Accept was invoked'
+        );
+        assert.equal(w.uiaClient.state.swallowed.length, 0);
+        assert.deepEqual(w.dom.ignored, []);
+        // Nothing was delivered, and the host is left as found: the link
+        // this cell made is closed.
+        assert.equal(r.integrity.ok, null);
+        assert.equal(a.request.released, 'ended');
+        assert.equal(clicksOf(w, 'Close link').length, 1);
+        const calls = w.uiaClient.calls.map(([c]) => c);
+        const patterns = calls.filter((c) =>
+            ['click', 'set-value', 'toggle'].includes(c)
+        ).length;
+        assert.ok(
+            calls.filter((c) => c === 'foreground-check').length >= patterns
+        );
+        assertNoRoom(ctx, r, 'H-DIR-W2D-req');
+    }
 });
 
 // H7 (D-160): the REQUEST LINK tab is always there. The runner waits for it
@@ -862,15 +910,278 @@ test('a build that does not show the REQUEST LINK tab is a keyed request-flow FA
     assert.equal(clicksOf(w, 'Settings').length, 0);
 });
 
+// The Auto-accept twins: the delivery an exe host can prove, because nothing
+// has to press Accept (F2). The lane sets the form's check through
+// TogglePattern, takes the link block's "Accepts automatically" as the record
+// of the choice (an exe has no GetRequestLink), and then only reads: the drop
+// must start and finish with no prompt at any point and no click on the host.
+test('S-DIR-W2D-reqauto on an exe host (UIA, away-only): the check is set through Toggle, the link says Accepts automatically, the drop arrives with no prompt and no Accept, and every oracle the done view carries holds', async () => {
+    const w = fakeRequestWorld({ lane: 'uia' });
+    const ctx = ctxFor(w, { buildFor: EXE_BUILD, userAway: true });
+    const r = await runCell(small('S-DIR-W2D-reqauto'), ctx);
+    assert.equal(r.verdict, 'PASS', r.note);
+    assert.equal(r.attempts.length, 1);
+    const a = r.attempts[0];
+    assert.deepEqual(a.request.made, {
+        lifetime: '24h',
+        autoAccept: true,
+        onScreen: true,
+    });
+    assert.deepEqual(w.dom.switched, ['Auto-accept']);
+    assert.equal(
+        w.uiaClient.calls.filter(([c]) => c === 'toggle').length,
+        1,
+        "one Toggle, the form's check"
+    );
+    assert.equal(a.request.auto.pill, 'Auto-accept');
+    assert.ok(
+        ['receiving', 'done'].includes(a.request.auto.started),
+        a.request.auto.started
+    );
+    assert.equal(a.request.auto.proof, 'link-block');
+    // No prompt at any point, and nothing invoked on the host to start it.
+    assert.equal(w.dom.promptGen, 0);
+    assert.deepEqual(a.request.prompts, []);
+    assert.deepEqual(a.request.answers, []);
+    assert.equal(
+        w.uiaClient.calls.filter(
+            ([c, p]) => c === 'click' && /^(accept|decline)$/i.test(p.name)
+        ).length,
+        0
+    );
+    // The done view is the host's whole account here, and the automatic mark
+    // is not on it: the record says the lane could not read it.
+    assert.deepEqual(a.request.result, {
+        files: 1,
+        saved: 1,
+        verified: 1,
+        renamed: 0,
+        autoAccepted: null,
+    });
+    assert.equal(a.request.hostView.heading, 'RECEIVED 1 FILE, 0.0 MB');
+    assert.equal(a.request.hostView.verifiedLine, true);
+    assert.equal(r.integrity.ok, true);
+    assert.equal(r.integrity.subfolder, 'Floe request 1');
+    assert.equal(r.route.observed, 'direct');
+    assert.equal(a.request.usedUp, 'This link has already been used');
+    assert.deepEqual(
+        {
+            ok: ctx.safety.desktopReceiversOptedOut.ok,
+            total: ctx.safety.desktopReceiversOptedOut.total,
+        },
+        { ok: 1, total: 1 }
+    );
+    assert.equal(ctx.safety.statsReportAttempts, 0);
+    // Left as found, and every pattern call had its idle check first.
+    assert.equal(a.request.released, 'ready');
+    const calls = w.uiaClient.calls.map(([c]) => c);
+    const patterns = calls.filter((c) =>
+        ['click', 'set-value', 'toggle'].includes(c)
+    ).length;
+    assert.ok(calls.filter((c) => c === 'foreground-check').length >= patterns);
+    assertNoRoom(ctx, r, 'S-DIR-W2D-reqauto');
+});
+
+test('S-DIR-C2D-reqauto on an exe host: the CLI is the visitor (floe send --to), nothing is clicked on the host, and the drop is delivered and verified', async () => {
+    const w = fakeRequestWorld({ lane: 'uia' });
+    const ctx = ctxFor(w, { buildFor: EXE_BUILD, userAway: true });
+    const r = await runCell(small('S-DIR-C2D-reqauto'), ctx);
+    assert.equal(r.verdict, 'PASS', r.note);
+    const a = r.attempts[0];
+    assert.equal(w.cliVisitors.length, 1, 'one CLI visitor');
+    assert.equal(
+        w.visitors.length,
+        0,
+        'no web visitor, not even a used-link checker'
+    );
+    assert.deepEqual(a.request.made, {
+        lifetime: '24h',
+        autoAccept: true,
+        onScreen: true,
+    });
+    assert.equal(a.request.auto.proof, 'link-block');
+    assert.equal(w.dom.promptGen, 0);
+    assert.deepEqual(a.request.prompts, []);
+    assert.deepEqual(a.request.answers, []);
+    assert.equal(
+        w.uiaClient.calls.filter(
+            ([c, p]) => c === 'click' && /^(accept|decline)$/i.test(p.name)
+        ).length,
+        0
+    );
+    assert.equal(a.request.visitorExit, 0);
+    assert.equal(
+        r.completion.sender.text,
+        '1 file arrived (4 KB in 0s, direct).'
+    );
+    assert.deepEqual(a.request.result, {
+        files: 1,
+        saved: 1,
+        verified: 1,
+        renamed: 0,
+        autoAccepted: null,
+    });
+    assert.equal(a.request.hostView.verifiedLine, true);
+    assert.equal(
+        a.request.usedUp,
+        null,
+        'the used-up check stays with the web cells'
+    );
+    assert.equal(r.integrity.ok, true);
+    assert.equal(r.route.observed, 'direct');
+    assert.equal(ctx.safety.statsReportAttempts, 0);
+    const sender = attemptJson(a).evidence.sender;
+    assert.ok(sender.argv.includes('--to'));
+    assert.deepEqual(sender.statsProof, {
+        kind: 'sender-env',
+        floeNoStats: '1',
+    });
+    assert.equal(a.request.released, 'ready');
+    assert.equal(w.cliVisitors[0].stopped, 'done');
+    assertNoRoom(ctx, r, 'S-DIR-C2D-reqauto');
+});
+
+// The same cell on the dev page, where the host's own record is readable: the
+// link's autoAccept and the result's automatic mark (GetRequestLink).
+test('S-DIR-C2D-reqauto on the dev page: the CLI visitor on an automatic link, proven by the host record', async () => {
+    const w = fakeRequestWorld();
+    const ctx = ctxFor(w);
+    const r = await runCell(small('S-DIR-C2D-reqauto'), ctx);
+    assert.equal(r.verdict, 'PASS', r.note);
+    const a = r.attempts[0];
+    assert.equal(w.cliVisitors.length, 1);
+    assert.equal(a.request.auto.proof, 'host-record');
+    assert.deepEqual(a.request.result, {
+        files: 1,
+        saved: 1,
+        verified: 1,
+        renamed: 0,
+        autoAccepted: true,
+    });
+    assert.equal(clicksOf(w, 'Accept').length, 0);
+    assert.equal(a.request.visitorExit, 0);
+    assert.equal(a.request.released, 'ready');
+});
+
+const exeAuto = [
+    [
+        { faults: ['auto-asks'] },
+        'FAIL',
+        'request-flow',
+        /the host went deciding while waiting for the drop to start by itself/,
+    ],
+    [
+        { faults: ['auto-chip-ready'] },
+        'FAIL',
+        'request-flow',
+        /the header chip reads "Ready" while the automatic link waits, not AUTO-ACCEPT/,
+    ],
+    [
+        { faults: ['no-auto-switch'] },
+        'SKIP',
+        'request-no-auto-switch',
+        /Auto-accept/,
+    ],
+    [
+        { host: { autoScope: 'none' } },
+        'FAIL',
+        'request-flow',
+        /its link block does not say "Accepts automatically"/,
+    ],
+    [
+        { host: { autoScope: 'low-space' } },
+        'FAIL',
+        'request-flow',
+        /the link reads "Asks first, low space on C:"/,
+    ],
+];
+for (const [world, verdict, reason, words] of exeAuto) {
+    test(`S-DIR-W2D-reqauto on an exe host with ${JSON.stringify(world)}: ${verdict} ${reason}, no prompt is ever answered, and no link is left open`, async () => {
+        const w = fakeRequestWorld({ lane: 'uia', ...world });
+        const ctx = ctxFor(w, { buildFor: EXE_BUILD, userAway: true });
+        const r = await runCell(small('S-DIR-W2D-reqauto'), ctx);
+        assert.equal(r.verdict, verdict, r.note);
+        assert.equal(r.reason, reason, r.note);
+        assert.match(r.note, words);
+        assert.equal(r.attempts.length, 1, 'never retried');
+        if (!(world.faults || []).includes('auto-asks'))
+            assert.equal(w.sends.length, 0, 'nothing was sent');
+        assert.equal(
+            w.uiaClient.calls.filter(
+                ([c, p]) => c === 'click' && /^(accept|decline)$/i.test(p.name)
+            ).length,
+            0,
+            'the lane never answers a prompt'
+        );
+        assert.ok(
+            !['waiting', 'deciding', 'declined', 'reconnecting'].includes(
+                w.dom.state
+            ),
+            w.dom.state
+        );
+        assert.equal(w.dom.closed, true);
+        assertNoRoom(ctx, r, 'S-DIR-W2D-reqauto');
+    });
+}
+
+// The app learns that the drive is under the floor a moment after Make link
+// (desktop/requestauto.go watchAutoSpace runs on its own goroutine), so the
+// link block can say W5a first and W5b next. The runner looks once more just
+// before the visitor sends, on both lanes, and names the drive instead of
+// leaving a prompt nobody can answer.
+test('an automatic link that turns to Asks first once it waits is named before the visitor sends, on both lanes and for both visitors', async () => {
+    for (const [lane, id] of [
+        ['uia', 'S-DIR-W2D-reqauto'],
+        ['uia', 'S-DIR-C2D-reqauto'],
+        ['wailsdev', 'H-DIR-W2D-reqauto'],
+    ]) {
+        const w = fakeRequestWorld({ lane });
+        const ctx = ctxFor(
+            w,
+            lane === 'uia' ? { buildFor: EXE_BUILD, userAway: true } : {}
+        );
+        // The runner logs the link once Make link is behind it: the drive's
+        // answer lands right after, as it does in the app.
+        const log = ctx.log;
+        ctx.log = (l) => {
+            if (/: host made /.test(l)) w.dom.autoScope = 'low-space';
+            log(l);
+        };
+        const r = await runCell(small(id), ctx);
+        assert.equal(r.verdict, 'FAIL', `${lane} ${id}: ${r.note}`);
+        assert.equal(r.reason, 'request-flow', `${lane} ${id}`);
+        assert.match(
+            r.note,
+            /the link now reads Asks first \(low-space\)/,
+            `${lane} ${id}`
+        );
+        assert.match(r.note, /--out/, `${lane} ${id}`);
+        assert.equal(r.attempts[0].failedPhase, 'request');
+        assert.equal(w.sends.length, 0, `${lane} ${id}: nothing was sent`);
+        assert.equal(
+            w.cliVisitors.length,
+            0,
+            `${lane} ${id}: the CLI was never started`
+        );
+        assert.equal(w.dom.promptGen, 0);
+        assert.ok(
+            !['waiting', 'deciding'].includes(w.dom.state),
+            `${lane} ${id}: the link was closed`
+        );
+    }
+});
+
 // Critic M8 (H7 round): on the UIA lane the done view is the host's whole
 // account, so the check mark's screen-reader text ("SHA-256 matched") is the
 // only proof of verification the cell can read. The old compare was a flag
 // against itself, so its own words could never name the host's view; a done
 // view without the text must fail as the HOST's, whatever the visitor shows.
-test('TA-10 on an exe host whose done view carries no SHA-256 matched text: FAIL request-flow naming the host view, not the visitor', async () => {
+// These ran on TA-10's prompted cell until F2; a delivery on an exe is now
+// the Auto-accept twin's.
+test('S-DIR-W2D-reqauto on an exe host whose done view carries no SHA-256 matched text: FAIL request-flow naming the host view, not the visitor', async () => {
     const w = fakeRequestWorld({ lane: 'uia', faults: ['heading-lie'] });
     const ctx = ctxFor(w, { buildFor: EXE_BUILD, userAway: true });
-    const r = await runCell(small('H-DIR-W2D-req'), ctx);
+    const r = await runCell(small('S-DIR-W2D-reqauto'), ctx);
     assert.equal(r.verdict, 'FAIL', r.note);
     assert.equal(r.reason, 'request-flow');
     assert.match(r.note, /the host's done view carries no SHA-256 matched text/);
@@ -878,36 +1189,163 @@ test('TA-10 on an exe host whose done view carries no SHA-256 matched text: FAIL
     assert.equal(r.attempts.length, 1, 'a request-flow finding is never retried');
 });
 
-test('TA-10 on an exe host with a short verify: the same host-view finding, whether or not the visitor claims a SHA line', async () => {
+test('S-DIR-W2D-reqauto on an exe host with a short verify: the same host-view finding, whether or not the visitor claims a SHA line', async () => {
     for (const faults of [['verified-short'], ['verified-short', 'sha-line-lie']]) {
         const w = fakeRequestWorld({ lane: 'uia', faults });
         const ctx = ctxFor(w, { buildFor: EXE_BUILD, userAway: true });
-        const r = await runCell(small('H-DIR-W2D-req'), ctx);
+        const r = await runCell(small('S-DIR-W2D-reqauto'), ctx);
         assert.equal(r.verdict, 'FAIL', `${faults}: ${r.note}`);
         assert.match(r.note, /the host's done view carries no SHA-256 matched text/, `${faults}`);
     }
 });
 
-test('TA-10 on an exe host whose window lost the foreground: the first Accept is swallowed by the re-armed guard and the second lands (G2-F1)', async () => {
-    const w = fakeRequestWorld({ lane: 'uia' });
-    // Once a visitor sends, the window is no longer the foreground one.
-    const origSend = w.visitorSend;
-    w.visitorSend = (v) => {
-        if (w.uiaClient) w.uiaClient.state.focused = false;
-        return origSend(v);
-    };
+// What the exe lane cannot see, said as a test: the result's automatic mark
+// is the host's own record (GetRequestLink), so a build that forgot the mark
+// passes here and fails on the dev page (the failures table above).
+test("the automatic mark is the dev page lane's oracle: a build that forgot it passes on an exe host, with autoAccepted null on record", async () => {
+    const w = fakeRequestWorld({ lane: 'uia', faults: ['auto-unmarked'] });
     const ctx = ctxFor(w, { buildFor: EXE_BUILD, userAway: true });
-    const r = await runCell(small('H-DIR-W2D-req'), ctx);
+    const r = await runCell(small('S-DIR-W2D-reqauto'), ctx);
     assert.equal(r.verdict, 'PASS', r.note);
-    assert.equal(w.uiaClient.state.swallowed.length, 1);
-    const at = w.uiaClient.calls
-        .filter(([c, p]) => c === 'click' && p.name === 'Accept')
-        .map(([, , t]) => t);
-    assert.equal(at.length, 2);
-    assert.ok(at[1] - at[0] >= ACCEPT_WAIT_MS);
+    assert.equal(r.attempts[0].request.result.autoAccepted, null);
+    assert.equal(r.attempts[0].request.auto.proof, 'link-block');
 });
 
-test('an exe host whose owner comes back mid-cell stops as SKIP present before the next pattern call', async () => {
+// B2: the Store app is the one exe that runs on the owner's own profile, so
+// the Save to folder the cell types into the Make link form would still be
+// there the next time the owner opens it (and the run folder it names is
+// deleted by then). The release puts back what the field read before.
+const STORE_BUILD = (surface) => ({
+    kind: 'shipped',
+    version: '1.3.0.0',
+    path: null,
+    launch: surface === 'desktop' ? 'store' : undefined,
+});
+const setsOf = (w) =>
+    w.uiaClient.calls
+        .filter(([c]) => c === 'set-value')
+        .map(([, p]) => p.value);
+
+test("B2 on the Store lane: after the drop the Make link form's Save to field holds the owner's folder again, and the record carries before and restored", async () => {
+    for (const before of ['D:\\owner\\Floe drops', '']) {
+        const w = fakeRequestWorld({ lane: 'uia' });
+        w.dom.saveDir = before;
+        const ctx = ctxFor(w, { buildFor: STORE_BUILD, userAway: true });
+        const r = await runCell(small('S-DIR-W2D-reqauto'), ctx);
+        assert.equal(r.verdict, 'PASS', r.note);
+        const a = r.attempts[0];
+        assert.deepEqual(a.request.saveTo, { before, restored: true });
+        assert.equal(
+            w.dom.saveDir,
+            before,
+            'the form reads what the owner had'
+        );
+        assert.deepEqual(
+            setsOf(w),
+            [a.outDir, before],
+            'the run folder for the link, then the old value'
+        );
+        assert.equal(a.request.released, 'ready');
+        assert.equal(
+            r.integrity.ok,
+            true,
+            'the drop itself went to the run folder'
+        );
+        assert.equal(w.dom.gen, 1, 'no second link was made');
+        // The old value goes to the log as soon as it is known, so a run
+        // that dies before the release still leaves the owner what to put
+        // back.
+        assert.ok(
+            ctx.logs.some((l) =>
+                l.includes(
+                    `Save to field read ${JSON.stringify(before)} before this cell`
+                )
+            ),
+            ctx.logs.join('\n')
+        );
+    }
+});
+
+test('B2 on the Store lane when the cell stops at the prompt: the link is closed, the form is brought back and the field restored, and the verdict stays SKIP request-accept-undrivable', async () => {
+    const w = fakeRequestWorld({ lane: 'uia' });
+    w.dom.saveDir = 'D:\\owner\\Floe drops';
+    const ctx = ctxFor(w, { buildFor: STORE_BUILD, userAway: true });
+    const r = await runCell(small('H-DIR-W2D-req'), ctx);
+    assert.equal(r.verdict, 'SKIP', r.note);
+    assert.equal(r.reason, ACCEPT_UNDRIVABLE);
+    const a = r.attempts[0];
+    assert.deepEqual(a.request.saveTo, {
+        before: 'D:\\owner\\Floe drops',
+        restored: true,
+    });
+    assert.equal(w.dom.saveDir, 'D:\\owner\\Floe drops');
+    assert.equal(clicksOf(w, 'Close link').length, 1);
+    assert.equal(
+        clicksOf(w, 'Make another link').length,
+        1,
+        'the ended view gives way to the form'
+    );
+    assert.equal(w.dom.state, 'ready');
+});
+
+test('B2: a Save to field that does not take the old value back turns a passing Store cell into ERROR host-release, by name', async () => {
+    const w = fakeRequestWorld({ lane: 'uia' });
+    w.dom.saveDir = 'D:\\owner\\Floe drops';
+    const ctx = ctxFor(w, { buildFor: STORE_BUILD, userAway: true });
+    const log = ctx.log;
+    ctx.log = (l) => {
+        // Once the link is made the field stops taking values.
+        if (/: host made /.test(l)) w.dom.saveDirStuck = true;
+        log(l);
+    };
+    const r = await runCell(small('S-DIR-W2D-reqauto'), ctx);
+    assert.equal(r.verdict, 'ERROR', r.note);
+    assert.equal(r.reason, 'host-release');
+    assert.match(
+        r.note,
+        /the Save to field of the Make link form was not put back/
+    );
+    assert.equal(r.attempts[0].request.saveTo.restored, false);
+    assert.equal(r.attempts[0].request.saveTo.before, 'D:\\owner\\Floe drops');
+});
+
+test('B2 is the Store lane only: a portable exe runs on a redirected profile and the dev page in a throwaway context, so neither sets the field a second time', async () => {
+    const exe = fakeRequestWorld({ lane: 'uia' });
+    exe.dom.saveDir = 'D:\\owner\\Floe drops';
+    const r = await runCell(
+        small('S-DIR-W2D-reqauto'),
+        ctxFor(exe, { buildFor: EXE_BUILD, userAway: true })
+    );
+    assert.equal(r.verdict, 'PASS', r.note);
+    assert.equal(setsOf(exe).length, 1);
+    assert.equal(r.attempts[0].request.saveTo, null);
+
+    const dev = fakeRequestWorld();
+    const d = await runCell(small('H-DIR-W2D-req'), ctxFor(dev));
+    assert.equal(d.verdict, 'PASS', d.note);
+    assert.equal(d.attempts[0].request.saveTo, null);
+});
+
+test('an exe host whose owner is back before Make link stops as SKIP present, having clicked nothing', async () => {
+    const w = fakeRequestWorld({ lane: 'uia', uia: { idle: 12 } });
+    const ctx = ctxFor(w, { buildFor: EXE_BUILD, userAway: true });
+    const r = await runCell(small('H-DIR-W2D-req'), ctx);
+    assert.equal(r.verdict, 'SKIP', r.note);
+    assert.equal(r.reason, 'present');
+    assert.equal(
+        w.uiaClient.calls.filter(([c]) =>
+            ['click', 'set-value', 'toggle'].includes(c)
+        ).length,
+        0,
+        'no pattern call once the owner was back'
+    );
+    assert.equal(w.visitors.length, 0);
+});
+
+// The owner coming back AFTER the prompt costs the release, not the verdict:
+// the cell is still the prompt it proved, and the note says the link could
+// not be closed (closing it is a pattern call, which would take the window).
+test('an exe host whose owner comes back once the prompt is up keeps SKIP request-accept-undrivable, and says the link was left open', async () => {
     const w = fakeRequestWorld({ lane: 'uia' });
     const origSend = w.visitorSend;
     w.visitorSend = (v) => {
@@ -917,24 +1355,36 @@ test('an exe host whose owner comes back mid-cell stops as SKIP present before t
     const ctx = ctxFor(w, { buildFor: EXE_BUILD, userAway: true });
     const r = await runCell(small('H-DIR-W2D-req'), ctx);
     assert.equal(r.verdict, 'SKIP', r.note);
-    assert.equal(r.reason, 'present');
+    assert.equal(r.reason, ACCEPT_UNDRIVABLE);
     assert.equal(
-        w.uiaClient.calls.filter(([c, p]) => c === 'click' && p.name === 'Accept').length,
+        clicksOf(w, 'Close link').length,
         0,
-        'no Accept once the owner was back'
+        'no pattern call with the owner back'
+    );
+    assert.ok(
+        r.attempts[0].notes.some((n) =>
+            /^host-release: the host was not left as found/.test(n)
+        ),
+        r.attempts[0].notes.join('\n')
     );
 });
 
-test('TA-13 on an exe host: the blip proxy address rides desktop.json at launch, and the cut still reaches the host', async () => {
+test('TA-13 on an exe host: the blip proxy address rides desktop.json at launch, the cut still reaches the host, and the cell then stops at the prompt', async () => {
     const w = fakeRequestWorld({ lane: 'uia' });
     const ctx = ctxFor(w, { buildFor: EXE_BUILD, userAway: true });
     const r = await runCell(small('H-DIR-W2D-reqblip'), ctx);
-    assert.equal(r.verdict, 'PASS', r.note);
+    assert.equal(r.verdict, 'SKIP', r.note);
+    assert.equal(r.reason, ACCEPT_UNDRIVABLE);
     assert.equal(w.launchEdits[0].server, BLIP_URL);
     const a = r.attempts[0];
     assert.equal(a.request.addresses.via, 'desktop.json at launch');
     assert.equal(a.request.blip.reconnecting, true);
     assert.equal(a.request.blip.reclaimed, true);
+    assert.equal(
+        a.request.prompts.length,
+        1,
+        'the prompt after the reclaim is on record'
+    );
 });
 
 test('a wailsdev host that may report stats is an ERROR wailsdev-config, never driven', async () => {

@@ -62,8 +62,11 @@ export const HASH_IDS = Object.freeze([
 // HASH_IDS they are outside DEFAULT_IDS and DEEP_IDS: a run reaches them
 // through --cells, and each SKIPs `server-no-request-1` until probe P10
 // finds request-1 in the server's /health features. TA-16 is head only
-// (H-DIR-C2D-req): its shipped twin, S-DIR-C2D-req, is not built yet, though
-// floe send has had --to since v1.11.0. TA-14 (reqcaddy)
+// (H-DIR-C2D-req), and on purpose there is no S-DIR-C2D-req: a built exe
+// cannot be made to Accept (SKIP request-accept-undrivable), so a prompted
+// shipped twin would spend one of the 20 links a day to stop at the prompt
+// S-DIR-W2D-req already proves. The released CLI is the visitor of
+// S-DIR-C2D-reqauto instead, on a link that needs no Accept. TA-14 (reqcaddy)
 // is planned and SKIPs unless the run names --caddy (a local Docker Caddy,
 // lib/caddy.mjs).
 export const REQUEST_VARIANTS = Object.freeze([
@@ -73,7 +76,7 @@ export const REQUEST_VARIANTS = Object.freeze([
     'reqcaddy', // TA-14: a local Caddy reloaded while the link waits and while the drop receives (head only, --caddy)
     'reqdecline', // TA-15: Decline, Keep waiting, a second visitor delivers
     'reqopen', // TA-17: a quick cell run with a link open on the desktop
-    'reqauto', // TA-10a: a link made with Auto-accept on takes the drop with no prompt (head only)
+    'reqauto', // TA-10a: a link made with Auto-accept on takes the drop with no prompt
 ]);
 export const REQUEST_OPEN_IDS = Object.freeze(
     QUICK_IDS.map((id) => `${id}-reqopen`)
@@ -85,7 +88,11 @@ export const REQUEST_IDS = Object.freeze([
     'H-DIR-W2D-reqblip', // TA-13
     'H-DIR-W2D-reqcaddy', // TA-14 (--caddy)
     'H-DIR-W2D-reqdecline', // TA-15
-    'H-DIR-W2D-reqauto', // TA-10a (head only, wailsdev host: only the dev page can read the Auto-accept record, D-173)
+    'H-DIR-W2D-reqauto', // TA-10a (D-173)
+    // The shipped twins of TA-10a: the one delivery a built exe can prove,
+    // since nothing has to press Accept. A web visitor, and the released CLI.
+    'S-DIR-W2D-reqauto',
+    'S-DIR-C2D-reqauto',
     ...REQUEST_OPEN_IDS, // TA-17
     'H-DIR-W2D-req', // head twin of TA-10
     'H-REL-W2D-req', // head twin of TA-11
@@ -185,7 +192,8 @@ export const SKIP_REASONS = Object.freeze({
         'a head-profile cell named in a shipped run: the forced-mismatch cells never run against production',
     'infra-down': 'two consecutive infra symptoms against the signaling server',
     'budget-exhausted': 'run-wide retry or byte budget exhausted',
-    present: 'user present and the desktop window needs focus',
+    present:
+        'the owner may be at the PC: driving a built desktop app brings its window to the foreground on every UIA call (G2-F1), so on an exe lane nothing on the desktop is launched or driven without --user-away (nobody is there; checked against the input idle time before each call) or --allow-foreground (the focus change is accepted)',
     'desktop-none': '--desktop none drops desktop cells',
     'desktop-unavailable':
         'no desktop build to drive (probe or preflight failed)',
@@ -201,8 +209,8 @@ export const SKIP_REASONS = Object.freeze({
         'an exe request host (store, portable or a head wails build) is driven through UIA pattern calls, which activate its window (G2-F1): it runs only with --user-away',
     'request-no-auto-switch':
         'the desktop build under test has no Auto-accept switch on the Make link form (made before H10, D-173)',
-    'request-auto-wailsdev-only':
-        "TA-10a reads the host's own record of the Auto-accept switch and the drop's automatic mark (GetRequestLink), which only the wailsdev dev page has; an exe host is read through UIA",
+    'request-accept-undrivable':
+        'the prompt came up on a built exe, where a UIA Invoke cannot press Accept or Decline (the prompt ignores input for 1 s after every focus change, and an Invoke is one): the cell proved the link and the prompt and invoked nothing. Accept is proven on the wailsdev lane, a delivery on this one by the Auto-accept cells',
     'request-daily-limit':
         'the server refused Make link with `limited`: this network address has made its 20 request links for the day (REQUEST_CREATES_PER_DAY in server/server.js), and every attempt of a request cell makes one',
     filtered: 'excluded by --cells',
@@ -588,16 +596,31 @@ function requestSpec(variant, flow, snd) {
             host: 'desktop',
             visitor: 'cli',
             visitors: 1,
-            autoAccept: false,
+            autoAccept: flow === 'auto',
             acceptWaitMs: REQUEST_ACCEPT_WAIT_MS,
             blipMs: null,
             loopbackOnly: false,
-            oracles: [...CLI_VISITOR_ORACLES],
+            // On an automatic link (S-DIR-C2D-reqauto) the prompt's oracle
+            // gives way to TA-10a's two, as it does for a web visitor.
+            oracles:
+                flow === 'auto'
+                    ? [
+                          ...CLI_VISITOR_ORACLES.map((o) =>
+                              o === 'prompt-counts-match-no-relay-warning'
+                                  ? 'no-prompt-chip-auto-accept'
+                                  : o
+                          ),
+                          'result-marked-auto-accepted',
+                      ]
+                    : [...CLI_VISITOR_ORACLES],
         };
     // TA-10a (D-173): the link is made with Auto-accept on, the chip reads
     // AUTO-ACCEPT while it waits, and the drop starts with no prompt at all;
-    // the host marks the result as accepted automatically. Every other
-    // oracle is TA-10's.
+    // the host marks the result as accepted automatically, which the dev
+    // page reads from GetRequestLink. An exe has no such record to read: its
+    // lane takes the link block's "Accepts automatically" and a drop that
+    // started with nothing invoked (lib/request.mjs verifyRequest). Every
+    // other oracle is TA-10's.
     const oracles = [
         flow === 'auto' ? 'no-prompt-chip-auto-accept' : 'prompt-counts-match-no-relay-warning',
         'sha256-in-drop-subfolder',
@@ -632,7 +655,8 @@ function requestSpec(variant, flow, snd) {
         visitor: 'web',
         visitors: flow === 'decline-then-accept' ? 2 : 1,
         // The Make link form's Auto-accept switch: off for every cell but
-        // TA-10a, which is the form's own default and is never clicked.
+        // the reqauto ones, which is the form's own default and is never
+        // clicked.
         autoAccept: flow === 'auto',
         acceptWaitMs: REQUEST_ACCEPT_WAIT_MS,
         blipMs: flow === 'blip-then-accept' ? REQUEST_BLIP_MS : null,
@@ -657,10 +681,42 @@ function skip(cell, reason) {
 
 const FOUR_GIB = 4 * 1024 * 1024 * 1024;
 
+/**
+ * The owner at the PC. Any UIA pattern call on a built exe (Invoke, Toggle,
+ * SetValue) activates its window (G2-F1), so on an exe lane (store, portable,
+ * a head exe, or auto, which resolves to one of them) the harness takes the
+ * foreground from whoever is there. True when the run has said neither that
+ * nobody is (--user-away, checked against the input idle time before each
+ * call) nor that the focus change is accepted (--allow-foreground): then
+ * nothing on the desktop is launched or driven, in the probe or in a cell.
+ * The wailsdev lane is a headless page and never refused. One rule, read by
+ * gateCell here and by audit.mjs for the probe's desktop half and its
+ * opening line.
+ */
+export function foregroundRefused({
+    desktopMode = 'auto',
+    userAway = false,
+    allowForeground = false,
+} = {}) {
+    return (
+        desktopMode !== 'none' &&
+        desktopMode !== 'wailsdev' &&
+        !userAway &&
+        !allowForeground
+    );
+}
+
 /** Apply machine and run gates from the probe record. */
 export function gateCell(
     cell,
-    { probe = {}, desktopMode = 'auto', profile = 'shipped', userAway = false, caddy = false } = {}
+    {
+        probe = {},
+        desktopMode = 'auto',
+        profile = 'shipped',
+        userAway = false,
+        allowForeground = false,
+        caddy = false,
+    } = {}
 ) {
     if (cell.verdict === 'NA') return cell;
     const p = probe || {};
@@ -686,12 +742,16 @@ export function gateCell(
         // The host of a request cell is the wailsdev dev page (DOM verbs,
         // activates nothing) or an exe (store, portable, a head wails build)
         // driven through the UIA request verbs (FU-26), whose pattern calls
-        // activate its window (G2-F1): away-only.
+        // activate its window (G2-F1): away-only. Without --user-away it is
+        // SKIP present like every other desktop cell. --allow-foreground
+        // gives back what a run without flags did before the flag existed
+        // and nothing more, and a request host was away-only then too.
         if (cell.request && desktopMode !== 'wailsdev') {
-            // TA-10a's oracles read GetRequestLink (the link's autoAccept and
-            // the result's autoAccepted), which the UIA lane does not have.
-            if (cell.request.flow === 'auto') return skip(cell, 'request-auto-wailsdev-only');
-            if (!userAway) return skip(cell, 'request-host-away-only');
+            if (!userAway)
+                return skip(
+                    cell,
+                    allowForeground ? 'request-host-away-only' : 'present'
+                );
             // TA-17 with a desktop side: the host already holds the one app
             // instance, so the quick cell's own desktop leg cannot launch
             // beside it (the dev page lane has one app and a page per leg).
@@ -715,7 +775,13 @@ export function gateCell(
             if (p.desktop?.saveDirSettable === false)
                 return skip(cell, 'desktop-savedir');
         }
-        if (p.desktop?.present === true && p.desktop?.focusNeeded === true)
+        // Presence. This line used to read the stored probe (present and
+        // focusNeeded) and never fired: the probe hard-wired focusNeeded
+        // false on the premise that provider-side UIA needs no focus, which
+        // G2-F1 disproved. It now reads the run's own flags, because
+        // probe.json is reused for a day and a probe taken while the owner
+        // was away must not start a run when they are back.
+        if (foregroundRefused({ desktopMode, userAway, allowForeground }))
             return skip(cell, 'present');
     }
     if (cell.path === 'REL') {
@@ -747,7 +813,10 @@ export function gateCell(
 
 /**
  * cellPlan({ profile, subset, probe, caps, cliHasRelayOnly, cells,
- *            desktopMode }) -> cell rows in execution order.
+ *            desktopMode, userAway, allowForeground }) -> cell rows in
+ * execution order. The defaults are the safe ones: on an exe lane a plan
+ * made without userAway or allowForeground runs nothing with a desktop side
+ * (foregroundRefused).
  */
 export function cellPlan({
     profile = 'shipped',
@@ -759,6 +828,7 @@ export function cellPlan({
     desktopMode = 'auto',
     server = null,
     userAway = false,
+    allowForeground = false,
     caddy = false,
 } = {}) {
     if (!['shipped', 'head'].includes(profile))
@@ -802,7 +872,15 @@ export function cellPlan({
         // (P0-27 review F3).
         else if (cell.profile === 'H' && profile !== 'head')
             skip(cell, 'head-only');
-        else gateCell(cell, { probe, desktopMode, profile, userAway, caddy });
+        else
+            gateCell(cell, {
+                probe,
+                desktopMode,
+                profile,
+                userAway,
+                allowForeground,
+                caddy,
+            });
         rows.push(cell);
     }
     // TA-13 cuts the host's sockets through a proxy on this machine: a

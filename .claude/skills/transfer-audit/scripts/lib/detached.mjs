@@ -13,8 +13,11 @@
 // line. What a detached launch gives up: stdin, stdout and stderr pipes (the
 // new process is not our child) and an exit event; the pid is what the
 // caller tracks.
+//
+// launchDirect at the foot of the file is the one launch that is not made
+// this way, and its comment says when and why.
 
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 
 /** ShowWindow values for Win32_ProcessStartup (winuser.h). */
 export const SW = Object.freeze({
@@ -166,7 +169,10 @@ export function parseDetachedOutput(text) {
 /**
  * Start the spec's process without foreground rights. Resolves { pid }; a
  * refused create or an unreadable answer rejects with the reason, never the
- * spec. execFileImpl is injectable so tests never start anything.
+ * spec. A refused create also carries Win32_Process.Create's number as
+ * `returnValue` (the keys of CREATE_RESULTS), so a caller can tell access
+ * denied from a path that is not there. execFileImpl is injectable so tests
+ * never start anything.
  */
 export function launchDetached(
     options,
@@ -194,7 +200,12 @@ export function launchDetached(
                 if (out.returnValue !== 0) {
                     const name = CREATE_RESULTS[out.returnValue] ?? 'unlisted';
                     reject(
-                        new Error(`detached launch: Win32_Process.Create returned ${out.returnValue} (${name})`)
+                        Object.assign(
+                            new Error(
+                                `detached launch: Win32_Process.Create returned ${out.returnValue} (${name})`
+                            ),
+                            { returnValue: out.returnValue }
+                        )
                     );
                     return;
                 }
@@ -202,5 +213,42 @@ export function launchDetached(
             }
         );
         if (child && typeof child.on === 'function') child.on('error', () => {});
+    });
+}
+
+/**
+ * Start a program as this process's own child and let go of it: spawn with
+ * no shell and no pipes, detached, then unref. The opposite trade to
+ * launchDetached: the child descends from the operator's terminal, so it CAN
+ * take the foreground with its first window, and it shows however it likes.
+ * lib/desktop.mjs launchProcess is the one caller, for the one launch
+ * Win32_Process.Create refuses (the Store package's exe with files, F1), and
+ * only on a run that declared the owner away. The environment is inherited:
+ * that launch plans none of its own. Resolves { pid }; a failed spawn rejects
+ * with its code, never the command or its arguments. spawnImpl is injectable
+ * so tests never start anything.
+ */
+export function launchDirect(
+    { command, args = [], cwd = null },
+    { spawnImpl = spawn } = {}
+) {
+    if (!command) throw new Error('direct launch: a command is required');
+    return new Promise((resolve, reject) => {
+        const child = spawnImpl(command, args.map(String), {
+            cwd: cwd ? String(cwd) : undefined,
+            detached: true,
+            stdio: 'ignore',
+        });
+        child.once('error', (err) =>
+            reject(
+                new Error(
+                    `direct launch: spawn failed (${(err && err.code) || 'no code'})`
+                )
+            )
+        );
+        child.once('spawn', () => {
+            child.unref();
+            resolve({ pid: child.pid });
+        });
     });
 }

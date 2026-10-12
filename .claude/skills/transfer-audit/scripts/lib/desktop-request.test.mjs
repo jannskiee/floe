@@ -59,6 +59,8 @@ test('the request strings are the frozen copy, and the wait exceeds the guard', 
         verifiedLine: 'SHA-256 matched',
         autoAcceptSwitch: 'Auto-accept',
         autoAcceptPill: 'Auto-accept',
+        // W5a: the UIA lane's record that a link accepts by itself.
+        acceptsAutomatically: 'Accepts automatically',
     });
     // The fake page draws the same bytes, so a fake-driven test proves the
     // real strings, not the fake against itself.

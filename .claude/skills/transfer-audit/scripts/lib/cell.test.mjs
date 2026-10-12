@@ -50,8 +50,16 @@ function small(cell) {
     return cell;
 }
 
+// These tests drive the runner, not the plan's gates: the plan is the one an
+// operator who accepted the focus change gets. Without that (or --user-away)
+// every cell with a desktop side is SKIP present on the default exe lane
+// (lib/matrix.mjs foregroundRefused, tested in matrix.test.mjs).
 const plan = Object.fromEntries(
-    cellPlan({ subset: 'deep', cliHasRelayOnly: true }).map((c) => [c.id, c])
+    cellPlan({
+        subset: 'deep',
+        cliHasRelayOnly: true,
+        allowForeground: true,
+    }).map((c) => [c.id, c])
 );
 const pick = (id) => small(structuredClone(plan[id]));
 

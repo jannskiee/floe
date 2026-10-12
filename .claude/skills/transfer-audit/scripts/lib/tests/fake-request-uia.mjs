@@ -13,7 +13,10 @@
 //     heading (REQUEST LINK) whose value is the full link, the Save to field
 //     an Edit whose placeholder is its HelpText (INFERRED: a labeled input
 //     takes its Name from the label);
-//   - the Settings switches CheckBoxes named by their whole label;
+//   - the Settings switches CheckBoxes named by their whole label, and the
+//     Make link form's Auto-accept check a CheckBox named by its label
+//     (Auto-accept), showing with the form (INFERRED from RequestLinkView.tsx:
+//     a native checkbox inside its label, as the Settings switches are);
 //   - the Link ends options ListItems named by their labels, which a click
 //     selects (SelectionItem, INFERRED; the H10 look fixture measured all six
 //     options in Chromium's accessibility tree while the select is closed);
@@ -55,6 +58,12 @@ export function fakeRequestUiaClient(h, { activates = true, idle = 600 } = {}) {
             add(item);
         }
         for (const t of views.texts()) if (t) add({ type: 'Text', name: t });
+        const auto = views.autoCheck();
+        if (auto) {
+            const item = { type: 'CheckBox', name: auto.name };
+            if (values) item.toggle = auto.on ? 'On' : 'Off';
+            add(item);
+        }
         if (views.onRequestView()) {
             for (const input of views.inputs()) {
                 const linkField = views.saveToShowing() ? false : true;
@@ -118,8 +127,26 @@ export function fakeRequestUiaClient(h, { activates = true, idle = 600 } = {}) {
                     return { before, after: dom.saveDir, matchedBy: 'help' };
                 }
                 case 'toggle': {
-                    if (!dom.settingsOpen) throw err('not-found', `no CheckBox matching '${params.regex}'`);
                     const rx = new RegExp(params.regex, 'i');
+                    if (!dom.settingsOpen) {
+                        // Off Settings the one CheckBox is the form's.
+                        const auto = views.autoCheck();
+                        if (!auto || !rx.test(auto.name))
+                            throw err(
+                                'not-found',
+                                `no CheckBox matching '${params.regex}'`
+                            );
+                        const before = auto.on;
+                        if (before !== Boolean(params.value))
+                            views.setAutoCheck(params.value);
+                        const after = views.autoCheck().on;
+                        return {
+                            before,
+                            after,
+                            changed: after !== before,
+                            name: auto.name,
+                        };
+                    }
                     const hits = views.switches().filter((s) => rx.test(s.name));
                     if (!hits.length) throw err('not-found', `no CheckBox matching '${params.regex}'`);
                     if (hits.length > 1) throw err('ambiguous', `${hits.length} CheckBoxes`);

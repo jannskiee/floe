@@ -77,6 +77,7 @@ import {
     QUICK_IDS,
     cellPlan,
     countsForExit,
+    foregroundRefused,
     matchCells,
 } from './lib/matrix.mjs';
 import { Ledger } from './lib/pacing.mjs';
@@ -941,18 +942,34 @@ async function runProbes({ opts, io, ledger, fence, log, builds, versions }) {
                 log,
             });
             probe.desktop = { ...probe.desktop, ...d.info, mode: d.mode };
-            const r = await desktop.probe({
-                mode: d.mode,
-                portableExe: d.portableExe,
-                binDir: opts.binDir,
-                out: opts.out,
-                build: d.build,
-                userAway: opts.userAway,
-                pauseMaxMin: opts.pauseMaxMin,
-                fence,
-                log,
-            });
-            probe.desktop = { ...probe.desktop, ...r };
+            // Resolving the lane above only reads (the Store package, a
+            // staged zip). Every desktop probe launches the app and drives
+            // it through UIA, which takes the foreground on an exe lane, so
+            // without --user-away or --allow-foreground none of them starts:
+            // the half is recorded as skipped, its facts unknown, not false.
+            if (foregroundRefused(presenceOf(opts, d.mode))) {
+                probe.desktop = {
+                    ...probe.desktop,
+                    present: true,
+                    focusNeeded: true,
+                    skipped: 'present',
+                    detail: `skipped (present): ${DESKTOP_NOT_DRIVEN}`,
+                };
+                log(`probe desktop (${d.mode}): ${probe.desktop.detail}`);
+            } else {
+                const r = await desktop.probe({
+                    mode: d.mode,
+                    portableExe: d.portableExe,
+                    binDir: opts.binDir,
+                    out: opts.out,
+                    build: d.build,
+                    userAway: opts.userAway,
+                    pauseMaxMin: opts.pauseMaxMin,
+                    fence,
+                    log,
+                });
+                probe.desktop = { ...probe.desktop, ...r };
+            }
         } catch (e) {
             probe.desktop = {
                 ...probe.desktop,
@@ -998,6 +1015,27 @@ async function runProbes({ opts, io, ledger, fence, log, builds, versions }) {
 export function profileLine(opts) {
     const defaulted = opts.profile === 'shipped' && !opts.profileGiven;
     return `profile: ${opts.profile}${defaulted ? ' (default)' : ''}`;
+}
+
+/** The run's own presence flags, in the shape lib/matrix.mjs foregroundRefused reads. */
+const presenceOf = (opts, desktopMode = opts.desktop) => ({
+    desktopMode,
+    userAway: Boolean(opts.userAway),
+    allowForeground: Boolean(opts.allowForeground),
+});
+
+/** Why the probe's desktop half did not run, for probe.json and the probe line. */
+const DESKTOP_NOT_DRIVEN =
+    'the owner may be at the PC and every UIA call on a built app brings its window to the foreground; pass --user-away when nobody is there, or --allow-foreground to accept the focus change';
+
+/**
+ * The second line of run and probe output on an exe lane that will not be
+ * driven, or null: it names both flags, so an operator who expected desktop
+ * cells learns why there are none before anything runs.
+ */
+export function foregroundLine(opts) {
+    if (!foregroundRefused(presenceOf(opts))) return null;
+    return `desktop: not launched or driven. On an exe lane (--desktop ${opts.desktop}) every UIA call brings the Floe window to the foreground, so the desktop probes are skipped and every cell with a desktop side is SKIP present. Pass --user-away when nobody is at the PC (the input idle time is checked before each call), or --allow-foreground to accept the focus change.`;
 }
 
 /**
@@ -1096,6 +1134,21 @@ export function readProbe(outDir, log, opts = {}) {
         if (was.desktop !== opts.desktop || was.profile !== opts.profile) {
             log(
                 `probe.json was taken for --desktop ${was.desktop} --profile ${was.profile}, not --desktop ${opts.desktop} --profile ${opts.profile}; re-probing`
+            );
+            return null;
+        }
+        // A probe taken without --user-away or --allow-foreground skipped
+        // its desktop half, so it knows nothing of this lane. A run that may
+        // drive the desktop probes again; one that may not has no use for
+        // the missing half. The reverse needs no rule here: a full probe is
+        // reused whatever the flags, because the plan gates on the run's own
+        // (lib/matrix.mjs gateCell).
+        if (
+            p.desktop?.skipped === 'present' &&
+            !foregroundRefused(presenceOf(opts))
+        ) {
+            log(
+                'probe.json skipped the desktop probes (taken with neither --user-away nor --allow-foreground); re-probing'
             );
             return null;
         }
@@ -1754,6 +1807,7 @@ export async function runCmd(opts, io = {}) {
         flags: {
             strict: opts.strict,
             userAway: opts.userAway,
+            allowForeground: Boolean(opts.allowForeground),
             pionTrace: opts.pionTrace,
             desktop: opts.desktop,
             pin: opts.pin,
@@ -1768,6 +1822,12 @@ export async function runCmd(opts, io = {}) {
         `run ${runId} started (profile ${opts.profile}, subset ${opts.subset})`
     );
     if (!opts.json) out(profileLine(opts));
+    // Said before anything runs, and kept in log.txt whatever the output mode.
+    const notDriven = foregroundLine(opts);
+    if (notDriven) {
+        log(notDriven);
+        if (!opts.json) out(notDriven);
+    }
     if (opts.dryRun) return dryRun({ opts, io, out, log });
 
     const safety = newSafety();
@@ -2196,8 +2256,10 @@ export async function runCmd(opts, io = {}) {
             cells: opts.cells,
             desktopMode: opts.desktop,
             server: serverFor(opts.profile),
-            // An exe request host is away-only (G2-F1, FU-26).
+            // On an exe lane nothing with a desktop side runs without one of
+            // these two, and a request host needs the first (G2-F1, FU-26).
             userAway: Boolean(opts.userAway),
+            allowForeground: Boolean(opts.allowForeground),
             // TA-14 runs only when asked (FU-26).
             caddy: Boolean(opts.caddy),
         });
@@ -2438,6 +2500,11 @@ export async function probeCmd(opts, io = {}) {
         io.echoLog ? out : null
     );
     if (!opts.json) out(profileLine(opts));
+    const notDriven = foregroundLine(opts);
+    if (notDriven) {
+        log(notDriven);
+        if (!opts.json) out(notDriven);
+    }
     const ledger =
         io.ledger ||
         Ledger.open(path.join(opts.out, 'ledger.json'), {

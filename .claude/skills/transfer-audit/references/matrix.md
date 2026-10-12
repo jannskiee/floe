@@ -88,10 +88,15 @@ unreachable answer counts as absent. The host is always the desktop (D), so
 wailsdev` the host is the dev page (DOM verbs); on an exe (store, portable,
 a head `wails build`) it is driven through the UIA request verbs (FU-26),
 whose pattern calls activate its window (G2-F1), so without `--user-away`
-every exe request cell SKIPs `request-host-away-only`, and with it the
+every exe request cell SKIPs `present` (`request-host-away-only` when the
+run passed only `--allow-foreground`), and with it the
 TA-17 cells with a desktop side are NA `single-instance` (the host holds
 the one app instance). A shipped run cannot take wailsdev, so a shipped
-request cell runs only on an exe host with the owner away.
+request cell runs only on an exe host with the owner away. No UIA Invoke
+presses Accept or Decline on an exe, so there a prompted cell (`req`,
+`reqhideip`, `reqblip`, `reqcaddy`, `reqdecline`) proves its link and its
+prompt and stops as SKIP `request-accept-undrivable`; the cells that
+deliver on an exe are the `reqauto` ones, whose link needs no Accept.
 `scripts/lib/request.mjs` runs them: each attempt makes its own link into
 its own folder, and a failed step is FAIL `request-flow` or
 `request-manifest`, never retried. The server makes 20 links per network
@@ -115,7 +120,8 @@ and the host's captures sit under the attempt's `private/host/` folder. The visi
 `localStorage['floe:report-stats']` to `false` and aborts and counts every
 `**/api/stats/report` request: attempts must be 0 in every cell. Accept and
 Decline are clicked no earlier than 1.2 s after the prompt was first seen
-(`REQUEST_ACCEPT_WAIT_MS`; the frontend guard is 1 s). Relay cells move
+(`REQUEST_ACCEPT_WAIT_MS`; the frontend guard is 1 s), on the wailsdev lane
+only: on an exe neither is ever invoked. Relay cells move
 4 MiB. `reqblip` refuses any server that is not loopback, as a usage error
 before anything is created, and cuts only through the driver's own proxy
 (`scripts/lib/blip.mjs`, 127.0.0.1 only).
@@ -141,25 +147,27 @@ head CLI). The link goes to its argv only and the CLI never prints it back;
 the leg is started once the CLI prints `Waiting for them to accept. They
 have 9 min to answer.` and is done on its exit. It is head only
 (`H-DIR-C2D-req`). The released CLI has had `--to` since v1.11.0
-(`cli/cmd/floe/send.go`), so the flag is no longer what holds the cell back:
-the driver has no shipped twin yet. `REQUEST_IDS` carries no `S-DIR-C2D-req`
-(`matrix.test.mjs` asserts its absence), and adding one is a change to
-`scripts/lib/matrix.mjs`, its test and this table together. Its oracles are
-`CLI_VISITOR_ORACLES` in `scripts/lib/matrix.mjs`; the used-up check needs a
-second visitor and stays with the web cells.
+(`cli/cmd/floe/send.go`) and is the visitor of `S-DIR-C2D-reqauto`.
+`REQUEST_IDS` carries no `S-DIR-C2D-req` on purpose (`matrix.test.mjs`
+asserts its absence): on a built exe it would stop at the prompt that
+`S-DIR-W2D-req` already proves, for one of the 20 links a day. Its oracles
+are `CLI_VISITOR_ORACLES` in `scripts/lib/matrix.mjs`; the used-up check
+needs a second visitor and stays with the web cells.
 
 The id scheme takes one variant token, so TA-12 is `reqhideip` (spec 09
 writes `req-hideip`).
 
 | Cell                   | TA        | Snd | Rcv | Path | Forcer         | Input        | Size        | Required oracles |
 | ---------------------- | --------- | --- | --- | ---- | -------------- | ------------ | ----------- | ---------------- |
-| S-DIR-W2D-req          | TA-10     | W   | D   | DIR  | none           | request-link | 64 MiB      | the prompt shows the visitor's own count and bytes and no relay-over-cap line; on-disk sha256 inside the exclusive drop subfolder, nothing loose beside it; visitor arrived line, its SHA line only when verified equals N; desktop `Received N files` and the SHA sentence; D pill `Direct` and W `direct`; desktop.json proof; visitor stats attempts 0; the link reads used up afterwards |
+| S-DIR-W2D-req          | TA-10     | W   | D   | DIR  | none           | request-link | 64 MiB      | the prompt shows the visitor's own count and bytes and no relay-over-cap line; on-disk sha256 inside the exclusive drop subfolder, nothing loose beside it; visitor arrived line, its SHA line only when verified equals N; desktop `Received N files` and the SHA sentence; D pill `Direct` and W `direct`; desktop.json proof; visitor stats attempts 0; the link reads used up afterwards. On an exe host, the only host a shipped run has, the cell proves the link and the prompt and then stops as SKIP `request-accept-undrivable` (no UIA Invoke presses Accept there); the wailsdev twin `H-DIR-W2D-req` runs every oracle |
 | S-REL-W2D-req          | TA-11     | W   | D   | REL  | W sender       | request-link | 4 MiB       | as TA-10 with W `local=relay` and D pill `Relay` |
 | S-REL-W2D-reqhideip    | TA-12     | W   | D   | REL  | D hideIP       | request-link | 4 MiB       | as TA-11 with the relay forced by the host (D pill `Relay`, the visitor unforced); optional. The over 2 GB prompt line is not reachable from a web visitor, which blocks a relayed drop over the cap before its metadata (a spec gap) |
 | H-DIR-W2D-reqblip      | TA-13     | W   | D   | DIR  | none           | request-link | 64 MiB      | the host's `/ws` cut 5 s through the blip proxy while the link waits: a visitor in the gap gets the not-connected copy; the desktop shows Reconnecting then Waiting; after the reclaim the visitor's Try again delivers and hashes match; head only, loopback only |
 | H-DIR-W2D-reqcaddy     | TA-14     | W   | D   | DIR  | none           | request-link | 64 MiB      | `--caddy` only: a local Docker Caddy fronts the local server with the host behind it; a reload while the link waits: the desktop reads Reconnecting then Waiting (the reclaim) and a visitor then delivers; a second reload while the drop receives: the drop completes on the data channel, the visitor ignores `peer-disconnected`, hashes match; head only, loopback only; SKIP `docker-absent` without Docker |
 | H-DIR-W2D-reqdecline   | TA-15     | W   | D   | DIR  | none           | request-link | 1 MiB       | Decline: the visitor reads the declined copy; Keep waiting sends `request-reopen`; a second visitor context delivers and hashes match |
-| H-DIR-W2D-reqauto      | TA-10a    | W   | D   | DIR  | none           | request-link | 64 MiB      | Make link with the Auto-accept check on (D-173, D-174, clicked by its label Auto-accept): the header chip reads AUTO-ACCEPT while the link waits; the drop starts with no prompt at any point and nothing clicked on the host; the host's link and result are marked automatic (GetRequestLink); then every TA-10 oracle but the prompt's. Head only, wailsdev host only (SKIP `request-auto-wailsdev-only` elsewhere); SKIP `request-no-auto-switch` on a build without the switch |
+| H-DIR-W2D-reqauto      | TA-10a    | W   | D   | DIR  | none           | request-link | 64 MiB      | Make link with the Auto-accept check on (D-173, D-174, by its label Auto-accept): the header chip reads AUTO-ACCEPT while the link waits; the drop starts with no prompt at any point and nothing clicked on the host; then every TA-10 oracle but the prompt's. On the wailsdev host the link and the result are marked automatic (GetRequestLink). On an exe host (away-only) that record is not on screen: the check is set through TogglePattern and read back, the link block must end in `Accepts automatically`, and the drop must start with no prompt and no answer on record. SKIP `request-no-auto-switch` on a build without the check; FAIL `request-flow` when the link reads `Asks first, low space on <drive>` |
+| S-DIR-W2D-reqauto      | TA-10a    | W   | D   | DIR  | none           | request-link | 64 MiB      | as H-DIR-W2D-reqauto on an exe host, against production: the one delivery a built exe can prove, since nothing has to press Accept |
+| S-DIR-C2D-reqauto      | TA-10a    | C   | D   | DIR  | none           | request-link | 64 MiB      | as S-DIR-W2D-reqauto with the released CLI as the visitor (`floe send <file> --to <link>`): the CLI exits 0 with its arrived line, and prints its SHA line only when verified equals N; FLOE_NO_STATS=1 on the CLI; no used-up check, which needs a second visitor |
 | S-DIR-W2W-reqopen      | TA-17     | W   | W   | DIR  | none           | link         | 12 MiB      | the S-DIR-W2W oracles with a link open on the desktop; the link still waits afterwards |
 | S-DIR-C2W-reqopen      | TA-17     | C   | W   | DIR  | none           | link         | 12 MiB      | as S-DIR-C2W, link open |
 | S-DIR-W2C-reqopen      | TA-17     | W   | C   | DIR  | none           | link         | 12 MiB      | as S-DIR-W2C, link open |
@@ -174,7 +182,7 @@ writes `req-hideip`).
 | H-REL-W2C-reqopen      | TA-17 (H) | W   | C   | REL  | W sender       | link         | 4 MiB       | as S-REL-W2C-reqopen |
 | H-DIR-D2C-reqopen      | TA-17 (H) | D   | C   | DIR  | none           | code         | 64 MiB      | as S-DIR-D2C-reqopen |
 | H-DIR-C2D-reqopen      | TA-17 (H) | C   | D   | DIR  | none           | code         | 64 MiB      | as S-DIR-C2D-reqopen |
-| H-DIR-C2D-req          | TA-16 (H) | C   | D   | DIR  | none           | request-link | 64 MiB      | the CLI visitor, `floe send <file> --to <link>`: the prompt shows its count and bytes and no relay-over-cap line; the CLI exits 0; on-disk sha256 inside the exclusive drop subfolder, nothing loose beside it; its arrived line (TL-03), its SHA line only when verified equals N; desktop `Received N files` and the SHA sentence; D pill and the CLI's `Connected (direct)`; desktop.json proof; FLOE_NO_STATS=1 on the CLI and a local /api/stats delta of 0; head only (v1.11.0 ships `--to`, but `REQUEST_IDS` has no shipped twin yet) |
+| H-DIR-C2D-req          | TA-16 (H) | C   | D   | DIR  | none           | request-link | 64 MiB      | the CLI visitor, `floe send <file> --to <link>`: the prompt shows its count and bytes and no relay-over-cap line; the CLI exits 0; on-disk sha256 inside the exclusive drop subfolder, nothing loose beside it; its arrived line (TL-03), its SHA line only when verified equals N; desktop `Received N files` and the SHA sentence; D pill and the CLI's `Connected (direct)`; desktop.json proof; FLOE_NO_STATS=1 on the CLI and a local /api/stats delta of 0; head only (the released CLI is the visitor of `S-DIR-C2D-reqauto`; a prompted shipped twin is left out on purpose) |
 
 The host verbs on the wailsdev lane (`scripts/lib/desktop.mjs`
 `PlaywrightDriver`), each by its frozen accessible name from
@@ -196,6 +204,19 @@ were frozen from is kept outside this repository;
 | dismissRequestResult | `Make another link` (DN2 Dismiss is cut, D-169)    | `Make another link` gone (the lane back to Ready) |
 | cancelRequestDrop | `Cancel drop` (teardown of a drop still receiving)     | `Cancel drop` gone                       |
 | setAddresses      | nothing (the app's own `SetSettings`, TA-13 only)       | `GetSettings` server and web             |
+
+On an exe the same verbs are `UiaDriver`'s, read from one UIA snapshot
+(`requestStateFromItems`) and driven with Invoke, SetValue and Toggle, with
+four differences. `acceptRequest` and `declineRequest` wait for the prompt
+and then stop as SKIP `request-accept-undrivable` without an Invoke.
+`makeRequestLink` with Auto-accept sets the form's check through
+TogglePattern (`RE.autoAcceptCheck`), reads it back, and requires the link
+block to end in `Accepts automatically` (`RE.scopeAuto`); a link that reads
+`Asks first, low space on <drive>` is FAIL `request-flow`.
+`readRequestResult` has only the done view, so the result's automatic mark
+is not read. And on the Store build `restoreRequestSaveDir` puts the Save
+to field back to what it read before the cell (`request.saveTo` in
+`attempt.json`).
 
 The runner no longer touches Settings for the request link: H7 (D-160) removed
 the Settings > Beta > `Request links` switch, the REQUEST LINK tab is always
@@ -279,7 +300,15 @@ is met, with the Note `route-unproven (no route oracle answered)`, because
 the shipped product offers no stronger direct-path proof; a REL cell with no
 relay evidence never passes (`route-unproven` or `forcer-ineffective`).
 
-Desktop precondition for every D cell on the shipped profile: the `probe`
+Desktop precondition for every D cell on an exe lane, before anything else:
+the run passed `--user-away` or `--allow-foreground`. With neither, the
+desktop probes do not run and every cell with a desktop side (D as sender or
+receiver, and every request cell) is SKIP `present` in the plan, before any
+launch, because each UIA pattern call brings the Floe window to the
+foreground (`foregroundRefused` in `scripts/lib/matrix.mjs`). The wailsdev
+lane is not gated.
+
+Then, for every D cell on the shipped profile: the `probe`
 result. When `ValuePattern.SetValue` on `placeholder="amber-otter-cloud"`
 followed by Invoke `Receive` yields `Enter a code or link` (`Please enter a code or link.` on a release before desktop-v0.3.0)
 (`desktop/frontend/src/App.tsx` `receive`), every D-receiver cell is SKIP
@@ -303,7 +332,9 @@ The two desktop cells move 64 MiB (the desktop-side DIR size above); the
 other four move 12 MiB.
 
 A negative P1 probe gives 5 PASS + 1 SKIP `uia-setvalue` and exit 5, which is
-the honest answer.
+the honest answer. So is 4 PASS + 2 SKIP `present` and exit 5 for a quick
+run on an exe lane with neither `--user-away` nor `--allow-foreground`: the
+two desktop cells were never launched.
 
 ## `--deep` additions (17 cells, shipped)
 

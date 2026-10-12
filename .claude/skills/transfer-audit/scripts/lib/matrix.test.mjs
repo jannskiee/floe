@@ -21,6 +21,7 @@ import {
     cellPlan,
     countsForExit,
     fixtureSpec,
+    foregroundRefused,
     isLoopbackUrl,
     matchCells,
     parseCellId,
@@ -32,11 +33,18 @@ import { UsageError } from './args.mjs';
 
 const byId = (rows) => Object.fromEntries(rows.map((c) => [c.id, c]));
 
+// Most tests here are about what a cell is (its size, forcer, timeouts) and
+// what the probe gates do to it. A plan made with neither --user-away nor
+// --allow-foreground runs nothing with a desktop side on an exe lane, and the
+// default lane is one, so those tests ask for the plan of an operator who
+// accepted the focus change. The presence gate has its own tests at the end.
+const ALLOWED = { allowForeground: true };
+
 test('catalogue sizes: quick 6, default 18 (15 executable + 3 NA without --relay-only), deep +17', () => {
     assert.equal(QUICK_IDS.length, 6);
     assert.equal(DEFAULT_IDS.length, 18);
     assert.equal(DEEP_IDS.length, 17);
-    const d = cellPlan();
+    const d = cellPlan(ALLOWED);
     assert.equal(d.length, 18);
     assert.equal(d.filter((c) => !c.verdict).length, 15);
     assert.deepEqual(
@@ -224,7 +232,7 @@ test('gating: desktop probe, TURN, WSL, firewall, disk, desktop none', () => {
         firewall: { inboundAllow: false },
         disk: { freeBytes: 1024 },
     };
-    const c = byId(cellPlan({ subset: 'deep', probe: neg }));
+    const c = byId(cellPlan({ ...ALLOWED, subset: 'deep', probe: neg }));
     assert.equal(c['S-DIR-C2D'].verdict, 'SKIP');
     assert.equal(c['S-DIR-C2D'].reason, 'uia-setvalue');
     assert.equal(c['S-DIR-W2D'].reason, 'uia-setvalue');
@@ -273,12 +281,15 @@ test('gating: desktop probe, TURN, WSL, firewall, disk, desktop none', () => {
     const none = byId(cellPlan({ desktopMode: 'none' }));
     assert.equal(none['S-DIR-D2C'].reason, 'desktop-none');
     assert.equal(none['S-DIR-D2D'].verdict, 'NA', 'NA wins over SKIP');
-    const br = byId(cellPlan({ probe: { browserRelay: { ok: false } } }));
+    const br = byId(
+        cellPlan({ ...ALLOWED, probe: { browserRelay: { ok: false } } })
+    );
     assert.equal(br['S-REL-W2C'].reason, 'browser-relay-na');
     assert.equal(br['S-REL-C2D'].verdict, null);
     // Unknown probe values never gate.
     assert.equal(
         cellPlan({
+            ...ALLOWED,
             probe: {
                 desktop: { receiverDrivable: null },
                 turn: { prod: { servesTurn: null } },
@@ -290,6 +301,7 @@ test('gating: desktop probe, TURN, WSL, firewall, disk, desktop none', () => {
 
 test('quick with a negative P1 gives 5 executable + 1 SKIP uia-setvalue', () => {
     const q = cellPlan({
+        ...ALLOWED,
         subset: 'quick',
         probe: { desktop: { receiverDrivable: false } },
     });
@@ -331,7 +343,7 @@ test('--relay-only flips S-REL-C2C from NA to executable', () => {
 });
 
 test('--cells filter marks the rest SKIP filtered, which never counts for exit', () => {
-    const rows = cellPlan({ cells: ['S-DIR-W2*', 's-rel-c2w'] });
+    const rows = cellPlan({ ...ALLOWED, cells: ['S-DIR-W2*', 's-rel-c2w'] });
     const kept = rows.filter((c) => !c.verdict).map((c) => c.id);
     assert.deepEqual(kept, [
         'S-DIR-W2W',
@@ -578,6 +590,9 @@ test('request cells: sizes, inputs, forcers, flows and the Accept wait', () => {
         'S-DIR-W2D-req': [64 * MiB, 'request-link', 'none', null, 'accept'],
         'S-REL-W2D-req': [4 * MiB, 'request-link', 'initScript', 'sender', 'accept'],
         'S-REL-W2D-reqhideip': [4 * MiB, 'request-link', 'hideIP', 'receiver', 'accept'],
+        'S-DIR-W2D-reqauto': [64 * MiB, 'request-link', 'none', null, 'auto'],
+        'S-DIR-C2D-reqauto': [64 * MiB, 'request-link', 'none', null, 'auto'],
+        'H-DIR-W2D-reqauto': [64 * MiB, 'request-link', 'none', null, 'auto'],
         'H-DIR-W2D-reqblip': [64 * MiB, 'request-link', 'none', null, 'blip-then-accept'],
         'H-DIR-W2D-reqdecline': [MiB, 'request-link', 'none', null, 'decline-then-accept'],
         'S-DIR-W2W-reqopen': [12 * MiB, 'link', 'none', null, 'open-link-precondition'],
@@ -732,22 +747,40 @@ test('TA-14 reqcaddy SKIPs caddy-not-enabled without --caddy, plans with it, sta
     assert.equal(shipped.reason, 'head-only');
 });
 
-test('request cells on an exe host SKIP request-host-away-only without --user-away; with it they run, and TA-17 with a desktop side is NA single-instance (FU-26, G2-F1)', () => {
+test('request cells on an exe host never run without --user-away (SKIP present, or request-host-away-only once the focus change is accepted); with it they run, and TA-17 with a desktop side is NA single-instance (FU-26, G2-F1)', () => {
     assert.match(SKIP_REASONS['request-host-away-only'], /activate its window/);
     assert.equal(SKIP_REASONS['request-host-uia-pending'], undefined, 'the UIA verbs landed');
     const deskSide = (c) => c.sender.surface === 'desktop' || c.receiver.surface === 'desktop';
     for (const desktopMode of ['auto', 'store', 'portable']) {
-        const present = cellPlan({
-            profile: 'head',
-            cells: REQUEST_IDS,
-            probe: WITH_FEATURE,
-            server: LOCAL,
-            desktopMode,
-            caddy: true,
-        }).filter((c) => REQUEST_IDS.includes(c.id) && c.reason !== 'head-only' && c.request.flow !== 'auto');
-        assert.ok(present.length > 0);
-        for (const c of present)
-            assert.equal(c.reason, 'request-host-away-only', `${c.id} on ${desktopMode}`);
+        // Neither flag: SKIP present, like every cell with a desktop side.
+        // --allow-foreground alone: a request host stays away-only.
+        for (const [flags, reason] of [
+            [{}, 'present'],
+            [{ allowForeground: true }, 'request-host-away-only'],
+        ]) {
+            const present = cellPlan({
+                profile: 'head',
+                cells: REQUEST_IDS,
+                probe: WITH_FEATURE,
+                server: LOCAL,
+                desktopMode,
+                caddy: true,
+                ...flags,
+            }).filter(
+                (c) => REQUEST_IDS.includes(c.id) && c.reason !== 'head-only'
+            );
+            assert.ok(present.length > 0);
+            assert.ok(
+                present.some((c) => c.request.flow === 'auto'),
+                'the Auto-accept cell is one of them'
+            );
+            for (const c of present)
+                assert.equal(
+                    c.reason,
+                    reason,
+                    `${c.id} on ${desktopMode} with ${JSON.stringify(flags)}`
+                );
+        }
         const away = cellPlan({
             profile: 'head',
             cells: REQUEST_IDS,
@@ -756,7 +789,9 @@ test('request cells on an exe host SKIP request-host-away-only without --user-aw
             desktopMode,
             userAway: true,
             caddy: true,
-        }).filter((c) => REQUEST_IDS.includes(c.id) && c.reason !== 'head-only' && c.request.flow !== 'auto');
+        }).filter(
+            (c) => REQUEST_IDS.includes(c.id) && c.reason !== 'head-only'
+        );
         for (const c of away) {
             if (c.request.flow === 'open-link-precondition' && deskSide(c)) {
                 assert.equal(c.verdict, 'NA', `${c.id} on ${desktopMode}`);
@@ -767,7 +802,7 @@ test('request cells on an exe host SKIP request-host-away-only without --user-aw
     // The shipped profile cannot take --desktop wailsdev (audit.mjs refuses
     // it), so a shipped request cell runs only on an exe host, away-only.
     for (const c of requestPlan('shipped').filter((c) => c.reason !== 'head-only'))
-        assert.equal(c.reason, 'request-host-away-only', c.id);
+        assert.equal(c.reason, 'present', c.id);
     // The wailsdev lane is not affected by the flag.
     const dev = cellPlan({
         profile: 'head',
@@ -802,39 +837,99 @@ test('every request flow checks the prompt, and TA-12 carries no oracle a web vi
     }
 });
 
-test('TA-10a: H-DIR-W2D-reqauto is head only, makes its link with Auto-accept on, and every other cell leaves it off (D-173)', () => {
+const AUTO_IDS = [
+    'H-DIR-W2D-reqauto',
+    'S-DIR-W2D-reqauto',
+    'S-DIR-C2D-reqauto',
+];
+
+test('TA-10a: the reqauto cells make their link with Auto-accept on, on both profiles and with both visitors, and every other cell leaves it off (D-173)', () => {
     assert.equal(requestFlowOf('reqauto'), 'auto');
     assert.ok(REQUEST_VARIANTS.includes('reqauto'));
-    assert.ok(REQUEST_IDS.includes('H-DIR-W2D-reqauto'));
-    assert.ok(!REQUEST_IDS.includes('S-DIR-W2D-reqauto'), 'no shipped twin: only the wailsdev dev page can read the Auto-accept record');
+    for (const id of AUTO_IDS) assert.ok(REQUEST_IDS.includes(id), id);
     const [head] = requestPlan('head').filter((c) => c.id === 'H-DIR-W2D-reqauto');
     assert.ok(head, 'planned in a head run');
     assert.equal(head.verdict, null, 'it runs on the wailsdev lane');
     assert.equal(head.request.autoAccept, true);
     assert.ok(head.request.oracles.includes('result-marked-auto-accepted'));
     assert.deepEqual(head.fixture, fixtureSpec(parseCellId('H-DIR-W2D-req')), 'the drop TA-10 moves');
+    // The shipped twins: the delivery a built exe can prove, since no one has
+    // to press Accept (F2). One with a web visitor, one with the released CLI.
+    const shipped = byId(requestPlan('shipped'));
+    const web = shipped['S-DIR-W2D-reqauto'];
+    const cli = shipped['S-DIR-C2D-reqauto'];
+    assert.ok(web && cli, 'both are planned in a shipped run');
+    assert.equal(web.request.visitor, 'web');
+    assert.equal(cli.request.visitor, 'cli');
+    assert.equal(cli.sender.surface, 'cli');
+    assert.equal(cli.request.visitors, 1);
+    for (const c of [web, cli]) {
+        assert.equal(c.request.flow, 'auto', c.id);
+        assert.equal(c.request.autoAccept, true, c.id);
+        assert.equal(c.receiver.input, 'request-link', c.id);
+        assert.equal(c.receiver.statsOff, true, c.id);
+        assert.deepEqual(
+            c.fixture,
+            fixtureSpec(parseCellId('S-DIR-W2D-req')),
+            c.id
+        );
+    }
+    assert.deepEqual(web.request.oracles, head.request.oracles);
+    assert.deepEqual(cli.request.oracles, [
+        ...CLI_VISITOR_ORACLES.map((o) =>
+            o === 'prompt-counts-match-no-relay-warning'
+                ? 'no-prompt-chip-auto-accept'
+                : o
+        ),
+        'result-marked-auto-accepted',
+    ]);
+    assert.ok(
+        !cli.request.oracles.includes('link-used-up-after'),
+        'the used-up check needs a second visitor'
+    );
     for (const c of requestPlan('head').concat(requestPlan('shipped'))) {
-        if (c.request.flow === 'open-link-precondition' || c.id === 'H-DIR-W2D-reqauto') continue;
+        if (
+            c.request.flow === 'open-link-precondition' ||
+            AUTO_IDS.includes(c.id)
+        )
+            continue;
         assert.equal(c.request.autoAccept, false, c.id);
     }
     assert.match(SKIP_REASONS['request-no-auto-switch'], /Auto-accept switch/);
 });
 
-test('TA-10a off the wailsdev lane SKIPs request-auto-wailsdev-only, with or without --user-away: only the dev page reads the host\'s own record', () => {
-    assert.match(SKIP_REASONS['request-auto-wailsdev-only'], /GetRequestLink/);
-    for (const desktopMode of ['auto', 'store', 'portable'])
-        for (const userAway of [false, true]) {
-            const [c] = cellPlan({
-                profile: 'head',
-                cells: ['H-DIR-W2D-reqauto'],
-                probe: WITH_FEATURE,
-                server: LOCAL,
-                desktopMode,
-                userAway,
-            }).filter((x) => x.id === 'H-DIR-W2D-reqauto');
-            assert.equal(c.verdict, 'SKIP', `${desktopMode} away ${userAway}`);
-            assert.equal(c.reason, 'request-auto-wailsdev-only', `${desktopMode} away ${userAway}`);
-        }
+test('the reqauto cells on an exe host are away-only like every other request cell and run with --user-away: no lane-only SKIP is left', () => {
+    assert.equal(
+        SKIP_REASONS['request-auto-wailsdev-only'],
+        undefined,
+        'the UIA lane sets the check and reads the link block'
+    );
+    for (const [profile, id, server] of [
+        ['head', 'H-DIR-W2D-reqauto', LOCAL],
+        ['shipped', 'S-DIR-W2D-reqauto', 'https://api.floe.one'],
+        ['shipped', 'S-DIR-C2D-reqauto', 'https://api.floe.one'],
+    ])
+        for (const desktopMode of ['auto', 'store', 'portable'])
+            for (const [flags, want] of [
+                [{}, 'present'],
+                [{ allowForeground: true }, 'request-host-away-only'],
+                [{ userAway: true }, null],
+            ]) {
+                const [c] = cellPlan({
+                    profile,
+                    cells: [id],
+                    probe: WITH_FEATURE,
+                    server,
+                    desktopMode,
+                    ...flags,
+                }).filter((x) => x.id === id);
+                const what = `${id} on ${desktopMode} with ${JSON.stringify(flags)}`;
+                if (want === null) assert.equal(c.verdict, null, what);
+                else {
+                    assert.equal(c.verdict, 'SKIP', what);
+                    assert.equal(c.reason, want, what);
+                }
+            }
     // The feature gate still comes first.
     const [noFeature] = cellPlan({
         profile: 'head',
@@ -848,7 +943,10 @@ test('TA-10a off the wailsdev lane SKIPs request-auto-wailsdev-only, with or wit
 
 test('TA-16 H-DIR-C2D-req: the CLI visitor on a desktop link, head only, 64 MiB, judged by the CLI oracles', () => {
     assert.ok(REQUEST_IDS.includes('H-DIR-C2D-req'));
-    assert.ok(!REQUEST_IDS.includes('S-DIR-C2D-req'), 'the shipped twin is not built yet');
+    assert.ok(
+        !REQUEST_IDS.includes('S-DIR-C2D-req'),
+        'no prompted shipped twin: on a built exe it would stop at the prompt S-DIR-W2D-req already proves, for one of the 20 links a day; S-DIR-C2D-reqauto is the CLI visitor there'
+    );
     const head = byId(requestPlan('head'));
     const c = head['H-DIR-C2D-req'];
     assert.ok(c, 'planned in a head run');
@@ -886,4 +984,223 @@ test('TA-16 H-DIR-C2D-req: the CLI visitor on a desktop link, head only, 64 MiB,
         server: 'https://api.floe.one',
     }).find((x) => x.id === 'H-DIR-C2D-req');
     assert.equal(shipped.reason, 'head-only');
+});
+
+// ------------------------------------------------ the owner at the PC
+
+// Any UIA pattern call on a built exe activates its window (G2-F1), so on an
+// exe lane the harness would take the foreground from whoever is at the PC.
+// The plan therefore runs nothing with a desktop side unless the run says the
+// owner is away (--user-away, checked against the input idle time before each
+// call) or accepts the focus change (--allow-foreground). The gate reads the
+// run's own flags, never a stored probe: probe.json is reused for a day.
+const DESK_PROBE = {
+    server: { features: ['request-1'] },
+    desktop: { available: true, receiverDrivable: true, saveDirSettable: true },
+};
+const deskSide = (c) =>
+    c.sender.surface === 'desktop' || c.receiver.surface === 'desktop';
+
+test('foregroundRefused: only an exe lane with neither --user-away nor --allow-foreground', () => {
+    for (const desktopMode of ['auto', 'store', 'portable']) {
+        assert.equal(foregroundRefused({ desktopMode }), true, desktopMode);
+        assert.equal(
+            foregroundRefused({ desktopMode, userAway: true }),
+            false,
+            desktopMode
+        );
+        assert.equal(
+            foregroundRefused({ desktopMode, allowForeground: true }),
+            false,
+            desktopMode
+        );
+        assert.equal(
+            foregroundRefused({
+                desktopMode,
+                userAway: true,
+                allowForeground: true,
+            }),
+            false,
+            desktopMode
+        );
+    }
+    for (const desktopMode of ['wailsdev', 'none'])
+        assert.equal(foregroundRefused({ desktopMode }), false, desktopMode);
+    assert.equal(
+        foregroundRefused(),
+        true,
+        'the default lane is auto, which is an exe'
+    );
+    assert.match(SKIP_REASONS.present, /--user-away/);
+    assert.match(SKIP_REASONS.present, /--allow-foreground/);
+});
+
+test('on a store, portable or auto lane the default plan runs nothing with a desktop side: every such cell is SKIP present, request hosts included, and the rest of the walk is untouched', () => {
+    for (const desktopMode of ['store', 'portable', 'auto']) {
+        const rows = cellPlan({ probe: DESK_PROBE, desktopMode });
+        const desk = rows.filter((c) => deskSide(c) && c.verdict !== 'NA');
+        assert.equal(
+            desk.length,
+            8,
+            `${desktopMode}: W2D, C2D, D2W and D2C on both paths`
+        );
+        for (const c of desk) {
+            assert.equal(c.verdict, 'SKIP', `${c.id} on ${desktopMode}`);
+            assert.equal(c.reason, 'present', `${c.id} on ${desktopMode}`);
+            assert.equal(c.note, SKIP_REASONS.present);
+            assert.equal(
+                countsForExit(c),
+                true,
+                'it counts toward exit 5: the cell did not run'
+            );
+        }
+        // Nothing else moved: the cells without a desktop side run, NA stays NA.
+        const plain = cellPlan({ probe: DESK_PROBE, desktopMode: 'none' });
+        for (const c of rows.filter((x) => !deskSide(x))) {
+            const was = plain.find((x) => x.id === c.id);
+            assert.deepEqual(
+                [c.verdict, c.reason],
+                [was.verdict, was.reason],
+                c.id
+            );
+        }
+        assert.deepEqual(
+            rows.filter((c) => c.verdict === 'NA').map((c) => c.id),
+            ['S-DIR-D2D', 'S-REL-C2C', 'S-REL-D2D']
+        );
+        // Request cells: the host is the desktop whatever the visitor is.
+        const req = cellPlan({
+            cells: REQUEST_IDS,
+            probe: DESK_PROBE,
+            desktopMode,
+            server: 'https://api.floe.one',
+        }).filter(
+            (c) => REQUEST_IDS.includes(c.id) && c.reason !== 'head-only'
+        );
+        assert.ok(req.length >= 10);
+        for (const c of req)
+            assert.equal(c.reason, 'present', `${c.id} on ${desktopMode}`);
+    }
+});
+
+test('--user-away runs the desktop cells and the request hosts; --allow-foreground runs the desktop cells and keeps request hosts away-only; both together are --user-away', () => {
+    for (const desktopMode of ['store', 'portable', 'auto']) {
+        const plan = (flags, cells = null) =>
+            cellPlan({
+                cells,
+                probe: DESK_PROBE,
+                desktopMode,
+                server: 'https://api.floe.one',
+                ...flags,
+            });
+        const requests = (flags) =>
+            plan(flags, REQUEST_IDS).filter(
+                (c) => REQUEST_IDS.includes(c.id) && c.reason !== 'head-only'
+            );
+        const tag = (c) => [c.id, c.verdict, c.reason].join(' ');
+
+        const away = plan({ userAway: true });
+        for (const c of away.filter((x) => deskSide(x) && x.verdict !== 'NA'))
+            assert.equal(c.verdict, null, `${tag(c)} on ${desktopMode}`);
+        for (const c of requests({ userAway: true })) {
+            if (c.request.flow === 'open-link-precondition' && deskSide(c))
+                assert.equal(c.reason, 'single-instance', tag(c));
+            else assert.equal(c.verdict, null, `${tag(c)} on ${desktopMode}`);
+        }
+
+        const allowed = plan({ allowForeground: true });
+        for (const c of allowed.filter(
+            (x) => deskSide(x) && x.verdict !== 'NA'
+        ))
+            assert.equal(c.verdict, null, `${tag(c)} on ${desktopMode}`);
+        for (const c of requests({ allowForeground: true }))
+            assert.equal(
+                c.reason,
+                'request-host-away-only',
+                `${tag(c)} on ${desktopMode}`
+            );
+
+        assert.deepEqual(
+            plan({ userAway: true, allowForeground: true }).map(tag),
+            away.map(tag),
+            'both flags plan exactly what --user-away plans'
+        );
+        assert.deepEqual(
+            requests({ userAway: true, allowForeground: true }).map(tag),
+            requests({ userAway: true }).map(tag)
+        );
+    }
+});
+
+test("the presence gate is the run's own claim: a stored probe that says present does not stop an away run, and one that says away does not start a present one", () => {
+    for (const desktopMode of ['store', 'portable']) {
+        const stale = {
+            ...DESK_PROBE,
+            desktop: {
+                ...DESK_PROBE.desktop,
+                present: true,
+                focusNeeded: true,
+            },
+        };
+        const away = cellPlan({ probe: stale, desktopMode, userAway: true });
+        assert.equal(away.find((c) => c.id === 'S-DIR-C2D').verdict, null);
+        const wasAway = {
+            ...DESK_PROBE,
+            desktop: {
+                ...DESK_PROBE.desktop,
+                present: false,
+                focusNeeded: false,
+            },
+        };
+        const now = cellPlan({ probe: wasAway, desktopMode });
+        assert.equal(now.find((c) => c.id === 'S-DIR-C2D').reason, 'present');
+    }
+});
+
+test('the wailsdev lane and --desktop none are not touched by the presence gate, and the more telling reasons still win', () => {
+    // The dev page is a headless Playwright page: nothing to activate.
+    const dev = cellPlan({
+        profile: 'head',
+        probe: DESK_PROBE,
+        desktopMode: 'wailsdev',
+        server: LOCAL,
+    });
+    for (const c of dev.filter((x) => deskSide(x) && x.verdict !== 'NA'))
+        assert.equal(c.verdict, null, c.id);
+    const devReq = cellPlan({
+        profile: 'head',
+        cells: ['H-DIR-W2D-req', 'H-DIR-C2D-reqopen'],
+        probe: DESK_PROBE,
+        desktopMode: 'wailsdev',
+        server: LOCAL,
+    }).filter((c) => c.request);
+    for (const c of devReq) assert.equal(c.verdict, null, c.id);
+
+    const none = cellPlan({ probe: DESK_PROBE, desktopMode: 'none' });
+    for (const c of none.filter((x) => deskSide(x) && x.verdict !== 'NA'))
+        assert.equal(c.reason, 'desktop-none', c.id);
+
+    // A filter is the operator's own choice and stays uncounted.
+    const filtered = cellPlan({
+        probe: DESK_PROBE,
+        desktopMode: 'store',
+        cells: ['S-DIR-W2W'],
+    });
+    assert.equal(filtered.find((c) => c.id === 'S-DIR-C2D').reason, 'filtered');
+    // No build to drive is said before presence; a server without request-1 too.
+    const noBuild = cellPlan({
+        probe: { ...DESK_PROBE, desktop: { available: false } },
+        desktopMode: 'portable',
+    });
+    assert.equal(
+        noBuild.find((c) => c.id === 'S-DIR-C2D').reason,
+        'desktop-unavailable'
+    );
+    const noFeature = cellPlan({
+        cells: ['S-DIR-W2D-req'],
+        probe: { desktop: { available: true } },
+        desktopMode: 'store',
+        server: 'https://api.floe.one',
+    }).find((c) => c.id === 'S-DIR-W2D-req');
+    assert.equal(noFeature.reason, 'server-no-request-1');
 });

@@ -42,14 +42,20 @@
 // exit 0 on a silent failure. Neither lane writes outside the plan's build
 // dirs, which go through the fence before the first step runs.
 //
-// Presence: PRESENT (default) uses provider-side UIA only. The two actions
-// that activate a window, WM_COPYDATA staging (desktop/app.go
-// onSecondInstanceLaunch calls WindowUnminimise and WindowShow) and any
-// second launch, run only with opts.userAway AND when GetLastInputInfo
-// shows no key or pointer input for USER_AWAY_IDLE_S (120 s); the flag is
-// a claim, the idle time is the evidence, and a claim without evidence is
-// SKIP present. Files are staged on the first launch's argv wherever the
-// mode allows it.
+// Presence: every UIA pattern call on an exe (Invoke, Toggle, SetValue)
+// activates its window (G2-F1), so audit.mjs launches and drives nothing on
+// an exe lane unless the run passed --user-away or --allow-foreground
+// (lib/matrix.mjs foregroundRefused gates the plan and the probe's desktop
+// half before any leg is made). A leg that is made runs in one of two ways.
+// With opts.userAway, every pattern call first re-reads GetLastInputInfo
+// and stops as SKIP present under USER_AWAY_IDLE_S (120 s): the flag is a
+// claim, the idle time is the evidence. Without it (--allow-foreground, or
+// a caller that built the leg itself) pattern calls go straight through.
+// Two actions stay away-only whatever else is allowed, as they were before
+// that flag existed: WM_COPYDATA staging through a second launch
+// (desktop/app.go onSecondInstanceLaunch calls WindowUnminimise and
+// WindowShow) and the direct start of the Store exe with files (F1). Files
+// are staged on the first launch's argv wherever the mode allows it.
 //
 // Launching (FU-26, from the FU-02 addendum): every exe, and the
 // explorer.exe that starts the Store build by AUMID, is started through
@@ -72,9 +78,10 @@
 // sha256, restored } from the moment the guard applies, so `cleanup` can
 // replay the backup through restoreConfig if the process died anyway. The
 // app pid is registered with lib/proc.mjs, so finalize's killAllStarted
-// sees it. The per-user Explorer verb an unpackaged launch rewrites is
-// snapshotted once per process and put back by stop() and the same exit hook
-// (ShellMenuGuard).
+// sees it. The per-user Explorer verb an unpackaged launch rewrites, or
+// creates when there is none, is snapshotted once per process; stop() and
+// the same exit hook put a rewritten entry back and remove one the run
+// created (ShellMenuGuard).
 //
 // Every expected string is quoted from desktop/frontend/src/App.tsx,
 // TitleBar.tsx, incoming.ts and desktop/transfer.go; see STRINGS and RE below.
@@ -92,7 +99,7 @@ import {
 } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { SW, launchDetached } from './detached.mjs';
+import { SW, launchDetached, launchDirect } from './detached.mjs';
 import { sha256OfFile } from './fixtures.mjs';
 import { registerPid, started } from './proc.mjs';
 import { Leg, PhaseError, SafetyError, sleep } from './surfaces.mjs';
@@ -200,6 +207,20 @@ export const RE = Object.freeze({
     hideIpRow: /Hide my IP address/i,
     // A request drop's done heading (DN1): RECEIVED 12 FILES, 38.0 GB.
     requestDone: /^RECEIVED (\d+) FILES?, .+$/i,
+    // The Make link form's Auto-accept check as UIA names it (R29): a native
+    // checkbox inside its label, like the Settings switches, so its Name
+    // starts with the label (INFERRED on a built exe; the fake draws it so).
+    // Only CheckBoxes are candidates, so the info icon beside it (R32, a
+    // Button named About Auto-accept) never matches.
+    autoAcceptCheck: /^Auto-accept\b/i,
+    // The link block's scope line on a link made with Auto-accept on
+    // (requestCopy.ts scopeLine, one <p>): "Ends <when> · Accepts
+    // automatically" (W5a), or "... · Asks first, low space on <drive>"
+    // (W5b) once the app has found the drive under its floor. Matched at the
+    // line's end, so neither the end time's wording nor the separator is
+    // load-bearing here.
+    scopeAuto: /(?:^|\s)Accepts automatically$/i,
+    scopeAsks: /(?:^|\s)Asks first, low space on (.+)$/i,
 });
 
 /**
@@ -242,9 +263,14 @@ export const REQUEST_STRINGS = Object.freeze({
     verifiedLine: 'SHA-256 matched',
     // Auto-accept (D-173): the Make link form's switch, a checkbox whose
     // accessible name is its label, and the chip word while such a link
-    // waits. Only TA-10a turns it on; every other cell leaves it off.
+    // waits. Only the reqauto cells turn it on; every other cell leaves it
+    // off.
     autoAcceptSwitch: 'Auto-accept', // R29 (D-174: the inline check under LINK ENDS)
     autoAcceptPill: 'Auto-accept', // H4, CSS-uppercased as AUTO-ACCEPT
+    // W5a, the tail of the link block's scope line while an automatic link
+    // waits (ACCEPTS_AUTOMATICALLY in requestCopy.ts). On an exe host it is
+    // the lane's record that the link holds the choice (RE.scopeAuto).
+    acceptsAutomatically: 'Accepts automatically',
 });
 
 // The Link ends keys as MakeLink's refusal lists them: "30m, 1h, ... or 7d".
@@ -410,11 +436,17 @@ const isAbsWin = (p) =>
  * count; DN3, the check mark's sr-only text, shows only when every file
  * matched, so it alone vouches for files and verified, which read null
  * without it; verifyRequest in request.mjs fails a done view without it).
- * `gen` and `saveDir` are the UIA driver's own record of the links it made:
- * the view shows neither.
+ * `gen`, `saveDir` and `autoAccept` are the UIA driver's own record of the
+ * links it made: the view shows neither of the first two, and what it shows
+ * of the third is the scope line, read here as it stands now: `autoShown`
+ * (W5a, the link says it accepts by itself) and `autoAsks` (`low-space` on
+ * W5b, the name GetRequestLink gives the same fact), with the drive W5b names.
  * `state` is `unknown` when the view is not showing (another tab, Settings).
  */
-export function requestStateFromItems(items, { gen = 0, saveDir = '' } = {}) {
+export function requestStateFromItems(
+    items,
+    { gen = 0, saveDir = '', autoAccept = false } = {}
+) {
     const list = Array.isArray(items) ? items : [];
     const buttons = list
         .filter((x) => x && x.type === 'Button' && x.name)
@@ -433,6 +465,10 @@ export function requestStateFromItems(items, { gen = 0, saveDir = '' } = {}) {
         code: '',
         gen,
         saveDir: saveDir || '',
+        autoAccept: autoAccept === true,
+        autoShown: false,
+        autoAsks: '',
+        autoAsksDrive: null,
         link: '',
         route: '',
         prompt: undefined,
@@ -473,6 +509,16 @@ export function requestStateFromItems(items, { gen = 0, saveDir = '' } = {}) {
         link
     )
         out.link = String(link.value);
+    // W5a and W5b show only while the link waits or pairs a sender
+    // (requestLink.ts autoAcceptShown), never over a prompt.
+    if (['waiting', 'reconnecting', 'connecting'].includes(out.state)) {
+        const asks = texts.map((t) => RE.scopeAsks.exec(t)).find(Boolean);
+        out.autoShown = texts.some((t) => RE.scopeAuto.test(t));
+        if (asks) {
+            out.autoAsks = 'low-space';
+            out.autoAsksDrive = asks[1];
+        }
+    }
     if (out.state === 'ended')
         // X5 is cut (D-170): a relaunch shows the Make link form, not an end.
         out.code = texts.some((t) => C.linkEndedAt.test(t)) ? 'expired' : 'closed';
@@ -1104,11 +1150,16 @@ export class DesktopConfigGuard {
  * The per-user "Send with Floe" Explorer verb, as
  * desktop/contextmenu_windows.go registerContextMenu writes it: the base
  * key's Default ("Send with Floe"), its Icon (the exe) and the command
- * subkey's Default ("<exe>" "%1"), all REG_SZ. At startup an unpackaged
- * build (desktop/app.go) rewrites all three to its own exe whenever the
- * command subkey exists and names another one, so a portable or head launch
- * points the user's entry at a scratch exe the run later deletes. The app
- * never creates the key, and neither does anything here.
+ * subkey's Default ("<exe>" "%1"), all REG_SZ. An unpackaged build touches it
+ * twice on a launch. At startup (desktop/app.go) it rewrites all three to its
+ * own exe whenever the command subkey exists and names another one. Then the
+ * frontend (desktop/frontend/src/App.tsx, "First run defaults it ON") turns
+ * the entry on when the profile has no floe:ctx-menu marker, which CREATES
+ * the key when it is not there, and a portable or head launch always runs on
+ * such a profile because its APPDATA is redirected. Either way the user's
+ * entry ends up naming a scratch exe the run later deletes, so the guard
+ * below puts a rewritten entry back and removes one the run created. Nothing
+ * here ever creates the key.
  */
 export const SHELL_MENU_KEY = 'Software\\Classes\\*\\shell\\Floe';
 
@@ -1120,7 +1171,16 @@ export const SHELL_MENU_KEY = 'Software\\Classes\\*\\shell\\Floe';
 // script travels as -EncodedCommand, because PowerShell 5.1 mangles embedded
 // double quotes in arguments (the command value carries four) and its
 // console output is not UTF-8.
-const SHELL_MENU_PS = `$ErrorActionPreference = 'Stop'
+//
+// The delete branch (B1) decides ownership and deletes in this one call: the
+// command must equal one of the request's commands, compared ordinal and
+// ignoring case, and the key must hold nothing but Default, Icon and the
+// command subkey's Default. Then two DeleteSubKey calls on keys opened by
+// name, the command subkey first. DeleteSubKey is not recursive, so a subkey
+// that was not there a moment ago makes it throw rather than take it along.
+// No test runs this script (it would touch the real HKCU): desktop.test.mjs
+// plays its rules in a fake and has PowerShell parse the text.
+export const SHELL_MENU_PS = `$ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 function Send-Answer($answer) {
     $json = ConvertTo-Json -InputObject $answer -Compress -Depth 5
@@ -1138,6 +1198,8 @@ function Write-Entry($key, $name, $entry) {
 }
 $base = $null
 $cmd = $null
+$parent = $null
+$own = $null
 try {
     $req = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('@REQUEST@')) | ConvertFrom-Json
     $write = $req.op -eq 'write'
@@ -1149,13 +1211,47 @@ try {
         Write-Entry $base 'Icon' $req.values.icon
         Write-Entry $cmd '' $req.values.command
         Send-Answer @{ ok = $true }
+    } elseif ($req.op -eq 'delete') {
+        if ($null -eq $base) {
+            Send-Answer @{ ok = $true; deleted = $false; reason = 'absent'; command = $null }
+        } else {
+            $command = Read-Entry $cmd ''
+            $value = $null
+            if ($null -ne $command) { $value = $command.value }
+            $mine = $false
+            foreach ($want in @($req.commands)) {
+                if ($null -ne $value -and [string]::Equals($value, [string]$want, [StringComparison]::OrdinalIgnoreCase)) { $mine = $true }
+            }
+            $extra = @($base.GetValueNames() | Where-Object { $_ -ne '' -and $_ -ne 'Icon' }).Count
+            $extra += @($base.GetSubKeyNames() | Where-Object { $_ -ne 'command' }).Count
+            if ($null -ne $cmd) { $extra += @($cmd.GetValueNames() | Where-Object { $_ -ne '' }).Count + $cmd.SubKeyCount }
+            if (-not $mine) {
+                Send-Answer @{ ok = $true; deleted = $false; reason = 'foreign'; command = $value }
+            } elseif ($extra -gt 0) {
+                Send-Answer @{ ok = $true; deleted = $false; reason = 'extra'; command = $value }
+            } else {
+                $cmd.Close()
+                $cmd = $null
+                $base.Close()
+                $base = $null
+                $parent = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($req.parent, $true)
+                $own = $parent.OpenSubKey($req.leaf, $true)
+                $own.DeleteSubKey('command', $false)
+                $own.Close()
+                $own = $null
+                $parent.DeleteSubKey($req.leaf, $false)
+                Send-Answer @{ ok = $true; deleted = $true; reason = $null; command = $value }
+            }
+        }
     } else {
         $command = Read-Entry $cmd ''
-        Send-Answer @{ ok = $true; present = ($null -ne $command); values = @{ name = (Read-Entry $base ''); icon = (Read-Entry $base 'Icon'); command = $command } }
+        Send-Answer @{ ok = $true; exists = ($null -ne $base); present = ($null -ne $command); values = @{ name = (Read-Entry $base ''); icon = (Read-Entry $base 'Icon'); command = $command } }
     }
 } catch {
     Send-Answer @{ ok = $false; error = $_.Exception.Message }
 } finally {
+    if ($null -ne $own) { $own.Close() }
+    if ($null -ne $parent) { $parent.Close() }
     if ($null -ne $cmd) { $cmd.Close() }
     if ($null -ne $base) { $base.Close() }
 }
@@ -1206,16 +1302,21 @@ const menuValues = (v = {}) => ({
 const sameMenu = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 /**
- * { present, values: { name, icon, command } }, each value { kind, value }
- * or null when unset. present is what the startup self-heal checks: a string
- * Default on the command subkey. Throws when the read fails.
+ * { exists, present, values: { name, icon, command } }, each value
+ * { kind, value } or null when unset. exists is the base key being there at
+ * all; present is what the startup self-heal checks: a string Default on the
+ * command subkey. Throws when the read fails.
  */
 export function readShellMenu({
     key = SHELL_MENU_KEY,
     exec = defaultExec,
 } = {}) {
     const answer = shellMenuCall({ op: 'read', key }, exec);
-    return { present: answer.present === true, values: menuValues(answer.values) };
+    return {
+        exists: answer.exists === true || answer.present === true,
+        present: answer.present === true,
+        values: menuValues(answer.values),
+    };
 }
 
 /** Write readShellMenu().values onto the EXISTING key (a null value is removed); throws on refusal. */
@@ -1226,15 +1327,55 @@ export function writeShellMenu(
     shellMenuCall({ op: 'write', key, values: menuValues(values) }, exec);
 }
 
+/** The command the app registers for an exe (desktop/contextmenu.go expectedCommand). */
+export const shellMenuCommand = (exe) => `"${exe}" "%1"`;
+
+/**
+ * Remove the key, but only as the script's delete branch allows: its command
+ * must equal one of `commands` (ordinal, ignoring case) and the key must hold
+ * nothing but what the app writes. Ownership is decided inside the same
+ * PowerShell call that deletes, so there is no window in which another exe's
+ * entry could be taken for ours. { deleted, reason, command }: reason is
+ * `absent`, `foreign` (another command) or `extra` (more than the app
+ * writes) when nothing was deleted. Throws when the call fails.
+ */
+export function deleteShellMenu(
+    commands,
+    { key = SHELL_MENU_KEY, exec = defaultExec } = {}
+) {
+    const cut = key.lastIndexOf('\\');
+    const answer = shellMenuCall(
+        {
+            op: 'delete',
+            key,
+            parent: key.slice(0, cut),
+            leaf: key.slice(cut + 1),
+            commands: [...commands],
+        },
+        exec
+    );
+    return {
+        deleted: answer.deleted === true,
+        reason: answer.reason ?? null,
+        command: typeof answer.command === 'string' ? answer.command : null,
+    };
+}
+
 /**
  * The Explorer verb across a run. take() snapshots it ONCE per process, at
  * the first unpackaged launch: a later snapshot would capture an earlier
- * leg's rewrite (P9 launches twice). restore() puts the snapshot back and
- * reads it again. Only an 'armed' guard ever writes; 'absent' (the app never
- * creates the key, so there is nothing to guard), 'unreadable' and 'off'
- * (not Windows) leave the registry alone for the rest of the process. A
- * failed read is a note, never a failed cell; a write the re-read
- * contradicts is a SafetyError (exit 4).
+ * leg's rewrite (P9 launches twice). What restore() does follows from what
+ * take() found:
+ *   - 'armed' (the entry was there): put the snapshot back and read it again;
+ *   - 'absent' (no key at all, B1): a launch of this run may have created
+ *     one (the frontend's first-run default), so a key that is there now is
+ *     removed, but only when its command is the one the app registers for an
+ *     exe this process launched (own()) and the key holds nothing else;
+ *     anything other than that is left exactly as it is, with a note;
+ *   - 'incomplete' (a base key with no command), 'unreadable' and 'off' (not
+ *     Windows): the registry is left alone for the rest of the process.
+ * A failed read is a note, never a failed cell; a write or a delete that the
+ * re-read contradicts is a SafetyError (exit 4).
  */
 export class ShellMenuGuard {
     constructor({
@@ -1247,10 +1388,22 @@ export class ShellMenuGuard {
         this.platform = platform;
         this.state = 'unread';
         this.snapshot = null;
+        // The commands the app registers for the exes this process launched.
+        this.owned = new Set();
     }
 
     read() {
         return readShellMenu({ key: this.key, exec: this.exec });
+    }
+
+    /**
+     * An exe this process launched. A leg names its planned command and the
+     * exe the window search reports, since the app registers os.Executable()
+     * and the two spellings are not known to agree.
+     */
+    own(exe) {
+        if (typeof exe === 'string' && exe)
+            this.owned.add(shellMenuCommand(exe));
     }
 
     take(note = () => {}) {
@@ -1267,10 +1420,15 @@ export class ShellMenuGuard {
                 note(
                     `explorer verb: snapshot of HKCU\\${this.key} (command ${now.values.command.value})`
                 );
+            } else if (now.exists) {
+                this.state = 'incomplete';
+                note(
+                    `explorer verb: HKCU\\${this.key} exists without a command; left alone this run`
+                );
             } else {
                 this.state = 'absent';
                 note(
-                    `explorer verb: HKCU\\${this.key} absent; the app never creates it, left alone`
+                    `explorer verb: HKCU\\${this.key} absent before the run; a key a launch creates is removed at stop`
                 );
             }
         } catch (err) {
@@ -1284,6 +1442,7 @@ export class ShellMenuGuard {
 
     /** Synchronous, so the process 'exit' hook can call it: { wrote, match }. */
     restore(note = () => {}) {
+        if (this.state === 'absent') return this.restoreAbsence(note);
         if (this.state !== 'armed') return { wrote: false, match: null };
         let now;
         try {
@@ -1325,6 +1484,71 @@ export class ShellMenuGuard {
         throw new SafetyError(
             `explorer verb restore mismatch at HKCU\\${this.key}: want command ${want}, got ${got}`,
             { key: this.key, want: this.snapshot, got: after.values }
+        );
+    }
+
+    /** restore() for a key that was absent when the run began (B1). */
+    restoreAbsence(note = () => {}) {
+        let now;
+        try {
+            now = this.read();
+        } catch (err) {
+            note(
+                `explorer verb: restore read failed, left as is: ${err.message}`
+            );
+            return { wrote: false, match: null };
+        }
+        if (!now.exists) {
+            note(`explorer verb: HKCU\\${this.key} still absent`);
+            return { wrote: false, match: true };
+        }
+        const shown = now.values.command ? now.values.command.value : null;
+        if (!this.owned.size) {
+            note(
+                `explorer verb: HKCU\\${this.key} appeared during the run (command ${shown}) and no exe of this run was launched; left alone`
+            );
+            return { wrote: false, match: null };
+        }
+        let answer = null;
+        try {
+            answer = deleteShellMenu(this.owned, {
+                key: this.key,
+                exec: this.exec,
+            });
+        } catch (err) {
+            note(`explorer verb: delete failed: ${err.message}`);
+        }
+        if (answer && !answer.deleted) {
+            note(
+                answer.reason === 'extra'
+                    ? `explorer verb: HKCU\\${this.key} appeared during the run and holds more than the app writes; left alone`
+                    : answer.reason === 'absent'
+                      ? `explorer verb: HKCU\\${this.key} was gone again before the delete`
+                      : `explorer verb: HKCU\\${this.key} appeared during the run but its command ${answer.command} is not for an exe this run launched; left alone`
+            );
+            return {
+                wrote: false,
+                match: answer.reason === 'absent' ? true : null,
+            };
+        }
+        let after;
+        try {
+            after = this.read();
+        } catch (err) {
+            note(
+                `explorer verb: re-read after the delete failed: ${err.message}`
+            );
+            return { wrote: true, match: null };
+        }
+        if (!after.exists) {
+            note(
+                `explorer verb: removed HKCU\\${this.key}, which a launch of this run had created (command ${shown})`
+            );
+            return { wrote: true, match: true };
+        }
+        throw new SafetyError(
+            `explorer verb: HKCU\\${this.key} was absent before the run and is still there after the delete (command ${shown}). It names an exe the run deletes; remove it with: reg delete "HKCU\\${this.key}" /f`,
+            { key: this.key, want: null, got: after.values }
         );
     }
 }
@@ -1414,6 +1638,16 @@ export const UIA_SNAPSHOT_MAX = 3000;
 /** How long an answer's Invoke has to take the prompt away before it counts as swallowed. */
 export const ANSWER_SETTLE_MS = 1_500;
 export const ANSWER_ATTEMPTS = 3;
+/**
+ * The SKIP of a prompted request cell on a built exe (F2). Field result,
+ * 2026-10-11, Store 1.3.0.0: a UIA Invoke never presses Accept. The prompt
+ * ignores input for 1 s after every focus change (RequestLinkView.tsx Prompt,
+ * the `focus` listener that re-arms guardActive), an Invoke on an exe changes
+ * the focus (G2-F1), the button reads disabled within 100 ms of each Invoke,
+ * and a third Invoke throws ElementNotEnabledException, with the window in
+ * the foreground too. Decline shares the row and the guard.
+ */
+export const ACCEPT_UNDRIVABLE = 'request-accept-undrivable';
 const COPIED = 'Copied'; // W3, the Copy link button's name for 1.5 s after a click
 
 const hasButton = (items, name) =>
@@ -1444,9 +1678,10 @@ export function shortFolderName(name, max = 34) {
  * request host is away-only: with `awayOnly` set, every pattern call first
  * re-reads GetLastInputInfo and stops as SKIP present below 120 s of idle
  * input; reads never activate. And the prompt re-arms its 1 s guard when the
- * window gains focus, so the Invoke that activates it can be swallowed: an
- * answer is retried, never sooner than ACCEPT_WAIT_MS after the prompt was
- * first seen or after the last Invoke.
+ * window gains focus, which an Invoke always brings, so no Invoke ever
+ * presses Accept or Decline (F2, ACCEPT_UNDRIVABLE): those two verbs prove
+ * the prompt and stop as SKIP. What the lane delivers, it delivers on a
+ * link made with Auto-accept on, where nothing has to be pressed.
  */
 export class UiaDriver {
     constructor(client, hwnd, { log = null } = {}) {
@@ -1458,10 +1693,15 @@ export class UiaDriver {
         this.awayOnly = false;
         this.pollMs = UIA_REQUEST_POLL_MS;
         // The links this driver made: the view shows neither a generation
-        // nor the save folder.
+        // nor the save folder, and _autoAccept is true only for a link whose
+        // block said "Accepts automatically" when this driver made it.
         this._gen = 0;
         this._saveDir = '';
+        this._autoAccept = false;
         this._promptFolder = null;
+        // What the Make link form's Save to field read before this driver
+        // first set it (B2, restoreRequestSaveDir); undefined until then.
+        this._saveToBefore = undefined;
     }
     /** GetLastInputInfo before a pattern call on an away-only host. */
     async _away() {
@@ -1628,6 +1868,7 @@ export class UiaDriver {
         const s = requestStateFromItems(items, {
             gen: this._gen,
             saveDir: this._saveDir,
+            autoAccept: this._autoAccept,
         });
         if (s.prompt && s.prompt.folder) this._promptFolder = s.prompt.folder;
         if (s.result) s.result.folder = this._dropFolder(items);
@@ -1674,10 +1915,18 @@ export class UiaDriver {
      * select is closed; every cell makes 24 hours, the default), Make link,
      * then the waiting view.
      *
-     * autoAccept true is TA-10a's, whose oracles read the host's own record
-     * of the switch and the drop's mark (GetRequestLink), which this lane
-     * does not have: SKIP request-auto-wailsdev-only before anything is
-     * clicked (the matrix gate SKIPs the cell first; this is the second lock).
+     * autoAccept true (the reqauto cells) sets the form's Auto-accept check
+     * through TogglePattern and reads it back before Make link: a form
+     * without the check is SKIP request-no-auto-switch, no link made. An exe
+     * has no GetRequestLink, so the record that the link holds the choice is
+     * the link block's own line, W5a (RE.scopeAuto). W5b there means the
+     * drive under the save folder is already below the floor an unattended
+     * drop must leave (desktop/requestauto.go autoSpaceFn), so every drop
+     * would ask and the cell could prove nothing: request-flow, by name.
+     * autoAccept false never touches the check (the form mounts with it
+     * off), and a link that says it accepts anyway is the same finding the
+     * dev page lane words. Either way the link exists by then, so it is
+     * counted first and the runner's release closes it.
      */
     async makeRequestLink({
         lifetime = '24h',
@@ -1693,11 +1942,10 @@ export class UiaDriver {
                 'request',
                 `desktop uia: MakeLink takes ${LIFETIME_KEYS_TEXT}, not ${lifetime}`
             );
-        if (autoAccept !== false)
+        if (autoAccept !== true && autoAccept !== false)
             throw new PhaseError(
                 'request',
-                'desktop uia: MakeLink with Auto-accept on is a wailsdev verb (TA-10a reads GetRequestLink); no link is made',
-                { verdict: 'SKIP', reason: 'request-auto-wailsdev-only' }
+                `desktop uia: MakeLink takes autoAccept true or false, not ${autoAccept}`
             );
         if (typeof saveDir !== 'string' || !path.isAbsolute(saveDir))
             throw new PhaseError(
@@ -1721,6 +1969,10 @@ export class UiaDriver {
                 );
             throw err;
         }
+        // Only the first set of this driver read the owner's value; a later
+        // one reads the run's own folder.
+        if (set && this._saveToBefore === undefined)
+            this._saveToBefore = String(set.before ?? '');
         if (!set || set.after !== saveDir)
             throw new PhaseError(
                 'request',
@@ -1729,11 +1981,31 @@ export class UiaDriver {
             );
         if (lifetime !== '24h')
             await this.click(lifetimeText, { controlType: 'any' });
+        if (autoAccept) {
+            let sw;
+            try {
+                sw = await this.setToggle(RE.autoAcceptCheck, true);
+            } catch (err) {
+                if (err && err.reason === 'not-found')
+                    throw new PhaseError(
+                        'request',
+                        `desktop uia: this build has no "${REQUEST_STRINGS.autoAcceptSwitch}" check on the Make link form (made before Auto-accept); no link is made`,
+                        { verdict: 'SKIP', reason: 'request-no-auto-switch' }
+                    );
+                throw err;
+            }
+            if (!sw || sw.after !== true)
+                throw new PhaseError(
+                    'request',
+                    'desktop uia: the Auto-accept check did not turn on; no link is made'
+                );
+        }
         await this.click(REQUEST_STRINGS.makeLink, { controlType: 'Button' });
         const start = now();
         let waitingAt = null;
+        let items;
         for (;;) {
-            const items = await this._items();
+            items = await this._items();
             if (hasButton(items, REQUEST_STRINGS.copyLink) || hasButton(items, COPIED)) {
                 waitingAt = now();
                 break;
@@ -1754,14 +2026,70 @@ export class UiaDriver {
         }
         this._gen += 1;
         this._saveDir = saveDir;
+        this._autoAccept = false;
         this._promptFolder = null;
+        const said = requestStateFromItems(items);
+        if (autoAccept && said.autoAsks)
+            throw new PhaseError(
+                'request',
+                `request-flow: the link reads "Asks first, low space on ${said.autoAsksDrive}" (W5b): the drive under the run folder is below the free space an unattended drop must leave, so every drop on this link asks and the cell cannot prove an automatic one. Point --out at an NTFS drive with more room`,
+                { signatureKey: 'request-flow' }
+            );
+        if (autoAccept && !said.autoShown)
+            throw new PhaseError(
+                'request',
+                `request-flow: the link was made with the Auto-accept check on, but its link block does not say "${REQUEST_STRINGS.acceptsAutomatically}" (W5a), which is the only record of the choice an exe host shows`,
+                { signatureKey: 'request-flow' }
+            );
+        // A cell that asks would never see its prompt on an automatic link.
+        if (!autoAccept && (said.autoShown || said.autoAsks))
+            throw new PhaseError(
+                'request',
+                'request-flow: the host made the link with autoAccept true, not the false this cell chose',
+                { signatureKey: 'request-flow' }
+            );
+        this._autoAccept = autoAccept;
         return { made: true, lifetime, autoAccept, saveDir, waitingAt };
+    }
+    /**
+     * B2: put the Make link form's Save to field back to what it read before
+     * this driver first set it. The frontend keeps that field between
+     * launches (App.tsx writes localStorage floe:requestSaveDir on every
+     * change, and SetValue is a change), so on the Store app, the one exe
+     * that runs on the owner's own profile, a cell would otherwise leave its
+     * run folder there for the owner to find. Called once the link is closed
+     * or its result put away (lib/request.mjs releaseHost, Store lane only):
+     * the ended view's Make another link brings the form back, then the
+     * value is set and read back. An empty `before` is the owner never
+     * having chosen a folder (INFERRED: that SetValue('') clears the field
+     * on the app; the read-back decides). Nothing was set, nothing is done.
+     */
+    async restoreRequestSaveDir() {
+        if (this._saveToBefore === undefined)
+            return { before: null, restored: null, after: null };
+        const before = this._saveToBefore;
+        await this._toRequestView();
+        if (await this._visible(REQUEST_STRINGS.makeAnother))
+            await this.click(REQUEST_STRINGS.makeAnother, {
+                controlType: 'Button',
+            });
+        const set = await this.setValue(
+            REQUEST_STRINGS.saveToPlaceholder,
+            before
+        );
+        const after = set ? String(set.after ?? '') : null;
+        return { before, restored: after === before, after };
+    }
+    /** What restoreRequestSaveDir would put back, or null when nothing was set. */
+    requestSaveDirBefore() {
+        return this._saveToBefore === undefined ? null : this._saveToBefore;
     }
     /** ReadLink: the full link is the read-only link field's value (LinkBlock). */
     async readRequestLink() {
         const s = requestStateFromItems(await this._items(), {
             gen: this._gen,
             saveDir: this._saveDir,
+            autoAccept: this._autoAccept,
         });
         if (!REQUEST_LINK_RE.test(s.link))
             throw new PhaseError(
@@ -1776,12 +2104,23 @@ export class UiaDriver {
         };
     }
     /**
-     * Accept or Decline: never sooner than ACCEPT_WAIT_MS after the prompt
-     * was first seen, nor after the previous Invoke (the guard re-arms on the
-     * focus an Invoke brings, G2-F1); then the prompt must leave within
-     * ANSWER_SETTLE_MS, or the Invoke counts as swallowed and is repeated,
-     * ANSWER_ATTEMPTS at most. A refusal of a disabled button (the guard's
-     * aria-disabled) is a swallowed Invoke too.
+     * One guarded button of the request view, by name.
+     *
+     * Accept and Decline are never invoked here (F2, ACCEPT_UNDRIVABLE): once
+     * the button is on screen, which proves the prompt, the verb stops as
+     * SKIP request-accept-undrivable with nothing invoked. The runner has
+     * already read and recorded the prompt by then (lib/request.mjs
+     * awaitPrompt), so the cell keeps what it proved. The repeat-the-Invoke
+     * loop that used to press them did so only against a fake: on the app
+     * the guard re-arms on the focus each Invoke brings and no Invoke lands.
+     *
+     * Keep waiting is still invoked: its guard runs from the moment the
+     * declined view renders and has no focus term (RequestLinkView.tsx
+     * Declined), so it is pressed never sooner than ACCEPT_WAIT_MS after it
+     * was first seen, then must leave within ANSWER_SETTLE_MS or the Invoke
+     * counts as swallowed and is repeated, ANSWER_ATTEMPTS at most. A refusal
+     * of a disabled button (the guard's aria-disabled) is a swallowed Invoke
+     * too.
      */
     async _answer(
         name,
@@ -1789,6 +2128,12 @@ export class UiaDriver {
     ) {
         await this._toRequestView();
         const seenAt = await this._waitShown(name, timeoutMs, { now, nap });
+        if (name === REQUEST_STRINGS.accept || name === REQUEST_STRINGS.decline)
+            throw new PhaseError(
+                'request',
+                `${ACCEPT_UNDRIVABLE}: the prompt is up ("${name}" is showing) and nothing was invoked: on a built exe a UIA Invoke cannot press Accept or Decline, because the prompt ignores input for 1 s after every focus change and an Invoke changes the focus (field result 2026-10-11). The wailsdev lane proves both answers, and an Auto-accept cell (reqauto) proves a delivery on this one`,
+                { verdict: 'SKIP', reason: ACCEPT_UNDRIVABLE, seenAt }
+            );
         const invokes = [];
         for (let k = 0; k < attempts; k++) {
             const from = invokes.length ? invokes[invokes.length - 1] : seenAt;
@@ -1821,20 +2166,20 @@ export class UiaDriver {
             `desktop uia: "${name}" still showing after ${invokes.length} Invoke(s), each at least ${ACCEPT_WAIT_MS} ms after the last`
         );
     }
+    /** Waits for the prompt, then SKIP request-accept-undrivable (_answer). */
     async acceptRequest(o = {}) {
         return this._answer(REQUEST_STRINGS.accept, o);
     }
-    /** Decline, then the declined view's Keep waiting must show (D3). */
+    /** The same stop as acceptRequest: Decline sits under the same guard. */
     async declineRequest(o = {}) {
-        const r = await this._answer(REQUEST_STRINGS.decline, o);
-        await this._waitShown(REQUEST_STRINGS.keepWaiting, 10_000, o);
-        return r;
+        return this._answer(REQUEST_STRINGS.decline, o);
     }
     /**
      * Keep waiting (request-reopen, E-03): only from the declined view; the
      * waiting view must come back. The declined view's button ignores input
-     * for 1 s after it appears, like Accept and Decline (966eb3d, W3 R5-03),
-     * so it is answered the same way.
+     * for 1 s after it appears (966eb3d, W3 R5-03), counted from its render
+     * alone, so the wait-then-Invoke of _answer presses it. On an exe only
+     * the owner's own Decline gets a cell here.
      */
     async keepWaiting({ now = Date.now, nap = sleep } = {}) {
         await this._toRequestView();
@@ -2596,10 +2941,26 @@ export class PlaywrightDriver {
  * explorer hands the AUMID to the shell and exits, and the window search
  * that follows is the real handshake. `detach` is injectable so tests
  * never start anything.
+ *
+ * One launch does not start that way (F1, field run 2026-10-11):
+ * Win32_Process.Create answers 2, access denied, for the Store package's exe
+ * when it carries files, which is how a Store sender stages them. That launch
+ * alone falls back to lib/detached.mjs launchDirect, and only when all three
+ * hold: the answer was 2, the plan is the Store's, and it stages files. A
+ * direct child descends from the operator's terminal and can take the
+ * foreground, so the fallback also needs `allowDirect` (the leg passes its
+ * --user-away); without it the launch is SKIP present. Every other refusal
+ * is rethrown as it came. The result says which way it went (`direct`), and
+ * so does desktop.launch.txt.
  */
 export async function launchProcess(
     plan,
-    { evidenceDir = null, detach = launchDetached } = {}
+    {
+        evidenceDir = null,
+        detach = launchDetached,
+        direct = launchDirect,
+        allowDirect = false,
+    } = {}
 ) {
     if (plan.mode === 'wailsdev') return { child: null, pid: null };
     if (plan.command === 'explorer.exe') {
@@ -2611,21 +2972,51 @@ export async function launchProcess(
         });
         return { child: null, pid: null, launcherPid: pid, detached: true };
     }
-    const { pid } = await detach({
-        command: plan.command,
-        args: plan.args,
-        cwd: plan.cwd,
-        env: plan.env ?? null,
-        show: SW.SHOWNOACTIVATE,
-    });
+    let pid;
+    let viaDirect = false;
+    try {
+        ({ pid } = await detach({
+            command: plan.command,
+            args: plan.args,
+            cwd: plan.cwd,
+            env: plan.env ?? null,
+            show: SW.SHOWNOACTIVATE,
+        }));
+    } catch (err) {
+        if (
+            !(
+                err &&
+                err.returnValue === 2 &&
+                plan.mode === 'store' &&
+                plan.filesStaged
+            )
+        )
+            throw err;
+        if (!allowDirect)
+            throw new PhaseError(
+                'start',
+                'desktop store: Win32_Process.Create refused the package exe with files (2, access denied), and the direct start that takes them can bring the window to the foreground, so it runs only with --user-away; nothing was started',
+                { verdict: 'SKIP', reason: 'present' }
+            );
+        ({ pid } = await direct({
+            command: plan.command,
+            args: plan.args,
+            cwd: plan.cwd,
+        }));
+        viaDirect = true;
+    }
     if (evidenceDir) {
         mkdirSync(evidenceDir, { recursive: true });
         writeFileSync(
             path.join(evidenceDir, 'desktop.launch.txt'),
-            `detached launch (FU-26): Win32_Process.Create pid ${pid}, first window SW_SHOWNOACTIVATE; no stdout or stderr pipe\n`
+            viaDirect
+                ? `direct launch (F1): Win32_Process.Create returned 2 (access denied) for the Store exe with files, so this process spawned it itself, pid ${pid}, detached with no pipes; a direct child can take the foreground, which is why this path needs --user-away\n`
+                : `detached launch (FU-26): Win32_Process.Create pid ${pid}, first window SW_SHOWNOACTIVATE; no stdout or stderr pipe\n`
         );
     }
-    return { child: null, pid, detached: true };
+    return viaDirect
+        ? { child: null, pid, detached: false, direct: true }
+        : { child: null, pid, detached: true };
 }
 
 function taskkill(pid) {
@@ -2710,6 +3101,8 @@ export class DesktopLeg extends Leg {
         this.guard = null;
         this.saveDir = { original: null, changed: false, restored: null };
         this.launchProof = null;
+        // null until an exe is launched; then whether the F1 fallback ran.
+        this.launchedDirect = null;
         this.samples = [];
         // The latest DIRECT or RELAY sample; route() reports it even after
         // the pill has gone back to READY or the samples ring has moved on.
@@ -2899,9 +3292,13 @@ export class DesktopLeg extends Leg {
         } else {
             seedRedirectedConfig(this.plan.appData, this.edit());
             // An unpackaged exe points the user's Explorer verb at itself on
-            // startup; the first such launch in this process snapshots it.
-            this.shellMenuArmed =
-                this.shellMenu.take((l) => this.note(l)) === 'armed';
+            // startup, and creates it when there is none (the frontend's
+            // first-run default on this fresh profile); the first such launch
+            // in this process snapshots it. Both an entry to put back and an
+            // absence to restore are guarded at stop.
+            const menu = this.shellMenu.take((l) => this.note(l));
+            this.shellMenuArmed = menu === 'armed' || menu === 'absent';
+            if (this.shellMenuArmed) this.shellMenu.own(this.plan.command);
         }
         // Read the proof now, before any restore, so evidence() reports the
         // config the app actually launched with.
@@ -2909,9 +3306,18 @@ export class DesktopLeg extends Leg {
         const client = await this.uia();
         const launched = await this.launcher(this.plan, {
             evidenceDir: this.evidenceDir,
+            // F1: the Store exe with files may need a direct spawn, which can
+            // take the foreground, so only a run that declared the owner away
+            // may make one (launchProcess).
+            allowDirect: this.userAway,
         });
         this.child = launched.child;
         this.pid = launched.pid;
+        this.launchedDirect = launched.direct === true;
+        if (this.launchedDirect)
+            this.note(
+                'the Store exe with files was started directly (Win32_Process.Create refused it, F1)'
+            );
         // Registered before the window search: a launch that never shows a
         // window is still ours to kill at finalize.
         this.registerPid(this.pid);
@@ -2924,6 +3330,9 @@ export class DesktopLeg extends Leg {
         this.hwnd = win.hwnd;
         this.pid = win.pid;
         this.exePath = win.exe;
+        // The app registers os.Executable(), which the window's exe path is
+        // the closest reading of (B1).
+        if (this.shellMenuArmed) this.shellMenu.own(win.exe);
         // The AUMID launch (explorer.exe) only learns its pid here.
         this.registerPid(this.pid);
         this.marks.window = Date.now();
@@ -3833,9 +4242,9 @@ export class DesktopLeg extends Leg {
                 }
                 this.recordGuard();
             }
-            // Only an app's startup rewrites the Explorer verb, so putting it
-            // back after the close is final; a second leg's restore finds it
-            // already back and writes nothing.
+            // Only an app's launch rewrites or creates the Explorer verb, so
+            // putting it back (or removing it) after the close is final; a
+            // second leg's restore finds it done and writes nothing.
             if (this.shellMenuArmed) {
                 this.shellMenuArmed = false;
                 try {
@@ -3870,6 +4279,15 @@ export class DesktopLeg extends Leg {
                   filesStaged: this.plan.filesStaged,
                   identity: this.plan.identity ?? null,
                   url: this.plan.url,
+                  // 'detached' (Win32_Process.Create), 'direct' (the F1
+                  // fallback), or null on the wailsdev lane, which starts
+                  // nothing, and before any launch.
+                  started:
+                      this.launchedDirect === null
+                          ? null
+                          : this.launchedDirect
+                            ? 'direct'
+                            : 'detached',
                   // What the desktop.json this launch read said about toasts
                   // (editDesktopJson turns them off). Here and not only in
                   // statsProof, which a sender does not have.
@@ -4266,8 +4684,12 @@ function probeEvidence(ev) {
  * receiverDrivable is P1, saveDirSettable P9, senderDrivable P6; a probe
  * that errored or was skipped leaves its flag null (unknown), never false.
  * available is whether any probe got a window. present is the declared
- * presence (not --user-away); focusNeeded is false because UIA drives the
- * app through provider-side Invoke and SetValue calls.
+ * presence (not --user-away). focusNeeded is true on every exe lane: it used
+ * to be hard-wired false, on the premise that provider-side Invoke and
+ * SetValue calls need no focus, until G2-F1 showed that each one activates
+ * the exe's window. Only the wailsdev page is driven without it. Both are a
+ * record of this probe run; the plan gates on the run's own flags
+ * (lib/matrix.mjs foregroundRefused), never on these.
  */
 export function aggregateProbes(
     results,
@@ -4300,7 +4722,7 @@ export function aggregateProbes(
         saveDirSettable,
         senderDrivable,
         present: !userAway,
-        focusNeeded: false,
+        focusNeeded: mode !== 'wailsdev',
         mode,
         detail: results.length
             ? results.map((r) => `${r.probe} ${r.verdict}`).join('; ')

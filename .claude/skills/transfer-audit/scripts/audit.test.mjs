@@ -24,6 +24,7 @@ import {
     main,
     parseWslList,
     exesUnderTest,
+    foregroundLine,
     prepareHarnessBuild,
     probeFirewall,
     prepareWslBuild,
@@ -235,6 +236,7 @@ test('run --quick on fake adapters: all PASS, PROGRESS lines, audit.md and run.j
         [
             'run',
             '--quick',
+            '--allow-foreground',
             '--root',
             root,
             '--out',
@@ -694,7 +696,15 @@ test('run default on fake adapters with a FAIL, a FLAKY and NA rows: exit 1, pre
     world.setScript('S-DIR-C2W', 'retry-then-pass');
     const i = io(world, { versions: VERSIONS(true) });
     const code = await main(
-        ['run', '--root', root, '--out', out('default'), '--json'],
+        [
+            'run',
+            '--allow-foreground',
+            '--root',
+            root,
+            '--out',
+            out('default'),
+            '--json',
+        ],
         { ...i, cellHook: shrink }
     );
     assert.equal(code, 1);
@@ -723,19 +733,41 @@ test('exit 5 on SKIP without FAIL, exit 6 on drift only, --strict turns FLAKY in
     };
     const s = io(world, { probe: skipProbe });
     assert.equal(
-        await main(['run', '--quick', '--root', root, '--out', out('skip')], {
-            ...s,
-            cellHook: shrink,
-        }),
+        await main(
+            [
+                'run',
+                '--quick',
+                '--allow-foreground',
+                '--root',
+                root,
+                '--out',
+                out('skip'),
+            ],
+            {
+                ...s,
+                cellHook: shrink,
+            }
+        ),
         5
     );
     assert.ok(s.lines.some((l) => l === 'PROGRESS S-DIR-C2D SKIP'));
     const d = io(fakeWorld(), { versions: VERSIONS(true) });
     assert.equal(
-        await main(['run', '--quick', '--root', root, '--out', out('drift')], {
-            ...d,
-            cellHook: shrink,
-        }),
+        await main(
+            [
+                'run',
+                '--quick',
+                '--allow-foreground',
+                '--root',
+                root,
+                '--out',
+                out('drift'),
+            ],
+            {
+                ...d,
+                cellHook: shrink,
+            }
+        ),
         6
     );
     const w2 = fakeWorld();
@@ -747,6 +779,7 @@ test('exit 5 on SKIP without FAIL, exit 6 on drift only, --strict turns FLAKY in
                 'run',
                 '--quick',
                 '--strict',
+                '--allow-foreground',
                 '--root',
                 root,
                 '--out',
@@ -837,7 +870,17 @@ test('two consecutive infra symptoms skip the rest and exit 3', async () => {
     world.setScript('S-DIR-C2W', 'infra-down');
     const i = io(world);
     const code = await main(
-        ['run', '--quick', '--root', root, '--out', out('infra')],
+        // With the focus change accepted, so C2D below is skipped by the
+        // infra abort and not by the presence gate.
+        [
+            'run',
+            '--quick',
+            '--allow-foreground',
+            '--root',
+            root,
+            '--out',
+            out('infra'),
+        ],
         { ...i, cellHook: shrink, retryCap: 0 }
     );
     assert.equal(code, 3);
@@ -978,6 +1021,7 @@ test('probe subcommand on fake adapters: one line per desktop probe, the aggrega
             'head',
             '--desktop',
             'store',
+            '--allow-foreground',
             '--root',
             root,
             '--out',
@@ -1218,7 +1262,17 @@ test('a Block rule on the Store exe under test is reported in the Infra and Safe
         const i = io(world, { shrinkCells: true, probe: { ...PROBE, firewall } });
         const outDir = out(name);
         const code = await main(
-            ['run', '--quick', '--root', root, '--out', outDir, '--desktop', 'portable'],
+            [
+                'run',
+                '--quick',
+                '--allow-foreground',
+                '--root',
+                root,
+                '--out',
+                outDir,
+                '--desktop',
+                'portable',
+            ],
             { ...i, cellHook: shrink }
         );
         const runs = readdirSync(outDir).filter((d) => /-shipped-quick$/.test(d));
@@ -2074,6 +2128,7 @@ test('a run on another lane re-probes instead of reusing probe.json, and the fil
                 'head',
                 '--desktop',
                 'store',
+                '--allow-foreground',
                 '--root',
                 root,
                 '--out',
@@ -2234,4 +2289,367 @@ test('--dry-run with --caddy exercises the docker tool class once; without it do
     const without = await run([]);
     assert.deepEqual(without.docker, []);
     assert.ok(!/docker/.test(without.text));
+});
+
+// ------------------------------------------------ the owner at the PC
+
+// Any UIA pattern call on a built exe activates its window (G2-F1). With
+// neither --user-away nor --allow-foreground, an exe lane launches and drives
+// nothing: the probe's desktop half is recorded as skipped, every cell with a
+// desktop side is SKIP present in the plan, and one line says so up front.
+const presenceFetch = async (url) => {
+    const json = (body) =>
+        new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        });
+    return String(url).endsWith('/health')
+        ? json({ status: 'healthy', uptime: 5 })
+        : json({ iceServers: [{ urls: ['stun:x:3478'] }] });
+};
+/** io() whose desktop adapter records every probe() and storePackage() call. */
+function presenceIo(world, extra = {}) {
+    const adapters = makeFakeAdapters(world);
+    const seen = { probed: [], reads: 0 };
+    const desktop = {
+        ...adapters.desktop,
+        storePackage: async () => {
+            seen.reads += 1;
+            return { present: true, version: '1.3.0.0' };
+        },
+        probe: async (o) => {
+            seen.probed.push(o);
+            return adapters.desktop.probe(o);
+        },
+    };
+    const i = io(world, {
+        fetchImpl: presenceFetch,
+        getAdapter: async (name) =>
+            name === 'desktop' ? desktop : adapters[name],
+        tryAdapter: async (name) =>
+            name === 'desktop' ? desktop : (adapters[name] ?? null),
+        ...extra,
+    });
+    return { i, seen };
+}
+const NOT_DRIVEN = /^desktop: not launched or driven/;
+
+test('foregroundLine: one line, only for an exe lane with neither flag, naming both', () => {
+    for (const desktop of ['auto', 'store', 'portable']) {
+        const line = foregroundLine({ desktop });
+        assert.match(line, NOT_DRIVEN, desktop);
+        assert.ok(line.includes(`--desktop ${desktop}`), line);
+        assert.match(line, /--user-away/);
+        assert.match(line, /--allow-foreground/);
+        assert.ok(!line.includes('\n'), 'one line');
+        assert.equal(foregroundLine({ desktop, userAway: true }), null);
+        assert.equal(foregroundLine({ desktop, allowForeground: true }), null);
+    }
+    assert.equal(foregroundLine({ desktop: 'wailsdev' }), null);
+    assert.equal(foregroundLine({ desktop: 'none' }), null);
+});
+
+test('probe on a store or portable lane with neither flag never starts the desktop half: it is recorded as skipped (present), and one line says so before anything runs', async () => {
+    for (const lane of ['store', 'portable']) {
+        const { i, seen } = presenceIo(fakeWorld());
+        const outDir = out(`presence-probe-${lane}`);
+        const code = await main(
+            [
+                'probe',
+                '--profile',
+                'head',
+                '--desktop',
+                lane,
+                '--root',
+                root,
+                '--out',
+                outDir,
+            ],
+            i
+        );
+        assert.equal(code, 0, i.lines.concat(i.errors).join('\n'));
+        assert.equal(
+            seen.probed.length,
+            0,
+            `${lane}: desktop.probe was never called`
+        );
+        assert.equal(i.lines[0], 'profile: head');
+        assert.match(i.lines[1], NOT_DRIVEN);
+        assert.match(i.lines[1], /--user-away/);
+        assert.match(i.lines[1], /--allow-foreground/);
+        assert.equal(
+            i.lines.filter((l) => NOT_DRIVEN.test(l)).length,
+            1,
+            'said once'
+        );
+        const text = i.lines.join('\n');
+        assert.match(
+            text,
+            /^probe P1\/P2\/P6\/P8\/P9 desktop: skipped \(present\): /m
+        );
+        assert.ok(
+            !/^probe P1 desktop:/m.test(text),
+            'no per-probe line: none ran'
+        );
+        const probe = JSON.parse(
+            readFileSync(path.join(outDir, 'probe.json'), 'utf8')
+        );
+        assert.equal(probe.desktop.skipped, 'present');
+        assert.equal(probe.desktop.mode, lane);
+        assert.deepEqual(
+            [
+                probe.desktop.available,
+                probe.desktop.receiverDrivable,
+                probe.desktop.saveDirSettable,
+                probe.desktop.senderDrivable,
+            ],
+            [null, null, null, null],
+            'unknown, never false: nothing was tried'
+        );
+        assert.deepEqual(
+            [probe.desktop.present, probe.desktop.focusNeeded],
+            [true, true]
+        );
+        assert.equal(probe.desktop.probes, undefined);
+        assert.match(probe.desktop.detail, /--user-away/);
+
+        // With either flag the half runs as before, and the line is not printed.
+        for (const flag of ['--user-away', '--allow-foreground']) {
+            const next = presenceIo(fakeWorld());
+            const c2 = await main(
+                [
+                    'probe',
+                    '--profile',
+                    'head',
+                    '--desktop',
+                    lane,
+                    flag,
+                    '--root',
+                    root,
+                    '--out',
+                    out(`presence-probe-${lane}${flag}`),
+                ],
+                next.i
+            );
+            assert.equal(c2, 0, next.i.lines.concat(next.i.errors).join('\n'));
+            assert.equal(next.seen.probed.length, 1, `${lane} ${flag}`);
+            assert.equal(next.seen.probed[0].mode, lane);
+            assert.equal(
+                Boolean(next.seen.probed[0].userAway),
+                flag === '--user-away'
+            );
+            assert.ok(!next.i.lines.some((l) => NOT_DRIVEN.test(l)), flag);
+            assert.match(
+                next.i.lines.join('\n'),
+                /^probe P1 desktop: drivable/m
+            );
+        }
+    }
+
+    // --desktop auto resolves its lane by reading the package (no launch),
+    // and the lane it finds is an exe either way.
+    const auto = presenceIo(fakeWorld(), { builds: null });
+    const outAuto = out('presence-probe-auto');
+    assert.equal(
+        await main(
+            ['probe', '--profile', 'head', '--root', root, '--out', outAuto],
+            auto.i
+        ),
+        0,
+        auto.i.lines.concat(auto.i.errors).join('\n')
+    );
+    assert.equal(auto.seen.probed.length, 0);
+    assert.ok(
+        auto.seen.reads >= 1,
+        'Get-AppxPackage is a read, and still made'
+    );
+    assert.match(auto.i.lines[1], NOT_DRIVEN);
+    assert.equal(
+        JSON.parse(readFileSync(path.join(outAuto, 'probe.json'), 'utf8'))
+            .desktop.mode,
+        'store'
+    );
+
+    // The dev page lane and --desktop none are not gated and print no line.
+    for (const lane of ['wailsdev', 'none']) {
+        const w = presenceIo(fakeWorld());
+        const code = await main(
+            [
+                'probe',
+                '--profile',
+                'head',
+                '--desktop',
+                lane,
+                '--root',
+                root,
+                '--out',
+                out(`presence-probe-${lane}`),
+            ],
+            w.i
+        );
+        assert.equal(code, 0, w.i.lines.concat(w.i.errors).join('\n'));
+        assert.equal(w.seen.probed.length, lane === 'wailsdev' ? 1 : 0, lane);
+        assert.ok(!w.i.lines.some((l) => NOT_DRIVEN.test(l)), lane);
+    }
+});
+
+test('run on a portable or store lane with neither flag creates no desktop leg: its cells are SKIP present, the second line says so, the other cells run, and the exit is 5', async () => {
+    for (const lane of ['portable', 'store']) {
+        const world = fakeWorld();
+        const builds =
+            lane === 'store'
+                ? {
+                      ...BUILDS,
+                      desktop: {
+                          kind: 'shipped',
+                          launch: 'store',
+                          version: '3.4.5',
+                          path: null,
+                          isPackaged: true,
+                      },
+                  }
+                : BUILDS;
+        const i = io(world, { builds });
+        const outDir = out(`presence-run-${lane}`);
+        const code = await main(
+            [
+                'run',
+                '--quick',
+                '--root',
+                root,
+                '--out',
+                outDir,
+                '--desktop',
+                lane,
+            ],
+            { ...i, cellHook: shrink }
+        );
+        assert.equal(i.lines[0], 'profile: shipped (default)');
+        assert.match(i.lines[1], NOT_DRIVEN);
+        assert.equal(i.lines.filter((l) => NOT_DRIVEN.test(l)).length, 1);
+        const progress = i.lines.filter((l) => l.startsWith('PROGRESS '));
+        assert.deepEqual(
+            progress.sort(),
+            [
+                'PROGRESS S-DIR-C2D SKIP',
+                'PROGRESS S-DIR-C2W PASS',
+                'PROGRESS S-DIR-D2C SKIP',
+                'PROGRESS S-DIR-W2C PASS',
+                'PROGRESS S-DIR-W2W PASS',
+                'PROGRESS S-REL-W2C PASS',
+            ],
+            i.lines.join('\n')
+        );
+        assert.equal(code, 5, i.lines.join('\n'));
+        assert.equal(
+            world.calls.filter((c) => c.surface === 'desktop').length,
+            0,
+            `${lane}: no desktop leg was ever created`
+        );
+        const runs = readdirSync(outDir).filter((d) =>
+            /-shipped-quick$/.test(d)
+        );
+        const runDir = path.join(outDir, runs[0]);
+        const json = JSON.parse(
+            readFileSync(path.join(runDir, 'run.json'), 'utf8')
+        );
+        const skipped = json.cells.filter((c) => c.verdict === 'SKIP');
+        assert.deepEqual(skipped.map((c) => [c.id, c.reason]).sort(), [
+            ['S-DIR-C2D', 'present'],
+            ['S-DIR-D2C', 'present'],
+        ]);
+        assert.match(
+            readFileSync(path.join(runDir, 'log.txt'), 'utf8'),
+            /desktop: not launched or driven/
+        );
+        const manifest = JSON.parse(
+            readFileSync(path.join(runDir, 'manifest.json'), 'utf8')
+        );
+        assert.deepEqual(
+            [manifest.flags.userAway, manifest.flags.allowForeground],
+            [false, false]
+        );
+
+        // --allow-foreground: the same run drives the desktop, with no idle check asked for.
+        const w2 = fakeWorld();
+        const j = io(w2, { builds });
+        const c2 = await main(
+            [
+                'run',
+                '--quick',
+                '--allow-foreground',
+                '--root',
+                root,
+                '--out',
+                out(`presence-run-${lane}-allowed`),
+                '--desktop',
+                lane,
+            ],
+            { ...j, cellHook: shrink }
+        );
+        assert.equal(c2, 0, j.lines.join('\n'));
+        assert.ok(!j.lines.some((l) => NOT_DRIVEN.test(l)));
+        assert.equal(w2.calls.filter((c) => c.surface === 'desktop').length, 2);
+
+        // --user-away: the same, with the owner declared away.
+        const w3 = fakeWorld();
+        const k = io(w3, { builds });
+        const c3 = await main(
+            [
+                'run',
+                '--quick',
+                '--user-away',
+                '--root',
+                root,
+                '--out',
+                out(`presence-run-${lane}-away`),
+                '--desktop',
+                lane,
+            ],
+            { ...k, cellHook: shrink }
+        );
+        assert.equal(c3, 0, k.lines.join('\n'));
+        assert.ok(!k.lines.some((l) => NOT_DRIVEN.test(l)));
+        assert.equal(w3.calls.filter((c) => c.surface === 'desktop').length, 2);
+    }
+});
+
+test('readProbe does not reuse a probe whose desktop half was skipped for presence once the run may drive the desktop, and still reuses it for a run that may not', () => {
+    const outDir = out('presence-readprobe');
+    mkdirSync(outDir, { recursive: true });
+    const lines = [];
+    const log = (l) => lines.push(l);
+    const stored = {
+        at: new Date().toISOString(),
+        requested: { desktop: 'store', profile: 'shipped' },
+        desktop: { mode: 'store', skipped: 'present', available: null },
+    };
+    writeFileSync(path.join(outDir, 'probe.json'), JSON.stringify(stored));
+    const asked = { desktop: 'store', profile: 'shipped' };
+    assert.ok(
+        readProbe(outDir, log, asked),
+        'a run that drives nothing needs no desktop probe'
+    );
+    assert.equal(lines.length, 0);
+    for (const flags of [{ userAway: true }, { allowForeground: true }]) {
+        assert.equal(
+            readProbe(outDir, log, { ...asked, ...flags }),
+            null,
+            JSON.stringify(flags)
+        );
+        assert.match(lines.at(-1), /skipped the desktop probes .* re-probing/);
+    }
+    // A full probe is reused whatever the flags: the gate is the plan's.
+    writeFileSync(
+        path.join(outDir, 'probe.json'),
+        JSON.stringify({
+            ...stored,
+            desktop: { mode: 'store', available: true, receiverDrivable: true },
+        })
+    );
+    for (const flags of [{}, { userAway: true }, { allowForeground: true }])
+        assert.ok(
+            readProbe(outDir, log, { ...asked, ...flags }),
+            JSON.stringify(flags)
+        );
 });

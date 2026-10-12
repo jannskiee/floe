@@ -6,12 +6,13 @@
 //
 // Run: node --test .claude/skills/<skill>/scripts/lib/desktop-uia-request.test.mjs
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 
 import {
+    ACCEPT_UNDRIVABLE,
     ACCEPT_WAIT_MS,
     REQUEST_STRINGS,
     UiaDriver,
@@ -29,6 +30,18 @@ function hostWith(domOpts = {}, uiaOpts = {}) {
     const client = fakeRequestUiaClient(h, { activates: false, ...uiaOpts });
     const driver = new UiaDriver(client, 4242, {});
     return { h, client, driver, clock: { now: h.now, nap: h.nap } };
+}
+
+/**
+ * The owner's own click on the prompt, past its 1 s guard. On a built exe
+ * this is the only way a prompted drop is answered: the driver never invokes
+ * Accept or Decline (F2), so a test that needs a drop under way or a declined
+ * view puts it there the way a person would.
+ */
+async function ownerClicks(h, name) {
+    await h.nap(1300);
+    h.tick();
+    h.views.click(name);
 }
 
 const clicksOf = (client, name) =>
@@ -120,65 +133,128 @@ test('UIA MakeLink refuses a relative folder, a Save to field that will not take
     }
 });
 
-test('UIA AcceptRequest never invokes before 1200 ms from the first sight of the prompt, on a fake clock', async () => {
+// F2 (field result 2026-10-11, Store 1.3.0.0): a UIA Invoke never presses
+// Accept on a built exe. The prompt ignores input for 1 s after every focus
+// change, an Invoke changes the focus, the button reads disabled within
+// 100 ms of each Invoke, and a third one throws ElementNotEnabledException,
+// with the window in the foreground too. The two tests that used to stand
+// here encoded "wait 1.2 s and the next Invoke lands", which the app never
+// did. What the lane can prove is the prompt itself, so that is where it
+// stops, by name, having invoked nothing.
+test('UIA AcceptRequest proves the prompt and stops as SKIP request-accept-undrivable with zero Invokes, whether or not the window has the foreground', async () => {
     const dir = tmp();
     try {
-        const { h, client, driver, clock } = hostWith();
-        await driver.makeRequestLink({ saveDir: dir, ...clock });
-        h.requestAt(h.now() + 10, { files: 1, totalBytes: 64 * MiB });
-        const r = await driver.acceptRequest({ timeoutMs: 30_000, ...clock });
-        const accepts = clicksOf(client, 'Accept');
-        assert.ok(accepts.length >= 1);
-        assert.ok(r.waitedMs >= ACCEPT_WAIT_MS, `waited ${r.waitedMs} ms`);
-        for (const [, , t] of accepts)
-            assert.ok(t - r.seenAt >= ACCEPT_WAIT_MS, `an Accept at +${t - r.seenAt} ms`);
-        assert.equal(h.dom.state, 'receiving');
-        assert.equal(h.dom.ignored.length, 0, 'no click landed inside the guard');
+        for (const focused of [true, false]) {
+            const { h, client, driver, clock } = hostWith();
+            await driver.makeRequestLink({ saveDir: dir, ...clock });
+            client.state.focused = focused;
+            h.requestAt(h.now() + 10, { files: 1, totalBytes: 64 * MiB });
+            const before = client.calls.length;
+            await assert.rejects(
+                driver.acceptRequest({ timeoutMs: 30_000, ...clock }),
+                (e) => {
+                    assert.equal(e.name, 'PhaseError');
+                    assert.equal(e.phase, 'request');
+                    assert.equal(e.verdict, 'SKIP');
+                    assert.equal(e.reason, ACCEPT_UNDRIVABLE);
+                    assert.equal(
+                        ACCEPT_UNDRIVABLE,
+                        'request-accept-undrivable'
+                    );
+                    assert.match(
+                        e.message,
+                        /^request-accept-undrivable: the prompt is up \("Accept" is showing\) and nothing was invoked/
+                    );
+                    assert.equal(
+                        e.harness,
+                        undefined,
+                        'a precondition of the lane, never a harness fault'
+                    );
+                    return true;
+                }
+            );
+            const since = client.calls.slice(before).map(([c]) => c);
+            assert.deepEqual(
+                since.filter((c) => c !== 'snapshot'),
+                [],
+                `focused ${focused}: only reads, no click, no set-value, no toggle`
+            );
+            assert.equal(clicksOf(client, 'Accept').length, 0);
+            assert.equal(client.state.swallowed.length, 0);
+            // The prompt it proved is still up and still reads the drop.
+            assert.equal(h.dom.state, 'deciding');
+            const snap = await driver.requestSnapshot();
+            assert.deepEqual(
+                { files: snap.prompt.files, sizeText: snap.prompt.sizeText },
+                { files: 1, sizeText: '64.0 MB' }
+            );
+        }
+        // A prompt that never shows is still a wait that ran out, not this SKIP.
+        const none = hostWith();
+        await none.driver.makeRequestLink({ saveDir: dir, ...none.clock });
+        await assert.rejects(
+            none.driver.acceptRequest({ timeoutMs: 2_000, ...none.clock }),
+            (e) =>
+                e.verdict === undefined &&
+                /"Accept" did not appear within 2000 ms/.test(e.message)
+        );
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
 });
 
-test('UIA AcceptRequest on an inactive window: the Invoke that activates it is swallowed by the re-armed guard, and the next comes 1200 ms later and lands (G2-F1)', async () => {
+// Decline is the same button row under the same guard, so it stops the same
+// way. Keep waiting is not: its guard runs from the moment the declined view
+// renders and never re-arms on focus, so the driver still presses it.
+test('UIA DeclineRequest stops the same way, and the app source is why: one guard for both answers, re-armed on focus, and none of that on Keep waiting', async () => {
     const dir = tmp();
     try {
-        const { h, client, driver, clock } = hostWith();
-        await driver.makeRequestLink({ saveDir: dir, ...clock });
-        // The window lost the foreground while the link waited.
-        client.state.focused = false;
-        h.requestAt(h.now() + 10, { files: 1, totalBytes: 64 * MiB });
-        const r = await driver.acceptRequest({ timeoutMs: 30_000, ...clock });
-        assert.equal(client.state.swallowed.length, 1, 'the activating Invoke was swallowed');
-        assert.equal(r.invokes, 2);
-        const at = clicksOf(client, 'Accept').map(([, , t]) => t);
-        assert.equal(at.length, 2);
-        assert.ok(at[1] - at[0] >= ACCEPT_WAIT_MS, `the second Invoke came ${at[1] - at[0]} ms after the first`);
-        assert.equal(h.dom.state, 'receiving');
-    } finally {
-        rmSync(dir, { recursive: true, force: true });
-    }
-});
+        const view = readFileSync(
+            new URL(
+                '../../../../../desktop/frontend/src/components/RequestLinkView.tsx',
+                import.meta.url
+            ),
+            'utf8'
+        );
+        // Prompt: both buttons go through answer(), which the one guard gates,
+        // and the guard takes the window's focus time.
+        assert.ok(view.includes("onClick={answer('accept')}"));
+        assert.ok(view.includes("onClick={answer('decline')}"));
+        assert.ok(
+            view.includes(
+                'if (guardActive(Date.now(), mountedAt.current, focusAt.current)) return;'
+            )
+        );
+        assert.ok(view.includes("window.addEventListener('focus', onFocus);"));
+        // Declined: Keep waiting's guard has no focus term.
+        assert.ok(
+            view.includes(
+                'if (guardActive(Date.now(), mountedAt.current, null)) return;'
+            )
+        );
 
-test('UIA DeclineRequest then KeepWaiting: Keep waiting shows after the decline, reopens the link, and is refused before any decline', async () => {
-    const dir = tmp();
-    try {
         const { h, client, driver, clock } = hostWith();
         await driver.makeRequestLink({ saveDir: dir, ...clock });
         await assert.rejects(driver.keepWaiting(clock), /Keep waiting is not showing/);
         h.requestAt(h.now() + 10, { files: 1, totalBytes: MiB });
-        const d = await driver.declineRequest({ timeoutMs: 30_000, ...clock });
-        assert.ok(d.waitedMs >= ACCEPT_WAIT_MS);
-        assert.equal(h.dom.state, 'declined');
+        await assert.rejects(
+            driver.declineRequest({ timeoutMs: 30_000, ...clock }),
+            (e) =>
+                e.verdict === 'SKIP' &&
+                e.reason === ACCEPT_UNDRIVABLE &&
+                /"Decline" is showing/.test(e.message)
+        );
+        assert.equal(clicksOf(client, 'Decline').length, 0);
+        assert.equal(h.dom.state, 'deciding');
+
+        // Once the owner has declined, Keep waiting is the driver's to press.
+        await ownerClicks(h, 'Decline');
         assert.equal((await driver.requestSnapshot()).state, 'declined');
         const k = await driver.keepWaiting(clock);
         assert.equal(k.reopened, true);
         assert.equal(h.dom.reopens, 1);
         assert.equal(h.dom.state, 'waiting');
-        const order = client.calls
-            .filter(([cmd]) => cmd === 'click')
-            .map(([, p]) => p.name)
-            .filter((n) => ['Decline', 'Keep waiting'].includes(n));
-        assert.deepEqual(order, ['Decline', 'Keep waiting']);
+        assert.equal(clicksOf(client, 'Keep waiting').length, 1);
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
@@ -196,7 +272,7 @@ test('UIA CloseLink ends the link, CancelDrop stops a drop and Make another link
         const b = hostWith();
         await b.driver.makeRequestLink({ saveDir: dir, ...b.clock });
         b.h.requestAt(b.h.now() + 10, { files: 1, totalBytes: MiB });
-        await b.driver.acceptRequest({ timeoutMs: 30_000, ...b.clock });
+        await ownerClicks(b.h, 'Accept');
         assert.equal((await b.driver.requestSnapshot()).state, 'receiving');
         await b.driver.cancelRequestDrop(b.clock);
         const stopped = await b.driver.requestSnapshot();
@@ -271,7 +347,7 @@ test('UIA readRequestResult and requestSnapshot on the done view: the heading, t
         const { h, driver, clock } = hostWith();
         await driver.makeRequestLink({ saveDir: dir, ...clock });
         h.requestAt(h.now() + 10, { files: 1, totalBytes: 64 * MiB });
-        await driver.acceptRequest({ timeoutMs: 30_000, ...clock });
+        await ownerClicks(h, 'Accept');
         const folder = path.join(dir, 'Request 2026-09-30 2140');
         mkdirSync(folder);
         mkdirSync(path.join(dir, 'Request 2026-09-30 2139'));
@@ -372,20 +448,346 @@ test('requestStateFromItems names every view from its buttons and fixed copy', (
     assert.equal(desktopFmtBytes(512), '512 B');
 });
 
-test('UIA MakeLink with autoAccept is SKIP request-auto-wailsdev-only and makes no link: TA-10a reads the host\'s own record, which only the dev page has (D-173)', async () => {
+// The Auto-accept twins: the one delivery a built exe can prove, since nothing
+// has to press Accept (F2). An exe has no GetRequestLink, so the lane cannot
+// read the host's own record of the choice. It sets the form's check through
+// TogglePattern, reads it back, and then takes the link block's own words as
+// the record: W5a, "Ends <when> · Accepts automatically", which the app draws
+// only on a link that holds the choice and is not asking first.
+test('UIA MakeLink with autoAccept sets the Auto-accept check through TogglePattern before Make link, and the link block saying Accepts automatically is its record of the choice', async () => {
     const dir = tmp();
     try {
         const { h, client, driver, clock } = hostWith();
-        await assert.rejects(
-            driver.makeRequestLink({ saveDir: dir, autoAccept: true, ...clock }),
-            (e) => e.verdict === 'SKIP' && e.reason === 'request-auto-wailsdev-only'
+        const made = await driver.makeRequestLink({
+            saveDir: dir,
+            autoAccept: true,
+            ...clock,
+        });
+        assert.equal(made.autoAccept, true);
+        assert.deepEqual(h.dom.switched, ['Auto-accept']);
+        assert.equal(
+            h.dom.autoAccept,
+            true,
+            'the host holds an automatic link'
         );
-        assert.equal(clicksOf(client, REQUEST_STRINGS.makeLink).length, 0, 'no link was made');
-        assert.equal(h.dom.state, 'ready');
-        // Off, the UIA lane makes its link as before.
-        const made = await driver.makeRequestLink({ saveDir: dir, autoAccept: false, ...clock });
-        assert.equal(made.autoAccept, false);
-        assert.equal(h.dom.autoAccept, false);
+        const toggles = client.calls.filter(([c]) => c === 'toggle');
+        assert.equal(toggles.length, 1);
+        assert.equal(toggles[0][1].value, true);
+        assert.ok(
+            new RegExp(toggles[0][1].regex, 'i').test(
+                REQUEST_STRINGS.autoAcceptSwitch
+            )
+        );
+        assert.ok(
+            !new RegExp(toggles[0][1].regex, 'i').test('About Auto-accept'),
+            'never the info icon'
+        );
+        const patterns = client.calls
+            .filter(([c]) => ['click', 'set-value', 'toggle'].includes(c))
+            .map(([c, p]) => (c === 'click' ? p.name : c));
+        assert.deepEqual(patterns.slice(-3), [
+            'set-value',
+            'toggle',
+            'Make link',
+        ]);
+        const snap = await driver.requestSnapshot();
+        assert.equal(snap.state, 'waiting');
+        assert.equal(snap.autoAccept, true);
+        assert.equal(snap.autoAsks, '');
+        // The words are the app's own (requestCopy.ts W5a).
+        const copy = readFileSync(
+            new URL(
+                '../../../../../desktop/frontend/src/requestCopy.ts',
+                import.meta.url
+            ),
+            'utf8'
+        );
+        assert.equal(
+            REQUEST_STRINGS.acceptsAutomatically,
+            'Accepts automatically'
+        );
+        assert.ok(
+            copy.includes(
+                `export const ACCEPTS_AUTOMATICALLY = '${REQUEST_STRINGS.acceptsAutomatically}';`
+            )
+        );
+        assert.ok(copy.includes('return `${w5} · ${ACCEPTS_AUTOMATICALLY}`;'));
+        assert.ok(
+            copy.includes("export const AUTO_ACCEPT_LABEL = 'Auto-accept';")
+        );
+
+        // Off: the check is never touched and the lane's record says so.
+        const off = hostWith();
+        const plain = await off.driver.makeRequestLink({
+            saveDir: dir,
+            autoAccept: false,
+            ...off.clock,
+        });
+        assert.equal(plain.autoAccept, false);
+        assert.equal(
+            off.client.calls.filter(([c]) => c === 'toggle').length,
+            0
+        );
+        assert.equal(off.h.dom.autoAccept, false);
+        const offSnap = await off.driver.requestSnapshot();
+        assert.deepEqual([offSnap.autoAccept, offSnap.autoAsks], [false, '']);
+
+        // The next link of the same driver starts from off again.
+        await driver.closeRequestLink(clock);
+        await driver.makeRequestLink({ saveDir: dir, ...clock });
+        assert.equal((await driver.requestSnapshot()).autoAccept, false);
+
+        const bad = hostWith();
+        await assert.rejects(
+            bad.driver.makeRequestLink({
+                saveDir: dir,
+                autoAccept: 'yes',
+                ...bad.clock,
+            }),
+            /MakeLink takes autoAccept true or false, not yes/
+        );
+        assert.equal(
+            bad.client.calls.length,
+            0,
+            'nothing was asked of the helper'
+        );
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('UIA MakeLink with autoAccept names what stands in the way: no check on the form (SKIP request-no-auto-switch), a check that will not turn on, a link that does not say it accepts, a drive under the floor (W5b), and an automatic link nobody asked for', async () => {
+    const dir = tmp();
+    try {
+        const none = hostWith({ autoSwitch: false });
+        await assert.rejects(
+            none.driver.makeRequestLink({
+                saveDir: dir,
+                autoAccept: true,
+                ...none.clock,
+            }),
+            (e) =>
+                e.verdict === 'SKIP' &&
+                e.reason === 'request-no-auto-switch' &&
+                /no link is made/.test(e.message)
+        );
+        assert.equal(clicksOf(none.client, REQUEST_STRINGS.makeLink).length, 0);
+        assert.equal(none.h.dom.gen, 0);
+
+        const stuck = hostWith({ autoSwitchStuck: true });
+        await assert.rejects(
+            stuck.driver.makeRequestLink({
+                saveDir: dir,
+                autoAccept: true,
+                ...stuck.clock,
+            }),
+            (e) =>
+                e.verdict === undefined &&
+                /the Auto-accept check did not turn on; no link is made/.test(
+                    e.message
+                )
+        );
+        assert.equal(
+            clicksOf(stuck.client, REQUEST_STRINGS.makeLink).length,
+            0
+        );
+
+        // From here the link exists, so the driver counts it and the runner's
+        // release closes it.
+        const silent = hostWith({ autoScope: 'none' });
+        await assert.rejects(
+            silent.driver.makeRequestLink({
+                saveDir: dir,
+                autoAccept: true,
+                ...silent.clock,
+            }),
+            (e) =>
+                e.signatureKey === 'request-flow' &&
+                /^request-flow: the link was made with the Auto-accept check on, but its link block does not say "Accepts automatically"/.test(
+                    e.message
+                )
+        );
+        const silentSnap = await silent.driver.requestSnapshot();
+        assert.deepEqual(
+            [silentSnap.state, silentSnap.gen, silentSnap.autoAccept],
+            ['waiting', 1, false]
+        );
+
+        const low = hostWith({ autoScope: 'low-space' });
+        await assert.rejects(
+            low.driver.makeRequestLink({
+                saveDir: dir,
+                autoAccept: true,
+                ...low.clock,
+            }),
+            (e) =>
+                e.signatureKey === 'request-flow' &&
+                /the link reads "Asks first, low space on C:"/.test(
+                    e.message
+                ) &&
+                /--out/.test(e.message)
+        );
+        const lowSnap = await low.driver.requestSnapshot();
+        assert.deepEqual(
+            [lowSnap.gen, lowSnap.autoAccept, lowSnap.autoAsks],
+            [1, false, 'low-space']
+        );
+
+        // A cell that asked for a prompt would never see one on a link that
+        // accepts by itself: the same finding the dev page lane words.
+        const stale = hostWith();
+        stale.h.dom.autoOn = true;
+        await assert.rejects(
+            stale.driver.makeRequestLink({
+                saveDir: dir,
+                autoAccept: false,
+                ...stale.clock,
+            }),
+            (e) =>
+                e.signatureKey === 'request-flow' &&
+                /the host made the link with autoAccept true, not the false this cell chose/.test(
+                    e.message
+                )
+        );
+        assert.equal(
+            stale.client.calls.filter(([c]) => c === 'toggle').length,
+            0
+        );
+        assert.equal((await stale.driver.requestSnapshot()).gen, 1);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("requestStateFromItems reads the scope line of an automatic link: W5a is what the link says now, W5b is autoAsks low-space, and autoAccept is only ever the driver's own record", () => {
+    const B = (name) => ({ type: 'Button', name });
+    const T = (name) => ({ type: 'Text', name });
+    const waiting = (line) => [
+        B('Copy link'),
+        B('Close link'),
+        T(line),
+        T('Waiting for files'),
+    ];
+    const plain = requestStateFromItems(waiting('Ends Oct 13, 9:41 PM'));
+    assert.deepEqual(
+        [plain.state, plain.autoAccept, plain.autoShown, plain.autoAsks],
+        ['waiting', false, false, '']
+    );
+    const auto = requestStateFromItems(
+        waiting('Ends Oct 13, 9:41 PM · Accepts automatically'),
+        { autoAccept: true }
+    );
+    assert.deepEqual(
+        [auto.autoAccept, auto.autoShown, auto.autoAsks],
+        [true, true, '']
+    );
+    // The view saying so is not the record: only a link this driver made is.
+    const unknown = requestStateFromItems(
+        waiting('Ends today, 9:41 PM · Accepts automatically')
+    );
+    assert.deepEqual([unknown.autoAccept, unknown.autoShown], [false, true]);
+    const asks = requestStateFromItems(
+        waiting('Ends today, 9:41 PM · Asks first, low space on D:'),
+        { autoAccept: true }
+    );
+    assert.deepEqual(
+        [asks.autoShown, asks.autoAsks, asks.autoAsksDrive],
+        [false, 'low-space', 'D:']
+    );
+    // UIA reports the rendered case, and the words count only at the line's end.
+    assert.equal(
+        requestStateFromItems(
+            waiting('ENDS TODAY, 9:41 PM · ACCEPTS AUTOMATICALLY')
+        ).autoShown,
+        true
+    );
+    assert.equal(
+        requestStateFromItems(
+            waiting('Accepts automatically when you turn it on')
+        ).autoShown,
+        false
+    );
+    // Off the link phases the line means nothing.
+    const done = requestStateFromItems([
+        B('Make another link'),
+        T('RECEIVED 1 FILE, 4.0 KB'),
+        T('x · Accepts automatically'),
+    ]);
+    assert.deepEqual(
+        [done.state, done.autoShown, done.autoAsks],
+        ['done', false, '']
+    );
+});
+
+// B2: the Store app runs on the owner's own profile, where the Make link
+// form's Save to field is kept between launches (App.tsx writes localStorage
+// floe:requestSaveDir on every change, and ValuePattern.SetValue is a change).
+// The driver keeps what the field read before it first set it and puts that
+// back once the link is closed. Portable and head exes run on a redirected
+// profile and the dev page in a throwaway context, so only the Store lane
+// calls this (lib/request.mjs releaseHost).
+test('UIA restoreRequestSaveDir puts the Save to field back to what it read before this driver first set it, from the ended view, and does nothing when the driver never set it', async () => {
+    const dir = tmp();
+    try {
+        for (const before of ['D:\\owner\\Floe drops', '']) {
+            const { h, client, driver, clock } = hostWith();
+            h.dom.saveDir = before;
+            assert.deepEqual(
+                await driver.restoreRequestSaveDir(clock),
+                { before: null, restored: null, after: null },
+                'nothing was set yet'
+            );
+            assert.equal(
+                client.calls.filter(([c]) => c !== 'snapshot').length,
+                0,
+                'and nothing was asked'
+            );
+            await driver.makeRequestLink({ saveDir: dir, ...clock });
+            assert.equal(h.dom.saveDir, dir);
+            // A second link of the same driver never takes the run's own
+            // folder for the owner's.
+            await driver.closeRequestLink(clock);
+            await driver.makeRequestLink({
+                saveDir: path.join(dir, 'second'),
+                ...clock,
+            });
+            await driver.closeRequestLink(clock);
+            // The ended view: Make another link brings the form back first.
+            const back = await driver.restoreRequestSaveDir(clock);
+            assert.deepEqual(back, { before, restored: true, after: before });
+            assert.equal(h.dom.saveDir, before);
+            assert.equal(h.dom.state, 'ready');
+            assert.equal(h.dom.gen, 2, 'no link was made to do it');
+        }
+
+        // A field that will not take the old value reads back as not restored.
+        const stuck = hostWith();
+        stuck.h.dom.saveDir = 'D:\\owner';
+        await stuck.driver.makeRequestLink({ saveDir: dir, ...stuck.clock });
+        await stuck.driver.closeRequestLink(stuck.clock);
+        stuck.h.dom.saveDirStuck = true;
+        assert.deepEqual(
+            await stuck.driver.restoreRequestSaveDir(stuck.clock),
+            {
+                before: 'D:\\owner',
+                restored: false,
+                after: dir,
+            }
+        );
+
+        // With the link still open there is no form to set, and the helper's
+        // own refusal comes through for the runner to file.
+        const open = hostWith();
+        await open.driver.makeRequestLink({ saveDir: dir, ...open.clock });
+        await assert.rejects(
+            open.driver.restoreRequestSaveDir(open.clock),
+            (e) => e.reason === 'not-found'
+        );
+        assert.equal(
+            open.h.dom.state,
+            'waiting',
+            'the open link was not touched'
+        );
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }

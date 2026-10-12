@@ -46,6 +46,11 @@ export const FLAGS = Object.freeze({
     '--strict': { value: false, cmds: ['run'] },
     '--pion-trace': { value: false, cmds: ['run'] },
     '--user-away': { value: false, cmds: ['run', 'probe'] },
+    // On an exe lane the desktop is launched and driven only with
+    // --user-away or with this flag, which accepts that the Floe window
+    // takes the foreground (lib/matrix.mjs foregroundRefused). Nothing
+    // else ever sets it.
+    '--allow-foreground': { value: false, cmds: ['run', 'probe'] },
     '--pause-max': { value: true, cmds: ['run', 'probe'] },
     '--web-sha': { value: true, cmds: ['run', 'probe', 'versions'] },
     '--web-sha-file': { value: true, cmds: ['run', 'probe', 'versions'] },
@@ -67,17 +72,26 @@ export const USAGE = `usage: node audit.mjs <run | probe | versions | cleanup> [
 
 run       [--profile shipped|head] [--quick | --deep] [--cells <id-or-glob,...>]
           [--desktop auto|store|portable|wailsdev|none] [--bin-dir <dir>] [--pin]
-          [--strict] [--pion-trace] [--user-away] [--pause-max <min>]
+          [--strict] [--pion-trace] [--user-away] [--allow-foreground]
+          [--pause-max <min>]
           [--web-sha <sha> | --web-sha-file <json>] [--server-sha <sha>]
           [--keep] [--keep-data] [--monitor secondary|primary|off|<n>]
           [--dry-run] [--relaxed] [--caddy]
 probe     [--profile ...] [--desktop ...] [--bin-dir <dir>] [--user-away]
-          [--pause-max <min>] [--web-sha ...] [--server-sha <sha>] [--relaxed]
+          [--allow-foreground] [--pause-max <min>] [--web-sha ...]
+          [--server-sha <sha>] [--relaxed]
 versions  [--web-sha <sha> | --web-sha-file <json>] [--server-sha <sha>]
           [--desktop ...] [--bin-dir <dir>] [--pin]
 cleanup   [--run <id> | --last] [--keep] [--desktop ...] [--bin-dir <dir>]
 common    [--root <dir>] [--client-dir <dir>] [--out <dir>] [--json]
           (accepted on every subcommand, so one flag set can be reused)
+
+On an exe lane (--desktop auto, store or portable) driving the desktop app
+brings its window to the foreground, so run and probe launch and drive
+nothing on the desktop unless you pass --user-away (nobody is at the PC; the
+input idle time is checked before each call) or --allow-foreground (you
+accept the focus change). Without either, the desktop probes are skipped and
+every cell with a desktop side is SKIP present.
 
 Exit: 0 clean; 1 any FAIL (or FLAKY under --strict); 2 usage; 3 precondition
 or mid-run infra abort; 4 safety invariant tripped; 5 partial (SKIP, FLAKY
@@ -142,6 +156,7 @@ export function parseArgs(argv, { defaultRoot, fs } = {}) {
         strict: false,
         pionTrace: false,
         userAway: false,
+        allowForeground: false,
         pauseMaxMin: DEFAULT_PAUSE_MAX_MIN,
         webSha: null,
         webShaFile: null,
@@ -223,6 +238,9 @@ export function parseArgs(argv, { defaultRoot, fs } = {}) {
                 break;
             case '--user-away':
                 opts.userAway = true;
+                break;
+            case '--allow-foreground':
+                opts.allowForeground = true;
                 break;
             case '--pause-max': {
                 const n = Number(value);

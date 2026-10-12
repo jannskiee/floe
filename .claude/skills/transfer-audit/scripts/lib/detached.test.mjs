@@ -14,6 +14,7 @@ import {
     detachedSpec,
     envList,
     launchDetached,
+    launchDirect,
     parseDetachedOutput,
     quoteArg,
 } from './detached.mjs';
@@ -117,4 +118,124 @@ test('launchDetached rejects a refused create or a missing answer with the reaso
         /gave no answer \(Command failed: powershell\.exe\)/
     );
     assert.equal(CREATE_RESULTS[2], 'access denied');
+});
+
+// F1 (field run 2026-10-11): Win32_Process.Create answered 2 (access denied)
+// for the Store package's exe when it carried files. The caller decides what
+// to do with that, so the number rides the rejection.
+test('launchDetached puts the Win32_Process.Create return value on its rejection, and none on a missing answer', async () => {
+    for (const code of [2, 9]) {
+        const refused = fakeExec(`{"returnValue":${code},"pid":0}`);
+        await assert.rejects(
+            launchDetached(
+                { command: 'C:\\x\\floe-desktop.exe' },
+                { execFileImpl: refused.impl, baseEnv: {} }
+            ),
+            (e) => {
+                assert.equal(e.returnValue, code);
+                assert.match(
+                    e.message,
+                    new RegExp(`returned ${code} \\(${CREATE_RESULTS[code]}\\)`)
+                );
+                return true;
+            }
+        );
+    }
+    const silent = fakeExec('', new Error('Command failed: powershell.exe'));
+    await assert.rejects(
+        launchDetached(
+            { command: 'x.exe' },
+            { execFileImpl: silent.impl, baseEnv: {} }
+        ),
+        (e) => {
+            assert.equal(
+                e.returnValue,
+                undefined,
+                'no answer is not an answer of 2'
+            );
+            return true;
+        }
+    );
+});
+
+function fakeSpawn({ pid = 7272, fail = null } = {}) {
+    const calls = [];
+    const impl = (command, args, options) => {
+        const handlers = {};
+        const child = {
+            pid: fail ? undefined : pid,
+            unrefs: 0,
+            unref() {
+                child.unrefs += 1;
+            },
+            once(ev, fn) {
+                handlers[ev] = fn;
+                return child;
+            },
+        };
+        calls.push({ command, args, options, child });
+        setImmediate(() => (fail ? handlers.error(fail) : handlers.spawn()));
+        return child;
+    };
+    return { impl, calls };
+}
+
+test('launchDirect spawns the exe itself, detached with no pipes, lets go of it and resolves the pid', async () => {
+    const f = fakeSpawn();
+    const r = await launchDirect(
+        {
+            command: 'C:\\Program Files\\WindowsApps\\Floe\\floe-desktop.exe',
+            args: ['C:\\in\\a b.bin'],
+            cwd: 'C:\\Program Files\\WindowsApps\\Floe',
+        },
+        { spawnImpl: f.impl }
+    );
+    assert.deepEqual(r, { pid: 7272 });
+    assert.equal(f.calls.length, 1);
+    const [c] = f.calls;
+    assert.equal(
+        c.command,
+        'C:\\Program Files\\WindowsApps\\Floe\\floe-desktop.exe'
+    );
+    assert.deepEqual(
+        c.args,
+        ['C:\\in\\a b.bin'],
+        'argv as an array: no shell, no quoting'
+    );
+    assert.deepEqual(c.options, {
+        cwd: 'C:\\Program Files\\WindowsApps\\Floe',
+        detached: true,
+        stdio: 'ignore',
+    });
+    assert.equal(c.child.unrefs, 1, 'the audit never waits on the app');
+});
+
+test('launchDirect rejects a spawn that fails with its code and never the command or its arguments', async () => {
+    const boom = Object.assign(
+        new Error('spawn C:\\secret\\floe-desktop.exe EACCES'),
+        { code: 'EACCES' }
+    );
+    const f = fakeSpawn({ fail: boom });
+    await assert.rejects(
+        launchDirect(
+            {
+                command: 'C:\\secret\\floe-desktop.exe',
+                args: ['C:\\in\\private.bin'],
+            },
+            { spawnImpl: f.impl }
+        ),
+        (e) => {
+            assert.match(e.message, /^direct launch: spawn failed \(EACCES\)$/);
+            assert.ok(
+                !e.message.includes('secret') && !e.message.includes('private'),
+                e.message
+            );
+            return true;
+        }
+    );
+    assert.equal(f.calls[0].child.unrefs, 0);
+    assert.throws(
+        () => launchDirect({ args: ['a'] }, { spawnImpl: f.impl }),
+        /a command is required/
+    );
 });

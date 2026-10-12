@@ -223,6 +223,24 @@ test('desktop.mjs starts no exe itself: no spawn import, no visible window optio
     const body = src.slice(src.indexOf('export async function launchProcess('), src.indexOf('function taskkill(pid)'));
     assert.equal((body.match(/await detach\(/g) || []).length, 2, 'the AUMID form and the exe form');
     assert.match(body, /detach = launchDetached/);
+    // F1: the one direct start is lib/detached.mjs launchDirect, reached from
+    // one place, behind the three conditions and the away gate.
+    assert.equal(
+        (body.match(/await direct\(/g) || []).length,
+        1,
+        'one fallback call site'
+    );
+    assert.match(body, /direct = launchDirect/);
+    assert.match(
+        body,
+        /err\.returnValue === 2 &&\s+plan\.mode === 'store' &&\s+plan\.filesStaged/
+    );
+    const lib = readFileSync(path.join(HERE, 'detached.mjs'), 'utf8');
+    assert.equal(
+        (lib.match(/\bspawnImpl\(/g) || []).length,
+        1,
+        'one spawn in the launch library'
+    );
 });
 
 test('with --user-away every exe leg re-reads the idle time before each UIA pattern call; without it the leg does not (FU-28, G2-F1)', async () => {
@@ -277,6 +295,259 @@ test('with --user-away every exe leg re-reads the idle time before each UIA patt
         started.delete(8383);
     } finally {
         for (const l of activeLegs) if (/^T-FU28/.test(l.opts.cellId ?? '')) activeLegs.delete(l);
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+// F1 (field run 2026-10-11): Win32_Process.Create refuses the Store package's
+// exe when it carries files (return value 2, access denied), which is how a
+// Store sender cell stages them. That one launch, and no other, falls back to
+// a direct spawn, and only with the owner away: a child of this process can
+// take the foreground, which is the very thing the detached launch exists to
+// prevent.
+const STORE_EXE =
+    'C:\\Program Files\\WindowsApps\\JanCarloParedes.FloeDesktop_1.3.0.0_x64__r1y5w9chaxnzc\\floe-desktop.exe';
+
+function refusing(code) {
+    const calls = [];
+    const detach = async (o) => {
+        calls.push(o);
+        throw Object.assign(
+            new Error(`detached launch: Win32_Process.Create returned ${code}`),
+            { returnValue: code }
+        );
+    };
+    return { calls, detach };
+}
+
+function directRecorder(pid = 7373) {
+    const calls = [];
+    const direct = async (o) => {
+        calls.push(o);
+        return { pid };
+    };
+    return { calls, direct };
+}
+
+test('launchProcess falls back to a direct spawn exactly once, and only for the Store exe with files refused as access denied while the owner is away', async () => {
+    const dir = tmp();
+    try {
+        const plan = planLaunch({
+            mode: 'store',
+            storeExe: STORE_EXE,
+            files: ['C:\\in\\a.bin'],
+            env: { APPDATA: 'C:\\u\\AppData\\Roaming' },
+        });
+        assert.equal(plan.filesStaged, true);
+        const wmi = refusing(2);
+        const d = directRecorder();
+        const out = await launchProcess(plan, {
+            evidenceDir: path.join(dir, 'ev'),
+            detach: wmi.detach,
+            direct: d.direct,
+            allowDirect: true,
+        });
+        assert.deepEqual(out, {
+            child: null,
+            pid: 7373,
+            detached: false,
+            direct: true,
+        });
+        assert.equal(
+            wmi.calls.length,
+            1,
+            'the detached launch was tried first, once'
+        );
+        assert.deepEqual(d.calls, [
+            {
+                command: STORE_EXE,
+                args: ['C:\\in\\a.bin'],
+                cwd: path.dirname(STORE_EXE),
+            },
+        ]);
+        const note = readFileSync(
+            path.join(dir, 'ev', 'desktop.launch.txt'),
+            'utf8'
+        );
+        assert.match(
+            note,
+            /^direct launch \(F1\): Win32_Process\.Create returned 2 \(access denied\) for the Store exe with files, so this process spawned it itself, pid 7373/
+        );
+        assert.ok(
+            !/detached launch \(FU-26\)/.test(note),
+            'the file names the path that was taken, not both'
+        );
+
+        // The same refusal with the owner at the PC: nothing is spawned.
+        const present = directRecorder();
+        await assert.rejects(
+            launchProcess(plan, {
+                evidenceDir: path.join(dir, 'ev2'),
+                detach: refusing(2).detach,
+                direct: present.direct,
+            }),
+            (e) => {
+                assert.ok(e instanceof PhaseError, e.stack);
+                assert.equal(e.verdict, 'SKIP');
+                assert.equal(e.reason, 'present');
+                assert.equal(e.phase, 'start');
+                assert.match(e.message, /--user-away/);
+                return true;
+            }
+        );
+        assert.equal(present.calls.length, 0);
+        assert.ok(
+            !existsSync(path.join(dir, 'ev2', 'desktop.launch.txt')),
+            'no launch, no launch note'
+        );
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('launchProcess never falls back for a portable exe, for the AUMID form, for another return value, or when the detached launch works', async () => {
+    const dir = tmp();
+    try {
+        const none = directRecorder();
+        const opts = (code) => ({
+            detach: refusing(code).detach,
+            direct: none.direct,
+            allowDirect: true,
+        });
+        const portable = planLaunch({
+            mode: 'portable',
+            exe: 'C:\\s\\floe-desktop.exe',
+            files: ['C:\\in\\a.bin'],
+            scratch: dir,
+            env: { SystemRoot: 'C:\\Windows' },
+        });
+        await assert.rejects(
+            launchProcess(portable, opts(2)),
+            (e) => e.returnValue === 2 && e.verdict === undefined
+        );
+        const aumid = planLaunch({
+            mode: 'store',
+            env: { APPDATA: 'C:\\u\\AppData\\Roaming' },
+        });
+        assert.equal(aumid.command, 'explorer.exe');
+        await assert.rejects(
+            launchProcess(aumid, opts(2)),
+            (e) => e.returnValue === 2
+        );
+        const store = planLaunch({
+            mode: 'store',
+            storeExe: STORE_EXE,
+            files: ['C:\\in\\a.bin'],
+            env: { APPDATA: 'C:\\u\\AppData\\Roaming' },
+        });
+        await assert.rejects(
+            launchProcess(store, opts(9)),
+            (e) => e.returnValue === 9,
+            'path not found is not a reason to try again'
+        );
+        // And when Win32_Process.Create takes the Store exe, that is the launch.
+        const fine = recorder(6262);
+        assert.deepEqual(
+            await launchProcess(store, {
+                detach: fine.detach,
+                direct: none.direct,
+                allowDirect: true,
+            }),
+            { child: null, pid: 6262, detached: true }
+        );
+        assert.equal(
+            none.calls.length,
+            0,
+            'no direct spawn in any of the four'
+        );
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('a leg allows the direct fallback only on a --user-away run', async () => {
+    const dir = tmp();
+    try {
+        for (const [userAway, pid] of [
+            [true, 8484],
+            [false, 8585],
+        ]) {
+            const seen = [];
+            const leg = portableLeg(dir, {
+                cellId: `T-F1-${userAway ? 'AWAY' : 'PRESENT'}`,
+                lister: async () => [],
+                userAway,
+                launcher: async (plan, o) => {
+                    seen.push(o);
+                    return { child: null, pid };
+                },
+                uia: {
+                    log() {},
+                    async findWindow() {
+                        return {
+                            hwnd: 7,
+                            pid,
+                            exe: 'C:\\bogus\\floe-desktop.exe',
+                            minimized: false,
+                        };
+                    },
+                    async waitTree() {
+                        return { ready: true };
+                    },
+                },
+            });
+            await leg.launch([]);
+            assert.equal(seen.length, 1);
+            assert.equal(seen[0].allowDirect, userAway);
+            activeLegs.delete(leg);
+            started.delete(pid);
+        }
+    } finally {
+        for (const l of activeLegs)
+            if (/^T-F1/.test(l.opts.cellId ?? '')) activeLegs.delete(l);
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('a leg notes a direct start and reports which way it launched', async () => {
+    const dir = tmp();
+    try {
+        const leg = portableLeg(dir, {
+            cellId: 'T-F1-NOTE',
+            lister: async () => [],
+            userAway: true,
+            launcher: async () => ({
+                child: null,
+                pid: 8686,
+                detached: false,
+                direct: true,
+            }),
+            uia: {
+                log() {},
+                async findWindow() {
+                    return {
+                        hwnd: 7,
+                        pid: 8686,
+                        exe: 'C:\\bogus\\floe-desktop.exe',
+                        minimized: false,
+                    };
+                },
+                async waitTree() {
+                    return { ready: true };
+                },
+            },
+        });
+        await leg.launch([]);
+        assert.equal(leg.evidence().launch.started, 'direct');
+        assert.ok(
+            leg.notes.some((n) => /started directly/.test(n)),
+            leg.notes.join('\n')
+        );
+        activeLegs.delete(leg);
+        started.delete(8686);
+    } finally {
+        for (const l of activeLegs)
+            if (/^T-F1/.test(l.opts.cellId ?? '')) activeLegs.delete(l);
         rmSync(dir, { recursive: true, force: true });
     }
 });
