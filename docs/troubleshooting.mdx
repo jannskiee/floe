@@ -131,9 +131,11 @@ up to a minute apart.
 Wait a minute without reloading, because every reload opens another connection. If it keeps
 happening on your own server, see [429, or "Rate limit exceeded"](#429-or-rate-limit-exceeded).
 
-### "Could not connect. Ask the sender to enable "Network Relay" and try again." {#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again}
+### "Could not connect. Ask the sender to try again with the relay allowed." {#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again}
 
-On the receiving page. The two devices could not find a network path to each other before any file
+On the receiving page. (A self-hosted web app on version 1.11.0 or earlier words it "Could not
+connect. Ask the sender to enable "Network Relay" and try again.", and means the same.) The two
+devices could not find a network path to each other before any file
 arrived. The usual reason is that no direct path exists and no relay was on offer: the sender
 unchecked **Network relay fallback**, ran `floe send --no-relay`, or uses a server that has no
 relay. A sender who pressed `Ctrl+C` in `floe send`, or whose device went to sleep or lost its network, before the first file finished ends
@@ -141,11 +143,13 @@ the same way, so the relay is not always the culprit.
 
 Ask the sender to start a new transfer with the relay allowed, then open the new link.
 
-### "Connection failed. Enable "Network Relay" to connect across restrictive networks." {#connection-failed-enable-network-relay-to-connect-across-restrictive-networks}
+### "Connection failed. This link was made with Network relay fallback off. Reload the page, leave it on, and share the new link." {#connection-failed-enable-network-relay-to-connect-across-restrictive-networks}
 
 On the sending page, when **Network relay fallback** is unchecked. Either the only path that came
 up was a relayed one, and Floe closed it rather than send over a route you excluded, or the
-connection failed for another reason while the box was unchecked.
+connection failed for another reason while the box was unchecked. (A self-hosted web app on
+version 1.11.0 or earlier words it "Connection failed. Enable "Network Relay" to connect across
+restrictive networks.", and means the same checkbox.)
 
 Reload the page, add the files again, leave **Network relay fallback** checked, and share the new
 link.
@@ -206,12 +210,14 @@ status line and its link, and nobody who opens that link reaches it.
 On the sending page, as the status line under the share link, with an amber notice that starts
 "Transfer limit exceeded." The connection turned out to be relayed and the files total more than
 2 GB, so nothing was sent. The receiving page is told why: "Transfer blocked: relay connections are
-capped at 2 GB. Ask the sender to remove files, or to try a network that allows a direct
-connection."
+capped at 2 GB. Ask the sender to send fewer files, or to try a network that allows a direct
+connection." (A sender on a self-hosted web app on version 1.11.0 or earlier sends "remove files"
+where this says "send fewer files", and its own notice says "Remove files to proceed".)
 
 Start a new transfer with less than 2 GB in it, or from a network that connects directly, where
-Floe sets no limit. The file list is locked once a link exists, so removing files means reloading
-the page and adding them again. See [File size limits](/how-it-works/2gb-limit).
+Floe sets no limit. The file list is locked once a link exists, so sending fewer files means
+reloading the page and adding them again, as the notice says. See
+[File size limits](/how-it-works/2gb-limit).
 
 ### "Transfer timed out waiting for receiver. Please try again." {#transfer-timed-out-waiting-for-receiver-please-try-again}
 

@@ -87,8 +87,9 @@ export const visitorCopy = {
     /** E45-1: above Send on a coarse-pointer device. A line, never a block. */
     coarsePointer: 'Keep this page open and your screen on.',
     /** C-31: V3b, next to the disabled Send; the count line above already
-     *  carries the size. */
-    relayCapReady: 'Relayed drops are capped at 2 GB. Turn off Hide my IP, or remove files.',
+     *  carries the size. "Send fewer files", here and in C-80, because the
+     *  page has Clear and Add more files and no way to take one file out. */
+    relayCapReady: 'Relayed drops are capped at 2 GB. Turn off Hide my IP, or send fewer files.',
     /** C-53: V6b, shown under the switch back in Ready. "This Floe server"
      *  matters on a self-hosted server with no TURN. */
     hideIpNeedsRelay: 'This Floe server has no relay right now. Turn off Hide my IP to send directly.',
@@ -145,7 +146,7 @@ export const visitorCopy = {
     relayLimitTitle: 'Relay limit',
     /** C-80: V9's body under that title. The main page keeps its own banner. */
     relayBlocked:
-        'This connection needs a relay, and relayed drops are capped at 2 GB. Remove files, or try another network.',
+        'This connection needs a relay, and relayed drops are capped at 2 GB. Send fewer files, or try another network.',
     /** APP-3: inline at the end of C-80, to /how-it-works#size-limit. */
     learnMore: 'Learn more',
 
