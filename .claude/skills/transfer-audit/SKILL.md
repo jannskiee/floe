@@ -1,6 +1,6 @@
 ---
 name: transfer-audit
-description: 'Use when auditing that a real transfer still works on every surface: a live matrix of web (floe.one), CLI and Floe Desktop as sender and receiver, direct and forced relay (TURN), driven on this Windows machine against production (or local HEAD for the direct web and CLI cells), with SHA-256 checks, route evidence, receivers opted out of the stats counter, and each surface compared with its latest release. Also request links (the /r page, floe send --to, Accept prompt, Auto-accept, request-1, SHA-256 matched), the 2 GB relay cap, chunk boundaries, kill mid-transfer, a 500 MiB throughput baseline, folder and browser ZIP delivery, and a WSL sender. Not for starting the stack alone (floe-run), pnpm test:e2e, a CI job, cutting a tag (floe-release) or a Microsoft Store submission (store-submit).'
+description: 'Use when auditing that a real transfer still works on every surface: a live matrix of web (floe.one), CLI and Floe Desktop (the Store build included) as sender and receiver, direct and forced relay (TURN), driven on this Windows machine against production (or local HEAD for the direct web and CLI cells), with SHA-256 checks, route evidence, receivers opted out of the stats counter, and each surface compared with its latest release. Also request links (the /r page, floe send --to, Accept prompt, Auto-accept, request-1, SHA-256 matched), the 2 GB relay cap, chunk boundaries, kill mid-transfer, a 500 MiB throughput baseline, folder and browser ZIP delivery, and a WSL sender. Not for starting the stack alone (floe-run), pnpm test:e2e, a CI job, cutting a tag (floe-release) or a Microsoft Store submission (store-submit).'
 ---
 
 # Transfer audit runbook
@@ -46,9 +46,9 @@ a peer.
   latest-tag lookup, the commit compare).
 - Playwright: `client/node_modules/@playwright/test` resolves and its
   chromium revision is installed under `%LOCALAPPDATA%\ms-playwright`. The
-  driver resolves it from `--client-dir` (default `<root>/client`), so the
-  head profile runs from a checkout that has `client/node_modules`; a fresh
-  worktree does not.
+  driver resolves it from `--client-dir`, whose default is `<root>/client`.
+  A fresh clone or worktree has no `client/node_modules`, so from one pass
+  `--client-dir <a checkout whose client has node_modules>/client`.
 - Ports 3000 and 3001 are free or owned by `floe-run` (head profile only):
   `node .claude/skills/floe-run/scripts/floe-run.mjs check`, where exit 2 on
   an idle machine is the expected answer.
@@ -65,9 +65,13 @@ a peer.
   alike, so a desktop cell on an exe is away-only: pass `--user-away`, and
   each pattern call then re-reads `GetLastInputInfo` first and stops the leg
   as SKIP `present` below 120 s of idle input. The driver enforces that for
-  request hosts only (SKIP `request-host-away-only` without the flag). A
-  plain desktop cell still runs without it and takes the foreground from
-  whoever is at the PC, so the rule there is the operator's. The `wailsdev`
+  request hosts only (SKIP `request-host-away-only` without the flag).
+  Nothing else is gated: without `--user-away`, a `probe` or a `run` on an
+  exe lane launches the app and sends SetValue and Invoke at once, and takes
+  the foreground from whoever is at the PC. `--desktop auto` is the default
+  and resolves to the Store app when it is installed (a portable or head exe
+  otherwise), so the default is such a lane. With the owner at the PC the
+  only safe value is `--desktop none`. The `wailsdev`
   lane drives a headless page and activates nothing. `--pause-max` is parsed
   and handed to the legs, and nothing waits on it.
 - The relay byte rule: direct cells move 12 MiB (64 MiB with a desktop
@@ -93,8 +97,8 @@ a peer.
 ## 1. Probe (first run on a machine, and after any desktop or Windows update)
 
 ```text
-node .claude/skills/transfer-audit/scripts/audit.mjs probe --out <dir>
-node .claude/skills/transfer-audit/scripts/audit.mjs probe --desktop store --out <dir>
+node .claude/skills/transfer-audit/scripts/audit.mjs probe --desktop none --out <dir>
+node .claude/skills/transfer-audit/scripts/audit.mjs probe --desktop store --user-away --out <dir>
 ```
 
 The default profile is `shipped`, which makes P3 a real browser receive on
@@ -103,12 +107,17 @@ skipped). `probe` writes `<dir>/probe.json`; `run` reads it when it is under
 24 h old and was taken for the same `--desktop` value and the same profile,
 and otherwise probes again itself before the first cell. The file records
 both as `requested`, and it is the value asked for that is compared: a probe
-taken under `auto` answers only an `auto` run, whatever lane it resolved to,
+taken under `auto` answers only an `auto` run, and only while `auto` still
+resolves to the lane it resolved to then (`resolved.desktop` in the file;
+the Store app may have been updated or removed since),
 because the desktop half is one lane's answer and a wailsdev run that read a
 Store probe was gated by the Store app. So switching lanes probes again, and
 a desktop probe on an exe lane is an away cycle of its own. A head run also
 re-probes local TURN once its stack is up, since a probe taken before
-`floe-run` started says nothing about it. The desktop half opens the Floe
+`floe-run` started says nothing about it. With the owner at the PC use the
+first form: the default `auto` resolves to the Store app, and the desktop
+half launches it and drives it before any away check applies, so an
+exe-lane probe is itself an away-only step. The desktop half opens the Floe
 window (main session only, never a subagent):
 
 - P1, does `ValuePattern.SetValue` on the code field drive React? The helper
@@ -170,8 +179,10 @@ cache), CLI under test, desktop Store (`Get-AppxPackage`), desktop GitHub
 `Get-Item .VersionInfo` reads empty for these exes), web floe.one, server
 api.floe.one, protocol parity (`ProtocolVersion`/`MinProtocolVersion` in
 `cli/engine/transfer/protocol.go` against `PROTOCOL_VERSION`/
-`MIN_PROTOCOL_VERSION` in `client/lib/transfer/protocol.ts`, plus one
-desktop About reading `Transfer protocol`). Statuses: CURRENT, STALE,
+`MIN_PROTOCOL_VERSION` in `client/lib/transfer/protocol.ts`; the two source
+files only: `collectVersions` accepts a desktop About reading
+(`desktopProtocol`) and nothing passes one, so the built app's own
+`Transfer protocol` row is not compared). Statuses: CURRENT, STALE,
 UNKNOWN, NOT_INSTALLED, PARITY, DRIFT, INFO. Gating rows (exit 6 when
 STALE): CLI under test, desktop under test, web when a commit under
 `client/` is not deployed, protocol, and the server only with
@@ -198,6 +209,13 @@ node .claude/skills/transfer-audit/scripts/audit.mjs run --profile shipped --out
 node .claude/skills/transfer-audit/scripts/audit.mjs run --profile shipped --deep --out <dir>
 node .claude/skills/transfer-audit/scripts/audit.mjs run --profile head --quick --desktop none --relaxed --out <dir>
 ```
+
+Every form above but the last drives the desktop app. `--desktop auto` is
+the default and resolves to the Store app when it is installed and on the
+latest tag (a portable exe otherwise), and a run launches it and clicks in
+it with no away check unless `--user-away` is passed. With the owner at the
+PC the only safe value is `--desktop none`: add it to any of them, and run
+the desktop cells with `--user-away` when nobody is there.
 
 Run it with `run_in_background`; it prints `PROGRESS <cellId> <verdict>` as
 cells finish and the headline at the end. Expected wall clock on this
@@ -374,7 +392,13 @@ evidence and never judged: the CLI's `Verified   SHA-256 matched` row and
 the web app's `SHA-256 matched` line land in `completion.sender.verified`
 and `completion.receiver.verified` (a browser leg also records the page's
 last word as `verifiedLine`, because a sender page gets its line after
-`All Files Sent!`). A side that prints nothing reads `null`, which is what a
+`All Files Sent!`). The browser leg reads the line inside the transfer card
+only (the page's `main` element, as a line of its own): the homepage around
+the card prints the same words in its terminal demo and quotes them in its
+FAQ, so a read of the whole page answered yes on every web leg. A side that
+shows no such line reads `null` there, and a browser leg's `verifiedLine`
+reads `false` (`null` only for a page that could not be read), which is
+what a
 release before v1.11.0 does, and the cell passes or fails on the audit's own
 hash compare exactly as before.
 
@@ -428,8 +452,9 @@ Three browser states are named the moment the page shows them, where they
 used to run a connect or done budget out: `receive-short` (the receiver
 holds fewer files than the sender announced), `rejoin-failed` (the sender's
 own room refused its re-join) and `sender-absent` (the receiver page says
-nobody is on the sending side, and has said so for 10 s without a break,
-because that state can clear by itself). Two more only count when the
+nobody is on the sending side, and has said so for 20 s without a break,
+because that state can clear by itself: a sender page whose socket dropped
+retries its join up to 15 s apart). Two more only count when the
 budget is about to run out, in its last 2 s: a receiver still on `Waiting
 for the next file` (through 2a6e273) or `Waiting for the rest` (later main)
 is `receive-short`, and a sender still on `Reconnecting to your link` is
@@ -614,7 +639,9 @@ and the server makes 20 per network address in any 24 hours
 it). The create after that is answered `limited`, which is this machine's
 budget and not a finding: the cell is SKIP `request-daily-limit`, and every
 later request cell of the run SKIPs with the same reason before its host is
-launched. The count is kept in the server's memory, so the local stack
+launched. A cell whose first attempt already FAILed keeps that FAIL when the
+refusal meets its retry, and the note says the retry could not run. The
+count is kept in the server's memory, so the local stack
 starts a new one when it is restarted; on production only the 24 hours
 move. Plan a request run inside that budget, earlier runs of the day
 included.
@@ -859,7 +886,10 @@ SKIP: it stops the whole run before any cell as a precondition (exit 3).
   which is how a Store sender cell stages them, so such a cell stops at
   launch. And Accept on a built exe did not take the repeated Invoke the
   request host sends, so a plain `-req` cell on an exe host proves its
-  prompt and then fails. Neither is a product finding.
+  prompt and then ends as FAIL with the key `unknown` (no triage row), or as
+  a harness ERROR `exception` when the helper throws on the disabled button.
+  The desktop-lane change that follows this one turns that into a SKIP with
+  the prompt on record. Neither is a product finding.
 
 ## Done means
 

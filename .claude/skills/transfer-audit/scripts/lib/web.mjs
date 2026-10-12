@@ -82,10 +82,19 @@ export const HASH_REFUSAL_HOLD_MS = 8_000;
 // sender whose signaling dropped during the handshake comes back into the seat
 // behind the receiver, the receiver page gives its seat back by re-joining
 // (client/lib/roomSeat.ts seatStep, the yieldSeat step), and the line goes
-// with the sender's first offer. Socket.IO retries a dropped socket within a
-// few seconds, so ten is past any honest return and far inside the connect
-// budget (45 s at least) the state used to run out.
-export const SENDER_ABSENT_DWELL_MS = 10_000;
+// with the sender's first offer. How soon that happens is not the socket's
+// own reconnect (a few seconds) but the sender page's join retries: while its
+// dead socket still holds the seat, until the server's heartbeat drops it
+// (Socket.IO's default pingInterval 25 s plus pingTimeout 20 s; the /ws
+// HEARTBEAT_MS is 30 s), each re-join is refused, and the page tries again on
+// client/lib/rejoinRetry.ts REJOIN_DELAYS_MS: 2, 4, 8, then every 15 s. The
+// receiver hears that its peer left only when the heartbeat drops that
+// socket, and the next try can then be a full 15 s away, so the line can
+// honestly stand that long. Twenty is that longest gap plus 5 s for the
+// re-join, the seat yield and the offer, and still inside the shortest
+// connect budget (45 s). It was ten, which failed a sender that was about to
+// return, and sender-absent is never retried.
+export const SENDER_ABSENT_DWELL_MS = 20_000;
 
 // The last stretch of a connect or done budget, in which a page that still
 // shows a state that may yet resolve (a receive waiting for its next file, a
@@ -950,22 +959,32 @@ export class WebLeg extends Leg {
     }
 
     /**
-     * Whether the page shows TEXT.verifiedLine right now: true, false, or null
-     * when the page cannot be read. Evidence only. The cell's own compare of
-     * both hashes is the oracle, so nothing fails on this answer, and a
-     * sender page read at "All Files Sent!" can still say false: its line
-     * comes with the receiver's `received` frame, after the success line
-     * (client/lib/transfer/sender.ts), so stop() reads once more.
+     * Whether the transfer card shows TEXT.verifiedLine right now: true,
+     * false, or null when the page cannot be read or has no card. Evidence
+     * only. The cell's own compare of both hashes is the oracle, so nothing
+     * fails on this answer, and a sender page read at "All Files Sent!" can
+     * still say false: its line comes with the receiver's `received` frame,
+     * after the success line (client/lib/transfer/sender.ts), so stop()
+     * reads once more.
+     *
+     * Read inside the card, never from the whole body: the transfer page is
+     * the homepage, whose landing sections say the same words whatever the
+     * transfer did (client/components/landing/CliTerminal.tsx prints them in
+     * its animation and in an sr-only paragraph, and the FAQ quotes them),
+     * so a body read answered true on every web leg. The card is the page's
+     * one <main> (client/components/P2PTransfer.tsx), and the line is a
+     * block of its own in it (ReceiverPanel.tsx, ShareLinkPanel.tsx), so it
+     * is matched as a whole line.
      */
     async readVerifiedLine() {
         try {
-            const shown = await this.page.evaluate(
-                (line) =>
-                    ((document.body && document.body.innerText) || '').includes(
-                        line
-                    ),
-                TEXT.verifiedLine
-            );
+            const shown = await this.page.evaluate((line) => {
+                const card = document.querySelector('main');
+                if (!card) return null;
+                return String(card.innerText || '')
+                    .split('\n')
+                    .some((l) => l.trim() === line);
+            }, TEXT.verifiedLine);
             return typeof shown === 'boolean' ? shown : null;
         } catch {
             return null;

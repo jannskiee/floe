@@ -1195,3 +1195,31 @@ test('TA-14 never fronts a server that is not loopback, whatever reached the run
     assert.equal(w.caddies.length, 0, 'no Caddy started');
     assert.equal(w.dom.clicks.length, 0, 'no host driven');
 });
+
+// The same order in a real request cell: attempt 1 FAILs on a retryable
+// signature (the visitor's page never loaded), the day's 20 links run out
+// before the retry makes its own, and the retry is refused before its host
+// launches. The cell is the FAIL it was, never SKIP request-daily-limit.
+test("a request cell whose retry is refused its link for the day keeps attempt 1's FAIL as its verdict, with the refusal in the note", async () => {
+    const w = fakeRequestWorld({ faults: ['goto-error'] });
+    const ctx = ctxFor(w, { shared: {} });
+    const log = ctx.log;
+    ctx.log = (l) => {
+        // runCell logs this between the two attempts.
+        if (/retrying once after|for the window to drain/.test(l))
+            ctx.shared.requestLimited = true;
+        log(l);
+    };
+    const r = await runCell(small('H-DIR-W2D-req'), ctx);
+    assert.equal(r.attempts.length, 2, r.note);
+    assert.equal(r.verdict, 'FAIL', r.note);
+    assert.equal(r.reason, 'goto-timeout');
+    assert.match(r.note, /page\.goto: net::ERR_CONNECTION_REFUSED/);
+    assert.match(
+        r.note,
+        /; the retry could not run \(SKIP request-daily-limit: /
+    );
+    assert.equal(r.attempts[1].failedPhase, 'host.start');
+    assert.equal(clicksOf(w, 'Make link').length, 1, 'the retry made no link');
+    assertNoRoom(ctx, r, 'H-DIR-W2D-req');
+});

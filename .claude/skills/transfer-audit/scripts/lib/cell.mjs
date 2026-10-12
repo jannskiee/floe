@@ -1258,6 +1258,9 @@ export async function runAttempt(
         rec.signature = classifySignature(evText, {
             relay: cell.path === 'REL',
             turnHeavy,
+            // One desktop line stands for the peer wait and for the ack
+            // wait; the phase tells them apart (lib/triage.mjs).
+            phase: rec.failedPhase,
         });
         if (e.signatureKey) {
             // A keyed PhaseError names the whole signature, not just its key:
@@ -1693,6 +1696,19 @@ export async function runCell(cell, ctx) {
         );
     }
     const [v2, k2, t2, n2] = failureOf(b);
+    // A retry that could not run (the day's request links were spent before
+    // it made its own, the owner came back) says nothing about the attempt
+    // it was retrying. Attempt 1's FAIL stays the cell's verdict, with the
+    // reason the retry was skipped in the note: ending SKIP here left a real
+    // failure in `attempts` only.
+    if (v2 === 'SKIP')
+        return finish(
+            'FAIL',
+            key,
+            triage,
+            `${note}; the retry could not run (SKIP ${k2}: ${n2})`,
+            a
+        );
     return finish(v2, k2, t2, n2, b);
 }
 

@@ -813,16 +813,30 @@ test('a lying cell senders bound comes from the receivers own flush timeout', ()
  * a[download], and awaitConnected reads window.__floeAudit, which is one
  * object for the life of the page (the init script's), so what a predicate
  * keeps on it between polls is still there on the next one.
+ *
+ * `polls` counts the frames read. With `stepMs` the page keeps its own clock:
+ * Date.now() is that clock while a wait runs, each poll moves it on by stepMs
+ * and nothing sleeps, so a test of a dwell, or of what happens before a
+ * budget's last stretch, is a count of polls and does not depend on how fast
+ * this machine gets through them (a loaded CI runner took 300 ms dwells and
+ * "three polls before the look" for timeouts). `now()` reads that clock.
  */
-function scriptedPage(frames) {
+function scriptedPage(frames, { stepMs = 0 } = {}) {
     let poll = 0;
     const timeouts = [];
     const audit = { pcs: [] };
+    const realNow = Date.now;
+    let t = realNow();
     return {
         timeouts,
         audit,
+        get polls() {
+            return poll;
+        },
+        now: () => (stepMs ? t : realNow()),
         async waitForFunction(fn, arg, opts = {}) {
             timeouts.push(opts.timeout);
+            if (stepMs) Date.now = () => t;
             const deadline = Date.now() + (opts.timeout ?? 1000);
             const had = Object.getOwnPropertyDescriptor(globalThis, 'document');
             const hadWindow = Object.getOwnPropertyDescriptor(
@@ -848,9 +862,13 @@ function scriptedPage(frames) {
                     if (value) return { jsonValue: async () => value };
                     if (Date.now() >= deadline)
                         throw new Error(`Timeout ${opts.timeout}ms exceeded`);
-                    await sleep(10);
+                    if (stepMs) {
+                        t += stepMs;
+                        await sleep(0);
+                    } else await sleep(10);
                 }
             } finally {
+                if (stepMs) Date.now = realNow;
                 if (had) Object.defineProperty(globalThis, 'document', had);
                 else delete globalThis.document;
                 if (hadWindow)
@@ -1073,8 +1091,11 @@ test('the page states the web leg names are the products own words', () => {
         assert.ok(!/(\d+) files? received/.test(line), line);
 });
 
-/** A leg on a scripted page, with every wait clamped to budget()'s 1 s floor. */
-function pageLeg(role, frames, opts = {}) {
+/**
+ * A leg on a scripted page, with every wait clamped to budget()'s 1 s floor.
+ * `page` goes to scriptedPage: { stepMs } gives the page its own clock.
+ */
+function pageLeg(role, frames, opts = {}, page = {}) {
     const leg = createLeg({
         role,
         cellId: 'H-DIR-W2W',
@@ -1085,7 +1106,7 @@ function pageLeg(role, frames, opts = {}) {
         deadlineAt: Date.now(),
         ...opts,
     });
-    leg.page = scriptedPage(frames);
+    leg.page = scriptedPage(frames, page);
     return leg;
 }
 
@@ -1096,7 +1117,6 @@ test('a receive that ended short is receive-short at once, and one still waiting
         'the latched early end fails without waiting out the budget',
         async () => {
             const leg = pageLeg('receiver', [short]);
-            const t0 = Date.now();
             await assert.rejects(leg.awaitDone(1000), (err) => {
                 assert.equal(err.name, 'PhaseError');
                 assert.equal(err.phase, 'done');
@@ -1107,7 +1127,7 @@ test('a receive that ended short is receive-short at once, and one still waiting
                 );
                 return true;
             });
-            assert.ok(Date.now() - t0 < 600, 'named on the first poll');
+            assert.equal(leg.page.polls, 1, 'named on the first poll');
             assert.ok(leg.notes.includes('receive-short'));
             assert.equal(
                 leg.marks.done,
@@ -1134,12 +1154,16 @@ test('a receive that ended short is receive-short at once, and one still waiting
                         waiting,
                         { text: '3 files received', anchors: 3 },
                     ],
-                    { timeoutLookMs: 100 }
+                    { timeoutLookMs: 100 },
+                    // Three polls, 200 ms on the page's clock: long before
+                    // the look opens at 900, however slow this machine is.
+                    { stepMs: 100 }
                 );
                 const done = await leg.awaitDone(1000);
                 assert.equal(done.ok, true);
                 assert.equal(done.detail.outcome, 'received');
                 assert.deepEqual(leg.notes, []);
+                assert.equal(leg.page.polls, 3);
             }
         );
 
@@ -1208,7 +1232,6 @@ test('a sender whose own room refused it is rejoin-failed: at once on the give-u
 
     await t.test('done: the give-up status fails at once', async () => {
         const leg = pageLeg('sender', [`${banner}\n${TEXT.rejoinFailed}`]);
-        const t0 = Date.now();
         await assert.rejects(leg.awaitDone(1000), (err) => {
             assert.equal(err.phase, 'done');
             assert.equal(err.signatureKey, 'rejoin-failed');
@@ -1218,7 +1241,7 @@ test('a sender whose own room refused it is rejoin-failed: at once on the give-u
             );
             return true;
         });
-        assert.ok(Date.now() - t0 < 600);
+        assert.equal(leg.page.polls, 1, 'named on the first poll');
         assert.ok(leg.notes.includes('rejoin-failed'));
     });
 
@@ -1247,11 +1270,13 @@ test('a sender whose own room refused it is rejoin-failed: at once on the give-u
             const leg = pageLeg(
                 'sender',
                 [TEXT.rejoining, TEXT.rejoining, TEXT.allSent],
-                { timeoutLookMs: 100 }
+                { timeoutLookMs: 100 },
+                { stepMs: 100 }
             );
             const done = await leg.awaitDone(1000);
             assert.equal(done.detail.outcome, 'sent');
             assert.deepEqual(leg.notes, []);
+            assert.equal(leg.page.polls, 3);
         }
     );
 
@@ -1306,7 +1331,8 @@ test('a sender whose own room refused it is rejoin-failed: at once on the give-u
                 TEXT.rejoining,
                 { text: 'Peer joined. Starting transfer', connected: true },
             ],
-            { timeoutLookMs: 100 }
+            { timeoutLookMs: 100 },
+            { stepMs: 100 }
         );
         await back.awaitConnected(1000);
         assert.ok(back.marks.connected > 0);
@@ -1329,32 +1355,60 @@ test('a sender whose own room refused it is rejoin-failed: at once on the give-u
 test('a receiver told nobody is sending is sender-absent only after the line held for the whole dwell', async (t) => {
     const absent = `${TEXT.roomJoined}\n${TEXT.senderAbsent}`;
 
-    await t.test('the default dwell is 10 s and the look 2 s', async () => {
+    await t.test('the default dwell is 20 s and the look 2 s', async () => {
         const mod = await import('./web.mjs');
-        assert.equal(mod.SENDER_ABSENT_DWELL_MS, 10_000);
+        assert.equal(mod.SENDER_ABSENT_DWELL_MS, 20_000);
         assert.equal(mod.TIMEOUT_LOOK_MS, 2_000);
+        // Why 20: a sender page whose socket dropped retries its join on
+        // REJOIN_DELAYS_MS, and the receiver's line stands until the try
+        // that gets the seat back, so it can honestly stand for the longest
+        // gap between two tries. The dwell has to outlast that gap, and
+        // still fit the shortest connect budget (45 s, lib/matrix.mjs
+        // phaseTimeouts) or the state could never be named.
+        const src = readFileSync(
+            new URL(
+                '../../../../../client/lib/rejoinRetry.ts',
+                import.meta.url
+            ),
+            'utf8'
+        );
+        const delays = /REJOIN_DELAYS_MS = \[([^\]]+)\]/
+            .exec(src)[1]
+            .split(',')
+            .map((n) => Number(n.trim()));
+        assert.deepEqual(delays, [2000, 4000, 8000, 15000, 15000, 15000]);
+        assert.ok(mod.SENDER_ABSENT_DWELL_MS > Math.max(...delays));
+        assert.ok(mod.SENDER_ABSENT_DWELL_MS < 45_000);
     });
 
     await t.test(
         'a line that holds for the dwell fails, and never sooner',
         async () => {
-            const leg = pageLeg('receiver', [absent], {
-                senderAbsentDwellMs: 300,
-            });
-            const t0 = Date.now();
+            // The page's own clock, 100 ms a poll: the line is first read at
+            // 0 and has held for 300 on the fourth poll, whatever the wall
+            // clock did meanwhile.
+            const leg = pageLeg(
+                'receiver',
+                [absent],
+                { senderAbsentDwellMs: 300 },
+                { stepMs: 100 }
+            );
+            const t0 = leg.page.now();
             await assert.rejects(leg.awaitConnected(1000), (err) => {
                 assert.equal(err.name, 'PhaseError');
                 assert.equal(err.phase, 'connect');
                 assert.equal(err.signatureKey, 'sender-absent');
+                // The dwell's own words: a connect budget that ran out says
+                // "no PC reached connected" and carries no key.
                 assert.equal(
                     err.message,
                     'sender-absent: the web receiver read "The sender is not connected" for 300 ms without a break'
                 );
                 return true;
             });
-            const took = Date.now() - t0;
+            const took = leg.page.now() - t0;
             assert.ok(took >= 300, `the dwell was waited out (${took} ms)`);
-            assert.ok(took < 900, 'and the connect budget was not');
+            assert.equal(leg.page.polls, 4, 'and not one poll longer');
             assert.ok(leg.notes.includes('sender-absent'));
         }
     );
@@ -1365,11 +1419,13 @@ test('a receiver told nobody is sending is sender-absent only after the line hel
             const leg = pageLeg(
                 'receiver',
                 [absent, absent, { text: TEXT.roomJoined, connected: true }],
-                { senderAbsentDwellMs: 300 }
+                { senderAbsentDwellMs: 300 },
+                { stepMs: 100 }
             );
             await leg.awaitConnected(1000);
             assert.ok(leg.marks.connected > 0);
             assert.deepEqual(leg.notes, []);
+            assert.equal(leg.page.polls, 3);
         }
     );
 
@@ -1386,7 +1442,10 @@ test('a receiver told nobody is sending is sender-absent only after the line hel
             const leg = pageLeg(
                 'receiver',
                 [absent, absent, absent, cleared, absent],
-                { senderAbsentDwellMs: 300 }
+                { senderAbsentDwellMs: 300 },
+                // On the page's clock the first showing has held 200 ms when
+                // the line clears, so only a dwell that started over fails.
+                { stepMs: 100 }
             );
             await assert.rejects(leg.awaitConnected(1000), (err) => {
                 assert.equal(err.signatureKey, 'sender-absent');
@@ -1394,10 +1453,11 @@ test('a receiver told nobody is sending is sender-absent only after the line hel
             });
             assert.ok(clearedAt, 'the page was read without the line once');
             assert.ok(
-                Date.now() - clearedAt >= 300,
+                leg.page.now() - clearedAt >= 300,
                 'the dwell was counted from the second showing'
             );
-            assert.ok(leg.page.audit.senderAbsentSince >= clearedAt);
+            assert.ok(leg.page.audit.senderAbsentSince > clearedAt);
+            assert.equal(leg.page.polls, 8, 'three, the clear, then four more');
         }
     );
 
@@ -1433,11 +1493,20 @@ test('a receiver told nobody is sending is sender-absent only after the line hel
 // the page says about its own check is recorded and never judged, so a page
 // without the line passes exactly as it did.
 
-/** Lets the leg's one-off page reads see the scripted page's current text. */
-function readable(leg, text) {
+/**
+ * Lets the leg's one-off page reads see the scripted page's current text.
+ * `text` is the transfer card, which the app renders as the page's one
+ * <main> (client/components/P2PTransfer.tsx); `landing` is the rest of the
+ * homepage around it, and `card: false` is a page with no transfer card.
+ */
+function readable(leg, text, { landing = '', card = true } = {}) {
     leg.page.evaluate = async (fn, arg) => {
         const had = Object.getOwnPropertyDescriptor(globalThis, 'document');
-        globalThis.document = { body: { innerText: text } };
+        globalThis.document = {
+            body: { innerText: [text, landing].filter(Boolean).join('\n') },
+            querySelector: (sel) =>
+                sel === 'main' && card ? { innerText: text } : null,
+        };
         try {
             return fn(arg);
         } finally {
@@ -1483,6 +1552,59 @@ test('a finished web leg records whether its page showed the SHA-256 line, and n
             const done = await leg.awaitDone(1000);
             assert.equal(done.ok, true);
             assert.deepEqual(done.detail, { outcome: 'sent', verified: null });
+        }
+    );
+
+    // The transfer page is the homepage, and its landing sections say the
+    // same words whatever the transfer did: CliTerminal.tsx prints
+    // "Verified   SHA-256 matched" in its animation and always carries an
+    // sr-only paragraph ending in them, and the FAQ quotes them. Read from
+    // the whole body, the line was there on every web leg.
+    await t.test(
+        'the landing text around the card never counts: only the transfer card is read',
+        async () => {
+            const landing = [
+                '  Verified   SHA-256 matched',
+                'Its summary includes the line Verified, SHA-256 matched.',
+                TEXT.verifiedLine,
+            ].join('\n');
+            const text = '3 files received';
+            const leg = readable(
+                pageLeg('receiver', [{ text, anchors: 3 }]),
+                text,
+                {
+                    landing,
+                }
+            );
+            assert.equal(await leg.readVerifiedLine(), false);
+            const done = await leg.awaitDone(1000);
+            assert.equal(done.ok, true);
+            assert.deepEqual(done.detail, {
+                outcome: 'received',
+                verified: null,
+            });
+
+            // In the card it is a line of its own (ReceiverPanel.tsx and
+            // ShareLinkPanel.tsx each give it its own block), so a sentence
+            // that only quotes the words is not the line.
+            const quoted = readable(
+                pageLeg('sender', [TEXT.allSent]),
+                `${TEXT.allSent}\nThe CLI shows SHA-256 matched when every file verified`,
+                { landing }
+            );
+            assert.equal(await quoted.readVerifiedLine(), false);
+            const shown = readable(
+                pageLeg('sender', [TEXT.allSent]),
+                `${TEXT.allSent}\n  ${TEXT.verifiedLine}  `
+            );
+            assert.equal(await shown.readVerifiedLine(), true);
+
+            // A page with no transfer card has nothing to read.
+            const bare = readable(pageLeg('sender', [TEXT.allSent]), '', {
+                landing,
+                card: false,
+            });
+            assert.equal(await bare.readVerifiedLine(), null);
         }
     );
 

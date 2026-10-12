@@ -8,8 +8,10 @@
 // before the calm copy shows, and the calm lines of desktop-v0.3.0 on
 // (desktop/frontend/src/errors.ts RULES, no closing period, D-167). The calm
 // copy folds two engine errors into "Both people need Floe open at the same
-// time" (the peer wait and the ack wait); it is filed under connect-timeout,
-// the earlier of the two, because the line alone cannot tell them apart.
+// time" (the peer wait and the ack wait). The line alone cannot tell them
+// apart, so its row is connect-timeout, the earlier of the two, and
+// classifySignature moves it to ack-timeout when the attempt failed in the
+// done phase (SHARED_WAIT_LINE).
 export const SIGNATURES = Object.freeze([
     [
         'early-race',
@@ -253,14 +255,45 @@ export const PENALIZED_KEYS = new Set([
     'connect-timeout',
 ]);
 
-/** classifySignature(text, { relay, turnHeavy }) -> { key, retryable, triage, text } */
+/**
+ * The one desktop line that stands for two engine errors
+ * (desktop/frontend/src/errors.ts RULES maps both "timed out waiting for the
+ * peer" and "timed out waiting for ack" to it). The peer wait runs out before
+ * the two sides connect and the ack wait only once a transfer is under way,
+ * so the phase the attempt failed in decides which one it was. Left as
+ * connect-timeout, a done-phase ack timeout was retryable on a relay cell and
+ * counted as a pacing symptom (PENALIZED_KEYS), which it is not.
+ */
+const SHARED_WAIT_LINE = /Both people need Floe open at the same time/i;
+
+/**
+ * classifySignature(text, { relay, turnHeavy, phase }) ->
+ * { key, retryable, triage, text }. `phase` is the phase the attempt failed
+ * in; without it the shared line stays the earlier of its two errors.
+ */
 export function classifySignature(
     text,
-    { relay = false, turnHeavy = false } = {}
+    { relay = false, turnHeavy = false, phase = null } = {}
 ) {
     const s = String(text || '');
     for (const [key, re, retry, triage] of SIGNATURES) {
         if (re.test(s)) {
+            // Only when the shared line is all that made this row match:
+            // any other connect timeout in the text keeps the row.
+            if (
+                key === 'connect-timeout' &&
+                phase === 'done' &&
+                SHARED_WAIT_LINE.test(s) &&
+                !re.test(s.replace(SHARED_WAIT_LINE, ''))
+            ) {
+                const ack = SIGNATURES.find(([k]) => k === 'ack-timeout');
+                return {
+                    key: ack[0],
+                    retryable: Boolean(ack[2]),
+                    triage: ack[3],
+                    text: firstLine(s),
+                };
+            }
             const retryable =
                 retry === 'rel' ? relay && turnHeavy : Boolean(retry);
             return { key, retryable, triage, text: firstLine(s) };

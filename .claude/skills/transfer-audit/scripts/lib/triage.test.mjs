@@ -158,3 +158,78 @@ test('receive-short, rejoin-failed and sender-absent each have a signature row t
     ])
         assert.equal(classifySignature(text).key, key, text);
 });
+
+// "Both people need Floe open at the same time" is the calm copy of two engine
+// errors (errors.ts RULES): the wait for the peer, and the wait for an ack.
+// The line alone cannot tell them apart, but the phase that failed can: the
+// peer wait runs out before the two sides connect, the ack wait only once a
+// transfer is under way. Filed under connect-timeout whatever the phase, a
+// done-phase ack timeout was retried on a relay cell and counted against the
+// infrastructure.
+test('the calm line two engine errors share is keyed by the phase that failed: connect-timeout before the transfer, ack-timeout in the done phase', () => {
+    const line = 'Error: Both people need Floe open at the same time';
+    const errorsTs = readFileSync(
+        new URL(
+            '../../../../../desktop/frontend/src/errors.ts',
+            import.meta.url
+        ),
+        'utf8'
+    );
+    for (const engine of [
+        'timed out waiting for the peer',
+        'timed out waiting for ack',
+    ])
+        assert.ok(
+            errorsTs.includes(
+                `['${engine}', 'Both people need Floe open at the same time']`
+            ),
+            `errors.ts no longer folds "${engine}" into the shared line`
+        );
+    const heavy = { relay: true, turnHeavy: true };
+    for (const phase of [
+        undefined,
+        'sender.start',
+        'receiver.start',
+        'connect',
+    ]) {
+        const sig = classifySignature(line, { ...heavy, phase });
+        assert.deepEqual(
+            [sig.key, sig.triage, sig.retryable],
+            ['connect-timeout', 'connect-timeout', true],
+            String(phase)
+        );
+    }
+    const ackRow = SIGNATURES.find(([k]) => k === 'ack-timeout');
+    const done = classifySignature(line, { ...heavy, phase: 'done' });
+    assert.deepEqual(
+        [done.key, done.triage, done.retryable],
+        ['ack-timeout', ackRow[3], false]
+    );
+    assert.equal(ackRow[2], false, 'an ack timeout is never retried');
+    assert.equal(done.text, line);
+    assert.ok(TRIAGE_KEYS.has(done.triage));
+    // The engine's own sentence, which a CLI prints, needs no phase.
+    for (const phase of [undefined, 'connect', 'done'])
+        assert.equal(
+            classifySignature('Error: timed out waiting for ack', { phase })
+                .key,
+            'ack-timeout'
+        );
+    // Only the shared line moves: every other connect timeout keeps its key
+    // in the done phase, and a row above it still wins.
+    for (const other of [
+        "Error: Couldn't connect the two devices",
+        'Error: timed out establishing a connection',
+        'Error: timed out waiting for the peer',
+    ])
+        assert.equal(
+            classifySignature(other, { ...heavy, phase: 'done' }).key,
+            'connect-timeout',
+            other
+        );
+    assert.equal(
+        classifySignature(`hash-mismatch: a.bin\n${line}`, { phase: 'done' })
+            .key,
+        'hash-mismatch'
+    );
+});

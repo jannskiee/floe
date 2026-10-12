@@ -28,7 +28,7 @@ import { KILL_AT_BYTES } from './fixtures.mjs';
 import { HASH_IDS, cellPlan } from './matrix.mjs';
 import { Ledger } from './pacing.mjs';
 import { newSafety } from './report.mjs';
-import { SafetyError } from './surfaces.mjs';
+import { PhaseError, SafetyError } from './surfaces.mjs';
 import { fakeWorld, makeFakeAdapters } from './tests/fake-legs.mjs';
 
 const dir = mkdtempSync(path.join(tmpdir(), 'lta-cell-'));
@@ -1314,4 +1314,96 @@ test("the completion record carries each side's verified line as evidence, and a
     assert.equal(old.verdict, 'PASS', old.note);
     assert.equal(old.completion.sender.verified, null);
     assert.equal(old.completion.receiver.verified, null);
+});
+
+// The same line from a desktop leg, through the runner: the phase the attempt
+// failed in reaches the classifier. On a relay cell in a TURN-heavy window a
+// connect timeout is retried; an ack timeout in the done phase never is.
+test('a desktop leg that ends on the shared calm timeout line is connect-timeout in the connect phase and ack-timeout in the done phase', async () => {
+    const line = 'Error: Both people need Floe open at the same time';
+    const run = async (method, phase) => {
+        const ledger = Ledger.relaxed({ now: () => Date.now() });
+        for (let i = 0; i < 20; i++) ledger.commit({ turn: 1 });
+        assert.ok(ledger.inWindow().turn >= 16, 'a TURN-heavy window');
+        const ctx = makeCtx(fakeWorld(), { ledger }, (adapters) =>
+            wrapLeg(adapters, 'desktop', (leg) => {
+                leg[method] = async () => {
+                    throw new PhaseError(phase, line);
+                };
+            })
+        );
+        return runCell(pick('S-REL-D2C'), ctx);
+    };
+    const connect = await run('awaitConnected', 'connect');
+    assert.equal(connect.verdict, 'FAIL', connect.note);
+    assert.equal(connect.reason, 'connect-timeout');
+    assert.equal(
+        connect.attempts.length,
+        2,
+        'retried once, as a relay connect timeout is'
+    );
+    assert.equal(connect.attempts[0].failedPhase, 'connect');
+
+    const done = await run('awaitDone', 'done');
+    assert.equal(done.verdict, 'FAIL', done.note);
+    assert.equal(done.reason, 'ack-timeout');
+    assert.equal(done.triage, 'ack-timeout');
+    assert.equal(done.attempts.length, 1, 'never retried');
+    assert.equal(done.attempts[0].failedPhase, 'done');
+    assert.ok(
+        !PENALIZED_KEYS.has(done.reason),
+        'and not counted against the infrastructure'
+    );
+});
+
+// A retry that could not run says nothing about the attempt it was retrying.
+// Near the 20 request links a day the usual order is: attempt 1 FAILs on a
+// retryable signature, the retry's Make link is refused as `limited`, and the
+// cell used to end SKIP request-daily-limit with the FAIL left in `attempts`.
+test("a retry that ends as a run-time SKIP leaves attempt 1's FAIL as the cell's verdict, and the note says the retry could not run", async () => {
+    for (const reason of ['request-daily-limit', 'present']) {
+        const w = fakeWorld();
+        // Attempt 1 fails on the ICE credentials fetch, which is retried.
+        w.setScript('S-DIR-C2W', 'retry-then-pass');
+        const ctx = makeCtx(w, {}, (adapters) =>
+            wrapLeg(adapters, 'cli', (leg, opts) => {
+                if (opts.attempt !== 2 || opts.role !== 'sender') return;
+                leg.start = async () => {
+                    throw new PhaseError(
+                        'start',
+                        `${reason}: refused before it began`,
+                        {
+                            verdict: 'SKIP',
+                            reason,
+                        }
+                    );
+                };
+            })
+        );
+        const r = await runCell(pick('S-DIR-C2W'), ctx);
+        assert.equal(r.verdict, 'FAIL', `${reason}: ${r.note}`);
+        assert.equal(r.reason, 'ice-fetch-failed', reason);
+        assert.equal(r.triage, 'infra-down', reason);
+        assert.ok(
+            r.note.startsWith(
+                'connect: Error: failed to fetch ICE credentials'
+            ),
+            r.note
+        );
+        assert.ok(
+            r.note.includes(
+                `; the retry could not run (SKIP ${reason}: ${reason}: refused before it began)`
+            ),
+            r.note
+        );
+        assert.equal(r.attempts.length, 2, 'both attempts stay on record');
+        assert.equal(r.attempts[0].failedPhase, 'connect');
+        assert.equal(r.infraSymptom, true, "attempt 1's symptom still counts");
+        assert.equal(ctx.retry.used, 1);
+    }
+    // A retry that does run still decides: this one passes, so FLAKY as before.
+    const w = fakeWorld();
+    w.setScript('S-DIR-C2W', 'retry-then-pass');
+    const flaky = await runCell(pick('S-DIR-C2W'), makeCtx(w));
+    assert.equal(flaky.verdict, 'FLAKY', flaky.note);
 });

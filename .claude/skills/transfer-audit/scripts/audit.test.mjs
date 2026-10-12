@@ -1936,6 +1936,126 @@ test('readProbe reuses probe.json only for the --desktop value and profile it wa
     );
 });
 
+// The same --desktop value can mean another lane a day later: `auto` follows
+// the Store app, which may have been updated, gone stale or been removed
+// since the probe was taken, and the desktop half of a probe is one lane's
+// answer. The probe records the lane it resolved, and a run that resolved
+// another one probes again.
+test('readProbe drops a probe whose --desktop value now resolves to another lane, and a probe records the lane it resolved', async () => {
+    const dir = out('read-probe-lane');
+    mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'probe.json');
+    const logs = [];
+    const log = (l) => logs.push(l);
+    const write = (extra) =>
+        writeFileSync(
+            file,
+            JSON.stringify({
+                at: new Date().toISOString(),
+                requested: { desktop: 'auto', profile: 'shipped' },
+                desktop: { mode: 'store', receiverDrivable: true },
+                ...extra,
+            })
+        );
+    const auto = { desktop: 'auto', profile: 'shipped' };
+
+    write({ resolved: { desktop: 'store' } });
+    assert.ok(
+        readProbe(dir, log, { ...auto, lane: 'store' }),
+        'the same lane reuses it'
+    );
+    assert.ok(
+        readProbe(dir, log, auto),
+        'a caller that names no lane is not second-guessed'
+    );
+    assert.ok(
+        readProbe(dir, log, { ...auto, lane: null }),
+        'nor is a run with no desktop build'
+    );
+    assert.deepEqual(logs, []);
+    assert.equal(readProbe(dir, log, { ...auto, lane: 'portable' }), null);
+    assert.equal(
+        logs.at(-1),
+        'probe.json was taken when --desktop auto resolved to store; it now resolves to portable; re-probing'
+    );
+
+    // A file from before the lane was recorded still says it in desktop.mode.
+    write({});
+    assert.ok(readProbe(dir, log, { ...auto, lane: 'store' }));
+    assert.equal(readProbe(dir, log, { ...auto, lane: 'portable' }), null);
+    // A probe that never resolved its lane (the desktop half failed) is not
+    // one any lane can reuse.
+    write({ desktop: { mode: 'auto' } });
+    assert.equal(readProbe(dir, log, { ...auto, lane: 'store' }), null);
+    assert.match(
+        logs.at(-1),
+        /resolved to an unrecorded lane; it now resolves to store; re-probing/
+    );
+
+    // An explicit lane names itself, and the request is still compared first.
+    write({
+        requested: { desktop: 'portable', profile: 'shipped' },
+        desktop: { mode: 'portable' },
+        resolved: { desktop: 'portable' },
+    });
+    assert.ok(
+        readProbe(dir, log, {
+            desktop: 'portable',
+            profile: 'shipped',
+            lane: 'portable',
+        })
+    );
+    assert.equal(readProbe(dir, log, { ...auto, lane: 'portable' }), null);
+    assert.match(
+        logs.at(-1),
+        /taken for --desktop portable --profile shipped, not --desktop auto/
+    );
+
+    // The probe subcommand writes the lane `auto` resolved to beside what was
+    // asked: the Store build when the package is installed and no build was
+    // resolved for it, or the lane of the build it was handed.
+    const json = (body) =>
+        new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        });
+    const fetchImpl = async (url) =>
+        String(url).endsWith('/health')
+            ? json({ status: 'healthy', uptime: 5 })
+            : json({ iceServers: [{ urls: ['stun:x:3478'] }] });
+    for (const [builds, lane] of [
+        [null, 'store'],
+        [BUILDS, 'portable'],
+    ]) {
+        const adapters = makeFakeAdapters(fakeWorld());
+        const desktop = {
+            ...adapters.desktop,
+            storePackage: async () => ({ present: true, version: '1.3.0.0' }),
+        };
+        const i = io(fakeWorld(), {
+            fetchImpl,
+            builds,
+            tryAdapter: async (name) =>
+                name === 'desktop' ? desktop : (adapters[name] ?? null),
+        });
+        const outDir = out(`read-probe-lane-${lane}`);
+        assert.equal(
+            await main(
+                ['probe', '--profile', 'head', '--root', root, '--out', outDir],
+                i
+            ),
+            0,
+            i.lines.concat(i.errors).join('\n')
+        );
+        const probe = JSON.parse(
+            readFileSync(path.join(outDir, 'probe.json'), 'utf8')
+        );
+        assert.deepEqual(probe.requested, { desktop: 'auto', profile: 'head' });
+        assert.deepEqual(probe.resolved, { desktop: lane });
+        assert.equal(probe.desktop.mode, lane);
+    }
+});
+
 test('a run on another lane re-probes instead of reusing probe.json, and the file records what was requested', async () => {
     const world = fakeWorld();
     const i = headIo(world);

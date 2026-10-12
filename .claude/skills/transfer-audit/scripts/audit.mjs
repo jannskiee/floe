@@ -980,6 +980,13 @@ async function runProbes({ opts, io, ledger, fence, log, builds, versions }) {
     // test, else the staged portable exe the desktop probe found.
     const motwExe = builds?.desktop?.path ?? probe.desktop?.portableExe ?? null;
     probe.motw = probeMotw(exec, motwExe, fence, { desktopMode: opts.desktop });
+    // The lane the desktop half answered for, beside what was asked: `auto`
+    // is a request, not a lane, and what it resolves to can change between
+    // a probe and a run (readProbe). null when the lane was never resolved.
+    const lane = probe.desktop?.mode;
+    probe.resolved = {
+        desktop: typeof lane === 'string' && lane !== 'auto' ? lane : null,
+    };
     return probe;
 }
 
@@ -1037,7 +1044,8 @@ function headShas(opts, exec, io = {}) {
 
 /**
  * probe.json under --out, or null when it must not be reused: older than
- * 24 h, or taken for another --desktop value or profile. The desktop half of a
+ * 24 h, taken for another --desktop value or profile, or taken when that
+ * value resolved to another lane than opts.lane. The desktop half of a
  * probe is one lane's answer (receiverDrivable, saveDirSettable, present), so
  * a wailsdev run that read a Store probe was gated by the Store app. A file
  * that does not say what it was taken for (written before `requested`
@@ -1062,6 +1070,26 @@ export function readProbe(outDir, log, opts = {}) {
         ) {
             log(
                 'probe.json does not record the --desktop and --profile it was taken for; re-probing'
+            );
+            return null;
+        }
+        // The same request can be another lane by now: `auto` follows the
+        // Store app, which may have been updated, gone stale or been removed
+        // since the probe. Compared only when the caller knows the lane it
+        // will drive (a run, once its builds are resolved) and the request
+        // itself is the same; a request that differs is said just below.
+        const wasLane =
+            [p.resolved?.desktop, p.desktop?.mode].find(
+                (l) => typeof l === 'string' && l !== 'auto'
+            ) ?? null;
+        if (
+            was.desktop === opts.desktop &&
+            was.profile === opts.profile &&
+            typeof opts.lane === 'string' &&
+            wasLane !== opts.lane
+        ) {
+            log(
+                `probe.json was taken when --desktop ${was.desktop} resolved to ${wasLane ?? 'an unrecorded lane'}; it now resolves to ${opts.lane}; re-probing`
             );
             return null;
         }
@@ -2031,7 +2059,14 @@ export async function runCmd(opts, io = {}) {
         });
 
         // Probes (P3-P5, P7 here; the rest through the desktop adapter).
-        let probe = io.probe ?? readProbe(opts.out, log, opts);
+        // With the lane this run's builds resolved to: a probe taken when
+        // the same --desktop value meant another lane is not reused.
+        let probe =
+            io.probe ??
+            readProbe(opts.out, log, {
+                ...opts,
+                lane: builds?.desktop?.launch ?? null,
+            });
         if (!probe) {
             probe = await runProbes({
                 opts,
