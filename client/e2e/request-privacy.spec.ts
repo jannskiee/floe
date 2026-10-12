@@ -291,8 +291,9 @@ test.describe('request privacy', () => {
 
             await expect(page.getByRole('heading', { name: 'Open in your browser' })).toBeVisible();
             await expect(page.getByText(visitorCopy.inAppAdvice)).toBeVisible();
-            // The home page's sentence names Safari, which no request link
-            // page lists as supported.
+            // The home page's advice sentence names Safari; this page's does
+            // not. The steps under it still do ("Open in Safari" on an
+            // iPhone): leaving the app's browser is the first move either way.
             await expect(page.getByText(/Chrome or Safari/)).toHaveCount(0);
             // The longer sentence still fits a phone: no sideways scroll.
             expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
