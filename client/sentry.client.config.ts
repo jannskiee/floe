@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/nextjs';
 import { BROWSER_EXTENSION_URL_PATTERNS } from './lib/browserExtensions';
+import { stripDeviceHints } from './lib/deviceHints';
 import { createEventBudget } from './lib/eventBudget';
 import { IGNORED_ERROR_PATTERNS } from './lib/ignoredErrors';
 import { isInjectedScriptError } from './lib/injectedScripts';
@@ -22,6 +23,16 @@ Sentry.init({
     // Never attach cookies/headers/user IP by default. The room secret travels
     // in the URL, which we additionally scrub below.
     sendDefaultPii: false,
+
+    // No client reports. By default the SDK counts every event it decides not
+    // to send (an unsampled trace, a filtered error, a request made outside a
+    // trace) and posts the counts to Sentry each time the tab is hidden, which
+    // is nearly every visit, sampled or not. The privacy page describes error
+    // reports and a 10% sample of traces and names no such count, so this line
+    // and that list move together. The cost is the Client Discard figures on
+    // Sentry's Stats page; the event_budget_exhausted tag below still shows,
+    // on an event that was sent, that the budget dropped others.
+    sendClientReports: false,
 
     // No session record. The SDK's default set includes an integration that
     // tells Sentry about every page load and route change, error or not, for
@@ -119,8 +130,14 @@ Sentry.init({
     // load after that same URL (browser.domContentLoadedEvent, browser.loadEvent,
     // browser.request and their siblings), which this hook left in place until
     // scrubTransactionEvent learned to scrub span descriptions too.
+    //
+    // The device and network hints browserTracing attaches to a page load or
+    // page change (memory, processor count, network type, round-trip estimate)
+    // come off here as well. This hook has the last word on what is sent: the
+    // SDK merges what beforeSendSpan returns for the root span back into the
+    // event before calling it. See lib/deviceHints.ts.
     beforeSendTransaction(event) {
-        return scrubTransactionEvent(event);
+        return stripDeviceHints(scrubTransactionEvent(event));
     },
 
     // Standalone spans (INP and the other standalone web-vital spans) never
@@ -131,7 +148,7 @@ Sentry.init({
     // idempotent. The span-streaming lifecycle (traceLifecycle 'stream') does
     // not call a plain beforeSendSpan at all and is not enabled here.
     beforeSendSpan(span) {
-        return scrubSpanJson(span);
+        return stripDeviceHints(scrubSpanJson(span));
     },
 
     // Session Replay is deliberately absent, and must not be added back.

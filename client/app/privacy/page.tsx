@@ -57,6 +57,13 @@ export const metadata: Metadata = {
 // (sentry.server.config.ts `integrations`; see lib/sentryIntegrations.ts), so
 // the Error monitoring section names none. If either line is ever removed, a
 // sentence disclosing what it sends has to come back with it.
+// The same day, under the same rule: Sentry is sent no client reports
+// (`sendClientReports: false` in all three Sentry configs) and no device or
+// network hints on a traced page load (lib/deviceHints.ts), so the section
+// names neither. The location item is not something the page sends: Sentry's
+// servers derive it from the connecting address. Measured in Sentry on
+// 2026-10-12, every stored trace and error held a country, region and city and
+// none held an address. If that lookup is ever turned off, the item goes.
 // When a flag, label, hostname or number changes, this page changes with it.
 const toc = [
     { id: 'transfer', label: 'How the transfer works' },
@@ -389,6 +396,7 @@ export default function PrivacyPolicy() {
                     items={[
                         'Error stack traces and browser metadata (browser version, OS, device type, approximate device memory, language, and time zone)',
                         'Connection type (direct or relay), whether relay fallback was on, transfer progress, file count, and total size at the time of an error',
+                        'Approximate location (country, region, and city), derived by Sentry from the IP address a report arrives from; Sentry does not store the address with the report',
                     ]}
                 />
                 <p>

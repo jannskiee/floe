@@ -1290,3 +1290,86 @@ describe('the Referer a browser event carries', () => {
         expect(twice).toEqual(once);
     });
 });
+
+describe('the Socket.IO session id', () => {
+    // Every polling request to the signaling server names its engine.io
+    // session in the query (?EIO=4&transport=polling&t=<stamp>&sid=<id>), and
+    // the SDK's XHR instrumentation copies that URL onto an http.client span
+    // four times: url, http.url, url.full and http.query. For as long as the
+    // connection lives the id is all a request needs to speak as that socket,
+    // so it gets the room id's treatment. Sentry held 1,390 such spans in the
+    // 14 days before this rule.
+    const SID = 'u7Xk2pQ9LmN4rTaBAAAC';
+    const POLL = `https://api.floe.one/socket.io/?EIO=4&transport=polling&t=PaBcDeF&sid=${SID}`;
+    const POLL_SCRUBBED = 'https://api.floe.one/socket.io/?EIO=4&transport=polling&t=PaBcDeF&sid=redacted';
+
+    it('is redacted from a URL, and the rest of the query stays', () => {
+        expect(scrubUrl(POLL)).toBe(POLL_SCRUBBED);
+        expect(scrubUrl(`/socket.io/?EIO=4&sid=${SID}`)).toBe('/socket.io/?EIO=4&sid=redacted');
+        expect(scrubUrl(`https://floe.one/?sid=${SID}&room=secret-uuid`)).toBe(
+            'https://floe.one/?sid=redacted&room=redacted'
+        );
+    });
+
+    it('is redacted when the URL cannot be parsed', () => {
+        const out = scrubUrl(`http://[not-a-host/socket.io/?EIO=4&sid=${SID}&t=1`);
+        expect(out).not.toContain(SID);
+        expect(out).toBe('http://[not-a-host/socket.io/?EIO=4&sid=redacted&t=1');
+    });
+
+    it('leaves a parameter that only ends in sid, and a URL with none, as they were', () => {
+        expect(scrubUrl('https://floe.one/?acid=1&residue=2')).toBe('https://floe.one/?acid=1&residue=2');
+        const span = { description: 'GET /a/../b?x=1', data: { url: '/a/../b?x=1', note: 'sid=abc is not a URL' } };
+        const before = JSON.stringify(span);
+        expect(JSON.stringify(scrubSpanJson(span))).toBe(before);
+    });
+
+    it('is redacted from every attribute of an XHR span as the SDK shapes it', () => {
+        const span = {
+            op: 'http.client',
+            description: 'GET https://api.floe.one/socket.io/',
+            data: {
+                'http.method': 'GET',
+                type: 'xhr',
+                url: POLL,
+                'http.url': POLL,
+                'url.full': POLL,
+                'http.query': `?EIO=4&transport=polling&t=PaBcDeF&sid=${SID}`,
+                'server.address': 'api.floe.one',
+            },
+        };
+        expect(scrubSpanJson(span)).toBe(span);
+        expect(JSON.stringify(span)).not.toContain(SID);
+        expect(span.data).toEqual({
+            'http.method': 'GET',
+            type: 'xhr',
+            url: POLL_SCRUBBED,
+            'http.url': POLL_SCRUBBED,
+            'url.full': POLL_SCRUBBED,
+            'http.query': '?EIO=4&transport=polling&t=PaBcDeF&sid=redacted',
+            'server.address': 'api.floe.one',
+        });
+    });
+
+    it('is redacted from the spans and breadcrumbs of a transaction', () => {
+        const event = {
+            transaction: '/',
+            spans: [{ description: `POST ${POLL}`, data: { url: POLL, 'http.query': `?sid=${SID}` } }],
+            breadcrumbs: [{ category: 'xhr', data: { method: 'GET', url: POLL, status_code: 200 } }],
+        };
+        const json = JSON.stringify(scrubTransactionEvent(event));
+        expect(json).not.toContain(SID);
+        expect(json).toContain('sid=redacted');
+    });
+
+    it('is redacted from an XHR breadcrumb as it is made, and from a logged URL', () => {
+        const crumb = { category: 'xhr', data: { method: 'POST', url: POLL, status_code: 200 } };
+        expect(scrubBreadcrumb(crumb).data.url).toBe(POLL_SCRUBBED);
+        const logged = { category: 'console', message: `poll failed ${POLL}`, data: { arguments: [`poll failed ${POLL}`] } };
+        expect(JSON.stringify(scrubBreadcrumb(logged))).not.toContain(SID);
+    });
+
+    it('is idempotent', () => {
+        expect(scrubUrl(POLL_SCRUBBED)).toBe(POLL_SCRUBBED);
+    });
+});

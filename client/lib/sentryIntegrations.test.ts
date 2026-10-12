@@ -128,3 +128,54 @@ describe('withoutServerSessions', () => {
         expect(src).not.toMatch(/^\s*integrations:\s*\[/m);
     });
 });
+
+// Not an integration, but the same kind of default: with sendClientReports on,
+// the SDK counts every event it decides not to send (an unsampled trace, a
+// filtered error, a request made outside a trace) and posts the counts to
+// Sentry, from the browser each time the tab is hidden and from the server
+// once a minute. That reached Sentry from nearly every visit, where the
+// privacy page describes errors and a 10% sample of traces, so it is off in
+// all three configs. Read as text, for the reason given above.
+describe('client reports are off', () => {
+    const config = (name: string) => readFileSync(fileURLToPath(new URL(`../${name}`, import.meta.url)), 'utf8');
+
+    const installed = (pkg: 'core' | 'browser' | 'node-core' | 'vercel-edge', rel: string) => {
+        const fromNext = createRequire(createRequire(import.meta.url).resolve('@sentry/nextjs'));
+        const entry =
+            pkg === 'browser'
+                ? createRequire(fromNext.resolve('@sentry/react')).resolve('@sentry/browser')
+                : pkg === 'node-core'
+                  ? createRequire(fromNext.resolve('@sentry/node')).resolve('@sentry/node-core')
+                  : fromNext.resolve(`@sentry/${pkg}`);
+        return readFileSync(join(dirname(entry), rel), 'utf8');
+    };
+
+    it.each(['sentry.client.config.ts', 'sentry.server.config.ts', 'sentry.edge.config.ts'])('%s sets the option to false', (name) => {
+        expect(config(name)).toMatch(/^\s+sendClientReports: false,$/m);
+    });
+
+    // If a release renames the option or stops reading it where it is read
+    // today, the three lines above would go on passing while the counts came
+    // back. Each runtime's gate is pinned to the installed SDK instead.
+    it('the installed SDK still records a dropped event only when the option is set', () => {
+        expect(installed('core', 'client.js')).toContain('if (this._options.sendClientReports) {');
+    });
+
+    it('the installed browser SDK still defaults it to true and flushes only when it is set', () => {
+        const browser = installed('browser', 'client.js');
+        expect(browser).toContain('sendClientReports: true,');
+        expect(browser).toContain('const { sendClientReports } = this._options;');
+        expect(browser).toContain('if (sendClientReports) {');
+    });
+
+    it('the installed Node SDK still keeps an explicit false, and starts its flush timer only when it is set', () => {
+        expect(installed('node-core', 'sdk/index.js')).toContain('sendClientReports: options.sendClientReports ?? true,');
+        const client = installed('node-core', 'sdk/client.js');
+        expect(client).toContain('if (this.getOptions().sendClientReports) {');
+        expect(client).toContain('if (clientOptions.sendClientReports) {');
+    });
+
+    it('the installed edge SDK still flushes only when it is set', () => {
+        expect(installed('vercel-edge', 'index.js')).toContain('if (this.getOptions().sendClientReports) {');
+    });
+});

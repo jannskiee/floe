@@ -35,6 +35,11 @@ Sentry.init({
     // still land in a request URL. Scrub it (and disable default PII) so the
     // room secret never reaches Sentry.
     sendDefaultPii: false,
+    // No client reports: the Node SDK would otherwise post, once a minute, a
+    // count of the events it did not send, and nine requests in ten are an
+    // unsampled trace, so that count is the request total the integrations
+    // above stop sending, in another form. See sentry.client.config.ts.
+    sendClientReports: false,
     // Everything the client scrub does, plus what only a server event carries:
     // request headers (all but the user agent go; an RSC request from /r names
     // /r/<linkId> in two of them), the query string and, on an error from

@@ -12,6 +12,12 @@
 // but it names one link and one person's request, and telemetry has no use for
 // it, so it is redacted here beside the room id.
 //
+// A request to the signaling server carries a third value: the engine.io
+// session id of the page's own connection (?sid=<id> on every polling
+// request). For as long as that connection lives the id is all a request needs
+// to speak as that socket, and the SDK copies the request URL onto every
+// http.client span and XHR breadcrumb, so it is redacted like the room id.
+//
 // Accepts absolute or relative URLs and never throws.
 
 // One request-link path segment, matched case-insensitively and only where a
@@ -56,6 +62,7 @@ export function scrubUrl(url: string | undefined | null): string | undefined {
     try {
         const u = new URL(url, BASE);
         if (u.searchParams.has('room')) u.searchParams.set('room', 'redacted');
+        if (u.searchParams.has('sid')) u.searchParams.set('sid', 'redacted');
         redactRequestQuery(u);
         u.pathname = redactRequestPath(u.pathname);
         u.hash = '';
@@ -77,7 +84,8 @@ export function scrubUrl(url: string | undefined | null): string | undefined {
         const path = q >= 0 ? withoutHash.slice(0, q) : withoutHash;
         const query = q >= 0 ? withoutHash.slice(q) : '';
         return (
-            redactRequestPath(path) + query.replace(/([?&])room=[^&]*/i, '$1room=redacted')
+            redactRequestPath(path) +
+            query.replace(/([?&])room=[^&]*/i, '$1room=redacted').replace(/([?&])sid=[^&]*/i, '$1sid=redacted')
         );
     }
 }
@@ -407,6 +415,10 @@ function scrubCopy(value: unknown, depth: number): unknown {
 // link shapes alike. "bathroom=3" is not one.
 const ROOM_PARAM = /[?&#]room=/i;
 
+// A query parameter named sid: the engine.io session id on a request to the
+// signaling server. "acid=1" is not one, and neither is the bare text "sid=x".
+const SESSION_PARAM = /[?&]sid=/i;
+
 // An absolute URL with an authority (scheme://), or a path, query or fragment
 // on its own. An element selector ("div#main", "a:nth-child(2)") is neither.
 const URL_TOKEN = /^(?:[a-z][a-z0-9+.-]*:\/\/|[/?#])/i;
@@ -448,7 +460,7 @@ function scrubDescription(description: string): string {
         .split(/(\s+)/)
         .map((token) =>
             mayHoldSecret(token) &&
-            (URL_TOKEN.test(token) || EMBEDDED_URL.test(token) || ROOM_PARAM.test(token))
+            (URL_TOKEN.test(token) || EMBEDDED_URL.test(token) || ROOM_PARAM.test(token) || SESSION_PARAM.test(token))
                 ? (scrubUrl(token) ?? '')
                 : token
         )
@@ -479,6 +491,7 @@ function scrubText(text: string): string {
             const urlish =
                 EMBEDDED_URL.test(token) ||
                 ROOM_PARAM.test(token) ||
+                SESSION_PARAM.test(token) ||
                 (URL_TOKEN.test(token) && (!token.startsWith('#') || FRAGMENT_SECRET.test(token)));
             return urlish ? (scrubUrl(token) ?? '') : token.replace(FRAGMENT_ROOM_ID, '#redacted');
         })
@@ -489,12 +502,14 @@ function scrubText(text: string): string {
 // open a query value (?next=r%2F<id>) right after its '='.
 const REQUEST_PATH_HINT = /(^|[/=]|%2f)(?:r|%72)(?:\/|%2f)[^/]/i;
 
-// Whether a string can hold the room id (a fragment or a room= parameter) or a
-// request-link id (a /r/<linkId> path). Nothing else is touched, and only a
-// URL-shaped token is ever rewritten for a /r segment, so free text such as
-// "r/abc" stays.
+// Whether a string can hold the room id (a fragment or a room= parameter), a
+// signaling session id (a sid= parameter) or a request-link id (a /r/<linkId>
+// path). Nothing else is touched, and only a URL-shaped token is ever
+// rewritten for a /r segment, so free text such as "r/abc" stays.
 function mayHoldSecret(value: string): boolean {
-    return value.includes('#') || ROOM_PARAM.test(value) || REQUEST_PATH_HINT.test(value);
+    return (
+        value.includes('#') || ROOM_PARAM.test(value) || SESSION_PARAM.test(value) || REQUEST_PATH_HINT.test(value)
+    );
 }
 
 // A transaction name, on a transaction or on an error event: the description

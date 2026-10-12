@@ -12,6 +12,9 @@ Sentry.init({
 
     // Scrub any room secret out of request URLs (covers old ?room= links).
     sendDefaultPii: false,
+    // No client reports, as in the other two configs. The edge SDK has no
+    // default for this today, so the line guards against one arriving.
+    sendClientReports: false,
     // The same server scrub as sentry.server.config.ts: request headers but the
     // user agent, the query string and contexts.nextjs.request_path as well as
     // request.url. See lib/scrubUrl.ts.
