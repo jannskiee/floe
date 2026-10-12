@@ -122,8 +122,14 @@ test('the base root is green with nothing to report', () => {
 test('FR5: a sentence that measures from a version is FLOOR, listed apart, and does not fail the run', () => {
     const floors = [
         'Request links need Floe Desktop 0.4.5 or later, and `floe` 7.8.9 or later.',
-        'A self-hosted web app on version 7.8.9 or earlier shows nothing.',
-        '`floe receive` 7.8.9 and earlier tried to save such paths.',
+        // The comparison ends its clause: a comma, a colon, a bracket on
+        // either side, a conjunction, a semicolon, the end of the line.
+        'A self-hosted web app on version 7.8.9 or earlier, every image so far, shows nothing.',
+        '`floe receive` 7.8.9 and earlier: such paths were saved.',
+        '`--to` needs `floe` 7.8.9 or later (to get it, see the install page).',
+        '(on a self-hosted instance, a client image of 7.8.9 or later). An older sender provides none.',
+        'for `floe receive` 7.8.9 or later or Floe Desktop 0.4.5 or later; a browser never does',
+        'It needs Floe Desktop 0.4.5 or higher',
         'Since 7.8.9 the server checks the `Origin` of every WebSocket.',
         'words since v7.8.9)',
         'The Store build sends under its own id (since 0.4.5; before that Windows could drop it).',
@@ -140,7 +146,11 @@ test('FR5: a sentence that measures from a version is FLOOR, listed apart, and d
         'with `floe` 7.8.9 or Floe Desktop 0.4.5, or later, on both sides',
         ' *  docs/desktop/request-links.mdx, which this pointed at through 7.8.9. */',
     ];
-    const r = run(fixture({ 'docs/floors.mdx': floors }));
+    // A blank line after each, so every sentence is its own paragraph and
+    // none borrows a word from the next.
+    const r = run(
+        fixture({ 'docs/floors.mdx': floors.flatMap((l) => [l, '']) })
+    );
     assert.equal(r.status, 0, r.out);
     assert.deepEqual(lines(r.out, 'STALE'), [], r.out);
     assert.equal(lines(r.out, 'FLOOR').length, floors.length, r.out);
@@ -216,6 +226,97 @@ test('FR5: a look-alike is not a floor: the wording has to sit on the version it
     assert.equal(r.status, 1, r.out);
     assert.deepEqual(lines(r.out, 'FLOOR'), [], r.out);
     assert.equal(lines(r.out, 'STALE').length, lookalikes.length, r.out);
+});
+
+test('Y2-7: a comparison that runs on is not a floor, on its own line or borrowed from the next', () => {
+    const pins = [
+        // The three a review found classed as floors: real pin shapes.
+        'Set `FLOE_IMAGE_TAG=7.8.9` or newer images will be pulled.',
+        'The first line reads `floe 7.8.9` and below it the hint names the tag.',
+        'Latest: `v7.8.9` (or later, once tagged).',
+        // The same three without the code span: the wording alone decides.
+        'The example sets the tag to 7.8.9 or newer images will be pulled.',
+        'The heading shows 7.8.9 and below it the hint names the tag.',
+        'Latest: v7.8.9 (or later, once tagged).',
+        // "below" and "above" say where on a page, comma or no comma.
+        'The heading shows 7.8.9 and below, the hint names the tag.',
+        // A quoted literal: what follows it is the rest of a sentence about
+        // it, even when that reads like a comparison that ends its clause.
+        'It prints `floe 7.8.9` and later, after an update, the next version.',
+        'The box reads `Peer version: desktop-v0.4.5` or later.',
+        // True floors the rule gives up, because it cannot tell a verb from
+        // a noun: they stay STALE, which costs a re-read and nothing else.
+        'A self-hosted web app on version 7.8.9 or earlier shows nothing.',
+        '`floe receive` 7.8.9 and earlier tried to save such paths.',
+        'Needs 7.8.9 or later versions of the image.',
+    ];
+    const r = run(
+        fixture({
+            'docs/pins.mdx': pins,
+            'docs/borrowed.mdx': [
+                'The example sets the image tag to 7.8.9',
+                'or newer images will be pulled instead.',
+                '',
+                'A self-hosted web app on version 7.8.9 or earlier',
+                'shows nothing at all.',
+                '',
+                'The line break is not the end of a clause, but the end of the',
+                'paragraph is: it needs Floe Desktop 0.4.5 or later',
+                '',
+                'They need the compose file from v7.8.9 or',
+                'later, which passes the setting.',
+            ],
+        })
+    );
+    assert.equal(r.status, 1, r.out);
+    assert.deepEqual(
+        lines(r.out, 'FLOOR').map((l) => l.split(' ')[1]),
+        ['docs/borrowed.mdx:8', 'docs/borrowed.mdx:10'],
+        r.out
+    );
+    assert.deepEqual(
+        lines(r.out, 'STALE')
+            .map((l) => l.split(' ')[1])
+            .sort(),
+        [
+            'docs/borrowed.mdx:1',
+            'docs/borrowed.mdx:4',
+            ...pins.map((_, i) => `docs/pins.mdx:${i + 1}`),
+        ].sort(),
+        r.out
+    );
+});
+
+test('Y2-8: nothing inside a fenced code block is a floor, whatever its wording', () => {
+    const r = run(
+        fixture({
+            'docs/fenced.mdx': [
+                'Needs `floe` 7.8.9 or later.',
+                '',
+                '```bash',
+                '# needs floe 7.8.9 or later',
+                'floe update   # since 7.8.9',
+                '```',
+                '',
+                'After the block, since 7.8.9 it works.',
+                '',
+                '~~~text',
+                'older than 7.8.9',
+                '~~~',
+            ],
+        })
+    );
+    assert.equal(r.status, 1, r.out);
+    assert.deepEqual(
+        lines(r.out, 'FLOOR').map((l) => l.split(' ')[1]),
+        ['docs/fenced.mdx:1', 'docs/fenced.mdx:8'],
+        r.out
+    );
+    assert.deepEqual(
+        lines(r.out, 'STALE').map((l) => l.split(' ')[1]),
+        ['docs/fenced.mdx:4', 'docs/fenced.mdx:5', 'docs/fenced.mdx:11'],
+        r.out
+    );
 });
 
 test('FR5: a wrapped sentence keeps its floor across the line break, but never across a block', () => {

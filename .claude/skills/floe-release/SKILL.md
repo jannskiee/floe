@@ -165,20 +165,26 @@ the tag, so nobody has to look it up while something is wrong.
     - `MISSING`: a file that must already name the new version and does not.
     - `WRONG-PHASE` and `DATE`: `client/lib/desktopRelease.ts` bumped in the
       prep PR, or carrying a date that is not the tag's UTC date (step 6).
-    - `FLOOR`: a sentence that measures from a version ("1.11.0 or later",
-      "version 1.11.0 or earlier", "since 1.11.0", "## Upgrading to 1.11.0").
-      Listed apart, never a finding, never bumped. Re-read each one (next
-      bullet).
+    - `FLOOR`: a sentence that measures from a version ("1.11.0 or later.",
+      "since 1.11.0", "older than 1.11.0", "## Upgrading to 1.11.0"). Listed
+      apart, never a finding, never bumped. The checker is strict about it,
+      because a pin read as a floor would ship stale: the comparison has to
+      end its clause, so "1.11.0 or later, ..." is a `FLOOR` and "version
+      1.11.0 or earlier shows nothing" prints as `STALE`, and so does any
+      version inside a code span or a fenced block. A floor it would not
+      vouch for is still a floor: you decide, line by line.
     - `WARN`: for example an `Unreleased` entry that has not been renamed.
-- Re-read the `FLOOR` lines that say "or earlier". The docs describe a web
-  change that is live on floe.one but in no image yet as "A self-hosted web
-  app on version X.Y.Z or earlier ..." (docs/troubleshooting.mdx,
-  docs/web-app/receiving.mdx). Each is right exactly when X.Y.Z is the last
-  `v*` release WITHOUT the change, so when this tag is the first to carry it,
-  the clause stands as written: bumping it to the new number makes it false.
-  The same re-read covers a `STALE` line that names one version alone ("on
-  version X.Y.Z ends the line ...", docs/web-app/request-links.mdx): decide
-  whether it now means "X.Y.Z or earlier".
+- Re-read every line that says "or earlier", under either label. The docs
+  describe a web change that is live on floe.one but in no image yet as "A
+  self-hosted web app on version X.Y.Z or earlier ..."
+  (docs/troubleshooting.mdx, docs/web-app/receiving.mdx), and most of those
+  run on into a verb, so they print as `STALE`. Each is right exactly when
+  X.Y.Z is the last `v*` release WITHOUT the change, so when this tag is the
+  first to carry it, the clause stands as written: bumping it to the new
+  number makes it false. The same re-read covers a line that names one
+  version alone ("on version X.Y.Z ends the line ...",
+  docs/web-app/request-links.mdx): decide whether it now means "X.Y.Z or
+  earlier".
 - The known pin set, so a hit there is never mistaken for history: CLAUDE.md
   (the version example), `.github/ISSUE_TEMPLATE/bug_report.yml` (the
   placeholder), DESKTOP.md (`Current release:` and the "Paired with" line

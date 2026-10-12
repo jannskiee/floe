@@ -62,7 +62,11 @@ in-flight working data.
   is up. `stop` deletes its own pidfile (`floe-run.json` in the temp
   directory). This skill never does: while that file exists the survey
   lists it under `fenced` as a live stack pidfile, whatever its age, and
-  the answer is `floe-run stop`, not a sweep.
+  the answer is `floe-run stop`, not a sweep. The survey's `listeners`
+  section names `floe-run stop` as the owner only while that file exists.
+  Ports held with no pidfile belong to something this checkout's floe-run
+  did not start (another session's stack, a server run by hand); the survey
+  says so, and neither this skill nor that command stops them.
 - `node .claude/skills/transfer-audit/scripts/audit.mjs cleanup --out <dir>`
   if a transfer audit ran. `<dir>` is that audit's `--out`: the survey names it
   in its `audit-evidence:` and `audit-run:` rows, and a run started without
@@ -85,11 +89,9 @@ Four buckets come back, largest first:
 - `safe`, swept by step 2. Build caches, Playwright output, stray `go` and
   `wails` binaries, temp probe scratch, session scratchpads that are
   empty or untouched for over `--scratch-days` (default 7), and the temp
-  folders a killed test run leaves behind: `floe-cmd-test-home-<digits>`
-  and `floe-desktop-test-home-<digits>` (the Go suites' temporary home),
-  `lta-cell-<six characters>` and `lta-request-<six characters>` (the
-  transfer-audit suites). Only a directory of exactly that shape counts; a
-  name that merely starts the same way is not a candidate.
+  home a killed Go test run leaves behind: `floe-cmd-test-home-<digits>`
+  and `floe-desktop-test-home-<digits>`. Only a directory of exactly that
+  shape counts, and the suffix is digits only, which nobody types by hand.
 - `ask first`, listed but never swept implicitly. Anything with a real
   reinstall cost or a judgment call in it: `node_modules`, the root
   `floe.exe` that shadows the scoop shim, `client/AGENTS.md` and
@@ -99,6 +101,11 @@ Four buckets come back, largest first:
   `<temp>\floe-audit\` (`audit-run:<name>`). A run folder holds the
   manifest `transfer-audit cleanup` replays, so cleanup runs first. The
   `bin` folder beside them is never a candidate: it is fenced by rule.
+  Also here, and never `safe`: `lta-cell-<six characters>` and
+  `lta-request-<six characters>` in the temp directory. That is the shape
+  the transfer-audit suites leave behind, and it is equally the shape of a
+  folder a person named `lta-cell-backup` or `lta-request-report`. No
+  pattern tells the two apart, so look inside before promoting one.
 - `held`, safe by rule but touched within `--age-minutes` (default 30).
   This is the concurrent-session guard. Several sessions run against this
   checkout at once, and a held item usually belongs to one of them.
@@ -111,7 +118,11 @@ What the fence knows about received files, exactly, because "a received
 transfer can never be deleted" is more than it can promise: a
 `floe_transfer_*.zip` is refused by name wherever it is, and the
 request-link default folder, `Downloads\Floe` under the home directory, is
-refused by path with everything in it. Nothing else marks a file as
+refused by path with everything in it. So is `Floe` directly under the home
+directory, which is where the app saves drops when the home has no
+`Downloads` folder (`defaultReceiveDir` in `desktop/reveal.go`); that second
+rule stands down only for a checkout that itself lives at that path, where
+it would fence the whole checkout. Nothing else marks a file as
 received. `cli/received*` is an `ask` item, and `--include` deletes it. A
 request-link drop saved to a folder the owner chose has ordinary names in an
 ordinary place: it is safe only as long as that place is outside the
@@ -129,12 +140,18 @@ long task:
 
 - `git worktrees`: every linked worktree, by path.
 - `merged branches`: local branches whose every commit is on `origin/main`,
-  other than `main` and the branch checked out here. A squash-merged branch
-  never shows, because its commits are not on main; this repository
-  squash-merges, so an empty list does not mean nothing is finished.
+  other than `main` and any branch a working tree has checked out, here or
+  in a linked worktree (a task branch with no commit yet sits on
+  `origin/main` too). A squash-merged branch never shows, because its
+  commits are not on main; this repository squash-merges, so an empty list
+  does not mean nothing is finished. A checkout with no `origin/main` has
+  no such list.
 - `sibling clones`: directories beside the root, and directly under the
-  home directory, whose `origin` URL is this checkout's. Paths only. They
-  are not sized, on purpose.
+  home directory, that are clones of the same repository: the `origin` is
+  the URL this checkout has, or it is a folder that is this checkout or
+  another listed clone (a lane clone made from a local clone names a folder,
+  not the URL), followed as many steps as it takes. Paths only. They are
+  not sized, on purpose.
 
 None of these is a candidate. They have no id, they are not in the `items`
 list, and no flag sweeps them: `--include` on one is a usage error. A clone

@@ -21,13 +21,14 @@
  */
 
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import * as deepClean from './deep-clean.mjs';
 import { makeFence, parseFirewall, scanContents } from './deep-clean.mjs';
 
 const SCRIPT = fileURLToPath(new URL('./deep-clean.mjs', import.meta.url));
@@ -1069,9 +1070,123 @@ describe('DC2: the request-link default folder, Downloads/Floe under the home di
         const count = Number(
             /self-test ok \((\d+) fence assertions\)/.exec(r.stdout)?.[1]
         );
-        // 22 before the rule; it adds two against the default fence and
-        // three against a fence whose temp root is Downloads.
-        assert.ok(count >= 27, `only ${count} assertions: ${r.stdout}`);
+        // 22 before the rule; it adds two against the default fence, three
+        // against a fence whose temp root is Downloads, and three more for
+        // the fallback folder against a fence whose temp root is the home.
+        assert.ok(count >= 30, `only ${count} assertions: ${r.stdout}`);
+    });
+
+    /**
+     * defaultReceiveDir in desktop/reveal.go returns the home directory
+     * itself when it has no Downloads folder, so the default drop folder is
+     * then Floe directly under the home directory. The same rule, the same
+     * reason, and the same two ways to get it wrong.
+     */
+    it('Y2-2: the fallback folder, Floe directly under the home directory, is refused the same way', () => {
+        const home = path.join(BASE, 'home-no-downloads');
+        withHome(home, () => {
+            const fence = makeFence(REPO, [], home);
+            for (const p of [
+                path.join(home, 'Floe'),
+                path.join(home, 'Floe', 'floeprobe-holiday'),
+                path.join(home, 'Floe', 'From Ana', 'IMG_0001.jpg'),
+            ]) {
+                assert.match(
+                    String(fence(p)),
+                    /^request-link drops/,
+                    `fence should refuse ${p} by rule`
+                );
+            }
+            for (const p of [
+                path.join(home, 'Floe-old'),
+                path.join(home, 'Floes'),
+                path.join(home, 'Floe.zip'),
+                path.join(home, 'floeprobe-x'),
+            ]) {
+                assert.equal(fence(p), null, `the rule must not reach ${p}`);
+            }
+        });
+    });
+
+    it('Y2-2: a debris-shaped name inside the fallback folder is never swept', () => {
+        const base = fs.mkdtempSync(path.join(os.tmpdir(), 'dc-drop2-'));
+        try {
+            const repo = newRepo(base, 'repo');
+            // No Downloads folder in this home: the case the app falls back in.
+            const home = path.join(base, 'home');
+            const drops = path.join(home, 'Floe');
+            const media = w(path.join(drops, 'floeprobe-holiday.bin'), 'media');
+            age(drops, 30);
+            const args = [
+                '--root',
+                repo,
+                '--temp-root',
+                drops,
+                '--age-minutes',
+                '0',
+            ];
+            const data = JSON.parse(
+                run(['survey', '--json', ...args], home).stdout
+            );
+            const hit = data.items.find(
+                (i) => i.id === 'tmp:floeprobe-holiday.bin'
+            );
+            assert.ok(hit, 'the file should be considered and refused');
+            assert.equal(hit.bucket, 'never');
+            assert.match(hit.why, /request-link drops/);
+            run(['sweep', '--apply', ...args], home);
+            assert.ok(
+                fs.existsSync(media),
+                `RECEIVED FILE DESTROYED: ${media}`
+            );
+        } finally {
+            fs.rmSync(base, { recursive: true, force: true, maxRetries: 5 });
+        }
+    });
+
+    it('Y2-2: the fallback rule binds under both spellings of the home directory', () => {
+        const real = path.join(BASE, 'home2-real');
+        fs.mkdirSync(real, { recursive: true });
+        const alias = tryLink(real, path.join(BASE, 'home2-alias'));
+        if (!alias) return; // no symlink rights here
+        withHome(alias, () => {
+            // The home is the temp root, so both spellings are allow roots
+            // and only the rule stands between a drop and a sweep.
+            const fence = makeFence(REPO, [], alias);
+            for (const spelling of [alias, real]) {
+                assert.match(
+                    String(fence(path.join(spelling, 'Floe', 'drop', 'a.jpg'))),
+                    /^request-link drops/,
+                    `deny must bind through ${spelling}`
+                );
+            }
+        });
+    });
+
+    /**
+     * On a case-insensitive disk a clone made in the home directory is
+     * <home>/floe, which is the fallback folder's own path. Fencing it would
+     * refuse every candidate in that checkout, so the fallback rule stands
+     * down there and nowhere else; a drop inside such a checkout is an
+     * untracked top-level folder, which is an ask item.
+     */
+    it('Y2-2: a checkout that itself is <home>/Floe is not fenced whole, and Downloads/Floe still is', () => {
+        const home = path.join(BASE, 'home-with-clone');
+        withHome(home, () => {
+            const checkout = path.join(home, 'Floe');
+            const fence = makeFence(checkout, [], path.join(home, 'tmp'));
+            assert.equal(fence(path.join(checkout, 'client', '.next')), null);
+            assert.match(
+                String(
+                    makeFence(
+                        checkout,
+                        [],
+                        home
+                    )(path.join(home, 'Downloads', 'Floe', 'drop'))
+                ),
+                /^request-link drops/
+            );
+        });
     });
 });
 
@@ -1082,8 +1197,16 @@ describe('DC3: temp leftovers of test runs and audit runs', () => {
     const OLD = [
         'floe-cmd-test-home-2333580544',
         'floe-desktop-test-home-3019364254',
+    ];
+    // What Node's mkdtemp leaves, and three names a person could have typed
+    // that have the same shape: a six-letter word is six letters or digits.
+    // No pattern can tell them apart, so the shape is never safe.
+    const AUDIT_SHAPED = [
         'lta-cell-b8mOU7',
         'lta-request-XFjmPc',
+        'lta-cell-backup',
+        'lta-cell-traces',
+        'lta-request-report',
     ];
     const FRESH = 'floe-cmd-test-home-777';
     // Names a person could have made. None may become a candidate.
@@ -1113,7 +1236,7 @@ describe('DC3: temp leftovers of test runs and audit runs', () => {
         base = fs.mkdtempSync(path.join(os.tmpdir(), 'dc-left-'));
         repo = newRepo(base, 'repo');
         temp = path.join(base, 'temp');
-        for (const name of OLD) {
+        for (const name of [...OLD, ...AUDIT_SHAPED]) {
             w(path.join(temp, name, 'floe', 'desktop.json'), '{}');
             age(path.join(temp, name), 2);
         }
@@ -1149,12 +1272,25 @@ describe('DC3: temp leftovers of test runs and audit runs', () => {
             ]).stdout
         );
 
-    it('an old test-run folder is safe, and a fresh one is held by the age guard', () => {
+    it('an old go test home is safe, and a fresh one is held by the age guard', () => {
         const data = surveyAt(600);
         for (const name of OLD) {
             assert.equal(bucketOf(data, `tmp:${name}`), 'safe', name);
         }
         assert.equal(bucketOf(data, `tmp:${FRESH}`), 'held');
+    });
+
+    it('Y2-1: an lta-shaped folder is ask at any age, never safe', () => {
+        for (const minutes of [0, 600]) {
+            const data = surveyAt(minutes);
+            for (const name of AUDIT_SHAPED) {
+                assert.equal(
+                    bucketOf(data, `tmp:${name}`),
+                    'ask',
+                    `${name} at --age-minutes ${minutes}`
+                );
+            }
+        }
     });
 
     it('a look-alike the user owns is not a candidate at all', () => {
@@ -1199,7 +1335,7 @@ describe('DC3: temp leftovers of test runs and audit runs', () => {
         assert.match(r.stderr, /touched in the last/);
     });
 
-    it('a sweep removes the old test-run folders and nothing that only looks like one', () => {
+    it('Y2-1: a sweep removes the old go test homes, and no lta-shaped folder or look-alike', () => {
         const r = run([
             'sweep',
             '--root',
@@ -1219,6 +1355,7 @@ describe('DC3: temp leftovers of test runs and audit runs', () => {
         }
         for (const name of [
             FRESH,
+            ...AUDIT_SHAPED,
             ...LOOKALIKE_DIRS,
             ...LOOKALIKE_FILES,
             path.join('floe-audit', 'bin', 'floe.exe'),
@@ -1240,6 +1377,8 @@ describe('DC3: clones, worktrees and merged branches are reported, never swept',
     let temp;
     let home;
     let kept;
+    let family;
+    let strangers;
 
     const git = (cwd, ...args) =>
         execFileSync(
@@ -1290,8 +1429,55 @@ describe('DC3: clones, worktrees and merged branches are reported, never swept',
         // A task branch with no commit yet sits on origin/main, and it is the
         // branch being worked on: it must not read as finished.
         git(repo, 'checkout', '-q', '-b', 'task-branch');
+        // Neither must one that is being worked on in ANOTHER worktree.
+        git(
+            repo,
+            'worktree',
+            'add',
+            '-q',
+            path.join(base, 'wt-fresh'),
+            '-b',
+            'fresh-task'
+        );
+        w(path.join(base, 'wt-fresh', 'work.txt'), 'unpushed work');
+
+        const slashed = (p) => p.replace(/\\/g, '/');
+        // A clone of a clone: its origin is a folder, not the URL. Each one
+        // is found only after the clone it points at, so the names are
+        // chosen to be read in the wrong order.
+        family = [
+            // The way git records a local source on Windows.
+            clone(
+                path.join(base, 'clone-of-clone'),
+                slashed(path.join(base, 'clone-same'))
+            ),
+            // Two steps from the URL, under the home directory, and on
+            // Windows in the other case with native separators.
+            clone(
+                path.join(home, 'clone-of-clone-2'),
+                process.platform === 'win32'
+                    ? path.join(base, 'clone-of-clone').toUpperCase()
+                    : path.join(base, 'clone-of-clone')
+            ),
+            // A file URL to the root itself.
+            clone(path.join(base, 'clone-of-root'), pathToFileURL(repo).href),
+        ];
+        strangers = [
+            // A clone of some other repository's clone, and of nothing.
+            clone(
+                path.join(base, 'clone-of-other'),
+                slashed(path.join(base, 'clone-other'))
+            ),
+            clone(
+                path.join(base, 'clone-of-gone'),
+                slashed(path.join(base, 'gone'))
+            ),
+        ];
 
         kept = [
+            ...family,
+            ...strangers,
+            path.join(base, 'wt-fresh'),
             // Same origin, next to the root: spelled without .git and in
             // another case, as a hand-typed clone URL can be.
             clone(
@@ -1338,24 +1524,56 @@ describe('DC3: clones, worktrees and merged branches are reported, never swept',
         );
         const clones = note(data, 'sibling clones');
         assert.ok(clones, 'the note exists');
-        same(clones.list, [
+        const listed = clones.list.map(canon);
+        for (const p of [
             path.join(base, 'clone-same'),
             path.join(home, 'clone-in-home'),
-        ]);
+        ]) {
+            assert.ok(listed.includes(canon(p)), `${p} should be listed`);
+        }
         assert.match(clones.detail, /never swept/);
     });
 
-    it('lists linked worktrees and the branches already on origin/main', () => {
+    it('Y2-4: lists a clone of a clone, however many steps from the URL, and no stranger', () => {
         const data = JSON.parse(
             run(['survey', '--json', ...args()], home).stdout
         );
-        same(note(data, 'git worktrees').list, [path.join(base, 'wt-open')]);
+        same(note(data, 'sibling clones').list, [
+            path.join(base, 'clone-same'),
+            path.join(home, 'clone-in-home'),
+            ...family,
+        ]);
+    });
+
+    it('Y2-3: lists linked worktrees, and as merged only a branch no worktree has checked out', () => {
+        const data = JSON.parse(
+            run(['survey', '--json', ...args()], home).stdout
+        );
+        same(note(data, 'git worktrees').list, [
+            path.join(base, 'wt-open'),
+            path.join(base, 'wt-fresh'),
+        ]);
         const merged = note(data, 'merged branches');
         assert.ok(merged, 'the note exists');
-        // Not main, not the unmerged open-topic, and not task-branch, which
-        // is checked out here.
+        // Not main, not the unmerged open-topic, not task-branch, which is
+        // checked out here, and not fresh-task, which is checked out in
+        // another worktree.
         assert.deepEqual(merged.list, ['merged-topic']);
         assert.match(merged.detail, /squash/);
+    });
+
+    it('Y2-3: a checkout with no origin/main says nothing about merged branches, on either stream', () => {
+        const plain = newRepo(base, 'no-remote');
+        const r = spawnSync(
+            process.execPath,
+            [SCRIPT, 'survey', '--json', '--root', plain, '--temp-root', temp],
+            {
+                encoding: 'utf8',
+                env: { ...process.env, USERPROFILE: home, HOME: home },
+            }
+        );
+        assert.equal(r.stderr, '', 'nothing git said may reach the reader');
+        assert.equal(note(JSON.parse(r.stdout), 'merged branches'), undefined);
     });
 
     it('none of it is a candidate, so no sweep and no --include can remove it', () => {
@@ -1400,6 +1618,7 @@ describe('DC3: clones, worktrees and merged branches are reported, never swept',
             .filter(Boolean)
             .sort();
         assert.deepEqual(branches, [
+            'fresh-task',
             'main',
             'merged-topic',
             'open-topic',
@@ -1412,9 +1631,70 @@ describe('DC3: clones, worktrees and merged branches are reported, never swept',
         const tail = r.stdout.slice(
             r.stdout.indexOf('not swept, reported only')
         );
-        assert.match(tail, /^ {2}sibling clones +2 clone\(s\) /m);
+        assert.match(tail, /^ {2}sibling clones +5 clone\(s\) /m);
         assert.match(tail, /clone-same$/m);
         assert.match(tail, /^ {2}merged branches +1 local branch\(es\) /m);
-        assert.match(tail, /^ {2}git worktrees +2 checked out$/m);
+        assert.match(tail, /^ {2}git worktrees +3 checked out$/m);
+    });
+});
+
+describe('Y2-5: the listeners note names an owner only when floe-run left a pidfile', () => {
+    const LISTENERS = [{ Port: 3001, Proc: 'node', Pid: 4242 }];
+
+    it('with a pidfile, it points at floe-run stop', () => {
+        const lines = deepClean.listenerNote(LISTENERS, true);
+        assert.ok(lines.some((l) => l.includes(':3001 node pid 4242')));
+        assert.ok(
+            lines.some((l) =>
+                l.includes(
+                    'owner: node .claude/skills/floe-run/scripts/floe-run.mjs stop'
+                )
+            ),
+            lines.join('\n')
+        );
+    });
+
+    it('without one, it names no owner and says whose stack this is not', () => {
+        const lines = deepClean.listenerNote(LISTENERS, false);
+        assert.ok(lines.some((l) => l.includes(':3001 node pid 4242')));
+        assert.ok(
+            !lines.some((l) => l.includes('floe-run.mjs stop')),
+            lines.join('\n')
+        );
+        assert.ok(
+            lines.some((l) => /no floe-run pidfile/.test(l)),
+            lines.join('\n')
+        );
+        assert.ok(lines.some((l) => /never kills/.test(l)));
+    });
+
+    it('prints nothing when nothing is listening', () => {
+        assert.deepEqual(deepClean.listenerNote([], true), []);
+        assert.deepEqual(deepClean.listenerNote([], false), []);
+    });
+
+    it('the survey reads the pidfile from the temp root it was given', () => {
+        const base = fs.mkdtempSync(path.join(os.tmpdir(), 'dc-pid-'));
+        try {
+            const repo = newRepo(base, 'repo');
+            const temp = path.join(base, 'temp');
+            fs.mkdirSync(temp, { recursive: true });
+            const pidfile = () =>
+                JSON.parse(
+                    run([
+                        'survey',
+                        '--json',
+                        '--root',
+                        repo,
+                        '--temp-root',
+                        temp,
+                    ]).stdout
+                ).extras.floeRunPidfile;
+            assert.equal(pidfile(), false);
+            w(path.join(temp, 'floe-run.json'), '{}');
+            assert.equal(pidfile(), true);
+        } finally {
+            fs.rmSync(base, { recursive: true, force: true, maxRetries: 5 });
+        }
     });
 });

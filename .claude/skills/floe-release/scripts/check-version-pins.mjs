@@ -147,13 +147,31 @@ const versionRe = (kind, num) =>
 // 1.11.0 and Floe Desktop 0.3.0", "1.11.0 or Floe Desktop 0.3.0, or later").
 // Left out on purpose, because each of them introduces a pin as readily as
 // a floor: "from" ("the compose file from v1.11.0 on GitHub"; only "from X
-// onward" counts), "up to", "as of", "in", and a bare "to" outside "versions
-// X to Y".
+// onward" counts), "up to", "as of", "in", a bare "to" outside "versions
+// X to Y", and "above" and "below", which say where on a page as often as
+// which version.
+//
+// A comparison after the version ("or later", "and earlier") counts only
+// when it ENDS its clause: at the end of the text, at a period, comma,
+// semicolon or colon, at a bracket, or at a conjunction that starts the
+// next clause. "Set the tag to 1.11.0 or newer images will be pulled" and
+// "reads 1.11.0 and later the hint" run on, and each is a sentence about a
+// pin. The price is a true floor that runs on into its verb ("1.11.0 or
+// earlier shows nothing"): it stays STALE, which costs a re-read and never
+// a stale release. Three shapes are never a floor, whatever their wording:
+//   - a bracket between the version and the comparison, as in "v1.11.0 (or
+//     later, once tagged)": an aside on a version that is being shown;
+//   - a version inside a code span, as in "reads `floe 1.11.0` and later,
+//     after an update, ...": a quoted literal is shown, not measured from,
+//     and the words around it are a sentence about it;
+//   - anything inside a fenced code block, which is sample text, not prose.
 const NOUNS =
     /(?:(?:the|a|an|floe|desktop|servers?|clients?|web|app|cli|versions?|releases?|images?)\s+){0,3}/;
 const ANY_VERSION = /(?:desktop-)?v?\d+\.\d+\.\d+/;
 const AND_OR = /(?:\s*,\s*(?:(?:and|or)\s+)?|\s+(?:and|or)\s+)/;
-const LATER = /(?:later|earlier|newer|older|above|below|higher|lower)\b/;
+const LATER = /(?:later|earlier|newer|older|higher|lower)\b/;
+const CLAUSE_END =
+    /(?=\s*(?:$|[.,;:()[\]]|(?:and|or|but|so|because|while|when|if|unless|which|who)\b))/;
 const joinRe = (...parts) =>
     new RegExp(
         parts.map((p) => (typeof p === 'string' ? p : p.source)).join(''),
@@ -168,14 +186,15 @@ const FLOOR_BEFORE = joinRe(
     NOUNS,
     ')?$'
 );
-const FLOOR_AFTER = joinRe(/^\s*,?\s*(?:or|and)\s+/, LATER);
+const FLOOR_AFTER = joinRe(/^\s*,?\s*(?:or|and)\s+/, LATER, CLAUSE_END);
 const FLOOR_AFTER_NEXT = joinRe(
     '^',
     AND_OR,
     NOUNS,
     ANY_VERSION,
     /\s*,?\s*(?:or|and)\s+/,
-    LATER
+    LATER,
+    CLAUSE_END
 );
 const FROM_BEFORE = joinRe(/\bfrom\s+/, NOUNS, '$');
 const ONWARD_AFTER = /^\s+onwards?\b/i;
@@ -188,12 +207,17 @@ const RANGE_START_BEFORE = /\b(?:versions|releases)\s+$/i;
 const RANGE_START_AFTER = joinRe(/^\s+(?:to|through)\s+/, ANY_VERSION);
 // Markdown marks and brackets between a phrase and its version are not
 // wording: "older than `floe` 1.11.0", "(since 0.3.0;", "[Moving to 1.11.0]".
+// After the version the brackets stay: one in front of the comparison makes
+// it an aside, and one behind it ends its clause.
 const tidy = (s) => s.replace(/[`*"()[\]]/g, '').replace(/\s+/g, ' ');
+const tidyAfter = (s) => s.replace(/[`*"]/g, '').replace(/\s+/g, ' ');
 
-// `before` and `after` are the text on either side of one version mention.
-function isFloor(before, after) {
+// `before` and `after` are the text on either side of one version mention;
+// `quoted` says the mention sits inside a code span.
+function isFloor(before, after, quoted) {
+    if (quoted) return false;
     const b = tidy(before);
-    const a = tidy(after);
+    const a = tidyAfter(after);
     return (
         FLOOR_BEFORE.test(b) ||
         FLOOR_AFTER.test(a) ||
@@ -229,11 +253,12 @@ function fencedLines(lines) {
 
 // True when every mention `re` finds on lines[i] is a floor.
 function everyMentionIsFloor(lines, i, re, fenced) {
+    // Sample output and config, never a sentence that measures.
+    if (fenced[i]) return false;
     const line = lines[i];
     const prose = (j) =>
         j >= 0 &&
         j < lines.length &&
-        !fenced[i] &&
         !fenced[j] &&
         lines[j].trim() !== '' &&
         !OWN_BLOCK.test(lines[j]) &&
@@ -245,9 +270,12 @@ function everyMentionIsFloor(lines, i, re, fenced) {
             ? lines[i + 1].trim()
             : '';
     for (const m of line.matchAll(new RegExp(re.source, 'g'))) {
-        const before = `${above} ${line.slice(0, m.index)}`;
+        const head = line.slice(0, m.index);
+        const before = `${above} ${head}`;
         const after = `${line.slice(m.index + m[0].length)} ${below}`;
-        if (!isFloor(before, after)) return false;
+        // An odd number of backticks in front: the mention is inside a span.
+        const quoted = head.split('`').length % 2 === 0;
+        if (!isFloor(before, after, quoted)) return false;
     }
     return true;
 }
@@ -276,8 +304,9 @@ const SELF_TEST = [
 // pin must never read as a floor.
 const FLOOR_SELF_TEST = [
     ['cli', '1.11.0', '`--to` needs `floe` 1.11.0 or later', true],
-    ['cli', '1.11.0', 'A web app on version 1.11.0 or earlier shows it.', true],
-    ['cli', '1.10.11', '1.10.11 and earlier tried to save such paths.', true],
+    ['cli', '1.11.0', 'needs `floe` 1.11.0 or later (see Install).', true],
+    ['cli', '1.11.0', 'a client image of 1.11.0 or later). An older', true],
+    ['cli', '1.11.0', '1.11.0 or later or Floe Desktop 0.3.0 or later;', true],
     ['cli', '1.11.0', 'Since 1.11.0 the server checks the `Origin`.', true],
     ['cli', '1.11.0', 'a server older than 1.11.0 does', true],
     ['cli', '1.11.0', '## Upgrading to 1.11.0', true],
@@ -287,6 +316,22 @@ const FLOOR_SELF_TEST = [
     ['desktop', '0.3.0', 'need Floe Desktop 0.3.0 or later.', true],
     ['desktop', '0.3.0', 'before `floe` 1.11.0 and Floe Desktop 0.3.0.', true],
     ['desktop', '0.3.0', 'its own AppUserModelID (since 0.3.0; before', true],
+    // A comparison that runs on, a bracketed aside, a quoted literal: each
+    // was once read as a floor and is the shape of a real pin.
+    ['cli', '1.11.0', 'Set `FLOE_IMAGE_TAG=1.11.0` or newer images', false],
+    ['cli', '1.11.0', 'reads `floe 1.11.0` and below it the hint', false],
+    ['cli', '1.11.0', 'Latest: `v1.11.0` (or later, once tagged)', false],
+    ['cli', '1.11.0', 'sets the tag to 1.11.0 or newer images', false],
+    ['cli', '1.11.0', 'Latest: v1.11.0 (or later, once tagged)', false],
+    ['cli', '1.11.0', 'prints `floe 1.11.0` and later, after', false],
+    // True floors given up for the same rule: they run on into a verb.
+    [
+        'cli',
+        '1.11.0',
+        'A web app on version 1.11.0 or earlier shows it.',
+        false,
+    ],
+    ['cli', '1.10.11', '1.10.11 and earlier tried to save such paths.', false],
     ['cli', '1.11.0', 'for example FLOE_IMAGE_TAG=1.11.0,', false],
     ['cli', '1.11.0', 'prints `Already up to date (1.11.0)` and stops', false],
     ['cli', '1.11.0', 'Update available: 1.10.11 -> v1.11.0', false],
