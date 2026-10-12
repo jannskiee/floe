@@ -16,7 +16,8 @@
 //             the absent `Check for updates` row. The only mode that
 //             touches the user's real %APPDATA%\floe\desktop.json: backed up,
 //             edited to { server, web, hideIP, reportStats:false,
-//             noUpdateCheck:true, migrated:true }, restored byte-identical
+//             noUpdateCheck:true, noToasts:true, migrated:true }, restored
+//             byte-identical
 //             (sha256 compared) after the app exits. Refused while any
 //             floe-desktop.exe exists before the run (PreconditionError,
 //             exit 3). Nothing under %APPDATA%\floe is ever deleted.
@@ -136,8 +137,11 @@ export const STRINGS = Object.freeze({
     minimize: 'Minimize', // TitleBar.tsx aria-label
     startOver: 'Start over', // TitleBar.tsx aria-label
     closeTitle: 'Close Floe?',
-    // The Close Floe? dialog's pair in every case since D-170 (the released
-    // app says Keep going and Close anyway; STRINGS_RELEASED below).
+    // The Close Floe? dialog's pair in every case since D-170, shipped in
+    // desktop-v0.3.0 (requestCopy.ts KEEP_FLOE_OPEN and CLOSE_FLOE; a release
+    // before it says Keep going and Close anyway, STRINGS_RELEASED below).
+    // Recorded for the dialog's sake only: no leg and no cleanup clicks
+    // either button.
     keepGoing: 'Keep open',
     closeAnyway: 'Close',
     checkForUpdates: 'Check for updates', // Settings row, hidden when packaged
@@ -667,10 +671,14 @@ export function defaultConfigPath(env = process.env) {
 }
 
 /**
- * The edited desktop.json: the user's record with the audit's five keys on
+ * The edited desktop.json: the user's record with the audit's six keys on
  * top. reportStats:false only counts when migrated:true (App.tsx GetSettings
  * effect re-imports localStorage otherwise); noUpdateCheck:true keeps the
- * GitHub check off; server/web point the app at the infra under test. There
+ * GitHub check off; server/web point the app at the infra under test.
+ * noToasts:true is Settings > Notifications off (desktop/config.go NoToasts,
+ * read by App.notify in desktop/app.go): a finished or failed transfer and a
+ * request drop each raise a Windows toast, and an audit cell must not put
+ * one on the owner's screen. silentToasts is left as the record has it. There
  * is no requestLinks key any more (D-160 removed the Settings > Beta switch
  * and the field): a legacy one in the record is kept as it is and the app
  * ignores it.
@@ -689,6 +697,7 @@ export function editDesktopJson(
             hideIP: Boolean(hideIP),
             reportStats: false,
             noUpdateCheck: true,
+            noToasts: true,
             migrated: true,
         }) + '\n'
     );
@@ -875,7 +884,12 @@ export function seedRedirectedConfig(appData, edit = {}) {
     return file;
 }
 
-/** The statsProof block for a receiver from the config file it launched with. */
+/**
+ * The statsProof block for a receiver from the config file it launched with.
+ * noToasts rides along as evidence that the launch had its toasts off (true,
+ * false, or null when the record has no such key); the ok field stays the
+ * stats opt-out alone.
+ */
 export function statsProofFor(configPath) {
     let cfg = null;
     let hash = null;
@@ -892,6 +906,7 @@ export function statsProofFor(configPath) {
         sha256: hash,
         reportStats: cfg ? cfg.reportStats : null,
         migrated: cfg ? cfg.migrated : null,
+        noToasts: cfg ? (cfg.noToasts ?? null) : null,
         ok: Boolean(cfg && cfg.reportStats === false && cfg.migrated === true),
     };
 }
@@ -3751,7 +3766,9 @@ export class DesktopLeg extends Leg {
      * Cancel if busy (through the UI's own button, which satisfies the
      * CancelTransfer ordering contract), restore the remembered save dir,
      * capture, WM_CLOSE, wait; taskkill only our pid after two failed
-     * rounds. "Close anyway" is never clicked here (cleanup only).
+     * rounds. The Close Floe? dialog's buttons are never clicked, here or by
+     * `cleanup`, which only ends the pids the run recorded (audit.mjs
+     * cleanupCmd).
      */
     stop(reason) {
         // One stop per leg: the cell's teardown and shutdown() can both ask,
@@ -3853,6 +3870,10 @@ export class DesktopLeg extends Leg {
                   filesStaged: this.plan.filesStaged,
                   identity: this.plan.identity ?? null,
                   url: this.plan.url,
+                  // What the desktop.json this launch read said about toasts
+                  // (editDesktopJson turns them off). Here and not only in
+                  // statsProof, which a sender does not have.
+                  noToasts: this.launchProof ? this.launchProof.noToasts : null,
                   env: this.plan.env
                       ? {
                             APPDATA: this.plan.env.APPDATA ?? null,

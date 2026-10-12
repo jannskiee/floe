@@ -2,10 +2,13 @@
  * Tests for cli.mjs: the pure builders and parsers on captured output, and
  * the CliLeg state machine driven by tests/fake-floe.mjs.
  *
- * The parser fixtures under tests/fixtures/ were captured from the shipped
- * floe 1.10.5 sending and receiving through a local floe-run stack, with
- * the room id, the code and the output path replaced by fixed synthetic
- * values (the shapes are what matter). send-to-head.stdout.txt is the head
+ * The 1.10.5 parser fixtures under tests/fixtures/ were captured from the
+ * shipped floe 1.10.5 sending and receiving through a local floe-run stack,
+ * with the room id, the code and the output path replaced by fixed synthetic
+ * values (the shapes are what matter). The two 1.11.0 fixtures are those
+ * captures with the two lines a current CLI prints differently, derived from
+ * the source and not captured (see the note above their tests).
+ * send-to-head.stdout.txt is the head
  * CLI's request-link send (sendto.go, TA-16) captured in process by the
  * FU-B6 lane against the cmd/floe tests' fake request-room server and a
  * scripted host that answered received with both files verified; the CLI
@@ -895,4 +898,112 @@ test('preflight reads --to off send --help (cliHasTo)', async () => {
         baseEnv: { ...process.env, FAKE_FLOE_TO_FLAG: '1' },
     });
     assert.equal(withTo.detail.cliHasTo, true);
+});
+
+// ---------------------------------------------------------------------------
+// v1.11.0: the route word and the Verified row (G5)
+// ---------------------------------------------------------------------------
+
+// send-1.11.0.stdout.txt and receive-1.11.0.stdout.txt are NOT captures of a
+// 1.11.0 binary: they are the 1.10.5 captures above with the two lines a
+// current CLI prints differently, written in the format the source builds
+// (the first test below pins that source). Enough for the parsers, which is
+// all they are for.
+const SEND_1_11 = join(FIXTURES, 'send-1.11.0.stdout.txt');
+const RECEIVE_1_11 = join(FIXTURES, 'receive-1.11.0.stdout.txt');
+
+test('the two lines the 1.11.0 fixtures add are the ones the CLI source prints', () => {
+    const repo = new URL('../../../../../', import.meta.url);
+    const read = (rel) => readFileSync(new URL(rel, repo), 'utf8');
+    // Both ends add the row with the same label and the same words, and
+    // format.go PrintBox pads a label to the longest one and adds three spaces.
+    const row = 'rows = append(rows, [2]string{"Verified", "SHA-256 matched"})';
+    assert.ok(read('cli/engine/transfer/sender.go').includes(row));
+    assert.ok(read('cli/engine/transfer/receiver.go').includes(row));
+    assert.ok(
+        read('cli/engine/transfer/format.go').includes(
+            'fmt.Printf("  %s%s   %s\\n", r[0], pad, r[1])'
+        )
+    );
+    assert.ok(
+        read('cli/cmd/floe/main.go').includes(
+            'return "  Connected (" + ct + ")"'
+        )
+    );
+    for (const p of [SEND_1_11, RECEIVE_1_11]) {
+        const lines = fixture(p).split(/\r\n|\r|\n/);
+        assert.ok(lines.includes('  Connected (direct)'), p);
+        assert.ok(lines.includes('  Verified   SHA-256 matched'), p);
+    }
+});
+
+test('parseSummary reads the Verified row of a 1.11.0 transcript, and its absence from a 1.10.5 one', () => {
+    const sent = parseSummary(fixture(SEND_1_11));
+    assert.equal(sent.complete, true);
+    assert.equal(sent.sent, '1 file (12 MB)', 'the wider padding still parses');
+    assert.equal(sent.files, 1);
+    assert.equal(sent.verified, 'SHA-256 matched');
+    assert.equal(sent.avg, '35.0 MB/s');
+    const got = parseSummary(fixture(RECEIVE_1_11));
+    assert.equal(got.complete, true);
+    assert.equal(got.received, '1 file (12 MB)');
+    assert.equal(got.verified, 'SHA-256 matched');
+    assert.equal(got.savedTo, 'C:\\Users\\alice\\Downloads\\floe');
+    // A release before per-file hashes prints no such row.
+    assert.equal(parseSummary(fixture(SEND_FIXTURE)).verified, null);
+    assert.equal(parseSummary(fixture(RECEIVE_FIXTURE)).verified, null);
+    // The route word, where 1.10.5 printed the bare line.
+    const route = (p) =>
+        fixture(p)
+            .split(/\r\n|\r|\n/)
+            .map((l) => l.match(MARKERS.connected))
+            .find(Boolean)[1];
+    assert.equal(route(SEND_1_11), 'direct');
+    assert.equal(route(RECEIVE_1_11), 'direct');
+    assert.equal(route(SEND_FIXTURE), undefined);
+});
+
+test('CliLeg carries the Verified row in its done detail on both sides, and null when the binary prints none', async () => {
+    const env = { FAKE_FLOE_VERIFIED: '1', FAKE_FLOE_SUFFIX: 'direct' };
+    const sender = createLeg(
+        withMode(fakeOpts({ role: 'sender', files: ['a.bin'] }), 'normal', env)
+    );
+    await sender.start();
+    const hit = await sender.awaitConnected(5000);
+    assert.equal(hit.line, '  Connected (direct)');
+    const sent = await sender.awaitDone(10_000);
+    assert.equal(sent.ok, true);
+    assert.equal(sent.detail.verified, 'SHA-256 matched');
+    assert.equal(sent.detail.sent, '1 file (1.0 KB)');
+    assert.equal(sender.evidence().summary.verified, 'SHA-256 matched');
+    await sender.stop('done');
+
+    const receiver = createLeg(
+        withMode(
+            fakeOpts({
+                role: 'receiver',
+                input: 'code',
+                target: 'amber-otter-cloud',
+            }),
+            'normal',
+            env
+        )
+    );
+    await receiver.start();
+    await receiver.awaitConnected(5000);
+    const got = await receiver.awaitDone(10_000);
+    assert.equal(got.ok, true);
+    assert.equal(got.detail.verified, 'SHA-256 matched');
+    assert.equal(got.detail.received, '1 file (1.0 KB)');
+    await receiver.stop('done');
+
+    // The fake's default is still the 1.10.5 shape: no row, and a transfer
+    // all the same.
+    const old = createLeg(fakeOpts({ role: 'sender', files: ['a.bin'] }));
+    await old.start();
+    await old.awaitConnected(5000);
+    const plain = await old.awaitDone(10_000);
+    assert.equal(plain.ok, true);
+    assert.equal(plain.detail.verified, null);
+    await old.stop('done');
 });

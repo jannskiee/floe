@@ -110,7 +110,7 @@ test('identity mapping round-trips pack.ps1 (tag <-> identity)', () => {
         assert.equal(tagForIdentity(identityVersion(t)), t);
 });
 
-test('editDesktopJson keeps the record and forces the five keys', () => {
+test('editDesktopJson keeps the record and forces the six keys', () => {
     const original = Buffer.from(
         '{"server":"","web":"","hideIP":false,"reportStats":true,"noUpdateCheck":false,"migrated":true}\n'
     );
@@ -126,6 +126,7 @@ test('editDesktopJson keeps the record and forces the five keys', () => {
         hideIP: true,
         reportStats: false,
         noUpdateCheck: true,
+        noToasts: true,
         migrated: true,
     });
     const extra = editDesktopJson('{"future":1,"reportStats":true}', {});
@@ -136,6 +137,7 @@ test('editDesktopJson keeps the record and forces the five keys', () => {
         hideIP: false,
         reportStats: false,
         noUpdateCheck: true,
+        noToasts: true,
         migrated: true,
     });
     assert.deepEqual(
@@ -144,6 +146,60 @@ test('editDesktopJson keeps the record and forces the five keys', () => {
     );
     assert.deepEqual(JSON.parse(editDesktopJson(null, {})).migrated, true);
     assert.throws(() => editDesktopJson('{not json', {}));
+});
+
+// G6: the app toasts on a finished or failed transfer and on a request drop
+// (App.notify in desktop/app.go, off when desktop.json holds noToasts:true).
+// An audit cell is nobody's news, and a toast on the owner's screen during a
+// run is the one visible thing the audit would otherwise add.
+test('editDesktopJson turns toasts off whatever the record says, keeps the sound choice, and statsProofFor reports it', () => {
+    const owner = editDesktopJson('{"noToasts":false,"silentToasts":true}', {});
+    assert.equal(
+        JSON.parse(owner).noToasts,
+        true,
+        "the owner's own choice is overridden for the run"
+    );
+    assert.equal(
+        JSON.parse(owner).silentToasts,
+        true,
+        'and the sound choice is left as it was'
+    );
+    assert.equal(JSON.parse(editDesktopJson('', {})).noToasts, true);
+    // The key is the one desktop/config.go reads.
+    const configGo = readFileSync(
+        new URL('../../../../../desktop/config.go', import.meta.url),
+        'utf8'
+    );
+    assert.ok(
+        configGo.includes('`json:"noToasts"`'),
+        'config.go no longer reads noToasts'
+    );
+    const dir = tmp();
+    try {
+        const file = seedRedirectedConfig(path.join(dir, 'appdata'), {});
+        const proof = statsProofFor(file);
+        assert.equal(
+            proof.noToasts,
+            true,
+            'the launch proof says the toasts were off'
+        );
+        assert.equal(proof.ok, true);
+        // Evidence only: the stats proof is still reportStats and migrated.
+        writeFileSync(file, '{"reportStats":false,"migrated":true}');
+        const bare = statsProofFor(file);
+        assert.equal(
+            bare.noToasts,
+            null,
+            'a record without the key reads null, never true'
+        );
+        assert.equal(bare.ok, true);
+        assert.equal(
+            statsProofFor(path.join(dir, 'missing.json')).noToasts,
+            null
+        );
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
 });
 
 test('editDesktopJson never writes a requestLinks key (D-160: the app has no such setting), and a legacy one in the record is left exactly as it was', () => {
@@ -400,6 +456,7 @@ test('withDesktopConfig restores byte-identical and keeps a backup in the eviden
             hideIP: true,
             reportStats: false,
             noUpdateCheck: true,
+            noToasts: true,
             migrated: true,
         });
         assert.ok(readFileSync(cfg).equals(original));
@@ -1091,6 +1148,57 @@ test('launch registers the app pid with lib/proc.mjs (spawned and window-found a
         started.delete(pid);
         for (const l of activeLegs)
             if (l.opts.cellId === 'T-PID') activeLegs.delete(l);
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+// G6: a sender has no stats proof to carry the launch's settings, so the
+// toasts line rides on the launch block, which both roles report.
+test('a sender leg reports that it launched with toasts off, with no stats proof to hold it', async () => {
+    const dir = tmp();
+    const pid = 4343;
+    try {
+        const client = {
+            log() {},
+            async findWindow() {
+                return {
+                    hwnd: 8,
+                    pid,
+                    exe: 'C:\\x\\floe-desktop.exe',
+                    minimized: false,
+                };
+            },
+            async waitTree() {
+                return { ready: true };
+            },
+        };
+        const leg = new DesktopLeg({
+            role: 'sender',
+            cellId: 'T-TOAST',
+            files: ['C:\\x\\a.bin'],
+            build: { launch: 'portable', path: 'C:\\bogus\\floe-desktop.exe' },
+            scratch: dir,
+            uia: client,
+            launcher: async () => ({ child: null, pid }),
+            lister: NO_PROCS,
+            shellMenu: new ShellMenuGuard({ platform: 'linux' }),
+            infra: { server: 'http://127.0.0.1:9', web: 'http://127.0.0.1:9' },
+        });
+        assert.equal(leg.evidence().launch, null, 'nothing before the launch');
+        started.delete(pid);
+        await leg.launch(['C:\\x\\a.bin']);
+        const ev = leg.evidence();
+        assert.equal(ev.statsProof, null, 'a sender never reports');
+        assert.equal(ev.launch.noToasts, true);
+        assert.equal(
+            JSON.parse(readFileSync(ev.launch.configPath, 'utf8')).noToasts,
+            true,
+            'the file it launched with says so'
+        );
+    } finally {
+        started.delete(pid);
+        for (const l of activeLegs)
+            if (l.opts.cellId === 'T-TOAST') activeLegs.delete(l);
         rmSync(dir, { recursive: true, force: true });
     }
 });

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
  * A scripted stand-in for floe.exe so proc.test.mjs and cli.test.mjs run
- * without the real binary. It prints the shipped 1.10.5 shapes: the share
+ * without the real binary. By default it prints the 1.10.5 shapes (the two
+ * lines a current CLI prints differently, the route word and the Verified
+ * row, are switched on from the environment below): the share
  * box with Code and Link rows (cli/cmd/floe/send.go runSend), the
  * "  Waiting for peer..." / "  Connecting..." / "  Connected" markers, a
  * progress bar that redraws with a bare \r (format.go newProgressBar), the
@@ -14,6 +16,9 @@
  *   FAKE_FLOE_DELAY_MS  pause between steps (default 20)
  *   FAKE_FLOE_RELAY_ONLY=1   list --relay-only in `send --help`
  *   FAKE_FLOE_SUFFIX=relay|direct   print "  Connected (relay)" style
+ *   FAKE_FLOE_VERIFIED=1  add the "Verified   SHA-256 matched" row both
+ *                         summary boxes carry since v1.11.0 (sender.go and
+ *                         receiver.go, only when every file matched)
  *   FAKE_FLOE_PAIR=relay|direct     with PION_LOG_TRACE=ice, emit a pion
  *                                   "Set selected candidate pair:" line
  *   FAKE_FLOE_ICEWARN=1  print the STUN fallback warning first
@@ -42,6 +47,11 @@ const ROOM = '11111111-2222-4333-8444-555555555555';
 const CODE = 'amber-otter-cloud';
 const FAKE_NAME = 'fixture.bin';
 const FAKE_BYTES = Buffer.alloc(1024, 0x5a);
+// Between the count row and Time, where both engines put it.
+const VERIFIED_ROW =
+    process.env.FAKE_FLOE_VERIFIED === '1'
+        ? [['Verified', 'SHA-256 matched']]
+        : [];
 
 const GLOBAL_FLAGS = [
     'Global Flags:',
@@ -222,6 +232,7 @@ async function send() {
     out();
     box([
         ['Sent', '1 file (1.0 KB)'],
+        ...VERIFIED_ROW,
         ['Time', '0s · avg 1.0 MB/s'],
     ]);
     process.exit(0);
@@ -247,6 +258,7 @@ async function receive() {
     out();
     box([
         ['Received', '1 file (1.0 KB)'],
+        ...VERIFIED_ROW,
         ['Time', '0s · avg 1.0 MB/s'],
         ['Saved to', outDir],
     ]);

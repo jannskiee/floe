@@ -2,7 +2,9 @@
 
 The cells `audit.mjs run` executes, with the forcer, the oracles and the
 timeouts each one carries. Recorded from the code on 2026-08-29 and
-re-anchored on 2026-09-12; a source is a file plus a symbol, never a line,
+re-anchored on 2026-09-12; the rows changed on 2026-10-12 were checked
+against main at `2a6e273` (v1.11.0 and desktop-v0.3.0 are the releases
+then). A source is a file plus a symbol, never a line,
 so re-check the symbol when a string moves. The driver's own
 copy of this table is `scripts/lib/matrix.mjs` (`cellPlan`), and the two must
 agree: a row here without a plan entry, or the reverse, is a bug.
@@ -17,9 +19,9 @@ path     DIR = direct expected, no side may observe relay
          REL = relay expected, at least one side must observe relay
 surface  W = web browser (Playwright chromium)   C = CLI (Windows)
          D = desktop (Store build or portable)    L = CLI inside WSL2 Ubuntu-22.04 (deep only)
-variant  link | bnd8 | fold | zip | cap3g | thr500 | killsnd | killrcv
+variant  link | bnd8 | sizes | fold | zip | cap3g | thr500 | killsnd | killrcv
          hashbad | hashmal (head profile only, see Forced mismatches)
-         req | reqhideip | reqblip | reqdecline | reqopen | reqauto (see Request-link cells)
+         req | reqhideip | reqblip | reqcaddy | reqdecline | reqopen | reqauto (see Request-link cells)
 ```
 
 Examples: `S-DIR-W2C`, `S-REL-C2D`, `H-DIR-C2C-bnd8`, `S-DIR-L2W`, `H-DIR-C2C-hashbad`.
@@ -92,7 +94,11 @@ the one app instance). A shipped run cannot take wailsdev, so a shipped
 request cell runs only on an exe host with the owner away.
 `scripts/lib/request.mjs` runs them: each attempt makes its own link into
 its own folder, and a failed step is FAIL `request-flow` or
-`request-manifest`, never retried.
+`request-manifest`, never retried. The server makes 20 links per network
+address in any 24 hours (`REQUEST_CREATES_PER_DAY` in `server/server.js`),
+TA-17's cells spend one each too, and the refusal after that (`limited`) is
+SKIP `request-daily-limit` for that cell and for every later request cell
+of the run, which then SKIP before their host is launched.
 
 The visitor (W) opens `<web>/r/<linkId>#<roomId>` in a fresh Chromium
 context, picks the files through the hidden "Choose files" input, clicks
@@ -275,7 +281,7 @@ relay evidence never passes (`route-unproven` or `forcer-ineffective`).
 
 Desktop precondition for every D cell on the shipped profile: the `probe`
 result. When `ValuePattern.SetValue` on `placeholder="amber-otter-cloud"`
-followed by Invoke `Receive` yields `Please enter a code or link.` (`Enter a code or link` with the calm copy, D-167)
+followed by Invoke `Receive` yields `Enter a code or link` (`Please enter a code or link.` on a release before desktop-v0.3.0)
 (`desktop/frontend/src/App.tsx` `receive`), every D-receiver cell is SKIP
 `uia-setvalue`; when the save-dir field cannot be set either, they are SKIP
 `desktop-savedir` (the app must never write into the real Downloads folder).
@@ -302,12 +308,12 @@ the honest answer.
 ## `--deep` additions (17 cells, shipped)
 
 | Cell              | Snd | Rcv | Path | What it proves                                                   | Fixture                                                         | Expected                                                                                                                                    |
-| ----------------- | --- | --- | ---- | ---------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| ----------------- | --- | --- | ---- | ---------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | S-DIR-C2C-bnd8    | C   | C   | DIR  | framing at chunk boundaries                                      | 8 files: 0, 512, 16383, 16384, 16385, 262143, 262144, 262145 B  | 8 sha256 matches; `Received  8 files`                                                                                                       |
 | S-DIR-W2C-bnd8    | W   | C   | DIR  | browser sender chunking at the same boundaries                   | same 8                                                          | same; `Create secure link (8 files)`                                                                                                        |
-| S-DIR-C2C-sizes   | C   | C   | DIR  | both `--no-relay`                                                | code                                                            | 111 MiB                                                                                                                                     | the size ladder 1 B, 1 KiB, 64 KiB, 1 MiB, 10 MiB, 100 MiB in one batch; on-disk sha256 per file; both exit 0          |
-| S-DIR-W2C-sizes   | W   | C   | DIR  | none                                                             | link                                                            | 111 MiB                                                                                                                                     | the same ladder from the browser sender, which reads every file through the File API                                   |
-| S-DIR-C2D-sizes   | C   | D   | DIR  | none                                                             | code                                                            | 111 MiB                                                                                                                                     | the same ladder into the desktop, the only cell that hands it more than one file; `Saved to <dir>` then sha256 on disk |
+| S-DIR-C2C-sizes   | C   | C   | DIR  | the size ladder, tiny to large, on the Go engine at both ends    | 6 files in one batch: 1 B, 1 KiB, 64 KiB, 1 MiB, 10 MiB, 100 MiB (about 111 MiB) | 6 sha256 matches on disk; both exit 0; code input, both `--no-relay` |
+| S-DIR-W2C-sizes   | W   | C   | DIR  | the same ladder from the browser sender, which reads every file through the File API | same 6 | as above, with link input |
+| S-DIR-C2D-sizes   | C   | D   | DIR  | the same ladder into the desktop, the only cell that hands it more than one file | same 6 | `Saved to <dir>`, then 6 sha256 matches on disk; code input |
 | S-DIR-C2C-fold    | C   | C   | DIR  | folder structure preserved                                       | `send-root/a.txt` 1 KiB, `b.bin` 262157 B, `nested/c.bin` 1 MiB | files at `<out>/send-root/<rel>`, 3 hashes; empty dirs are never recreated                                                                  |
 | S-DIR-C2W-zip     | C   | W   | DIR  | browser ZIP path                                                 | same folder                                                     | `Download ZIP` captured with `page.waitForEvent('download')`, 3 entries hashed with the zip reader                                          |
 | S-REL-C2W-cap3g   | C   | W   | REL  | the relay cap refuses before any byte moves                      | 3 GiB sparse                                                    | C stderr starts `Error: transfer blocked: relay connections are capped at 2 GB (selected `, exit 1; W shows no `a[download]`; never retried |
@@ -323,9 +329,11 @@ the honest answer.
 
 ## Head profile deltas
 
-Same ids with `H-`. Infra is `floe-run start --client --relaxed` (server
-`http://localhost:3001`, web `http://localhost:3000`, limiters relaxed, the
-pacing ledger disabled). Binaries: CLI from `go build` with
+Same ids with `H-`. Infra is `floe-run start --client --request-links`, with
+`--relaxed` when the run has it (server `http://localhost:3001`, web
+`http://localhost:3000`; under `--relaxed` the limiters are relaxed and the
+pacing ledger disabled). A stack that is already up is reused as it was
+started, so one without `--request-links` serves no `request-1`. Binaries: CLI from `go build` with
 `-X main.version=head-<sha7>`; desktop through `--desktop wailsdev` (the real
 app served at `http://localhost:34115`, driven by Playwright, route from the
 Wails events) or a `wails build` exe driven by UIA with `APPDATA` redirected.
@@ -346,7 +354,7 @@ records `local HEAD <sha>`.
 | complete                      | `max(60 s, size / 10 MB/s)` | `max(90 s, size / 1 MB/s)` | measured 38 MB/s on the 500 MiB loopback cell, 1.5 to 2.6 MB/s relayed                                                       |
 | process exit after completion | 15 s                        | 15 s                       | receiver 5 s grace (`receiver.go` `ReceiveFilesWithOptions` (the teardown grace)) plus the summary                                                                  |
 | route (after connect)         | 15 s                        | 15 s                       | a side with no oracle runs the budget out; both sides wait in parallel                                                       |
-| verify, teardown              | 30 s, 20 s                  | same                       | hashing the outputs, then stopping both legs; outside the cell hard cap                                                      |
+| verify, teardown              | `max(120 s, size / 50 MB/s)`, then 30 s (60 s with a desktop side) | same | hashing the outputs, then stopping both legs (a desktop stop can take 41 s before its config restore); outside the cell hard cap |
 | cell hard cap                 | sum of the rows above       | sum of the rows above      |                                                                                                                              |
 
 ## Expected strings (quote exactly)
@@ -355,15 +363,19 @@ records `local HEAD <sha>`.
 | ---------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
 | C sender         | link          | stdout box rows `Code` and `Link`; regex `/https?:\/\/\S*#room=[^\s]+/`                                                                                                                                                                   | `cli/cmd/floe/send.go` `runSend` (the `PrintBox` rows); `client/e2e/helpers.ts` `spawnSend` |
 | C sender         | wait, connect | `  Waiting for peer...`, `  Connecting...`, `  Connected (direct)` or `  Connected (relay)` (the bare `  Connected` when the route cannot be read, and from a CLI older than v1.10.6)                                                  | `cli/cmd/floe/send.go` `runSend`; `cli/cmd/floe/main.go` `connectedLine` |
-| C sender         | done          | box rows `Sent` (`<n> files (<size>)`) and `Time`; exit 0                                                                                                                                                                                 | `cli/engine/transfer/sender.go` `SendFilesWithOptions` (the summary rows)                     |
+| C sender         | done          | box rows `Sent` (`<n> files (<size>)`), `Verified   SHA-256 matched` (v1.11.0 on, only when the receiver reported every file matched) and `Time`; exit 0                                                                                                                                                                                 | `cli/engine/transfer/sender.go` `SendFilesWithOptions` (the summary rows)                     |
 | C receiver       | connect       | `  Connecting to sender...`, `  Connected (direct)` or `  Connected (relay)` (the bare `  Connected` as for the sender), optional `  Peer version: <ver>`                                                                                | `cli/cmd/floe/receive.go` `runReceive`; `cli/engine/transfer/receiver.go` `ReceiveFilesWithOptions`                        |
-| C receiver       | done          | rows `Received`, `Time`, `Saved to <abs dir>`; optional `  Saved as <name>`; exit 0                                                                                                                                                       | `cli/engine/transfer/receiver.go` `ReceiveFilesWithOptions` (the summary rows)                                   |
+| C receiver       | done          | rows `Received`, `Verified   SHA-256 matched` (v1.11.0 on, only when every file matched), `Time`, `Saved to <abs dir>`; optional `  Saved as <name>`; exit 0                                                                                                                                                       | `cli/engine/transfer/receiver.go` `ReceiveFilesWithOptions` (the summary rows)                                   |
 | C any            | error         | stderr `Error: <msg>`, exit 1; Ctrl+C prints `  Canceled.` and exits 130                                                                                                                                                                  | cobra default; `cli/cmd/floe/main.go` `main`                            |
 | W sender         | link          | `code` element containing `#room=`; button `/create secure link/i`                                                                                                                                                                        | `client/e2e/helpers.ts` `browserSenderSetup`                              |
 | W sender         | status        | `Waiting for peer`, `Peer joined. Starting transfer`, `All Files Sent!`                                                                                                                                                                   | `client/components/P2PTransfer.tsx` (the `setStatus` calls)                               |
 | W receiver       | joined        | `Secure room joined`, `Waiting for the sender to start`, or `The sender is not connected` on a link nobody holds                                                                                                                                                                                 | `client/components/ReceiverPanel.tsx` (the handshake checklist)                                 |
 | W receiver       | live          | `Receiving file N of M`; `a[download]` per file                                                                                                                                                                                           | `client/components/P2PTransfer.tsx` `createReceiver` `onFileStart`; `client/components/ReceivedFilesList.tsx`        |
 | W receiver       | done          | `N file received` or `N files received`; `Download All` and `Download ZIP` when more than one file                                                                                                                                        | `client/components/ReceiverPanel.tsx` (the completion line and the download buttons)                       |
+| W receiver       | short         | `Received N of M files. The transfer ended before the rest arrived.` (FAIL `receive-short` at once); `Received N of M files.` followed by `Waiting for the next file` (through 2a6e273) or `Waiting for the rest` (later main) is the same key only in the last 2 s of the done budget | `client/lib/receiveSummary.ts` `receiveSummary` |
+| W receiver       | no sender     | `The sender is not connected`, held for 10 s without a break, is FAIL `sender-absent`; the page can clear it by itself | `client/components/ReceiverPanel.tsx` (the handshake checklist); `client/lib/roomSeat.ts` `seatStep` |
+| W sender         | rejoin        | `Link stopped working` (FAIL `rejoin-failed` at once); `Reconnecting to your link` (the same key only in the last 2 s of a connect or done budget) | `client/lib/rejoinRetry.ts` `REJOIN_FAILED_STATUS`, `REJOINING_STATUS` |
+| W either         | verified      | `SHA-256 matched`, its own line under the completion line (a sender gets it after `All Files Sent!`); evidence only, never judged | `client/lib/verifiedLine.ts` `VERIFIED_LINE` |
 | W pill           | route         | `Direct`, `Relay`, `Ready`, `Offline` (textContent; rendered uppercase by CSS)                                                                                                                                                            | `client/components/ConnectionStatusBadge.tsx`                           |
 | W error          | banners       | `Link Invalid` heading; `Too many refreshes. Reconnecting`; `Connection failed. This link was made with Network relay fallback off. Reload the page, add the files again, leave it on, and share the new link.`; `Transfer blocked. Relay limit exceeded.`; `Peer disconnected. Waiting for reconnection` | `client/components/P2PTransfer.tsx` (the `setError` calls and the error banner)                       |
 | D sender         | staged        | button name `Send 1 item` or `Send N items`                                                                                                                                                                                               | `desktop/frontend/src/App.tsx` (the primary send button)                                         |
@@ -372,7 +384,7 @@ records `local HEAD <sha>`.
 | D receiver       | input         | `input[placeholder="amber-otter-cloud"]`; `input[placeholder="Downloads (default)"]` scoped to the receive view (the placeholder repeats in Settings); button `Receive`                                                                   | `desktop/frontend/src/App.tsx` (the receive view)                               |
 | D receiver       | live          | `Connecting... keep this window open.` (calm copy: `Connecting...`); `Incoming: <name> · <size>`                                                                                                                                                                       | `desktop/frontend/src/App.tsx` `receive`; `desktop/frontend/src/incoming.ts` `formatIncoming`                         |
 | D receiver       | done          | `Saved to <dir>`                                                                                                                                                                                                                          | `desktop/frontend/src/App.tsx` (the receive-done row)                                              |
-| D any            | error         | status starting `Error: ` (`friendlyError`), for example `Error: Connected, but the sender never started sending. Ask them to try again.` (calm copy: `Error: The sender never started sending`)                                                                                                 | `desktop/frontend/src/errors.ts` `PASSTHROUGH` and `RULES`                      |
-| D                | close guard   | dialog heading id `floe-close-title`, buttons `Keep going` and `Close anyway`                                                                                                                                                             | `desktop/frontend/src/App.tsx` (the close-guard dialog)                                         |
+| D any            | error         | status starting `Error: ` (`friendlyError`), for example `Error: The sender never started sending` (before desktop-v0.3.0: `Error: Connected, but the sender never started sending. Ask them to try again.`)                                                                                                 | `desktop/frontend/src/errors.ts` `PASSTHROUGH` and `RULES`                      |
+| D                | close guard   | dialog heading id `floe-close-title`, buttons `Keep open` and `Close` (`Keep going` and `Close anyway` before desktop-v0.3.0); nothing in the audit clicks either | `desktop/frontend/src/App.tsx` (the close-guard dialog); `desktop/frontend/src/requestCopy.ts` `KEEP_FLOE_OPEN`, `CLOSE_FLOE` |
 | D                | about         | Settings row `Transfer protocol` with value `Version <n>` (`...` while pending)                                                                                                                                                           | `desktop/frontend/src/App.tsx` (the About section)                                         |
 | D any            | UIA names     | Name properties carry the rendered case: tabs `SEND`, `RECEIVE`; pill `READY`, `ACTIVE`, `DIRECT`, `RELAY`; the `Receive` button is the last IgnoreCase match (the `RECEIVE` tab is the first)                                            | probe record 2026-08-29                                     |

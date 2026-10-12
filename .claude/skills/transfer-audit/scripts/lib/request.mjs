@@ -56,6 +56,21 @@ export const RECLAIM_MS = 60_000;
  * a headless page and activates nothing.
  */
 export const AWAY_ONLY = 'request-host-away-only';
+/**
+ * The server answered Make link with `limited`: this network address has made
+ * its request links for the day (REQUEST_CREATES_PER_DAY in server/server.js,
+ * 20, counted per successful create over a rolling day). Every attempt of every
+ * request cell makes one, so a busy day of audits spends the budget, and the
+ * refusal is this machine's precondition, never a product finding.
+ */
+export const DAILY_LIMIT = 'request-daily-limit';
+function dailyLimit(what) {
+    return new PhaseError(
+        'host.start',
+        `${DAILY_LIMIT}: ${what} (the server makes 20 request links a day per network address, and every attempt of a request cell makes one)`,
+        { verdict: 'SKIP', reason: DAILY_LIMIT }
+    );
+}
 
 // The lane states in which a link exists and can be closed (Close link),
 // and the results that stay until Make another link (requestLink.ts LINK_PHASES and
@@ -266,6 +281,13 @@ async function startHost(
     { outDir, relayOnly, blipUrl = null, proxyKey = BLIP_KEY }
 ) {
     const { now, nap } = st.clock;
+    // An earlier cell of this run was refused its link for the day: every
+    // later Make link gets the same answer until the window moves on, so
+    // nothing is launched to ask again.
+    if (ctx.shared?.requestLimited)
+        throw dailyLimit(
+            'an earlier cell of this run was refused its link; no host was launched'
+        );
     const mod = await ctx.getAdapter('desktop');
     const host = mod.createLeg({
         cellId: cell.id,
@@ -335,13 +357,24 @@ async function startHost(
     st.genBefore = Number((await snapshotOf(host)).gen) || 0;
     st.makeTried = true;
     const autoAccept = cell.request.autoAccept === true;
-    const made = await host.driver.makeRequestLink({
-        lifetime: '24h',
-        autoAccept,
-        saveDir: outDir,
-        now,
-        nap,
-    });
+    let made;
+    try {
+        made = await host.driver.makeRequestLink({
+            lifetime: '24h',
+            autoAccept,
+            saveDir: outDir,
+            now,
+            nap,
+        });
+    } catch (e) {
+        // Both drivers put the lane's error code on what they throw. Only
+        // `limited` is this machine's budget; every other code stays the
+        // request-flow finding it is.
+        if (e?.code !== 'limited') throw e;
+        ctx.shared = ctx.shared || {};
+        ctx.shared.requestLimited = true;
+        throw dailyLimit('the server answered Make link with limited');
+    }
     const read = await host.driver.readRequestLink();
     st.link = read.link;
     rec.request.link = read.shown;

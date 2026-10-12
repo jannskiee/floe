@@ -67,11 +67,19 @@ export const SCRIPTS = Object.freeze([
  * webShape 'b1' (default) reports the flat policyOk / localStorage the
  * fixture always used; 'b2' reports lib/web.mjs's own shape (policy { ok }
  * and localStorageRead) so the cell runner is proven against both.
+ * verified makes every passing leg report the line a v1.11.0 surface prints
+ * when each file's SHA-256 matched (lib/cli.mjs parseSummary, lib/web.mjs
+ * TEXT.verifiedLine); the default is a release that prints none.
  */
-export function fakeWorld({ tick = 5, webShape = 'b1' } = {}) {
+export function fakeWorld({
+    tick = 5,
+    webShape = 'b1',
+    verified = false,
+} = {}) {
     const world = {
         tick,
         webShape,
+        verified,
         scripts: new Map(),
         calls: [],
         killed: new Set(),
@@ -427,6 +435,7 @@ class FakeLeg extends Leg {
                     complete: true,
                     text:
                         this.surface === 'web' ? '1 file received' : 'Saved to',
+                    verified: world.verified ? 'SHA-256 matched' : null,
                 },
                 exitCode: 0,
                 ms: ms(),
@@ -439,6 +448,7 @@ class FakeLeg extends Leg {
             detail: {
                 complete: true,
                 text: this.surface === 'web' ? 'All Files Sent!' : 'Sent',
+                verified: world.verified ? 'SHA-256 matched' : null,
             },
             exitCode: 0,
             ms: ms(),

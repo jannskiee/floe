@@ -807,21 +807,43 @@ test('a lying cell senders bound comes from the receivers own flush timeout', ()
  * success line and then the refusal two polls later. The predicate reads
  * document.body.innerText in the browser, so the fake installs a document
  * while it runs and puts the old one back.
+ *
+ * A frame is the page's text, or { text, anchors, connected } for the
+ * predicates that read more than the text: the receiver's completion counts
+ * a[download], and awaitConnected reads window.__floeAudit, which is one
+ * object for the life of the page (the init script's), so what a predicate
+ * keeps on it between polls is still there on the next one.
  */
 function scriptedPage(frames) {
     let poll = 0;
     const timeouts = [];
+    const audit = { pcs: [] };
     return {
         timeouts,
+        audit,
         async waitForFunction(fn, arg, opts = {}) {
             timeouts.push(opts.timeout);
             const deadline = Date.now() + (opts.timeout ?? 1000);
             const had = Object.getOwnPropertyDescriptor(globalThis, 'document');
+            const hadWindow = Object.getOwnPropertyDescriptor(
+                globalThis,
+                'window'
+            );
             try {
                 for (;;) {
-                    const text = frames[Math.min(poll, frames.length - 1)];
+                    const raw = frames[Math.min(poll, frames.length - 1)];
+                    const frame = typeof raw === 'string' ? { text: raw } : raw;
                     poll += 1;
-                    globalThis.document = { body: { innerText: text } };
+                    globalThis.document = {
+                        body: { innerText: frame.text },
+                        querySelectorAll: () => ({
+                            length: frame.anchors ?? 0,
+                        }),
+                    };
+                    audit.pcs = frame.connected
+                        ? [{ connectionState: 'connected' }]
+                        : [];
+                    globalThis.window = { __floeAudit: audit };
                     const value = fn(arg);
                     if (value) return { jsonValue: async () => value };
                     if (Date.now() >= deadline)
@@ -831,6 +853,9 @@ function scriptedPage(frames) {
             } finally {
                 if (had) Object.defineProperty(globalThis, 'document', had);
                 else delete globalThis.document;
+                if (hadWindow)
+                    Object.defineProperty(globalThis, 'window', hadWindow);
+                else delete globalThis.window;
             }
         },
         evaluate: async () => null,
@@ -984,5 +1009,525 @@ test('installHashbad ships the same rewrite into the page', async () => {
     assert.ok(
         installed.content.includes('RTCDataChannel.prototype.send'),
         'it wraps the send the app uses'
+    );
+});
+
+// ------------------------------------------- the page states of 2026-10-12
+//
+// main gained four page states on 2026-10-12 (#533 and #535): a receive that
+// ended short of the announced count, a receive still waiting for its next
+// file, a receiver told nobody is on the sending side, and a sender retrying
+// (then giving up on) a join its own room refused. The leg knew none of them,
+// so each ran a connect or done budget out and was filed as connect-timeout or
+// phase-timeout. They are named here the way awaitRefusalAfterSent names its
+// own: a keyed PhaseError, a note, and a row in lib/triage.mjs.
+
+test('the page states the web leg names are the products own words', () => {
+    const repo = new URL('../../../../../', import.meta.url);
+    const read = (rel) => readFileSync(new URL(rel, repo), 'utf8');
+    const summary = read('client/lib/receiveSummary.ts');
+    assert.ok(
+        summary.includes(`\${sofar} ${TEXT.receiveShort}\``),
+        `receiveSummary.ts no longer ends a short receive with: ${TEXT.receiveShort}`
+    );
+    // One state, two wordings: "Waiting for the next file" on main through
+    // 2a6e273, "Waiting for the rest" on a later main. floe.one always runs
+    // the newest main while a self-host or an older head keeps the first, so
+    // the leg takes both from day one, and the source must say one of them.
+    assert.deepEqual(
+        [...TEXT.receiveWaiting],
+        ['Waiting for the next file', 'Waiting for the rest']
+    );
+    assert.ok(
+        TEXT.receiveWaiting.some((w) => summary.includes(`\${sofar} ${w}\``)),
+        `receiveSummary.ts no longer says either of: ${TEXT.receiveWaiting.join(' / ')}`
+    );
+    const rejoin = read('client/lib/rejoinRetry.ts');
+    assert.ok(
+        rejoin.includes(`export const REJOINING_STATUS = '${TEXT.rejoining}';`),
+        `rejoinRetry.ts REJOINING_STATUS is no longer: ${TEXT.rejoining}`
+    );
+    assert.ok(
+        rejoin.includes(
+            `export const REJOIN_FAILED_STATUS = '${TEXT.rejoinFailed}';`
+        ),
+        `rejoinRetry.ts REJOIN_FAILED_STATUS is no longer: ${TEXT.rejoinFailed}`
+    );
+    assert.ok(
+        read('client/components/ReceiverPanel.tsx').includes(TEXT.senderAbsent),
+        `ReceiverPanel.tsx no longer says: ${TEXT.senderAbsent}`
+    );
+    // The page renders them from these call sites, and the seat yield that
+    // can clear the receiver's line by itself is why it needs a dwell.
+    const page = read('client/components/P2PTransfer.tsx');
+    assert.ok(page.includes('setStatus(REJOIN_FAILED_STATUS)'));
+    assert.ok(page.includes('setStatus(REJOINING_STATUS)'));
+    assert.ok(page.includes('senderAbsent={senderAbsent}'));
+    assert.ok(read('client/lib/roomSeat.ts').includes('yieldSeat: true'));
+    // Neither partial line may read as a completed receive of N files to the
+    // receiver's own completion predicate (receiveSummary.ts says so too).
+    for (const line of [
+        `Received 1 of 3 files. ${TEXT.receiveShort}`,
+        ...TEXT.receiveWaiting.map((w) => `Received 2 of 3 files. ${w}`),
+    ])
+        assert.ok(!/(\d+) files? received/.test(line), line);
+});
+
+/** A leg on a scripted page, with every wait clamped to budget()'s 1 s floor. */
+function pageLeg(role, frames, opts = {}) {
+    const leg = createLeg({
+        role,
+        cellId: 'H-DIR-W2W',
+        attempt: 1,
+        infra: { web: 'x' },
+        files: role === 'sender' ? ['a'] : undefined,
+        expectFiles: 3,
+        deadlineAt: Date.now(),
+        ...opts,
+    });
+    leg.page = scriptedPage(frames);
+    return leg;
+}
+
+test('a receive that ended short is receive-short at once, and one still waiting for its next file only when the done budget is about to run out', async (t) => {
+    const short = `Received 1 of 3 files. ${TEXT.receiveShort}`;
+
+    await t.test(
+        'the latched early end fails without waiting out the budget',
+        async () => {
+            const leg = pageLeg('receiver', [short]);
+            const t0 = Date.now();
+            await assert.rejects(leg.awaitDone(1000), (err) => {
+                assert.equal(err.name, 'PhaseError');
+                assert.equal(err.phase, 'done');
+                assert.equal(err.signatureKey, 'receive-short');
+                assert.equal(
+                    err.message,
+                    'receive-short: the web receiver reads "The transfer ended before the rest arrived." (1 of 3 files)'
+                );
+                return true;
+            });
+            assert.ok(Date.now() - t0 < 600, 'named on the first poll');
+            assert.ok(leg.notes.includes('receive-short'));
+            assert.equal(
+                leg.marks.done,
+                undefined,
+                'a receive that ended short is never marked done'
+            );
+        }
+    );
+
+    // Both wordings of the waiting line, each on its own: a page shows one.
+    for (const wording of [
+        'Waiting for the next file',
+        'Waiting for the rest',
+    ]) {
+        const waiting = `Received 2 of 3 files. ${wording}`;
+
+        await t.test(
+            `a healthy receive between two files is left alone ("${wording}")`,
+            async () => {
+                const leg = pageLeg(
+                    'receiver',
+                    [
+                        waiting,
+                        waiting,
+                        { text: '3 files received', anchors: 3 },
+                    ],
+                    { timeoutLookMs: 100 }
+                );
+                const done = await leg.awaitDone(1000);
+                assert.equal(done.ok, true);
+                assert.equal(done.detail.outcome, 'received');
+                assert.deepEqual(leg.notes, []);
+            }
+        );
+
+        await t.test(
+            `still on "${wording}" when the budget is about to run out is receive-short`,
+            async () => {
+                // The look opens 700 ms before the 1 s budget ends: 300 ms in.
+                const leg = pageLeg('receiver', [waiting], {
+                    timeoutLookMs: 700,
+                });
+                const t0 = Date.now();
+                await assert.rejects(leg.awaitDone(1000), (err) => {
+                    assert.equal(err.phase, 'done');
+                    assert.equal(err.signatureKey, 'receive-short');
+                    assert.equal(
+                        err.message,
+                        `receive-short: the web receiver still read "${wording}" (2 of 3 files) in the last 700 ms of its done budget (1000 ms)`
+                    );
+                    return true;
+                });
+                assert.ok(
+                    Date.now() - t0 >= 300,
+                    'never before the look opens'
+                );
+                assert.ok(leg.notes.includes('receive-short'));
+            }
+        );
+    }
+
+    await t.test(
+        'a lying cell still ends on the discard copy, whatever the count line says',
+        async () => {
+            const leg = pageLeg(
+                'receiver',
+                [
+                    `${TEXT.selfDiscardedHash[0]}\nReceived 1 of 2 files. ${TEXT.receiveShort}`,
+                ],
+                { peerLies: true }
+            );
+            const done = await leg.awaitDone(1000);
+            assert.equal(done.kind, 'refusal');
+        }
+    );
+
+    await t.test(
+        'a page that says none of it times out with the words it always had',
+        async () => {
+            const leg = pageLeg('receiver', [TEXT.roomJoined]);
+            await assert.rejects(leg.awaitDone(1000), (err) => {
+                assert.match(
+                    err.message,
+                    /^web receiver: no completion in 1000 ms /
+                );
+                assert.equal(err.signatureKey, undefined);
+                return true;
+            });
+        }
+    );
+});
+
+test('a sender whose own room refused it is rejoin-failed: at once on the give-up status, and on the retry status only when the budget is about to run out', async (t) => {
+    // P2PTransfer.tsx sets this banner with the give-up status. It starts
+    // with a capital T and a lower-case l, so it never matches the status.
+    const banner =
+        'This link stopped working. Reload the page, add the files again, and share the new link.';
+
+    await t.test('done: the give-up status fails at once', async () => {
+        const leg = pageLeg('sender', [`${banner}\n${TEXT.rejoinFailed}`]);
+        const t0 = Date.now();
+        await assert.rejects(leg.awaitDone(1000), (err) => {
+            assert.equal(err.phase, 'done');
+            assert.equal(err.signatureKey, 'rejoin-failed');
+            assert.equal(
+                err.message,
+                'rejoin-failed: the web sender reads "Link stopped working"'
+            );
+            return true;
+        });
+        assert.ok(Date.now() - t0 < 600);
+        assert.ok(leg.notes.includes('rejoin-failed'));
+    });
+
+    await t.test(
+        'done: the banner left behind by a retry that then connected is not the status',
+        async () => {
+            const repo = new URL('../../../../../', import.meta.url);
+            assert.ok(
+                readFileSync(
+                    new URL('client/components/P2PTransfer.tsx', repo),
+                    'utf8'
+                ).includes(banner)
+            );
+            const leg = pageLeg('sender', [
+                `${banner}\nPeer joined. Starting transfer`,
+                `${banner}\n${TEXT.allSent}`,
+            ]);
+            const done = await leg.awaitDone(1000);
+            assert.equal(done.detail.outcome, 'sent');
+        }
+    );
+
+    await t.test(
+        'done: a retry in progress is left alone, and a sender that comes through is done',
+        async () => {
+            const leg = pageLeg(
+                'sender',
+                [TEXT.rejoining, TEXT.rejoining, TEXT.allSent],
+                { timeoutLookMs: 100 }
+            );
+            const done = await leg.awaitDone(1000);
+            assert.equal(done.detail.outcome, 'sent');
+            assert.deepEqual(leg.notes, []);
+        }
+    );
+
+    await t.test(
+        'done: still retrying when the budget is about to run out',
+        async () => {
+            const leg = pageLeg('sender', [TEXT.rejoining], {
+                timeoutLookMs: 700,
+            });
+            const t0 = Date.now();
+            await assert.rejects(leg.awaitDone(1000), (err) => {
+                assert.equal(err.signatureKey, 'rejoin-failed');
+                assert.equal(
+                    err.message,
+                    'rejoin-failed: the web sender still read "Reconnecting to your link" in the last 700 ms of its done budget (1000 ms)'
+                );
+                return true;
+            });
+            assert.ok(Date.now() - t0 >= 300);
+        }
+    );
+
+    await t.test('connect: both forms, in the connect phase', async () => {
+        const gaveUp = pageLeg('sender', [TEXT.rejoinFailed]);
+        await assert.rejects(gaveUp.awaitConnected(1000), (err) => {
+            assert.equal(err.phase, 'connect');
+            assert.equal(err.signatureKey, 'rejoin-failed');
+            assert.equal(
+                err.message,
+                'rejoin-failed: the web sender reads "Link stopped working"'
+            );
+            return true;
+        });
+        const retrying = pageLeg('sender', [TEXT.rejoining], {
+            timeoutLookMs: 700,
+        });
+        const t0 = Date.now();
+        await assert.rejects(retrying.awaitConnected(1000), (err) => {
+            assert.equal(err.phase, 'connect');
+            assert.equal(err.signatureKey, 'rejoin-failed');
+            assert.match(
+                err.message,
+                /still read "Reconnecting to your link" in the last 700 ms of its connect budget \(1000 ms\)$/
+            );
+            return true;
+        });
+        assert.ok(Date.now() - t0 >= 300);
+        // A retry that gets its seat back and connects is an ordinary connect.
+        const back = pageLeg(
+            'sender',
+            [
+                TEXT.rejoining,
+                { text: 'Peer joined. Starting transfer', connected: true },
+            ],
+            { timeoutLookMs: 100 }
+        );
+        await back.awaitConnected(1000);
+        assert.ok(back.marks.connected > 0);
+        assert.deepEqual(back.notes, []);
+    });
+
+    await t.test(
+        'a receiver page never reads a sender status as its own',
+        async () => {
+            const leg = pageLeg('receiver', [TEXT.rejoinFailed]);
+            await assert.rejects(leg.awaitConnected(1000), (err) => {
+                assert.match(err.message, /no PC reached connected in 1000 ms/);
+                assert.equal(err.signatureKey, undefined);
+                return true;
+            });
+        }
+    );
+});
+
+test('a receiver told nobody is sending is sender-absent only after the line held for the whole dwell', async (t) => {
+    const absent = `${TEXT.roomJoined}\n${TEXT.senderAbsent}`;
+
+    await t.test('the default dwell is 10 s and the look 2 s', async () => {
+        const mod = await import('./web.mjs');
+        assert.equal(mod.SENDER_ABSENT_DWELL_MS, 10_000);
+        assert.equal(mod.TIMEOUT_LOOK_MS, 2_000);
+    });
+
+    await t.test(
+        'a line that holds for the dwell fails, and never sooner',
+        async () => {
+            const leg = pageLeg('receiver', [absent], {
+                senderAbsentDwellMs: 300,
+            });
+            const t0 = Date.now();
+            await assert.rejects(leg.awaitConnected(1000), (err) => {
+                assert.equal(err.name, 'PhaseError');
+                assert.equal(err.phase, 'connect');
+                assert.equal(err.signatureKey, 'sender-absent');
+                assert.equal(
+                    err.message,
+                    'sender-absent: the web receiver read "The sender is not connected" for 300 ms without a break'
+                );
+                return true;
+            });
+            const took = Date.now() - t0;
+            assert.ok(took >= 300, `the dwell was waited out (${took} ms)`);
+            assert.ok(took < 900, 'and the connect budget was not');
+            assert.ok(leg.notes.includes('sender-absent'));
+        }
+    );
+
+    await t.test(
+        'a sender that comes back inside the dwell is an ordinary connect',
+        async () => {
+            const leg = pageLeg(
+                'receiver',
+                [absent, absent, { text: TEXT.roomJoined, connected: true }],
+                { senderAbsentDwellMs: 300 }
+            );
+            await leg.awaitConnected(1000);
+            assert.ok(leg.marks.connected > 0);
+            assert.deepEqual(leg.notes, []);
+        }
+    );
+
+    await t.test(
+        'the dwell starts over when the line goes away and comes back',
+        async () => {
+            let clearedAt = null;
+            const cleared = {
+                get text() {
+                    clearedAt = Date.now();
+                    return TEXT.roomJoined;
+                },
+            };
+            const leg = pageLeg(
+                'receiver',
+                [absent, absent, absent, cleared, absent],
+                { senderAbsentDwellMs: 300 }
+            );
+            await assert.rejects(leg.awaitConnected(1000), (err) => {
+                assert.equal(err.signatureKey, 'sender-absent');
+                return true;
+            });
+            assert.ok(clearedAt, 'the page was read without the line once');
+            assert.ok(
+                Date.now() - clearedAt >= 300,
+                'the dwell was counted from the second showing'
+            );
+            assert.ok(leg.page.audit.senderAbsentSince >= clearedAt);
+        }
+    );
+
+    await t.test(
+        'a line that shows too late to hold for the dwell leaves the plain connect timeout',
+        async () => {
+            const leg = pageLeg('receiver', [absent], {
+                senderAbsentDwellMs: 5000,
+            });
+            await assert.rejects(leg.awaitConnected(1000), (err) => {
+                assert.match(
+                    err.message,
+                    /^web receiver: no PC reached connected in 1000 ms /
+                );
+                assert.equal(err.signatureKey, undefined);
+                return true;
+            });
+        }
+    );
+
+    await t.test('a sender page is never read for it', async () => {
+        const leg = pageLeg('sender', [absent], { senderAbsentDwellMs: 50 });
+        await assert.rejects(leg.awaitConnected(1000), (err) => {
+            assert.match(err.message, /no PC reached connected in 1000 ms/);
+            return true;
+        });
+    });
+});
+
+// ------------------------------------------------ the SHA-256 line (G5)
+//
+// Evidence only. The audit's own compare of both hashes is the oracle; what
+// the page says about its own check is recorded and never judged, so a page
+// without the line passes exactly as it did.
+
+/** Lets the leg's one-off page reads see the scripted page's current text. */
+function readable(leg, text) {
+    leg.page.evaluate = async (fn, arg) => {
+        const had = Object.getOwnPropertyDescriptor(globalThis, 'document');
+        globalThis.document = { body: { innerText: text } };
+        try {
+            return fn(arg);
+        } finally {
+            if (had) Object.defineProperty(globalThis, 'document', had);
+            else delete globalThis.document;
+        }
+    };
+    return leg;
+}
+
+test('the SHA-256 line the web leg records is the apps own', () => {
+    const repo = new URL('../../../../../', import.meta.url);
+    assert.equal(TEXT.verifiedLine, 'SHA-256 matched');
+    assert.ok(
+        readFileSync(
+            new URL('client/lib/verifiedLine.ts', repo),
+            'utf8'
+        ).includes(`export const VERIFIED_LINE = '${TEXT.verifiedLine}';`),
+        'verifiedLine.ts no longer says it'
+    );
+});
+
+test('a finished web leg records whether its page showed the SHA-256 line, and never fails for its absence', async (t) => {
+    await t.test('a receiver whose page shows it', async () => {
+        const text = `3 files received\n${TEXT.verifiedLine}`;
+        const leg = readable(pageLeg('receiver', [{ text, anchors: 3 }]), text);
+        const done = await leg.awaitDone(1000);
+        assert.equal(done.ok, true);
+        assert.equal(done.kind, 'transfer');
+        assert.deepEqual(done.detail, {
+            outcome: 'received',
+            verified: 'SHA-256 matched',
+        });
+    });
+
+    await t.test(
+        'a sender whose page does not show it yet is still done',
+        async () => {
+            const leg = readable(
+                pageLeg('sender', [TEXT.allSent]),
+                TEXT.allSent
+            );
+            const done = await leg.awaitDone(1000);
+            assert.equal(done.ok, true);
+            assert.deepEqual(done.detail, { outcome: 'sent', verified: null });
+        }
+    );
+
+    await t.test(
+        'a page that cannot be read is null, never a failure',
+        async () => {
+            const leg = pageLeg('sender', [TEXT.allSent]);
+            leg.page.evaluate = async () => {
+                throw new Error('Target closed');
+            };
+            const done = await leg.awaitDone(1000);
+            assert.equal(done.ok, true);
+            assert.equal(done.detail.verified, null);
+        }
+    );
+
+    await t.test(
+        'stop() reads the page once more, which is where a sender line shows',
+        async () => {
+            const fakePage = (shown) => ({
+                isClosed: () => false,
+                getByText: () => ({
+                    first: () => ({ textContent: async () => 'Ready' }),
+                }),
+                evaluate: async (fn, arg) =>
+                    arg === TEXT.verifiedLine ? shown : null,
+            });
+            const mk = (shown) => {
+                const leg = createLeg({
+                    role: 'sender',
+                    cellId: 'x',
+                    infra: { web: 'x' },
+                    files: ['a'],
+                });
+                leg.page = fakePage(shown);
+                leg.ctx = { close: async () => {} };
+                return leg;
+            };
+            const before = mk(true);
+            assert.equal(before.evidence().verifiedLine, null, 'not read yet');
+            await before.stop('test');
+            assert.equal(before.evidence().verifiedLine, true);
+            const without = mk(false);
+            await without.stop('test');
+            assert.equal(without.evidence().verifiedLine, false);
+        }
     );
 });

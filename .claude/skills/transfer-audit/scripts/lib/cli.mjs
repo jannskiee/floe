@@ -1,9 +1,13 @@
 /**
  * CLI surface adapter for the transfer-audit skill: one floe process per
  * leg, driven through proc.mjs, with every string it matches quoted from
- * cli/cmd/floe/main.go and cli/engine/transfer at f14a8d7 (the shipped
- * 1.10.5 prints the same lines; the parser fixtures under tests/fixtures/
- * are captured from that binary).
+ * cli/cmd/floe/main.go and cli/engine/transfer: first recorded at f14a8d7,
+ * when the shipped CLI was 1.10.5 (the send, receive and help fixtures under
+ * tests/fixtures/ are captures of that binary). v1.11.0 prints two lines
+ * differently, the route word on the Connected line (since v1.10.6) and a
+ * Verified row in both summary boxes; the 1.11.0 fixtures are those captures
+ * with the two lines written the way the source builds them, not captures of
+ * a 1.11.0 binary.
  *
  * Command lines (main.go applyEnv, send.go runSend, receive.go runReceive):
  *   <bin> send <paths...> --server <s> --web <w> [--no-relay] [--relay-only]

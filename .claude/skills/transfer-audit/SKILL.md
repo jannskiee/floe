@@ -1,6 +1,6 @@
 ---
 name: transfer-audit
-description: 'Use when auditing that a real transfer still works on every surface: a live matrix of web (floe.one), CLI and Floe Desktop as sender and receiver, direct and forced relay (TURN), driven on this Windows machine against production (or local HEAD for the direct web and CLI cells), with SHA-256 checks, route evidence, receivers opted out of the stats counter, and each surface compared with its latest release. Also the 2 GB relay cap, chunk boundaries, kill mid-transfer, a 500 MiB throughput baseline, folder and browser ZIP delivery, and a WSL sender. Not for starting the stack alone (floe-run), pnpm test:e2e, a CI job, cutting a tag (floe-release) or a Microsoft Store submission (store-submit).'
+description: 'Use when auditing that a real transfer still works on every surface: a live matrix of web (floe.one), CLI and Floe Desktop as sender and receiver, direct and forced relay (TURN), driven on this Windows machine against production (or local HEAD for the direct web and CLI cells), with SHA-256 checks, route evidence, receivers opted out of the stats counter, and each surface compared with its latest release. Also request links (the /r page, floe send --to, Accept prompt, Auto-accept, request-1, SHA-256 matched), the 2 GB relay cap, chunk boundaries, kill mid-transfer, a 500 MiB throughput baseline, folder and browser ZIP delivery, and a WSL sender. Not for starting the stack alone (floe-run), pnpm test:e2e, a CI job, cutting a tag (floe-release) or a Microsoft Store submission (store-submit).'
 ---
 
 # Transfer audit runbook
@@ -19,9 +19,13 @@ Automation), `references/matrix.md` (every cell, its forcer, oracles and
 timeouts), `references/triage.md` (failure signature to cause to next
 action). Symbols, not lines: the browser selectors come from
 `client/e2e/helpers.ts`, `client/components/P2PTransfer.tsx` and
-`client/components/ReceiverPanel.tsx`, the desktop strings from
-`desktop/frontend/src/App.tsx` and `desktop/transfer.go`, the CLI lines from
-`cli/cmd/floe/{main,send,receive}.go` and
+`client/components/ReceiverPanel.tsx`, the page states the web leg names
+from `client/lib/receiveSummary.ts`, `client/lib/rejoinRetry.ts` and
+`client/lib/roomSeat.ts`, the request visitor's copy from
+`client/lib/request/visitorCopy.ts`, the desktop strings from
+`desktop/frontend/src/App.tsx`, `desktop/frontend/src/requestCopy.ts`,
+`desktop/frontend/src/errors.ts` and `desktop/transfer.go`, the CLI lines
+from `cli/cmd/floe/{main,send,receive,sendto}.go` and
 `cli/engine/transfer/{sender,receiver,format}.go`.
 
 Lines that bind every run, in this order: never POST to
@@ -52,13 +56,20 @@ a peer.
   instance mutex would forward our launch into the user's window; the driver
   refuses instead. `--desktop none` drops the desktop cells and this check
   with them.
-- Declare presence. The default is "at the PC": the desktop is driven only
-  through UI Automation (provider-side Invoke and SetValue calls, no focus
-  needed), captures are `PrintWindow` on the window rect, a foreground
-  conflict pauses up to `--pause-max` minutes and then marks the cell SKIP
-  `present`. `--user-away` (with 120 s of idle input measured by
-  `GetLastInputInfo`) is the only mode that may raise a window, and this
-  round never uses it.
+- Declare presence, and run desktop cells on a built exe only while away.
+  Reading the window never takes the foreground (UI Automation snapshots and
+  text reads, `PrintWindow` captures on the window rect), but any UI
+  Automation pattern call on a built exe (Invoke, SetValue, Toggle)
+  activates its window (G2-F1). That is every click and every field the
+  driver sets, on the Store build, a portable and a head `wails build`
+  alike, so a desktop cell on an exe is away-only: pass `--user-away`, and
+  each pattern call then re-reads `GetLastInputInfo` first and stops the leg
+  as SKIP `present` below 120 s of idle input. The driver enforces that for
+  request hosts only (SKIP `request-host-away-only` without the flag). A
+  plain desktop cell still runs without it and takes the foreground from
+  whoever is at the PC, so the rule there is the operator's. The `wailsdev`
+  lane drives a headless page and activates nothing. `--pause-max` is parsed
+  and handed to the legs, and nothing waits on it.
 - The relay byte rule: direct cells move 12 MiB (64 MiB with a desktop
   side), relay cells 4 MiB each (32 MiB per default run, eight relay cells,
   with a CLI that lists `--relay-only`, as every release since v1.10.6
@@ -89,21 +100,34 @@ node .claude/skills/transfer-audit/scripts/audit.mjs probe --desktop store --out
 The default profile is `shipped`, which makes P3 a real browser receive on
 floe.one; a probe that must stay local takes `--profile head` (P3 is then
 skipped). `probe` writes `<dir>/probe.json`; `run` reads it when it is under
-24 h old and otherwise probes again itself before the first cell, and a head
-run re-probes local TURN once its stack is up, since a probe taken before
+24 h old and was taken for the same `--desktop` value and the same profile,
+and otherwise probes again itself before the first cell. The file records
+both as `requested`, and it is the value asked for that is compared: a probe
+taken under `auto` answers only an `auto` run, whatever lane it resolved to,
+because the desktop half is one lane's answer and a wailsdev run that read a
+Store probe was gated by the Store app. So switching lanes probes again, and
+a desktop probe on an exe lane is an away cycle of its own. A head run also
+re-probes local TURN once its stack is up, since a probe taken before
 `floe-run` started says nothing about it. The desktop half opens the Floe
 window (main session only, never a subagent):
 
 - P1, does `ValuePattern.SetValue` on the code field drive React? The helper
   sets `zzz-zzz-zzz`, flips the Send and Receive tabs, reads the value back,
-  invokes Receive and reads the status. `Connecting... keep this window
-open.`, or the follow-on error status (`Error: Could not reach the
-server...`: the probe points the app at `127.0.0.1:9`, so the lookup ran
-  with the state value and failed on purpose), means drivable; `Please enter
-a code or link.` or an empty read-back means every desktop-receiver cell
-  is SKIP `uia-setvalue` (the desktop is audited as a sender, and the
-  receiver is proven on HEAD through `--desktop wailsdev`). It ends with
-  Invoke `Cancel`; it needs no server and touches nothing on the network.
+  invokes Receive and reads the status. `Connecting...`, or the follow-on
+  error status (`Error: Can't reach the server`: the probe points the app at
+  `127.0.0.1:9`, so the lookup ran with the state value and failed on
+  purpose), means drivable; `Enter a code or link` or an empty read-back
+  means every desktop-receiver cell is SKIP `uia-setvalue` (the desktop is
+  audited as a sender, and the receiver is proven on HEAD through
+  `--desktop wailsdev`). Those are the lines of desktop-v0.3.0 on; a release
+  before it says `Connecting... keep this window open.`,
+  `Error: Could not reach the server...` and `Please enter a code or link.`,
+  and the driver reads either set (`STRINGS` and `STRINGS_RELEASED` in
+  `scripts/lib/desktop.mjs`). The
+  measured notes in the header of `scripts/desktop-uia.ps1` are from the
+  Store build 1.2.8.0 (2026-08-29), which showed the older lines. It ends
+  with Invoke `Cancel`; it needs no server and touches nothing on the
+  network.
 - P2, does `APPDATA=<out>\appdata` isolate a script-launched exe? Pass:
   `appdata\floe\desktop.json` and `webview\EBWebView` appear there and the
   real `%APPDATA%\floe\desktop.json` keeps its sha and mtime. Fail: portable
@@ -114,8 +138,11 @@ a code or link.` or an empty read-back means every desktop-receiver cell
   read `relay`, the pill `Relay`, the hashes equal. Costs 2 TURN fetches.
 - P4, TURN schemes on production and, when the head stack is up, locally.
   Relay cells run only where a `turn:` or `turns:` URL is served. The local
-  server answers STUN only unless `server/.env` carries Cloudflare TURN keys
-  (never read that file; the scheme probe is the only test).
+  server answers STUN only unless it was given a relay: Cloudflare TURN keys
+  in `server/.env` (never read that file), or a local coturn through
+  `floe-run start --local-turn`, which needs `FLOE_LOCAL_TURN_DOMAIN` and
+  `FLOE_LOCAL_TURN_SECRET` in the operator's own shell and which the audit
+  never passes itself. The scheme probe is the only test.
 - P5, versions (section 2). P6, whether the Store build accepts argv paths
   by AUMID (identity oracle: Settings hides `Check for updates` when
   packaged). P7, Mark-of-the-Web on the extracted portable exe (the driver
@@ -175,16 +202,18 @@ node .claude/skills/transfer-audit/scripts/audit.mjs run --profile head --quick 
 Run it with `run_in_background`; it prints `PROGRESS <cellId> <verdict>` as
 cells finish and the headline at the end. Expected wall clock on this
 machine (measured 2026-08-29, all green): shipped quick about 1 minute,
-default (18 rows) about 3, deep (32 rows) about 9 including the 3 GiB cap
+default (18 rows) about 3, deep (35 rows) about 9 including the 3 GiB cap
 cell, the 500 MiB throughput cell and both 200 MiB kill cells; head quick
-with `--desktop none` takes about a minute. Announce
+with `--desktop none` takes about a minute. The deep figure was written
+down beside a count of 32 rows, so read it as a floor. Announce
 the run before starting it: the production limiters count the user's own
 floe.one traffic on the same IP.
 
 Profiles: `shipped` is api.floe.one plus Cloudflare TURN, the latest release
 binaries and floe.one; `head` is the `floe-run` stack (started with
-`--client --relaxed` when nothing is bound, reused when it is ours, refused
-when someone else owns the port), a `go build` CLI with `-X
+`--client --request-links`, and `--relaxed` when the run has it, when
+nothing is bound; reused as it is when it is ours; refused when someone else
+owns the port), a `go build` CLI with `-X
 main.version=head-<sha7>`, `next dev`, and the desktop through `--desktop
 wailsdev` (the real app with real Go bindings served at
 `http://localhost:34115` to a Playwright page) or a `wails build` exe.
@@ -271,7 +300,9 @@ receiver cells and, for sender cells, as the package's `floe-desktop.exe`
 under `WindowsApps` with the files as argv (P6: `explorer.exe
 shell:AppsFolder` drops the argument), with `desktop.json` backed up, edited
 (`server`, `web`, `hideIP`, `reportStats:false`, `noUpdateCheck:true`,
-`migrated:true`) while no Floe process exists, and restored byte-identical
+`noToasts:true`, `migrated:true`; the toasts key is Settings > Notifications
+off, so no cell raises a Windows toast, and the leg's evidence carries it as
+`launch.noToasts`) while no Floe process exists, and restored byte-identical
 after (sha256 compared, exit 4 on mismatch) with its original mtime put back
 through `utimesSync` and read again (an mtime that will not come back is
 reported as `mtime changed`, never a failure; the run manifest carries it,
@@ -290,9 +321,15 @@ connect); the completion and status texts are read as joined text runs,
 because React renders `Sent 1 item` and `Saved to <dir>` as adjacent text
 nodes that UI Automation exposes one by one; history rows the run adds are
 reported as `not counted` in the Safety section until an adapter can read
-the History list. Closing is `WM_CLOSE`; `Close anyway` is used only by
-`cleanup`. Ctrl+C stops the legs and restores `desktop.json` before exiting
-130; the desktop teardown budget is 60 s.
+the History list. Closing is the app's own Cancel when a transfer is still
+live, then `WM_CLOSE`, a second `WM_CLOSE`, and `taskkill` of the pid the
+run started only after both. The `Close Floe?` dialog's buttons (`Keep open`
+and `Close` since desktop-v0.3.0, `Keep going` and `Close anyway` before it)
+are never clicked, by a run or by `cleanup`. Ctrl+C stops the legs and
+restores `desktop.json` before exiting 130; the desktop teardown budget is
+60 s. On the `wailsdev` lane the audit writes no `desktop.json` (the
+operator's own decides), so toasts are off there only if the operator
+turned them off.
 
 ## 4. Read the table (a retry that passes is a bug, not a flake)
 
@@ -317,16 +354,29 @@ FLAKY is a retry-eligible signature that passed on attempt 2; it never
 counts as PASS. SKIP names a machine or run precondition (`uia-setvalue`,
 `desktop-savedir`, `desktop-none`, `desktop-unavailable`,
 `head-desktop-pending`, `present`, `local-stun-only`, `prod-turn-absent`,
-`browser-relay-na`, `firewall-block`, `wsl-stopped`, `wsl-sideload`,
-`disk-space`, `infra-down`, `budget-exhausted`, `server-no-request-1`,
-`request-host-away-only`, `caddy-not-enabled`, `docker-absent`,
-`desktop-running`; `filtered`
-marks cells
-dropped by `--cells` and is never counted). NA is impossible with the
-product under test (`single-instance`; `no-cli-relay-forcer` only with a
-CLI older than v1.10.6). ERROR is a
-harness fault (for example `init-script-not-applied`), never a product
-verdict.
+`browser-relay-na`, `wsl-stopped`, `wsl-sideload`, `harness-build`,
+`head-only`, `disk-space`, `infra-down`, `budget-exhausted`,
+`server-no-request-1`, `request-host-away-only`, `request-no-auto-switch`,
+`request-auto-wailsdev-only`, `request-daily-limit`, `caddy-not-enabled`,
+`docker-absent`, `desktop-running`; `filtered` marks cells dropped by
+`--cells` and is never counted). `head-only` is a head cell named in a
+shipped run. Each has its line in `SKIP_REASONS` in
+`scripts/lib/matrix.mjs`, and a SKIP row names a triage key only for
+`uia-setvalue`: for every other one the reason is the whole account. NA is
+impossible with the product under test
+(`single-instance`; `no-cli-relay-forcer` only with a CLI older than
+v1.10.6). ERROR is a harness fault (for example `init-script-not-applied`,
+or `request-savedir` when Make link was not handed the run's own folder),
+never a product verdict.
+
+What each side says about its own per-file SHA-256 check is carried as
+evidence and never judged: the CLI's `Verified   SHA-256 matched` row and
+the web app's `SHA-256 matched` line land in `completion.sender.verified`
+and `completion.receiver.verified` (a browser leg also records the page's
+last word as `verifiedLine`, because a sender page gets its line after
+`All Files Sent!`). A side that prints nothing reads `null`, which is what a
+release before v1.11.0 does, and the cell passes or fails on the audit's own
+hash compare exactly as before.
 
 Exit codes: 0 clean; 1 any FAIL (or FLAKY under `--strict`); 2 usage; 3
 precondition or infra abort; 4 a safety invariant tripped (a stats attempt
@@ -364,10 +414,28 @@ owner's).
 Open `references/triage.md` and match the exact string. The one rule that
 matters most: a connect-then-nothing (both sides connected, zero bytes; CLI
 `connected, but no data arrived from the sender within 30s`; desktop
-`Connected, but the sender never started sending`) is the early-message
-race, decided by the RECEIVER's build, fixed in v1.10.2 and desktop-v0.2.5.
-It is never retried and a green retry would be the bug hiding, so the row
-prints the receiver build first. Every FAIL block names its phase and a
+`Error: The sender never started sending`, which a release before
+desktop-v0.3.0 words `Connected, but the sender never started sending`) is
+the early-message race, decided by the RECEIVER's build, fixed in v1.10.2
+and desktop-v0.2.5. It is never retried and a green retry would be the bug
+hiding, so the row prints the receiver build first. The desktop's error
+lines are matched in both wordings (`SIGNATURES` in
+`scripts/lib/triage.mjs`; the current ones are `RULES` in
+`desktop/frontend/src/errors.ts`), so a 0.3.0 failure names its triage row
+and an unreachable server still counts as an infra symptom.
+
+Three browser states are named the moment the page shows them, where they
+used to run a connect or done budget out: `receive-short` (the receiver
+holds fewer files than the sender announced), `rejoin-failed` (the sender's
+own room refused its re-join) and `sender-absent` (the receiver page says
+nobody is on the sending side, and has said so for 10 s without a break,
+because that state can clear by itself). Two more only count when the
+budget is about to run out, in its last 2 s: a receiver still on `Waiting
+for the next file` (through 2a6e273) or `Waiting for the rest` (later main)
+is `receive-short`, and a sender still on `Reconnecting to your link` is
+`rejoin-failed`. floe.one runs the newest main and a self-host or an older
+head keeps the older words, so the leg reads both. None of the three is
+retried. Every FAIL block names its phase and a
 `Triage:` key that is the first column of `references/triage.md`; a key not
 in that table means: read the phase, both transcripts and the captures under
 the cell's evidence directory, then file it. To rerun one cell, repeat the
@@ -386,9 +454,11 @@ A run that ends on its own (any exit but a crash or Ctrl+C) already stops
 the stack it started, purges the bytes it moved (section 3) and applies the
 next-dev hygiene; `cleanup` is the fallback after an abort, and it is what
 removes a side-loaded binary, the redirected APPDATA and the run manifest. It replays the newest run manifest under `--out`
-(`--last`, the default, or the one named by `--run <id>`): Cancel when a
-transfer is live, then `WM_CLOSE` (`taskkill` only our pid after two failed
-closes); `desktop.json` restored from the backup with both hashes printed;
+(`--last`, the default, or the one named by `--run <id>`): every pid the
+run recorded that still runs under the image it recorded is ended with
+`taskkill /PID <pid> /T /F` (no Cancel click and no `WM_CLOSE`: those belong
+to a leg's own stop, and `cleanup` has no driver on the window);
+`desktop.json` restored from the backup with both hashes printed;
 `floe-run stop` only when this run started the stack, then `git checkout --
 client/next-env.d.ts` and the generated `client/AGENTS.md` and
 `client/CLAUDE.md` removed; fixtures, received files and the redirected
@@ -403,8 +473,15 @@ best-effort on Ctrl+C.
 A hard kill (the node process ended before its `exit` hook ran) can still
 leave `HKCU\Software\Classes\*\shell\Floe` pointing at a deleted scratch
 exe, and `cleanup` does not replay it. The `wailsdev` lane is not covered
-either: the operator starts `wails dev`, and its unpackaged app runs the
-same startup rewrite before the driver could take a snapshot. The Wails
+either, and there the key has two writers. The operator's own `wails dev`
+app runs the same startup rewrite before the driver could take a snapshot.
+And the audit's own page can write it: the frontend turns the Explorer
+entry on at first run when its `floe:ctx-menu` marker is absent
+(`desktop/frontend/src/App.tsx`, the mount effect that calls
+`EnableContextMenu`), every Playwright context starts with empty storage,
+and the dev server binds that call to the dev app (read from the code, not
+observed in a run). Either way the entry ends up pointing at the dev exe
+and nothing puts it back. The Wails
 toast activator keys
 (`HKCU\Software\Classes\AppUserModelId\floe-desktop.exe` and its CLSID
 `LocalServer32`) are rewritten by every unpackaged launch too and are
@@ -415,6 +492,20 @@ key also carries `DisplayName` = `Floe`, written at launch before the
 notification service starts so Windows lists the app as Floe; the audits
 do not restore that value either, and an exe copy with its own name gets
 its own key beside this one.
+
+`cleanup` also does not undo what a request cell did inside the app. A link
+a crashed run left open on the operator's `wails dev` app stays open: the
+next request cell finds it and stops as ERROR `host-busy` before any click
+(its folder is under another run's evidence root, so it is not swept), and
+the owner closes it in the app with Close link. And `cleanup` does not put
+back what the Make link form remembers in the app's own localStorage
+(`floe:requestSaveDir`, the Save to folder a cell typed, and
+`floe:requestLinkOpenUntil`). That only outlives a run on the Store build,
+whose profile is the owner's: a portable or head exe keeps it under the
+redirected `APPDATA`, and the `wailsdev` page is a fresh browser context
+that takes its storage with it. No run saves into the owner's `Downloads`
+folder: Make link is never clicked without the attempt's own folder in the
+Save to field (ERROR `request-savedir` otherwise).
 
 ## 7. Head profile (what the next release will do)
 
@@ -507,9 +598,26 @@ desktop cell SKIPs `desktop-unavailable`.
 TA-10 to TA-17 of spec 09 2.7.2, and TA-10a (Auto-accept, D-173), listed in
 `references/matrix.md` (Request-link cells) and `REQUEST_IDS` in
 `scripts/lib/matrix.mjs`. A run reaches them only through `--cells`, and
-each SKIPs `server-no-request-1` until probe P10 finds `request-1`.
+each SKIPs `server-no-request-1` until probe P10 finds `request-1`. On the
+head profile a stack the run starts itself is started with
+`--request-links`, which is what makes the local server list it. A stack
+that is already up is reused as it is: one started by hand without that flag
+keeps answering without `request-1`, and every request cell keeps SKIPping
+until it is stopped and started again. A head relay cell (`H-REL-W2D-req`)
+needs a stack the operator started with `--local-turn` as well.
 `scripts/lib/request.mjs` runs them; `runCell` hands every request cell
 to it, so none ever runs as a plain cell.
+
+Every attempt of every request cell makes a link, the TA-17 cells included,
+and the server makes 20 per network address in any 24 hours
+(`REQUEST_CREATES_PER_DAY` in `server/server.js`; `--relaxed` does not lift
+it). The create after that is answered `limited`, which is this machine's
+budget and not a finding: the cell is SKIP `request-daily-limit`, and every
+later request cell of the run SKIPs with the same reason before its host is
+launched. The count is kept in the server's memory, so the local stack
+starts a new one when it is restarted; on production only the 24 hours
+move. Plan a request run inside that budget, earlier runs of the day
+included.
 
 - The host is the desktop: on the wailsdev lane through the DOM verbs on
   `PlaywrightDriver` (the table in matrix.md), and on an exe (the Store
@@ -664,6 +772,36 @@ to it, so none ever runs as a plain cell.
   relayed drop over the cap before it sends any metadata, so no prompt
   reaches the host. TA-12 proves the host-forced relay path only.
 
+Not covered by any cell, so a green request run says nothing about them:
+
+- Link expiry. Every cell makes a 24 hour link and none waits for one to
+  end; the five other Link ends choices are only ever a label the Make link
+  verb can pick.
+- Close link as a finding. Teardown closes the cell's own link, but no
+  visitor is opened on a closed link to read `This link has ended`.
+- Stop. Cancel drop on the host, and a visitor that cancels, are teardown
+  steps only, never an oracle.
+- The receiver's limits (`requestLimits` in `desktop/transfer.go`, and the
+  10,000 files a drop may carry).
+- Decline and Auto-accept on a shipped build: `H-DIR-W2D-reqdecline` and
+  `H-DIR-W2D-reqauto` are head cells, and neither has a shipped twin yet.
+
+## 7b. Forced-mismatch cells (hashbad and hashmal: head only, reached through --cells)
+
+These prove a receiver refuses a file whose SHA-256 cannot be right. They
+are not deep cells and no default walk includes them: `--cells` names them
+on the head profile (`HASH_IDS` in `scripts/lib/matrix.mjs`, the table in
+`references/matrix.md`), and a shipped run that names one SKIPs it as
+`head-only`, because it would drive production with a sender that lies.
+The sender sends a digest that cannot match (`hashbad`, one hex digit
+changed) or one the wire format forbids (`hashmal`, upper case), and the
+receiver must refuse with `hash-mismatch` and keep nothing. The CLI-shaped
+sender they need is `go build ./internal/e2ehost` in `cli/`, which no
+release builds: a run builds it into `--bin-dir` itself when a planned cell
+needs it, or SKIPs those cells as `harness-build`, and the harness reports
+its own path as `direct` or `relay` so the route is still judged from both
+sides.
+
 ## 8. Deep cells (the shapes that shipped bugs: chunk edges, sizes, kills, the cap, one non-loopback path)
 
 `--deep` runs on the shipped profile; the driver creates the 3 GiB sparse
@@ -680,17 +818,7 @@ sparse file over a browser-forced relay (`fsutil sparse`, at least 4 GiB
 free); a 500 MiB direct throughput baseline (CLI to CLI only, browser
 receivers hold the file in memory); a sender killed at 50 MiB leaving no
 `.part`, and a killed receiver leaving exactly one `.part` with the retry
-landing `name (1).bin`; link-input variants; the forced-mismatch
-variants `hashbad` and `hashmal`, which make a sender send a digest that
-cannot match (one hex digit changed) or one the wire format forbids (upper
-case) and require the receiver to refuse with `hash-mismatch` and keep
-nothing, reached only through `--cells` and never part of a default walk
-(`HASH_IDS` in `scripts/lib/matrix.mjs`, the table in `references/matrix.md`,
-and the CLI-shaped sender they need is `go build ./internal/e2ehost` in
-`cli/`, which no release builds: a run builds it into `--bin-dir` itself
-when a planned cell needs it, or SKIPs those cells as `harness-build`, and
-the harness reports its own path as `direct` or `relay` so the route is
-still judged from both sides); and the WSL2 `Ubuntu-22.04`
+landing `name (1).bin`; link-input variants; and the WSL2 `Ubuntu-22.04`
 Linux CLI sending to the Windows CLI, browser and desktop as the only
 non-loopback path on one machine (`wsl -d Ubuntu-22.04`; the tarball is
 downloaded by tag, verified with `sha256sum -c` inside WSL and extracted
@@ -699,8 +827,39 @@ the leg runs that Linux binary, never the Windows exe). A head-profile run
 rewrites a loopback server URL to the Windows host's default-route IP,
 since `localhost` inside WSL is the distro; the shipped profile uses
 production URLs and never resolves a host IP at all. SKIP `wsl-sideload`
-when the side-load fails and `firewall-block` when a Block rule covers the
-staged path.
+when the side-load fails. A firewall Block rule on the staged path is not a
+SKIP: it stops the whole run before any cell as a precondition (exit 3).
+
+## Traps on this machine (each one cost a run)
+
+- **Keys typed at the PC land in a window the audit launched.** A pattern
+  call activates the exe's window, so what the owner types next goes to
+  Floe, into the very field the driver just set. The helper reads a
+  SetValue back once, 150 ms later (`settleMs` in
+  `scripts/desktop-uia.ps1`), the leg compares that one reading, and
+  nothing reads the field again before Receive or Make link is clicked. A
+  value that read back right can therefore still be wrong when it is used.
+  Away-only is the guard; there is no second read yet.
+- **Something on this PC makes an input event about every 219 s, even with
+  nobody there.** `--user-away` wants 120 s of idle input before each
+  pattern call, so every cycle leaves about 95 s in which the desktop may be
+  driven. That is one or two desktop cells per run: name them with `--cells`
+  rather than asking for the whole matrix, and expect SKIP `present` on a
+  cell that straddles the event.
+- **Twenty request links a day.** Each attempt of each request cell spends
+  one, and so did every earlier run of the day from this address (section
+  7a).
+- **`probe.json` is one lane's answer.** It is reused only for the same
+  `--desktop` value and profile, so a lane switch probes again (section 1).
+  Keep one `--out` per lane when alternating, or plan for the extra away
+  cycle.
+- **Two Store-lane limits are open** (field run of 2026-10-11, not
+  reproduced by any test here, and not handled by this version). The Store
+  exe did not start through `Win32_Process.Create` when it carried files,
+  which is how a Store sender cell stages them, so such a cell stops at
+  launch. And Accept on a built exe did not take the repeated Invoke the
+  request host sends, so a plain `-req` cell on an exe host proves its
+  prompt and then fails. Neither is a product finding.
 
 ## Done means
 
@@ -734,9 +893,16 @@ receiver's opt-out, and the versions that did it.
   and pins).
 - `client/e2e/helpers.ts`, `client/e2e/docs-screenshots.mjs` (the stats
   route guard), `client/hooks/useConnectionType.ts`,
-  `client/hooks/useTransferAnalytics.ts`, `desktop/frontend/src/App.tsx`,
-  `desktop/app.go`, `desktop/transfer.go`, `desktop/config.go`,
+  `client/hooks/useTransferAnalytics.ts`, `client/lib/receiveSummary.ts`,
+  `client/lib/rejoinRetry.ts`, `client/lib/roomSeat.ts` and
+  `client/lib/verifiedLine.ts` (the page states and the SHA-256 line the web
+  leg reads), `client/lib/request/visitorCopy.ts` (the `/r` page's copy),
+  `desktop/frontend/src/App.tsx`, `desktop/frontend/src/requestCopy.ts`
+  (every Request link string), `desktop/frontend/src/errors.ts` (the error
+  lines), `desktop/app.go`, `desktop/transfer.go`, `desktop/config.go`,
   `cli/cmd/floe/main.go`, `cli/cmd/floe/send.go`, `cli/cmd/floe/receive.go`,
+  `cli/cmd/floe/sendto.go` (`floe send --to`),
+  `cli/engine/transfer/sender.go`,
   `cli/engine/transfer/receiver.go`, `cli/engine/peer/connection.go`,
   `server/server.js` (the connection and code limiters), `server/stats.js`
   (the stats limiter), `server/turn.js` (the TURN limiter and

@@ -13,7 +13,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
-import { TRIAGE_KEYS } from './triage.mjs';
+import {
+    INFRA_KEYS,
+    SIGNATURES,
+    TRIAGE_KEYS,
+    classifySignature,
+} from './triage.mjs';
 
 /** Pure. The first backticked key in each row's first cell; `-` rows have none. */
 function tableKeys(markdown) {
@@ -49,4 +54,107 @@ test('TRIAGE_KEYS and the triage table name exactly the same keys', () => {
     const missingFromSet = [...table].filter((k) => !TRIAGE_KEYS.has(k));
     assert.deepEqual(missingFromTable, [], 'keys in TRIAGE_KEYS with no row');
     assert.deepEqual(missingFromSet, [], 'rows whose key TRIAGE_KEYS lacks');
+});
+
+// The calm desktop error lines (D-167, shipped in desktop-v0.3.0): friendlyError
+// in desktop/frontend/src/errors.ts turns an engine error into one of these and
+// the status line shows it behind "Error: ". Each row is [the line, the
+// signature key, the triage heading]. Before this table a 0.3.0 desktop failure
+// classified as `unknown`, so no triage row was named and an unreachable server
+// never counted as an infra symptom.
+const CALM_DESKTOP_ERRORS = [
+    ['The sender never started sending', 'early-race', 'connect-then-nothing'],
+    ['The receiver left or declined', 'early-race', 'connect-then-nothing'],
+    ["Can't reach the server", 'signaling-unreachable', 'infra-down'],
+    ["That code wasn't recognized", 'code-expired', 'code-expired'],
+    ["Couldn't connect the two devices", 'connect-timeout', 'connect-timeout'],
+    [
+        'Both people need Floe open at the same time',
+        'connect-timeout',
+        'connect-timeout',
+    ],
+    ['The sender canceled before it started', 'peer-refused', 'peer-refused'],
+    ['The transfer stalled', 'stall', 'stall'],
+    [
+        "A file arrived incomplete and wasn't kept",
+        'incomplete-file',
+        'incomplete-file',
+    ],
+];
+
+test('the calm desktop error lines of errors.ts classify to the keys their old sentences had', () => {
+    const errorsTs = readFileSync(
+        new URL(
+            '../../../../../desktop/frontend/src/errors.ts',
+            import.meta.url
+        ),
+        'utf8'
+    );
+    for (const [line, key, triage] of CALM_DESKTOP_ERRORS) {
+        // Quoted from the source, so a copy change breaks this test before it
+        // turns the signature back into `unknown`.
+        assert.ok(
+            errorsTs.includes(`'${line}'`) || errorsTs.includes(`"${line}"`),
+            `errors.ts no longer maps anything to: ${line}`
+        );
+        const sig = classifySignature(`Error: ${line}`);
+        assert.equal(sig.key, key, line);
+        assert.equal(sig.triage, triage, line);
+        assert.ok(TRIAGE_KEYS.has(sig.triage), `${triage} has a triage row`);
+    }
+    // The point of the infra line: it is counted as an infra symptom.
+    assert.ok(
+        INFRA_KEYS.has(classifySignature("Error: Can't reach the server").key)
+    );
+    // The early race is never retried, in either copy.
+    assert.equal(
+        classifySignature('Error: The sender never started sending').retryable,
+        false
+    );
+    // Near misses that must stay out of these rows: the request lane's own
+    // reconnecting line, and a receiver that left before the handshake.
+    assert.equal(
+        classifySignature("Can't reach the Floe server").key,
+        'unknown'
+    );
+    assert.equal(
+        classifySignature('Error: The receiver left before it started').key,
+        'unknown'
+    );
+    assert.equal(
+        SIGNATURES.at(-1)[0],
+        'phase-timeout',
+        'the catch-all stays last'
+    );
+});
+
+// The page states lib/web.mjs names (G1). Each is raised as a keyed
+// PhaseError, and runAttempt takes retryable and the triage heading from the
+// key's own row, so a key without a row would be a FAIL nobody can look up
+// and a retryable one would let a second attempt hide the finding.
+test('receive-short, rejoin-failed and sender-absent each have a signature row that is never retried and a triage row', () => {
+    for (const key of ['receive-short', 'rejoin-failed', 'sender-absent']) {
+        const row = SIGNATURES.find(([k]) => k === key);
+        assert.ok(row, `${key} has a row in SIGNATURES`);
+        assert.equal(row[2], false, `${key} is never retried`);
+        assert.equal(row[3], key, `${key} is its own triage heading`);
+        assert.ok(TRIAGE_KEYS.has(key), `${key} is in TRIAGE_KEYS`);
+    }
+    // The texts the web leg writes classify to their own key from the text
+    // alone, which is what a FLAKY note or a cell without the key would read.
+    for (const [text, key] of [
+        [
+            'receive-short: the web receiver reads "The transfer ended before the rest arrived." (1 of 3 files)',
+            'receive-short',
+        ],
+        [
+            'rejoin-failed: the web sender reads "Link stopped working"',
+            'rejoin-failed',
+        ],
+        [
+            'sender-absent: the web receiver read "The sender is not connected" for 10000 ms without a break',
+            'sender-absent',
+        ],
+    ])
+        assert.equal(classifySignature(text).key, key, text);
 });

@@ -584,6 +584,28 @@ test('undrivable desktop receiver becomes SKIP uia-setvalue, a harness crash bec
     assert.equal(e.attempts.length, 1);
 });
 
+// Every runtime SKIP used to be filed under the triage key uia-setvalue, so a
+// SKIP desktop-savedir (or present, or a request cell's away-only stop) sent
+// the reader to the SetValue row of references/triage.md.
+test('a runtime SKIP carries the uia-setvalue triage key only when that is its reason', async () => {
+    const world = fakeWorld();
+    world.setScript('S-DIR-C2D', 'undrivable');
+    const ctx = makeCtx(world);
+    const u = await runCell(pick('S-DIR-C2D'), ctx);
+    assert.equal(u.verdict, 'SKIP');
+    assert.equal(u.reason, 'uia-setvalue');
+    assert.equal(u.triage, 'uia-setvalue');
+    world.setScript('S-DIR-C2D', 'savedir-skip');
+    const s = await runCell(pick('S-DIR-C2D'), ctx);
+    assert.equal(s.verdict, 'SKIP');
+    assert.equal(s.reason, 'desktop-savedir');
+    assert.equal(
+        s.triage,
+        null,
+        'a SKIP that is not uia-setvalue names no triage row'
+    );
+});
+
 test('init script not applied is ERROR, never FAIL', async () => {
     const world = fakeWorld();
     world.setScript('S-REL-W2C', 'init-script-missing');
@@ -1274,4 +1296,22 @@ test('a refusal cell labels the route it actually took, through the runner', asy
     const capRun = await runCell(cap, makeCtx(fakeWorld()));
     assert.equal(capRun.verdict, 'PASS', capRun.note);
     assert.equal(capRun.route.label, 'relay [refusal]');
+});
+
+// G5: since v1.11.0 every transfer carries a per-file SHA-256 and each side
+// says so (the CLI's Verified row, the web app's SHA-256 matched line). The
+// audit's own hash compare stays the oracle; what a side printed is carried
+// into the completion record as evidence and never decides a verdict, so a
+// release that prints nothing passes exactly as before.
+test("the completion record carries each side's verified line as evidence, and a side without one still passes", async () => {
+    const world = fakeWorld({ verified: true });
+    const r = await runCell(pick('S-DIR-C2C'), makeCtx(world));
+    assert.equal(r.verdict, 'PASS', r.note);
+    assert.equal(r.completion.sender.verified, 'SHA-256 matched');
+    assert.equal(r.completion.receiver.verified, 'SHA-256 matched');
+    assert.equal(r.attempts[0].completion.receiver.verified, 'SHA-256 matched');
+    const old = await runCell(pick('S-DIR-C2C'), makeCtx(fakeWorld()));
+    assert.equal(old.verdict, 'PASS', old.note);
+    assert.equal(old.completion.sender.verified, null);
+    assert.equal(old.completion.receiver.verified, null);
 });

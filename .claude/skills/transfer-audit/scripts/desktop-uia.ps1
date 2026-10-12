@@ -11,6 +11,12 @@
 # must not contain, and it also asserts that the only PostMessageW call site
 # is the WM_CLOSE one. The one exception is documented on `stage`.
 #
+# No call here asks for a window to come forward, but a pattern call on a
+# built exe still ends with its window in the foreground (G2-F1; the cause is
+# not established). So lib/desktop.mjs re-reads the input idle time before
+# every pattern call of a --user-away run, a request host refuses to run
+# without that flag, and only the reads are free.
+#
 # Usage:
 #   powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
 #       -File desktop-uia.ps1 -Serve [-Root <dir>]
@@ -108,7 +114,10 @@
 #      HelpText (amber-otter-cloud, then Downloads (default)); ValuePattern is
 #      available and not read-only while idle, and SetValue drives React (the
 #      value survives a SEND/RECEIVE tab flip and Invoke on Receive runs the
-#      lookup). `Please enter a code or link.` stays the failure oracle.
+#      lookup). `Please enter a code or link.` stays the failure oracle
+#      (desktop-v0.3.0 on, Store 1.3.0.0, words it `Enter a code or link`,
+#      and `Connecting...` where this build said more; lib/desktop.mjs
+#      STRINGS and STRINGS_RELEASED hold both sets).
 #   3. ShowWindow(hwnd, 4) SW_SHOWNOACTIVATE restores a minimized window
 #      without taking the foreground.
 #   4. Launch by explorer.exe shell:AppsFolder\<AUMID> takes about 1 s and

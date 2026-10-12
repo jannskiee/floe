@@ -542,6 +542,13 @@ function completionOf(done, side, ev) {
         exitCode: d.exitCode ?? null,
         kind: d.kind,
         ok: d.ok,
+        // What the side itself said about the per-file SHA-256 every transfer
+        // carries since v1.11.0: the CLI's Verified row (lib/cli.mjs
+        // parseSummary) or the web app's own line (lib/web.mjs
+        // TEXT.verifiedLine), else null. Evidence only: verifyAttempt
+        // compares the hashes itself and never reads this, so a release that
+        // prints nothing passes as it always did.
+        verified: d.detail?.verified ?? null,
         // True when the driver wrote this completion instead of observing
         // it, so no reader mistakes it for something the surface reported.
         synthesized: d.detail?.synthesized ?? false,
@@ -1598,10 +1605,13 @@ export async function runCell(cell, ctx) {
                 new SafetyError(a.error?.message || 'safety invariant tripped')
             );
         if (a.skipReason)
+            // Only uia-setvalue has a row in references/triage.md; any other
+            // run-time SKIP (desktop-savedir, present, a request cell's own
+            // stops) is a precondition whose reason is the whole account.
             return [
                 'SKIP',
                 a.skipReason,
-                'uia-setvalue',
+                a.skipReason === 'uia-setvalue' ? 'uia-setvalue' : null,
                 a.error?.message || a.skipReason,
             ];
         if (a.harness)

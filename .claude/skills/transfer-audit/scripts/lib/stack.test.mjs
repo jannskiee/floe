@@ -278,6 +278,39 @@ test('ensureStack starts on exit 2, stopStack stops only what it started', async
     });
 });
 
+// B4: floe-run start takes --request-links (its policy file is what makes the
+// local server list request-1), and a stack the audit started without it left
+// every H-*-req* cell at SKIP server-no-request-1.
+test('ensureStack passes --request-links only when asked, and never --local-turn', async () => {
+    const root = fakeRoot(2);
+    const handle = await ensureStack({
+        root,
+        client: false,
+        relaxed: true,
+        requestLinks: true,
+        evidenceDir: join(root, 'evidence'),
+    });
+    assert.deepEqual(handle.h.argv.slice(-3), [
+        'start',
+        '--relaxed',
+        '--request-links',
+    ]);
+    // --local-turn needs two session variables the audit never holds
+    // (floe-run exits 2 without them), so it is never passed from here.
+    assert.ok(!handle.h.argv.includes('--local-turn'));
+    await handle.stop();
+    const plainRoot = fakeRoot(2);
+    const plain = await ensureStack({
+        root: plainRoot,
+        client: false,
+        relaxed: true,
+        evidenceDir: join(plainRoot, 'evidence'),
+    });
+    assert.ok(!plain.h.argv.includes('--request-links'));
+    assert.ok(!plain.h.argv.includes('--local-turn'));
+    await plain.stop();
+});
+
 test('ensureStack with --client parses the web line and runs the hygiene on stop', async () => {
     const root = fakeRoot(2);
     initRepo(root);

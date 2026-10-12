@@ -207,7 +207,8 @@ export async function waitReady(h, timeoutMs = START_TIMEOUT_MS) {
 }
 
 /**
- * ensureStack({ root, client, clientDir, relaxed, evidenceDir, log }) ->
+ * ensureStack({ root, client, clientDir, relaxed, requestLinks, evidenceDir,
+ *               log }) ->
  *   { started, owned, root, server, web, relaxed, ready, report, h,
  *     client, stop() }
  * started is true only when this call launched the wrapper; stop() is a
@@ -216,12 +217,22 @@ export async function waitReady(h, timeoutMs = START_TIMEOUT_MS) {
  * the stack serves; it implies client and picks the floe-run root
  * (stackRootFor), so a worktree --root reuses or starts the main checkout's
  * stack instead of failing on a tree with no node_modules.
+ *
+ * requestLinks adds --request-links to a start, which is what makes the
+ * local server list request-1 (floe-run writes the policy file). It changes
+ * nothing about a stack that is reused: one started by hand without the flag
+ * still answers without request-1, probe P10 says so, and every request cell
+ * SKIPs server-no-request-1 until that stack is stopped and started again.
+ * --local-turn is never passed from here: floe-run refuses it (exit 2)
+ * without two session variables only the operator's shell holds, so a relay
+ * cell on the head profile needs a stack the operator started.
  */
 export async function ensureStack({
     root,
     client = true,
     clientDir = null,
     relaxed = true,
+    requestLinks = false,
     evidenceDir,
     timeoutMs = START_TIMEOUT_MS,
     log = null,
@@ -278,6 +289,7 @@ export async function ensureStack({
     const args = [script, 'start'];
     if (client) args.push('--client');
     if (relaxed) args.push('--relaxed');
+    if (requestLinks) args.push('--request-links');
     const h = spawnFloe({
         bin: process.execPath,
         args,

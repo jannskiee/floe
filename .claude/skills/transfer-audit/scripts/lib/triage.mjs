@@ -3,19 +3,38 @@
 
 // [key, regex, retryable ('rel' = only on relay cells with a TURN-heavy
 // window or a STUN-only warning), triage heading]. First hit wins.
+//
+// A desktop status line is matched in both copies: the sentences a release
+// before the calm copy shows, and the calm lines of desktop-v0.3.0 on
+// (desktop/frontend/src/errors.ts RULES, no closing period, D-167). The calm
+// copy folds two engine errors into "Both people need Floe open at the same
+// time" (the peer wait and the ack wait); it is filed under connect-timeout,
+// the earlier of the two, because the line alone cannot tell them apart.
 export const SIGNATURES = Object.freeze([
     [
         'early-race',
-        /connected, but no data arrived from the sender within|Connected, but the sender never started sending|receiver left or declined before the transfer started|no-data-after-connect/i,
+        /connected, but no data arrived from the sender within|Connected, but the sender never started sending|receiver left or declined before the transfer started|The sender never started sending|The receiver left or declined|no-data-after-connect/i,
         false,
         'connect-then-nothing',
     ],
     ['hash-mismatch', /hash-mismatch/, false, 'hash-mismatch'],
-    ['incomplete-file', /incomplete file "/, false, 'incomplete-file'],
+    [
+        'incomplete-file',
+        /incomplete file "|A file arrived incomplete/,
+        false,
+        'incomplete-file',
+    ],
     ['route-mismatch', /route-mismatch/, false, 'route-mismatch'],
     ['route-disagree', /route-disagree/, false, 'route-disagree'],
     ['forcer-ineffective', /forcer-ineffective/, false, 'forcer-ineffective'],
     ['stats-attempt', /stats-attempt/, false, 'stats-attempt'],
+    // The page states lib/web.mjs names instead of waiting out (namedState):
+    // a receive short of the announced count, a sender whose own room refused
+    // its re-join, and a receiver told nobody is sending. Never retried: each
+    // is what the page said, and a second attempt that passed would hide it.
+    ['receive-short', /receive-short/, false, 'receive-short'],
+    ['rejoin-failed', /rejoin-failed/, false, 'rejoin-failed'],
+    ['sender-absent', /sender-absent/, false, 'sender-absent'],
     // A request link cell's own failures (lib/request.mjs): a flow step the
     // host or the visitor did not reach, and a drop that did not land as
     // exactly the manifest inside its subfolder. Never retried: a retry
@@ -98,7 +117,7 @@ export const SIGNATURES = Object.freeze([
     ],
     [
         'signaling-unreachable',
-        /could not reach signaling server|failed to connect to signaling server|Could not reach the server/i,
+        /could not reach signaling server|failed to connect to signaling server|Could not reach the server|Can't reach the server/i,
         true,
         'infra-down',
     ],
@@ -126,27 +145,27 @@ export const SIGNATURES = Object.freeze([
     // waitLine, waitForFunction and phase-timeout texts are the signature.
     [
         'connect-timeout',
-        /timed out establishing a connection|timed out waiting for the peer|A connection could not be established|Connection failed|no line matching \/\^ \{2\}Connected|no PC reached connected in|phase timeout: connect exceeded/i,
+        /timed out establishing a connection|timed out waiting for the peer|A connection could not be established|Couldn't connect the two devices|Both people need Floe open at the same time|Connection failed|no line matching \/\^ \{2\}Connected|no PC reached connected in|phase timeout: connect exceeded/i,
         'rel',
         'connect-timeout',
     ],
     [
         'code-expired',
-        /not found or expired|was not recognized/i,
+        /not found or expired|was not recognized|wasn't recognized/i,
         false,
         'code-expired',
     ],
     ['code-spent', /no longer active/i, false, 'code-spent'],
     [
         'peer-refused',
-        /connection closed before any file arrived/i,
+        /connection closed before any file arrived|The sender canceled before it started/i,
         false,
         'peer-refused',
     ],
     ['ack-timeout', /timed out waiting for ack/i, false, 'ack-timeout'],
     [
         'stall',
-        /transfer stalled: no data for|backpressure stall|connection closed mid-transfer/i,
+        /transfer stalled: no data for|The transfer stalled|backpressure stall|connection closed mid-transfer/i,
         false,
         'stall',
     ],
@@ -203,6 +222,16 @@ export const TRIAGE_KEYS = new Set([
     'caddy-reload-missed',
     'host-busy',
     'host-release',
+    'receive-short',
+    'rejoin-failed',
+    'sender-absent',
+    // Keyed PhaseErrors with no SIGNATURES row of their own (never retried,
+    // no heading): the report falls back to the key for its Triage line, and
+    // each has had a row in the table since 2026-10-12.
+    'missing-file',
+    'kill-receiver-retry',
+    'hash-refusal-missing',
+    'hash-refusal-overwritten',
 ]);
 
 export const INFRA_KEYS = new Set([

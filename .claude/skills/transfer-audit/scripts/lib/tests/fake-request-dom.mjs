@@ -493,12 +493,14 @@ export function fakeRequestDom({
                 out.push('Link closed');
                 break;
             case 'error':
-                // E1 and E4 (requestCopy.ts errorLine), the role=alert line
-                // under Make link that the UIA lane reads the code from.
+                // E1, E2 and E4 (requestCopy.ts errorLine), the role=alert
+                // line under Make link that the UIA lane reads the code from.
                 out.push(
                     dom.code === 'disabled'
                         ? 'Request links are off on this server'
-                        : "Couldn't make a link"
+                        : dom.code === 'limited'
+                          ? "This network reached today's link limit"
+                          : "Couldn't make a link"
                 );
                 break;
             default:

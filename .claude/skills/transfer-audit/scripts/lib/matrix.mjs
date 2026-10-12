@@ -203,6 +203,8 @@ export const SKIP_REASONS = Object.freeze({
         'the desktop build under test has no Auto-accept switch on the Make link form (made before H10, D-173)',
     'request-auto-wailsdev-only':
         "TA-10a reads the host's own record of the Auto-accept switch and the drop's automatic mark (GetRequestLink), which only the wailsdev dev page has; an exe host is read through UIA",
+    'request-daily-limit':
+        'the server refused Make link with `limited`: this network address has made its 20 request links for the day (REQUEST_CREATES_PER_DAY in server/server.js), and every attempt of a request cell makes one',
     filtered: 'excluded by --cells',
 });
 

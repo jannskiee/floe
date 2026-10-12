@@ -2,14 +2,17 @@
  * Web surface adapter for the transfer-audit skill: one headless Chromium
  * per process, a fresh browser context per leg (no service worker, no
  * storage carried over, the same isolation client/e2e/docs-screenshots.mjs
- * relies on when it drives production), and every selector quoted from the
- * client at f14a8d7.
+ * relies on when it drives production), and every selector and string quoted
+ * from the client: first recorded at f14a8d7, and read again against main at
+ * 2a6e273 on 2026-10-12, when the page states of #533 and #535 and the
+ * SHA-256 line were added to TEXT.
  *
  * Playwright comes from the installed client tree, never from a package of
  * this skill's own: createRequire(<clientDir>/package.json) resolves
  * @playwright/test the way the e2e suite does, so the browser is the one
- * `pnpm test:e2e` already uses (1.62.1, chromium-1234 on this box). A
- * missing install is a PlaywrightMissingError with exitCode 3, a
+ * `pnpm test:e2e` already uses. client/package.json asks for ^1.63.0 as of
+ * 2026-10-12; what is installed decides, and preflight reports its version.
+ * A missing install is a PlaywrightMissingError with exitCode 3, a
  * precondition, not a product finding.
  *
  * The relay forcer is an init script that subclasses window.RTCPeerConnection
@@ -74,6 +77,26 @@ export const HASH_REFUSAL_AFTER_SENT_MS = 15_000;
 // HASH_REFUSAL_AFTER_SENT_MS so a lying cell never pays for two long waits.
 export const HASH_REFUSAL_HOLD_MS = 8_000;
 
+// How long a receiver page must keep saying nobody is on the sending side
+// before the leg takes it as the answer. The state can clear by itself: a
+// sender whose signaling dropped during the handshake comes back into the seat
+// behind the receiver, the receiver page gives its seat back by re-joining
+// (client/lib/roomSeat.ts seatStep, the yieldSeat step), and the line goes
+// with the sender's first offer. Socket.IO retries a dropped socket within a
+// few seconds, so ten is past any honest return and far inside the connect
+// budget (45 s at least) the state used to run out.
+export const SENDER_ABSENT_DWELL_MS = 10_000;
+
+// The last stretch of a connect or done budget, in which a page that still
+// shows a state that may yet resolve (a receive waiting for its next file, a
+// sender retrying its join, whose delays add up to 59 s in
+// client/lib/rejoinRetry.ts REJOIN_DELAYS_MS) is named for it. Before the
+// budget ends, never after: lib/cell.mjs puts the same number of ms on its own
+// phase clock, which started first and so fires first, and the leg's own
+// timeout never reaches the cell's verdict (INFERRED from the two timers, not
+// measured). Two seconds is four polls of the done predicate.
+export const TIMEOUT_LOOK_MS = 2_000;
+
 // The two reasons both receivers put on the incompatible frame
 // (cli/engine/transfer/receiver.go, and HASH_MISMATCH_REASON /
 // HASH_UNREADABLE_REASON in client/lib/transfer/receiver.ts). A sender page
@@ -130,6 +153,38 @@ export const TEXT = Object.freeze({
         'A file did not match what was sent, so it was discarded.',
         "The sender's SHA-256 for a file could not be read, so the file was discarded.",
     ],
+    // The page states main gained on 2026-10-12 (#533, #535), each named by
+    // the leg instead of waited out (namedState below).
+    // A receive that ended short of the count the sender announced: the tail
+    // of "Received N of M files. ..." (client/lib/receiveSummary.ts, kind
+    // 'short'). A latched fact on the page, so it is an answer at once.
+    receiveShort: 'The transfer ended before the rest arrived.',
+    // The same line while the page still expects files (kind 'waiting'). A
+    // healthy batch reads this between two files, so it only counts when the
+    // done budget is about to run out. Two wordings of the one state: the
+    // first is main through 2a6e273, the second a later main. floe.one always
+    // runs the newest main while a self-host or an older head keeps the
+    // older text, so the leg takes either (the "Received N of M files."
+    // before it is the same in both).
+    receiveWaiting: Object.freeze([
+        'Waiting for the next file',
+        'Waiting for the rest',
+    ]),
+    // ReceiverPanel.tsx (the handshake checklist): the server's messages say
+    // nobody holds the sending seat. Counts after SENDER_ABSENT_DWELL_MS.
+    senderAbsent: 'The sender is not connected',
+    // client/lib/rejoinRetry.ts REJOINING_STATUS and REJOIN_FAILED_STATUS: the
+    // sender's status while it retries a join its own room refused, and once
+    // it has given up. The give-up banner beside it says "This link stopped
+    // working. ..." with a lower-case l, which the status match never takes.
+    rejoining: 'Reconnecting to your link',
+    rejoinFailed: 'Link stopped working',
+    // client/lib/verifiedLine.ts VERIFIED_LINE: the app's own line once every
+    // announced file arrived and every one matched its SHA-256 (never a
+    // digest). A receiver draws it with its completion line; a sender gets it
+    // with the receiver's `received` frame, which lands after "All Files
+    // Sent!". Recorded as evidence and never judged (readVerifiedLine).
+    verifiedLine: 'SHA-256 matched',
 });
 
 export class PlaywrightMissingError extends Error {
@@ -678,6 +733,7 @@ export class WebLeg extends Leg {
         this.screenshots = [];
         this.marks = {};
         this.pillFinal = null;
+        this.verifiedFinal = null;
         this.localStorageRead = null;
         this.staleBundle = null;
         this.harnessError = null;
@@ -863,20 +919,130 @@ export class WebLeg extends Leg {
         return this._link;
     }
 
+    /**
+     * The keyed PhaseError for a page state the leg names instead of waiting
+     * out (TEXT.receiveShort, receiveWaiting, senderAbsent, rejoining and
+     * rejoinFailed). `seen` is what the page predicate returned: { key, line }
+     * with `late` when the state only counted because the budget was about to
+     * run out, `dwellMs` for the line that had to hold, and the receiver's own
+     * count as digits. The message quotes the fixed line the leg matched and
+     * never any other text of the page. The key is a row of SIGNATURES in
+     * lib/triage.mjs, none of them retried: a second attempt that passed
+     * would hide what the first one showed.
+     */
+    namedState(phase, seen, timeoutMs) {
+        const count =
+            Number.isInteger(seen.got) && Number.isInteger(seen.of)
+                ? ` (${seen.got} of ${seen.of} files)`
+                : '';
+        const how =
+            seen.dwellMs !== undefined
+                ? `read "${seen.line}" for ${seen.dwellMs} ms without a break`
+                : seen.late
+                  ? `still read "${seen.line}"${count} in the last ${seen.lookMs} ms of its ${phase} budget (${timeoutMs} ms)`
+                  : `reads "${seen.line}"${count}`;
+        this.notes.push(seen.key);
+        return new PhaseError(
+            phase,
+            `${seen.key}: the web ${this.role} ${how}`,
+            { signatureKey: seen.key }
+        );
+    }
+
+    /**
+     * Whether the page shows TEXT.verifiedLine right now: true, false, or null
+     * when the page cannot be read. Evidence only. The cell's own compare of
+     * both hashes is the oracle, so nothing fails on this answer, and a
+     * sender page read at "All Files Sent!" can still say false: its line
+     * comes with the receiver's `received` frame, after the success line
+     * (client/lib/transfer/sender.ts), so stop() reads once more.
+     */
+    async readVerifiedLine() {
+        try {
+            const shown = await this.page.evaluate(
+                (line) =>
+                    ((document.body && document.body.innerText) || '').includes(
+                        line
+                    ),
+                TEXT.verifiedLine
+            );
+            return typeof shown === 'boolean' ? shown : null;
+        } catch {
+            return null;
+        }
+    }
+
+    /** { lookMs, lookAt }: when the last TIMEOUT_LOOK_MS of a budget begins. */
+    lookFor(budget) {
+        const lookMs = this.opts.timeoutLookMs ?? TIMEOUT_LOOK_MS;
+        return { lookMs, lookAt: Date.now() + Math.max(0, budget - lookMs) };
+    }
+
     async awaitConnected(timeoutMs) {
         const page = this.page;
+        const budget = this.budget(timeoutMs);
+        const sender = this.role === 'sender';
+        let seen;
         try {
-            await page.waitForFunction(
-                () => {
+            const handle = await page.waitForFunction(
+                (want) => {
                     const a = window.__floeAudit;
-                    return Boolean(
+                    if (
                         a &&
                         a.pcs.some((pc) => pc.connectionState === 'connected')
-                    );
+                    )
+                        return true;
+                    const text =
+                        (document.body && document.body.innerText) || '';
+                    if (want.rejoinFailed && text.includes(want.rejoinFailed))
+                        return {
+                            key: 'rejoin-failed',
+                            line: want.rejoinFailed,
+                        };
+                    if (want.senderAbsent && a) {
+                        // The dwell is kept on the page's own audit object,
+                        // which lives as long as the page does: the line
+                        // going away starts it over.
+                        if (!text.includes(want.senderAbsent))
+                            a.senderAbsentSince = null;
+                        else if (!a.senderAbsentSince)
+                            a.senderAbsentSince = Date.now();
+                        else if (
+                            Date.now() - a.senderAbsentSince >=
+                            want.dwellMs
+                        )
+                            return {
+                                key: 'sender-absent',
+                                line: want.senderAbsent,
+                                dwellMs: want.dwellMs,
+                            };
+                    }
+                    if (
+                        want.rejoining &&
+                        Date.now() >= want.lookAt &&
+                        text.includes(want.rejoining)
+                    )
+                        return {
+                            key: 'rejoin-failed',
+                            line: want.rejoining,
+                            late: true,
+                            lookMs: want.lookMs,
+                        };
+                    return null;
                 },
-                null,
-                { timeout: this.budget(timeoutMs), polling: 250 }
+                {
+                    // A sender's statuses on a sender page and the receiver's
+                    // checklist line on a receiver page, never the reverse.
+                    rejoinFailed: sender ? TEXT.rejoinFailed : null,
+                    rejoining: sender ? TEXT.rejoining : null,
+                    senderAbsent: sender ? null : TEXT.senderAbsent,
+                    dwellMs:
+                        this.opts.senderAbsentDwellMs ?? SENDER_ABSENT_DWELL_MS,
+                    ...this.lookFor(budget),
+                },
+                { timeout: budget, polling: 250 }
             );
+            seen = await handle.jsonValue();
         } catch (err) {
             throw new PhaseError(
                 'connect',
@@ -884,6 +1050,9 @@ export class WebLeg extends Leg {
                 { cause: err }
             );
         }
+        // Outside the catch, so the state keeps its own words and key.
+        if (seen && typeof seen === 'object')
+            throw this.namedState('connect', seen, timeoutMs);
         this.marks.connected = Date.now();
         const sample = await page.evaluate(SAMPLE).catch(() => null);
         if (sample) this.samples.push(sample);
@@ -949,6 +1118,24 @@ export class WebLeg extends Leg {
                             return 'refusal';
                         if (text.includes(want.connectionFailed))
                             return 'failed';
+                        // The room refused this page's own re-join: given up
+                        // on, or still being retried with the budget about to
+                        // run out (namedState).
+                        if (text.includes(want.rejoinFailed))
+                            return {
+                                key: 'rejoin-failed',
+                                line: want.rejoinFailed,
+                            };
+                        if (
+                            Date.now() >= want.lookAt &&
+                            text.includes(want.rejoining)
+                        )
+                            return {
+                                key: 'rejoin-failed',
+                                line: want.rejoining,
+                                late: true,
+                                lookMs: want.lookMs,
+                            };
                         return null;
                     },
                     {
@@ -960,6 +1147,9 @@ export class WebLeg extends Leg {
                         peerRefusedHash: this.opts.hashLie
                             ? TEXT.peerRefusedHash
                             : null,
+                        rejoinFailed: TEXT.rejoinFailed,
+                        rejoining: TEXT.rejoining,
+                        ...this.lookFor(budget),
                     },
                     { timeout: budget, polling: 500 }
                 );
@@ -982,6 +1172,32 @@ export class WebLeg extends Leg {
                         )
                             return 'refusal';
                         if (text.includes('Link Invalid')) return 'invalid';
+                        // Fewer files than the sender announced: ended that
+                        // way (a latched fact on the page), or still waiting
+                        // for the next one with the budget about to run out.
+                        // After the discard copy above, so a lying cell's
+                        // refusal stays the refusal it is.
+                        const short = text.includes(want.receiveShort);
+                        const waiting =
+                            !short && Date.now() >= want.lookAt
+                                ? want.receiveWaiting.find((w) =>
+                                      text.includes(w)
+                                  )
+                                : null;
+                        if (short || waiting) {
+                            const c =
+                                /Received ([0-9]+) of ([0-9]+) files/.exec(
+                                    text
+                                );
+                            return {
+                                key: 'receive-short',
+                                line: short ? want.receiveShort : waiting,
+                                got: c ? Number(c[1]) : null,
+                                of: c ? Number(c[2]) : null,
+                                late: !short,
+                                lookMs: want.lookMs,
+                            };
+                        }
                         return null;
                     },
                     {
@@ -989,6 +1205,9 @@ export class WebLeg extends Leg {
                         discarded: this.opts.peerLies
                             ? TEXT.selfDiscardedHash
                             : null,
+                        receiveShort: TEXT.receiveShort,
+                        receiveWaiting: TEXT.receiveWaiting,
+                        ...this.lookFor(budget),
                     },
                     { timeout: budget, polling: 500 }
                 );
@@ -1009,7 +1228,10 @@ export class WebLeg extends Leg {
         // the catch above, so the failure keeps its own wording.
         if (this.role === 'sender' && this.opts.hashLie && outcome === 'sent')
             outcome = await this.awaitRefusalAfterSent();
-        this.marks.done = Date.now();
+        // A page state the leg names (an object, never one of the outcome
+        // words) is not a completion, so it gets no done mark.
+        const named = outcome && typeof outcome === 'object' ? outcome : null;
+        if (!named) this.marks.done = Date.now();
         const ms = Date.now() - t0;
         if (
             this.role === 'receiver' &&
@@ -1020,8 +1242,21 @@ export class WebLeg extends Leg {
                 { events: bytesReportedEvents(this.samples) }
             );
         }
-        if (outcome === 'sent' || outcome === 'received')
-            return { ok: true, kind: 'transfer', detail: { outcome }, ms };
+        // After the safety check, so a report that got out is never hidden
+        // behind a product finding; outside the catch above, like the hash
+        // refusal waits, so the state keeps its own words and key.
+        if (named) throw this.namedState('done', named, timeoutMs);
+        if (outcome === 'sent' || outcome === 'received') {
+            const verified = (await this.readVerifiedLine())
+                ? TEXT.verifiedLine
+                : null;
+            return {
+                ok: true,
+                kind: 'transfer',
+                detail: { outcome, verified },
+                ms,
+            };
+        }
         if (outcome === 'refusal')
             return {
                 ok: true,
@@ -1194,6 +1429,7 @@ export class WebLeg extends Leg {
         const page = this.page;
         if (page && !page.isClosed()) {
             this.pillFinal = await readPill(page);
+            this.verifiedFinal = await this.readVerifiedLine();
             const final = await page.evaluate(SAMPLE).catch(() => null);
             if (final) this.samples.push(final);
             this.staleBundle = await page
@@ -1247,6 +1483,9 @@ export class WebLeg extends Leg {
             events,
             bytesReportedEvents: reported,
             pillFinal: this.pillFinal,
+            // The page's last word on its own SHA-256 check (stop()): true,
+            // false, or null when it was never read. Evidence only.
+            verifiedLine: this.verifiedFinal,
             policy,
             policyOk: policy.ok,
             harnessError: this.harnessError,
