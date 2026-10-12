@@ -57,7 +57,7 @@ export function SelectedFilesList({
                     </div>
                     <div className="flex flex-col min-w-0 relative">
                         <span
-                            className={`peer text-sm font-medium truncate cursor-help transition-colors ${i === currentFileIndex && progress > 0 && progress < 100 ? 'text-white' : 'text-zinc-400'}`}
+                            className={`peer text-sm font-medium truncate cursor-help transition-colors ${marks[i] === 'sending' && progress < 100 ? 'text-white' : 'text-zinc-400'}`}
                         >
                             {item.file.name}
                         </span>

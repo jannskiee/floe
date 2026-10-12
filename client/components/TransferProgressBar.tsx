@@ -47,7 +47,9 @@ export function TransferProgressBar({
                             : 'Receiving...'}
                 </span>
                 <span className="flex items-center gap-2">
-                    {transferSpeed && estimatedTime && progress < 100 && (
+                    {/* A send that has ended is not moving: its last speed and
+                        time remaining are not shown beside it. */}
+                    {transferSpeed && estimatedTime && progress < 100 && (!isSender || sendEnd === 'open') && (
                         <span className="text-zinc-500">
                             {transferSpeed} · {estimatedTime}
                         </span>

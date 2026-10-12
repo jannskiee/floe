@@ -957,6 +957,14 @@ export function P2PTransfer() {
             setSendEnd('open');
             setCurrentFileIndex(0);
             setProgress(0);
+            // So do its speed and its banner. A banner about the send that is
+            // over must not sit over the one that is starting (the receiver's
+            // own restart clears its banner for the same reason), and the
+            // close handler keeps a banner that is already up, so an old one
+            // also hid the next failure's own message.
+            setTransferSpeed('');
+            setEstimatedTime('');
+            setError('');
             setStatus('Peer joined. Starting transfer');
             requestWakeLock();
 
@@ -1195,9 +1203,13 @@ export function P2PTransfer() {
                 // reported (onStopped follows it in the same tick), so this
                 // is where a delivered send becomes a failed one.
                 onError: (msg) => {
+                    // A session that was replaced while it waited for an
+                    // answer still reports its end, and that report is about a
+                    // connection this page has moved on from.
+                    if (peerRef.current !== peer) return;
                     setError(msg);
                     setStatus('Transfer failed');
-                    if (peerRef.current === peer) setSendEnd('failed');
+                    setSendEnd('failed');
                 },
                 onAllSent: () => {
                     setStatus('All Files Sent!');

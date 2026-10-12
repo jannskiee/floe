@@ -82,4 +82,45 @@ describe('how the two components use it', () => {
         expect(list).toContain('sendRowMark(');
         expect(bar).toContain('sendProgressLabel(');
     });
+
+    // The label was not the only thing on that row. The speed and the time
+    // remaining stayed beside a send that had stopped ("4.2 MB/s · 1m 12s" at
+    // 37%, for as long as the page was open), and the file that stopped kept
+    // the white name of a file on its way.
+    it('a sender shows a speed, a time and a moving name only while a send is open', () => {
+        const list = read('../components/SelectedFilesList.tsx');
+        const bar = read('../components/TransferProgressBar.tsx');
+        expect(bar).toContain("(!isSender || sendEnd === 'open')");
+        expect(list).toContain("marks[i] === 'sending' && progress < 100");
+        expect(list).not.toContain('i === currentFileIndex && progress > 0 && progress < 100');
+    });
+
+    // Where a sender session begins is the one place that knows the last send
+    // is over. Everything that send left on screen goes there: its marks, its
+    // readout, and its banner, which used to stay ("The connection closed
+    // before the transfer finished." above "All Files Sent!" once a recipient
+    // had come back and the resend had finished) and, because the close
+    // handler keeps a banner that is already up, hid the next failure's own.
+    it('a new recipient starts with nothing of the last send on screen', () => {
+        const page = read('../components/P2PTransfer.tsx');
+        const from = page.indexOf("setSendEnd('open');");
+        const to = page.indexOf("setStatus('Peer joined. Starting transfer');", from);
+        expect(from).toBeGreaterThan(0);
+        expect(to).toBeGreaterThan(from);
+        const block = page.slice(from, to);
+        for (const reset of ["setCurrentFileIndex(0);", "setProgress(0);", "setError('');", "setTransferSpeed('');", "setEstimatedTime('');"]) {
+            expect(block, reset).toContain(reset);
+        }
+    });
+
+    // A session that was replaced while it waited for an answer still reports
+    // its end. That report is about a connection the page has moved on from.
+    it('a replaced session cannot report over the one that replaced it', () => {
+        const page = read('../components/P2PTransfer.tsx');
+        const at = page.indexOf('onError: (msg) => {');
+        expect(at).toBeGreaterThan(0);
+        const body = page.slice(at, page.indexOf('},', at));
+        expect(body.indexOf('if (peerRef.current !== peer) return;')).toBeGreaterThan(0);
+        expect(body.indexOf('if (peerRef.current !== peer) return;')).toBeLessThan(body.indexOf('setError(msg);'));
+    });
 });
