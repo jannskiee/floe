@@ -1247,6 +1247,16 @@ export function P2PTransfer() {
                     // its banner, and the next socket drop or the peer's
                     // leaving wrote "Transfer complete" over it.
                     wireReasonRef.current = true;
+                    // Counted here, once, for every stop the peer reports. The
+                    // error handler that used to count a refusal other than a
+                    // hash mismatch now returns at the latch, so without this
+                    // such a send failed without being counted at all.
+                    track('transfer-failed', {
+                        reason: 'peer-reason',
+                        role: 'sender',
+                        files: fileList.length,
+                        bytes: fileList.reduce((s, f) => s + f.file.size, 0),
+                    });
                     const sentence = describeSenderStop({ ...stop, files: fileList.length });
                     if (!sentence) return;
                     // onStopped runs after onError inside reportStop, so this
@@ -1255,12 +1265,6 @@ export function P2PTransfer() {
                     setError(sentence);
                     setStatus('Transfer failed');
                     setAllVerified(false);
-                    track('transfer-failed', {
-                        reason: 'peer-reason',
-                        role: 'sender',
-                        files: fileList.length,
-                        bytes: fileList.reduce((s, f) => s + f.file.size, 0),
-                    });
                 },
             }
         );

@@ -6,10 +6,13 @@
  * puts the page in a state where that sentence would be untrue and then makes
  * one of those two things happen.
  *
- * A browser receiver never refuses a file by code and never closes its peer
- * connection in the middle of one: `floe receive` and Floe Desktop do both.
- * So the receiving page here keeps hold of its RTCPeerConnection and its data
- * channel, and the test does on them what those receivers do on theirs.
+ * A receiver refuses a file by code, or closes its connection partway through
+ * one, when a write fails, a SHA-256 does not match, or it is stopped. `floe
+ * receive` and Floe Desktop do it for all of those; a browser receiver does it
+ * after a failed SHA-256 or when it runs out of memory. None of that can be
+ * staged cheaply, so the receiving page here keeps hold of its
+ * RTCPeerConnection and its data channel, and the test does by hand on them
+ * what a receiver does on its own.
  */
 
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
@@ -19,10 +22,14 @@ import { tmpdir } from 'os';
 import { createFixture, browserSenderSetup } from './helpers';
 
 const FIXTURE_DIR = join(tmpdir(), 'floe-e2e-send-status');
-// What the status reads once an interrupted recipient has also left the room:
-// the page goes back to waiting for them, which is true, since the link still
-// works. Either sentence is right. "Transfer complete" is not.
-const AFTER_AN_INTERRUPTION = /^(Connection interrupted|Peer disconnected[.] Waiting for reconnection)$/;
+// What the status reads once a recipient whose connection has already closed
+// also leaves the room: the page goes back to waiting for them, which is true,
+// since the link still works. Each test below closes the connection first and
+// waits for "Connection interrupted", so the room notice that follows always
+// finds the connection gone and writes this. It used to write "Transfer
+// complete" for a second recipient.
+const WAITING_AGAIN = 'Peer disconnected. Waiting for reconnection';
+const INTERRUPTED_BANNER = 'The connection closed before the transfer finished.';
 
 test.afterAll(() => {
     try { rmSync(FIXTURE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
@@ -58,15 +65,17 @@ async function receiverContext(browser: Browser): Promise<BrowserContext> {
 
 /** A sender context whose page can be slowed down. Between two pages on one
  *  machine a file of any sensible size is through before a recipient can be
- *  stopped, so once the test sets floeSlowSend every binary frame first holds
- *  the page for a few milliseconds. Nothing about what is sent changes. */
+ *  stopped, so while the test has floeSlowSend set every binary frame first
+ *  holds the page for 25 ms. A 24 MiB file is at least 96 frames, so the send
+ *  then lasts well over two seconds, several of the sender's half-second
+ *  progress ticks. Nothing about what is sent changes. */
 async function senderContext(browser: Browser): Promise<BrowserContext> {
     const ctx = await browser.newContext();
     await ctx.addInitScript(() => {
         const send = RTCDataChannel.prototype.send;
         RTCDataChannel.prototype.send = function (this: RTCDataChannel, data: never) {
             if ((window as unknown as Held).floeSlowSend && typeof data !== 'string') {
-                const until = performance.now() + 6;
+                const until = performance.now() + 25;
                 while (performance.now() < until) { /* hold the page */ }
             }
             return send.call(this, data);
@@ -75,10 +84,10 @@ async function senderContext(browser: Browser): Promise<BrowserContext> {
     return ctx;
 }
 
-const slowDown = (senderPage: Page) =>
-    senderPage.evaluate(() => {
-        (window as unknown as Held).floeSlowSend = true;
-    });
+const slowDown = (senderPage: Page, on = true) =>
+    senderPage.evaluate((value) => {
+        (window as unknown as Held).floeSlowSend = value;
+    }, on);
 
 /** Waits until the sender's bar is moving, then closes the recipient's peer
  *  connection, the way a receiver that is stopped closes its own. */
@@ -121,7 +130,11 @@ test('a refusal after the last byte stays a failure when the page loses its sock
             code: 'write-failed',
             saved: 0,
         });
-        await receiverPage.evaluate((frame) => (window as unknown as Held).floeChannel?.send(frame), refusal);
+        // As bytes, which is how a receiver puts it on the wire.
+        await receiverPage.evaluate(
+            (frame) => (window as unknown as Held).floeChannel?.send(new TextEncoder().encode(frame)),
+            refusal
+        );
         await expect(senderPage.getByText('Transfer failed', { exact: true })).toBeVisible({ timeout: 10_000 });
 
         // The page's own socket dropping must not turn a refused send green.
@@ -154,10 +167,28 @@ test('a recipient who stops mid-file is reported as an interruption', async ({ b
         await stopMidFile(senderPage, recipientPage);
 
         await expect(senderPage.getByText('Connection interrupted', { exact: true })).toBeVisible({ timeout: 15_000 });
+        await expect(senderPage.getByText(INTERRUPTED_BANNER)).toBeVisible();
+        // The send has ended: nothing on its row still claims to be moving.
+        await expect(senderPage.getByText(/Sending file [0-9]+ of [0-9]+/)).toHaveCount(0);
+        await expect(senderPage.getByText(/[KMG]B[/]s/)).toHaveCount(0);
+
         await recipientCtx.close();
-        await senderPage.waitForTimeout(1_500);
-        await expect(senderPage.getByText('Transfer complete', { exact: true })).toHaveCount(0, { timeout: 3_000 });
-        await expect(senderPage.getByText(AFTER_AN_INTERRUPTION)).toBeVisible();
+        await expect(senderPage.getByText(WAITING_AGAIN, { exact: true })).toBeVisible({ timeout: 15_000 });
+        await expect(senderPage.getByText('Transfer complete', { exact: true })).toHaveCount(0);
+
+        // They come back, and this time take the whole file. Nothing of the
+        // send that was cut short is left over the one that finished.
+        await slowDown(senderPage, false);
+        const again = await receiverContext(browser);
+        try {
+            const againPage = await again.newPage();
+            await againPage.goto(link);
+            await expect(againPage.locator('a[download]').first()).toBeVisible({ timeout: 60_000 });
+            await expect(senderPage.getByText('Sent 1 file', { exact: true })).toBeVisible({ timeout: 15_000 });
+            await expect(senderPage.getByText(INTERRUPTED_BANNER)).toHaveCount(0);
+        } finally {
+            await again.close();
+        }
     } finally {
         await senderCtx.close();
         try { await recipientCtx.close(); } catch { /* already closed mid-test */ }
@@ -193,9 +224,8 @@ test('a second recipient who stops mid-file is reported the same way', async ({ 
 
         await expect(senderPage.getByText('Connection interrupted', { exact: true })).toBeVisible({ timeout: 15_000 });
         await secondCtx.close();
-        await senderPage.waitForTimeout(1_500);
-        await expect(senderPage.getByText('Transfer complete', { exact: true })).toHaveCount(0, { timeout: 3_000 });
-        await expect(senderPage.getByText(AFTER_AN_INTERRUPTION)).toBeVisible();
+        await expect(senderPage.getByText(WAITING_AGAIN, { exact: true })).toBeVisible({ timeout: 15_000 });
+        await expect(senderPage.getByText('Transfer complete', { exact: true })).toHaveCount(0);
         await expect(senderPage.getByText('Sent 1 file', { exact: true })).toHaveCount(0);
     } finally {
         await senderCtx.close();
