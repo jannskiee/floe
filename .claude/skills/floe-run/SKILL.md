@@ -185,7 +185,10 @@ keeps the secret in the server's environment alone.
   one JSON event per line, the `link` event carries the link, and it accepts
   the drop without asking (a test host, never shipped).
 - Sending to a link: open it in a browser, or
-  `floe send <files> --to "<link>" --server http://localhost:3001`. `--server`
+  `floe send <files> --to "<link>" --server http://localhost:3001`. The `floe`
+  on PATH is the released CLI; to send with HEAD, build one into a scratch
+  folder first (from `cli/`: `go build -o <scratch>/floe-head.exe ./cmd/floe`)
+  and call that. `--server`
   (or `FLOE_SERVER`) is not optional here: for a link whose host is not
   floe.one, `floe send --to` ends with "Couldn't connect to their computer.
   Nothing was sent." before any network call unless a server is chosen.

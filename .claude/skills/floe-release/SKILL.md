@@ -135,6 +135,9 @@ the tag, so nobody has to look it up while something is wrong.
       bullet about any other surface starts with its name (`Web app:`,
       `CLI:`, `Self-hosting:`), so a new primary surface changes which
       bullets need one.
+    - Whenever `server/` or `client/` changed, the `v*` entry carries a
+      `Self-hosting:` bullet saying the images were rebuilt, paired release
+      or not.
     - A bullet that does not ship in this tag stays behind, in a new
       `Unreleased` entry above the renamed one.
 - For a PAIRED release the rename is a SPLIT: the single `Unreleased` entry
@@ -179,7 +182,8 @@ the tag, so nobody has to look it up while something is wrong.
 - The known pin set, so a hit there is never mistaken for history: CLAUDE.md
   (the version example), `.github/ISSUE_TEMPLATE/bug_report.yml` (the
   placeholder), DESKTOP.md (`Current release:` and the "Paired with" line
-  under it), `desktop/wails.json` (`productVersion`), `.env.docker.example`
+  under it; on a `v*`-only release that line stays, because it records the CLI
+  the current desktop release shipped with, so its STALE line is left alone), `desktop/wails.json` (`productVersion`), `.env.docker.example`
   and `docker-compose.yml` (the `FLOE_IMAGE_TAG` examples), SECURITY.md (the
   container images row), docs/self-hosting/images.mdx and
   docs/self-hosting/configuration.mdx (image tag examples), docs/cli/update.mdx
@@ -375,5 +379,8 @@ packaged build), so the Store install can never show it.
 ## Done means
 
 All eight steps with evidence in the report, step 1a included when
-`server/` changed. Green workflows and four 200s are necessary; step 8 and
-the certification email are the completion signals.
+`server/` changed. A `v*`-only release has no desktop half: steps 6, 7 and 8
+and the four desktop URLs of step 5 do not apply, and its completion signals
+are the green `release.yml` and `images.yml` runs, the release assets and the
+image digests. With a desktop half, green workflows and four 200s are
+necessary; step 8 and the certification email are the completion signals.

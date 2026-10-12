@@ -90,7 +90,7 @@ let h = 5381; for (const c of v) h = (Math.imul(h, 33) + c.codePointAt(0)) >>> 0
 JSON.stringify({ len: v.length, djb2: h.toString(16).padStart(8, '0'), head: v.slice(0, 60), tail: v.slice(-60) });
 ```
 
-The description is a textarea too, `#description-required`: the fill snippet above works with that selector, and the read-back snippet reads it the same way (2026-10-09: 3,296 characters, djb2 5e78a360). A feature is an input, `#feature-0` to `#feature-N`: use `HTMLInputElement.prototype` where the snippet has `HTMLTextAreaElement.prototype`, and dispatch `input`, `change` and `blur` as composed events. The 2026-10-09 session's own snippets were not kept, so reload and read back the first field you set before you set the rest.
+The description is a textarea too, `#description-required`: the fill snippet above works with that selector, and the read-back snippet reads it the same way (2026-10-09: 3,296 characters, djb2 5e78a360). A feature is an input, `#feature-0` to `#feature-N`: use `HTMLInputElement.prototype` where the snippet has `HTMLTextAreaElement.prototype`, and dispatch `input`, `change` and `blur` as composed events. The 2026-10-09 session's own snippets were not kept, so prove the idiom on one field before trusting it with the rest: set the first field, Save the listing, reload, read that field back, and only then fill the others and Save once more (SKILL.md 5a says the same).
 
 Struck-through package rows, when `get_page_text` is ambiguous (unverified; the recorded check is `get_page_text` showing both version strings):
 

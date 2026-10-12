@@ -1,6 +1,6 @@
 ---
 name: 'untrusted-peer-data'
-description: "Use before touching any value the remote peer chose (fileName, fileSize, totalBytes, total, index, id, offset, ver, pv, pvMin, reason, code, saved, sha256, verified, confirms in metadata, ack, end, received or incompatible; an SDP or candidate; the signaling server's role and error text; a request link) wherever it is displayed, logged, stored, written or compared (file lists, history rows, notifications, paths, the Accept prompt, refusal cards), or when adding any wire field (a checksum, a hash, a size). Not for the sender's own selected files. Covers cli/engine, cli/cmd/floe, cli/internal, client/lib, client/components, client/hooks, desktop/transfer.go, reveal.go, requestlink.go, requestauto.go and desktop/frontend; every sink on CLI, desktop and browser with its treatment."
+description: "Use before touching any value the remote peer chose (fileName, fileSize, totalBytes, total, index, id, offset, ver, pv, pvMin, reason, code, saved, sha256, verified, confirms in metadata, ack, end, received or incompatible; an SDP or candidate; the signaling server's role and error text; a request link) wherever it is displayed, logged, stored, written or compared (file lists, history rows, notifications, paths, the Accept prompt, refusal cards), or when adding any wire field (a checksum, a hash, a size). Not for files the local user picked to send. Covers cli/engine, cli/cmd/floe, cli/internal, client/lib, client/components, client/hooks, desktop/transfer.go, reveal.go, requestlink.go, requestauto.go and desktop/frontend; every sink on CLI, desktop and browser with its treatment."
 ---
 
 # Untrusted peer data
@@ -44,6 +44,16 @@ harness's JSON line (treat it as a log sink). test is a reviewed test or fuzz ta
 that feeds hostile values to a real consumer and lets nothing out. The row's Treatment
 column says what, if anything, happens there.
 
+## Decisions the map records
+
+Some rows are a decision, not a description, and a change that crosses one
+needs the owner first. The request link's Accept prompt shows numbers only
+(OD-04 in the consumer map's `RequestPrompt` rows), and
+docs/desktop/request-links.mdx promises it: "It never shows a file name or
+any other text the sender chose." A feature that puts a visitor's string in
+that prompt or in a notification reverses both. Stop and ask before building
+it; it is not one more row.
+
 ## Procedure
 
 1. Name the field(s) and the message they ride on. Adding a field: add it to both
@@ -53,7 +63,9 @@ column says what, if anything, happens there.
    real filter is the `no` rows you will write for unrelated matches); cost a new
    string field against controlMsgMax / CONTROL_MSG_MAX (1000 bytes): a 64-hex hash
    plus its key is about 73 bytes taken from the fileName envelope, and an over-cap
-   string metadata now fails the transfer; and decide whether ProtocolVersion moves
+   string metadata now fails the transfer (free text such as a note does not
+   fit beside a long name, so it needs a message and a cap of its own, which is
+   a protocol decision); and decide whether ProtocolVersion moves
    (CLAUDE.md, Transfer Protocol Versioning, and the concrete test in the header
    comment of cli/engine/transfer/protocol.go: "a mandatory new field old receivers
    cannot ignore").

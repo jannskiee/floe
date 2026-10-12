@@ -64,7 +64,9 @@ in-flight working data.
   lists it under `fenced` as a live stack pidfile, whatever its age, and
   the answer is `floe-run stop`, not a sweep.
 - `node .claude/skills/transfer-audit/scripts/audit.mjs cleanup --out <dir>`
-  if a transfer audit ran. That is the only thing that restores the real
+  if a transfer audit ran. `<dir>` is that audit's `--out`: the survey names it
+  in its `audit-evidence:` and `audit-run:` rows, and a run started without
+  `--out` wrote under `lta-runs` in the temp directory. That is the only thing that restores the real
   `%APPDATA%\floe\desktop.json` from its hash-checked backup. Sweeping the
   run directory first destroys the manifest it replays.
 - `git status` is understood. An untracked directory in the tree is a

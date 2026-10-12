@@ -112,7 +112,7 @@ What Floe Desktop and `floe receive` let a sender's file description ask of the 
 
 ## Web app status and error strings
 
-docs/troubleshooting.mdx "In the browser" quotes what the web app shows, one heading per string, and each heading carries an explicit `{#id}` that other pages link to. Reword a string and its heading in the same PR and leave the id alone: several ids below still spell a wording that has since changed, on purpose. Nothing compares the strings automatically, most are typed inline, and some are typed twice.
+docs/troubleshooting.mdx "In the browser" quotes what the web app shows, one heading per string, and each heading carries an explicit `{#id}` that other pages link to. Reword a string and its heading in the same PR and leave the id alone: several ids below still spell a wording that has since changed, on purpose. Nothing compares the strings automatically, most are typed inline, and some are typed twice. A string reworded after a release keeps its old wording on self-hosted web apps until the next `v*` tag, so the docs sentence that quotes it needs the "version X.Y.Z or earlier" clause the troubleshooting page already uses; floe-release step 2 re-reads those clauses at the tag.
 
 - client/lib/receiveSummary.ts `receiveSummary`: the count line's three shapes. The short one is `#the-transfer-ended-before-the-rest-arrived`; docs/web-app/receiving.mdx describes all three.
 - client/lib/rejoinRetry.ts: `REJOINING_STATUS` (`#reconnecting-to-your-link`), `REJOIN_FAILED_STATUS`, and `REJOIN_DELAYS_MS`, which is where the number of tries and their total in docs/reference/limits.mdx "Timeouts" come from.

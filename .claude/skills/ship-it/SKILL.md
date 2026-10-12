@@ -20,7 +20,11 @@ only. Ship = every step. Never skip step 4's signing recipe for either.
   nothing and passes a naive "not main" check). main rejects pushes with GH013; no
   bypass, not even the owner. On main: `git checkout -b <free-form name>`.
 - When the change lives in another clone than the folder the session started in, every
-  git command is `git -C <absolute clone path>`. In the PowerShell tool a failed
+  git command is `git -C <absolute clone path>`. `gh` has no `-C`: run it from inside
+  the clone (Bash tool: `cd <clone> && gh ...`) or name its target (`--repo
+  <owner>/<name>`, and `--head <branch>` on `gh pr create`), and run the local checks
+  from the clone with the clone's own scripts, since the session folder's copies may
+  be older. In the PowerShell tool a failed
   `Set-Location` does NOT stop the chain: the commands after it run in the session's
   own folder, and on 2026-09-25 that detached the owner's checkout. Never chain a git
   write after a bare `Set-Location`.
@@ -145,7 +149,8 @@ suite passed on that SHA and nothing about behavior the suite does not cover.
 After a merge that touches .claude/skills/ or CLAUDE.md, one more thing: the project
 folder that sessions start in loads its own copy of both, so it needs
 `git pull --ff-only` before a new session sees the change. Until then every session
-opened there runs the old skill.
+opened there runs the old skill. That folder is the owner's: say so in the report and
+let them pull, or pull it yourself only when they have told you to.
 
 ## Pointers
 

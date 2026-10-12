@@ -1,6 +1,6 @@
 ---
 name: store-submit
-description: "Use when submitting a Floe Desktop release to the Microsoft Store: Partner Center, the MSIX artifact, Start update, a Store submission, certification, the What's new notes for 9NBQ8ZQ1065L, or changing the Store listing itself (description, features, screenshots, certification notes). Verifies the MSIX from the desktop-release.yml run, renders the changelog entry to plain text, and drives Partner Center through Submit for certification, or stops before it as a rehearsal. Not for writing the changelog entry, the tag, or the pin order; that is floe-release. Not for localStorage, storing a file, the App Store, or winget."
+description: "Use when submitting a Floe Desktop release to the Microsoft Store: Partner Center, the MSIX artifact, Start update, a Store submission, certification, the What's new notes for 9NBQ8ZQ1065L, or changing the Store listing itself (description, features, screenshots, certification notes). Verifies the MSIX from the desktop-release.yml run, renders the changelog entry to plain text, and drives Partner Center through Submit for certification, or stops before it as a rehearsal. Not for writing the changelog entry, the tag, or the pin order; that is floe-release. Not for testing the installed Store app; that is transfer-audit. Not for localStorage, storing a file, the App Store, or winget."
 ---
 
 # Store submission runbook
@@ -285,7 +285,10 @@ is never being in that field.
 A routine update stops at What's new. A release that changes what the app
 does also changes the description, the feature list and the screenshots.
 All of them are on the same en-US listing page and one listing Save covers
-them, What's new included, so fill everything first and Save once.
+them, What's new included. Prove the fill idiom on one field first: set the
+first field, Save, reload and read it back (`references/partner-center.md`,
+the paragraph on the description and feature fields). Then fill everything
+else and Save once.
 
 The listing has no source in this repository. The description, the
 features, the screenshots and the certification notes live in Partner
