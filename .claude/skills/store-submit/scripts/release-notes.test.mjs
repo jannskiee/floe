@@ -62,10 +62,11 @@ after(() => {
     for (const d of made) rmSync(d, { recursive: true, force: true });
 });
 
-// The contract allows one Unreleased entry between a merge and its tag, and
-// floe-release step 6 (when this script runs) is exactly that window, so
-// the real file may carry one. The fixture strips it: a test that wants an
-// Unreleased entry inserts its own through `extra`.
+// The changelog carries a standing Unreleased entry between releases
+// (CONTRIBUTING.md has every user-visible PR add its bullet there), so the
+// real file usually holds one, and it need not be about the desktop app.
+// The fixture strips it: a test that wants an Unreleased entry inserts its
+// own through `extra`.
 const UNRELEASED =
     /^[ \t]*<Update label="Unreleased"[^\n]*\n[\s\S]*?^[ \t]*<\/Update>[ \t]*\n(?:[ \t]*\n)?/gm;
 
@@ -160,11 +161,11 @@ test('a label that is not in the changelog is HARD entry', () => {
     assert.match(r.out, /^release-notes: desktop-v8\.8\.8: 1 hard, 0 notes/m);
 });
 
-test('a missing label while an Unreleased entry exists says to relabel it', () => {
+test('SS6: a missing label while a Desktop Unreleased entry exists names the prep PR step', () => {
     const root = fixture({
         extra: [
             [
-                '<Update label="Unreleased" tags={["Desktop"]}>',
+                '<Update label="Unreleased" tags={["Desktop", "CLI"]}>',
                 '  **Not yet tagged**',
                 '</Update>',
             ],
@@ -174,7 +175,44 @@ test('a missing label while an Unreleased entry exists says to relabel it', () =
     assert.equal(r.status, 1, r.out);
     assert.match(
         r.out,
-        /^HARD  entry  .*an Unreleased entry exists, relabel it first \(floe-release step 6\)$/m
+        /^HARD  entry  no <Update label="desktop-v8\.8\.8"> in docs\/changelog\.mdx; an Unreleased entry tagged Desktop exists: floe-release step 2 gives it this label in the prep PR, before the tag$/m
+    );
+    assert.doesNotMatch(r.out, /step 6/);
+});
+
+test('SS6: an Unreleased entry about other surfaces is not taken for the desktop entry', () => {
+    // The shape main had on 2026-10-12: a standing CLI and Web entry. The old
+    // hint told every desktop tag with no entry to relabel it.
+    const root = fixture({
+        extra: [
+            [
+                '<Update label="Unreleased" tags={["CLI", "Web"]}>',
+                '  **An install script fix**',
+                '</Update>',
+            ],
+        ],
+    });
+    const r = run(forTag(root, 'desktop-v8.8.8'));
+    assert.equal(r.status, 1, r.out);
+    assert.match(
+        r.out,
+        /^HARD  entry  no <Update label="desktop-v8\.8\.8"> in docs\/changelog\.mdx; the Unreleased entry is tagged CLI, Web, not Desktop, so it is not this release's entry: floe-release step 2 adds the desktop entry in the prep PR, and a release with nothing a desktop user sees has none \(write the text by hand, then --check\)$/m
+    );
+    assert.doesNotMatch(r.out, /relabel/);
+    // The unit sees the same two hints, and none without an Unreleased entry.
+    const missing = (context) =>
+        check('', { tag: TAG, entryMissing: true, ...context }).hard[0].message;
+    assert.match(
+        missing({ unreleased: true, unreleasedTags: ['Desktop'] }),
+        /tagged Desktop exists/
+    );
+    assert.match(
+        missing({ unreleased: true, unreleasedTags: [] }),
+        /is tagged nothing, not Desktop/
+    );
+    assert.equal(
+        missing({}),
+        `no <Update label="${TAG}"> in docs/changelog.mdx`
     );
 });
 
@@ -402,6 +440,29 @@ test('a bullet about another surface is NOTE surface', () => {
     );
     assert.equal(r.status, 0, r.out);
     assert.match(r.out, /^NOTE  surface  line 7 is about Web app/m);
+});
+
+test('SS6: CLI: is a surface prefix too, beside Web app: and Self-hosting:', () => {
+    const r = run(
+        forTag(
+            fixture({
+                body: [
+                    ...BODY,
+                    '  - CLI: `floe send` prints one more line.',
+                    '  - Self-hosting: the images are rebuilt.',
+                    '  - The CLI: mentioned mid-sentence is not a prefix.',
+                    '  - CLIs in general are not a prefix either.',
+                ],
+            })
+        )
+    );
+    assert.equal(r.status, 0, r.out);
+    assert.equal(r.out.match(/^NOTE  surface  /gm).length, 2, r.out);
+    assert.match(
+        r.out,
+        /^NOTE  surface  line 7 is about CLI, which a Store reader does not have: - CLI: floe send prints one more line\.$/m
+    );
+    assert.match(r.out, /^NOTE  surface  line 8 is about Self-hosting/m);
 });
 
 test('--check validates a hand-written file and prints the fingerprint the helper computes', () => {

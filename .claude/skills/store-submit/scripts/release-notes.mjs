@@ -16,15 +16,20 @@
  *
  * Why the checks are what they are: the changelog contract (the MDX comment
  * at the top of the file) makes `label` the tag verbatim, so the entry is
- * found by label and never by position, and an `Unreleased` label at tag
- * time is the step that has not happened yet (floe-release step 6). The
- * first tag is the primary surface, so an entry whose first tag is not
- * Desktop is a note, and rule 6's "Web app:" and "Self-hosting:" prefixes
- * mark bullets a Store reader has no use for. Store policy refuses "What's
- * new" text that points at other download sources, so github.com, the
- * floe.one download page, winget, Homebrew and Scoop are noted with the
- * line they sit on. The no-dash rule is enforced by Vale in docs/ only; the
- * Store text lives outside docs/, so it is re-checked here. A `<` or `>`
+ * found by label and never by position. The entry takes its label in the
+ * prep PR, before the tag (floe-release step 2), so a missing label is that
+ * step not done, or a release with nothing a desktop user sees. The
+ * changelog also carries a standing `Unreleased` entry between releases,
+ * and it is often about another surface (CLI and Web on 2026-10-12), so the
+ * hint for a missing label reads that entry's tags before calling it this
+ * release's. The first tag is the primary surface, so an entry whose first
+ * tag is not Desktop is a note, and rule 6's "Web app:", "CLI:" and
+ * "Self-hosting:" prefixes mark bullets a Store reader has no use for.
+ * Store policy refuses "What's new" text that points at other download
+ * sources, so github.com, the floe.one download page, winget, Homebrew and
+ * Scoop are noted with the line they sit on. The no-dash rule is enforced
+ * by Vale in docs/ only; the Store text lives outside docs/, so it is
+ * re-checked here. A `<` or `>`
  * left in the text is residue only when it forms a tag: `&lt;` decodes to a
  * bare `<`, and the shipped desktop-v0.2.6 entry holds `< > : " | ? *` in
  * a code span. For a rendered entry, nothing under the title line is a hard
@@ -70,7 +75,7 @@ const DASH = /[\u2013\u2014]/;
 // count only as a tag (`<kbd>`, `</Update>`): a bare `<` is legitimate text
 // once `&lt;` is decoded or a code span holding `< > : " | ? *` is restored.
 const RESIDUE = /\*\*|\]\(|`|<\/?[A-Za-z][^>]*>/;
-const SURFACE = /^- (Web app|Self-hosting): /;
+const SURFACE = /^- (Web app|CLI|Self-hosting): /;
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"' };
 
 // djb2 over code points, 8 lowercase hex digits: the same text pasted from
@@ -177,14 +182,25 @@ export function check(text, context = {}) {
         headline = null,
         entryMissing = false,
         unreleased = false,
+        unreleasedTags = null,
         titled = false,
     } = context;
     const hard = [];
     const notes = [];
     if (entryMissing) {
+        // An Unreleased entry is this release's only when it is tagged
+        // Desktop. Telling every desktop tag to relabel a CLI and Web entry
+        // would put another surface's notes in the Store.
+        let hint = '';
+        if (unreleased && (unreleasedTags ?? []).includes('Desktop')) {
+            hint =
+                '; an Unreleased entry tagged Desktop exists: floe-release step 2 gives it this label in the prep PR, before the tag';
+        } else if (unreleased) {
+            hint = `; the Unreleased entry is tagged ${(unreleasedTags ?? []).join(', ') || 'nothing'}, not Desktop, so it is not this release's entry: floe-release step 2 adds the desktop entry in the prep PR, and a release with nothing a desktop user sees has none (write the text by hand, then --check)`;
+        }
         hard.push({
             check: 'entry',
-            message: `no <Update label="${tag}"> in ${CHANGELOG}${unreleased ? '; an Unreleased entry exists, relabel it first (floe-release step 6)' : ''}`,
+            message: `no <Update label="${tag}"> in ${CHANGELOG}${hint}`,
         });
     }
     for (const line of mdx) {
@@ -351,10 +367,12 @@ function main(argv) {
         const changelog = readFileSync(path.join(opts.root, CHANGELOG), 'utf8');
         const entry = findEntry(changelog, opts.desktop);
         if (!entry) {
+            const standing = findEntry(changelog, 'Unreleased');
             context = {
                 tag: opts.desktop,
                 entryMissing: true,
-                unreleased: findEntry(changelog, 'Unreleased') !== null,
+                unreleased: standing !== null,
+                unreleasedTags: standing ? standing.tags : null,
             };
         } else {
             const rendered = render(

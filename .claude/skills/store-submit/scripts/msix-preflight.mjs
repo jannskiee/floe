@@ -326,7 +326,7 @@ export function chooseRun(runs, artifactsByRun, version) {
     }
     const message = chosen
         ? null
-        : `no successful ${WORKFLOW} run with a floe-desktop-msix-${version} artifact for desktop-v${version}; a run still in progress or a failed run points at floe-release step 4 (re-cut, never rerun)`;
+        : `no successful ${WORKFLOW} run with a floe-desktop-msix-${version} artifact for desktop-v${version}; a run still in progress or a failed run points at floe-release step 4 (rerun a transient failure on the same tag first; re-cut the tag only for a fix that needs new code)`;
     return {
         chosen: chosen ? chosen.run : null,
         artifact: chosen ? chosen.artifact : null,

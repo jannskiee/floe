@@ -591,8 +591,10 @@ test('chooseRun with no candidate says so and names floe-release step 4', () => 
     assert.equal(c.twins.length, 2);
     assert.equal(
         c.message,
-        'no successful desktop-release.yml run with a floe-desktop-msix-0.2.8 artifact for desktop-v0.2.8; a run still in progress or a failed run points at floe-release step 4 (re-cut, never rerun)'
+        'no successful desktop-release.yml run with a floe-desktop-msix-0.2.8 artifact for desktop-v0.2.8; a run still in progress or a failed run points at floe-release step 4 (rerun a transient failure on the same tag first; re-cut the tag only for a fix that needs new code)'
     );
+    // SS7: the old advice was the opposite of floe-release step 4.
+    assert.doesNotMatch(c.message, /never rerun/);
     // A success run whose artifact is for another version is not a candidate.
     const other = chooseRun(
         [RUN_12],
