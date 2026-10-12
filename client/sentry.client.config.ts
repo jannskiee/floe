@@ -7,7 +7,7 @@ import { isInjectedScriptError } from './lib/injectedScripts';
 import { isNonBrowserRuntimeError } from './lib/nonBrowserRuntimes';
 import { isStaleBundleError } from './lib/staleBundle';
 import { scrubBreadcrumb, scrubErrorEvent, scrubSpanJson, scrubTransactionEvent } from './lib/scrubUrl';
-import { withoutBrowserSession } from './lib/sentryIntegrations';
+import { withoutBrowserSession, withoutInteractionSpans } from './lib/sentryIntegrations';
 import { tracesSampler } from './lib/traceSampling';
 
 // One budget per page load: no single error is sent more than a few times,
@@ -24,9 +24,9 @@ Sentry.init({
     // in the URL, which we additionally scrub below.
     sendDefaultPii: false,
 
-    // No client reports. By default the SDK counts every event it decides not
-    // to send (an unsampled trace, a filtered error, a request made outside a
-    // trace) and posts the counts to Sentry each time the tab is hidden, which
+    // No client reports. By default the SDK counts every event it does not
+    // send (an unsampled trace, a filtered error, a request made outside a
+    // trace, a send that failed) and posts the counts to Sentry each time the tab is hidden, which
     // is nearly every visit, sampled or not. The privacy page describes error
     // reports and a 10% sample of traces and names no such count, so this line
     // and that list move together. The cost is the Client Discard figures on
@@ -41,7 +41,16 @@ Sentry.init({
     // that list move together. The function form on purpose: an array is
     // added to the defaults and could not remove one. See
     // lib/sentryIntegrations.ts.
-    integrations: withoutBrowserSession,
+    //
+    // No interaction timings either. The tracing integration is put back with
+    // enableInp false, which is the one option it is rebuilt for: with it on,
+    // every timed click and key press is sent as a span of its own, and
+    // Sentry's servers store the address such a span arrives from. Page loads
+    // and page changes are traced as before.
+    integrations: (defaults) =>
+        withoutInteractionSpans(withoutBrowserSession(defaults), () =>
+            Sentry.browserTracingIntegration({ enableInp: false }),
+        ),
 
     // Filter out non-actionable errors caused by browser extensions and
     // restricted environments. The list lives in lib/ignoredErrors.ts, which

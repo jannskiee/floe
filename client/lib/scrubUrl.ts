@@ -181,8 +181,9 @@ export interface ScrubbableErrorEvent {
 // value takes the free-text rule and each breadcrumb scrubEventBreadcrumb's
 // (deep QA A4-06, W3 R5-04).
 //
-// It never throws, whatever the shape: beforeSend drops an event whose hook
-// throws, and a scrub has no business losing an error report. A value, a
+// It never throws, whatever the shape. A hook that throws loses its event, and
+// worse: the SDK reports the throw as an error event of its own, which skips
+// beforeSend and so leaves with the page address as the browser had it. A value, a
 // stacktrace, a frame list or a frame that is not what the SDK writes is
 // skipped and left as it is.
 export function scrubErrorEvent<T extends ScrubbableErrorEvent>(event: T): T {

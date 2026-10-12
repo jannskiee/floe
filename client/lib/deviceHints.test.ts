@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEVICE_HINT_ATTRIBUTES, DEVICE_HINT_MEASUREMENT, stripDeviceHints } from './deviceHints';
+import { DEVICE_HINT_ATTRIBUTES, DEVICE_HINT_MEASUREMENT, NETWORK_PROTOCOL_ATTRIBUTES, stripDeviceHints } from './deviceHints';
 
 // A page-load root span as beforeSendSpan sees it on Chromium, hints included.
 const rootSpan = () => ({
@@ -75,6 +75,28 @@ describe('stripDeviceHints', () => {
         expect(stripDeviceHints(span).data).toEqual({ 'sentry.op': 'pageload' });
     });
 
+    // Every resource span and every fetch or XHR span of a traced page load
+    // also carried the HTTP protocol the visitor's network negotiated for that
+    // request (nextHopProtocol: "h2", "http/1.1"), which is a fact about the
+    // network between the visitor and the site and is named by no privacy
+    // text. It is not written by _trackNavigator, so it has a list of its own.
+    it('removes the negotiated network protocol from every span of a trace', () => {
+        const event = {
+            contexts: { trace: { data: { 'network.protocol.name': 'http', 'network.protocol.version': '2', 'sentry.op': 'pageload' } } },
+            spans: [
+                { op: 'resource.script', data: { 'network.protocol.name': 'http', 'network.protocol.version': '2', 'http.response_content_length': 512 } },
+                { op: 'http.client', data: { 'network.protocol.version': '1.1', 'http.method': 'GET' } },
+            ],
+        };
+        stripDeviceHints(event);
+        const json = JSON.stringify(event);
+        for (const name of NETWORK_PROTOCOL_ATTRIBUTES) expect(json).not.toContain(name);
+        expect(event.contexts.trace.data).toEqual({ 'sentry.op': 'pageload' });
+        expect(event.spans[0].data).toEqual({ 'http.response_content_length': 512 });
+        expect(event.spans[1].data).toEqual({ 'http.method': 'GET' });
+        expect(NETWORK_PROTOCOL_ATTRIBUTES).toEqual(['network.protocol.name', 'network.protocol.version']);
+    });
+
     // The SDK hands beforeSendSpan a root span whose data and measurements ARE
     // the event's own objects, then merges what the hook returns back into the
     // event (processBeforeSend in @sentry/core client.js). A hook that returned
@@ -88,6 +110,23 @@ describe('stripDeviceHints', () => {
         expect(span.measurements).toBe(measurements);
         expect(data).not.toHaveProperty('hardwareConcurrency');
         expect(measurements).not.toHaveProperty('connection.rtt');
+    });
+
+    // A send hook that throws does not just lose its trace. The SDK reports
+    // the throw as an error event of its own, and that event skips beforeSend,
+    // so it would carry the page address, room link and all, unscrubbed. The
+    // SDK does not hand the hooks a frozen bag or a hole in the span list
+    // today; this is so that it cannot matter when it does.
+    it('never throws, whatever it is handed', () => {
+        const frozen = { data: Object.freeze({ deviceMemory: '8 GB', 'sentry.op': 'pageload' }) };
+        const frozenMeasurements = { measurements: Object.freeze({ 'connection.rtt': { value: 50, unit: 'millisecond' } }) };
+        const holes = { spans: [null, undefined, 7, 'x', { data: { hardwareConcurrency: '12' } }] };
+        for (const item of [frozen, frozenMeasurements, holes, null, undefined, 7, 'text']) {
+            expect(() => stripDeviceHints(item as never)).not.toThrow();
+        }
+        expect(stripDeviceHints(frozen as never)).toBe(frozen);
+        // What could be removed around the hole still was.
+        expect((holes.spans[4] as { data: object }).data).toEqual({});
     });
 
     it('is idempotent, and safe on an item that holds no bag', () => {

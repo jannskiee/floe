@@ -1297,8 +1297,8 @@ describe('the Socket.IO session id', () => {
     // the SDK's XHR instrumentation copies that URL onto an http.client span
     // four times: url, http.url, url.full and http.query. For as long as the
     // connection lives the id is all a request needs to speak as that socket,
-    // so it gets the room id's treatment. Sentry held 1,390 such spans in the
-    // 14 days before this rule.
+    // so it gets the room id's treatment. Sentry held well over a hundred such
+    // spans from the 14 days before this rule.
     const SID = 'u7Xk2pQ9LmN4rTaBAAAC';
     const POLL = `https://api.floe.one/socket.io/?EIO=4&transport=polling&t=PaBcDeF&sid=${SID}`;
     const POLL_SCRUBBED = 'https://api.floe.one/socket.io/?EIO=4&transport=polling&t=PaBcDeF&sid=redacted';
