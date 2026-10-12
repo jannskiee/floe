@@ -1,6 +1,6 @@
 ---
 name: 'docs-verify'
-description: 'Docs pre-flight for Floe: docs-check.mjs (links, nav, frontmatter, link labels, table shape, env-var fan-out, em dashes), then the claim map to diff each user-facing claim against its source symbol. Use when editing docs/**, README.md, CONTRIBUTING.md, SELF_HOSTING.md, DESKTOP.md, or .github templates, or when adding, renaming or changing a user-facing flag, limit, env var, default, or CLI string that the docs quote or should quote.'
+description: 'Docs pre-flight for Floe: docs-check.mjs, the same script CI runs (links and anchors, nav, frontmatter, raw tags in headings, link labels, table shape, snippet and image paths in exact letter case, /docs paths in client code, env-var fan-out, em and en dashes), then the claim map to diff each user-facing claim against its source symbol, then render-audit.mjs on the rendered pages. Use when editing docs/**, docs/style.css, README.md, CONTRIBUTING.md, SELF_HOSTING.md, DESKTOP.md, unraid/, .goreleaser.yml, docker-compose.yml, an env example file or .github templates, or when adding, renaming or changing a user-facing flag, limit, env var, default, CLI string or in-app string that the docs quote or should quote.'
 ---
 
 # docs-verify
@@ -11,23 +11,30 @@ Two layers. The script settles what a script can settle; you settle the rest aga
 
 From the repo root:
 
-    node .claude/skills/docs-verify/scripts/docs-check.mjs [all|links|nav|frontmatter|labels|tables|env|dashes] [--root <dir>]
+    node .claude/skills/docs-verify/scripts/docs-check.mjs [all|links|nav|frontmatter|headings|labels|tables|env|dashes] [--root <dir>]
 
 `all` is the default; a single check name runs only that check; `--root` points it at
-another checkout (default: the repo the script lives in).
+another checkout (default: the repo the script lives in). `links` also runs the footer
+mirror, the image and snippet paths and the client `/docs` paths.
+
+CI runs `docs-check.mjs all` on every PR: it is the `Docs pre-flight` step of the
+`Repo guardrails` job, which the `CI green` gate needs, so a HARD line blocks the merge.
+Run it before you push and the failure is yours to see first.
 
 Exit 1 is a decidable defect: a link target or anchor that does not exist, an image `src`
 or a snippet import that names a file which is not under docs/ (or names it in a different
 letter case), a bare `/docs/...` path in client code that names no page, a nav entry
 without a file or a page outside the nav (or a docs.json the script cannot parse or walk),
 a page with no frontmatter block or missing title or description, two hyphens in a title,
-sidebarTitle or description, a table whose delimiter row and header differ in cell count,
-a straight double quote that opens a table cell, an em or en dash (in the docs, the root
+sidebarTitle or description, a tag in a heading that opens and never closes, a table whose
+delimiter row and header differ in cell count, a straight double quote that opens a table
+cell or closes one after punctuation, an em or en dash (in the docs, the root
 and unraid Markdown, the desktop READMEs, `.goreleaser.yml` and `docs/style.css`), a
 documented server default that contradicts server/server.js, or one
-of the env self-checks failing (fewer keys than server.js reads, or a configuration page
-that yields no variable rows). Fix, rerun. Exit 0 with NOTE lines is the normal outcome.
-Read every NOTE and decide; do not skim.
+of the env self-checks failing (fewer keys than the server modules read, or a configuration
+page that yields no variable rows). Fix, rerun. Exit 2 is a usage error or a root with no
+docs/docs.json. Exit 0 with NOTE lines is the normal outcome. Read every NOTE and decide;
+do not skim.
 
 - anchors: Mintlify keeps quotes, apostrophes and slashes in the ids it generates, so a
   heading containing one of those and no explicit `{#id}` is "unstable": a link to it is
@@ -43,13 +50,26 @@ Read every NOTE and decide; do not skim.
   does not match its header in cell count is HARD, because the block then renders as a
   paragraph of raw pipes (reference/limits shipped five of those in #518). A straight
   double quote that opens a cell is HARD too: Mintlify's smart quotes render it as a
-  closing mark, so type that quotation with curly marks (the docs had 93 before #526). A
+  closing mark, so type that quotation with curly marks (the docs had 93 before #526). One
+  that closes a cell straight after a colon or a parenthesis is HARD the same way: it
+  renders as an opening mark. A
   table of five or more columns is a NOTE. The theme gives every cell a 150 px floor, and
   `docs/style.css` lowers it only for a table with a fourth header cell, so that the
   four-column comparison grid on choosing-floe fits at 1280. Three columns is still the
   rule for any other table.
 - frontmatter: `--` in a title, sidebarTitle or description is HARD. Mintlify renders it
-  as an em dash in the visible page, so a flag named there comes out wrong.
+  as an em dash in the visible page, so a flag named there comes out wrong. A page with no
+  sidebarTitle is a NOTE (the sidebar falls back to the title).
+- headings: nothing in this repo compiles MDX, here or in CI. A heading that quotes a
+  string with a placeholder, `### Could not read <name>`, is a tag that never closes, and
+  the page stops compiling on Mintlify while every check stays green (it happened on a
+  release day). A tag opened and not closed in the same heading is HARD, and so is `<br>`
+  without its slash. Write `&lt;name&gt;` or put it in backticks. Body text is not checked:
+  a raw `<word>` in a paragraph or a table cell breaks the page the same way, and only the
+  rendered page will show it, so open every page you touched on the preview.
+- nav and footer: a page listed twice in docs.json is a NOTE. So is each item where
+  docs.json `footer.links` and Footer.tsx `columns` differ; the script cannot know which
+  side is right.
 - client docs paths: the web client links into the docs through the `/docs` rewrite, so a
   path it writes without the site origin (`REQUEST_LINK_DOCS_PATH` in
   client/lib/request/constants.ts) is checked like any other link. Move a docs section and
@@ -66,7 +86,9 @@ Read every NOTE and decide; do not skim.
   backticks); it is a NOTE in server/.env.example (the value line and the comment above
   it), .env.docker.example, docker-compose.yml `:-` defaults and unraid/\*.xml. Presence
   gaps are NOTEs; the deliberate subsets in SELF_HOSTING.md and unraid/ are one info
-  line each (the `CURATED` constant).
+  line each (the `CURATED` constant). Only the summary table of configuration.mdx is
+  compared: the entry per variable under "Variable reference" states windows, limits and
+  behavior in sentences, and those are yours to read.
 - What no script sees: stale comments, numbers inside sentences, "always" and "never"
   claims. That is layer 2.
 
@@ -86,16 +108,42 @@ preview, run
 
 and again with `--base https://www.floe.one/docs` after the merge. It loads every page in
 the navigation in a headless browser and prints one block per width and theme. Playwright
-comes from client/node_modules, so the client install has to exist; from a linked worktree
-that has none, add `--playwright <a checkout that has it>`, which leaves the docs source
-being compared where it is. Exit 1 means a table in the source did not come out as a
-table, a delimiter row is showing as text, or a page did not answer 200 or did not load.
+comes from client/node_modules, so the client install has to exist, and so do the browser
+binaries (`pnpm exec playwright install chromium` in client/, plus firefox or webkit when
+you ask for them); from a linked worktree that has no install, add
+`--playwright <a checkout that has it>`, which leaves the docs source being compared where
+it is. CI does not run it.
+
+Exit 1 means a table in the source did not come out as a table, a delimiter row is showing
+as text, a page did not answer 200 or did not load, a page came without its chrome (no logo
+in the navbar or no links in the sidebar), or fewer pages loaded than were asked for. Exit 2
+is a usage error, a root with no docs/docs.json, or no Playwright to load. The chrome line
+is there because a preview once served its front page with no site configuration: status
+200, the article whole, no logo, no sidebar links, and the audit ended "0 hard". A page
+that looks bare is given 4 seconds and measured again before it counts. A preview page
+fetched seconds after a push can be cached in that state, so wait for the PR's Mintlify
+check before the first run.
+
 Every other number is for you to compare with the last run: on 2026-10-11 production read 0
 tables wider than their box at 1280, 0 wrong-way quotation marks of 786, 262 inline code
-chips split of 2,913, and no contents list over 30 entries. `--engines firefox,webkit`
-repeats it in the other two engines, and `--css <file>` adds a candidate stylesheet to
-every page, which is how a `docs/style.css` rule is measured against production before
-it is committed.
+chips split of 2,913, and no contents list over 30 entries.
+
+| Flag                                | Default                   | What it does                                                                                                                 |
+| ----------------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `--base <url>`                      | none, required            | The docs root: the preview origin, or `https://www.floe.one/docs`                                                            |
+| `--pages a,b`                       | every page in the nav     | Only these pages, by their nav path                                                                                          |
+| `--widths 1280,390`                 | `1280,390`                | Viewport widths, one pass each                                                                                               |
+| `--themes light,dark`               | `light,dark`              | Measured once per theme on each load                                                                                         |
+| `--engines chromium,firefox,webkit` | `chromium`                | Repeats the run in each engine                                                                                               |
+| `--jobs 4`                          | `4`                       | Pages loaded at once; a whole number, 1 or more                                                                              |
+| `--out file.json`                   | not written               | Every measurement, for a later diff                                                                                          |
+| `--css <file>`                      | none                      | Adds a candidate stylesheet to every page: how a `docs/style.css` rule is measured against production before it is committed |
+| `--root <repo>`                     | the repo the script is in | Where the docs source and docs.json are read from                                                                            |
+| `--playwright <repo>`               | the same as `--root`      | The checkout whose client install has Playwright                                                                             |
+
+The pass or fail call on the chrome lives in `scripts/render-verdict.mjs`, and
+`node --test .claude/skills/docs-verify/scripts/render-audit.test.mjs` tests it with no
+browser and no install.
 
 Run it again after any fix made in response to it. reference/limits broke because a fix
 that followed a rendered check was merged without a second look at the rendered page.

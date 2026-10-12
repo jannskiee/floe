@@ -15,6 +15,9 @@
  *   toc        visible entries in the right-hand table of contents
  *   contrast   small accent-colored text against its background
  *   width      a page wider than the viewport (sideways scroll on a phone)
+ *   chrome     the logo in the navbar and the links in the sidebar (a page
+ *              served without the site's configuration answers 200 with its
+ *              article whole and neither of those; see render-verdict.mjs)
  *
  * Usage:
  *   node render-audit.mjs --base <url> [--root <repo>] [--playwright <repo>]
@@ -29,13 +32,16 @@
  * has the docs source and no install). Read-only: it loads pages and never
  * writes to the site.
  * Exit 1 when a table is missing, a delimiter row shows as text, a page did
- * not answer 200 or did not load, or fewer pages loaded than were asked for;
- * every other number is for the reader to judge against the last run.
+ * not answer 200 or did not load, a page has no logo or no sidebar links, or
+ * fewer pages loaded than were asked for; every other number is for the
+ * reader to judge against the last run. Exit 2 is a usage error, a root with
+ * no docs/docs.json, or no Playwright to load.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { CHROME_SELECTORS, CHROME_SETTLE_MS, chromeProblems } from './render-verdict.mjs';
 
 const args = process.argv.slice(2);
 const opt = (name, def) => {
@@ -160,9 +166,21 @@ const pages = opt('pages', null) ? opt('pages').split(',') : allPages;
 // Page side: one function, evaluated in the page, per theme.
 // ---------------------------------------------------------------------------
 
-function measure() {
+function measure(chromeAt) {
     const area = document.querySelector('#content-area') || document.body;
     const inCode = (el) => !!el.closest('pre, code');
+
+    // The site's chrome around the article. The selectors arrive as an
+    // argument because this function is serialized into the page and cannot
+    // see the module's imports. A logo counts only when it is shown: the
+    // navbar holds a light and a dark image and hides one of them.
+    const shown = (el) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+    const navbar = document.querySelector(chromeAt.navbar);
+    const sidebar = document.querySelector(chromeAt.sidebar);
+    const chrome = {
+        logos: navbar ? [...navbar.querySelectorAll('img')].filter(shown).length : 0,
+        sidebarLinks: sidebar ? sidebar.querySelectorAll('a[href]').length : 0,
+    };
 
     // Tables.
     const tables = [...area.querySelectorAll('table')].map((t) => {
@@ -262,6 +280,7 @@ function measure() {
 
     return {
         h1: document.querySelector('#page-title')?.textContent ?? null,
+        chrome,
         tables,
         pipeText,
         quotes,
@@ -302,7 +321,13 @@ for (const engineName of engines) {
                 for (const theme of themes) {
                     await page.evaluate((t) => document.documentElement.classList.toggle('dark', t === 'dark'), theme);
                     await page.waitForTimeout(150);
-                    const m = await page.evaluate(measure);
+                    let m = await page.evaluate(measure, CHROME_SELECTORS);
+                    // A page that looks bare gets a long settle and a second
+                    // look before it is called broken.
+                    if (chromeProblems(m.chrome).length) {
+                        await page.waitForTimeout(CHROME_SETTLE_MS);
+                        m = await page.evaluate(measure, CHROME_SELECTORS);
+                    }
                     results.push({ engine: engineName, width, theme, page: p, status, expectedTables: expectedTables(p), ...m });
                 }
             }
@@ -324,9 +349,11 @@ for (const engineName of engines)
             const cut = rows.flatMap((r) => r.tables.filter((t) => t.cut > 1).map((t) => `${r.page} (${t.cols} columns, ${t.cut}px)`));
             const wide = rows.filter((r) => r.docWidth > r.viewport + 1);
             const not200 = rows.filter((r) => r.status !== 200);
-            hard += missing.length + pipes.length + not200.length;
+            const bare = rows.filter((r) => chromeProblems(r.chrome).length);
+            hard += missing.length + pipes.length + not200.length + bare.length;
             console.log(`\n== ${engineName} ${width} ${theme}: ${rows.length} pages ==`);
             console.log(`  status not 200: ${not200.length}${not200.length ? '  ' + not200.map((r) => `${r.page}=${r.status}`).join(' ') : ''}`);
+            console.log(`  pages without their chrome: ${bare.length}${bare.length ? '  ' + bare.map((r) => `${r.page} (${chromeProblems(r.chrome).join(', ')})`).join(' ') : ''}`);
             console.log(`  tables: ${sum(rows, (r) => r.tables.length)} rendered, ${sum(rows, (r) => r.expectedTables)} in the source; pages that differ: ${missing.length}${missing.length ? '  ' + missing.map((r) => `${r.page} ${r.tables.length}/${r.expectedTables}`).join(' ') : ''}`);
             console.log(`  delimiter rows shown as text: ${pipes.length} page(s)${pipes.length ? '  ' + pipes.map((r) => r.page).join(' ') : ''}`);
             console.log(`  tables wider than their box: ${cut.length}${cut.length ? '\n    ' + cut.join('\n    ') : ''}`);

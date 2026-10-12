@@ -27,7 +27,12 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
-import { SURFACES, headingSlugs, slug } from './docs-check.mjs';
+import {
+    SURFACES,
+    headingSlugs,
+    slug,
+    unclosedHeadingTags,
+} from './docs-check.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url).replace(/\.test\.mjs$/, '.mjs');
 const REPO = resolve(dirname(SCRIPT), '..', '..', '..', '..');
@@ -726,4 +731,94 @@ test('a configuration page that yields no variable rows is HARD, not a silent pa
         hards[0],
         /HARD  env  docs\/self-hosting\/configuration\.mdx:1  no variable rows found/
     );
+});
+
+test('the server reading one key fewer than today is HARD: the extractor floor is the real count', () => {
+    const root = fresh();
+    // The floor catches an extractor that stopped matching, and it can only do
+    // that while it equals what the server reads. Hiding one read from the
+    // regex stands in for a regex that lost one. The baseline test pins the
+    // other side: a floor above the count would fail the untouched copy.
+    let hidden = 0;
+    edit(root, 'server/server.js', (t) =>
+        t.replaceAll('process.env.FLOE_TEST_REQUEST_GRACE_MS', () => {
+            hidden++;
+            return "process.env['FLOE_TEST_REQUEST_GRACE_MS']";
+        })
+    );
+    assert.ok(
+        hidden > 0,
+        'server.js no longer reads FLOE_TEST_REQUEST_GRACE_MS: hide another key'
+    );
+    const r = run(root);
+    assert.equal(r.status, 1, r.out);
+    assert.match(
+        r.out,
+        /HARD  env  server\/server\.js:1  extractor found \d+ keys; the regex no longer matches the source/
+    );
+});
+
+test('unclosedHeadingTags: what MDX can and cannot close inside a heading', () => {
+    // Every row was run through @mdx-js/mdx 3.1.1 on 2026-10-12: the rows that
+    // return a tag are the ones the compiler refuses ("Expected a closing tag
+    // for `<name>` before the end of `atxHeading`"), and the empty rows compile.
+    const cases = [
+        ['Could not read <name>', ['<name>']],
+        ['floe send <files> --to "<link>"', ['<files>', '<link>']],
+        ['Paste the <link>', ['<link>']],
+        ['Line one <br> two', ['<br>']],
+        ['Set <KEY>', ['<KEY>']],
+        ['Paste the </name>', ['</name>']],
+        ['A <b>bold</i> c', ['</i>', '<b>']],
+        ['Could not read &lt;name&gt;', []],
+        ['Could not read \\<name>', []],
+        ['Run `floe send <files>` now', []],
+        ['Run ``floe <a>`` now', []],
+        ['Install <Badge>Beta</Badge>', []],
+        ['Line one <br /> two', []],
+        ['Use <Icon icon="x" /> here', []],
+        ['A <b>bold <i>it</i></b> c', []],
+        ['Files < 2 GB', []],
+        ['a > b', []],
+    ];
+    for (const [heading, want] of cases)
+        assert.deepEqual(unclosedHeadingTags(heading), want, heading);
+});
+
+test('a raw <word> in a heading is HARD, and the escaped, code and fenced forms are not', () => {
+    const root = fresh();
+    const raw = appendLine(
+        root,
+        'docs/faq.mdx',
+        '### Could not read <name> on that drive'
+    );
+    const escaped = appendLine(
+        root,
+        'docs/faq.mdx',
+        '### Could not read &lt;name&gt; on that drive'
+    );
+    const coded = appendLine(
+        root,
+        'docs/faq.mdx',
+        '### Run `floe send <files>` first'
+    );
+    appendLine(root, 'docs/faq.mdx', '```md');
+    const fenced = appendLine(
+        root,
+        'docs/faq.mdx',
+        '### Could not read <name>'
+    );
+    appendLine(root, 'docs/faq.mdx', '```');
+    const r = run(root);
+    assert.equal(r.status, 1, r.out);
+    assert.match(
+        r.out,
+        new RegExp(`HARD  headings  docs/faq\\.mdx:${raw}  <name> `)
+    );
+    for (const line of [escaped, coded, fenced])
+        assert.doesNotMatch(
+            r.out,
+            new RegExp(`HARD  headings  docs/faq\\.mdx:${line}  `)
+        );
+    assert.match(r.out, /docs-check: 1 hard/);
 });

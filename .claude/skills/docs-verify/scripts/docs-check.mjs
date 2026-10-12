@@ -43,8 +43,17 @@
  * at 1280 wide by the theme's cell floor unless the stylesheet makes room for
  * it, which depends on the rendered page, so that one prints as NOTE.
  *
+ * Why `headings` exists: nothing in this repo compiles MDX. A heading that
+ * quotes an in-app string with a placeholder in it, `### Could not read
+ * <name>`, is a JSX tag with no closing tag to the compiler, and the page
+ * stops building on Mintlify's side while every local check and every CI job
+ * stays green (it happened on a release day). A heading is one line, so
+ * "opened and not closed in the same heading" is decidable from the source
+ * without a parser. Body prose is not checked: a JSX block there may close
+ * many lines later, and telling that from a stray tag needs the real compiler.
+ *
  * Usage:
- *   node docs-check.mjs [all|links|nav|frontmatter|labels|tables|env|dashes] [--root <dir>]
+ *   node docs-check.mjs [all|links|nav|frontmatter|headings|labels|tables|env|dashes] [--root <dir>]
  * Tests:
  *   node --test .claude/skills/docs-verify/scripts/docs-check.test.mjs
  * Output lines: `HARD  <check>  <file>:<line>  <message>` and the same with
@@ -59,6 +68,7 @@ const CHECKS = [
     'links',
     'nav',
     'frontmatter',
+    'headings',
     'labels',
     'tables',
     'env',
@@ -204,13 +214,17 @@ const CLOSES_WITH_QUOTE = /[^\s\w.!?"`]"(?:\*\*|__|\*|_|~~|\]\([^)]*\))*$/;
 // naming `--server` showed a flag that does not exist (cli/self-hosted-server,
 // 2026-10-11).
 const TYPESET_KEYS = ['title', 'sidebarTitle', 'description'];
-// The server modules read exactly 16 keys between them today. Fewer means the
-// extractor regex broke, not that the server lost a setting; raise this when a
-// key is added. Counting across the directory rather than one file is what
-// keeps a module extraction from tripping this: the five TURN keys moving to
-// server/turn.js left server.js holding nine, and the hard fail below returns
-// early, taking every downstream env comparison with it.
-const SERVER_KEY_FLOOR = 16;
+// The server modules read exactly 18 keys between them today: ten in
+// server.js, five in turn.js and three in stats.js. Fewer means the extractor
+// regex broke, not that the server lost a setting; raise this when a key is
+// added, in the same PR. It stood at 16 for two keys after #503 added
+// POLICY_FILE and FLOE_TEST_REQUEST_GRACE_MS, so the extractor could have lost
+// two keys with nothing said; a test now fails when the floor falls behind
+// the count. Counting across the directory rather than one file is what keeps
+// a module extraction from tripping this: the five TURN keys moving to
+// server/turn.js would otherwise have read as five lost, and the hard fail
+// below returns early, taking every downstream env comparison with it.
+const SERVER_KEY_FLOOR = 18;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -830,6 +844,55 @@ function checkFrontmatter(ctx) {
                 'frontmatter',
                 where,
                 `${key} contains "--": Mintlify renders two hyphens there as an em dash, so a flag name comes out wrong. Name the flag in the body, in code`
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// headings
+// ---------------------------------------------------------------------------
+
+// The tags in one heading's text that MDX cannot close, as written. MDX reads
+// `<` directly followed by a name as a JSX tag, and a heading is a single
+// block, so a tag opened in it has to close in it: `<name>` alone, `<br>`
+// without its slash, and a closing tag with nothing open all stop the page
+// compiling. A code span is literal text and a backslash escapes the bracket,
+// so neither is a tag; `<Badge>Beta</Badge>` and `<br />` close and pass. The
+// name's meaning is not judged: whether a component exists is Mintlify's call.
+// Each case in the test's table was run through @mdx-js/mdx 3.1.1.
+export function unclosedHeadingTags(heading) {
+    const bare = heading.replace(/(`+)[\s\S]*?\1/g, (m) =>
+        ' '.repeat(m.length)
+    );
+    const open = [];
+    const stray = [];
+    for (const m of bare.matchAll(/(\\*)<(\/?)([A-Za-z][\w.:-]*)([^<>]*)>/g)) {
+        if (m[1].length % 2) continue;
+        const tag = m[0].slice(m[1].length);
+        if (m[2]) {
+            if (open.length && open[open.length - 1].name === m[3]) open.pop();
+            else stray.push(tag);
+        } else if (!m[4].trimEnd().endsWith('/')) {
+            open.push({ name: m[3], tag });
+        }
+    }
+    return [...stray, ...open.map((o) => o.tag)];
+}
+
+function checkHeadings(ctx) {
+    for (const [, rec] of ctx.pages) {
+        const where = rel(ctx.root, rec.file);
+        const lines = stripFences(rec.text).split('\n');
+        for (let i = 0; i < lines.length; i++) {
+            const h = lines[i].match(/^#{1,6}\s+(.*)$/);
+            if (!h) continue;
+            const tags = unclosedHeadingTags(h[1]);
+            if (!tags.length) continue;
+            ctx.report.hardLine(
+                'headings',
+                `${where}:${i + 1}`,
+                `${tags.join(', ')} in a heading: MDX reads it as a tag that never closes, and the page stops compiling on Mintlify while every local check stays green. Write &lt; and &gt;, or put it in backticks`
             );
         }
     }
@@ -1687,6 +1750,7 @@ export function run(args) {
         links: checkLinks,
         nav: checkNav,
         frontmatter: checkFrontmatter,
+        headings: checkHeadings,
         labels: checkLabels,
         tables: checkTables,
         env: checkEnv,
