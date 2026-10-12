@@ -104,7 +104,8 @@ The map names where a value is stated; grep the old literal repo-wide before fin
 
 ## Error monitoring (the web client)
 
-- client/sentry.client.config.ts: `sendDefaultPii: false`, `tracesSampler` (client/lib/traceSampling.ts), the scrubbing hooks (client/lib/scrubUrl.ts, which cover the page address and the `Referer` header), `integrations: withoutBrowserSession` (client/lib/sentryIntegrations.ts, which takes the SDK's default `BrowserSession` integration out of the set, so no session record is sent and the privacy texts must not list one), and no Replay integration (the comment there says why it must never come back).
+- client/sentry.client.config.ts: `sendDefaultPii: false`, `tracesSampler` (client/lib/traceSampling.ts), the scrubbing hooks (client/lib/scrubUrl.ts, which cover the page address and the `Referer` header), `integrations: withoutBrowserSession` (client/lib/sentryIntegrations.ts, which takes the SDK's default `BrowserSession` integration out of the set), and no Replay integration (the comment there says why it must never come back).
+- client/sentry.server.config.ts: `integrations` in its function form through `withoutServerSessions` (same file), which drops `ProcessSession` and builds the `Http` integration with `trackIncomingRequestsAsSessions: false`. With this and the browser line above, Sentry is sent no session data from either side, and the privacy texts must not list any. client/sentry.edge.config.ts needs nothing: the edge SDK has no session code. client/lib/sentryIntegrations.test.ts pins the names and options against the installed SDK.
 - Docs: client/app/privacy/page.tsx "Error monitoring", docs/security-privacy.mdx "Error monitoring and analytics". The two must list the same things as sent and as not sent.
 
 ## WebSocket origin check

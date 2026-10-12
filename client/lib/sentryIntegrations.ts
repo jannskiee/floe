@@ -20,3 +20,29 @@ export const BROWSER_SESSION_INTEGRATION = 'BrowserSession';
 export function withoutBrowserSession<T extends { name: string }>(defaults: T[]): T[] {
     return defaults.filter((integration) => integration.name !== BROWSER_SESSION_INTEGRATION);
 }
+
+// The server side of the same feed. Two of the Node SDK's defaults send
+// session data when SENTRY_DSN is set, which it is on floe.one:
+//
+//   - ProcessSession starts a session when the server process starts.
+//   - Http counts every incoming request into a per-minute total (how many
+//     ended, errored or crashed, with the release and environment; no address,
+//     no user agent) and sends it about a minute later, unless it is built
+//     with trackIncomingRequestsAsSessions false.
+//
+// Measured on a local production build with a loopback DSN before this was
+// added: 120 page requests produced session items; after, none. The edge
+// runtime's SDK has no session code at all, so sentry.edge.config.ts needs
+// nothing.
+export const PROCESS_SESSION_INTEGRATION = 'ProcessSession';
+export const HTTP_INTEGRATION = 'Http';
+
+// For the server's `integrations` option, in its function form. Drops
+// ProcessSession and puts the caller's Http integration where the default one
+// stood. The caller builds it, so this file never loads the SDK, and it has to
+// repeat the options @sentry/nextjs gives its own (see sentry.server.config.ts).
+export function withoutServerSessions<T extends { name: string }>(defaults: T[], makeHttp: () => T): T[] {
+    return defaults
+        .filter((integration) => integration.name !== PROCESS_SESSION_INTEGRATION)
+        .map((integration) => (integration.name === HTTP_INTEGRATION ? makeHttp() : integration));
+}

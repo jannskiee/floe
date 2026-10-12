@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/nextjs';
 import { scrubServerErrorEvent, scrubServerTransactionEvent } from './lib/scrubUrl';
+import { withoutServerSessions } from './lib/sentryIntegrations';
 import { tracesSampler } from './lib/traceSampling';
 
 Sentry.init({
@@ -12,6 +13,23 @@ Sentry.init({
     // See lib/traceSampling.ts.
     tracesSampler,
     debug: false,
+
+    // No session data from the server. Two of the Node SDK's defaults feed
+    // Sentry's Release Health screens, which Floe does not use: one starts a
+    // session with the server process, and the Http integration counts every
+    // incoming request into a per-minute total unless it is told not to. The
+    // privacy page lists what Sentry is sent and names no such thing, so this
+    // option and that list move together.
+    //
+    // The Http integration is replaced, not configured in place, because
+    // @sentry/nextjs builds its own. Its one option is repeated here (Next.js
+    // makes the incoming request spans itself) and request sessions are
+    // turned off. A test reads both from the installed SDK, so an upgrade
+    // that changes either fails there. See lib/sentryIntegrations.ts.
+    integrations: (defaults) =>
+        withoutServerSessions(defaults, () =>
+            Sentry.httpIntegration({ disableIncomingRequestSpans: true, trackIncomingRequestsAsSessions: false }),
+        ),
 
     // The server never sees the URL fragment, but an old-style ?room= link can
     // still land in a request URL. Scrub it (and disable default PII) so the

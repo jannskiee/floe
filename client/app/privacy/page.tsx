@@ -52,10 +52,11 @@ export const metadata: Metadata = {
 // relayEnabled context, the eight Umami reason labels (lib/peerErrors.ts,
 // lib/transfer/receiver.ts ReceiveFailure, P2PTransfer.tsx 'peer-reason') and
 // the request link save folder (desktop/requestlink.go requestDefaultDirFn).
-// Rechecked on 2026-10-12: Sentry is sent no session record
-// (sentry.client.config.ts `integrations`, lib/sentryIntegrations.ts), so the
-// Error monitoring section names none. If that line is ever removed, the
-// sentence that disclosed the record has to come back with it.
+// Rechecked on 2026-10-12: Sentry is sent no session data, from the browser
+// (sentry.client.config.ts `integrations`) or from the server
+// (sentry.server.config.ts `integrations`; see lib/sentryIntegrations.ts), so
+// the Error monitoring section names none. If either line is ever removed, a
+// sentence disclosing what it sends has to come back with it.
 // When a flag, label, hostname or number changes, this page changes with it.
 const toc = [
     { id: 'transfer', label: 'How the transfer works' },
