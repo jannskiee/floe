@@ -70,8 +70,10 @@
  *   or WSL scratch under /var/tmp/floe-lta. Sizes are lower bounds on a
  *   pnpm tree, where node_modules is mostly links into a shared store, and
  *   a trailing + marks a size that stopped counting. The reported extras
- *   (go build cache, stashes, local-only branches, worktrees) are
- *   read-only notes and are never swept.
+ *   (go build cache, stashes, local-only branches, worktrees, branches
+ *   already on origin/main, other clones of this repository) are read-only
+ *   notes and are never swept: they are not candidates, so no flag reaches
+ *   them.
  *
  * Usage:
  *   node .claude/skills/deep-clean/scripts/deep-clean.mjs survey [options]
@@ -250,11 +252,15 @@ function denyList(roots, tempRoot) {
             path: path.join(localapp, 'ms-playwright'),
             why: 'shared Playwright browser install',
         },
-        // The stable operator --bin-dir. Deleting it re-arms the Windows
-        // firewall consent dialog on the next audit round.
+        // The stable operator --bin-dir. A Windows Firewall rule is bound to
+        // an exe path, so a binary rebuilt at a new path starts with none.
+        // Until 2026-09-16 that raised the consent dialog on the next audit
+        // round. The dialog is off on this machine since then, and the new
+        // path's inbound is blocked without a prompt (event 2011), which an
+        // audit reads as connect-timeout.
         {
             path: path.join(tempRoot, 'floe-audit', 'bin'),
-            why: 'stable operator --bin-dir; deleting it re-triggers firewall consent',
+            why: 'stable operator --bin-dir; a binary at a new path has no firewall rule and is blocked without a prompt',
         },
         // Unbacked-up, belong to no repo.
         {
@@ -266,6 +272,23 @@ function denyList(roots, tempRoot) {
             why: 'transcripts and auto memory; use claude project purge instead',
         },
     ];
+    // Where Floe Desktop saves request-link drops unless the owner picks
+    // another folder (requestDefaultDirFn in desktop/requestlink.go). A drop
+    // is somebody's files under the names the sender gave them, so no name
+    // rule can cover it; before this entry the folder was protected only by
+    // sitting outside both allow roots. Generated under every spelling of
+    // the home directory, for the reason makeFence gives: the folder often
+    // does not exist yet, and realpath hands a missing path back as spelled.
+    // The folder's own real path is added too, for a Downloads that is
+    // redirected to another drive.
+    for (const h of spellings(home)) {
+        for (const drops of spellings(path.join(h, 'Downloads', 'Floe'))) {
+            out.push({
+                path: drops,
+                why: 'request-link drops: files somebody sent you, not artifacts',
+            });
+        }
+    }
     for (const root of new Set(roots.map((r) => path.resolve(r)))) {
         out.push(
             {
@@ -757,6 +780,23 @@ function tempCandidates(rootForms, scratchDays, tempRoot) {
     }
     const stray =
         /^(floe-(doc|win|win-fixed|staged|shipped|head|on|off)\.exe|floe-run-t.*\.log|floeprobe.*|floetrav.*)$/i;
+    // What a test run leaves when it is killed before its own cleanup. Each
+    // pattern is the creator's exact shape and nothing wider, and only a
+    // directory counts, so a name a person chose is not picked up:
+    // os.MkdirTemp appends digits to its prefix (TestMain in cli/cmd/floe and
+    // in desktop), and Node's mkdtemp appends six letters or digits (the
+    // transfer-audit cell and request suites). Safe by rule, so the age
+    // guard holds one that a running test is still writing to.
+    const leftovers = [
+        [
+            /^floe-(cmd|desktop)-test-home-\d+$/,
+            'temporary home of a go test run that did not clean up',
+        ],
+        [
+            /^lta-(cell|request)-[A-Za-z0-9]{6}$/,
+            'temp folder of a transfer-audit test run that did not clean up',
+        ],
+    ];
     for (const e of entries) {
         if (stray.test(e.name)) {
             out.push({
@@ -766,7 +806,20 @@ function tempCandidates(rootForms, scratchDays, tempRoot) {
                 why: 'orphaned build or probe scratch',
                 group: 'tmp-scratch',
             });
+            continue;
         }
+        const leftover = e.isDirectory()
+            ? leftovers.find(([re]) => re.test(e.name))
+            : null;
+        if (leftover) {
+            out.push({
+                id: `tmp:${e.name}`,
+                path: path.join(tempRoot, e.name),
+                bucket: 'safe',
+                why: leftover[1],
+                group: 'tmp-test-leftover',
+            });
+    }
     }
     if (exists(path.join(tempRoot, 'floe-run.json'))) {
         out.push({
@@ -786,6 +839,29 @@ function tempCandidates(rootForms, scratchDays, tempRoot) {
                 why: 'transfer-audit evidence, and the manifest cleanup replays; run cleanup first',
             });
         }
+    }
+    // A run folder passed as --out, kept beside the stable bin directory.
+    // Ask, never safe: it holds the manifest transfer-audit cleanup replays
+    // to restore the real desktop.json, and the evidence of the run. bin has
+    // its own deny rule and out its own entry above, so neither is listed
+    // here, and a file is not a run folder.
+    let auditEntries = [];
+    try {
+        auditEntries = fs.readdirSync(path.join(tempRoot, 'floe-audit'), {
+            withFileTypes: true,
+        });
+    } catch {
+        auditEntries = [];
+    }
+    for (const e of auditEntries) {
+        if (!e.isDirectory() || /^(bin|out)$/i.test(e.name)) continue;
+        out.push({
+            id: `audit-run:${e.name}`,
+            path: path.join(tempRoot, 'floe-audit', e.name),
+            bucket: 'ask',
+            why: 'a transfer-audit run folder: its evidence, and the manifest cleanup replays; run cleanup first',
+            group: 'audit-run',
+        });
     }
     out.push(...scratchpadCandidates(rootForms, scratchDays, tempRoot));
     return out;
@@ -914,7 +990,66 @@ function firewallReport() {
     }
 }
 
-/** Read-only notes on state this skill deliberately does not sweep. */
+/** The origin URL in a clone's own config, or null. Reads one file. */
+function originUrlOf(dir) {
+    let text;
+    try {
+        text = fs.readFileSync(path.join(dir, '.git', 'config'), 'utf8');
+    } catch {
+        // No .git, or a .git file: a linked worktree, which git worktree
+        // list reports instead.
+        return null;
+    }
+    const m = /^\[remote "origin"\][^[]*?^\s*url\s*=\s*(.+)$/m.exec(text);
+    return m ? m[1].trim() : null;
+}
+
+const sameUrl = (u) =>
+    (u ?? '')
+        .trim()
+        .replace(/\/+$/, '')
+        .replace(/\.git$/i, '')
+        .toLowerCase();
+
+/**
+ * Other clones of this repository: directories beside the root and directly
+ * under the home directory whose origin is the root's. Task and lane clones
+ * pile up there and nothing else lists them. Deliberately a list of paths
+ * and no more: a clone is somebody's working tree, possibly with unpushed
+ * commits, and it is not sized because walking a tree another session is
+ * deleting leaves a crash dump behind and makes the deletion fail.
+ */
+function siblingClones(root) {
+    const want = sameUrl(git(root, ['config', '--get', 'remote.origin.url']));
+    if (!want) return [];
+    const self = new Set(spellings(root).map(norm));
+    const seen = new Set();
+    const out = [];
+    for (const parent of [path.dirname(root), os.homedir()]) {
+        let entries = [];
+        try {
+            entries = fs.readdirSync(parent, { withFileTypes: true });
+        } catch {
+            continue;
+        }
+        for (const e of entries) {
+            if (!e.isDirectory()) continue;
+            const dir = path.join(parent, e.name);
+            const key = norm(realOrSelf(dir));
+            if (self.has(key) || self.has(norm(dir)) || seen.has(key)) continue;
+            if (sameUrl(originUrlOf(dir)) !== want) continue;
+            seen.add(key);
+            out.push(dir);
+        }
+    }
+    return out.sort();
+}
+
+/**
+ * Read-only notes on state this skill deliberately does not sweep. A note is
+ * not a candidate: it has no id, it is never in the items list, and so no
+ * sweep and no --include can reach what it names.
+ */
 function externals(root) {
     const notes = [];
     const cache =
@@ -950,11 +1085,53 @@ function externals(root) {
             });
         }
     }
-    const wt = git(root, ['worktree', 'list']);
-    if (wt && wt.trim().split(/\r?\n/).length > 1) {
+    const wt = git(root, ['worktree', 'list', '--porcelain']);
+    if (wt) {
+        const trees = wt
+            .split(/\r?\n/)
+            .filter((l) => l.startsWith('worktree '))
+            .map((l) => l.slice('worktree '.length).trim());
+        if (trees.length > 1) {
+            const self = new Set(spellings(root).map(norm));
         notes.push({
             what: 'git worktrees',
-            detail: `${wt.trim().split(/\r?\n/).length} checked out`,
+                detail: `${trees.length} checked out`,
+                // Every working tree but the one being surveyed.
+                list: trees.filter(
+                    (t) => !self.has(norm(t)) && !self.has(norm(realOrSelf(t)))
+                ),
+        });
+    }
+    }
+    // Fails, and so says nothing, in a checkout with no origin/main. The
+    // branch checked out here is left out: a task branch with no commit yet
+    // sits on origin/main too, and it is anything but finished.
+    const merged = git(root, [
+        'branch',
+        '--merged',
+        'origin/main',
+        '--format=%(HEAD)%(refname:short)',
+    ]);
+    if (merged) {
+        const done = merged
+            .split(/\r?\n/)
+            .filter((l) => l.trim() && !l.startsWith('*'))
+            .map((l) => l.trim())
+            .filter((l) => l !== 'main' && !l.startsWith('('));
+        if (done.length) {
+            notes.push({
+                what: 'merged branches',
+                detail: `${done.length} local branch(es) with every commit on origin/main; a squash-merged branch never shows here, because its commits are not on main`,
+                list: done,
+            });
+        }
+    }
+    const clones = siblingClones(root);
+    if (clones.length) {
+        notes.push({
+            what: 'sibling clones',
+            detail: `${clones.length} clone(s) of this repository beside it or under the home directory; never swept, and not sized`,
+            list: clones,
         });
     }
     return notes;
@@ -1129,6 +1306,8 @@ function selfTest(root) {
         [path.join(root, 'client', '.next'), false],
         [path.join(root, 'client', 'playwright-report'), false],
         [path.join(tmp, 'floe-win-fixed.exe'), false],
+        [path.join(home, 'Downloads', 'Floe'), true],
+        [path.join(home, 'Downloads', 'Floe', 'drop', 'photo.jpg'), true],
     ];
     let bad = 0;
     for (const [p, shouldRefuse] of cases) {
@@ -1140,10 +1319,49 @@ function selfTest(root) {
             );
         }
     }
+    // The two Downloads cases above are refused for sitting outside the
+    // allow roots whether or not the Downloads\Floe rule exists. A fence
+    // whose temp root is Downloads takes that accident away: the rule alone
+    // must refuse the folder, and must not reach its neighbor. The home used
+    // here is a name under the temp directory that is never created, so the
+    // answer cannot depend on what the real Downloads folder holds (a link,
+    // a repository) and nothing is written.
+    const pretendHome = path.join(tmp, `deep-clean-self-test-${process.pid}`);
+    const savedHome = {
+        USERPROFILE: process.env.USERPROFILE,
+        HOME: process.env.HOME,
+    };
+    const byRule = [
+        [path.join(pretendHome, 'Downloads', 'Floe'), true],
+        [path.join(pretendHome, 'Downloads', 'Floe', 'drop', 'a.jpg'), true],
+        [path.join(pretendHome, 'Downloads', 'Floe-old'), false],
+    ];
+    process.env.USERPROFILE = pretendHome;
+    process.env.HOME = pretendHome;
+    try {
+        const inside = makeFence(root, [], path.join(pretendHome, 'Downloads'));
+        for (const [p, shouldRefuse] of byRule) {
+            const why = inside(p);
+            const byTheRule =
+                why !== null && why.startsWith('request-link drops');
+            if (shouldRefuse ? !byTheRule : why !== null) {
+                bad += 1;
+    console.log(
+                    `FAIL ${p}\n     expected ${shouldRefuse ? 'the Downloads/Floe rule' : 'allow'}, got ${why ?? 'allow'}`
+                );
+            }
+        }
+    } finally {
+        for (const [key, value] of Object.entries(savedHome)) {
+            if (value === undefined) delete process.env[key];
+            else process.env[key] = value;
+        }
+    }
+    const total = cases.length + byRule.length;
     console.log(
         bad === 0
-            ? `self-test ok (${cases.length} fence assertions)`
-            : `self-test FAILED (${bad} of ${cases.length})`
+            ? `self-test ok (${total} fence assertions)`
+            : `self-test FAILED (${bad} of ${total})`
     );
     return bad === 0 ? 0 : 1;
 }
@@ -1297,7 +1515,10 @@ function render(items, opts, result, extras) {
         console.log('\nnot swept, reported only');
         for (const n of extras.externals) {
             console.log(`  ${n.what.padEnd(22)} ${n.detail}`);
+            for (const entry of n.list ?? []) {
+                console.log(`  ${' '.repeat(22)} ${entry}`);
         }
+    }
     }
     if (opts.firewall) {
         console.log(
@@ -1328,7 +1549,8 @@ function main() {
         console.log(
             'usage: deep-clean.mjs [survey|sweep] [--apply] [--root dir]\n' +
                 '       [--age-minutes n] [--scratch-days n] [--include id]\n' +
-                '       [--keep path] [--firewall] [--verbose] [--json] [--self-test]'
+                '       [--keep path] [--firewall] [--verbose] [--temp-root dir]\n' +
+                '       [--json] [--self-test]'
         );
         return 0;
     }
