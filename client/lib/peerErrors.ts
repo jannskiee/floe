@@ -43,3 +43,17 @@ export function classifyPeerError(
 
     return { isExpected, reason };
 }
+
+/**
+ * Whether the sender's banner for an expected early error names the relay
+ * setting.
+ *
+ * Only with the box unchecked, and not for an abort. The analytics label above
+ * calls every such error 'relay-disabled', which is a fair bucket for a count,
+ * but the banner tells a person what to do: its relay sentence says to reload
+ * and make a new link, and a recipient who closed their tab during the
+ * handshake can simply open the same link again.
+ */
+export function senderErrorBlamesRelay(message: string | undefined, relayEnabled: boolean): boolean {
+    return !relayEnabled && !(message?.includes('User-Initiated Abort') ?? false);
+}

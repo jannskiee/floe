@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyPeerError } from './peerErrors';
+import { classifyPeerError, senderErrorBlamesRelay } from './peerErrors';
 
 describe('classifyPeerError', () => {
     describe('receiver (relayEnabled defaulted to true)', () => {
@@ -75,5 +75,27 @@ describe('classifyPeerError', () => {
                 reason: 'unknown',
             });
         });
+    });
+});
+
+describe('senderErrorBlamesRelay', () => {
+    it('blames the relay setting for a failure to connect with the box unchecked', () => {
+        expect(senderErrorBlamesRelay('Ice connection failed.', false)).toBe(true);
+        expect(senderErrorBlamesRelay('Connection failed.', false)).toBe(true);
+        expect(senderErrorBlamesRelay('something else went wrong', false)).toBe(true);
+        expect(senderErrorBlamesRelay(undefined, false)).toBe(true);
+    });
+
+    // With the box unchecked every early error took the relay sentence, and
+    // that sentence now tells the sender to reload and make a new link. A
+    // recipient who closed their tab during the handshake ends in an abort,
+    // and for them the link still works.
+    it('does not blame it when the other side simply left', () => {
+        expect(senderErrorBlamesRelay('User-Initiated Abort, reason=Close called', false)).toBe(false);
+    });
+
+    it('never blames it while the box is checked', () => {
+        expect(senderErrorBlamesRelay('Ice connection failed.', true)).toBe(false);
+        expect(senderErrorBlamesRelay('User-Initiated Abort, reason=Close called', true)).toBe(false);
     });
 });

@@ -36,7 +36,7 @@ import {useTransferAnalytics} from '@/hooks/useTransferAnalytics';
 import {useRelayConfiguration} from '@/hooks/useRelayConfiguration';
 import {RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, probeIsRelay} from '@/lib/relay';
 import {buildShareLink, getRoomFromUrl, isValidRoomId} from '@/lib/roomLink';
-import {classifyPeerError} from '@/lib/peerErrors';
+import {classifyPeerError, senderErrorBlamesRelay} from '@/lib/peerErrors';
 import {decideReceiverClose} from '@/lib/receiverClose';
 import {describeSenderStop, senderCloseInterrupted} from '@/lib/senderStop';
 import {verifiedLine, VERIFIED_LINE} from '@/lib/verifiedLine';
@@ -1001,9 +1001,9 @@ export function P2PTransfer() {
                     const verdict = evaluateRelayGate({ isRelay, relayEnabled, totalSize });
 
                     if (verdict.action === 'block-relay-disabled') {
-                        // The checkbox is gone once a link exists, so the way
-                        // back to it is a reload, where it starts checked.
-                        setError('Connection failed. This link was made with Network relay fallback off. Reload the page, leave it on, and share the new link.');
+                        // The checkbox is gone once a link exists. A reload
+                        // brings it back, checked, when files are added again.
+                        setError('Connection failed. This link was made with Network relay fallback off. Reload the page, add the files again, leave it on, and share the new link.');
                         setStatus('Connection failed');
                         Sentry.addBreadcrumb({
                             category: 'transfer',
@@ -1036,7 +1036,7 @@ export function P2PTransfer() {
                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             (peer as any)._channel as RTCDataChannel | undefined,
                             'Transfer blocked: relay connections are capped at 2 GB. ' +
-                                'Ask the sender to send fewer files, or to try a network that allows a direct connection.'
+                                'Ask the sender to send 2 GB or less, or to try a network that allows a direct connection.'
                         );
                         // Without this the connection stayed open and the person
                         // on the other end waited forever with nothing on screen.
@@ -1094,9 +1094,11 @@ export function P2PTransfer() {
                         level: 'warning',
                         data: { relayEnabled, errorMessage: err.message },
                     });
+                    // The relay sentence only when the relay could be the
+                    // cause: see senderErrorBlamesRelay.
                     setError(
-                        !relayEnabled
-                            ? 'Connection failed. This link was made with Network relay fallback off. Reload the page, leave it on, and share the new link.'
+                        senderErrorBlamesRelay(err.message, relayEnabled)
+                            ? 'Connection failed. This link was made with Network relay fallback off. Reload the page, add the files again, leave it on, and share the new link.'
                             : 'Connection lost. The other device may have closed the tab.'
                     );
                 } else {
@@ -1280,7 +1282,7 @@ export function P2PTransfer() {
                                 <div className="mt-2 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 flex items-start gap-3">
                                     <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />
                                     <div className="flex-1 text-xs text-amber-300 leading-relaxed">
-                                        Transfer limit exceeded. Relay connections are capped at 2 GB. Reload the page to send fewer files, or switch to a network that supports a direct connection.{' '}
+                                        Transfer limit exceeded. Relay connections are capped at 2 GB. Reload the page to send 2 GB or less, or to send from a network that supports a direct connection.{' '}
                                         <a href="/how-it-works#size-limit" target="_blank" rel="noreferrer" className="underline underline-offset-2 text-amber-400 hover:text-white transition-colors">
                                             Learn more
                                         </a>

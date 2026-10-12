@@ -276,10 +276,12 @@ describe('relay gate verdict table shared by P2PTransfer and RequestVisitor', ()
     // The words themselves, not only that the two callers agree on them. A
     // browser receiver shows this sentence as it arrives, and the sender it
     // describes cannot remove a file: the list is locked once a link exists.
+    // It names the size, because the gate reads bytes and one file can be
+    // over it, which "send fewer files" could not answer.
     it('the block reason asks the sender for something the sender can do', () => {
         expect(RELAY_BLOCK_REASON).toBe(
             'Transfer blocked: relay connections are capped at 2 GB. ' +
-                'Ask the sender to send fewer files, or to try a network that allows a direct connection.',
+                'Ask the sender to send 2 GB or less, or to try a network that allows a direct connection.',
         );
     });
 
@@ -295,11 +297,12 @@ describe('relay gate verdict table shared by P2PTransfer and RequestVisitor', ()
         // Shown only when the sender unchecked the box, at both sites.
         const senderOff =
             'Connection failed. This link was made with Network relay fallback off. ' +
-            'Reload the page, leave it on, and share the new link.';
+            'Reload the page, add the files again, leave it on, and share the new link.';
         expect(main.split(senderOff)).toHaveLength(3);
         // The receiver cannot know which kind of sender it has, so it names no
         // control: a checkbox in the browser, --no-relay on the CLI.
         expect(main).toContain('Could not connect. Ask the sender to try again with the relay allowed.');
-        expect(main).toContain('Reload the page to send fewer files, or switch to a network that supports a direct connection.');
+        expect(main).toContain('Reload the page to send 2 GB or less, or to send from a network that supports a direct connection.');
+        expect(main).not.toMatch(/fewer files/i);
     });
 });

@@ -2,6 +2,7 @@ import type { RefObject } from 'react';
 import { CheckCircle2, Loader2, X } from 'lucide-react';
 import { FileIcon } from '@/components/FileIcon';
 import { formatBytes } from '@/lib/utils';
+import { fileListScrolls } from '@/lib/fileListScroll';
 import type { FileWithId } from '@/hooks/useFileManagement';
 
 interface SelectedFilesListProps {
@@ -30,10 +31,14 @@ export function SelectedFilesList({
     onDeleteFile,
     listRef,
 }: SelectedFilesListProps) {
+    // A scroll box only once the rows no longer fit: see lib/fileListScroll.ts.
+    const listClass = fileListScrolls(files.length)
+        ? 'space-y-3 max-h-[300px] overflow-y-auto pr-1 pb-1 custom-scrollbar'
+        : 'space-y-3 pb-1';
     return (
         <div
             ref={listRef}
-            className="space-y-3 max-h-[300px] overflow-y-auto pr-1 pb-1 custom-scrollbar"
+            className={listClass}
         >
             {files.map((item, i) => (
                 <div
@@ -53,9 +58,7 @@ export function SelectedFilesList({
                         >
                             {item.file.name}
                         </span>
-                        {/* Hidden, not transparent, so it adds nothing to the
-                            list's scroll range. See ReceivedFilesList. */}
-                        <div className="absolute top-full left-0 mt-1 hidden peer-hover:block z-[9999] w-max max-w-[min(240px,calc(100vw-8rem))] px-3 py-2 text-xs font-medium text-white bg-zinc-950 rounded-lg border border-zinc-800 shadow-2xl break-all pointer-events-none">
+                        <div className="absolute top-full left-0 mt-1 opacity-0 peer-hover:opacity-100 z-[9999] w-max max-w-[min(240px,calc(100vw-8rem))] px-3 py-2 text-xs font-medium text-white bg-zinc-950 rounded-lg border border-zinc-800 shadow-2xl break-all pointer-events-none">
                             {item.file.name}
                             <div className="absolute bottom-full left-4 h-0 w-0 border-l-[7px] border-r-[7px] border-b-[7px] border-l-transparent border-r-transparent border-b-zinc-800"></div>
                             <div className="absolute bottom-full left-[17px] mt-[1px] h-0 w-0 border-l-[6px] border-r-[6px] border-b-[6px] border-l-transparent border-r-transparent border-b-zinc-950"></div>

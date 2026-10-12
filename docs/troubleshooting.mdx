@@ -143,7 +143,7 @@ the same way, so the relay is not always the culprit.
 
 Ask the sender to start a new transfer with the relay allowed, then open the new link.
 
-### "Connection failed. This link was made with Network relay fallback off. Reload the page, leave it on, and share the new link." {#connection-failed-enable-network-relay-to-connect-across-restrictive-networks}
+### "Connection failed. This link was made with Network relay fallback off. Reload the page, add the files again, leave it on, and share the new link." {#connection-failed-enable-network-relay-to-connect-across-restrictive-networks}
 
 On the sending page, when **Network relay fallback** is unchecked. Either the only path that came
 up was a relayed one, and Floe closed it rather than send over a route you excluded, or the
@@ -210,13 +210,13 @@ status line and its link, and nobody who opens that link reaches it.
 On the sending page, as the status line under the share link, with an amber notice that starts
 "Transfer limit exceeded." The connection turned out to be relayed and the files total more than
 2 GB, so nothing was sent. The receiving page is told why: "Transfer blocked: relay connections are
-capped at 2 GB. Ask the sender to send fewer files, or to try a network that allows a direct
-connection." (A sender on a self-hosted web app on version 1.11.0 or earlier sends "remove files"
-where this says "send fewer files", and its own notice says "Remove files to proceed".)
+capped at 2 GB. Ask the sender to send 2 GB or less, or to try a network that allows a direct
+connection." (A sender on a self-hosted web app on versions 1.10.8 to 1.11.0 sends "remove files"
+where this says "send 2 GB or less", and its own notice says "Remove files to proceed".)
 
 Start a new transfer with less than 2 GB in it, or from a network that connects directly, where
-Floe sets no limit. The file list is locked once a link exists, so sending fewer files means
-reloading the page and adding them again, as the notice says. See
+Floe sets no limit. The file list is locked once a link exists, so either way means reloading
+the page and adding the files again, as the notice says. See
 [File size limits](/how-it-works/2gb-limit).
 
 ### "Transfer timed out waiting for receiver. Please try again." {#transfer-timed-out-waiting-for-receiver-please-try-again}

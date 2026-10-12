@@ -118,7 +118,7 @@ export const DEFAULT_STUN_SERVERS: readonly RTCIceServer[] = [
  *  shows it: it maps the abort to fixed copy of its own. */
 export const RELAY_BLOCK_REASON =
     'Transfer blocked: relay connections are capped at 2 GB. ' +
-    'Ask the sender to send fewer files, or to try a network that allows a direct connection.';
+    'Ask the sender to send 2 GB or less, or to try a network that allows a direct connection.';
 
 /** The abort text for the visitor's own Cancel. Fixed, like every string this
  *  page puts on the wire. */

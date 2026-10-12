@@ -3,6 +3,7 @@ import { CheckCircle2, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatBytes } from '@/lib/utils';
 import { sanitizeFileName } from '@/lib/download';
+import { fileListScrolls } from '@/lib/fileListScroll';
 import type { ReceivedFile } from '@/hooks/useDownloadManager';
 
 interface ReceivedFilesListProps {
@@ -16,10 +17,14 @@ interface ReceivedFilesListProps {
  * ref live in P2PTransfer.
  */
 export function ReceivedFilesList({ receivedFiles, listRef }: ReceivedFilesListProps) {
+    // A scroll box only once the rows no longer fit: see lib/fileListScroll.ts.
+    const listClass = fileListScrolls(receivedFiles.length)
+        ? 'space-y-3 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar'
+        : 'space-y-3';
     return (
         <div
             ref={listRef}
-            className="space-y-3 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar"
+            className={listClass}
         >
             {receivedFiles.map((file) => {
                 // The peer chose this name. Show it cleaned, so a
@@ -41,11 +46,7 @@ export function ReceivedFilesList({ receivedFiles, listRef }: ReceivedFilesListP
                             <span className="text-sm font-medium text-white truncate max-w-[140px] sm:max-w-[250px] cursor-help">
                                 {safeName}
                             </span>
-                            {/* Hidden, not transparent: a transparent box still
-                                adds its height to the list's scroll range, and
-                                the scroll to the bottom after each file then cut
-                                23 px off the first row of a list that fit. */}
-                            <div className="absolute top-full left-0 mt-1 hidden group-hover/fname:block z-[9999] w-max max-w-[min(240px,calc(100vw-8rem))] px-3 py-2 text-xs font-medium text-white bg-zinc-950 rounded-lg border border-zinc-800 shadow-2xl break-all pointer-events-none">
+                            <div className="absolute top-full left-0 mt-1 opacity-0 group-hover/fname:opacity-100 z-[9999] w-max max-w-[min(240px,calc(100vw-8rem))] px-3 py-2 text-xs font-medium text-white bg-zinc-950 rounded-lg border border-zinc-800 shadow-2xl break-all pointer-events-none">
                                 {safeName}
                                 <div className="absolute bottom-full left-4 h-0 w-0 border-l-[7px] border-r-[7px] border-b-[7px] border-l-transparent border-r-transparent border-b-zinc-800"></div>
                                 <div className="absolute bottom-full left-[17px] mt-[1px] h-0 w-0 border-l-[6px] border-r-[6px] border-b-[6px] border-l-transparent border-r-transparent border-b-zinc-950"></div>

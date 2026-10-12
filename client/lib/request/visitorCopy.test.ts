@@ -181,7 +181,7 @@ describe('visitor copy: server answers and the attempt states', () => {
         expect(statusCopy(model('V9'), CTX)).toMatchObject({
             title: 'Relay limit',
             lines: [
-                'This connection needs a relay, and relayed drops are capped at 2 GB. Send fewer files, or try another network.',
+                'This connection needs a relay, and relayed drops are capped at 2 GB. Send 2 GB or less, or try another network.',
             ],
             learnMore: true,
             action: 'back-to-files',
@@ -453,10 +453,10 @@ describe('visitor copy: Ready and Sending strings', () => {
         expect(sendLabel(12)).toBe('Send 12 files');
         expect(sendLabel(1)).toBe('Send 1 file');
         // C-31 names the cap and both ways out; the count line above it
-        // already carries the size (D-136). "Send fewer files", not "remove
-        // files": the page has Clear and Add more files, and no way to take
-        // one file out of the list.
-        expect(visitorCopy.relayCapReady).toBe('Relayed drops are capped at 2 GB. Turn off Hide my IP, or send fewer files.');
+        // already carries the size (D-136). The size, not "remove files" or a
+        // count: the page has Clear and Add more files and no way to take one
+        // file out, and the gate reads bytes, so one file can be over it.
+        expect(visitorCopy.relayCapReady).toBe('Relayed drops are capped at 2 GB. Turn off Hide my IP, or send 2 GB or less.');
     });
 
     it('sending header, progress line and the visitor\'s own path', () => {
