@@ -85,8 +85,8 @@ still gathered and offered in that case; they simply lost.
 Turning the relay off removes the relay entries from the address list that side uses, so it has
 nothing relayed to offer. It does not stop the other side from offering one, and if that path
 wins, the two surfaces behave differently. The **browser** notices and blocks the transfer
-before any file data moves, with
-[`Connection failed. This link was made with Network relay fallback off. Reload the page, add the files again, leave it on, and share the new link.`](/troubleshooting#connection-failed-enable-network-relay-to-connect-across-restrictive-networks)
+before any file data moves, with a message that begins
+[`Connection failed. This link was made with Network relay fallback off.`](/troubleshooting#connection-failed-enable-network-relay-to-connect-across-restrictive-networks)
 The **CLI does not**: `--no-relay` is ICE filtering and nothing more, so a `floe send --no-relay`
 whose peer supplied the winning relay candidate goes ahead over it. Treat the flag as "do not
 offer a relay" rather than as a guarantee.
