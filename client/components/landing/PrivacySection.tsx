@@ -83,7 +83,7 @@ function LedgerColumn({
                         <span className={`select-none font-mono text-xs ${markerClass}`} aria-hidden="true">
                             {marker}
                         </span>
-                        <span>{item}</span>
+                        <span className="text-pretty">{item}</span>
                     </li>
                 ))}
             </ul>

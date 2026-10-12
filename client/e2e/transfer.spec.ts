@@ -152,6 +152,8 @@ test('transfers a 512-byte file (framing guard: chunk fits under 1 KB threshold)
         const blobUrl = (await downloadLink.getAttribute('href'))!;
         const receivedHash = await sha256OfBlobUrl(receiverPage, blobUrl);
         expect(receivedHash).toBe(expectedHash);
+        // With a sender there, the footer still says what closing the tab costs.
+        await expect(receiverPage.getByText(/closing it interrupts the download/i)).toBeVisible();
     } finally {
         await senderCtx.close();
         await receiverCtx.close();

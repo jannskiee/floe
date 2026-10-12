@@ -1471,12 +1471,18 @@ export function P2PTransfer() {
                 </CardContent>
 
                 <CardFooter className="justify-center border-t border-white/[0.06] !pt-4">
-                    {isSender && !generatedLink ? (
+                    {/* The keep-open line is for a tab that something depends
+                        on. Under the Link Invalid card, and while nobody is on
+                        the sending side and nothing has arrived, nothing does:
+                        it told a person the card had just told to leave that
+                        closing the tab would interrupt a download. */}
+                    {(isSender && !generatedLink) ||
+                    (!isSender && (error.includes('Link Expired') || (senderAbsent && receivedFiles.length === 0))) ? (
                         <p className="text-balance text-[10px] uppercase tracking-wide text-zinc-500 text-center leading-relaxed">
                             End-to-end encrypted. Files are never stored on a server.
                         </p>
                     ) : (
-                        <p className="text-[10px] uppercase tracking-wide text-amber-300/80 text-center leading-relaxed">
+                        <p className="text-balance text-[10px] uppercase tracking-wide text-amber-300/80 text-center leading-relaxed">
                             Keep this tab open. Closing it{' '}
                             {isSender ? 'cancels the transfer' : 'interrupts the download'}.
                         </p>

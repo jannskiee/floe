@@ -86,7 +86,7 @@ export function ReceiverPanel({
                                     <Circle className="h-3.5 w-3.5 shrink-0 text-amber-400" />
                                     The sender is not connected
                                 </div>
-                                <p className="pl-6 text-xs leading-relaxed text-zinc-500">
+                                <p className="text-balance pl-6 text-xs leading-relaxed text-zinc-500">
                                     Keep this page open if they are coming back. Otherwise ask them for a new link.
                                 </p>
                             </div>

@@ -20,6 +20,9 @@ test('a malformed room id shows the Link Invalid card, not an endless wait', asy
     await expect(page.getByRole('heading', { name: 'Link Invalid' })).toBeVisible();
     // The receiver handshake pipeline must never appear for a rejected link.
     await expect(page.getByText(/waiting for the sender/i)).toHaveCount(0);
+    // The card tells the person to leave, so the footer must not also say
+    // that a download depends on this tab staying open.
+    await expect(page.getByText(/closing it interrupts the download/i)).toHaveCount(0);
 });
 
 test('a well-formed room id is not rejected and reaches the handshake pipeline', async ({
@@ -52,4 +55,7 @@ test('a link nobody holds says the sender is not connected, not that it is about
     // The room did take the page: this is not the Link Invalid card.
     await expect(page.getByText('Secure room joined')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Link Invalid' })).toHaveCount(0);
+    // Nothing is downloading, and the line above already says when to stay
+    // and when to ask for a new link.
+    await expect(page.getByText(/closing it interrupts the download/i)).toHaveCount(0);
 });
