@@ -6,7 +6,8 @@ description: 'Land a change end to end: classify the CI lane, run the local chec
 # ship-it
 
 Paths below are relative to the repo root. From a worktree or checkout that
-predates the skill, use the absolute path to one that has them.
+predates the skill, use the absolute path to one that has them, and read this file
+from that checkout too.
 
 ## 0. Checkpoint or ship?
 
@@ -18,26 +19,39 @@ only. Ship = every step. Never skip step 4's signing recipe for either.
 - `git branch --show-current` must print a non-main branch name (a detached HEAD prints
   nothing and passes a naive "not main" check). main rejects pushes with GH013; no
   bypass, not even the owner. On main: `git checkout -b <free-form name>`.
+- When the change lives in another clone than the folder the session started in, every
+  git command is `git -C <absolute clone path>`. In the PowerShell tool a failed
+  `Set-Location` does NOT stop the chain: the commands after it run in the session's
+  own folder, and on 2026-09-25 that detached the owner's checkout. Never chain a git
+  write after a bare `Set-Location`.
 - `git fetch origin` so origin/main is current (local main has been stale before).
 - `git status --short`, then stage by name, now: unstaged edits classify as nothing in
   step 2. Never `git add -A` while next dev runs: it writes client/AGENTS.md,
-  client/CLAUDE.md and rewrites next-env.d.ts.
+  client/CLAUDE.md and rewrites client/next-env.d.ts. `next build` rewrites
+  client/next-env.d.ts too, so after a local build run
+  `git checkout -- client/next-env.d.ts` before staging anything under client/.
 
 ## 2. Lane
 
 `git diff --name-only --cached` plus `git diff --name-only origin/main...HEAD` (staged
 first, per step 1; an unstaged edit is invisible to both). Same rule as ci.yml's
-`Detect changed paths` job: any path not under docs/ or .claude/skills/ is code (full
-matrix, about 10 min); a docs-only PR skips the heavy jobs, and a skills-only PR skips
-them too and runs `Skill test suites` instead (outside the gate); `Repo guardrails`
-runs on every PR; anything under .github/workflows/ or .github/scripts/ also runs `Lint
-workflows` (actionlint and shellcheck). references/lanes.md maps touched areas to local
-commands.
+`Detect changed paths` job: any path that is under neither docs/ nor .claude/skills/
+is code (full matrix; ten code PRs took 9 to 15 minutes). A PR whose every file is
+under docs/ or .claude/skills/ skips the heavy jobs: docs only, skills only, or the
+two together, which is not a full-suite PR. Whenever a file under .claude/skills/
+changed it also runs `Skill test suites`, which is outside the gate (step 7);
+`Repo guardrails` runs on every PR; anything under .github/workflows/ or
+.github/scripts/ also runs `Lint workflows` (actionlint and shellcheck).
+references/lanes.md maps touched areas to local commands.
 
 ## 3. Local checks
 
-Run only the rows for touched areas. If docs or root markdown changed, run docs-verify's
-script first (layer 1; the claim walk is the author's job before this point). Skip what
+On every lane, first: `node .claude/skills/docs-verify/scripts/docs-check.mjs all`.
+The gate runs it on every PR (the docs pre-flight step of `Repo guardrails`), and it
+reads code as well as docs: a changed server default, or a floe.one/docs link in Go,
+TypeScript, a workflow or root Markdown, fails it on a PR that touched no page. (For a
+docs change this is layer 1 of docs-verify; the claim walk is the author's job before
+this point.) Then run only the rows for touched areas. Skip what
 only CI can arbitrate and say so in the test plan: `E2E (browser + CLI interop, <os>)`
 x3, `Back-compat (HEAD vs latest release)`, the packaging steps of `Desktop (Wails,
 windows-latest)`, `Docker (self-hosting stack)`, and the shellcheck half of `Lint
@@ -58,30 +72,61 @@ trailer (CLAUDE.md, Git Conventions).
 ## 5. Push and PR
 
 `git push -u origin <branch>` (either tool; no signing involved). Write the body file
-(## Summary, ## Test plan, no AI footer) and
-`gh pr create --title "<subject>" --body-file <file>`. Never pass quote-bearing text
+(## Summary, ## Test plan, no AI footer) with the Write tool, in a step of its own,
+and read it back before anything uses it. Then
+`gh pr create --title "<subject>" --body-file <file>`. Never put a file write and the
+command that consumes it in one batch of tool calls: on 2026-10-12 the write of a body
+file failed, the `gh pr merge` batched beside it still ran, and the squash commit of
+#526 carries a placeholder body on main. Never pass quote-bearing text
 inline from PowerShell: PowerShell 5.1 mangles interior double quotes, and its
 double-quoted strings also expand `$name` and backticks. A title containing `"`, `$` or
 a backtick goes through the Bash tool instead (gh needs no signing, so the PowerShell
-rule does not apply to it).
+rule does not apply to it). The same goes for every `gh ... --jq '<expression>'` whose
+expression has a space in it: from the PowerShell tool gh answers "accepts at most 1
+arg(s)", so run those from the Bash tool.
 
 ## 6. Wait
 
-`node .claude/skills/ship-it/scripts/wait-ci.mjs <pr-number>` (either tool). Docs
-and skills lanes finish within a minute or two; for code lanes run it with
-run_in_background (the tool call cap is 600 s, the script's default timeout is 9 min,
-rerun to keep waiting). Exit 0
+`node .claude/skills/ship-it/scripts/wait-ci.mjs <pr-number>` (either tool). Never
+pipe it (`| tail`, `| Select-Object`): the pipe's exit code replaces the script's, and
+a red run has read as green that way. Run it bare and read its last line. Docs
+and skills lanes finish within a minute or two. For a code lane run it with
+run_in_background and `--timeout-min 20`: the default of 9 minutes is deliberate (it
+fits under the 600 s cap of a foreground tool call) and is shorter than most code
+runs, so a foreground wait on a code PR ends in exit 3. Exit 0
 green. 1 red: the failed job names and a `gh run view <id> --log-failed` command are
-printed (a gate that completed as skipped or neutral counts as red). 2 dropped event:
+printed (a gate that completed as skipped or neutral counts as red); that command
+answers "still in progress" until the WHOLE run has ended, not just the failed job.
+2 dropped event:
 run the printed `gh workflow run ci.yml --ref <branch>` once, then wait again (gh pr
-checks will not list dispatched jobs; this script reads check-runs by SHA). 3 timeout.
-4: fix the target (see references/blocked-pr.md), do not retry. Anything else:
-references/blocked-pr.md.
+checks will not list dispatched jobs; this script reads check-runs by SHA). 3 timeout:
+nothing failed, the script stopped waiting; run it again. 4: fix the target (see
+references/blocked-pr.md), do not retry. Anything else: references/blocked-pr.md.
 
 ## 7. Merge
 
-`gh pr merge <n> --squash --subject "<subject> (#<n>)" --body-file <same body file>`.
-Pass both anyway so the result never depends on the repo setting (it was
+A step of its own, after the body file was written and read back (step 5).
+
+When the PR touches .claude/skills/, exit 0 is not yet the whole answer.
+`Skill test suites` is outside the gate's `needs`, so `CI green` goes green about two
+minutes before the only job that tests the change has reported, and a red there shows
+on the PR as `UNSTABLE`, which GitHub merges without complaint. Until that job joins
+the gate, read it by name on the PR's head commit before merging (Bash tool):
+
+```text
+gh api repos/jannskiee/floe/commits/<full sha>/check-runs --jq '.check_runs[] | select(.name == "Skill test suites") | .status + " " + (.conclusion // "-")'
+```
+
+It must print `completed success`. `queued` or `in_progress` means wait and read it
+again; a failure is fixed, or explained in the PR, before the merge.
+
+`gh pr merge <n> --squash --match-head-commit <full sha> --subject "<subject> (#<n>)" --body-file <same body file>`.
+The SHA is the head the checks ran on, read with
+`gh pr view <n> --json headRefOid --jq .headRefOid` and pasted, never typed: gh wants
+all 40 characters and refuses anything else. It makes the merge fail when the branch
+head is no longer the commit you checked (a bot rebased it, someone pushed), instead
+of merging whatever is there now. Pass the subject and body anyway so the result never
+depends on the repo setting (it was
 COMMIT_MESSAGES until 2026-08-28, which concatenated every branch commit into the squash
 body). The subject is verbatim, so you add the (#n). A subject containing `"`, `$` or a
 backtick goes through the Bash tool, as in step 5.
@@ -96,6 +141,11 @@ out). `gh api repos/{owner}/{repo}/branches/<branch>` returns 404 (auto-delete i
 Done means merged, origin/main carries the squash commit, branch gone. CI green is a
 gate, not proof: the test plan carries what you actually checked. A green run proves the
 suite passed on that SHA and nothing about behavior the suite does not cover.
+
+After a merge that touches .claude/skills/ or CLAUDE.md, one more thing: the project
+folder that sessions start in loads its own copy of both, so it needs
+`git pull --ff-only` before a new session sees the change. Until then every session
+opened there runs the old skill.
 
 ## Pointers
 
