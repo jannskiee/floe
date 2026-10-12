@@ -56,8 +56,10 @@ The card walks through three steps as it gets ready, and offers one choice.
 The badge at the top right means the same thing it does on the sending side: **Offline** (red) is
 no signaling connection, **Ready** (green) is signaling up but the route not yet decided,
 **Direct** (green) is device to device, and **Relay** (amber) is through the encrypted relay. It
-tracks your own connection, so a green **Ready** does not mean the sender is ready. The ping
-readout next to it is shown to senders only.
+tracks your own connection, so a green **Ready** does not mean the sender is ready. On this page
+it also turns **Offline** once the connection to the sender has closed, which is how a finished
+transfer from `floe send` or Floe Desktop ends. The ping readout next to it is shown to senders
+only.
 
 The transfer starts by itself, usually a couple of seconds after the connection is established.
 If it never starts, the sender's side may have stopped it: a browser sender checks the route before

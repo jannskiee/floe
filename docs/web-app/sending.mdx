@@ -167,6 +167,9 @@ on your side, and the receiving page shows its own instead. See
 After the other side disconnects, the status may change to "Transfer complete", which is the same
 result. If their device drops off the network without closing the connection, the status can
 change to "Connection interrupted" instead, although every byte had already left this browser.
+When the status changes either way, the last file's check mark turns back into a spinner and the
+progress row reads "Sending file 3 of 3..." at 100%, with your own numbers. Every file was still
+sent.
 
 If the receiving side discards a file because it did not match, the status reads "Transfer failed"
 instead, even when "All Files Sent!" was already showing, and the card says "The other side
