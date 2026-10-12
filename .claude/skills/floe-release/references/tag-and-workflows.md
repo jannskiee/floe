@@ -1,6 +1,6 @@
 # Tags and the workflows they fire
 
-Read from the workflow files on `main` on 2026-08-28; the images.yml rows on 2026-09-30. When a workflow changes, reread it; this page describes, it does not decide.
+Read from the workflow files on `main` on 2026-10-12 (2a6e273). When a workflow changes, reread it; this page describes, it does not decide.
 
 | Trigger             | Workflow                                | Result                                                                                                  |
 | ------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------- |
@@ -14,26 +14,30 @@ Read from the workflow files on `main` on 2026-08-28; the images.yml rows on 202
 
 - GoReleaser is pinned to an exact `v2.17.1` (a range would resolve through a non-GitHub host inside the step that carries `TAP_GITHUB_TOKEN`); Dependabot does not bump action inputs, so raise it by hand when a release needs a newer one.
 - `.goreleaser.yml` builds linux, darwin and windows for amd64 and arm64: six archives named `floe_X.Y.Z_<os>_<arch>` (zip on windows, tar.gz elsewhere) plus `checksums.txt`.
-- `main.version` is `{{ .Version }}`, the tag WITHOUT the leading `v`, so a `v1.10.5` binary prints `floe 1.10.5`.
+- `main.version` is `{{ .Version }}`, the tag WITHOUT the leading `v`, so a `vX.Y.Z` binary prints `floe X.Y.Z`.
+- Go is `1.26` with `check-latest: true`, so the release builds on the newest 1.26 patch in the actions manifest, not on the one the runner image has cached. ci.yml sets the same flag, so that patch is normally one CI has already built and tested. The exception is the trap: a tag pushed after a new patch reaches the manifest and before any CI run.
+- The release body is the list GoReleaser writes from commit subjects, then `release.footer`: a "What changed" line linking `changelog#<tag with the dots as hyphens>`. The list drops every `docs`, `test`, `chore`, `style`, `refactor` and `ci` subject, with or without a scope, and merge commits; a breaking subject (`chore!:`) still shows. What changed for a user is only in the hand-written changelog.
 - The release is the repository's Latest. `/releases/latest` must keep resolving to a CLI release: the install scripts, `floe update` and the back-compat CI job depend on it, which is why the desktop series is a pre-release.
 - The same run publishes the Homebrew cask (`jannskiee/homebrew-tap`), the Scoop manifest (`jannskiee/scoop-bucket`) and a PR to `microsoft/winget-pkgs` from the `jannskiee/winget-pkgs` fork, all through `TAP_GITHUB_TOKEN`.
-- The `release-tags` ruleset forbids deletion, update and non-fast-forward on `refs/tags/v*`. A pushed `v*` tag is permanent, so confirm the push with the user first; a failed run is rerun in place with `gh run rerun <id> --failed`.
+- The `release-tags` ruleset forbids deletion, update and non-fast-forward on `refs/tags/v*`. A pushed `v*` tag is permanent, so confirm the push with the user first; a failed run is rerun in place with `gh run rerun <id> --failed`. release.yml has no `concurrency` block.
 
 ## `v*` and images.yml
 
 - Runs on `v*` tags and on pushes to `main` that touch `client/`, `server/`, the workflow, or `.github/scripts/*.sh`, plus `workflow_dispatch`. Path filters are not evaluated for tag pushes, so a tag always publishes. A dispatch builds only on `main`. On any other ref (a branch, or a `v*` tag, where it would move `latest` and `X.Y` to that release and roll self-hosters back) the `build` job's `if:` skips it, `publish` skips with it, and a `refuse` job fails the run with a message; a failed tag run is rerun in place with `gh run rerun <id> --failed` instead (GitHub allows that for 30 days; after that, rebuilding a release's images takes a new tag). The guard lives in each ref's own copy of images.yml, so it covers only refs cut after it: every tag through v1.10.11, a branch cut before it, or one that edits it still publishes when dispatched. Never dispatch images.yml on a tag.
-- Tags: `type=semver` gives `1.10.5` and `1.10`; the default `latest=auto` flavor moves `latest` only on a semver tag, never on a branch push or a dispatch on `main`; branch pushes and dispatches get `main` and `sha-<short>`.
+- Tags: `type=semver` gives `X.Y.Z` and `X.Y`; the default `latest=auto` flavor moves `latest` only on a semver tag, never on a branch push or a dispatch on `main`; branch pushes and dispatches get `main` and `sha-<short>`. So a `server/` or `client/` fix reaches a self-hoster on the default tag only through a `v*` tag, and the proof that it did is the digest of `latest` against the digest of `X.Y.Z` (SKILL.md step 5).
 - Four native legs (two images, amd64 and arm64) each push by digest and smoke-test before a single tag moves; both images publish together or not at all.
+- `concurrency` is per workflow and ref with `cancel-in-progress: false`: a publish is never canceled, and a second run on the same ref queues behind the first.
+- Nothing here, and nothing in any workflow, deploys api.floe.one. The signaling VM runs whatever commit it last pulled (SKILL.md step 1a).
 
 ## `desktop-v*` and desktop-release.yml
 
-- `windows-latest`. Frontend `npm ci`, `npm test`, `npm run build`, then `go test ./...` in `desktop/`, then `wails build -s -nsis`.
-- The tag must be strictly numeric `desktop-vX.Y.Z` (NSIS `VIProductVersion` rejects suffixes) and the version is injected VERBATIM: `-X main.version=desktop-v0.2.8`.
+- `windows-latest`, Go `1.26` with `check-latest: true`, Node 22. In order: frontend `npm ci`, `npm test`, `npm run build`; `go vet ./...` and `go test -count=1 ./...` in `desktop/`; the Wails CLI installed at `WAILS_VERSION`, after a `grep` that fails the job when that version and `desktop/go.mod` disagree; NSIS installed with one retry; then `wails build -s -nsis`.
+- The tag must be strictly numeric `desktop-vX.Y.Z` (NSIS `VIProductVersion` rejects suffixes) and the version is injected VERBATIM: `-X main.version=desktop-vX.Y.Z`.
 - `desktop/wails.json` is stamped from the tag in the runner's working tree, never committed, so the committed `productVersion` only feeds the dispatch path. Bump it anyway so the tree matches what shipped.
 - Assets: `floe-desktop-setup-$V.exe` (NSIS installer), `floe-desktop-$V-windows-amd64.zip` (exe plus LICENSE), `SHA256SUMS.txt` (LF endings on purpose, so `sha256sum -c` works). Published with `gh release create --verify-tag --prerelease --latest=false`; both flags are unconditional.
 - The release body is boilerplate; /download's "Release notes" link points at the docs changelog instead. The body's own "What changed" line links to that release's changelog entry, with the anchor built from the tag (`desktop-v0.3.0` gives `changelog#desktop-v0-3-0`), so nothing is edited by hand after the run. `v*` releases get the same line from `release.footer` in `.goreleaser.yml`. The anchor exists when the changelog has an entry labeled with the tag, which the prep PR adds before the tag is pushed. A release with nothing user-visible has no entry, and its link then lands at the top of the changelog.
-- The MSIX is a workflow ARTIFACT, `floe-desktop-msix-<X.Y.Z>-run<run_number>`, built into `dist-msix/` so the release glob never attaches it. The run id comes from `gh run list --workflow desktop-release.yml`; fetch with `gh run download <id> -n <artifact-name>`. `.claude/skills/store-submit/scripts/msix-preflight.mjs` does both, skips a canceled twin run (2026-08-27), and verifies the manifest inside.
-- Publishing is the last step, so a failed run leaves no release. No ruleset protects `desktop-v*`: delete the tag and re-cut the same number. Once the Store has accepted a version, a lower Identity version is refused, so a shipped desktop number is never reused.
+- The MSIX is a workflow ARTIFACT, `floe-desktop-msix-<X.Y.Z>-run<run_number>`, built into `dist-msix/` so the release glob never attaches it. The run id comes from `gh run list --workflow desktop-release.yml`; fetch with `gh run download <id> -n <artifact-name>`. `.claude/skills/store-submit/scripts/msix-preflight.mjs` does both, skips a canceled twin run (2026-08-27), and verifies the manifest inside. The name carries the run number, not the attempt, so a rerun keeps it.
+- Publishing is the last step, so a failed run leaves no release and no partial state. `concurrency` is per workflow and ref with `cancel-in-progress: false`, so a second run on the tag queues behind the first and never races it. A transient failure is therefore rerun on the same tag with `gh run rerun <id> --failed` (desktop-v0.2.11, 2026-09-09: a checksum-database read failed while the Wails CLI installed, and the second attempt shipped it). Deleting the tag and re-cutting the same number is for a failure that needs new code; no ruleset protects `desktop-v*`. Once the Store has accepted a version, a lower Identity version is refused, so a shipped desktop number is never reused.
 
 ## `workflow_dispatch` on desktop-release.yml
 
@@ -46,3 +50,20 @@ Same steps, version read from `desktop/wails.json`, in-app version string `dev`,
 ## Package managers
 
 GoReleaser opens the winget-pkgs PR. A red `Validation-Installation-Error` there is usually an arm64 host timeout: verify the package, then close and reopen the PR (memory `project_winget_arm64_validation_flake`).
+
+## Release-day traps
+
+Each one happened on a release day. The date is when.
+
+- **One tag per push.** Two tags in one `git push` fired every tag workflow twice and the twins raced (2026-08-28). SKILL.md step 3.
+- **Say what becomes public before the command, not after.** The prep merge, each tag push, the Store submit and a restart of the live server are public the moment they run. Four of them once went out with the sentence written afterward (2026-09-17). Say "What becomes public:" in chat first, then act.
+- **The VM lines are the owner's.** A session's own `ssh` to production has been refused in auto mode, a read-only one included, and a remote script wrapped in base64 was refused as sensitive remote execution (2026-09-17). Hand over a plain, readable `ssh floe-azure "<command>"` line. The SSH agent answers Windows OpenSSH only: Git Bash's `ssh` gets `Permission denied (publickey)`, and a `!` line in the session runs in Git Bash, so there it starts `/c/Windows/System32/OpenSSH/ssh.exe floe-azure`.
+- **A value appended to the VM's `.env` can glue onto the last line.** The file had no trailing newline, so `POLICY_FILE=...` landed on the end of the `NODE_ENV=production` line, the server saw neither as written, and request links stayed off after the restart until the line was split (2026-10-09). Before restarting, count instead of printing, because that file holds live credentials: a line count of the key at the start of a line must be 1.
+- **A package upgrade on the VM can restart the server by itself.** An apt Node install ran needrestart, which restarted the pm2 service: one more public restart than planned. The same day `apt-get update` failed on a third-party repository that answered 402, until that source was left out (2026-10-09).
+- **A docs page can stop compiling while every check stays green.** A raw `<name>` in an MDX heading broke docs/troubleshooting.mdx; Mintlify kept serving the page's previous build while Vale, the link check and the deployment check all reported success (#506, fixed by #509). After a docs merge on release day, read the live page.
+- **PowerShell 5.1 drops the braces of `docker ... --format '{{...}}'`.** The default output came back and a digest compare printed False for equal images (2026-09-17). Read the `Digest:` line.
+- **Git Bash `curl` printed `000` for release asset URLs that answered 200** (2026-09-17). Use `curl.exe` from the PowerShell tool, as SKILL.md step 5 does.
+- **`gh ... --jq` with a space in the expression fails from the PowerShell tool** with "accepts at most 1 arg(s)", and a polling loop reads the empty result as done (2026-09-23). Run it from the Bash tool.
+- **A failed run is not a failed release.** Look for a twin, then rerun a transient failure on the same tag; the delete-and-re-cut that this runbook once prescribed first was the wrong answer to a network blip (2026-09-09).
+- **A Go patch released between the last CI run and the tag** is built into the release untested, because both release workflows take the newest patch. When one landed that day, dispatch ci.yml on `main` first and let it finish.
+- **Release tags show as unverified on GitHub.** They are annotated and unsigned on purpose (SKILL.md step 3).

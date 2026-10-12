@@ -1,18 +1,21 @@
 ---
 name: floe-release
-description: 'Use when cutting a Floe release (a v* or desktop-v* tag): the changelog entry, the release version pins and DESKTOP_VERSION in client/lib/desktopRelease.ts, or verifying release assets. Gives the verified order, the paired-release decision and the UTC date rule; the wrong order points floe.one/download at a 404. Not for dependency, action or toolchain bumps, and not for the Microsoft Store (Partner Center) submission itself; that is store-submit.'
+description: 'Use when cutting a Floe release (a v* or desktop-v* tag): the changelog entry, the release version pins and DESKTOP_VERSION in client/lib/desktopRelease.ts, deploying main to the signaling server before the tag, getting a server fix to self-hosters (ghcr latest moves only on a v* tag), or verifying release assets. Gives the verified order, the paired-release decision and the UTC date rule; the wrong order points floe.one/download at a 404. Not for dependency, action or toolchain bumps, and not for the Microsoft Store (Partner Center) submission itself; that is store-submit.'
 ---
 
 # Floe release runbook
 
 Two tag series, one order. `references/tag-and-workflows.md` says what each
-tag fires. Symbols, not lines: `DESKTOP_VERSION` and `DESKTOP_RELEASE_DATE`
-live in `client/lib/desktopRelease.ts`; the changelog contract is the MDX
-comment at the top of `docs/changelog.mdx`; the pin checker is
+tag fires and lists the release-day traps. Symbols, not lines:
+`DESKTOP_VERSION` and `DESKTOP_RELEASE_DATE` live in
+`client/lib/desktopRelease.ts`; the changelog contract is the MDX comment at
+the top of `docs/changelog.mdx`; the pin checker is
 `scripts/check-version-pins.mjs`.
 
 Paths below are relative to the repo root. From a worktree or checkout that
-predates the skill, run the script by its absolute path from one that has it.
+predates the skill, run the script by its absolute path from one that has it,
+and read this file from that checkout too: a session started in a stale
+folder loads a stale copy of every skill.
 
 Green workflows and four 200s prove that the assets exist at the URLs
 /download will derive; they prove nothing about the update notice, the Store
@@ -30,11 +33,25 @@ and 8 are for.
   it, and the receiver's build decides the outcome (memory
   `reference_datachannel_early_message_race`; read its correction note before
   quoting any of its numbers).
-- Sender-only CLI command, server, or web change? `v*` alone (images ride
-  `v*`).
+- Sender-only CLI command, server, or web change? `v*` alone.
+- `server/` or `client/` changed, even with the `floe` binary untouched? Still
+  a `v*` tag. The container images ride `v*`, and `latest` moves only on a
+  semver tag (the `Metadata` steps of `.github/workflows/images.yml`, default
+  `latest=auto`); a merge to `main` publishes `main` and `sha-<short>` and
+  nothing else. `docker-compose.yml` runs `${FLOE_IMAGE_TAG:-latest}`, so
+  without a tag every self-hoster who changed nothing keeps the old server.
+  v1.10.10 was cut for exactly this and for nothing else. floe.one is the
+  opposite case: the web app there is on neither version line and runs a
+  change as soon as it merges.
 - `desktop/` or `desktop/frontend` only? `desktop-v*` alone.
 - Nothing user-visible on a surface? No changelog entry for it; the tag still
   needs a new number.
+- A release that adds or changes a feature also changes the Store listing,
+  not only What's new: the description, the feature list, the screenshots and
+  the certification notes (store-submit steps 5a and 5b; done once, for
+  desktop-v0.3.0). Decide it here, because the listing text and screenshots
+  have to exist before step 7, and the server has to offer the feature while
+  the Store reviews it (step 1a).
 
 Never reuse a `v*` number: the `release-tags` ruleset blocks deletion and
 update of `refs/tags/v*`, so a pushed CLI tag is permanent, failed run or not.
@@ -46,34 +63,144 @@ number the Store has accepted can never be reused or lowered.
 
 All fix PRs merged, CI green. No code in the prep PR.
 
+### 1a. The live server runs `main` before anything is tagged
+
+Skip this when `server/` is unchanged since the commit the signaling VM runs.
+Otherwise do it before the prep PR. A `v*` tag publishes `latest` to every
+self-hoster, so it must never carry a server commit that has not run live,
+and no workflow deploys api.floe.one: production stays on whatever commit the
+VM last pulled until someone pulls there (it was 43 commits behind once).
+
+The owner runs every VM line; the session hands over the command and reads
+the result back. Never put a key, a token or an address in a command, a file
+or a message: the lines below use the owner's `floe-azure` SSH alias and
+nothing else. They are as recorded on 2026-09-11 and 2026-10-09 (clone at
+`~/floe`, process `floe-server` under pm2), so read line 1 before trusting
+line 3. They work as written in the owner's own PowerShell window. Typed as
+a `!` line in this session they run in Git Bash, whose `ssh` cannot reach
+the key agent (`Permission denied (publickey)`): there the command starts
+`/c/Windows/System32/OpenSSH/ssh.exe floe-azure` instead.
+
+```text
+1. ssh floe-azure "cd ~/floe && git rev-parse HEAD"                              (what the VM runs)
+2. git diff --name-only <vm-head> origin/main -- server/                          (here; empty means skip 1a)
+   git diff --name-only <vm-head> origin/main -- server/package-lock.json         (here; a hit means npm ci in line 3)
+3. ssh floe-azure "cd ~/floe && git pull --ff-only && pm2 restart floe-server"   (with a lockfile hit: && cd server && npm ci before the restart)
+4. curl.exe -s https://api.floe.one/health                                        (PowerShell tool)
+```
+
+Say what becomes public before line 3, in chat, then hand it over: the
+restart ends every room and code held in memory. Line 4 must answer
+`"status":"healthy"` with an `uptime` of a few seconds (the process really
+restarted) and the `features` you expect: `["request-1"]` while request
+links are on, `[]` while they are off (`healthHandler` in `server/server.js`).
+An unexpected `[]` after a deploy is the release-day trap in the reference
+(a glued `.env` line), not a reason to tag anyway.
+
+The request-link kill switch needs no deploy and no restart: the server
+re-reads the JSON file named by `POLICY_FILE` on every tick of its 60 s
+cleanup interval (`server/policy.js`), and only `{"requestLinks": true}`
+turns them on. Putting `{"requestLinks": false}` in that file on the VM (an
+owner-run line like the others; write a temp file and rename it over the
+real one) turns request links off for every installed build within 60 s,
+and `/health` then lists no `request-1`. Name it in the release plan before
+the tag, so nobody has to look it up while something is wrong.
+
 ## 2. One prep PR: changelog + pins
 
-- Entry per the contract in `docs/changelog.mdx`. Date = the tag's UTC date
-  (step 3 has the command for today's UTC date). Write the date you will tag
-  on (UTC) and tag the same UTC day; if the day slips, correct the
-  `description` in the follow-up PR (labels are immutable once shipped,
-  descriptions are not). If tagging is not imminent, label it `Unreleased` and
-  relabel later (DESKTOP.md step g; precedent d7e432f, #296).
-- For a PAIRED release the relabel is a SPLIT: the single `Unreleased` entry
+- The changelog entry carries its FINAL label in this PR, before the tag.
+  Both release bodies link `changelog#<the tag, dots as hyphens>` at the
+  moment they are published (`release.footer` in `.goreleaser.yml`, the
+  `Publish release` step of `.github/workflows/desktop-release.yml`), and that
+  anchor exists only when an entry is labeled with the tag. A label that
+  arrives after the tag leaves the link at the top of the page. DESKTOP.md
+  step g still words this as "relabel at tag time"; the prep PR is that time.
+  (#507 is the precedent: both entries labeled, both tags on its merge
+  commit.)
+- The entry is usually there already, as the standing `Unreleased` entry
+  (CONTRIBUTING.md has every user-visible PR add its bullet to it). Rename it,
+  do not write a second one:
+    - `label` is the tag verbatim.
+    - `description` is the UTC date you will tag on (step 3 has the command
+      for today's UTC date). Tag the same UTC day; if the day slips, correct
+      the `description` in the follow-up PR (labels are immutable once
+      shipped, descriptions are not).
+    - The bold headline is rewritten to fit the bullets the entry ended up
+      with. The standing entry keeps whatever the first PR wrote: on
+      2026-10-12 it was a sentence about the install script over eight
+      `Web app:` bullets.
+    - `tags` lead with the primary surface, the one the headline is about,
+      and the rest follow in the contract's order (`Web`, `Desktop`, `CLI`,
+      `Self-hosting`). Then re-read the bullet prefixes against rule 6: a
+      bullet about any other surface starts with its name (`Web app:`,
+      `CLI:`, `Self-hosting:`), so a new primary surface changes which
+      bullets need one.
+    - A bullet that does not ship in this tag stays behind, in a new
+      `Unreleased` entry above the renamed one.
+- For a PAIRED release the rename is a SPLIT: the single `Unreleased` entry
   becomes two entries with the same UTC date, each with its own bold headline.
   `desktop-vX.Y.Z` comes first, tags starting with `Desktop`, carrying the
-  bullets a desktop user notices, in desktop wording. Then `vX.Y.Z`, tags
-  `CLI` first and then `Web` / `Self-hosting` as applicable, carrying the CLI
-  bullets, the `Web app:` bullet, and a `Self-hosting:` images-rebuilt bullet
-  whenever `server/` or `client/` changed. d7e432f (#296) is the precedent. A
-  receiver-side change on a PR that is also sender-side or web-side still
-  pairs: receiver-side wins.
-- `node .claude/skills/floe-release/scripts/check-version-pins.mjs --cli v1.10.5 --desktop desktop-v0.2.8 --phase prep`
+  bullets a desktop user notices, in desktop wording. Then `vX.Y.Z`, its tags
+  led by its own primary surface (`v1.11.0` is `Web`, `CLI`, `Self-hosting`,
+  because its headline is about floe.one), carrying the CLI bullets, the
+  `Web app:` bullets, and a `Self-hosting:` images-rebuilt bullet whenever
+  `server/` or `client/` changed. A receiver-side change on a PR that is also
+  sender-side or web-side still pairs: receiver-side wins.
+- `node .claude/skills/floe-release/scripts/check-version-pins.mjs --cli vX.Y.Z --desktop desktop-vX.Y.Z --phase prep`
   (omit the series you are not releasing). It measures the tree the script
   lives in; `--root <dir>` measures another checkout, such as a scratch
-  worktree. By default it sweeps the three newest tags of each series and
-  labels every STALE line with the tag it belongs to; `--old-cli` and
-  `--old-desktop` (comma-separated) override the sweep. Fix every STALE and
-  MISSING line that is a pin and rerun. It does not know which files ought to
-  carry a version, so read each hit: a line that is release history (the
-  history section of DESKTOP.md, a workflow comment naming a past release)
-  stays, so green is not always reachable, and the report says which hits
-  you judged to be history.
+  worktree. By default it sweeps the three newest tags of each series;
+  `--old-cli` and `--old-desktop` (comma-separated) override the sweep.
+  Every line it prints starts with its kind. `STALE`, `MISSING`,
+  `WRONG-PHASE` and `DATE` are findings and make it exit 1; `FLOOR` and
+  `WARN` never do:
+    - `STALE`: an old version that survives, labeled with its tag. Fix every
+      one that is a pin and rerun. It does not know which files ought to carry
+      a version, so read each hit: a line that is release history stays, so
+      green is not always reachable, and the report says which hits you
+      judged to be history.
+    - `MISSING`: a file that must already name the new version and does not.
+    - `WRONG-PHASE` and `DATE`: `client/lib/desktopRelease.ts` bumped in the
+      prep PR, or carrying a date that is not the tag's UTC date (step 6).
+    - `FLOOR`: a sentence that measures from a version ("1.11.0 or later",
+      "version 1.11.0 or earlier", "since 1.11.0", "## Upgrading to 1.11.0").
+      Listed apart, never a finding, never bumped. Re-read each one (next
+      bullet).
+    - `WARN`: for example an `Unreleased` entry that has not been renamed.
+- Re-read the `FLOOR` lines that say "or earlier". The docs describe a web
+  change that is live on floe.one but in no image yet as "A self-hosted web
+  app on version X.Y.Z or earlier ..." (docs/troubleshooting.mdx,
+  docs/web-app/receiving.mdx). Each is right exactly when X.Y.Z is the last
+  `v*` release WITHOUT the change, so when this tag is the first to carry it,
+  the clause stands as written: bumping it to the new number makes it false.
+  The same re-read covers a `STALE` line that names one version alone ("on
+  version X.Y.Z ends the line ...", docs/web-app/request-links.mdx): decide
+  whether it now means "X.Y.Z or earlier".
+- The known pin set, so a hit there is never mistaken for history: CLAUDE.md
+  (the version example), `.github/ISSUE_TEMPLATE/bug_report.yml` (the
+  placeholder), DESKTOP.md (`Current release:` and the "Paired with" line
+  under it), `desktop/wails.json` (`productVersion`), `.env.docker.example`
+  and `docker-compose.yml` (the `FLOE_IMAGE_TAG` examples), SECURITY.md (the
+  container images row), docs/self-hosting/images.mdx and
+  docs/self-hosting/configuration.mdx (image tag examples), docs/cli/update.mdx
+  (the sample `floe update` output), docs/cli/version.mdx, docs/cli/flags.mdx
+  (`--check` and `--version`), docs/cli/send.mdx and docs/cli/receive.mdx (the
+  `Peer version:` examples), docs/reference/transfer-protocol.mdx (every
+  `ver` example and the sentences around them), docs/desktop/installation.mdx
+  and docs/desktop/settings.mdx (the installer file name and the App version
+  example). The first four are what `MISSING` asserts; the sweep finds the
+  rest.
+- Known history, which stays: the release history section of DESKTOP.md;
+  docs/images/desktop/capture-manifest.json (the build the screenshots were
+  taken on; it moves only with new screenshots); comments that name a past
+  release in `.goreleaser.yml`, `.github/workflows/desktop-release.yml`,
+  `client/lib/request/constants.ts`, `cli/engine/transfer/sender.go`,
+  `desktop/savedir.go`, `client/app/how-it-works/page.tsx` and
+  docs/desktop/request-links.mdx; the body of "Upgrading to 1.11.0" in
+  SELF_HOSTING.md and of "Moving to 1.11.0" in
+  docs/self-hosting/operations.mdx; and
+  `.claude/skills/docs-verify/references/claim-map.md`, which names changelog
+  entries by their tag.
 - Make the prep edits with the Edit tool or PowerShell. A Git Bash `sed -i`
   rewrites a CRLF working copy to LF: harmless to the commit under autocrlf,
   noisy in the working tree (git warns on every touch, and tools that do not
@@ -92,10 +219,10 @@ keeps the tag unsigned whatever `tag.gpgSign` says.
 
 ```text
 git fetch origin main
-git tag -a --no-sign v1.10.5 <sha> -m "v1.10.5"
-git tag -a --no-sign desktop-v0.2.8 <sha> -m "desktop-v0.2.8"
-git push origin v1.10.5
-git push origin desktop-v0.2.8
+git tag -a --no-sign vX.Y.Z <sha> -m "vX.Y.Z"
+git tag -a --no-sign desktop-vX.Y.Z <sha> -m "desktop-vX.Y.Z"
+git push origin vX.Y.Z
+git push origin desktop-vX.Y.Z
 ```
 
 One tag per push, on purpose. Pushing both refs in one `git push` (measured on
@@ -120,18 +247,26 @@ UTC date of the tag once it exists (this is the changelog date and
 `DESKTOP_RELEASE_DATE`):
 
 ```text
-git for-each-ref --format='%(taggerdate:iso8601-strict)' refs/tags/desktop-v0.2.8
+git for-each-ref --format='%(taggerdate:iso8601-strict)' refs/tags/desktop-vX.Y.Z
 ```
 
-## 4. Watch (the last six runs of each workflow all finished within 5 minutes)
+## 4. Watch (minutes, not seconds: read the run, never assume)
+
+Across recent tag runs (read 2026-10-12): release.yml took under three
+minutes on each of the last six, images.yml a little over one minute on the
+last three, and desktop-release.yml three to nine minutes (5 m 42 s for
+desktop-v0.3.0; 8 m 50 s for desktop-v0.2.11, which needed a second attempt).
 
 ```text
 gh run list --workflow release.yml --limit 1     (and desktop-release.yml, images.yml)
-gh run view <id> --json status,conclusion --jq '.status + " " + .conclusion'
+gh run view <id> --json status,conclusion --jq '.status + " " + .conclusion'     (Bash tool)
 ```
 
-gh's embedded jq only: the jq binary is not on this box and a jq-based loop
-fails silently (memory `project_pnpm_via_corepack`).
+Run every `gh ... --jq` whose expression has a space in it from the Bash
+tool: from the PowerShell tool the quoting breaks and gh answers "accepts at
+most 1 arg(s)", which an empty-result polling loop reads as done. gh's
+embedded jq only: the jq binary is not on this box and a jq-based loop fails
+silently (memory `project_pnpm_via_corepack`).
 
 If a workflow fails, first check `gh run list --workflow <file> --limit 3` for a
 TWIN run on the same tag: a duplicate trigger that succeeded means the release
@@ -139,13 +274,25 @@ is already published, so cancel the failed twin (`gh run cancel <id>`) and do no
 rerun it (a rerun would race the published release). Only when there is no
 successful twin does the following apply.
 
-If a workflow fails: desktop-release.yml publishes only at its last step, so a
-failed run leaves no release (and any MSIX artifact it uploaded is superseded
-by the re-cut run's). Delete the `desktop-v*` tag
-(`git push origin :refs/tags/desktop-v0.2.8`, then `git tag -d` locally) and
-re-cut the same number on the fixed merge commit; no ruleset covers it. A `v*`
-tag is permanent: `gh run rerun <id> --failed` reruns on the same tag, and a
-fix that needs new code goes out as the next number. Never re-cut a `v*`.
+If a workflow fails, read why before touching the tag (`gh run view <id>
+--log-failed`, which answers only once the whole run has ended).
+
+- A transient failure (a module proxy or checksum-database read, a
+  chocolatey or registry blip, a runner that died): `gh run rerun <id>
+--failed` on the SAME tag, for either series. Nothing is wrong with the tag
+  or the code. desktop-release.yml publishes only at its last step, so a
+  failed run left no release and no partial state, and its `concurrency`
+  block no longer cancels a run in progress (a second run on the tag queues
+  behind the first; images.yml does the same). The MSIX artifact name
+  carries the run NUMBER, not the attempt, so store-submit finds the rerun's
+  artifact under the same name. desktop-v0.2.11 failed this way on
+  2026-09-09 and the rerun shipped it.
+- A failure that needs new code: for `desktop-v*`, delete the tag
+  (`git push origin :refs/tags/desktop-vX.Y.Z`, then `git tag -d` locally) and
+  re-cut the same number on the fixed merge commit; no ruleset covers it, and
+  any MSIX artifact the failed run uploaded is superseded by the re-cut
+  run's. For `v*` the fix goes out as the next number: the tag is permanent.
+  Never re-cut a `v*`.
 
 ## 5. Verify assets (all four must answer 200 after redirects)
 
@@ -163,21 +310,47 @@ https://github.com/jannskiee/floe/releases/tag/desktop-v$V
 
 (In Git Bash: `/c/Windows/System32/curl.exe` with `-o /dev/null`.)
 
-CLI: `gh release view v1.10.5 --json assets --jq '.assets[].name'` lists six
+CLI: `gh release view vX.Y.Z --json assets --jq '.assets[].name'` lists six
 archives plus `checksums.txt`.
+
+The link each release body carries: `gh release view <tag> --json body --jq
+.body` shows a "What changed" line (the footer of a `v*` body, a line near
+the end of a desktop one). Open that URL and confirm it lands on the entry
+for this tag, not at the top of the changelog. At the top means the entry is
+missing or still labeled `Unreleased` (step 2); with no entry on purpose
+(rule 7) the top is the expected landing. v1.11.0 predates the footer, so
+its body has no such line.
+
+Images, on a `v*` tag: a green images.yml is not the proof, the digests are.
+`latest` must be the image this tag built, for both images:
+
+```text
+docker buildx imagetools inspect ghcr.io/jannskiee/floe-server:latest
+docker buildx imagetools inspect ghcr.io/jannskiee/floe-server:X.Y.Z
+docker buildx imagetools inspect ghcr.io/jannskiee/floe-client:latest
+docker buildx imagetools inspect ghcr.io/jannskiee/floe-client:X.Y.Z
+```
+
+Compare the `Digest:` line of each pair by eye. Do not pass `--format
+'{{...}}'` from the PowerShell tool: PowerShell 5.1 drops the braces, the
+default output comes back, and a scripted compare prints False for two equal
+images. Image tags carry no leading `v`.
 
 ## 6. Follow-up PR: desktopRelease.ts
 
 Bump `DESKTOP_VERSION` and `DESKTOP_RELEASE_DATE` together; the date is the
 tag's UTC date as "Mon D, YYYY" (`desktopRelease.test.ts` rejects a future
 date against the runner's UTC clock; #324's second commit fixed exactly that).
-Relabel an `Unreleased` entry now if you used one. Run the checker with
+The changelog is not touched here except to correct a `description` whose day
+slipped: the label went in with the prep PR. Run the checker with
 `--phase follow-up`: it reads the tag's date from `git for-each-ref`, so the
 tag must exist locally (step 3, or `git fetch --tags`). Without it the checker
-stops with exit 2 and "tag desktop-v0.2.8 is not known here: either run git
+stops with exit 2 and "tag desktop-vX.Y.Z is not known here: either run git
 fetch --tags, or you are running follow-up before step 3 (the tag must exist
-first)". With it, it asserts the new pin and the date against the tag. CI's
-release-asset step is the merge gate.
+first)". With it, it asserts the new pin and the date against the tag, and
+reports an `Unreleased` entry with no entry for the tag as `MISSING`: the
+rename was missed in step 2, and the release body is already pointing at the
+anchor. CI's release-asset step is the merge gate.
 
 ## 7. Store submission (one in flight at a time)
 
@@ -187,8 +360,9 @@ only then), fetches and verifies the tag's MSIX from the desktop-release.yml
 run's ARTIFACT `floe-desktop-msix-<X.Y.Z>-run<run_number>` (never a
 release-page asset; a canceled twin run holds no artifact, 2026-08-27),
 renders this release's changelog entry into the plain-text "What's new"
-field, and drives Partner Center through Submit for certification. Come
-back here for step 8 once it reports "Update in certification".
+field, and drives Partner Center through Submit for certification. A release
+that changed what the app does also takes its steps 5a and 5b (step 0 here).
+Come back here for step 8 once it reports "Update in certification".
 
 ## 8. DESKTOP.md step h
 
@@ -200,5 +374,6 @@ packaged build), so the Store install can never show it.
 
 ## Done means
 
-All eight steps with evidence in the report. Green workflows and four 200s are
-necessary; step 8 and the certification email are the completion signals.
+All eight steps with evidence in the report, step 1a included when
+`server/` changed. Green workflows and four 200s are necessary; step 8 and
+the certification email are the completion signals.

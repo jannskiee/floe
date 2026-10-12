@@ -13,6 +13,18 @@
  * one: example pins in .env.docker.example and docker-compose.yml sat on
  * 1.10.1 through three releases because each run only looked one tag back.
  *
+ * Why floors are reported apart: a sentence such as "1.11.0 or later",
+ * "version 1.11.0 or earlier", "since 1.11.0" or "## Upgrading to 1.11.0"
+ * measures FROM a version. It stays true when the next tag ships, and
+ * bumping it would turn a true statement into a false one. On the day after
+ * v1.11.0 a pretend next tag printed 128 STALE lines and more than half were
+ * such sentences, which buries the real pins. A line is a FLOOR only when
+ * every old version on it carries that wording right beside it (isFloor);
+ * anything less certain stays STALE, because a floor does not fail the run
+ * and a real pin read as one would ship stale. A FLOOR line is still worth
+ * a re-read: "1.11.0 or earlier shows nothing" is only right while the next
+ * release changes what it says changed.
+ *
  * Why two phases: client/lib/desktopRelease.ts is the one pin that must NOT
  * move in the prep PR. /download derives every desktop asset URL from it, so
  * a bump that lands before the desktop-v* release exists points the page at
@@ -30,7 +42,10 @@
  *       [--root <dir>] [--old-cli vA.B.C[,vD.E.F...]]
  *       [--old-desktop desktop-vA.B.C[,...]] [--allow <path>]... [--json]
  *   node .claude/skills/floe-release/scripts/check-version-pins.mjs --self-test
- * Exit: 0 green, 1 findings, 2 usage or git errors.
+ * Tests:
+ *   node --test .claude/skills/floe-release/scripts/check-version-pins.test.mjs
+ * Exit: 0 green, 1 findings, 2 usage or git errors. FLOOR and WARN lines are
+ * not findings and never change the exit code.
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -58,7 +73,13 @@ const SKIP_DIRS = new Set([
     'coverage',
     '.idea',
 ]);
+// The one directory named `build` that is source, not output: the MSIX
+// manifest, pack.ps1, the NSIS project and a README are tracked there, and
+// the name-based skip above hid all of them. Its bin/ is what wails build
+// writes, so that stays skipped by path.
+const SCAN_ANYWAY = new Set(['desktop/build']);
 const SKIP_PATHS = new Set([
+    'desktop/build/bin',
     'desktop/frontend/wailsjs',
     'desktop/frontend/dist',
     '.claude/skills/floe-release',
@@ -118,6 +139,119 @@ const versionRe = (kind, num) =>
         `${BEFORE}${kind === 'cli' ? 'v?' : '(desktop-v)?'}${escapeRe(num)}${AFTER}`
     );
 
+// A FLOOR is a version a sentence measures from: "X or later", "X or
+// earlier", "since X", "older than X", "## Upgrading to X". The wording has
+// to touch the version. Between the phrase and the number only a product
+// word may stand ("older than `floe` 1.11.0", "arrived with server 1.11.0"),
+// or one more version joined by a comma, "and" or "or" ("before `floe`
+// 1.11.0 and Floe Desktop 0.3.0", "1.11.0 or Floe Desktop 0.3.0, or later").
+// Left out on purpose, because each of them introduces a pin as readily as
+// a floor: "from" ("the compose file from v1.11.0 on GitHub"; only "from X
+// onward" counts), "up to", "as of", "in", and a bare "to" outside "versions
+// X to Y".
+const NOUNS =
+    /(?:(?:the|a|an|floe|desktop|servers?|clients?|web|app|cli|versions?|releases?|images?)\s+){0,3}/;
+const ANY_VERSION = /(?:desktop-)?v?\d+\.\d+\.\d+/;
+const AND_OR = /(?:\s*,\s*(?:(?:and|or)\s+)?|\s+(?:and|or)\s+)/;
+const LATER = /(?:later|earlier|newer|older|above|below|higher|lower)\b/;
+const joinRe = (...parts) =>
+    new RegExp(
+        parts.map((p) => (typeof p === 'string' ? p : p.source)).join(''),
+        'i'
+    );
+const FLOOR_BEFORE = joinRe(
+    /\b(?:since|before|until|through|older than|newer than|earlier than|later than|prior to|shipped in|shipped with|arrived in|arrived with|introduced in|added in|new in|upgrading to|moving to|migrating to)\s+/,
+    NOUNS,
+    '(?:',
+    ANY_VERSION,
+    AND_OR,
+    NOUNS,
+    ')?$'
+);
+const FLOOR_AFTER = joinRe(/^\s*,?\s*(?:or|and)\s+/, LATER);
+const FLOOR_AFTER_NEXT = joinRe(
+    '^',
+    AND_OR,
+    NOUNS,
+    ANY_VERSION,
+    /\s*,?\s*(?:or|and)\s+/,
+    LATER
+);
+const FROM_BEFORE = joinRe(/\bfrom\s+/, NOUNS, '$');
+const ONWARD_AFTER = /^\s+onwards?\b/i;
+const RANGE_END_BEFORE = joinRe(
+    /\b(?:versions|releases)\s+/,
+    ANY_VERSION,
+    /\s+(?:to|through)\s+$/
+);
+const RANGE_START_BEFORE = /\b(?:versions|releases)\s+$/i;
+const RANGE_START_AFTER = joinRe(/^\s+(?:to|through)\s+/, ANY_VERSION);
+// Markdown marks and brackets between a phrase and its version are not
+// wording: "older than `floe` 1.11.0", "(since 0.3.0;", "[Moving to 1.11.0]".
+const tidy = (s) => s.replace(/[`*"()[\]]/g, '').replace(/\s+/g, ' ');
+
+// `before` and `after` are the text on either side of one version mention.
+function isFloor(before, after) {
+    const b = tidy(before);
+    const a = tidy(after);
+    return (
+        FLOOR_BEFORE.test(b) ||
+        FLOOR_AFTER.test(a) ||
+        FLOOR_AFTER_NEXT.test(a) ||
+        (FROM_BEFORE.test(b) && ONWARD_AFTER.test(a)) ||
+        RANGE_END_BEFORE.test(b) ||
+        (RANGE_START_BEFORE.test(b) && RANGE_START_AFTER.test(a))
+    );
+}
+
+// A hard-wrapped sentence keeps half of its floor wording on the line above
+// or below ("...A floe CLI older than" / "1.11.0 or a Floe Desktop..."), so
+// a neighbor is read too, but only as running prose. A heading, a table row,
+// a fence, a tag or a code comment is a block of its own and lends nothing; a
+// list item or a quote opens a block, so it can lend its text to the line
+// below and never borrows from the line above. Inside a fenced block nothing
+// is prose.
+const OWN_BLOCK = /^\s*(?:#{1,6}\s|\||```|~~~|<|\{\/\*|\/\/|\/\*|\*\s|\*\/)/;
+const OPENS_BLOCK = /^\s*(?:[-+]\s|\d+[.)]\s|>)/;
+const FENCE = /^\s*(?:```|~~~)/;
+
+// fenced[i] is true for a line inside a fenced code block, fence lines
+// included.
+function fencedLines(lines) {
+    let inside = false;
+    return lines.map((line) => {
+        const fence = FENCE.test(line);
+        const was = inside;
+        if (fence) inside = !inside;
+        return was || fence;
+    });
+}
+
+// True when every mention `re` finds on lines[i] is a floor.
+function everyMentionIsFloor(lines, i, re, fenced) {
+    const line = lines[i];
+    const prose = (j) =>
+        j >= 0 &&
+        j < lines.length &&
+        !fenced[i] &&
+        !fenced[j] &&
+        lines[j].trim() !== '' &&
+        !OWN_BLOCK.test(lines[j]) &&
+        !OWN_BLOCK.test(line);
+    const above =
+        prose(i - 1) && !OPENS_BLOCK.test(line) ? lines[i - 1].trim() : '';
+    const below =
+        prose(i + 1) && !OPENS_BLOCK.test(lines[i + 1])
+            ? lines[i + 1].trim()
+            : '';
+    for (const m of line.matchAll(new RegExp(re.source, 'g'))) {
+        const before = `${above} ${line.slice(0, m.index)}`;
+        const after = `${line.slice(m.index + m[0].length)} ${below}`;
+        if (!isFloor(before, after)) return false;
+    }
+    return true;
+}
+
 // [kind, old version, text, must match]. Run with --self-test.
 const SELF_TEST = [
     ['cli', '1.10.1', 'prints `floe 1.10.1`', true],
@@ -136,6 +270,37 @@ const SELF_TEST = [
     ['desktop', '0.2.7', 'desktop-v0.2.71', false],
 ];
 
+// [kind, old version, line, is a floor]. Every line mentions the version; the
+// question is whether its wording makes it a floor (re-read, never bump) or
+// leaves it a pin (STALE). The second half is the direction that matters: a
+// pin must never read as a floor.
+const FLOOR_SELF_TEST = [
+    ['cli', '1.11.0', '`--to` needs `floe` 1.11.0 or later', true],
+    ['cli', '1.11.0', 'A web app on version 1.11.0 or earlier shows it.', true],
+    ['cli', '1.10.11', '1.10.11 and earlier tried to save such paths.', true],
+    ['cli', '1.11.0', 'Since 1.11.0 the server checks the `Origin`.', true],
+    ['cli', '1.11.0', 'a server older than 1.11.0 does', true],
+    ['cli', '1.11.0', '## Upgrading to 1.11.0', true],
+    ['cli', '1.11.0', '### Moving to 1.11.0 {#moving-to-1-11-0}', true],
+    ['cli', '1.11.0', 'The rule arrived with server 1.11.0.', true],
+    ['cli', '1.11.0', 'on versions 1.10.8 to 1.11.0 sends it', true],
+    ['desktop', '0.3.0', 'need Floe Desktop 0.3.0 or later.', true],
+    ['desktop', '0.3.0', 'before `floe` 1.11.0 and Floe Desktop 0.3.0.', true],
+    ['desktop', '0.3.0', 'its own AppUserModelID (since 0.3.0; before', true],
+    ['cli', '1.11.0', 'for example FLOE_IMAGE_TAG=1.11.0,', false],
+    ['cli', '1.11.0', 'prints `Already up to date (1.11.0)` and stops', false],
+    ['cli', '1.11.0', 'Update available: 1.10.11 -> v1.11.0', false],
+    ['cli', '1.11.0', 'FLOE_IMAGE_TAG=1.11.0 # or later', false],
+    ['cli', '1.11.0', 'Needs 1.11.0 or later, as in `floe 1.11.0`', false],
+    ['cli', '1.11.0', 'the compose file from v1.11.0 on GitHub', false],
+    ['cli', '1.11.0', 'A web app on version 1.11.0 ends the line', false],
+    ['cli', '1.11.0', 'Since the last release it prints `floe 1.11.0`', false],
+    ['desktop', '0.3.0', '"productVersion": "0.3.0",', false],
+    ['desktop', '0.3.0', 'Current release: `desktop-v0.3.0` (Store', false],
+    ['desktop', '0.3.0', 'Get-FileHash floe-desktop-setup-0.3.0.exe', false],
+    ['desktop', '0.3.0', 'for example `Peer version: desktop-v0.3.0`', false],
+];
+
 function selfTest() {
     let failed = 0;
     for (const [kind, old, text, want] of SELF_TEST) {
@@ -145,8 +310,20 @@ function selfTest() {
             `${got === want ? 'ok  ' : 'FAIL'} ${kind} ${old} ${want ? 'matches' : 'ignores'} ${JSON.stringify(text)}`
         );
     }
+    for (const [kind, old, text, want] of FLOOR_SELF_TEST) {
+        const re = versionRe(kind, old);
+        // A fixture the version pattern does not find tests nothing.
+        const got = re.test(text)
+            ? everyMentionIsFloor([text], 0, re, [false])
+            : null;
+        if (got !== want) failed += 1;
+        console.log(
+            `${got === want ? 'ok  ' : 'FAIL'} ${want ? 'floor' : 'pin'} ${kind} ${old} ${JSON.stringify(text)}`
+        );
+    }
+    const count = SELF_TEST.length + FLOOR_SELF_TEST.length;
     console.log(
-        `check-version-pins: self-test ${failed ? `${failed} failure(s)` : 'green'} (${SELF_TEST.length} fixtures)`
+        `check-version-pins: self-test ${failed ? `${failed} failure(s)` : 'green'} (${count} fixtures)`
     );
     process.exit(failed ? 1 : 0);
 }
@@ -279,7 +456,8 @@ function* walk(dir) {
         const abs = path.join(dir, entry.name);
         const rel = path.relative(ROOT, abs).replace(/\\/g, '/');
         if (entry.isDirectory()) {
-            if (SKIP_DIRS.has(entry.name) || SKIP_PATHS.has(rel)) continue;
+            if (SKIP_PATHS.has(rel)) continue;
+            if (SKIP_DIRS.has(entry.name) && !SCAN_ANYWAY.has(rel)) continue;
             yield* walk(abs);
         } else if (entry.isFile()) {
             if (
@@ -339,17 +517,22 @@ if (opts.desktop) {
 }
 const desktop = series.find((s) => s.name === 'desktop');
 const findings = { stale: [], wrongPhase: [], missing: [], date: [] };
+// Reported, never counted: see "Why floors are reported apart" above.
+const floors = [];
 const allowed = (rel) =>
     opts.allow.some((a) => rel === a || rel.startsWith(`${a}/`));
 
 // STALE: every surviving old string, labeled with the tag it belongs to. In
 // prep the pin file is exempt for the desktop series, because holding the old
-// version there is the point.
+// version there is the point. A line whose every mention is a floor goes to
+// FLOOR instead; one mention that is not keeps the whole line STALE.
 for (const { abs, rel } of walk(ROOT)) {
     if (allowed(rel)) continue;
     const lines = readFileSync(abs, 'utf8').split(/\r?\n/);
+    const fenced = fencedLines(lines);
     lines.forEach((line, i) => {
         const hits = [];
+        let floor = true;
         for (const s of series) {
             if (
                 rel === PIN_FILE &&
@@ -357,10 +540,14 @@ for (const { abs, rel } of walk(ROOT)) {
                 opts.phase === 'prep'
             )
                 continue;
-            for (const old of s.olds) if (old.re.test(line)) hits.push(old.tag);
+            for (const old of s.olds) {
+                if (!old.re.test(line)) continue;
+                hits.push(old.tag);
+                floor = floor && everyMentionIsFloor(lines, i, old.re, fenced);
+            }
         }
         if (hits.length)
-            findings.stale.push(
+            (floor ? floors : findings.stale).push(
                 `${rel}:${i + 1} (${hits.join(', ')}): ${line.trim()}`
             );
     });
@@ -422,17 +609,23 @@ for (const s of series) {
     );
     // A missing entry is a warning, not a finding: contract rule 7 says a
     // release with nothing user-visible gets none, and only a reader can tell.
+    // The entry takes its final label in the prep PR, not after the tag:
+    // .goreleaser.yml and desktop-release.yml write changelog#<anchor> into
+    // the release body when they publish, and the anchor is the label with
+    // its dots as hyphens, so a label that arrives later leaves that link at
+    // the top of the page.
     const changelog = readText('docs/changelog.mdx') || '';
     const labeled = changelog.includes(`label="${s.newTag}"`);
     const unreleased = changelog.includes('label="Unreleased"');
+    const anchor = `changelog#${s.newTag.replace(/\./g, '-')}`;
     if (labeled) continue;
     if (unreleased && opts.phase === 'prep') {
         warnings.push(
-            `docs/changelog.mdx: no label="${s.newTag}" yet; an Unreleased entry exists, relabel it at tag time`
+            `docs/changelog.mdx: no label="${s.newTag}" yet; an Unreleased entry exists: rename it in the prep PR, before the tag (the release body links ${anchor} when it is published), unless none of its bullets ship in ${s.newTag} (rule 7)`
         );
     } else if (unreleased) {
         findings.missing.push(
-            `docs/changelog.mdx: an Unreleased label remains; relabel it ${s.newTag}`
+            `docs/changelog.mdx: an Unreleased label remains and no entry is labeled ${s.newTag}; the rename belonged in the prep PR (floe-release step 2), and the release body already links ${anchor}`
         );
     } else {
         warnings.push(
@@ -471,7 +664,10 @@ const total = groups.reduce((n, [, items]) => n + items.length, 0);
 const scope = series
     .map((s) => `${s.olds.map((o) => o.tag).join(', ')} -> ${s.newTag}`)
     .join('; ');
-const summary = `check-version-pins: ${opts.phase} for ${scope} in ${ROOT}: ${total ? `${total} finding(s)` : 'green'}`;
+const floorNote = floors.length
+    ? `; ${floors.length} floor line(s) to re-read, never bump`
+    : '';
+const summary = `check-version-pins: ${opts.phase} for ${scope} in ${ROOT}: ${total ? `${total} finding(s)` : 'green'}${floorNote}`;
 if (opts.json) {
     const report = {
         phase: opts.phase,
@@ -482,6 +678,7 @@ if (opts.json) {
             olds: s.olds.map((o) => ({ ...o, re: o.re.source })),
         })),
         findings,
+        floors,
         warnings,
         summary,
         exitCode: total ? 1 : 0,
@@ -490,6 +687,7 @@ if (opts.json) {
 } else {
     for (const [label, items] of groups)
         for (const item of items) console.log(`${label} ${item}`);
+    for (const floor of floors) console.log(`FLOOR ${floor}`);
     for (const warning of warnings) console.log(`WARN ${warning}`);
     console.log(summary);
 }
