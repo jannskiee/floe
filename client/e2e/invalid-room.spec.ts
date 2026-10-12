@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { randomUUID } from 'crypto';
 
 // ---------------------------------------------------------------------------
 // Malformed room-link guard.
@@ -38,7 +39,10 @@ test('a link nobody holds says the sender is not connected, not that it is about
     // Nobody is in this room, so the server seats the page first and names it
     // "sender". The page used to ignore the name and show a spinner beside
     // "Waiting for the sender to start" for as long as it stayed open.
-    await page.goto('/#room=0b8f3d2a-5c41-4e7b-9a16-3d2e8f7c6b51');
+    // A new id every run: the page has to be the first peer in its room, and a
+    // signaling server left running by another local run would seat a second
+    // page on a fixed id as "receiver".
+    await page.goto(`/#room=${randomUUID()}`);
 
     await expect(page.getByText('The sender is not connected')).toBeVisible({ timeout: 15_000 });
     await expect(

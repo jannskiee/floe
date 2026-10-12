@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { INITIAL_SEAT, seatStep, type SeatEvent, type SeatState } from './roomSeat';
+import { INITIAL_SEAT, MAX_SEAT_YIELDS, seatStep, type SeatEvent, type SeatState } from './roomSeat';
 
 const waiting = { connected: false, hasFile: false };
 
@@ -16,17 +16,17 @@ function run(events: SeatEvent[], from: SeatState = INITIAL_SEAT) {
 
 describe('seatStep: what the server said', () => {
     it('starts with a sender assumed present', () => {
-        expect(INITIAL_SEAT).toEqual({ alone: false, senderAbsent: false });
+        expect(INITIAL_SEAT).toEqual({ alone: false, senderAbsent: false, yields: 0 });
     });
 
     it('being handed the sender role means nobody is sending', () => {
         // The first peer into a room is called "sender" whoever it is, and a
         // receiver page that gets the name opened a link nobody holds.
-        expect(run([{ type: 'joined', role: 'sender' }]).state).toEqual({ alone: true, senderAbsent: true });
+        expect(run([{ type: 'joined', role: 'sender' }]).state).toEqual({ alone: true, senderAbsent: true, yields: 0 });
     });
 
     it('the receiver role means someone was already there', () => {
-        expect(run([{ type: 'joined', role: 'receiver' }]).state).toEqual({ alone: false, senderAbsent: false });
+        expect(run([{ type: 'joined', role: 'receiver' }]).state).toEqual({ alone: false, senderAbsent: false, yields: 0 });
     });
 
     it('only the literal role sender arms', () => {
@@ -37,7 +37,7 @@ describe('seatStep: what the server said', () => {
 
     it('the other side leaving before the connection is up leaves this page alone', () => {
         const { state } = run([{ type: 'joined', role: 'receiver' }, { type: 'peer-left' }]);
-        expect(state).toEqual({ alone: true, senderAbsent: true });
+        expect(state).toEqual({ alone: true, senderAbsent: true, yields: 0 });
     });
 
     it('an offer means a sender is there', () => {
@@ -97,6 +97,38 @@ describe('seatStep: an arrival', () => {
             { type: 'peer-arrived', ...waiting },
         ]);
         expect(yields).toEqual([false, true, false, false, true]);
+    });
+
+    // The server says 'alone' on the word of whoever else holds the link: a
+    // peer that joins and then joins another room leaves silently, and this
+    // page is seated first again and re-armed. Without a budget that peer
+    // could make this page tear down and rebuild its connection once per
+    // round trip for as long as it liked, at no cost to itself.
+    it('stops yielding after a fixed number of times in one page load', () => {
+        let state = INITIAL_SEAT;
+        let yielded = 0;
+        for (let i = 0; i < MAX_SEAT_YIELDS + 10; i++) {
+            state = seatStep(state, { type: 'joined', role: 'sender' }).state;
+            const step = seatStep(state, { type: 'peer-arrived', ...waiting });
+            state = step.state;
+            if (step.yieldSeat) yielded += 1;
+        }
+        expect(yielded).toBe(MAX_SEAT_YIELDS);
+        expect(MAX_SEAT_YIELDS).toBe(5);
+        // Out of budget, the page is back to what it did before it could
+        // yield at all: it keeps its seat and still says nobody is sending.
+        expect(state.senderAbsent).toBe(true);
+    });
+
+    it('counts a yield only when one happens', () => {
+        const { state } = run([
+            { type: 'joined', role: 'sender' },
+            { type: 'peer-arrived', ...waiting },
+            { type: 'peer-arrived', ...waiting },
+            { type: 'offer' },
+            { type: 'joined', role: 'receiver' },
+        ]);
+        expect(state.yields).toBe(1);
     });
 });
 
@@ -198,7 +230,7 @@ describe('seatStep against the server seating rules', () => {
         // The sender's socket drops during the handshake and returns.
         m.leave('sender');
         m.settle();
-        expect(m.pages.get('receiver')).toEqual({ alone: true, senderAbsent: true });
+        expect(m.pages.get('receiver')).toEqual({ alone: true, senderAbsent: true, yields: 0 });
         m.openSender('sender2');
         m.settle();
         // The receiver gave the first seat back, so the arrival that follows

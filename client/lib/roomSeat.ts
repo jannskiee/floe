@@ -23,6 +23,13 @@
 // page's arrival. The other page's silent leave sends no "alone" notice, so a
 // page that has yielded stays disarmed until the server says so again.
 //
+// And at most MAX_SEAT_YIELDS times per page load, because the server says
+// "alone" on the word of whoever else holds the link: a peer that joins this
+// room and then joins another leaves silently, this page is seated first again
+// and re-armed, and the peer can repeat that at no cost to itself. Each yield
+// tears down and rebuilds a WebRTC connection here. Out of budget, the page
+// keeps its seat, which is what every page did before it could yield.
+//
 // Pure, and outside P2PTransfer.tsx, for the same reason receiverClose.ts and
 // peerDisconnect.ts are: nothing in the suite mounts the component.
 
@@ -31,9 +38,14 @@ export interface SeatState {
     alone: boolean;
     /** What the page shows: nobody is on the sending side right now. */
     senderAbsent: boolean;
+    /** Times this page has given its seat back since it loaded. */
+    yields: number;
 }
 
-export const INITIAL_SEAT: SeatState = { alone: false, senderAbsent: false };
+export const INITIAL_SEAT: SeatState = { alone: false, senderAbsent: false, yields: 0 };
+
+/** A sender that drops mid-handshake costs one. Five is far past any honest run. */
+export const MAX_SEAT_YIELDS = 5;
 
 export type SeatEvent =
     /** room-joined, with the role the server named. */
@@ -55,18 +67,19 @@ export function seatStep(state: SeatState, event: SeatEvent): SeatStep {
     switch (event.type) {
         case 'joined':
             // Only the literal name: any other answer means a peer was there.
-            if (event.role === 'sender') return { state: { alone: true, senderAbsent: true }, yieldSeat: false };
+            if (event.role === 'sender') return { state: { ...state, alone: true, senderAbsent: true }, yieldSeat: false };
             // Not proof of a sender. After a yield the peer in front may be
             // another receiver page, so what is shown waits for an offer.
-            return { state: { alone: false, senderAbsent: state.senderAbsent }, yieldSeat: false };
+            return { state: { ...state, alone: false }, yieldSeat: false };
         case 'peer-left':
-            return { state: { alone: true, senderAbsent: true }, yieldSeat: false };
+            return { state: { ...state, alone: true, senderAbsent: true }, yieldSeat: false };
         case 'offer':
-            return { state: { alone: state.alone, senderAbsent: false }, yieldSeat: false };
+            return { state: { ...state, senderAbsent: false }, yieldSeat: false };
         case 'peer-arrived':
             // Never once the data channel is open or a file has landed: the
             // signaling is done, and a late joiner must not tear that down.
             if (!state.alone || event.connected || event.hasFile) return { state, yieldSeat: false };
-            return { state: { alone: false, senderAbsent: state.senderAbsent }, yieldSeat: true };
+            if (state.yields >= MAX_SEAT_YIELDS) return { state, yieldSeat: false };
+            return { state: { ...state, alone: false, yields: state.yields + 1 }, yieldSeat: true };
     }
 }

@@ -42,7 +42,7 @@ import {describeSenderStop, senderCloseInterrupted} from '@/lib/senderStop';
 import {verifiedLine, VERIFIED_LINE} from '@/lib/verifiedLine';
 import {receiveSummary} from '@/lib/receiveSummary';
 import {INITIAL_SEAT, seatStep, type SeatEvent} from '@/lib/roomSeat';
-import {rejoinDelay} from '@/lib/rejoinRetry';
+import {REJOIN_FAILED_STATUS, REJOINING_STATUS, rejoinAllowed, rejoinDelay, statusOnceSeated} from '@/lib/rejoinRetry';
 import {peerDisconnectAction, teardownClaimsClose} from '@/lib/peerDisconnect';
 import {copyText} from '@/lib/clipboard';
 import {resolveSocketUrl} from '@/lib/socketUrl';
@@ -494,6 +494,9 @@ export function P2PTransfer() {
                 message: 'Receiver gave the first seat back to an arriving peer',
                 level: 'info',
             });
+            // A banner from the attempt that failed must not sit over the one
+            // that is starting. The socket reconnect path clears it too.
+            setError((prev) => (prev.includes('Link Expired') ? prev : ''));
             closedByUsRef.current = peerRef.current;
             peerRef.current?.destroy();
             hasJoinedRef.current = false;
@@ -873,10 +876,8 @@ export function P2PTransfer() {
             // Seated, so nothing may join again: a retry still pending would
             // move this page out of its seat (lib/rejoinRetry.ts).
             clearRejoin();
-            if (rejoinAttemptRef.current > 0) {
-                rejoinAttemptRef.current = 0;
-                setStatus((s) => (s === 'Reconnecting to your link' ? 'Waiting for peer' : s));
-            }
+            rejoinAttemptRef.current = 0;
+            setStatus(statusOnceSeated);
         });
         // The server refused this page's own room. That only follows a
         // re-join after a reconnect: the socket that died may still hold its
@@ -885,18 +886,26 @@ export function P2PTransfer() {
         // kept showing a link into a room it was not in, and the receiver
         // waited for an offer nobody would make. Try again until the dead
         // socket is gone, then say so if the room is still closed to us.
+        const mayRejoin = () =>
+            rejoinAllowed({
+                peerConnected: peerRef.current?.connected === true,
+                transferComplete: transferCompleteRef.current,
+            });
         onRoomFull(() => {
             if (rejoinTimerRef.current) return;
+            // Not once the peer is up or the files are sent: see rejoinAllowed.
+            if (!mayRejoin()) return;
             const delay = rejoinDelay(rejoinAttemptRef.current);
             if (delay === null) {
                 setError('This link stopped working. Reload the page, add the files again, and share the new link.');
-                setStatus('Link stopped working');
+                setStatus(REJOIN_FAILED_STATUS);
                 return;
             }
             rejoinAttemptRef.current += 1;
-            setStatus('Reconnecting to your link');
+            setStatus(REJOINING_STATUS);
             rejoinTimerRef.current = setTimeout(() => {
                 rejoinTimerRef.current = null;
+                if (!mayRejoin()) return;
                 joinRoom(newRoomId);
             }, delay);
         });
@@ -953,6 +962,12 @@ export function P2PTransfer() {
             peer.on('connect', () => {
                 setIsConnected(true);
                 startConnectionTypePolling(peer);
+                // A join this page's room refused may still be on its retry
+                // schedule. The connection came up without it, so it ends
+                // here, and its status gives way to the transfer's own.
+                clearRejoin();
+                rejoinAttemptRef.current = 0;
+                setStatus((s) => (s === REJOINING_STATUS || s === REJOIN_FAILED_STATUS ? 'Peer joined. Starting transfer' : s));
 
                 Sentry.addBreadcrumb({
                     category: 'webrtc',
