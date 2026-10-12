@@ -61,14 +61,19 @@ export const metadata: Metadata = {
 // (`sendClientReports: false` in all three Sentry configs), no device or
 // network hints on a traced page load (lib/deviceHints.ts) and no interaction
 // timings (`enableInp: false`, lib/sentryIntegrations.ts), so the section
-// names none of them. The location item is not something the page sends:
-// Sentry's servers derive it from the address a report arrives from. Measured
-// in Sentry on 2026-10-12, in aggregate: stored page-load traces and error
-// reports held a country, most of them a region and a city, and none an
-// address. Interaction timings were the exception and are off for it: every
-// stored one held the address it arrived from. The section makes no claim
-// about what Sentry keeps of an address, only about what the page sends. If
-// the location lookup is ever turned off, the item goes.
+// names none of them. Nor does it name a location. Sentry's servers used to
+// derive one from the address a report arrives from: measured in Sentry on
+// 2026-10-12, in aggregate, stored page-load traces and error reports held a
+// country, most of them a region and a city, and none an address. Every
+// browser report now leaves with an empty location field, which makes
+// Sentry's servers skip that lookup (lib/noLocation.ts, measured against the
+// real ingest on 2026-10-12), so the item that disclosed it is gone. If that
+// line is ever removed, or a later check finds a location on a browser report
+// again, the item comes back: "Approximate location (country, region, and
+// city), which Sentry works out from the IP address a report arrives from".
+// Interaction timings are off for a different reason: every stored one held
+// the address it arrived from. The section makes no claim about what Sentry
+// keeps of an address, only about what the page sends.
 // When a flag, label, hostname or number changes, this page changes with it.
 const toc = [
     { id: 'transfer', label: 'How the transfer works' },
@@ -401,7 +406,6 @@ export default function PrivacyPolicy() {
                     items={[
                         'Error stack traces and browser metadata (browser version, OS, device type, approximate device memory, language, and time zone)',
                         'Connection type (direct or relay), whether relay fallback was on, transfer progress, file count, and total size at the time of an error',
-                        'Approximate location (country, region, and city), which Sentry works out from the IP address a report arrives from',
                     ]}
                 />
                 <p>

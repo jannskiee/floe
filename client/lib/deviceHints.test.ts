@@ -169,7 +169,9 @@ describe('stripDeviceHints', () => {
     it('sentry.client.config.ts strips them in both send hooks, after the URL scrub', () => {
         const src = readFileSync(fileURLToPath(new URL('../sentry.client.config.ts', import.meta.url)), 'utf8');
         expect(src).toMatch(/import \{ stripDeviceHints \} from '\.\/lib\/deviceHints';/);
-        expect(src).toMatch(/^\s+return stripDeviceHints\(scrubTransactionEvent\(event\)\);$/m);
+        // Wrapped in withoutLocation since lib/noLocation.ts; the strip still
+        // runs on what the URL scrub returns.
+        expect(src).toMatch(/^\s+return withoutLocation\(stripDeviceHints\(scrubTransactionEvent\(event\)\)\);$/m);
         expect(src).toMatch(/^\s+return stripDeviceHints\(scrubSpanJson\(span\)\);$/m);
     });
 });

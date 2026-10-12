@@ -4,6 +4,7 @@ import { stripDeviceHints } from './lib/deviceHints';
 import { createEventBudget } from './lib/eventBudget';
 import { IGNORED_ERROR_PATTERNS } from './lib/ignoredErrors';
 import { isInjectedScriptError } from './lib/injectedScripts';
+import { withoutLocation } from './lib/noLocation';
 import { isNonBrowserRuntimeError } from './lib/nonBrowserRuntimes';
 import { isStaleBundleError } from './lib/staleBundle';
 import { scrubBreadcrumb, scrubErrorEvent, scrubSpanJson, scrubTransactionEvent } from './lib/scrubUrl';
@@ -120,7 +121,12 @@ Sentry.init({
         if (verdict === 'drop') return null;
         if (verdict === 'last') scrubbed.tags = { ...scrubbed.tags, event_budget_exhausted: true };
 
-        return scrubbed;
+        // No location. Sentry's servers work one out, down to city, from the
+        // address a report arrives from, unless the report already carries a
+        // location field; an empty one is stored as nothing. The privacy page
+        // lists what Sentry holds and names no location, so this line and that
+        // list move together. See lib/noLocation.ts.
+        return withoutLocation(scrubbed);
     },
 
     // Breadcrumbs (navigation, fetch, xhr, console) record URLs and logged text
@@ -145,8 +151,11 @@ Sentry.init({
     // come off here as well. This hook has the last word on what is sent: the
     // SDK merges what beforeSendSpan returns for the root span back into the
     // event before calling it. See lib/deviceHints.ts.
+    //
+    // And no location, as in beforeSend: a transaction never passes through
+    // that hook, so the empty location field is set here too.
     beforeSendTransaction(event) {
-        return stripDeviceHints(scrubTransactionEvent(event));
+        return withoutLocation(stripDeviceHints(scrubTransactionEvent(event)));
     },
 
     // Standalone spans (INP and the other standalone web-vital spans) never
