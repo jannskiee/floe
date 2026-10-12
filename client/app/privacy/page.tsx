@@ -49,10 +49,14 @@ export const metadata: Metadata = {
 // destroyRoom), the relay credential window (turn.js CF_CACHE_MS), the room
 // seal (server.js sealDigest, roomMeta.keys), the address a peer object holds
 // while its socket is open (createSocketIOPeer, createWSPeer), the Sentry
-// session record (the SDK's browserSessionIntegration, on by default) and
 // relayEnabled context, the eight Umami reason labels (lib/peerErrors.ts,
 // lib/transfer/receiver.ts ReceiveFailure, P2PTransfer.tsx 'peer-reason') and
 // the request link save folder (desktop/requestlink.go requestDefaultDirFn).
+// Rechecked on 2026-10-12: Sentry is sent no session data, from the browser
+// (sentry.client.config.ts `integrations`) or from the server
+// (sentry.server.config.ts `integrations`; see lib/sentryIntegrations.ts), so
+// the Error monitoring section names none. If either line is ever removed, a
+// sentence disclosing what it sends has to come back with it.
 // When a flag, label, hostname or number changes, this page changes with it.
 const toc = [
     { id: 'transfer', label: 'How the transfer works' },
@@ -375,14 +379,11 @@ export default function PrivacyPolicy() {
             <LegalSection id="errors" index={sectionIndex(toc, 'errors')} title="Error monitoring">
                 <p>
                     The <strong>web app</strong> uses Sentry to monitor application errors and a 10%
-                    sample of page performance traces. Each page you open also sends Sentry a session
-                    record: a random session id, the time, the session&apos;s status and error count,
-                    the site&apos;s build version and environment name, and your browser&apos;s user
-                    agent, with no page address. This applies to the floe.one website only; the desktop
-                    app and the CLI contain no error monitoring. Sentry is configured to attach no
-                    cookies and no IP address to what it sends; each error report and trace does carry
-                    the page address, your browser&apos;s user agent, and the page that referred you. It
-                    may capture:
+                    sample of page performance traces. This applies to the floe.one website only; the
+                    desktop app and the CLI contain no error monitoring. Sentry is configured to
+                    attach no cookies and no IP address to what it sends; each error report and trace
+                    does carry the page address, your browser&apos;s user agent, and the page that
+                    referred you. It may capture:
                 </p>
                 <LegalList
                     items={[

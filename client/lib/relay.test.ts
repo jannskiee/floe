@@ -272,4 +272,37 @@ describe('relay gate verdict table shared by P2PTransfer and RequestVisitor', ()
         // relayEnabled is always true on /r: there is no relay-off toggle.
         expect(visitor).toMatch(/evaluateRelayGate\(\{[^}]*relayEnabled: true/);
     });
+
+    // The words themselves, not only that the two callers agree on them. A
+    // browser receiver shows this sentence as it arrives, and the sender it
+    // describes cannot remove a file: the list is locked once a link exists.
+    // It names the size, because the gate reads bytes and one file can be
+    // over it, which "send fewer files" could not answer.
+    it('the block reason asks the sender for something the sender can do', () => {
+        expect(RELAY_BLOCK_REASON).toBe(
+            'Transfer blocked: relay connections are capped at 2 GB. ' +
+                'Ask the sender to send 2 GB or less, or to try a network that allows a direct connection.',
+        );
+    });
+
+    // The main page's relay control is the checkbox RelayFallbackToggle draws,
+    // and it is gone once a link exists. Three messages used to name a
+    // "Network Relay" control that was never on the page, and the over-limit
+    // notice said "Remove files" beside a list that can no longer change.
+    it('no relay message on the main page names a control the page does not have', () => {
+        const main = source('components/P2PTransfer.tsx');
+        expect(source('components/RelayFallbackToggle.tsx')).toContain('>Network relay fallback</p>');
+        expect(main).not.toContain('"Network Relay"');
+        expect(main).not.toMatch(/remove files/i);
+        // Shown only when the sender unchecked the box, at both sites.
+        const senderOff =
+            'Connection failed. This link was made with Network relay fallback off. ' +
+            'Reload the page, add the files again, leave it on, and share the new link.';
+        expect(main.split(senderOff)).toHaveLength(3);
+        // The receiver cannot know which kind of sender it has, so it names no
+        // control: a checkbox in the browser, --no-relay on the CLI.
+        expect(main).toContain('Could not connect. Ask the sender to try again with the relay allowed.');
+        expect(main).toContain('Reload the page to send 2 GB or less, or to send from a network that supports a direct connection.');
+        expect(main).not.toMatch(/fewer files/i);
+    });
 });

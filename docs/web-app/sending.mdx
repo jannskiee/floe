@@ -130,13 +130,13 @@ itself takes longer, and the 2 seconds start after it. There is nothing to click
 
 Floe checks the route before sending a single byte, so two things can stop it there:
 
-- **You turned relay fallback off and the only path is relayed.** The card reads
-  [`Connection failed. Enable "Network Relay" to connect across restrictive networks.`](/troubleshooting#connection-failed-enable-network-relay-to-connect-across-restrictive-networks) and the
+- **You turned relay fallback off and the only path is relayed.** The card's message begins
+  [`Connection failed. This link was made with Network relay fallback off.`](/troubleshooting#connection-failed-enable-network-relay-to-connect-across-restrictive-networks) and the
   connection is closed.
 - **The route is relayed and your files total more than 2 GB.** The status line reads
   `Transfer blocked. Relay limit exceeded.`, an amber banner explains the cap, and the connection
   is closed. Nothing is sent. Because the file list is locked once the link exists, the way out is
-  to reload the page and start again with fewer files, or from a network that allows a direct
+  to reload the page and start again with 2 GB or less, or from a network that allows a direct
   connection.
 
 Once it is running, the status line reads "Sending:" and the name of the current file, and two
@@ -167,6 +167,9 @@ on your side, and the receiving page shows its own instead. See
 After the other side disconnects, the status may change to "Transfer complete", which is the same
 result. If their device drops off the network without closing the connection, the status can
 change to "Connection interrupted" instead, although every byte had already left this browser.
+When the status changes either way, the last file's check mark turns back into a spinner and the
+progress row reads "Sending file 3 of 3..." at 100%, with your own numbers. Every file was still
+sent.
 
 If the receiving side discards a file because it did not match, the status reads "Transfer failed"
 instead, even when "All Files Sent!" was already showing, and the card says "The other side
@@ -178,8 +181,9 @@ opens the link again from the same network, Floe sends every file again.
 
 That stops, with no message on this page, once the page has lost its connection to Floe's server
 and reconnected, because after a finished transfer it does not rejoin its room. A browser that
-opens the link then waits for a sender who is not coming. To send to someone else, or to be sure
-the link works, reload the page and create a new link.
+opens the link then reads "The sender is not connected": see
+[Troubleshooting](/troubleshooting#the-sender-is-not-connected). To send to someone else, or to be
+sure the link works, reload the page and create a new link.
 
 ## Room codes are not a browser feature {#short-codes-are-not-a-browser-feature}
 
@@ -193,8 +197,9 @@ If you want a code, send from the [terminal](/cli/send) or from
 
 ## If something goes wrong {#if-it-does-not-connect}
 
-- The status line stays on "Waiting for peer" after they have opened the link. See
-  [Troubleshooting](/troubleshooting#the-transfer-never-starts).
+- The status line stays on "Waiting for peer" after they have opened the link, or reads
+  "Reconnecting to your link". See [Troubleshooting](/troubleshooting#the-transfer-never-starts)
+  for the first and [Troubleshooting](/troubleshooting#reconnecting-to-your-link) for the second.
 - `Transfer blocked. Relay limit exceeded.` The route is relayed and your files total more than
   2 GB. See [Troubleshooting](/troubleshooting#transfer-blocked-relay-limit-exceeded).
 - "The connection closed before the transfer finished." The other side went away partway. See

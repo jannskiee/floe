@@ -36,11 +36,14 @@ import {useTransferAnalytics} from '@/hooks/useTransferAnalytics';
 import {useRelayConfiguration} from '@/hooks/useRelayConfiguration';
 import {RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, probeIsRelay} from '@/lib/relay';
 import {buildShareLink, getRoomFromUrl, isValidRoomId} from '@/lib/roomLink';
-import {classifyPeerError} from '@/lib/peerErrors';
+import {classifyPeerError, senderErrorBlamesRelay} from '@/lib/peerErrors';
 import {decideReceiverClose} from '@/lib/receiverClose';
 import {describeSenderStop, senderCloseInterrupted} from '@/lib/senderStop';
 import {verifiedLine, VERIFIED_LINE} from '@/lib/verifiedLine';
-import {peerDisconnectAction} from '@/lib/peerDisconnect';
+import {receiveSummary} from '@/lib/receiveSummary';
+import {INITIAL_SEAT, seatStep, type SeatEvent} from '@/lib/roomSeat';
+import {REJOIN_FAILED_STATUS, REJOINING_STATUS, rejoinAllowed, rejoinDelay, statusOnceSeated} from '@/lib/rejoinRetry';
+import {peerDisconnectAction, teardownClaimsClose} from '@/lib/peerDisconnect';
 import {copyText} from '@/lib/clipboard';
 import {resolveSocketUrl} from '@/lib/socketUrl';
 
@@ -90,6 +93,13 @@ export function P2PTransfer() {
     // The file count the sender announced. expectedFilesRef holds the same
     // number but is a ref, so it does not re-render the success line.
     const [expectedFiles, setExpectedFiles] = useState(0);
+    // Latched when this receive is over: the peer connection closed, or the
+    // receiver engine stopped on a failure. Never derived from `status`, which
+    // onDisconnect also writes when only this side's signaling socket blinked.
+    const [receiveEnded, setReceiveEnded] = useState(false);
+    // A receiver page only: the server's messages say nobody is on the
+    // sending side of this link right now. See lib/roomSeat.ts.
+    const [senderAbsent, setSenderAbsent] = useState(false);
     const [copied, setCopied] = useState(false);
     const [error, setError] = useState('');
     const [transferSpeed, setTransferSpeed] = useState('');
@@ -202,6 +212,27 @@ export function P2PTransfer() {
         connectionTypeRef.current = connectionType;
     });
 
+    // The receiver's seat in the room, fed from the server's own messages.
+    // Returns true when this page should give its seat back by re-joining.
+    const seatRef = useRef(INITIAL_SEAT);
+    const applySeat = (event: SeatEvent): boolean => {
+        const step = seatStep(seatRef.current, event);
+        seatRef.current = step.state;
+        setSenderAbsent(step.state.senderAbsent);
+        return step.yieldSeat;
+    };
+
+    // The sender's retry of a join its own room refused (lib/rejoinRetry.ts).
+    // At most one is pending, and it never outlives the answer it waits for: a
+    // second join-room from a socket the server has seated would move this
+    // page behind its own receiver.
+    const rejoinTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const rejoinAttemptRef = useRef(0);
+    const clearRejoin = () => {
+        if (rejoinTimerRef.current) clearTimeout(rejoinTimerRef.current);
+        rejoinTimerRef.current = null;
+    };
+
     const { requestWakeLock, releaseWakeLock } = useWakeLock();
 
     const {
@@ -215,6 +246,9 @@ export function P2PTransfer() {
         onRoomJoined,
     } = useSignaling({
         onSignal: (data) => {
+            // Only a sender signals first, so on a receiver page any signal
+            // means one is there, whatever happens to this particular frame.
+            if (joinedRoomRef.current && seatRef.current.senderAbsent) applySeat({ type: 'offer' });
             const peer = peerRef.current;
             if (!peer || peer.destroyed) return;
             const sig = data?.signal;
@@ -259,6 +293,11 @@ export function P2PTransfer() {
                 });
                 return;
             }
+            // A receiver page is alone in the room from here on, and says so.
+            // If the sender comes back it arrives BEHIND this page, which then
+            // gives the first seat back (see the user-connected handler in
+            // joinRoomAsReceiver).
+            if (joinedRoomRef.current) applySeat({ type: 'peer-left' });
             // A wire reason wins. The peer told us why it stopped, and the
             // signaling socket it drops about two seconds later is a
             // consequence of that, not a second opinion: a CLI receiver
@@ -279,11 +318,25 @@ export function P2PTransfer() {
                 }
             }
             // Set before destroy, so the close handler this triggers sees it.
-            closedByUsRef.current = peerRef.current;
-            if (peerRef.current) peerRef.current.destroy();
+            // Not for a peer that already closed or a receiver that holds
+            // files: their close has to be heard. See teardownClaimsClose.
+            if (
+                teardownClaimsClose({
+                    hasPeer: current !== null,
+                    peerDestroyed: current?.destroyed === true,
+                    receivedCount: receivedFilesRef.current.length,
+                })
+            ) {
+                closedByUsRef.current = current;
+            }
+            current?.destroy();
             releaseWakeLock();
         },
         onDisconnect: () => {
+            // A retry emitted while the socket is down would be buffered and
+            // sent next to the reconnect handler's own join: two joins, and
+            // the second one moves a seated sender behind its receiver.
+            clearRejoin();
             // The same latch as onPeerDisconnected: this side's own socket
             // going away is not news that overrides the peer's account.
             if (wireReasonRef.current) return;
@@ -298,6 +351,10 @@ export function P2PTransfer() {
         },
         onReconnect: () => {
             setError('');
+            // A new socket is a new attempt at the room: the join below is the
+            // only one in flight, and a refusal starts the schedule again.
+            clearRejoin();
+            rejoinAttemptRef.current = 0;
             // A Socket.IO auto-reconnect comes back under a fresh socket.id,
             // and the server room only ever contained the old id, so this
             // client is no longer in its room. Re-join while the WebRTC data
@@ -394,6 +451,8 @@ export function P2PTransfer() {
         joinedRoomRef.current = roomId;
 
         setStatus('Connecting');
+        // A rebuilt peer starts a receive that has not ended.
+        setReceiveEnded(false);
 
         onRoomFull(() => {
             // Deliberately not receiveOutcome(): this branch is unreachable and
@@ -408,6 +467,40 @@ export function P2PTransfer() {
             }
             setError('Link Expired or Busy');
             setStatus('Access Denied');
+        });
+
+        // The role the server names is the only word on whether anyone was
+        // already here: a receiver page named "sender" opened a link nobody
+        // holds. Registered before the join, so the answer cannot be missed.
+        // A server that sent no role would leave this page as it was before.
+        onRoomJoined((data) => {
+            applySeat({ type: 'joined', role: typeof data?.role === 'string' ? data.role : '' });
+        });
+
+        // Announced only to the first seat. On a receiver page that means a
+        // peer arrived behind it: a sender coming back, whose own page waits
+        // for this same notice before it offers. Give the first seat back by
+        // re-joining, once (lib/roomSeat.ts says why once), with a fresh peer
+        // as the socket reconnect path builds one.
+        onUserConnected(() => {
+            const yieldSeat = applySeat({
+                type: 'peer-arrived',
+                connected: peerRef.current?.connected === true,
+                hasFile: receivedFilesRef.current.length > 0 || transferCompleteRef.current,
+            });
+            if (!yieldSeat || !joinedRoomRef.current) return;
+            Sentry.addBreadcrumb({
+                category: 'webrtc',
+                message: 'Receiver gave the first seat back to an arriving peer',
+                level: 'info',
+            });
+            // A banner from the attempt that failed must not sit over the one
+            // that is starting. The socket reconnect path clears it too.
+            setError((prev) => (prev.includes('Link Expired') ? prev : ''));
+            closedByUsRef.current = peerRef.current;
+            peerRef.current?.destroy();
+            hasJoinedRef.current = false;
+            joinRoomAsReceiver(joinedRoomRef.current);
         });
 
         joinRoom(roomId);
@@ -466,6 +559,7 @@ export function P2PTransfer() {
                     // left the connected badge and the last status line on screen
                     // after the sender had walked away.
                     setIsConnected(false);
+                    setReceiveEnded(true);
                     if (decision.kind === 'outcome') {
                         setStatus(receiveOutcome());
                     } else {
@@ -482,6 +576,10 @@ export function P2PTransfer() {
             });
         });
         peer.on('error', (err) => {
+            // Read now, not inside the wait below: the close that follows this
+            // error clears the progress line (rx.dispose) before the wait
+            // resolves, and the report would say 0% again.
+            const progressAtError = progressRef.current;
             // Waits for a SHA-256 check in progress, like the close handler, so
             // a file that is about to be handed over is counted before this
             // decides whether anything arrived.
@@ -513,10 +611,14 @@ export function P2PTransfer() {
                     // someone to enable a relay that may already be on is the
                     // wrong cause dressed up as advice. classifyPeerError already
                     // separated the two for analytics; use the same split here.
+                    // The other branch names no control: this page cannot know
+                    // what kind of sender it has, and the relay is a checkbox
+                    // in the browser, --no-relay on the CLI, and always on in
+                    // Floe Desktop.
                     setError(
                         reason === 'abort'
                             ? 'The sender ended the transfer. Ask them to start it again.'
-                            : 'Could not connect. Ask the sender to enable "Network Relay" and try again.'
+                            : 'Could not connect. Ask the sender to try again with the relay allowed.'
                     );
                 } else {
                     // Unexpected error — capture for investigation.
@@ -525,7 +627,7 @@ export function P2PTransfer() {
                             role: 'receiver',
                             connectionType,
                             filesReceived: receivedFilesRef.current.length,
-                            progressPercent: progressRef.current,
+                            progressPercent: progressAtError,
                         });
                         Sentry.captureException(err);
                     });
@@ -606,6 +708,7 @@ export function P2PTransfer() {
                 // explanation they get.
                 setError(msg);
                 setStatus('Transfer failed');
+                setReceiveEnded(true);
                 if (failure && !failure.senderSentVersion) {
                     // The receiver told the sender why, but a browser sender
                     // reads nothing while it sends a file, so it would push the
@@ -700,6 +803,7 @@ export function P2PTransfer() {
             if (linkAckFallbackRef.current) clearTimeout(linkAckFallbackRef.current);
             if (iceProbeRef.current) clearTimeout(iceProbeRef.current);
             if (copyResetRef.current) clearTimeout(copyResetRef.current);
+            if (rejoinTimerRef.current) clearTimeout(rejoinTimerRef.current);
         };
         // joinRoomAsReceiver is intentionally excluded: this effect must run once on mount only.
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -773,6 +877,41 @@ export function P2PTransfer() {
         onRoomJoined(() => {
             if (linkAckFallbackRef.current) clearTimeout(linkAckFallbackRef.current);
             setGeneratedLink(link);
+            // Seated, so nothing may join again: a retry still pending would
+            // move this page out of its seat (lib/rejoinRetry.ts).
+            clearRejoin();
+            rejoinAttemptRef.current = 0;
+            setStatus(statusOnceSeated);
+        });
+        // The server refused this page's own room. That only follows a
+        // re-join after a reconnect: the socket that died may still hold its
+        // seat for up to about 45 s, and a receiver that arrived meanwhile
+        // makes the room full. Nothing listened for the answer, so the page
+        // kept showing a link into a room it was not in, and the receiver
+        // waited for an offer nobody would make. Try again until the dead
+        // socket is gone, then say so if the room is still closed to us.
+        const mayRejoin = () =>
+            rejoinAllowed({
+                peerConnected: peerRef.current?.connected === true,
+                transferComplete: transferCompleteRef.current,
+            });
+        onRoomFull(() => {
+            if (rejoinTimerRef.current) return;
+            // Not once the peer is up or the files are sent: see rejoinAllowed.
+            if (!mayRejoin()) return;
+            const delay = rejoinDelay(rejoinAttemptRef.current);
+            if (delay === null) {
+                setError('This link stopped working. Reload the page, add the files again, and share the new link.');
+                setStatus(REJOIN_FAILED_STATUS);
+                return;
+            }
+            rejoinAttemptRef.current += 1;
+            setStatus(REJOINING_STATUS);
+            rejoinTimerRef.current = setTimeout(() => {
+                rejoinTimerRef.current = null;
+                if (!mayRejoin()) return;
+                joinRoom(newRoomId);
+            }, delay);
         });
         joinRoom(newRoomId);
         setStatus('Waiting for peer');
@@ -827,6 +966,12 @@ export function P2PTransfer() {
             peer.on('connect', () => {
                 setIsConnected(true);
                 startConnectionTypePolling(peer);
+                // A join this page's room refused may still be on its retry
+                // schedule. The connection came up without it, so it ends
+                // here, and its status gives way to the transfer's own.
+                clearRejoin();
+                rejoinAttemptRef.current = 0;
+                setStatus((s) => (s === REJOINING_STATUS || s === REJOIN_FAILED_STATUS ? 'Peer joined. Starting transfer' : s));
 
                 Sentry.addBreadcrumb({
                     category: 'webrtc',
@@ -856,7 +1001,9 @@ export function P2PTransfer() {
                     const verdict = evaluateRelayGate({ isRelay, relayEnabled, totalSize });
 
                     if (verdict.action === 'block-relay-disabled') {
-                        setError('Connection failed. Enable "Network Relay" to connect across restrictive networks.');
+                        // The checkbox is gone once a link exists. A reload
+                        // brings it back, checked, when files are added again.
+                        setError('Connection failed. This link was made with Network relay fallback off. Reload the page, add the files again, leave it on, and share the new link.');
                         setStatus('Connection failed');
                         Sentry.addBreadcrumb({
                             category: 'transfer',
@@ -889,7 +1036,7 @@ export function P2PTransfer() {
                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             (peer as any)._channel as RTCDataChannel | undefined,
                             'Transfer blocked: relay connections are capped at 2 GB. ' +
-                                'Ask the sender to remove files, or to try a network that allows a direct connection.'
+                                'Ask the sender to send 2 GB or less, or to try a network that allows a direct connection.'
                         );
                         // Without this the connection stayed open and the person
                         // on the other end waited forever with nothing on screen.
@@ -947,9 +1094,11 @@ export function P2PTransfer() {
                         level: 'warning',
                         data: { relayEnabled, errorMessage: err.message },
                     });
+                    // The relay sentence only when the relay could be the
+                    // cause: see senderErrorBlamesRelay.
                     setError(
-                        !relayEnabled
-                            ? 'Connection failed. Enable "Network Relay" to connect across restrictive networks.'
+                        senderErrorBlamesRelay(err.message, relayEnabled)
+                            ? 'Connection failed. This link was made with Network relay fallback off. Reload the page, add the files again, leave it on, and share the new link.'
                             : 'Connection lost. The other device may have closed the tab.'
                     );
                 } else {
@@ -1103,8 +1252,8 @@ export function P2PTransfer() {
                                     Link Invalid
                                 </h3>
                                 <p className="text-sm text-zinc-500 max-w-[260px] mx-auto">
-                                    This link is either expired, already in use,
-                                    or does not exist.
+                                    This link is incomplete, already in use, or
+                                    locked to the networks that first used it.
                                 </p>
                             </div>
                             <Button
@@ -1133,7 +1282,7 @@ export function P2PTransfer() {
                                 <div className="mt-2 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 flex items-start gap-3">
                                     <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />
                                     <div className="flex-1 text-xs text-amber-300 leading-relaxed">
-                                        Transfer limit exceeded. Relay connections are capped at 2 GB. Remove files to proceed, or switch to a network that supports a direct connection.{' '}
+                                        Transfer limit exceeded. Relay connections are capped at 2 GB. Reload the page to send 2 GB or less, or to send from a network that supports a direct connection.{' '}
                                         <a href="/how-it-works#size-limit" target="_blank" rel="noreferrer" className="underline underline-offset-2 text-amber-400 hover:text-white transition-colors">
                                             Learn more
                                         </a>
@@ -1300,6 +1449,7 @@ export function P2PTransfer() {
                                     receivedFiles={receivedFiles}
                                     status={status}
                                     isConnected={isConnected}
+                                    senderAbsent={senderAbsent}
                                     reportStatsEnabled={reportStatsEnabled}
                                     onReportStatsChange={setReportStatsEnabled}
                                     isZipping={isZipping}
@@ -1309,6 +1459,11 @@ export function P2PTransfer() {
                                     onDownloadZip={handleDownloadZip}
                                     listRef={fileListRef}
                                     verifiedLine={verifiedLine(receivedFiles, expectedFiles)}
+                                    summary={receiveSummary({
+                                        received: receivedFiles.length,
+                                        expected: expectedFiles,
+                                        ended: receiveEnded,
+                                    })}
                                 />
                             )}
                         </>
@@ -1316,12 +1471,18 @@ export function P2PTransfer() {
                 </CardContent>
 
                 <CardFooter className="justify-center border-t border-white/[0.06] !pt-4">
-                    {isSender && !generatedLink ? (
+                    {/* The keep-open line is for a tab that something depends
+                        on. Under the Link Invalid card, and while nobody is on
+                        the sending side and nothing has arrived, nothing does:
+                        it told a person the card had just told to leave that
+                        closing the tab would interrupt a download. */}
+                    {(isSender && !generatedLink) ||
+                    (!isSender && (error.includes('Link Expired') || (senderAbsent && receivedFiles.length === 0))) ? (
                         <p className="text-balance text-[10px] uppercase tracking-wide text-zinc-500 text-center leading-relaxed">
                             End-to-end encrypted. Files are never stored on a server.
                         </p>
                     ) : (
-                        <p className="text-[10px] uppercase tracking-wide text-amber-300/80 text-center leading-relaxed">
+                        <p className="text-balance text-[10px] uppercase tracking-wide text-amber-300/80 text-center leading-relaxed">
                             Keep this tab open. Closing it{' '}
                             {isSender ? 'cancels the transfer' : 'interrupts the download'}.
                         </p>

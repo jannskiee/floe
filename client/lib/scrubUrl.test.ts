@@ -1210,3 +1210,83 @@ function pageloadEvent() {
         ],
     };
 }
+
+// The browser SDK copies document.referrer into request.headers.Referer
+// (getHttpRequestData in @sentry/browser), and the two browser hooks rewrote
+// request.url only. After a full navigation away from a legacy ?room=<id>
+// link, for example the Link Invalid card's Back to Home, the next page's
+// errors and sampled traces named that link in the header (WEB-21). Fragment
+// links never get there: a browser sends no fragment in a referrer.
+describe('the Referer a browser event carries', () => {
+    const ROOM = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+    const LEGACY = `https://www.floe.one/?room=${ROOM}`;
+    const event = (headers: unknown) => ({ request: { url: 'https://www.floe.one/', headers } });
+
+    it('an error raised after leaving a legacy ?room= link carries no room id', () => {
+        const out = scrubErrorEvent(event({ Referer: LEGACY, 'User-Agent': 'UA/1.0' }));
+        expect(JSON.stringify(out)).not.toContain(ROOM);
+        expect(out.request.headers).toEqual({
+            Referer: 'https://www.floe.one/?room=redacted',
+            'User-Agent': 'UA/1.0',
+        });
+    });
+
+    it('a trace sampled on that page carries none either', () => {
+        const out = scrubTransactionEvent(event({ Referer: LEGACY, 'User-Agent': 'UA/1.0' }));
+        expect(JSON.stringify(out)).not.toContain(ROOM);
+        expect(out.request.headers).toEqual({
+            Referer: 'https://www.floe.one/?room=redacted',
+            'User-Agent': 'UA/1.0',
+        });
+    });
+
+    it('finds the header under any spelling', () => {
+        for (const key of ['Referer', 'referer', 'REFERER']) {
+            expect(JSON.stringify(scrubErrorEvent(event({ [key]: LEGACY }))), key).not.toContain(ROOM);
+            expect(JSON.stringify(scrubTransactionEvent(event({ [key]: LEGACY }))), key).not.toContain(ROOM);
+        }
+    });
+
+    it('redacts a request link path that reached it', () => {
+        // /r sends no referrer (next.config.mjs), so this is belt and braces.
+        const out = scrubErrorEvent(event({ Referer: 'https://www.floe.one/r/abcdefghijk' }));
+        expect(out.request.headers).toEqual({ Referer: 'https://www.floe.one/r/redacted' });
+    });
+
+    it('leaves a Referer with nothing to hide byte for byte, and every other header', () => {
+        const clean = () => ({
+            Referer: 'https://www.floe.one/how-it-works',
+            'User-Agent': 'UA/1.0',
+            'X-Other': `kept-${ROOM}`,
+        });
+        expect(scrubErrorEvent(event(clean())).request.headers).toEqual(clean());
+        expect(scrubTransactionEvent(event(clean())).request.headers).toEqual(clean());
+    });
+
+    it('never throws on an odd request or headers shape, and leaves it as it was', () => {
+        const shapes: unknown[] = [
+            { request: null },
+            { request: 'nope' },
+            { request: {} },
+            { request: { headers: null } },
+            { request: { headers: 'nope' } },
+            { request: { headers: 42 } },
+            { request: { headers: [] } },
+            { request: { headers: { Referer: null } } },
+            { request: { headers: { Referer: 42 } } },
+            { request: { headers: { Referer: { nested: LEGACY } } } },
+        ];
+        for (const shape of shapes) {
+            const before = JSON.stringify(shape);
+            expect(() => scrubErrorEvent(shape as ScrubbableErrorEvent)).not.toThrow();
+            expect(() => scrubTransactionEvent(shape as Parameters<typeof scrubTransactionEvent>[0])).not.toThrow();
+            expect(JSON.stringify(shape)).toBe(before);
+        }
+    });
+
+    it('is idempotent', () => {
+        const once = scrubErrorEvent(event({ Referer: LEGACY }));
+        const twice = scrubErrorEvent(JSON.parse(JSON.stringify(once)));
+        expect(twice).toEqual(once);
+    });
+});

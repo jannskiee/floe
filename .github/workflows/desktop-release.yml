@@ -275,6 +275,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           v="${{ steps.ver.outputs.version }}"
+          # The changelog entry for this release is anchored by its tag with
+          # the dots as hyphens (desktop-v0.3.0 is #desktop-v0-3-0), so the
+          # link can land on the entry instead of the top of the page. The URL
+          # is assembled from two variables on purpose: docs-check reads this
+          # file, and a literal address with a half-templated anchor in it
+          # would be reported as a dead link.
+          changelog="https://www.floe.one/docs/changelog"
+          entry="desktop-v${v//./-}"
           notes_file="$RUNNER_TEMP/notes.md"
           {
             echo "Floe Desktop $v for Windows."
@@ -291,7 +299,7 @@ jobs:
             # about what changed. The docs changelog is hand-written and is the
             # only place that does; /download's "Release notes" link points there
             # too. Do not try to generate an account of the release here.
-            echo "**What changed:** https://www.floe.one/docs/changelog"
+            echo "**What changed:** ${changelog}#${entry}"
             echo
             echo "Most people should install from the Microsoft Store instead, which is"
             echo "signed by Microsoft and updates itself:"

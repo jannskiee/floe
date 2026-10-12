@@ -37,7 +37,7 @@ export function CliSection() {
                     </ul>
                     <p className="mt-6 text-[13px] leading-relaxed text-zinc-500">
                         Also available via Scoop, a PowerShell one-liner, and{' '}
-                        <code className="font-mono text-[12px]">go install</code>, which gives a dev
+                        <code className="whitespace-nowrap font-mono text-[12px]">go install</code>, which gives a dev
                         build that cannot update itself.{' '}
                         <a
                             href="https://www.floe.one/docs/cli/installation"

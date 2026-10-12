@@ -270,6 +270,9 @@ export function createReceiver(
         partialDownloads.clear();
         currentMetadata = null;
         expectedSize = null;
+        // The verdict of the check returns early after a stop, so it never
+        // reaches its own reset.
+        clearProgress();
         cb.onError?.(message);
     }
 
@@ -478,10 +481,27 @@ export function createReceiver(
     // sender closes about 50 ms after its last end marker, which is usually
     // in the middle of that check; stopping it here dropped the last file of
     // every Go-to-browser transfer whose check outlasted the close.
+    //
+    // The progress line is cleared here as every other stop clears it: it is
+    // drawn while the last percent is above 0 and labels itself "Receiving",
+    // so a close mid-file left it frozen at that percent for the life of the
+    // tab. Not while a check is pending: no file is open then, and the verdict
+    // clears the line itself. Guarded, because this runs as a close listener
+    // and a throw would skip the listeners registered after it.
     function dispose(): void {
         if (!aborted) closed = true;
         release();
         queued = [];
+        if (!pending) clearProgress();
+    }
+
+    function clearProgress(): void {
+        try {
+            cb.onProgress?.(0, 0, 0);
+            cb.onSpeedReset?.();
+        } catch {
+            // A display callback; the stop itself must not depend on it.
+        }
     }
 
     function release(): void {
@@ -510,6 +530,7 @@ export function createReceiver(
                 partialDownloads.clear();
                 currentMetadata = null;
                 expectedSize = null;
+                clearProgress();
                 cb.onError?.(
                     'The sender sent a control message larger than ' +
                         `${CONTROL_MSG_MAX} bytes, so the transfer was stopped.`
@@ -533,6 +554,7 @@ export function createReceiver(
                     partialDownloads.clear();
                     currentMetadata = null;
                     expectedSize = null;
+                    clearProgress();
                     try {
                         const enc = new TextEncoder().encode(incompatibleMessage(`receiver rejected the file description: ${problem}`));
                         cb.send(new Uint8Array(enc));
@@ -649,6 +671,7 @@ export function createReceiver(
                 partialDownloads.clear();
                 currentMetadata = null;
                 expectedSize = null;
+                clearProgress();
                 const incompat = msg as Incompatible;
                 const reason = sanitizeDisplayText(incompat.reason ?? '', 300);
                 cb.onError?.(

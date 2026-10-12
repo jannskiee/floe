@@ -56,8 +56,10 @@ The card walks through three steps as it gets ready, and offers one choice.
 The badge at the top right means the same thing it does on the sending side: **Offline** (red) is
 no signaling connection, **Ready** (green) is signaling up but the route not yet decided,
 **Direct** (green) is device to device, and **Relay** (amber) is through the encrypted relay. It
-tracks your own connection, so a green **Ready** does not mean the sender is ready. The ping
-readout next to it is shown to senders only.
+tracks your own connection, so a green **Ready** does not mean the sender is ready. On this page
+it also turns **Offline** once the connection to the sender has closed, which is how a finished
+transfer from `floe send` or Floe Desktop ends. The ping readout next to it is shown to senders
+only.
 
 The transfer starts by itself, usually a couple of seconds after the connection is established.
 If it never starts, the sender's side may have stopped it: a browser sender checks the route before
@@ -138,12 +140,19 @@ What you see when the sender leaves depends on how far things had got:
 
 | When the sender left | What the page shows |
 |----------------------|---------------------|
-| Before the two devices connected | Nothing changes. The card stays on "Waiting for the sender to start". |
+| Before the two devices connected | The second step of the card changes to "The sender is not connected". If a sender in the browser comes back, the transfer starts by itself. See [Troubleshooting](/troubleshooting#the-sender-is-not-connected). |
 | After they connected, before any file finished | A red banner, usually "The sender ended the transfer before it finished." or "The sender ended the transfer. Ask them to start it again." See [Troubleshooting](/troubleshooting#the-sender-ended-the-transfer). |
-| After at least one file finished | No message. The badge goes back to **Offline**, and the files that arrived stay listed with a count such as "1 file received". |
+| After at least one file finished, with more still to come | The badge goes back to **Offline**, the progress row goes away, and an amber line under the list says how far the transfer got, such as "Received 1 of 3 files. The transfer ended before the rest arrived." The files that arrived stay listed. See [Troubleshooting](/troubleshooting#the-transfer-ended-before-the-rest-arrived). |
 
-In that last case the page does not say how many files were still to come. If the sender told you
-to expect more than the count shows, ask them to send the rest again.
+In that last case, save what arrived and ask the sender to send the rest in a new transfer: Floe
+[cannot resume](/how-it-works/known-limitations#no-resume) one that stopped. A self-hosted web app
+on version 1.11.0 or earlier shows no such line. Its list keeps a green check and a count such as
+"1 file received", and a progress row for the file that never finished can stay on screen, so
+there the count is the only sign that files are missing.
+
+While a transfer of several files is still running, the same place reads "Received 1 of 3 files.
+Waiting for the next file" between files. The green check and a count such as "3 files received"
+appear only once every file the sender announced has arrived.
 
 Files that already arrived stay in the list and can still be saved for as long as the page stays
 open. To try again in the first two cases, reload the page: that works while a browser sender still
@@ -174,9 +183,9 @@ See [floe receive](/cli/receive) and [Receive files in the desktop app](/desktop
 - "Link Invalid": the link is incomplete, someone else is already connected on it, or it has
   already started connecting from a network other than the one you are on now, which includes
   your own device after it switched networks. See [Troubleshooting](/troubleshooting#link-invalid).
-- The card stays on "Waiting for the sender to start": the sender may have closed their page, or
-  the two devices are still looking for a path. See
+- "The sender is not connected", or the card stays on "Waiting for the sender to start": nobody
+  is on the sending side right now, or the two devices are still looking for a path. See
   [Troubleshooting](/troubleshooting#the-transfer-never-starts).
-- `Could not connect. Ask the sender to enable "Network Relay" and try again.`: usually a network
+- `Could not connect. Ask the sender to try again with the relay allowed.`: usually a network
   that blocks direct paths, but the sender closing their tab produces it too. See
   [Troubleshooting](/troubleshooting#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again).

@@ -30,7 +30,7 @@
  * Exit 0 clean, 1 any UNMAPPED / STALE / ANCHOR-MISSING, 2 usage, missing
  * root, or map parse error.
  */
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -357,8 +357,18 @@ function main(argv) {
     return failing ? 1 : 0;
 }
 
+// Both sides through realpath: node keeps a symlink in argv[1] and resolves it
+// in import.meta.url, so from a checkout under a symlinked directory (or a
+// Windows junction) the two differed, nothing ran, and the exit was 0.
+function realPath(p) {
+    try {
+        return realpathSync(p);
+    } catch {
+        return p;
+    }
+}
 const invokedDirectly =
     process.argv[1] &&
-    resolve(process.argv[1]).toLowerCase() ===
-        fileURLToPath(import.meta.url).toLowerCase();
+    realPath(resolve(process.argv[1])).toLowerCase() ===
+        realPath(fileURLToPath(import.meta.url)).toLowerCase();
 if (invokedDirectly) process.exit(main(process.argv.slice(2)));

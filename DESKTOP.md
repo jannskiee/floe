@@ -329,7 +329,7 @@ Partner Center product "Floe Desktop", Store ID 9NBQ8ZQ1065L, identity
 Registration was free; the Philippines is eligible for an individual account.
 The Store re-signs MSIX with a Microsoft certificate, which is the only
 zero-cost route to a warning-free install (no purchased certificate removes
-the SmartScreen warning). GitHub releases continue in parallel, permanently:
+the SmartScreen warning from the first download; reputation has to build first). GitHub releases continue in parallel, permanently:
 the exe/zip serve Store-blocked machines and are the hotfix/rollback path
 (LocalSend's Store ban is the cautionary precedent).
 

@@ -1,15 +1,20 @@
 import type { RefObject } from 'react';
-import { CheckCircle2, Circle, Download, FileArchive, Loader2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Circle, Download, FileArchive, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { StatsContributionToggle } from '@/components/StatsContributionToggle';
 import { ReceivedFilesList } from '@/components/ReceivedFilesList';
 import { formatBytes } from '@/lib/utils';
 import type { ReceivedFile } from '@/hooks/useDownloadManager';
+import type { ReceiveSummary } from '@/lib/receiveSummary';
 
 interface ReceiverPanelProps {
     receivedFiles: ReceivedFile[];
     status: string;
     isConnected: boolean;
+    // The server's messages say nobody is on the sending side of this link
+    // right now: a link nobody holds, or a sender that dropped before the two
+    // devices connected. See lib/roomSeat.ts.
+    senderAbsent: boolean;
     reportStatsEnabled: boolean;
     onReportStatsChange: (enabled: boolean) => void;
     isZipping: boolean;
@@ -21,6 +26,9 @@ interface ReceiverPanelProps {
     // 'SHA-256 matched' once every announced file arrived and every one of them
     // verified, else null. Never a digest value (D-101).
     verifiedLine: string | null;
+    // The count line and whether it may carry the check: complete, still
+    // waiting on files, or ended short. See lib/receiveSummary.ts.
+    summary: ReceiveSummary;
 }
 
 /**
@@ -38,6 +46,7 @@ export function ReceiverPanel({
     receivedFiles,
     status,
     isConnected,
+    senderAbsent,
     reportStatsEnabled,
     onReportStatsChange,
     isZipping,
@@ -47,6 +56,7 @@ export function ReceiverPanel({
     onDownloadZip,
     listRef,
     verifiedLine,
+    summary,
 }: ReceiverPanelProps) {
     // 'Verifying file N of M' is the same slot as 'Receiving file N of M': the
     // file's bytes are all here and its SHA-256 is being checked. Without this
@@ -67,14 +77,29 @@ export function ReceiverPanel({
                             )}
                             Secure room joined
                         </div>
-                        <div className={`flex items-center gap-2.5 text-sm ${isConnected ? 'text-zinc-200' : 'text-zinc-600'}`}>
-                            {isConnected ? (
-                                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-zinc-400" />
-                            ) : (
-                                <Circle className="h-3.5 w-3.5 shrink-0 text-zinc-700" />
-                            )}
-                            Waiting for the sender to start
-                        </div>
+                        {isConnected && senderAbsent ? (
+                            // No spinner: nothing is in progress. The second
+                            // line promises nothing, because a finished link
+                            // and a CLI or desktop sender never come back.
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-2.5 text-sm text-amber-200">
+                                    <Circle className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+                                    The sender is not connected
+                                </div>
+                                <p className="text-balance pl-6 text-xs leading-relaxed text-zinc-500">
+                                    Keep this page open if they are coming back. Otherwise ask them for a new link.
+                                </p>
+                            </div>
+                        ) : (
+                            <div className={`flex items-center gap-2.5 text-sm ${isConnected ? 'text-zinc-200' : 'text-zinc-600'}`}>
+                                {isConnected ? (
+                                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-zinc-400" />
+                                ) : (
+                                    <Circle className="h-3.5 w-3.5 shrink-0 text-zinc-700" />
+                                )}
+                                Waiting for the sender to start
+                            </div>
+                        )}
                         <div className="flex items-center gap-2.5 text-sm text-zinc-600">
                             <Circle className="h-3.5 w-3.5 shrink-0 text-zinc-700" />
                             Files stream in below
@@ -154,19 +179,31 @@ export function ReceiverPanel({
                 <p className="text-[10px] text-zinc-600 text-center mt-1">Tip: Use &quot;Download ZIP&quot; for the best experience on iOS.</p>
             )}
 
-            {busy ? (
+            {/* An early end comes first: it is a latched fact, and it must not
+                wait behind a status that still says a file is arriving. The
+                check belongs to a full count alone. It used to follow the list,
+                so one file of three with the sender gone read as finished. */}
+            {summary.kind === 'short' ? (
+                <div role="status" className="flex w-full items-start justify-center gap-2 text-xs leading-relaxed text-amber-300 pt-2">
+                    <AlertTriangle className="h-3 w-3 shrink-0 mt-[3px] text-amber-400" />
+                    <span>{summary.text}</span>
+                </div>
+            ) : busy ? (
                 <div className="flex w-full items-center justify-center gap-2 text-xs text-zinc-400 animate-pulse pt-2">
                     <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
                     <span className="truncate max-w-[200px] sm:max-w-[280px]">
                         {status}
                     </span>
                 </div>
-            ) : receivedFiles.length > 0 && (
+            ) : summary.kind === 'complete' ? (
                 <div className="flex w-full items-center justify-center gap-2 text-xs text-zinc-400 pt-2">
                     <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500" />
-                    <span>
-                        {receivedFiles.length} {receivedFiles.length === 1 ? 'file' : 'files'} received
-                    </span>
+                    <span>{summary.text}</span>
+                </div>
+            ) : summary.kind === 'waiting' && (
+                <div className="flex w-full items-center justify-center gap-2 text-xs text-zinc-400 pt-2">
+                    <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                    <span>{summary.text}</span>
                 </div>
             )}
 

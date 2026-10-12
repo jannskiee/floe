@@ -36,11 +36,12 @@
  * Why `tables` exists: Mintlify renders what no local check sees. A delimiter
  * row with one cell more than its header is not a table to GFM, so the block
  * renders as a paragraph of raw pipes (reference/limits shipped five of those
- * in #518, found on production the next day). A table of four or more columns
- * is cut at 1280 wide by the theme's 150 px cell floor, and a straight quote
- * that opens a cell is turned the wrong way by the smart-quote pass. The first
- * is decidable and HARD; the other two depend on the rendered page and print
- * as NOTE.
+ * in #518, found on production the next day). A straight quote at the edge of
+ * a cell is judged by the neighboring cell's text and can be turned the wrong
+ * way by the smart-quote pass, where typed marks are always right. Both are
+ * decidable from the source and HARD. A table of five or more columns is cut
+ * at 1280 wide by the theme's cell floor unless the stylesheet makes room for
+ * it, which depends on the rendered page, so that one prints as NOTE.
  *
  * Usage:
  *   node docs-check.mjs [all|links|nav|frontmatter|labels|tables|env|dashes] [--root <dir>]
@@ -50,7 +51,7 @@
  * NOTE or info, then `docs-check: N hard, M notes`. Exit 0 no HARD, 1 any
  * HARD, 2 usage or unreadable root.
  */
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -101,6 +102,7 @@ export const SURFACES = [
     '.env.docker.example',
     'docker-compose.yml',
     'unraid',
+    '.goreleaser.yml',
 ];
 
 // ---------------------------------------------------------------------------
@@ -185,8 +187,18 @@ const ENV_IGNORE_CLIENT = new Set([
 ]);
 // A table this wide or wider gets a NOTE. Mintlify's theme gives every cell a
 // 150 px minimum and the article column is 529 px at 1280, so three columns
-// fit and four are cut mid-word with no scrollbar shown (measured 2026-10-11).
-const WIDE_TABLE_COLUMNS = 4;
+// fit and four were cut mid-word with no scrollbar shown (measured
+// 2026-10-11). docs/style.css now lowers that floor to 104 px for a table with
+// a fourth header cell, which is what lets the four-column comparison grid on
+// choosing-floe fit. Five columns get the same floor, which is 520 px of the
+// 529, so they need a look at the rendered page. Three is still the docs' own
+// limit for anything that is not a comparison grid.
+const WIDE_TABLE_COLUMNS = 5;
+// A quotation at the edge of a table cell, behind any emphasis or link markup
+// (the smart-quote pass sees the text, not the markup). The closing form is a
+// quote straight after punctuation other than a sentence end.
+const OPENS_WITH_QUOTE = /^(?:\*\*|__|\*|_|~~|\[)*"/;
+const CLOSES_WITH_QUOTE = /[^\s\w.!?"`]"(?:\*\*|__|\*|_|~~|\]\([^)]*\))*$/;
 // Frontmatter keys Mintlify typesets: two hyphens in any of them render as one
 // em dash in the visible page while the meta tag keeps both, so a description
 // naming `--server` showed a flag that does not exist (cli/self-hosted-server,
@@ -302,14 +314,23 @@ function frontmatter(mdx) {
 // either is never scanned.
 function stripFences(mdx) {
     const lines = mdx.split('\n');
-    let inFence = false;
+    // The fence that is open: its character and its length. A block closes
+    // only on a line of the same character, at least as long, with nothing
+    // after it, so a tilde fence, and a three-backtick fence shown inside a
+    // four-backtick one, are blanked whole.
+    let open = null;
     const noFences = lines
         .map((line) => {
-            if (/^\s*```/.test(line)) {
-                inFence = !inFence;
+            const m = line.match(/^\s*(`{3,}|~{3,})(.*)$/);
+            if (m && open === null) {
+                open = { mark: m[1][0], length: m[1].length };
                 return '';
             }
-            return inFence ? '' : line;
+            if (m && m[1][0] === open.mark && m[1].length >= open.length && m[2].trim() === '') {
+                open = null;
+                return '';
+            }
+            return open ? '' : line;
         })
         .join('\n');
     return noFences.replace(/\{\/\*[\s\S]*?\*\/\}/g, (m) =>
@@ -575,10 +596,13 @@ function checkLinks(ctx) {
         const text = read(file);
         const where = rel(ctx.root, file);
         for (const m of text.matchAll(ABS_DOCS_URL)) {
+            // The path class has to allow a dot, so a URL that ends a
+            // sentence takes the full stop with it. No docs path ends in one.
+            const path = (m[1] || '/').replace(/\.+$/, '') || '/';
             checkTarget(
                 ctx,
                 `${where}:${lineOf(text, m.index)}`,
-                m[1] || '/',
+                path,
                 m[2] || ''
             );
         }
@@ -846,7 +870,6 @@ function tablesIn(mdx) {
 function checkTables(ctx) {
     for (const [, rec] of ctx.pages) {
         const where = rel(ctx.root, rec.file);
-        const quoteLines = [];
         for (const t of tablesIn(rec.text)) {
             if (t.header.length !== t.delimiter.length) {
                 ctx.report.hardLine(
@@ -862,23 +885,28 @@ function checkTables(ctx) {
                     `${where}:${t.headerLine}`,
                     `${t.header.length} columns: check the rendered table at 1280 wide, where the theme's cell floor cuts a table this wide`
                 );
+            // HARD since the docs were cleared of these (#526 typed all 93).
+            // Mintlify's smart-quote pass joins the text of a whole row with
+            // nothing between the cells, so a straight quote at the edge of a
+            // cell is judged by the neighboring cell's character: one that
+            // opens a cell reads as a closing mark, and one that closes a cell
+            // after a colon or a parenthesis reads as an opening one. Typed
+            // marks are right either way, so this is decidable from the source.
             const all = [{ cells: t.header, line: t.headerLine }, ...t.rows];
-            for (const row of all)
-                if (row.cells.some((c) => c.startsWith('"')))
-                    quoteLines.push(row.line);
-        }
-        // One line per page, not one per row: the two request-link guides
-        // have about forty such rows each, and a wall of identical lines
-        // buries every other NOTE.
-        if (quoteLines.length) {
-            const shown =
-                quoteLines.slice(0, 6).join(', ') +
-                (quoteLines.length > 6 ? ', ...' : '');
-            ctx.report.note(
-                'tables',
-                `${where}:${quoteLines[0]}`,
-                `${quoteLines.length} table row(s) open a cell with a straight double quote (lines ${shown}): Mintlify turns that mark the wrong way. Type the pair as “ and ”`
-            );
+            for (const row of all) {
+                if (row.cells.some((c) => OPENS_WITH_QUOTE.test(c)))
+                    ctx.report.hardLine(
+                        'tables',
+                        `${where}:${row.line}`,
+                        'a straight double quote opens a table cell: Mintlify renders it as a closing mark. Type that quotation with curly marks, “ and ”'
+                    );
+                else if (row.cells.some((c) => CLOSES_WITH_QUOTE.test(c)))
+                    ctx.report.hardLine(
+                        'tables',
+                        `${where}:${row.line}`,
+                        'a straight double quote closes a table cell after punctuation: Mintlify renders it as an opening mark. Type that quotation with curly marks, “ and ”'
+                    );
+            }
         }
     }
 }
@@ -1585,6 +1613,20 @@ function checkDashes(ctx) {
             files.push(join(root, name));
     }
     files.push(...walk(join(root, '.github'), ['.md']));
+    // Markdown and reader-facing config outside the two places above. The rule
+    // in CLAUDE.md covers every Markdown file, and this check only ever looked
+    // at the root and docs/: .goreleaser.yml carried two em dashes for months
+    // (its comments are the release runbook people read). desktop/build is
+    // named because walk() skips any directory called build.
+    files.push(...walk(join(root, 'unraid'), ['.md']));
+    for (const f of [
+        'desktop/README.md',
+        'desktop/build/README.md',
+        '.goreleaser.yml',
+        'docs/style.css',
+    ]) {
+        if (existsSync(join(root, f))) files.push(join(root, f));
+    }
     for (const file of files) {
         const text = read(file);
         const where = rel(root, file);
@@ -1655,8 +1697,18 @@ export function run(args) {
     process.exit(report.hard ? 1 : 0);
 }
 
+// Both sides through realpath: node keeps a symlink in argv[1] and resolves it
+// in import.meta.url, so from a checkout under a symlinked directory (or a
+// Windows junction) the two differed, nothing ran, and the exit was 0.
+function realPath(p) {
+    try {
+        return realpathSync(p);
+    } catch {
+        return p;
+    }
+}
 const invokedDirectly =
     process.argv[1] &&
-    resolve(process.argv[1]).toLowerCase() ===
-        fileURLToPath(import.meta.url).toLowerCase();
+    realPath(resolve(process.argv[1])).toLowerCase() ===
+        realPath(fileURLToPath(import.meta.url)).toLowerCase();
 if (invokedDirectly) run(process.argv.slice(2));

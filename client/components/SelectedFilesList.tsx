@@ -2,6 +2,7 @@ import type { RefObject } from 'react';
 import { CheckCircle2, Loader2, X } from 'lucide-react';
 import { FileIcon } from '@/components/FileIcon';
 import { formatBytes } from '@/lib/utils';
+import { fileListScrolls } from '@/lib/fileListScroll';
 import type { FileWithId } from '@/hooks/useFileManagement';
 
 interface SelectedFilesListProps {
@@ -30,10 +31,14 @@ export function SelectedFilesList({
     onDeleteFile,
     listRef,
 }: SelectedFilesListProps) {
+    // A scroll box only once the rows no longer fit: see lib/fileListScroll.ts.
+    const listClass = fileListScrolls(files.length)
+        ? 'space-y-3 max-h-[300px] overflow-y-auto pr-1 pb-1 custom-scrollbar'
+        : 'space-y-3 pb-1';
     return (
         <div
             ref={listRef}
-            className="space-y-3 max-h-[300px] overflow-y-auto pr-1 pb-1 custom-scrollbar"
+            className={listClass}
         >
             {files.map((item, i) => (
                 <div

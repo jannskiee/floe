@@ -3,6 +3,7 @@ import { CheckCircle2, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatBytes } from '@/lib/utils';
 import { sanitizeFileName } from '@/lib/download';
+import { fileListScrolls } from '@/lib/fileListScroll';
 import type { ReceivedFile } from '@/hooks/useDownloadManager';
 
 interface ReceivedFilesListProps {
@@ -16,10 +17,14 @@ interface ReceivedFilesListProps {
  * ref live in P2PTransfer.
  */
 export function ReceivedFilesList({ receivedFiles, listRef }: ReceivedFilesListProps) {
+    // A scroll box only once the rows no longer fit: see lib/fileListScroll.ts.
+    const listClass = fileListScrolls(receivedFiles.length)
+        ? 'space-y-3 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar'
+        : 'space-y-3';
     return (
         <div
             ref={listRef}
-            className="space-y-3 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar"
+            className={listClass}
         >
             {receivedFiles.map((file) => {
                 // The peer chose this name. Show it cleaned, so a

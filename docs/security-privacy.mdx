@@ -164,14 +164,12 @@ updates them.
 
 On the floe.one website:
 
-- **Sentry** records application errors and a 10% sample of browser performance traces. It is
+- **Sentry** records application errors and a 10% sample of page performance traces. It is
   configured to attach no cookies and no IP address; each report carries the page address, the
-  browser's user agent, and the referring page, and may add the connection type, whether relay
+  browser's user agent, language and time zone, and the referring page, and may add the connection type, whether relay
   fallback was on, the transfer's progress, the file count, the total size, and the device's approximate memory at the time of an
   error. The room secret is stripped out of every error report, breadcrumb, and performance trace
-  before it is sent. Each page you open also sends a session record: a random session id, the
-  time, the session's status and error count, the site's build version and environment name, and
-  the browser's user agent, with no page address.
+  before it is sent.
 - **Session replay is not enabled and will not be added.** A replay records the page address, and
   on a receiver page that address contains the room link, which is the only thing protecting the
   transfer.
