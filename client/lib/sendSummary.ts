@@ -44,6 +44,17 @@ export function sendRowMark(input: {
     return 'none';
 }
 
+/**
+ * Whether the status line over the share link says the send is over and
+ * well: one of the page's own two sentences, compared whole. The line also
+ * reads "Sending: <name>" with the sender's own file name in it, so asking
+ * whether it CONTAINS the words gave a file called "Transfer complete.txt"
+ * the green check while it was still being sent.
+ */
+export function shareStatusComplete(status: string): boolean {
+    return status === 'All Files Sent!' || status === 'Transfer complete';
+}
+
 /** The words at the left of the sender's progress row. Empty after a failure:
  *  the banner above the row already says what happened. */
 export function sendProgressLabel(input: { end: SendEnd; currentFileIndex: number; filesCount: number }): string {

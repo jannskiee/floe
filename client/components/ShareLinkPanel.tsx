@@ -1,5 +1,6 @@
 import { QRCodeSVG } from 'qrcode.react';
 import { Check, CheckCircle2, Copy, Loader2, QrCode, Share2 } from 'lucide-react';
+import { shareStatusComplete } from '@/lib/sendSummary';
 
 interface ShareLinkPanelProps {
     generatedLink: string;
@@ -29,7 +30,7 @@ export function ShareLinkPanel({
     status,
     verifiedLine,
 }: ShareLinkPanelProps) {
-    const isComplete = status === 'All Files Sent!' || status.includes('Transfer complete');
+    const isComplete = shareStatusComplete(status);
     // A status that has ended does not spin: the spinner beside it said the
     // page was still working on something, under a banner saying it was not.
     const hasEnded =
