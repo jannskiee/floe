@@ -41,9 +41,11 @@ import {decideReceiverClose} from '@/lib/receiverClose';
 import {describeSenderStop, senderCloseInterrupted} from '@/lib/senderStop';
 import {verifiedLine, VERIFIED_LINE} from '@/lib/verifiedLine';
 import {receiveSummary} from '@/lib/receiveSummary';
+import type {SendEnd} from '@/lib/sendSummary';
 import {INITIAL_SEAT, seatStep, type SeatEvent} from '@/lib/roomSeat';
 import {REJOIN_FAILED_STATUS, REJOINING_STATUS, rejoinAllowed, rejoinDelay, statusOnceSeated} from '@/lib/rejoinRetry';
 import {peerDisconnectAction, teardownClaimsClose} from '@/lib/peerDisconnect';
+import {afterReconnect, withRefusalBanner, withoutRefusalBanner} from '@/lib/refusalBanner';
 import {copyText} from '@/lib/clipboard';
 import {resolveSocketUrl} from '@/lib/socketUrl';
 
@@ -90,6 +92,12 @@ export function P2PTransfer() {
     // The sender's own record of the receiver's delivery report, reduced to a
     // boolean in the callback. The count itself never reaches a render.
     const [allVerified, setAllVerified] = useState(false);
+    // How this page's send ended, for the file rows and the progress row.
+    // A fact latched where the send engine reports it, never read back from
+    // the status sentence, which three handlers rewrite after a finished send
+    // (lib/sendSummary.ts). Every write below is tied to the peer it is
+    // about: a session that was replaced must not mark the one that replaced it.
+    const [sendEnd, setSendEnd] = useState<SendEnd>('open');
     // The file count the sender announced. expectedFilesRef holds the same
     // number but is a ref, so it does not re-render the success line.
     const [expectedFiles, setExpectedFiles] = useState(0);
@@ -346,11 +354,16 @@ export function P2PTransfer() {
         },
         onConnectError: (err) => {
             if (err.message === 'Rate limit exceeded') {
-                setError('Too many refreshes. Reconnecting');
+                setError(withRefusalBanner);
             }
         },
+        // The retry of a refusal ends here and not in onReconnect, so this is
+        // where its banner comes down. Nothing else: see lib/refusalBanner.ts.
+        onConnect: () => setError(withoutRefusalBanner),
         onReconnect: () => {
-            setError('');
+            // Cleared, except the Link Invalid card of a page that has no
+            // room to re-join: see afterReconnect.
+            setError((prev) => afterReconnect(prev, joinedRoomRef.current !== null));
             // A new socket is a new attempt at the room: the join below is the
             // only one in flight, and a refusal starts the schedule again.
             clearRejoin();
@@ -614,11 +627,17 @@ export function P2PTransfer() {
                     // The other branch names no control: this page cannot know
                     // what kind of sender it has, and the relay is a checkbox
                     // in the browser, --no-relay on the CLI, and always on in
-                    // Floe Desktop.
+                    // Floe Desktop. It cannot know the relay was off either:
+                    // a sender that slept, lost its network or was stopped
+                    // raises the same two errors, so the relay is an "if". And
+                    // it says the connection failed, not that nothing
+                    // connected: the guard above counts finished files, so
+                    // this also shows after the channel opened, with the first
+                    // file on its way.
                     setError(
                         reason === 'abort'
                             ? 'The sender ended the transfer. Ask them to start it again.'
-                            : 'Could not connect. Ask the sender to try again with the relay allowed.'
+                            : 'Connection failed. Ask the sender to try again. If they turned the relay off, ask them to leave it on.'
                     );
                 } else {
                     // Unexpected error — capture for investigation.
@@ -937,7 +956,31 @@ export function P2PTransfer() {
             // may be cleared: both are per peer, and the wire-reason latch has
             // to be down before the next peer can set it.
             wireReasonRef.current = false;
+            // So are these two, and they were never cleared. Once one send
+            // had finished, every later one was read through it: a second
+            // recipient who stopped mid-file and then left the room turned
+            // the status to a green "Transfer complete", where a first
+            // recipient doing the same leaves "Peer disconnected. Waiting for
+            // reconnection". The handlers that read them (the two disconnect
+            // callbacks above, onReconnect, the room-full retry, and this
+            // peer's close and error handlers) now see the send in hand.
+            transferCompleteRef.current = false;
+            progressRef.current = 0;
             setAllVerified(false);
+            // A new recipient is a new send. Without this the rows kept the
+            // last send's marks, and its last row spun at 100% for the two
+            // seconds before the first file starts.
+            setSendEnd('open');
+            setCurrentFileIndex(0);
+            setProgress(0);
+            // So do its speed and its banner. A banner about the send that is
+            // over must not sit over the one that is starting (the receiver's
+            // own restart clears its banner for the same reason), and the
+            // close handler keeps a banner that is already up, so an old one
+            // also hid the next failure's own message.
+            setTransferSpeed('');
+            setEstimatedTime('');
+            setError('');
             setStatus('Peer joined. Starting transfer');
             requestWakeLock();
 
@@ -1073,6 +1116,8 @@ export function P2PTransfer() {
                 ) {
                     setError((prev) => prev || 'The connection closed before the transfer finished.');
                     setStatus('Connection interrupted');
+                    // The file that was moving stops spinning.
+                    if (peerRef.current === peer) setSendEnd((end) => (end === 'open' ? 'failed' : end));
                 }
             });
             peer.on('error', (err) => {
@@ -1082,6 +1127,10 @@ export function P2PTransfer() {
                 if (wireReasonRef.current) return;
                 if (transferCompleteRef.current || progressRef.current > 0) {
                     setStatus('Connection interrupted');
+                    // A send that was still open stops here. One that was
+                    // delivered stays delivered: every file had left this
+                    // browser before the connection went.
+                    if (peerRef.current === peer) setSendEnd((end) => (end === 'open' ? 'failed' : end));
                     return;
                 }
 
@@ -1166,13 +1215,22 @@ export function P2PTransfer() {
                     setTransferSpeed('');
                     setEstimatedTime('');
                 },
+                // Also how a refusal that arrives after the last byte is
+                // reported (onStopped follows it in the same tick), so this
+                // is where a delivered send becomes a failed one.
                 onError: (msg) => {
+                    // A session that was replaced while it waited for an
+                    // answer still reports its end, and that report is about a
+                    // connection this page has moved on from.
+                    if (peerRef.current !== peer) return;
                     setError(msg);
                     setStatus('Transfer failed');
+                    setSendEnd('failed');
                 },
                 onAllSent: () => {
                     setStatus('All Files Sent!');
                     setProgress(100);
+                    if (peerRef.current === peer) setSendEnd('delivered');
                     transferCompleteRef.current = true;
                     releaseWakeLock();
                     track('transfer-complete', {
@@ -1186,24 +1244,33 @@ export function P2PTransfer() {
                 // the receiver's count is a claim, and no number goes on screen.
                 onDelivered: ({ allVerified: ok }) => setAllVerified(ok),
                 onStopped: (stop) => {
-                    const sentence = describeSenderStop({ ...stop, files: fileList.length });
-                    if (!sentence) return;
                     // Latched for the same reason the receiver's onError is:
                     // this is the protocol's own account, and the close and
-                    // error events that follow must not talk over it. onStopped
-                    // runs after onError inside reportStop, so this overwrites
-                    // the generic wording in the same tick; every other code
-                    // keeps that wording.
+                    // error events that follow must not talk over it. For
+                    // every stop the peer reports, not only the one with a
+                    // sentence of its own below: a refusal with any other
+                    // code after the last byte left "Transfer failed" under
+                    // its banner, and the next socket drop or the peer's
+                    // leaving wrote "Transfer complete" over it.
                     wireReasonRef.current = true;
-                    setError(sentence);
-                    setStatus('Transfer failed');
-                    setAllVerified(false);
+                    // Counted here, once, for every stop the peer reports. The
+                    // error handler that used to count a refusal other than a
+                    // hash mismatch now returns at the latch, so without this
+                    // such a send failed without being counted at all.
                     track('transfer-failed', {
                         reason: 'peer-reason',
                         role: 'sender',
                         files: fileList.length,
                         bytes: fileList.reduce((s, f) => s + f.file.size, 0),
                     });
+                    const sentence = describeSenderStop({ ...stop, files: fileList.length });
+                    if (!sentence) return;
+                    // onStopped runs after onError inside reportStop, so this
+                    // overwrites the generic wording in the same tick; every
+                    // other code keeps that wording.
+                    setError(sentence);
+                    setStatus('Transfer failed');
+                    setAllVerified(false);
                 },
             }
         );
@@ -1298,6 +1365,7 @@ export function P2PTransfer() {
                                 <TransferProgressBar
                                     isSender={isSender}
                                     status={status}
+                                    sendEnd={sendEnd}
                                     currentFileIndex={currentFileIndex}
                                     filesCount={files.length}
                                     transferSpeed={transferSpeed}
@@ -1407,7 +1475,7 @@ export function P2PTransfer() {
                                             currentFileIndex={currentFileIndex}
                                             progress={progress}
                                             filesLocked={filesLocked}
-                                            status={status}
+                                            sendEnd={sendEnd}
                                             onDeleteFile={handleDeleteFile}
                                             listRef={fileListRef}
                                         />

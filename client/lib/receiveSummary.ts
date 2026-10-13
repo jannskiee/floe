@@ -13,6 +13,11 @@
  * status sentence: the signaling socket can drop and come back in the middle
  * of a healthy transfer, and that writes the status too.
  *
+ * The waiting line says "the rest", not "the next file": it can be on screen
+ * while the next file is already arriving. When this page's own signaling
+ * socket drops mid-file the status is rewritten, so the line shows over a
+ * progress row that is still moving.
+ *
  * The two partial lines must not contain "N files received". The transfer
  * audit reads the page with an unanchored /(\d+) files? received/ and takes a
  * match as a complete receive of N files.
@@ -41,5 +46,5 @@ export function receiveSummary(input: {
     // Cause-neutral. A network that failed on this side ends here too, so the
     // line does not say who left.
     if (ended) return { kind: 'short', text: `${sofar} The transfer ended before the rest arrived.` };
-    return { kind: 'waiting', text: `${sofar} Waiting for the next file` };
+    return { kind: 'waiting', text: `${sofar} Waiting for the rest` };
 }

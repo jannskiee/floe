@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
 
 import {
+    browserRelayRecord,
     main,
     parseWslList,
     exesUnderTest,
@@ -36,6 +37,7 @@ import {
     serverFeaturesRow,
     serverFor,
     webHeadLabel,
+    webHeadRow,
 } from './audit.mjs';
 import { fakeWorld, makeFakeAdapters } from './lib/tests/fake-legs.mjs';
 
@@ -2652,4 +2654,50 @@ test('readProbe does not reuse a probe whose desktop half was skipped for presen
             readProbe(outDir, log, { ...asked, ...flags }),
             JSON.stringify(flags)
         );
+});
+
+test('probe P3 on a checkpoint is unknown, never "the forcer did not take"', () => {
+    assert.deepEqual(browserRelayRecord({ ok: true }), { ok: true, detail: null });
+    assert.deepEqual(browserRelayRecord({ ok: false, detail: 'pair was host' }), {
+        ok: false,
+        detail: 'pair was host',
+    });
+    // matrix.mjs gateCell SKIPs every browser-forced relay cell as
+    // browser-relay-na on ok === false, and probe.json is reused for a day.
+    const cp = browserRelayRecord({
+        ok: false,
+        checkpoint: true,
+        error: { message: 'web-checkpoint: the web sender was served ...' },
+    });
+    assert.equal(cp.ok, null);
+    assert.match(cp.detail, /^web-checkpoint: /);
+    assert.match(cp.detail, /run the probe again/);
+});
+
+test('the floe.one row names a challenge and stays not ok', () => {
+    const ok = webHeadRow({
+        status: 200,
+        url: 'https://www.floe.one/',
+        headers: { etag: '"abc"' },
+    });
+    assert.deepEqual(ok, {
+        check: 'floe.one',
+        ok: true,
+        detail: '200 via www.floe.one, etag "abc"',
+    });
+    const challenged = webHeadRow({
+        status: 403,
+        url: 'https://www.floe.one/',
+        headers: { 'x-vercel-mitigated': 'challenge' },
+    });
+    assert.equal(challenged.ok, false, 'a challenge is never reported as up');
+    assert.match(challenged.detail, /^403 via www\.floe\.one, etag none; web-checkpoint: /);
+    assert.match(challenged.detail, /cannot tell from here whether other visitors are affected/);
+    // A header value is the server's, so only the one known word is echoed.
+    const odd = webHeadRow({
+        status: 403,
+        url: 'https://www.floe.one/',
+        headers: { 'x-vercel-mitigated': 'deny' },
+    });
+    assert.equal(odd.detail, '403 via www.floe.one, etag none');
 });

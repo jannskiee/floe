@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 import path from 'path';
+import { E2E_SOCKET_URL } from './e2e/socket-url';
 
 export default defineConfig({
     testDir: './e2e',
@@ -58,7 +59,14 @@ export default defineConfig({
             // Poll /health instead of the bare port so tests only start once
             // Express is actually routing requests, not merely listening.
             url: 'http://localhost:3001/health',
-            reuseExistingServer: true,
+            // Never true, for either server. Playwright then stops before any
+            // test when something already answers here, and its error text
+            // suggests turning this back on: do not. An adopted signaling
+            // server gets none of the env below, so request links are off and,
+            // with live Upstash credentials in its server/.env, the suite's
+            // receives are added to the public counter for good. Stop whatever
+            // holds the port instead (CONTRIBUTING.md, Running the e2e suite).
+            reuseExistingServer: false,
             timeout: 30_000,
             env: {
                 CLIENT_URL: 'http://localhost:3000',
@@ -94,14 +102,23 @@ export default defineConfig({
             // demand, and on macOS runners that first compile repeatedly
             // blew the 120s startup budget below. Local runs keep next dev
             // so the edit-refresh flow is untouched.
-            command: process.env.CI ? 'pnpm start' : 'pnpm dev',
+            //
+            // Next's own entry point and not `pnpm start` / `pnpm dev`: the
+            // two scripts are exactly `next start` and `next dev`, and this
+            // form needs no package manager on PATH. Where only corepack
+            // resolves pnpm, the pnpm form could not start, and a local run
+            // worked only by adopting a client someone had started by hand.
+            command: `node node_modules/next/dist/bin/next ${process.env.CI ? 'start' : 'dev'}`,
             cwd: __dirname,
             // URL readiness makes Playwright issue a real GET / before tests
             // start. Under next dev that forces the home page to compile up
             // front so the first test's timeout never pays for it; under
             // next start it just confirms the server is routing.
             url: 'http://localhost:3000',
-            reuseExistingServer: true,
+            // Never true: see the signaling server above. An adopted client
+            // keeps whatever NEXT_PUBLIC_SOCKET_URL it was started with, and
+            // one pointed at the live server runs the suite through it.
+            reuseExistingServer: false,
             timeout: 120_000,
             env: {
                 // 127.0.0.1 (not localhost) so engine.io-client registers its
@@ -113,9 +130,11 @@ export default defineConfig({
                 // NEXT_PUBLIC_* is inlined at BUILD time, so this value only
                 // takes effect through next dev (local runs). On CI the same
                 // value is baked in by the "Build client (production)" step
-                // and next start ignores this block. reconnect.spec.ts
-                // asserts the effective value at runtime either way.
-                NEXT_PUBLIC_SOCKET_URL: 'http://127.0.0.1:3001',
+                // and next start ignores this block, which is why
+                // e2e/global-setup.ts refuses a build that does not carry
+                // it. reconnect.spec.ts asserts the effective value at
+                // runtime either way.
+                NEXT_PUBLIC_SOCKET_URL: E2E_SOCKET_URL,
             },
         },
     ],

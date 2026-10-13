@@ -509,6 +509,18 @@ describe('visitor copy: Ready and Sending strings', () => {
         });
     });
 
+    // The one sentence of the in-app browser notice that /r words for itself
+    // (app/r/[linkId]/page.tsx hands it to InAppBrowserGuard). The notice's
+    // own sentence names Chrome or Safari, which is right on the home page and
+    // wrong here: no request link page lists Safari. This row says what the
+    // support line under the heading says (C-13), computer included. Approved
+    // by the owner on 2026-10-12.
+    it('the in-app browser advice names current Chrome or Edge on a computer', () => {
+        expect(visitorCopy.inAppAdvice).toBe('Open the link in current Chrome or Edge on a computer.');
+        expect(visitorCopy.inAppAdvice).toContain('current Chrome');
+        expect(visitorCopy.betaSupport).toBe('Works in current Chrome and Edge on a computer.');
+    });
+
     it('the intro, the support line and the safety lines read as D-136 approved them', () => {
         // Each of these is a disclosure or a safety line (C-02 keeps "Floe
         // does not know who", C-11 the IP notice with its timing, C-12 the

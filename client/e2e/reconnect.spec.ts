@@ -19,7 +19,7 @@
 
 import { test, expect, type BrowserContext } from '@playwright/test';
 import { rmSync } from 'fs';
-import { join } from 'path';
+import { basename, join } from 'path';
 import { tmpdir } from 'os';
 import { io as ioClient, type Socket } from 'socket.io-client';
 import { SERVER_URL, createFixture, sha256OfBlobUrl, browserSenderSetup } from './helpers';
@@ -299,5 +299,43 @@ test('a sender whose room stays taken is told its link stopped working', async (
     } finally {
         holders.forEach((s) => s.disconnect());
         await senderCtx.close();
+    }
+});
+
+test('a finished send still looks finished once its status changes', async ({ browser }) => {
+    const { path: fixturePath } = createFixture(FIXTURE_DIR, FIXTURE_SIZE);
+
+    const senderCtx = await browser.newContext();
+    const receiverCtx = await browser.newContext();
+    const senderPage = await senderCtx.newPage();
+    const receiverPage = await receiverCtx.newPage();
+
+    try {
+        const link = await browserSenderSetup(senderPage, fixturePath);
+        await receiverPage.goto(link);
+        await expect(receiverPage.locator('a[download]').first()).toBeVisible({ timeout: 30_000 });
+        await expect(senderPage.getByText('All Files Sent!').first()).toBeVisible({ timeout: 10_000 });
+
+        const row = senderPage.locator('div.flex.items-center.gap-3').filter({ hasText: basename(fixturePath) });
+        await expect(senderPage.getByText('Sent 1 file', { exact: true })).toBeVisible();
+        await expect(row.locator('svg.text-green-500')).toHaveCount(1);
+
+        // This page's own socket dropping is one of three events that rewrite
+        // the status after a finished send (the peer leaving and the peer
+        // erroring are the others). Whichever sentence it lands on, the file
+        // left this browser: the row keeps its check and the progress row its
+        // count. Both used to follow the status sentence, so the last file
+        // went back to a spinner under "Transfer complete".
+        await senderCtx.setOffline(true);
+        await expect(senderPage.getByText('All Files Sent!')).toHaveCount(0, { timeout: 15_000 });
+        await expect(senderPage.getByText(/^(Transfer complete|Connection interrupted)$/)).toBeVisible();
+
+        await expect(senderPage.getByText('Sent 1 file', { exact: true })).toBeVisible();
+        await expect(senderPage.getByText(/Sending file [0-9]+ of [0-9]+/)).toHaveCount(0);
+        await expect(row.locator('svg.text-green-500')).toHaveCount(1);
+        await expect(row.locator('svg.animate-spin')).toHaveCount(0);
+    } finally {
+        await senderCtx.close();
+        await receiverCtx.close();
     }
 });

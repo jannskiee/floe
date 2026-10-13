@@ -317,6 +317,10 @@ export function safetyRows(s) {
         ],
         ['floe:bytes-reported events', String(s.bytesReportedEvents ?? 0)],
         [
+            'Sentry envelopes (browser, answered locally)',
+            String(s.webGuards?.sentryAnswered ?? 0),
+        ],
+        [
             'CLI receivers --no-report + FLOE_NO_STATS=1',
             `${s.cliReceiversOptedOut?.ok ?? 0}/${s.cliReceiversOptedOut?.total ?? 0}`,
         ],
@@ -617,6 +621,10 @@ export function newSafety() {
     return {
         statsReportAttempts: 0,
         bytesReportedEvents: 0,
+        // Counted by the web contexts themselves (web.mjs guardSentry), which
+        // reach this object as shared.webGuards: every envelope a page of the
+        // run tried to send, and the context answered instead of Sentry.
+        webGuards: { sentryAnswered: 0 },
         cliReceiversOptedOut: { ok: 0, total: 0 },
         desktopReceiversOptedOut: {
             ok: 0,

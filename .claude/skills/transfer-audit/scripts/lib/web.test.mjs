@@ -33,8 +33,11 @@ import {
     PlaywrightMissingError,
     REPORT_STATS_KEY,
     SAMPLE,
+    SENTRY_ENVELOPE_RE,
     STALE_BUNDLE_KEY,
     TEXT,
+    UMAMI_DISABLED_KEY,
+    WEB_CHECKPOINT,
     WebLeg,
     bytesMovedFrom,
     candidateCensus,
@@ -44,11 +47,13 @@ import {
     installHashbad,
     closeBrowser,
     createLeg,
+    guardSentry,
     guardStats,
     loadPlaywright,
     pairBytesFrom,
     preflight,
     probeRelay,
+    readCheckpoint,
     readPill,
     seedLocalStorage,
     shutdown,
@@ -245,6 +250,282 @@ test('guardStats aborts the report and counts the attempt', async () => {
     assert.equal(aborted, 'blockedbyclient');
     assert.equal(rec.attempts.length, 2);
     assert.equal(rec.attempts[0].method, 'POST');
+});
+
+test('SENTRY_ENVELOPE_RE matches the envelope path on any ingest host and nothing else', () => {
+    for (const url of [
+        // The real host carries a region, which is why a host pattern such as
+        // "ingest.sentry.io" matched nothing on 2026-10-12.
+        'https://o4507.ingest.us.sentry.io/api/4508/envelope/?sentry_version=7&sentry_key=abc&sentry_client=sentry.javascript.nextjs%2F10.72.0',
+        'https://o1.ingest.de.sentry.io/api/1/envelope/',
+        'https://sentry.example.org/prefix/api/42/envelope/',
+        'http://localhost:3001/api/9999/envelope/',
+    ])
+        assert.equal(SENTRY_ENVELOPE_RE.test(url), true, url);
+    for (const url of [
+        'https://api.floe.one/api/stats/report',
+        'https://api.floe.one/api/turn-credentials',
+        'https://www.floe.one/api/config',
+        'https://o1.ingest.us.sentry.io/api/1/store/',
+        'https://o1.ingest.us.sentry.io/api/envelope/',
+        'https://o1.ingest.us.sentry.io/api/1/envelope/extra',
+        'https://www.floe.one/docs/api/1/envelope',
+    ])
+        assert.equal(SENTRY_ENVELOPE_RE.test(url), false, url);
+});
+
+test('guardSentry answers the envelope locally, counts it and keeps nothing of it', async () => {
+    const routes = [];
+    const ctx = {
+        route: async (pattern, handler) => routes.push({ pattern, handler }),
+    };
+    const rec = {};
+    const shared = { webGuards: { sentryAnswered: 0 } };
+    await guardSentry(ctx, rec, shared);
+    assert.equal(routes.length, 1);
+    assert.equal(routes[0].pattern, SENTRY_ENVELOPE_RE);
+    const fulfilled = [];
+    const route = {
+        // An envelope's URL carries the project's key and its body the page
+        // address: the guard reads neither.
+        request: () => {
+            throw new Error('the guard must not read the request');
+        },
+        fulfill: async (o) => fulfilled.push(o),
+        // An abort would land in the leg's consoleErrors as
+        // net::ERR_BLOCKED_BY_CLIENT and read as a page error.
+        abort: async () => {
+            throw new Error('the guard answers, it does not abort');
+        },
+    };
+    await routes[0].handler(route);
+    await routes[0].handler(route);
+    assert.deepEqual(fulfilled[0], {
+        status: 200,
+        contentType: 'application/json',
+        headers: { 'access-control-allow-origin': '*' },
+        body: '{}',
+    });
+    assert.deepEqual(rec, { answered: 2 });
+    assert.equal(shared.webGuards.sentryAnswered, 2, 'the run-wide count for the Safety table');
+    // A probe has no run-wide record; its own count still holds.
+    const alone = {};
+    const routes2 = [];
+    await guardSentry(
+        { route: async (pattern, handler) => routes2.push({ pattern, handler }) },
+        alone
+    );
+    await routes2[0].handler(route);
+    assert.deepEqual(alone, { answered: 1 });
+});
+
+test('the client sends Sentry straight to its ingest host, so the path guard sees every envelope', () => {
+    // A tunnel would post envelopes to a path on the page's own origin, and
+    // the guard would then answer nothing while reporting zero.
+    const repo = new URL('../../../../../', import.meta.url);
+    const read = (rel) => readFileSync(new URL(rel, repo), 'utf8');
+    const browserConfig = read('client/sentry.client.config.ts');
+    assert.match(browserConfig, /dsn: process\.env\.NEXT_PUBLIC_SENTRY_DSN/);
+    assert.doesNotMatch(browserConfig, /\btunnel\s*:/);
+    assert.doesNotMatch(read('client/next.config.mjs'), /\btunnelRoute\b/);
+});
+
+const answer = (status, headers = {}) => ({
+    status: () => status,
+    headers: () => headers,
+});
+const titled = (title) => ({ title: async () => title });
+
+test("readCheckpoint names Vercel's challenge and nothing else", async () => {
+    const challenge = { 'x-vercel-mitigated': 'challenge', server: 'Vercel' };
+    assert.deepEqual(
+        await readCheckpoint(answer(403, challenge), titled('Vercel Security Checkpoint')),
+        { status: 403, mitigated: 'challenge', title: true }
+    );
+    // Either signal is enough: the header on any status, or the page's title
+    // on an error status.
+    assert.deepEqual(await readCheckpoint(answer(429, challenge), titled('')), {
+        status: 429,
+        mitigated: 'challenge',
+        title: false,
+    });
+    assert.deepEqual(
+        await readCheckpoint(answer(403, {}), titled('Vercel Security Checkpoint')),
+        { status: 403, mitigated: null, title: true }
+    );
+    // Not a challenge: the app, a refusal, a bare error, a page that only
+    // borrows the title, a navigation with no response.
+    for (const [res, page, what] of [
+        [answer(200, { server: 'Vercel' }), titled('Floe'), 'the app'],
+        [answer(403, { 'x-vercel-mitigated': 'deny' }), titled('Forbidden'), 'a deny'],
+        [answer(403, {}), titled('403'), 'a bare 403'],
+        [answer(500, {}), titled('500: This page could not load'), 'a server error'],
+        [answer(200, {}), titled('Vercel Security Checkpoint'), 'a 200 with the title'],
+        [null, titled('Vercel Security Checkpoint'), 'no response'],
+        [undefined, titled(''), 'a fake page that returns nothing'],
+    ])
+        assert.equal(await readCheckpoint(res, page), null, what);
+    // An unreadable page or response is not a challenge either.
+    const broken = {
+        title: async () => {
+            throw new Error('page closed');
+        },
+    };
+    assert.equal(await readCheckpoint(answer(403, {}), broken), null);
+    assert.equal(
+        await readCheckpoint(
+            {
+                status: () => {
+                    throw new Error('gone');
+                },
+                headers: () => ({}),
+            },
+            titled('')
+        ),
+        null
+    );
+});
+
+/** A browser whose only page answers `res` to goto; calls are recorded. */
+function fakeWebBrowser(res, title = '') {
+    const calls = [];
+    const routes = [];
+    const ctx = {
+        async addInitScript(fn, arg) {
+            calls.push(['init', typeof fn === 'function' ? arg : String(fn)]);
+        },
+        async route(pattern, handler) {
+            routes.push({ pattern, handler });
+            calls.push(['route', pattern]);
+        },
+        async newPage() {
+            calls.push(['newPage']);
+            return {
+                on() {},
+                async goto(url) {
+                    calls.push(['goto', url]);
+                    return res;
+                },
+                async title() {
+                    return title;
+                },
+                locator() {
+                    throw new Error('the leg read the page after a checkpoint');
+                },
+                getByText() {
+                    throw new Error('the leg read the page after a checkpoint');
+                },
+            };
+        },
+        async close() {
+            calls.push(['close']);
+        },
+    };
+    return {
+        calls,
+        routes,
+        browser: {
+            async newContext(o) {
+                calls.push(['newContext', o]);
+                return ctx;
+            },
+        },
+    };
+}
+
+test('a web leg served the checkpoint stops as SKIP web-checkpoint, and the next one loads nothing', async () => {
+    const challenge = answer(403, { 'x-vercel-mitigated': 'challenge' });
+    const shared = { webGuards: { sentryAnswered: 0 } };
+    for (const role of ['sender', 'receiver']) {
+        const f = fakeWebBrowser(challenge, 'Vercel Security Checkpoint');
+        const own = { webGuards: { sentryAnswered: 0 } };
+        const leg = createLeg({
+            role,
+            cellId: 'S-DIR-W2W',
+            attempt: 1,
+            infra: { web: 'https://www.floe.one' },
+            files: ['a'],
+            target: 'https://www.floe.one/#room=x',
+            browser: f.browser,
+            shared: own,
+        });
+        await assert.rejects(leg.start(), (err) => {
+            assert.equal(err.name, 'PhaseError');
+            assert.equal(err.verdict, 'SKIP');
+            assert.equal(err.reason, WEB_CHECKPOINT);
+            assert.match(err.message, /^web-checkpoint: /);
+            assert.match(err.message, /HTTP 403/);
+            assert.match(err.message, /cannot tell from here whether other visitors are affected/);
+            return true;
+        });
+        assert.deepEqual(own.webCheckpoint, { status: 403, mitigated: 'challenge', title: true });
+        assert.deepEqual(leg.evidence().mainDocument, { status: 403, mitigated: 'challenge' });
+        // Every guard was in place before the page existed, on either role.
+        const order = f.calls.map((c) => c[0]);
+        assert.deepEqual(
+            f.routes.map((r) => r.pattern),
+            ['**/api/stats/report', SENTRY_ENVELOPE_RE]
+        );
+        assert.ok(order.lastIndexOf('route') < order.indexOf('newPage'));
+        assert.ok(
+            f.calls.some(
+                (c) => c[0] === 'init' && Array.isArray(c[1]) && c[1][0] === UMAMI_DISABLED_KEY && c[1][1] === '1'
+            ),
+            `${role}: umami.disabled is seeded`
+        );
+    }
+    // The latch: once one leg met the checkpoint, the next opens no context.
+    shared.webCheckpoint = { status: 403, mitigated: 'challenge', title: true };
+    const g = fakeWebBrowser(answer(200, {}), 'Floe');
+    const next = createLeg({
+        role: 'receiver',
+        infra: { web: 'https://www.floe.one' },
+        target: 'https://www.floe.one/#room=y',
+        browser: g.browser,
+        shared,
+    });
+    await assert.rejects(next.start(), (err) => {
+        assert.equal(err.verdict, 'SKIP');
+        assert.equal(err.reason, WEB_CHECKPOINT);
+        assert.match(err.message, /an earlier page load of this run/);
+        return true;
+    });
+    assert.deepEqual(g.calls, [], 'no context, no page, no request');
+});
+
+test('a refusal that is not the checkpoint does not stop the leg as a SKIP', async () => {
+    // A deny or a bare 403 is a failure the audit must report, not this
+    // machine's precondition: the leg goes on and fails on the page it reads.
+    const f = fakeWebBrowser(answer(403, { 'x-vercel-mitigated': 'deny' }), 'Forbidden');
+    const shared = {};
+    const leg = createLeg({
+        role: 'receiver',
+        infra: { web: 'https://www.floe.one' },
+        target: 'https://www.floe.one/#room=x',
+        browser: f.browser,
+        shared,
+    });
+    await assert.rejects(leg.start(), (err) => {
+        assert.notEqual(err.verdict, 'SKIP');
+        assert.notEqual(err.reason, WEB_CHECKPOINT);
+        return true;
+    });
+    assert.equal(shared.webCheckpoint, undefined, 'nothing is latched');
+    assert.deepEqual(leg.evidence().mainDocument, { status: 403, mitigated: 'deny' });
+});
+
+test('probeRelay reports a checkpoint apart from a forcer that did not take', async () => {
+    const dir = fresh();
+    const f = fakeWebBrowser(answer(403, { 'x-vercel-mitigated': 'challenge' }));
+    const r = await probeRelay({
+        web: 'https://www.floe.one',
+        evidenceDir: dir,
+        browser: f.browser,
+    });
+    assert.equal(r.ok, false);
+    assert.equal(r.checkpoint, true);
+    assert.match(r.error.message, /^web-checkpoint: /);
+    assert.equal(r.receiver, null, 'the receiver was never opened');
 });
 
 test('seedLocalStorage installs an init script with the key and value', async () => {

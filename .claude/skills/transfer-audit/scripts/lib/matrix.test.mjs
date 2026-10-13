@@ -18,6 +18,7 @@ import {
     REQUEST_OPEN_IDS,
     REQUEST_VARIANTS,
     SKIP_REASONS,
+    UNCOUNTED_SKIPS,
     cellPlan,
     countsForExit,
     fixtureSpec,
@@ -1203,4 +1204,18 @@ test('the wailsdev lane and --desktop none are not touched by the presence gate,
         server: 'https://api.floe.one',
     }).find((c) => c.id === 'S-DIR-W2D-req');
     assert.equal(noFeature.reason, 'server-no-request-1');
+});
+
+test('web-checkpoint is a documented SKIP about this machine, and it counts toward exit 5', () => {
+    assert.match(SKIP_REASONS['web-checkpoint'], /Security Checkpoint/);
+    assert.match(
+        SKIP_REASONS['web-checkpoint'],
+        /cannot tell from here whether other visitors are affected/
+    );
+    // A run that could not load its pages did not audit them: never a quiet 0.
+    assert.equal(UNCOUNTED_SKIPS.has('web-checkpoint'), false);
+    assert.equal(
+        countsForExit({ verdict: 'SKIP', reason: 'web-checkpoint' }),
+        true
+    );
 });

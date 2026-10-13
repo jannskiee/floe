@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import { describeSenderStop, SENDER_HASH_STOP, senderCloseInterrupted } from './senderStop';
 
@@ -70,5 +72,47 @@ describe('senderCloseInterrupted', () => {
         expect(senderCloseInterrupted({ ...base, transferComplete: true })).toBe(false);
         expect(senderCloseInterrupted({ ...base, progress: 0 })).toBe(false);
         expect(senderCloseInterrupted({ ...base, closedByUs: true })).toBe(false);
+    });
+});
+
+// P2PTransfer cannot be mounted here (vitest runs in node, with no DOM), so the
+// order of four lines in it is read as text. e2e/send-status.spec.ts drives
+// the real thing; this is so that undoing either change fails in the unit job.
+describe('how the sender page uses a stop', () => {
+    const page = readFileSync(fileURLToPath(new URL('../components/P2PTransfer.tsx', import.meta.url)), 'utf8');
+    const stopped = page.slice(page.indexOf('onStopped: (stop) => {'));
+
+    // Every stop the peer reports is latched, not only the one that has a
+    // sentence of its own. Latched below the early return, a refusal with any
+    // other code left "Transfer failed" unprotected, and the next socket drop
+    // wrote "Transfer complete" over it.
+    it('latches the wire reason before it asks whether the stop has its own sentence', () => {
+        const latch = stopped.indexOf('wireReasonRef.current = true;');
+        const sentence = stopped.indexOf('const sentence = describeSenderStop(');
+        expect(latch).toBeGreaterThan(0);
+        expect(sentence).toBeGreaterThan(latch);
+    });
+
+    // The latch silences the error handler, and that handler held the only
+    // count of a failed send for a refusal that is not a hash mismatch. So the
+    // count is taken here, once, for every stop.
+    it('counts the failed send before that early return too', () => {
+        const count = stopped.indexOf("track('transfer-failed'");
+        const early = stopped.indexOf('if (!sentence) return;');
+        expect(count).toBeGreaterThan(0);
+        expect(early).toBeGreaterThan(count);
+        expect(stopped.slice(0, stopped.indexOf('\n                },')).split("track('transfer-failed'")).toHaveLength(2);
+    });
+
+    // transferCompleteRef and progressRef are per send. Left set, they made
+    // every later send read as the first one's outcome.
+    it('clears the two per-send refs where a sender session begins', () => {
+        const from = page.indexOf('The only place a sender session begins');
+        const to = page.indexOf("setStatus('Peer joined. Starting transfer');", from);
+        expect(from).toBeGreaterThan(0);
+        const block = page.slice(from, to);
+        expect(block).toContain('wireReasonRef.current = false;');
+        expect(block).toContain('transferCompleteRef.current = false;');
+        expect(block).toContain('progressRef.current = 0;');
     });
 });

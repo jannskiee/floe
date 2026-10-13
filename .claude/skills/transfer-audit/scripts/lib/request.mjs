@@ -566,6 +566,8 @@ async function newVisitor(ctx, rec, st, tag, relayOnly) {
         log: ctx.log,
         evidenceDir: path.join(rec.evidenceDir, tag),
         ledger: ctx.ledger,
+        // The run's record: the Sentry count and the checkpoint latch.
+        shared: ctx.shared,
     });
     st.visitors.push(v);
     return v;

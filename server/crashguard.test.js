@@ -1046,10 +1046,16 @@ test('control messages for unknown rooms never reach the backstop', { timeout: 6
     visitor.send(JSON.stringify({ type: 'request-join', roomId: id }));
     await orBackstop(srv, seated, 'a visitor join');
     for (const type of CONTROL_TYPES) visitor.send(JSON.stringify({ type, roomId: id }));
+    // The close of an unsealed room tells its seated visitor, and nothing
+    // orders that frame against the pong on another socket: on a slow runner
+    // it landed in the collector below and failed three pushes to main on
+    // 2026-10-12. Taken here, before the loop reads anything.
+    const ended = waitFor(visitor, 'link-ended');
     host.send(JSON.stringify({ type: 'request-close', roomId: id }));
     for (const type of CONTROL_TYPES) host.send(JSON.stringify({ type, roomId: id }));
+    await orBackstop(srv, ended, 'the close reaching the seated visitor');
 
-    // Every socket still answers; nothing was said to any of them.
+    // Every socket still answers; nothing more was said to any of them.
     for (const ws of [loose, visitor, host]) {
         const replies = repliesUntilPong(ws);
         ws.send(JSON.stringify({ type: 'ping' }));

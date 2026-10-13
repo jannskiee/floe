@@ -57,6 +57,23 @@ export const metadata: Metadata = {
 // (sentry.server.config.ts `integrations`; see lib/sentryIntegrations.ts), so
 // the Error monitoring section names none. If either line is ever removed, a
 // sentence disclosing what it sends has to come back with it.
+// The same day, under the same rule: Sentry is sent no client reports
+// (`sendClientReports: false` in all three Sentry configs), no device or
+// network hints on a traced page load (lib/deviceHints.ts) and no interaction
+// timings (`enableInp: false`, lib/sentryIntegrations.ts), so the section
+// names none of them. Nor does it name a location. Sentry's servers used to
+// derive one from the address a report arrives from: measured in Sentry on
+// 2026-10-12, in aggregate, stored page-load traces and error reports held a
+// country, most of them a region and a city, and none an address. Every
+// browser report now leaves with an empty location field, which makes
+// Sentry's servers skip that lookup (lib/noLocation.ts, measured against the
+// real ingest on 2026-10-12), so the item that disclosed it is gone. If that
+// line is ever removed, or a later check finds a location on a browser report
+// again, the item comes back: "Approximate location (country, region, and
+// city), which Sentry works out from the IP address a report arrives from".
+// Interaction timings are off for a different reason: every stored one held
+// the address it arrived from. The section makes no claim about what Sentry
+// keeps of an address, only about what the page sends.
 // When a flag, label, hostname or number changes, this page changes with it.
 const toc = [
     { id: 'transfer', label: 'How the transfer works' },
@@ -398,8 +415,9 @@ export default function PrivacyPolicy() {
                     room link is the only thing protecting a transfer.
                 </p>
                 <p>
-                    Sentry does <strong>not</strong> capture file names, file contents, or any
-                    personally identifiable information. The room link is stripped from every error
+                    Sentry does <strong>not</strong> capture file names or file contents, and Floe
+                    sends it nothing that names you: there are no accounts, so there is no name or
+                    email address to send. The room link is stripped from every error
                     report, breadcrumb, and performance trace before it is sent, and on a request
                     link&apos;s page the link id in the address is removed as well.{' '}
                     <LegalLink href="https://sentry.io/privacy/">Sentry Privacy Policy</LegalLink>.

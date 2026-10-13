@@ -1,12 +1,14 @@
 import * as Sentry from '@sentry/nextjs';
 import { BROWSER_EXTENSION_URL_PATTERNS } from './lib/browserExtensions';
+import { stripDeviceHints } from './lib/deviceHints';
 import { createEventBudget } from './lib/eventBudget';
 import { IGNORED_ERROR_PATTERNS } from './lib/ignoredErrors';
 import { isInjectedScriptError } from './lib/injectedScripts';
+import { withoutLocation } from './lib/noLocation';
 import { isNonBrowserRuntimeError } from './lib/nonBrowserRuntimes';
 import { isStaleBundleError } from './lib/staleBundle';
 import { scrubBreadcrumb, scrubErrorEvent, scrubSpanJson, scrubTransactionEvent } from './lib/scrubUrl';
-import { withoutBrowserSession } from './lib/sentryIntegrations';
+import { withoutBrowserSession, withoutInteractionSpans } from './lib/sentryIntegrations';
 import { tracesSampler } from './lib/traceSampling';
 
 // One budget per page load: no single error is sent more than a few times,
@@ -23,6 +25,16 @@ Sentry.init({
     // in the URL, which we additionally scrub below.
     sendDefaultPii: false,
 
+    // No client reports. By default the SDK counts every event it does not
+    // send (an unsampled trace, a filtered error, a request made outside a
+    // trace, a send that failed) and posts the counts to Sentry each time the tab is hidden, which
+    // is nearly every visit, sampled or not. The privacy page describes error
+    // reports and a 10% sample of traces and names no such count, so this line
+    // and that list move together. The cost is the Client Discard figures on
+    // Sentry's Stats page; the event_budget_exhausted tag below still shows,
+    // on an event that was sent, that the budget dropped others.
+    sendClientReports: false,
+
     // No session record. The SDK's default set includes an integration that
     // tells Sentry about every page load and route change, error or not, for
     // its Release Health screens, which Floe does not use. The privacy page
@@ -30,7 +42,16 @@ Sentry.init({
     // that list move together. The function form on purpose: an array is
     // added to the defaults and could not remove one. See
     // lib/sentryIntegrations.ts.
-    integrations: withoutBrowserSession,
+    //
+    // No interaction timings either. The tracing integration is put back with
+    // enableInp false, which is the one option it is rebuilt for: with it on,
+    // every timed click and key press is sent as a span of its own, and
+    // Sentry's servers store the address such a span arrives from. Page loads
+    // and page changes are traced as before.
+    integrations: (defaults) =>
+        withoutInteractionSpans(withoutBrowserSession(defaults), () =>
+            Sentry.browserTracingIntegration({ enableInp: false }),
+        ),
 
     // Filter out non-actionable errors caused by browser extensions and
     // restricted environments. The list lives in lib/ignoredErrors.ts, which
@@ -100,7 +121,12 @@ Sentry.init({
         if (verdict === 'drop') return null;
         if (verdict === 'last') scrubbed.tags = { ...scrubbed.tags, event_budget_exhausted: true };
 
-        return scrubbed;
+        // No location. Sentry's servers work one out, down to city, from the
+        // address a report arrives from, unless the report already carries a
+        // location field; an empty one is stored as nothing. The privacy page
+        // lists what Sentry holds and names no location, so this line and that
+        // list move together. See lib/noLocation.ts.
+        return withoutLocation(scrubbed);
     },
 
     // Breadcrumbs (navigation, fetch, xhr, console) record URLs and logged text
@@ -119,8 +145,17 @@ Sentry.init({
     // load after that same URL (browser.domContentLoadedEvent, browser.loadEvent,
     // browser.request and their siblings), which this hook left in place until
     // scrubTransactionEvent learned to scrub span descriptions too.
+    //
+    // The device and network hints browserTracing attaches to a page load or
+    // page change (memory, processor count, network type, round-trip estimate)
+    // come off here as well. This hook has the last word on what is sent: the
+    // SDK merges what beforeSendSpan returns for the root span back into the
+    // event before calling it. See lib/deviceHints.ts.
+    //
+    // And no location, as in beforeSend: a transaction never passes through
+    // that hook, so the empty location field is set here too.
     beforeSendTransaction(event) {
-        return scrubTransactionEvent(event);
+        return withoutLocation(stripDeviceHints(scrubTransactionEvent(event)));
     },
 
     // Standalone spans (INP and the other standalone web-vital spans) never
@@ -131,7 +166,7 @@ Sentry.init({
     // idempotent. The span-streaming lifecycle (traceLifecycle 'stream') does
     // not call a plain beforeSendSpan at all and is not enabled here.
     beforeSendSpan(span) {
-        return scrubSpanJson(span);
+        return stripDeviceHints(scrubSpanJson(span));
     },
 
     // Session Replay is deliberately absent, and must not be added back.

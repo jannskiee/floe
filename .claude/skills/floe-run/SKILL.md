@@ -213,17 +213,15 @@ desktop Settings). Senders never report (CLAUDE.md, Global Stats Counter).
 
 ## e2e
 
-`pnpm test:e2e` needs nothing from this skill. Playwright starts its own
-server with the same sentinel, the same three raised limiters, and
-`POLICY_FILE` set to `client/e2e/fixtures/request-policy-on.json`
-(`webServer[0].env` in `client/playwright.config.ts`).
+`pnpm test:e2e` needs nothing from this skill, and cannot run beside it.
+Playwright starts its own server with the same sentinel, the same three
+raised limiters, and `POLICY_FILE` set to
+`client/e2e/fixtures/request-policy-on.json` (`webServer[0].env` in
+`client/playwright.config.ts`), and its own client.
 
-The trap is `reuseExistingServer: true`: Playwright adopts whatever already
-answers on `:3001` (and on `:3000`), and none of that environment reaches an
-adopted server. A stack from a plain `start` has request links off and the
-default limiters, so the request-link specs (the four
-`client/e2e/request-*.spec.ts` files) fail. Either `stop` first and let
-Playwright start its own, or start with `start --relaxed --request-links`
-and run `check` before the suite: exit 0 and `request links: on`. Never run
-the suite against a server this script did not start: an unguarded one sends
-the suite's test bytes to whatever counter its `server/.env` names.
+Both `webServer` entries set `reuseExistingServer: false`, so a run stops
+before any test when something already answers on `:3001` or `:3000`, this
+skill's stack included: `stop` first, then run the suite. Playwright's error
+suggests turning the option back on. Do not: an adopted server gets none of
+that environment, and an unguarded one sends the suite's test bytes to
+whatever counter its `server/.env` names.

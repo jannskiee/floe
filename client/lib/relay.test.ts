@@ -300,8 +300,17 @@ describe('relay gate verdict table shared by P2PTransfer and RequestVisitor', ()
             'Reload the page, add the files again, leave it on, and share the new link.';
         expect(main.split(senderOff)).toHaveLength(3);
         // The receiver cannot know which kind of sender it has, so it names no
-        // control: a checkbox in the browser, --no-relay on the CLI.
-        expect(main).toContain('Could not connect. Ask the sender to try again with the relay allowed.');
+        // control: a checkbox in the browser, --no-relay on the CLI. And it
+        // cannot know the relay was off at all: the same two errors follow a
+        // sender that slept, lost its network or stopped, and one that is
+        // Floe Desktop, where the relay is always on. So the relay is an "if",
+        // and the sentence does not claim nothing connected: it also shows
+        // when the connection had opened and the first file was arriving.
+        expect(main).toContain(
+            'Connection failed. Ask the sender to try again. If they turned the relay off, ask them to leave it on.'
+        );
+        expect(main).not.toContain('with the relay allowed');
+        expect(main).not.toContain("'Could not connect.");
         expect(main).toContain('Reload the page to send 2 GB or less, or to send from a network that supports a direct connection.');
         expect(main).not.toMatch(/fewer files/i);
     });

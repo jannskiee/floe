@@ -48,6 +48,13 @@ export const visitorCopy = {
     unsupportedTitle: 'This browser cannot send through Floe',
     /** C-23. */
     unsupportedBody: 'Open the link in current Chrome or Edge.',
+    /** IAB-1: the advice in the in-app browser notice on /r. InAppBrowserGuard
+     *  takes it as a prop there and keeps its own sentence on the home page.
+     *  It is C-23 with C-13's "on a computer": the notice shows inside a chat
+     *  app's browser, most often on a phone, and its own sentence names
+     *  Safari, which no request link page lists. Added to the approved table
+     *  after Checkpoint C: the owner approved it on 2026-10-12. */
+    inAppAdvice: 'Open the link in current Chrome or Edge on a computer.',
 
     /** C-30: V3a, this browser cannot pick folders. It is also the refusal for a
      *  dropped folder that arrived as a directory pseudo-File, because from the

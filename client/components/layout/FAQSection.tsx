@@ -34,6 +34,9 @@ const FAQItem = ({ question, answer }: { question: string; answer: ReactNode }) 
     );
 };
 
+// A command inside an answer: kept on one line, and set off from the prose.
+const ANSWER_CODE = 'whitespace-nowrap font-mono text-[13px] text-zinc-300';
+
 // One class string for every link inside an answer, so they cannot drift apart.
 const ANSWER_LINK = 'text-zinc-300 underline decoration-white/20 underline-offset-2 transition hover:text-ice';
 
@@ -44,7 +47,7 @@ export const FAQSection = () => {
             <div className="mt-10 max-w-3xl border-t border-white/[0.06]">
                 <FAQItem
                     question="What is Floe?"
-                    answer="Floe is a free file-sharing tool that lets you send files directly to another person, with no sign-up and no files stored on any server. There is nothing to install: it runs right in your browser, with an optional desktop app and CLI if you want them. Think of it like handing a USB drive to someone, but over the internet. Floe sets no size limit on a direct connection, though a receiving browser can only hold so much; relay connections are capped at 2 GB per session."
+                    answer="Floe is a free file-sharing tool that lets you send files directly to another person, with no sign-up and no files stored on any server. There is nothing to install: it runs right in your browser, with an optional desktop app and CLI if you want them. Think of it like handing a USB drive to someone, but over the internet. Floe sets no size limit on a direct connection, though a receiving browser can only hold so much; relay connections are capped at 2&nbsp;GB per session."
                 />
                 <FAQItem
                     question="What does 'Peer-to-Peer' (P2P) mean?"
@@ -82,7 +85,16 @@ export const FAQSection = () => {
                 />
                 <FAQItem
                     question="Can I use Floe from the terminal?"
-                    answer="Yes. The floe CLI installs as a single binary and talks to the same infrastructure as the web app, so browser-to-terminal transfers work in every direction. Run floe send with a file or folder and share what it prints: the link opens in a browser, and the link or the code works with floe receive and in Floe Desktop."
+                    answer={
+                        <p>
+                            Yes. The floe CLI installs as a single binary and talks to the same
+                            infrastructure as the web app, so browser-to-terminal transfers work in every
+                            direction. Run <code className={ANSWER_CODE}>floe send</code> with a file or
+                            folder and share what it prints: the link opens in a browser, and the link or
+                            the code works with <code className={ANSWER_CODE}>floe receive</code> and in
+                            Floe Desktop.
+                        </p>
+                    }
                 />
                 <FAQItem
                     question="Is there a desktop app?"
@@ -106,8 +118,9 @@ export const FAQSection = () => {
                         <p>
                             Yes, with a request link, which is in Beta. In Floe Desktop, open Receive,
                             choose Request link, and make a link to send to the other person. They open
-                            it in current Chrome or Edge on a computer and pick what to send, or run
-                            floe send --to with the link in the CLI. Floe Desktop shows you how many
+                            it in current Chrome or Edge on a computer and pick what to send, or run{' '}
+                            <code className={ANSWER_CODE}>floe send --to</code>{' '}
+                            with the link in the CLI. Floe Desktop shows you how many
                             files are coming and how large they are, and nothing is saved until you
                             accept, unless you turned on Auto-accept for that link. A link works
                             once, for one batch of files, and only while Floe Desktop is open on your
@@ -130,7 +143,7 @@ export const FAQSection = () => {
                 />
                 <FAQItem
                     question="Is there a file size limit?"
-                    answer="It depends on your connection type. Floe sets no size limit on a direct connection, though a browser that receives is limited by what that browser can hold. If your connection uses a relay, transfers are capped at 2 GB per session. The app shows your connection type in real time, so you will always know which applies."
+                    answer="It depends on your connection type. Floe sets no size limit on a direct connection, though a browser that receives is limited by what that browser can hold. If your connection uses a relay, transfers are capped at 2&nbsp;GB per session. The app shows your connection type in real time, so you will always know which applies."
                 />
                 <FAQItem
                     question="How big a file can a browser receive?"

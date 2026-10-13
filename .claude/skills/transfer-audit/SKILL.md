@@ -424,6 +424,18 @@ v1.10.6). ERROR is a harness fault (for example `init-script-not-applied`,
 or `request-savedir` when Make link was not handed the run's own folder),
 never a product verdict.
 
+One more SKIP is about the web under test and this machine together:
+`web-checkpoint`. A page load was answered with Vercel's Security Checkpoint
+(HTTP 403 with `x-vercel-mitigated: challenge`) instead of the app. Vercel
+does that to one address after a burst of scripted requests, for some
+minutes. The leg stops there, no later web leg or visitor of the run opens a
+page, the run exits 5, the Infra row for floe.one names it, and a probe that
+met it records P3 as unknown, never as a forcer that did not take (that
+answer would SKIP every browser relay cell for the day `probe.json` is
+reused). It is not floe.one being down, and the audit cannot tell from where
+it runs whether other visitors are affected. Wait, then run again. A `deny`
+or a bare 403 is not this SKIP: the leg goes on and fails.
+
 What each side says about its own per-file SHA-256 check is carried as
 evidence and never judged: the CLI's `Verified   SHA-256 matched` row and
 the web app's `SHA-256 matched` line land in `completion.sender.verified`
@@ -458,6 +470,18 @@ PrintWindow captures; browser page screenshots are not counted) all
 window-cropped, forced foreground 0, killed pids own only, working tree
 unchanged, and firewall Block rules on the exes under test `none (N exe(s)
 read)`.
+
+One Safety row is a count with no required value: `Sentry envelopes
+(browser, answered locally)`. An audit page is not a visit, so every browser
+context answers the page's Sentry envelopes itself (`guardSentry` in
+`scripts/lib/web.mjs`, matched by the path `/api/<project id>/envelope/`,
+never by host: the real ingest host carries a region) and seeds Umami's own
+off switch (`localStorage['umami.disabled']`), on senders, receivers and
+request-link visitors alike. A run therefore adds no browser trace, no issue
+and no page view to what the owner reads about real visitors, and an error
+on an audit page still shows in the leg's `consoleErrors` and `pageErrors`.
+What a browser route cannot reach is the server side: each page load is a
+request to Vercel, and the share of them the server samples is traced there.
 
 The firewall read covers the staged `--bin-dir` (a Block rule there is the
 precondition it always was, exit 3) and every exe the run drives wherever it
@@ -977,6 +1001,13 @@ SKIP: it stops the whole run before any cell as a precondition (exit 3).
 - **Twenty request links a day.** Each attempt of each request cell spends
   one, and so did every earlier run of the day from this address (section
   7a).
+- **A burst of scripted page loads gets this machine challenged.** On
+  2026-10-12, after the transfer cells and 46 scripted loads of `/r` inside
+  an hour, Vercel answered floe.one requests from this address with its
+  Security Checkpoint (HTTP 403, `x-vercel-mitigated: challenge`) for a few
+  minutes, to curl and to a browser alike. A run that meets it ends its web
+  legs as SKIP `web-checkpoint` (section 4). Space runs out, and do not
+  retry in a loop: every further load keeps the challenge alive.
 - **`probe.json` is one lane's answer.** It is reused only for the same
   `--desktop` value and profile, so a lane switch probes again (section 1).
   Keep one `--out` per lane when alternating, or plan for the extra away

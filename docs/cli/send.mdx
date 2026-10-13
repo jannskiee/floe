@@ -124,7 +124,7 @@ Press `Ctrl+C` at any time to cancel. `floe send` prints `Canceled.` and exits w
 
 - `floe receive` or Floe Desktop that was still connecting is told at once that you left: `floe receive` prints [`the other side left before the connection was established`](/troubleshooting#the-other-side-left-before-the-connection-was-established), and Floe Desktop shows "[They left before the connection was made](/troubleshooting#they-left-before-the-connection-was-made)".
 - `floe receive` and Floe Desktop, once connected, wait 60 seconds for data that does not come, then stop: `floe receive` with [`transfer stalled: no data for 1m0s`](/troubleshooting#transfer-stalled), and Floe Desktop with "[The transfer stalled](/troubleshooting#the-transfer-stalled)". Files that had finished are kept.
-- A browser that was already receiving says nothing until the browser itself gives up on the connection. If no file had finished, it then shows `Could not connect. Ask the sender to try again with the relay allowed.`: see [Troubleshooting](/troubleshooting#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again). If some had, it shows [how many arrived](/troubleshooting#the-transfer-ended-before-the-rest-arrived).
+- A browser that was already receiving says nothing until the browser itself gives up on the connection. If no file had finished, it then shows `Connection failed. Ask the sender to try again. If they turned the relay off, ask them to leave it on.`: see [Troubleshooting](/troubleshooting#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again). If some had, it shows [how many arrived](/troubleshooting#the-transfer-ended-before-the-rest-arrived).
 
 Tell the other person you stopped, so they do not wait.
 

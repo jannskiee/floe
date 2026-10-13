@@ -33,7 +33,10 @@ export function ShareLinkPanel({
     // A status that has ended does not spin: the spinner beside it said the
     // page was still working on something, under a banner saying it was not.
     const hasEnded =
-        status === 'Link stopped working' || status === 'Connection failed' || status === 'Transfer failed';
+        status === 'Link stopped working' ||
+        status === 'Connection failed' ||
+        status === 'Connection interrupted' ||
+        status === 'Transfer failed';
 
     return (
         <div className="rounded-xl bg-black/40 p-4 border border-white/[0.08] mb-4">

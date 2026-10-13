@@ -36,7 +36,7 @@ leave it or continue, the page has not joined the room, so nothing is lost by sw
 
 Follow the two steps on screen, or tap **Copy link to paste in browser** and open the link in
 Chrome, Safari, Edge, or Firefox. **Continue anyway (some features may not work)** carries on where
-you are. See [Receiving files](/web-app/receiving#if-floe-says-open-in-your-browser). If the link is a request link, one with `/r/` in it, open it in current Chrome or Edge on a computer instead: see [Sending through a request link](/web-app/request-links).
+you are. See [Receiving files](/web-app/receiving#if-floe-says-open-in-your-browser). If the link is a request link, one with `/r/` in it, the card says to open it in current Chrome or Edge on a computer, which is where request links are supported: see [Sending through a request link](/web-app/request-links). A self-hosted web app on version 1.11.0 says "Open Floe in Chrome or Safari for the best experience." on that card instead; open the link in current Chrome or Edge on a computer all the same.
 
 ### The transfer never starts {#the-transfer-never-starts}
 
@@ -126,23 +126,28 @@ and adding the files again, and the receiver opens that one. See
 On the sending or the receiving page. The server refused this page's connection because too many
 connections came from your network address within a minute: repeated reloads, many open tabs, or
 many people behind one address. The page retries by itself, a few seconds apart at first and then
-up to a minute apart. The red banner can stay on screen after a retry has worked: the badge at the
-top right turning green is the sign that the page is connected again, and the X closes the banner.
+up to a minute apart, and the banner goes away once a retry gets through.
 
 Wait a minute without reloading, because every reload opens another connection. If it keeps
 happening on your own server, see [429, or "Rate limit exceeded"](#429-or-rate-limit-exceeded).
 
-### "Could not connect. Ask the sender to try again with the relay allowed." {#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again}
+A self-hosted web app on version 1.11.0 keeps the red banner on screen after a retry has worked:
+there, the badge at the top right turning green is the sign that the page is connected again, and
+the X closes the banner. On version 1.10.11 or earlier the page does not retry at all, so wait a
+minute and then reload it once.
+
+### "Connection failed. Ask the sender to try again. If they turned the relay off, ask them to leave it on." {#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again}
 
 On the receiving page. (A self-hosted web app on version 1.11.0 or earlier words it "Could not
 connect. Ask the sender to enable "Network Relay" and try again.", and means the same.) The two
-devices could not find a network path to each other before any file
-arrived. The usual reason is that no direct path exists and no relay was on offer: the sender
+devices lost, or never found, a network path to each other before any file
+had finished. The usual reason is that no direct path exists and no relay was on offer: the sender
 unchecked **Network relay fallback**, ran `floe send --no-relay`, or uses a server that has no
 relay. A sender who pressed `Ctrl+C` in `floe send`, or whose device went to sleep or lost its network, before the first file finished ends
 the same way, so the relay is not always the culprit.
 
-Ask the sender to start a new transfer with the relay allowed, then open the new link.
+Ask the sender to start a new transfer, with the relay left on if they had turned it off, then
+open the new link.
 
 ### "Connection failed. This link was made with Network relay fallback off. Reload the page, add the files again, leave it on, and share the new link." {#connection-failed-enable-network-relay-to-connect-across-restrictive-networks}
 
@@ -237,7 +242,7 @@ browser reports that the sender's side aborted the connection. Either way the se
 the connection: they closed or reloaded the tab, canceled or quit in Floe Desktop, or their
 `floe send` stopped with an error. A sender who pressed `Ctrl+C` in `floe send`, or whose device went to sleep or lost its network, closes
 nothing, and that reads as
-["Could not connect"](#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again)
+["Connection failed. Ask the sender to try again."](#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again)
 instead.
 
 A sender that stops on purpose says why, and the banner then carries its reason, or "The sender

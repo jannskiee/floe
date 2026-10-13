@@ -167,9 +167,10 @@ on your side, and the receiving page shows its own instead. See
 After the other side disconnects, the status may change to "Transfer complete", which is the same
 result. If their device drops off the network without closing the connection, the status can
 change to "Connection interrupted" instead, although every byte had already left this browser.
-When the status changes either way, the last file's check mark turns back into a spinner and the
-progress row reads "Sending file 3 of 3..." at 100%, with your own numbers. Every file was still
-sent.
+Either way the file rows keep their check marks and the progress row still reads "Sent 3 files",
+with your own number. A self-hosted web app on version 1.11.0 or earlier turns the last file's
+check mark back into a spinner when the status changes, and its progress row reads "Sending file 3
+of 3..." at 100%. Every file was still sent.
 
 If the receiving side discards a file because it did not match, the status reads "Transfer failed"
 instead, even when "All Files Sent!" was already showing, and the card says "The other side
@@ -177,7 +178,8 @@ discarded a file that did not match what was sent. Try sending again." See [Trou
 
 The file list stays locked after a transfer, and the link stays on screen. While this page is
 still connected to Floe's server, that link still works: if the recipient closes their page and
-opens the link again from the same network, Floe sends every file again.
+opens the link again from the same network, Floe sends every file again, and the check marks clear
+and come back as it does.
 
 That stops, with no message on this page, once the page has lost its connection to Floe's server
 and reconnected, because after a finished transfer it does not rejoin its room. A browser that

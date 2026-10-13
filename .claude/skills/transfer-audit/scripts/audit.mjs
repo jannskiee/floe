@@ -72,7 +72,7 @@ import { dockerVersion } from './lib/caddy.mjs';
 import { RETRY_CAP, baseResult, runCell } from './lib/cell.mjs';
 import { createFence, isUnder, normalizePath } from './lib/fence.mjs';
 import { formatBytes } from './lib/fixtures.mjs';
-import { get, getJson, head } from './lib/http.mjs';
+import { get, getJson, head, vercelChallenge } from './lib/http.mjs';
 import {
     QUICK_IDS,
     cellPlan,
@@ -903,10 +903,7 @@ async function runProbes({ opts, io, ledger, fence, log, builds, versions }) {
                 evidenceDir: path.join(opts.out, 'probe-evidence'),
                 log,
             });
-            probe.browserRelay = {
-                ok: Boolean(r.ok),
-                detail: r.detail ?? null,
-            };
+            probe.browserRelay = browserRelayRecord(r);
         } catch (e) {
             probe.browserRelay = {
                 ok: null,
@@ -1012,6 +1009,37 @@ async function runProbes({ opts, io, ledger, fence, log, builds, versions }) {
  * which drives production floe.one and api.floe.one (P3 is a production
  * browser receive), so the profile in effect is said before anything runs.
  */
+/**
+ * The probe record for P3 from web.mjs probeRelay's result. `ok: false` means
+ * the relay forcer did not take, and matrix.mjs gateCell then SKIPs every
+ * browser-forced relay cell as browser-relay-na for as long as probe.json is
+ * reused (a day). A probe whose page load was answered with Vercel's
+ * checkpoint says nothing about the forcer, so it is unknown, never false.
+ */
+export function browserRelayRecord(r) {
+    if (r && r.checkpoint)
+        return {
+            ok: null,
+            detail: `${String(r.error?.message || 'web-checkpoint: a probe page was served the checkpoint')}; nothing was learned about the relay forcer, so run the probe again once the challenge has passed`,
+        };
+    return { ok: Boolean(r && r.ok), detail: (r && r.detail) ?? null };
+}
+
+/**
+ * The Infra row for the HEAD of floe.one. A challenge is named, and the row
+ * stays not ok: the page did not answer, whatever the reason.
+ */
+export function webHeadRow(h) {
+    const base = `${h.status} via ${new URL(h.url).host}, etag ${h.headers.etag || 'none'}`;
+    return {
+        check: 'floe.one',
+        ok: h.status === 200,
+        detail: vercelChallenge(h.headers)
+            ? `${base}; web-checkpoint: Vercel is challenging this machine's scripted requests, and the audit cannot tell from here whether other visitors are affected`
+            : base,
+    };
+}
+
 export function profileLine(opts) {
     const defaulted = opts.profile === 'shipped' && !opts.profileGiven;
     return `profile: ${opts.profile}${defaulted ? ' (default)' : ''}`;
@@ -1412,15 +1440,14 @@ async function resolveInfra({ opts, io, ledger, log, manifest, safety }) {
         }
         if (!healthy) throw new Precondition('api.floe.one is not healthy');
         try {
-            const h = await head(`${PROD.web}/`, {
-                timeoutMs: 10_000,
-                fetchImpl,
-            });
-            rows.push({
-                check: 'floe.one',
-                ok: h.status === 200,
-                detail: `${h.status} via ${new URL(h.url).host}, etag ${h.headers.etag || 'none'}`,
-            });
+            rows.push(
+                webHeadRow(
+                    await head(`${PROD.web}/`, {
+                        timeoutMs: 10_000,
+                        fetchImpl,
+                    })
+                )
+            );
         } catch (e) {
             rows.push({ check: 'floe.one', ok: false, detail: e.message });
         }
@@ -2332,6 +2359,9 @@ export async function runCmd(opts, io = {}) {
                 runDir,
                 binDir: manifest.binDir,
                 clientDir: opts.clientDir,
+                // The same object the Safety table reads: every web context
+                // of the run counts the Sentry envelopes it answered here.
+                webGuards: safety.webGuards,
             },
             onPid: (pid, label) => {
                 if (!pid) return;
