@@ -1,6 +1,6 @@
 import { QRCodeSVG } from 'qrcode.react';
 import { Check, CheckCircle2, Copy, Loader2, QrCode, Share2 } from 'lucide-react';
-import { shareStatusComplete } from '@/lib/sendSummary';
+import { shareStatusComplete, shareStatusEnded, verifiedLineShown, type SendEnd } from '@/lib/sendSummary';
 
 interface ShareLinkPanelProps {
     generatedLink: string;
@@ -13,6 +13,10 @@ interface ShareLinkPanelProps {
     // 'SHA-256 matched' once the receiver reported every file verified, else
     // null. Never a digest value, and never a count (D-101).
     verifiedLine: string | null;
+    // How the send ended, latched by the page (lib/sendSummary.ts). The
+    // verified line follows it, because the status sentence is rewritten
+    // after a finished send and the line must not go with it.
+    sendEnd: SendEnd;
 }
 
 /**
@@ -29,15 +33,12 @@ export function ShareLinkPanel({
     onToggleQr,
     status,
     verifiedLine,
+    sendEnd,
 }: ShareLinkPanelProps) {
     const isComplete = shareStatusComplete(status);
     // A status that has ended does not spin: the spinner beside it said the
     // page was still working on something, under a banner saying it was not.
-    const hasEnded =
-        status === 'Link stopped working' ||
-        status === 'Connection failed' ||
-        status === 'Connection interrupted' ||
-        status === 'Transfer failed';
+    const hasEnded = shareStatusEnded(status);
 
     return (
         <div className="rounded-xl bg-black/40 p-4 border border-white/[0.08] mb-4">
@@ -124,14 +125,15 @@ export function ShareLinkPanel({
                 on the sender's completion status as its own text, and that
                 string must stay byte for byte what it is.
 
-                Gated on the same isComplete the status line reads. onDelivered
-                fires on ANY received frame, and the session's received arm runs
-                whenever one arrives, so a peer that confirms delivery early
-                could otherwise paint this line while the page still says
-                'Sending: x', and it would then sit over a freshly created link
-                until the next peer joined. The peer picks the moment, so the
-                moment is not something to render on. */}
-            {verifiedLine && isComplete && (
+                Gated on the send's own latched end, not on the report alone.
+                onDelivered fires on ANY received frame, and the session's
+                received arm runs whenever one arrives, so a peer that confirms
+                delivery early could otherwise paint this line while the page
+                still says 'Sending: x', and it would then sit over a freshly
+                created link until the next peer joined. The peer picks the
+                moment, so the moment is not something to render on. Not gated
+                on the status sentence either: see verifiedLineShown. */}
+            {verifiedLineShown({ verifiedLine, end: sendEnd }) && (
                 <p className="mt-1 text-center text-xs text-zinc-500">{verifiedLine}</p>
             )}
         </div>

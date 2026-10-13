@@ -1,7 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { sendProgressLabel, sendRowMark, shareStatusComplete, type SendEnd } from './sendSummary';
+import {
+    sendProgressLabel,
+    sendRowMark,
+    shareStatusComplete,
+    shareStatusEnded,
+    verifiedLineShown,
+    type SendEnd,
+} from './sendSummary';
 
 const marks = (files: number, currentFileIndex: number, progress: number, end: SendEnd) =>
     Array.from({ length: files }, (_, index) => sendRowMark({ index, currentFileIndex, progress, end }));
@@ -158,5 +165,89 @@ describe('the share panel reads the status whole', () => {
         const panel = read('../components/ShareLinkPanel.tsx');
         expect(panel).toContain('const isComplete = shareStatusComplete(status);');
         expect(panel).not.toMatch(/\bstatus\.(?:includes|startsWith|endsWith|indexOf|search|match)\(/);
+    });
+});
+
+// The spinner beside the status line says the page is still working on
+// something. A status that names an ending must not carry it: "Transfer
+// blocked. Relay limit exceeded." did, beside a connection the page itself
+// had just closed.
+describe('a status that has ended does not spin', () => {
+    const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
+
+    it('knows every ending the sending page writes', () => {
+        for (const status of [
+            'Link stopped working',
+            'Connection failed',
+            'Connection interrupted',
+            'Transfer failed',
+            'Transfer blocked. Relay limit exceeded.',
+        ]) {
+            expect(shareStatusEnded(status), status).toBe(true);
+        }
+    });
+
+    it('is false while something is still going on, and for a file name that holds the words', () => {
+        for (const status of [
+            '',
+            'Waiting for peer',
+            'Peer joined. Starting transfer',
+            'Reconnecting to your link',
+            'Sending: Transfer failed.txt',
+            'Sending: Connection failed',
+            'All Files Sent!',
+            'Transfer complete',
+        ]) {
+            expect(shareStatusEnded(status), status).toBe(false);
+        }
+    });
+
+    it('covers every ending status the page sets as a sender, read from the page', () => {
+        // Each of these is written next to a peer.destroy() or after the
+        // engine reported a stop. A new one added to the page without a row
+        // here would spin again.
+        const page = read('../components/P2PTransfer.tsx');
+        const set = [...page.matchAll(/setStatus\('([^']+)'\)/g)].map((m) => m[1]);
+        const endings = set.filter((s) => /failed|interrupted|blocked|stopped working/i.test(s));
+        expect(endings.length).toBeGreaterThan(3);
+        for (const status of endings) expect(shareStatusEnded(status), status).toBe(true);
+    });
+
+    it('is how the panel decides', () => {
+        const panel = read('../components/ShareLinkPanel.tsx');
+        expect(panel).toContain('const hasEnded = shareStatusEnded(status);');
+    });
+});
+
+// "SHA-256 matched" is the receiver's report about files that were delivered.
+// It was gated on the status sentence, so when a finished send's status became
+// "Connection interrupted" (the other device dropped off the network after
+// every byte had left) the line went away while the rows still read sent.
+describe('the verified line follows the send, not the status sentence', () => {
+    const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
+
+    it('shows for a delivered send that the receiver reported verified', () => {
+        expect(verifiedLineShown({ verifiedLine: 'SHA-256 matched', end: 'delivered' })).toBe(true);
+    });
+
+    it('never shows before the send is delivered, whatever the peer has said', () => {
+        // A peer can report delivery early. The moment is the peer's choice,
+        // so the line waits for this page's own engine to say every file left.
+        expect(verifiedLineShown({ verifiedLine: 'SHA-256 matched', end: 'open' })).toBe(false);
+    });
+
+    it('never shows after a failure, and never without a report', () => {
+        expect(verifiedLineShown({ verifiedLine: 'SHA-256 matched', end: 'failed' })).toBe(false);
+        for (const end of ['open', 'delivered', 'failed'] as SendEnd[]) {
+            expect(verifiedLineShown({ verifiedLine: null, end })).toBe(false);
+        }
+    });
+
+    it('is how the panel decides, and the page hands the panel the latched end', () => {
+        const panel = read('../components/ShareLinkPanel.tsx');
+        expect(panel).toContain('verifiedLineShown({ verifiedLine, end: sendEnd })');
+        expect(panel).not.toContain('verifiedLine && isComplete');
+        const page = read('../components/P2PTransfer.tsx');
+        expect(page).toMatch(/<ShareLinkPanel[\s\S]*?sendEnd=\{sendEnd\}/);
     });
 });

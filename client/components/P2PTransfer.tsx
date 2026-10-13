@@ -41,7 +41,7 @@ import {classifyPeerError, peerErrorBanner, peerErrorCodeOf, peerErrorReport, se
 import {decideReceiverClose} from '@/lib/receiverClose';
 import {SEND_INTERNAL_ERROR, describeSenderStop, senderCloseInterrupted} from '@/lib/senderStop';
 import {verifiedLine, VERIFIED_LINE} from '@/lib/verifiedLine';
-import {receiveSummary} from '@/lib/receiveSummary';
+import {receiveSummary, receiverTabMatters} from '@/lib/receiveSummary';
 import type {SendEnd} from '@/lib/sendSummary';
 import {INITIAL_SEAT, seatStep, type SeatEvent} from '@/lib/roomSeat';
 import {REJOIN_FAILED_STATUS, REJOINING_STATUS, rejoinAllowed, rejoinDelay, statusOnceSeated} from '@/lib/rejoinRetry';
@@ -1445,10 +1445,13 @@ export function P2PTransfer() {
                                     <p className="mb-1.5 text-sm font-medium text-zinc-200">
                                         {isDragging ? 'Release to add files' : 'Drop files or click to browse'}
                                     </p>
+                                    {/* One line, always. A second wording for a
+                                        relayed connection used to sit here and
+                                        could never show: this area is on screen
+                                        only before a link exists, and the route
+                                        is known only after a peer has joined. */}
                                     <p className="font-mono text-[11px] text-zinc-500">
-                                        {connectionType === 'relay'
-                                            ? '2 GB limit over relay'
-                                            : 'No size limit from Floe over direct connections'}
+                                        No size limit from Floe over direct connections
                                     </p>
                                     <Input
                                         type="file"
@@ -1499,6 +1502,7 @@ export function P2PTransfer() {
                                                 onToggleQr={() => setShowQr((v) => !v)}
                                                 status={status}
                                                 verifiedLine={allVerified ? VERIFIED_LINE : null}
+                                                sendEnd={sendEnd}
                                             />
                                         )}
 
@@ -1564,6 +1568,7 @@ export function P2PTransfer() {
                                     status={status}
                                     isConnected={isConnected}
                                     senderAbsent={senderAbsent}
+                                    ended={receiveEnded}
                                     reportStatsEnabled={reportStatsEnabled}
                                     onReportStatsChange={setReportStatsEnabled}
                                     isZipping={isZipping}
@@ -1586,12 +1591,20 @@ export function P2PTransfer() {
 
                 <CardFooter className="justify-center border-t border-white/[0.06] !pt-4">
                     {/* The keep-open line is for a tab that something depends
-                        on. Under the Link Invalid card, and while nobody is on
-                        the sending side and nothing has arrived, nothing does:
-                        it told a person the card had just told to leave that
-                        closing the tab would interrupt a download. */}
+                        on. Under the Link Invalid card, while nobody is on the
+                        sending side and nothing has arrived, and after an
+                        attempt that ended with nothing, nothing does: it told
+                        a person the card had just told to leave that closing
+                        the tab would interrupt a download. The receiver's half
+                        is receiverTabMatters. */}
                     {(isSender && !generatedLink) ||
-                    (!isSender && (isLinkInvalid(error) || (senderAbsent && receivedFiles.length === 0))) ? (
+                    (!isSender &&
+                        !receiverTabMatters({
+                            linkInvalid: isLinkInvalid(error),
+                            senderAbsent,
+                            ended: receiveEnded,
+                            received: receivedFiles.length,
+                        })) ? (
                         <p className="text-balance text-[10px] uppercase tracking-wide text-zinc-500 text-center leading-relaxed">
                             End-to-end encrypted. Files are never stored on a server.
                         </p>

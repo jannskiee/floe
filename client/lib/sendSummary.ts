@@ -55,6 +55,44 @@ export function shareStatusComplete(status: string): boolean {
     return status === 'All Files Sent!' || status === 'Transfer complete';
 }
 
+/**
+ * Whether the status line names something that is over and did not end well.
+ * Such a line carries no spinner: the spinner says the page is still working
+ * on something, and beside "Transfer blocked. Relay limit exceeded." it said
+ * so about a connection the page had just closed itself. Compared whole, for
+ * the reason shareStatusComplete is: the line can hold a file name.
+ *
+ * Every ending status the sending page writes is here, and
+ * sendSummary.test.ts reads the page to hold that true.
+ */
+export function shareStatusEnded(status: string): boolean {
+    return (
+        status === 'Link stopped working' ||
+        status === 'Connection failed' ||
+        status === 'Connection interrupted' ||
+        status === 'Transfer failed' ||
+        status === 'Transfer blocked. Relay limit exceeded.'
+    );
+}
+
+/**
+ * Whether "SHA-256 matched" shows under the status line.
+ *
+ * It is the receiver's report about a send this page delivered, so it follows
+ * the latched end of the send and not the status sentence. Gated on the
+ * sentence, the line vanished when a finished send's status became
+ * "Connection interrupted" (the other device dropped off the network after
+ * every byte had left), while the rows above still read sent.
+ *
+ * `delivered` is this page's own engine saying every file left (onAllSent).
+ * The report alone is not enough: a peer picks the moment it sends one, and a
+ * peer that confirmed early would otherwise paint the line over a send still
+ * in progress, or over a fresh link waiting for its next recipient.
+ */
+export function verifiedLineShown(input: { verifiedLine: string | null; end: SendEnd }): boolean {
+    return input.verifiedLine !== null && input.end === 'delivered';
+}
+
 /** The words at the left of the sender's progress row. Empty after a failure:
  *  the banner above the row already says what happened. */
 export function sendProgressLabel(input: { end: SendEnd; currentFileIndex: number; filesCount: number }): string {

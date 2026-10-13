@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { peekSocketUrl, resolveSocketUrl } from '@/lib/socketUrl';
+import { reportableBytes } from '@/lib/statsReport';
 
 export interface UmamiWindow extends Window {
     umami?: {
@@ -38,6 +39,9 @@ export function useTransferAnalytics() {
 
     const reportBytes = (bytes: number) => {
         if (!reportStatsEnabledRef.current) return;
+        // Nothing to count: a transfer of only empty files totals 0, which
+        // the server refuses after charging the request to its limiter.
+        if (!reportableBytes(bytes)) return;
 
         const send = (socketUrl: string) => {
             fetch(`${socketUrl}/api/stats/report`, {

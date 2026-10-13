@@ -118,14 +118,11 @@ test('Direction 2: browser send → CLI receive (SHA-256 integrity)', async ({ b
         // The CLI receiver's `received` frame carries verified=1 and now
         // reaches the page, because the session listener outlives onAllSent
         // (F-SHA-4). Before this the finally closed the channel first. The
-        // page prints that line only under the two sentences that say the
-        // send is complete (ShareLinkPanel gates it on them), so under
-        // 'Connection interrupted' there is no line to wait for: the
-        // receiver's own verdict was read from its stdout above.
-        await expect(async () => {
-            const text = await page.locator('body').innerText();
-            expect(/SHA-256 matched|Connection interrupted/.test(text)).toBe(true);
-        }).toPass({ timeout: 15_000 });
+        // line follows the delivered send, not the status sentence, so it
+        // is there under all three endings. It used to be gated on the two
+        // sentences that say the send is complete, and under 'Connection
+        // interrupted' it went away while the rows above still read sent.
+        await expect(page.getByText('SHA-256 matched', { exact: true })).toBeVisible({ timeout: 15_000 });
         const ending = (await page.locator('body').innerText()).match(
             /All Files Sent!|Transfer complete|Connection interrupted/
         );

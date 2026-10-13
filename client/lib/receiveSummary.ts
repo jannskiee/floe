@@ -48,3 +48,51 @@ export function receiveSummary(input: {
     if (ended) return { kind: 'short', text: `${sofar} The transfer ended before the rest arrived.` };
     return { kind: 'waiting', text: `${sofar} Waiting for the rest` };
 }
+
+/**
+ * Whether the receiving card draws its three joining steps ("Secure room
+ * joined", "Waiting for the sender to start", "Files stream in below").
+ *
+ * They describe an attempt that is under way. `ended` is the same latched
+ * fact receiveSummary reads. Without it, an attempt that ended with nothing
+ * received set the connected flag false, and the first step drew its spinner
+ * again under the red banner, as if the page were joining. Nothing was
+ * retrying: the banner is the whole account, and the way on is a reload.
+ *
+ * `busy` is a file arriving or being checked, which has its own line at the
+ * foot of the card.
+ */
+export function joinStepsShown(input: { received: number; busy: boolean; ended: boolean }): boolean {
+    return input.received === 0 && !input.busy && !input.ended;
+}
+
+/**
+ * Whether closing the receiving tab would cost the person something, which is
+ * what "Keep this tab open. Closing it interrupts the download." claims.
+ *
+ * Files that have arrived live in the tab until they are saved, so they always
+ * count. With nothing received, the tab matters only while an attempt is
+ * under way: not under the Link Invalid card, not while nobody is on the
+ * sending side, and not after an attempt that ended, where there is no
+ * download left to interrupt.
+ */
+export function receiverTabMatters(input: {
+    linkInvalid: boolean;
+    senderAbsent: boolean;
+    ended: boolean;
+    received: number;
+}): boolean {
+    if (input.linkInvalid) return false;
+    if (input.received > 0) return true;
+    return !input.senderAbsent && !input.ended;
+}
+
+/**
+ * Whether the two bulk buttons (Download All, Download ZIP) are on the card:
+ * two or more files, and none arriving. The iOS tip names Download ZIP, so it
+ * shows exactly when this is true. It used to show from the first file, for
+ * a button a one-file transfer never has.
+ */
+export function bulkDownloadShown(input: { received: number; busy: boolean }): boolean {
+    return input.received > 1 && !input.busy;
+}
