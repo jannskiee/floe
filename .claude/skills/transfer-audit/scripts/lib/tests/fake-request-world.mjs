@@ -101,15 +101,23 @@ export function fakeVisitorContext(world, opts = {}) {
     if (world) world.visitors.push(v);
     const emit = (ev, arg) => (v.listeners[ev] || []).forEach((fn) => fn(arg));
     v.emit = emit;
+    // Only the route whose pattern matches the URL fires, as in a browser:
+    // the context also holds the Sentry answer, which a stats report is not.
     v.reportStats = () => {
+        const url = 'http://localhost:3001/api/stats/report';
+        const matches = (pattern) =>
+            pattern instanceof RegExp
+                ? pattern.test(url)
+                : url.endsWith(String(pattern).replace(/^\*+/, ''));
         for (const r of v.routes)
-            r.handler({
-                request: () => ({
-                    method: () => 'POST',
-                    url: () => 'http://localhost:3001/api/stats/report',
-                }),
-                abort: async () => {},
-            });
+            if (matches(r.pattern))
+                r.handler({
+                    request: () => ({
+                        method: () => 'POST',
+                        url: () => url,
+                    }),
+                    abort: async () => {},
+                });
     };
     const tick = () => world?.tick();
     const titleOf = () => {

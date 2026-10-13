@@ -205,6 +205,8 @@ export const SKIP_REASONS = Object.freeze({
         "TA-10a reads the host's own record of the Auto-accept switch and the drop's automatic mark (GetRequestLink), which only the wailsdev dev page has; an exe host is read through UIA",
     'request-daily-limit':
         'the server refused Make link with `limited`: this network address has made its 20 request links for the day (REQUEST_CREATES_PER_DAY in server/server.js), and every attempt of a request cell makes one',
+    'web-checkpoint':
+        "a page load was answered with Vercel's Security Checkpoint instead of the app (`x-vercel-mitigated: challenge`): Vercel is challenging this machine's scripted requests, which follows a burst of them and lasts some minutes. No later web leg of the run loads a page. The audit cannot tell from here whether other visitors are affected; wait and run again",
     filtered: 'excluded by --cells',
 });
 

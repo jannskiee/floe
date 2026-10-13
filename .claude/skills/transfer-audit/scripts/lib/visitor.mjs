@@ -6,6 +6,8 @@
 //   back after load;
 // - every **/api/stats/report request aborted and counted (guardStats), so
 //   the cell can assert 0 attempts;
+// - every Sentry envelope answered locally and counted (guardSentry), and
+//   Umami's own off switch seeded: an audit page is not a visit;
 // - the AUDIT_INIT recorder, with iceTransportPolicy 'relay' for TA-11.
 //
 // Then the page is driven the way a person does it (WP-R2): the files go
@@ -31,10 +33,14 @@ import {
     SAMPLE,
     STATS_ROUTE,
     TURN_FETCH_RE,
+    UMAMI_DISABLED_KEY,
     bytesMovedFrom,
     candidateCensus,
     checkRelayPolicy,
+    checkpointError,
+    guardSentry,
     guardStats,
+    refuseCheckpoint,
     seedLocalStorage,
     webRoute,
 } from './web.mjs';
@@ -139,6 +145,8 @@ export class Visitor {
         ctx,
         page,
         statsRec,
+        sentryRec = { answered: 0 },
+        mainDocument = null,
         localStorageRead,
         relayOnly,
         tag = 'visitor',
@@ -150,6 +158,8 @@ export class Visitor {
         this.ctx = ctx;
         this.page = page;
         this.statsRec = statsRec;
+        this.sentryRec = sentryRec;
+        this.mainDocument = mainDocument;
         this.localStorageRead = localStorageRead;
         this.relayOnly = relayOnly;
         this.tag = tag;
@@ -356,6 +366,11 @@ export class Visitor {
             policy,
             policyOk: policy.ok,
             statsProof: this.statsProof(),
+            // Envelopes this context answered itself, and the page's own
+            // document as it was answered (web.mjs guardSentry,
+            // refuseCheckpoint).
+            sentryEnvelopes: this.sentryRec.answered,
+            mainDocument: this.mainDocument,
             screenshots: this.screenshots,
             notes: this.notes,
         };
@@ -391,8 +406,12 @@ export async function openVisitor({
     tag = 'visitor',
     evidenceDir = null,
     ledger = null,
+    shared = null,
 }) {
     const target = visitorTarget(link, web);
+    // One checkpoint ends the run's page loads (web.mjs WebLeg.start).
+    if (shared && shared.webCheckpoint)
+        throw checkpointError(tag, shared.webCheckpoint, { latched: true });
     const ctx = await browser.newContext({
         viewport: { width: 1280, height: 900 },
         // floe.one ships a service worker, and context routing does not
@@ -401,10 +420,14 @@ export async function openVisitor({
         serviceWorkers: 'block',
     });
     const statsRec = { attempts: [] };
+    const sentryRec = { answered: 0 };
     const turnFetches = [];
     try {
         await seedLocalStorage(ctx, REPORT_STATS_KEY, 'false');
         await guardStats(ctx, statsRec);
+        // After the stats guard, so that one stays the context's first route.
+        await guardSentry(ctx, sentryRec, shared);
+        await seedLocalStorage(ctx, UMAMI_DISABLED_KEY, '1');
         await ctx.addInitScript(AUDIT_INIT({ relayOnly }));
         const page = await ctx.newPage();
         if (typeof page.on === 'function')
@@ -419,7 +442,9 @@ export async function openVisitor({
         const shown = redactRequestLink(target);
         if (log)
             log(`${tag}: opening ${shown}${relayOnly ? ' (relay forced)' : ''}`);
-        await page.goto(target, { waitUntil: 'load' });
+        const answered = await page.goto(target, { waitUntil: 'load' });
+        // The message names the visitor and a status, never the link.
+        const mainDocument = await refuseCheckpoint(answered, page, tag, shared);
         const localStorageRead = await page.evaluate((k) => {
             try {
                 return localStorage.getItem(k);
@@ -431,6 +456,8 @@ export async function openVisitor({
             ctx,
             page,
             statsRec,
+            sentryRec,
+            mainDocument,
             localStorageRead,
             relayOnly,
             tag,

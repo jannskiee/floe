@@ -18,6 +18,7 @@ import {
     REQUEST_OPEN_IDS,
     REQUEST_VARIANTS,
     SKIP_REASONS,
+    UNCOUNTED_SKIPS,
     cellPlan,
     countsForExit,
     fixtureSpec,
@@ -886,4 +887,18 @@ test('TA-16 H-DIR-C2D-req: the CLI visitor on a desktop link, head only, 64 MiB,
         server: 'https://api.floe.one',
     }).find((x) => x.id === 'H-DIR-C2D-req');
     assert.equal(shipped.reason, 'head-only');
+});
+
+test('web-checkpoint is a documented SKIP about this machine, and it counts toward exit 5', () => {
+    assert.match(SKIP_REASONS['web-checkpoint'], /Security Checkpoint/);
+    assert.match(
+        SKIP_REASONS['web-checkpoint'],
+        /cannot tell from here whether other visitors are affected/
+    );
+    // A run that could not load its pages did not audit them: never a quiet 0.
+    assert.equal(UNCOUNTED_SKIPS.has('web-checkpoint'), false);
+    assert.equal(
+        countsForExit({ verdict: 'SKIP', reason: 'web-checkpoint' }),
+        true
+    );
 });

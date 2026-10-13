@@ -704,3 +704,17 @@ test('the Safety desktop line says contents and mtime restored, mtime changed, a
     for (const p of [{ configMtimeRestored: true }, { configMtimeRestored: false }, {}])
         assert.ok(!/: yes$/.test(line(p)), 'never a bare yes');
 });
+
+test('the Safety table counts the Sentry envelopes the audit answered itself', () => {
+    const s = newSafety();
+    assert.deepEqual(s.webGuards, { sentryAnswered: 0 });
+    const row = () => safetyRows(s).find(([k]) => k.startsWith('Sentry envelopes'));
+    assert.deepEqual(row(), ['Sentry envelopes (browser, answered locally)', '0']);
+    s.webGuards.sentryAnswered = 7;
+    assert.equal(row()[1], '7');
+    // A safety record written before the row existed still renders.
+    assert.equal(
+        safetyRows({}).find(([k]) => k.startsWith('Sentry envelopes'))[1],
+        '0'
+    );
+});

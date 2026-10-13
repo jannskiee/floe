@@ -15,6 +15,7 @@ import {
     sendLabel,
     visitorTarget,
 } from './visitor.mjs';
+import { SENTRY_ENVELOPE_RE, WEB_CHECKPOINT } from './web.mjs';
 import { fakeVisitorContext } from './tests/fake-request-world.mjs';
 
 const tmp = mkdtempSync(path.join(tmpdir(), 'lta-visitor-'));
@@ -24,7 +25,7 @@ const ROOM = '6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f';
 const LINK = `http://localhost:3000/r/Xk3p9Q0aB1c#${ROOM}`;
 const WEB = 'http://localhost:3000';
 
-function fakeBrowser({ stored = 'false', gotoFails = false } = {}) {
+function fakeBrowser({ stored = 'false', gotoFails = false, gotoAnswers = undefined } = {}) {
     const calls = [];
     const routes = [];
     const ctx = {
@@ -41,6 +42,10 @@ function fakeBrowser({ stored = 'false', gotoFails = false } = {}) {
                 async goto(url, o) {
                     calls.push(['goto', url, o]);
                     if (gotoFails) throw new Error('page.goto: net::ERR');
+                    return gotoAnswers;
+                },
+                async title() {
+                    return '';
                 },
                 async evaluate(fn, arg) {
                     calls.push(['evaluate', arg]);
@@ -83,9 +88,15 @@ test('visitor seeds floe:report-stats to false and counts every stats report it 
     });
     const inits = f.calls.filter((c) => c[0] === 'init');
     assert.deepEqual(inits[0][2], ['floe:report-stats', 'false']);
+    // An audit page is not a visit: Umami's own off switch is seeded too.
+    assert.ok(
+        inits.some((c) => Array.isArray(c[2]) && c[2][0] === 'umami.disabled' && c[2][1] === '1'),
+        'umami.disabled is seeded'
+    );
+    // The stats guard stays first (routes[0] below), the Sentry answer second.
     assert.deepEqual(
         f.calls.filter((c) => c[0] === 'route').map((c) => c[1]),
-        ['**/api/stats/report']
+        ['**/api/stats/report', SENTRY_ENVELOPE_RE]
     );
     // The guards are in place before the page exists.
     const order = f.calls.map((c) => c[0]);
@@ -105,6 +116,50 @@ test('visitor seeds floe:report-stats to false and counts every stats report it 
     assert.equal(v.statsProof().breach, true, 'one attempt is a breach');
     assert.ok(logs.length > 0);
     for (const l of logs) assert.ok(!l.includes(ROOM), `no room in "${l}"`);
+});
+
+test('the visitor answers Sentry envelopes locally and counts them for the run', async () => {
+    const f = fakeBrowser();
+    const shared = { webGuards: { sentryAnswered: 0 } };
+    const v = await openVisitor({ browser: f.browser, link: LINK, web: WEB, shared });
+    const fulfilled = [];
+    const envelope = {
+        fulfill: async (o) => fulfilled.push(o),
+    };
+    await f.routes[1].handler(envelope);
+    assert.equal(fulfilled[0].status, 200);
+    assert.equal(v.evidence().sentryEnvelopes, 1);
+    assert.equal(shared.webGuards.sentryAnswered, 1);
+    assert.equal(v.statsProof().attempts, 0, 'an envelope is not a stats attempt');
+});
+
+test("a visitor served Vercel's checkpoint stops as SKIP web-checkpoint and latches it for the run", async () => {
+    const f = fakeBrowser({
+        gotoAnswers: {
+            status: () => 403,
+            headers: () => ({ 'x-vercel-mitigated': 'challenge' }),
+        },
+    });
+    const shared = {};
+    await assert.rejects(
+        openVisitor({ browser: f.browser, link: LINK, web: WEB, shared }),
+        (err) => {
+            assert.equal(err.name, 'PhaseError');
+            assert.equal(err.verdict, 'SKIP');
+            assert.equal(err.reason, WEB_CHECKPOINT);
+            assert.ok(!err.message.includes(ROOM), 'no room in the message');
+            return true;
+        }
+    );
+    assert.deepEqual(shared.webCheckpoint, { status: 403, mitigated: 'challenge', title: false });
+    assert.ok(f.calls.some((c) => c[0] === 'close'), 'the context is closed');
+    // The latch: the next visitor of the run opens no context at all.
+    const g = fakeBrowser();
+    await assert.rejects(
+        openVisitor({ browser: g.browser, link: LINK, web: WEB, shared }),
+        (err) => err.verdict === 'SKIP' && err.reason === WEB_CHECKPOINT
+    );
+    assert.deepEqual(g.calls, []);
 });
 
 test('a seed that does not read back as "false" is a breach', async () => {

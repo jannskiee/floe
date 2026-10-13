@@ -83,6 +83,9 @@ export async function getJson(url, opts = {}) {
         throw new HttpError(`GET ${url}: body is not JSON (${e.message})`, {
             url,
             status: res.status,
+            // What the answer was instead: versions.mjs names Vercel's
+            // checkpoint from them.
+            headers: res.headers,
         });
     }
     return {
@@ -92,6 +95,16 @@ export async function getJson(url, opts = {}) {
         json,
         url: res.url,
     };
+}
+
+/**
+ * Whether an answer's headers (lower-cased names, as headerMap makes them)
+ * are Vercel's Security Checkpoint: the challenge it serves a machine after
+ * a burst of scripted requests, in place of whatever was asked for.
+ */
+export function vercelChallenge(headers) {
+    const v = headers && headers['x-vercel-mitigated'];
+    return typeof v === 'string' && v.trim().toLowerCase() === 'challenge';
 }
 
 /** HEAD url -> { status, ok, headers, url }. Follows redirects. */

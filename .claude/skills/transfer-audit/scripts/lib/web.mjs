@@ -39,6 +39,17 @@
  * (useTransferAnalytics.ts readInitialReportStats reads `!== 'false'`), and
  * the floe:bytes-reported window event (dispatched only when reporting is
  * on, useTransferAnalytics.ts reportBytes) is collected as the third proof.
+ *
+ * An audit page is not a visit either. Every context answers the browser's
+ * Sentry envelopes itself (guardSentry) and seeds Umami's own off switch
+ * (UMAMI_DISABLED_KEY), so a run adds no trace, no issue and no page view to
+ * what the owner reads about real visitors. What a browser route cannot
+ * reach is the server side: a page load is still a request to Vercel, and
+ * the 10 percent of them the server samples are traced there.
+ *
+ * And a page that is Vercel's Security Checkpoint instead of the app is not
+ * floe.one being down: readCheckpoint names it, and the leg stops as SKIP
+ * web-checkpoint, a precondition of this machine.
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -49,6 +60,30 @@ import { Leg, PhaseError, SafetyError, sleep } from './surfaces.mjs';
 export const REPORT_STATS_KEY = 'floe:report-stats';
 export const STALE_BUNDLE_KEY = 'floe:stale-bundle-reloaded-at';
 export const STATS_ROUTE = '**/api/stats/report';
+/**
+ * The Sentry envelope endpoint on any ingest host: /api/<project id>/envelope/
+ * (@sentry/core api.js builds exactly that, with the key in the query). By
+ * path and never by host, because the real host carries a region
+ * (o<org>.ingest.<region>.sentry.io): a tool that matched "ingest.sentry.io"
+ * let three probe page loads through on 2026-10-12. The client sets no
+ * tunnel, which web.test.mjs pins; with one the envelopes would go to the
+ * page's own origin under another path.
+ */
+export const SENTRY_ENVELOPE_RE = /\/api\/\d+\/envelope\/(?:\?|$)/;
+/**
+ * Umami's documented opt-out: its tracker sends nothing, page view or event,
+ * while localStorage holds any value under this key.
+ */
+export const UMAMI_DISABLED_KEY = 'umami.disabled';
+/**
+ * Vercel answered a page load with its Security Checkpoint instead of the
+ * app. It follows a burst of scripted requests from one address and lasts
+ * some minutes (seen 2026-10-12: HTTP 403, `x-vercel-mitigated: challenge`,
+ * with curl's own user agent and with a browser's). A precondition of this
+ * machine, never a product finding and never "the site is down".
+ */
+export const WEB_CHECKPOINT = 'web-checkpoint';
+const CHECKPOINT_TITLE = /Vercel Security Checkpoint/i;
 export const SAMPLE_INTERVAL_MS = 250;
 export const MAX_SAMPLES = 4000;
 export const GOTO_TIMEOUT_MS = 30_000;
@@ -142,7 +177,7 @@ export const TEXT = Object.freeze({
         'Transfer limit exceeded. Relay connections are capped at 2 GB.', // the showRelayLimitNotice banner
     connectionFailed: 'Connection failed', // the three setStatus('Connection failed') sites
     linkInvalid: 'Link Invalid', // the Link Invalid card
-    tooManyRefreshes: 'Too many refreshes. Reconnecting', // onConnectError
+    tooManyRefreshes: 'Too many refreshes. Reconnecting', // REFUSAL_BANNER in client/lib/refusalBanner.ts
     received: /^(\d+) files? received$/, // ReceiverPanel.tsx (the completion line)
     pill: /^(Direct|Relay|Ready|Offline)$/, // ConnectionStatusBadge.tsx (the label ternary)
     // What a sender shows when its peer refused a file it sent: the wire
@@ -590,6 +625,101 @@ export async function guardStats(ctx, rec) {
 }
 
 /**
+ * Answer the page's Sentry envelopes here and count them. A 200 with an empty
+ * JSON body is what the SDK takes as delivered, so it neither retries nor
+ * logs; an abort would put net::ERR_BLOCKED_BY_CLIENT in the leg's
+ * consoleErrors. The count is all that is kept: an envelope's URL carries
+ * the project key and its body the page address, and the handler reads
+ * neither. `shared` is the run's record (webGuards, from newSafety) when
+ * there is one; a probe has none and keeps only its own count.
+ */
+export async function guardSentry(ctx, rec, shared = null) {
+    if (!Number.isInteger(rec.answered)) rec.answered = 0;
+    await ctx.route(SENTRY_ENVELOPE_RE, (route) => {
+        rec.answered += 1;
+        if (shared && shared.webGuards) shared.webGuards.sentryAnswered += 1;
+        return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            headers: { 'access-control-allow-origin': '*' },
+            body: '{}',
+        });
+    });
+    return rec;
+}
+
+/**
+ * { status, mitigated } of a navigation's response, for evidence: the status
+ * and the one Vercel header, lower-cased and kept only when it is a short
+ * word. Null when there is no response to read (a same-document navigation,
+ * a fake page).
+ */
+function mainDocumentOf(response) {
+    if (!response) return null;
+    try {
+        const status = Number(response.status());
+        if (!Number.isInteger(status)) return null;
+        const raw = (response.headers() || {})['x-vercel-mitigated'];
+        const word = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+        return { status, mitigated: /^[a-z-]{1,24}$/.test(word) ? word : null };
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Whether the document a page.goto() got is Vercel's Security Checkpoint:
+ * { status, mitigated, title } when it is, null when it is anything else.
+ * Two signals, either enough: the `x-vercel-mitigated: challenge` header, or
+ * the checkpoint's own title on an error status. A `deny`, a bare 403 and a
+ * 5xx are not it: those are answers the audit must report as failures. A
+ * response or a page that cannot be read is not it either.
+ */
+export async function readCheckpoint(response, page) {
+    const doc = mainDocumentOf(response);
+    if (!doc) return null;
+    let title = false;
+    if (doc.status >= 400) {
+        try {
+            title = CHECKPOINT_TITLE.test(String(await page.title()));
+        } catch {
+            // A page torn down mid-read has no title.
+        }
+    }
+    if (doc.mitigated !== 'challenge' && !title) return null;
+    return { status: doc.status, mitigated: doc.mitigated, title };
+}
+
+/** The SKIP a leg or a visitor stops with; `latched` when it loaded nothing. */
+export function checkpointError(who, seen, { latched = false } = {}) {
+    const how = latched
+        ? `not opened: an earlier page load of this run was served Vercel's Security Checkpoint (HTTP ${seen.status})`
+        : `served Vercel's Security Checkpoint (HTTP ${seen.status}${seen.mitigated ? `, x-vercel-mitigated: ${seen.mitigated}` : ''}) instead of the page`;
+    return new PhaseError(
+        'start',
+        `${WEB_CHECKPOINT}: the ${who} was ${how}. Vercel is challenging this machine's scripted requests, which follows a burst of them and lasts some minutes; the audit cannot tell from here whether other visitors are affected`,
+        { verdict: 'SKIP', reason: WEB_CHECKPOINT }
+    );
+}
+
+/**
+ * Read the answer to a navigation and stop as SKIP web-checkpoint when it is
+ * the checkpoint, latching the run so no later leg loads a page. Returns the
+ * { status, mitigated } to keep as evidence; the error carries it too.
+ */
+export async function refuseCheckpoint(response, page, who, shared) {
+    const doc = mainDocumentOf(response);
+    const seen = await readCheckpoint(response, page);
+    if (seen) {
+        if (shared) shared.webCheckpoint = seen;
+        const err = checkpointError(who, seen);
+        err.mainDocument = doc;
+        throw err;
+    }
+    return doc;
+}
+
+/**
  * The hashbad rewrite, pure so a test can pin it: an `end` frame keeps its
  * shape and its length with one hex digit of its sha256 changed, and anything
  * else is returned untouched. A chunk is a buffer, never a string, so it can
@@ -737,6 +867,9 @@ export class WebLeg extends Leg {
         this.sampler = null;
         this.samples = [];
         this.statsRec = { attempts: [] };
+        this.sentryRec = { answered: 0 };
+        // { status, mitigated } of the page's own document, once it answered.
+        this.mainDocument = null;
         this.consoleErrors = [];
         this.pageErrors = [];
         this.screenshots = [];
@@ -776,11 +909,20 @@ export class WebLeg extends Leg {
 
     async start() {
         const { opts } = this;
-        const browser = await getBrowser({
-            clientDir: opts.clientDir,
-            headless: opts.headless ?? true,
-            args: opts.browserArgs,
-        });
+        // One checkpoint ends the run's page loads: every further one would be
+        // challenged too, and would keep the challenge alive.
+        if (opts.shared && opts.shared.webCheckpoint)
+            throw checkpointError(`web ${this.role}`, opts.shared.webCheckpoint, {
+                latched: true,
+            });
+        // opts.browser is a test's fake; a run always takes the shared one.
+        const browser =
+            opts.browser ||
+            (await getBrowser({
+                clientDir: opts.clientDir,
+                headless: opts.headless ?? true,
+                args: opts.browserArgs,
+            }));
         this.ctx = await browser.newContext({
             viewport: opts.viewport ?? { width: 1280, height: 900 },
             userAgent: opts.userAgent,
@@ -799,6 +941,9 @@ export class WebLeg extends Leg {
         // The route guard sits on every context: senders never report, but
         // the attestation "browser attempts 0" then covers every page.
         await guardStats(this.ctx, this.statsRec);
+        // After the stats guard, so that one stays the context's first route.
+        await guardSentry(this.ctx, this.sentryRec, opts.shared);
+        await seedLocalStorage(this.ctx, UMAMI_DISABLED_KEY, '1');
         if (this.role === 'receiver')
             await seedLocalStorage(this.ctx, REPORT_STATS_KEY, 'false');
         this.page = await this.ctx.newPage();
@@ -859,10 +1004,11 @@ export class WebLeg extends Leg {
                         'start',
                         'web sender: opts.files is empty'
                     );
-                await page.goto(`${this.web()}/`, {
+                const answered = await page.goto(`${this.web()}/`, {
                     waitUntil: 'domcontentloaded',
                     timeout: this.budget(GOTO_TIMEOUT_MS),
                 });
+                await this.readMainDocument(answered, page);
                 // helpers.ts browserSenderSetup: the input is opacity:0 over
                 // the drop zone and has `multiple` (P2PTransfer.tsx, the
                 // "Choose files to send" input; "Add more files" is the second).
@@ -888,10 +1034,11 @@ export class WebLeg extends Leg {
                 const target = opts.target ?? opts.link;
                 if (!target)
                     throw new PhaseError('start', 'web receiver: no link');
-                await page.goto(target, {
+                const answered = await page.goto(target, {
                     waitUntil: 'domcontentloaded',
                     timeout: this.budget(GOTO_TIMEOUT_MS),
                 });
+                await this.readMainDocument(answered, page);
                 await page
                     .getByText(TEXT.roomJoined)
                     .first()
@@ -921,6 +1068,21 @@ export class WebLeg extends Leg {
         });
         this.samples = this.sampler.samples;
         return this;
+    }
+
+    /** Keep the document's answer as evidence; SKIP on the checkpoint. */
+    async readMainDocument(response, page) {
+        try {
+            this.mainDocument = await refuseCheckpoint(
+                response,
+                page,
+                `web ${this.role}`,
+                this.opts.shared
+            );
+        } catch (err) {
+            if (err.mainDocument) this.mainDocument = err.mainDocument;
+            throw err;
+        }
     }
 
     async link() {
@@ -1518,6 +1680,10 @@ export class WebLeg extends Leg {
             turnFetches: this.turnFetches.slice(),
             candidates: candidateCensus(this.samples),
             statsAttempts: this.statsRec.attempts.length,
+            // Envelopes this context answered itself (guardSentry), and the
+            // page's own document as it was answered (readMainDocument).
+            sentryEnvelopes: this.sentryRec.answered,
+            mainDocument: this.mainDocument,
             statsProof:
                 this.role === 'receiver'
                     ? {
@@ -1587,6 +1753,7 @@ export async function probeRelay(opts) {
         evidenceDir,
         ledger,
         log = null,
+        browser = null,
         sizeBytes = 1024 * 1024,
         connectTimeoutMs = 60_000,
         routeTimeoutMs = 15_000,
@@ -1619,6 +1786,8 @@ export async function probeRelay(opts) {
         ledger,
         deadlineAt: t0 + connectTimeoutMs + doneTimeoutMs + 60_000,
         statsOff: true,
+        // A test's fake browser; a real probe leaves it unset.
+        browser,
     };
     const sender = new WebLeg({
         ...common,
@@ -1637,6 +1806,10 @@ export async function probeRelay(opts) {
         sender: null,
         receiver: null,
         error: null,
+        // True when a page load was answered with Vercel's checkpoint: the
+        // probe then says nothing about the forcer (audit.mjs
+        // browserRelayRecord keeps that apart from ok: false).
+        checkpoint: false,
         ms: 0,
     };
     try {
@@ -1674,6 +1847,7 @@ export async function probeRelay(opts) {
             message: err.message,
             code: err.code ?? null,
         };
+        if (err && err.reason === WEB_CHECKPOINT) result.checkpoint = true;
         if (err instanceof SafetyError) throw err;
         if (err && err.harness) throw err;
     } finally {

@@ -12,7 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { getJson } from './http.mjs';
+import { getJson, vercelChallenge } from './http.mjs';
 
 export const REPO = 'jannskiee/floe';
 export const STORE_PACKAGE = 'JanCarloParedes.FloeDesktop';
@@ -425,6 +425,12 @@ export async function deployedWebSha({
                 return { sha: sha.toLowerCase(), oracle: '/api/config commit' };
             return { sha: null, oracle: '/api/config has no commit field yet' };
         } catch (e) {
+            // Not unreachable: answered, by Vercel's challenge page.
+            if (vercelChallenge(e.headers))
+                return {
+                    sha: null,
+                    oracle: `/api/config: web-checkpoint, answered with Vercel's Security Checkpoint (HTTP ${e.status}) instead of JSON`,
+                };
             return {
                 sha: null,
                 oracle: `/api/config unreachable: ${e.message}`,

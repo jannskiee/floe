@@ -14,6 +14,7 @@ import {
     compareQuad,
     compareTouches,
     compareVersions,
+    deployedWebSha,
     gatingDrift,
     identityVersion,
     inverseIdentity,
@@ -473,4 +474,27 @@ test('compareTouches reads the directory tree, and a capped compare never reads 
         null,
         'a broken gh is unknown, not current'
     );
+});
+
+test("deployedWebSha names Vercel's checkpoint instead of calling /api/config unreachable", async () => {
+    const page = (status, headers) => async (url) => ({
+        status,
+        ok: status < 400,
+        url,
+        headers: new Map(Object.entries(headers)),
+        text: async () => '<!DOCTYPE html><title>Vercel Security Checkpoint</title>',
+    });
+    const challenged = await deployedWebSha({
+        webUrl: 'https://web.invalid',
+        fetchImpl: page(403, { 'x-vercel-mitigated': 'challenge' }),
+    });
+    assert.equal(challenged.sha, null);
+    assert.match(challenged.oracle, /^\/api\/config: web-checkpoint/);
+    assert.match(challenged.oracle, /Security Checkpoint/);
+    // Any other page that is not JSON keeps the old wording.
+    const other = await deployedWebSha({
+        webUrl: 'https://web.invalid',
+        fetchImpl: page(403, { 'x-vercel-mitigated': 'deny' }),
+    });
+    assert.match(other.oracle, /^\/api\/config unreachable: /);
 });
