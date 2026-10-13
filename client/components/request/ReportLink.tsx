@@ -3,7 +3,8 @@ import { visitorCopy } from '@/lib/request/visitorCopy';
 
 /** C-12: the right side of the Ready footer (W1), and only there (D-091
  *  Q-C15). The href is report.ts's mailto, built from the origin and the path
- *  and never from the fragment; with no valid link id there is no link. */
+ *  and never from the fragment; with no valid link id, or on a server other
+ *  than floe.one whose operator set no report address, there is no link. */
 export function ReportLink({ href }: { href: string | null }) {
     if (!href) return null;
     return (

@@ -2,6 +2,7 @@ import React from 'react';
 import type { Metadata } from 'next';
 import { InAppBrowserGuard } from '@/components/InAppBrowserGuard';
 import { RequestShell } from '@/components/request/RequestShell';
+import { configuredReportAddress } from '@/lib/request/report';
 import { visitorCopy } from '@/lib/request/visitorCopy';
 import { sharedOpenGraph, sharedTwitter } from '@/lib/socialMetadata';
 
@@ -16,8 +17,11 @@ import { sharedOpenGraph, sharedTwitter } from '@/lib/socialMetadata';
  *    description or an og:title, which are the strings a link preview in a chat
  *    app fetches and renders to everyone in the room. The page component takes
  *    no props for the same reason: there is no id in scope here at all. Every
- *    /r/<id> therefore renders byte-identical head markup, and the id is read on
- *    the client, out of a URL the server never sees the interesting half of.
+ *    /r/<id> therefore renders the same head markup, and the id is read on the
+ *    client, out of a URL the server never sees the interesting half of. (Two
+ *    tags do differ from one request to the next, for the same id as for
+ *    another: Sentry's sentry-trace and baggage, a fresh trace id each time.
+ *    Neither holds anything of the link.)
  *
  * 2. Every field of `robots` is set. Metadata merging in the App Router is
  *    SHALLOW, so declaring `robots` here replaces the resolver's whole object
@@ -37,6 +41,19 @@ import { sharedOpenGraph, sharedTwitter } from '@/lib/socialMetadata';
  * per-link response. The id is not enumerable at build time in any case: the
  * desktop app makes ids at run time. See
  * work/14-test-evidence/S1-WEB-01/next-docs-rendering-mode.md.
+ *
+ * The report address: rendering per request is also what lets the page read one
+ * setting of the server it runs on, REQUEST_REPORT_EMAIL, which is where
+ * "Report this link" writes on a server that is not floe.one
+ * (lib/request/report.ts). The component below reads it, on the server, and
+ * hands it down as a prop. It is not fetched: the page makes no request before
+ * Send, and e2e/request-privacy.spec.ts holds it to that. It is not a
+ * NEXT_PUBLIC_ name: those are inlined at build time, and the published image
+ * is built once for every operator. The value is checked before it is handed
+ * down, so what reaches the served page is one plain address or nothing, never
+ * the text as it was typed. It is the server's setting and not the link's: the
+ * component still takes no props, so the link id is still never in scope here.
+ * lib/request/visitorBoundaries.test.ts pins each step.
  */
 export const metadata: Metadata = {
     title: 'Send files',
@@ -99,7 +116,7 @@ export default function RequestLinkPage() {
         <>
             <style>{PAGE_CANVAS}</style>
             <InAppBrowserGuard advice={visitorCopy.inAppAdvice} stepsTitle={visitorCopy.inAppStepsTitle}>
-                <RequestShell />
+                <RequestShell reportAddress={configuredReportAddress(process.env.REQUEST_REPORT_EMAIL)} />
             </InAppBrowserGuard>
         </>
     );

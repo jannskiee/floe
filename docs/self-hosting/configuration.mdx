@@ -19,6 +19,7 @@ Only `CLIENT_URL` is required, and only in production. Every other variable is o
 | [`FLOE_IMAGE_TAG`](#floe-image-tag) | compose | `latest` |
 | [`NEXT_PUBLIC_SITE_URL`](#next-public-site-url) | client (build) | _(none)_ |
 | [`SOURCE_COMMIT`](#source-commit) | client (runtime) | _(none)_ |
+| [`REQUEST_REPORT_EMAIL`](#request-report-email) | client (runtime) | _(none)_ |
 | [`PORT`](#port) | server | `3001` |
 | [`CLIENT_PORT`](#client-port) | compose | `3000` |
 | [`NODE_ENV`](#node-env) | server | `production` (set by the image) |
@@ -73,6 +74,10 @@ Public origin of your client (for example `https://app.your-domain.com`), writte
 ### `SOURCE_COMMIT` {#source-commit}
 
 Source revision the client reports as `commit` from `GET /api/config`, so anyone can check which build an instance is running. Read at request time from the client container's environment; the field is `null` when it is unset. Compose does not pass it through, so add it to the client service's `environment` yourself if you want it served. On Vercel the field comes from `VERCEL_GIT_COMMIT_SHA` instead, which is how floe.one gets its value. See the [HTTP API](/reference/http-api) reference.
+
+### `REQUEST_REPORT_EMAIL` {#request-report-email}
+
+Address that **Report this link**, on the page a sender opens from a [request link](/web-app/request-links#report-a-link), starts an email to. Unset or empty, that page shows no **Report this link** at all, so set it when you [turn on request links](/self-hosting/request-links): a report is about a link on your server, and only you can act on it. It takes exactly one address in a plain shape: letters, digits and `.` `_` `+` `-` before the `@`, then a host name with at least one dot, and at most 254 characters in all. Anything else counts as unset, including two addresses, a name in front of the address, and a space before or after it. Read at request time from the client container's environment, so changing it needs only `docker compose up -d`, no rebuild. Compose passes it through from `.env`, which takes a current `docker-compose.yml`: a copy downloaded before this variable existed leaves it out without a word. On Unraid it is the Floe-Client template's advanced **Request Link Report Email** field. It needs a web client newer than version 1.11.0: see [What an older web app shows](/self-hosting/operations#older-web-app-versions). floe.one uses a built-in address and ignores this variable.
 
 ### `PORT` {#port}
 

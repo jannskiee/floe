@@ -103,13 +103,24 @@ floe-client)
     # would still report the first value.
     docker rm -f smoke-client >/dev/null 2>&1 || true
     CONTAINERS=()
-    run smoke-client2 3000 -e SOCKET_URL=https://signal.example.test
+    run smoke-client2 3000 -e SOCKET_URL=https://signal.example.test \
+        -e REQUEST_REPORT_EMAIL=reports@example.test
     wait_for http://localhost:3000/ || fail "client never served / on the second run"
 
     cfg2="$(curl --fail --silent http://localhost:3000/api/config)"
     echo "$cfg2" | grep -q '"socketUrl":"https://signal.example.test"' \
         || fail "/api/config was $cfg2 on the second run, so the URL is baked, not runtime"
     echo "OK  /api/config follows a changed SOCKET_URL with no rebuild"
+
+    # The report address on a request link's page is a runtime setting too
+    # (REQUEST_REPORT_EMAIL, deliberately not a NEXT_PUBLIC_ name). The page is
+    # rendered per request and hands the checked address to the browser inside
+    # the document, so the document is where to look. Nothing else runs the
+    # image's own entry point with this variable set.
+    rpage="$(curl --fail --silent http://localhost:3000/r/AAAAAAAAAAA)"
+    echo "$rpage" | grep -q 'reports@example.test' \
+        || fail "/r did not carry the REQUEST_REPORT_EMAIL value, so the report address is not read at runtime"
+    echo "OK  /r carries a REQUEST_REPORT_EMAIL set at runtime"
     ;;
 
 *)

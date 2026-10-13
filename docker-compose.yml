@@ -75,6 +75,12 @@ services:
       # is absent. An explicitly empty value must stay empty, or the one-domain
       # setup above would silently fall back to localhost.
       SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL-http://localhost:3001}
+      # Where "Report this link" on a request link's page sends its email, read
+      # at request time like the value above. Empty means the page shows no
+      # report link. Set one plain address, such as reports@your-domain.com,
+      # when you turn request links on: the reports are about links on your
+      # server, and only you can act on them.
+      REQUEST_REPORT_EMAIL: ${REQUEST_REPORT_EMAIL:-}
     depends_on:
       server:
         condition: service_healthy

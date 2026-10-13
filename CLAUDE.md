@@ -90,6 +90,7 @@ NEXT_PUBLIC_SOCKET_URL=http://localhost:3001  # build-time override; self-hosted
 NEXT_PUBLIC_SITE_URL=         # optional, canonical/OG/sitemap base for self-hosts
 NEXT_PUBLIC_SENTRY_DSN=       # optional (SENTRY_DSN / SENTRY_ORG / SENTRY_PROJECT for the server side)
 NEXT_PUBLIC_UMAMI_WEBSITE_ID= # optional analytics
+REQUEST_REPORT_EMAIL=          # optional, read per request (not at build time): where "Report this link" on /r writes on a server that is not floe.one; unset = no link
 ```
 
 ## Architecture
@@ -201,6 +202,7 @@ Rules that cross those surfaces, each pinned by a test where one is named:
 - Success is the host's `received` and nothing else: both visitors send with require-received on (`RequireReceived` in `sendto.go`, `requireReceived` in `RequestVisitor.tsx`), so a drained buffer or a close is never reported as delivered.
 - Every sentence either side shows is fixed copy chosen by a code: `visitorCopy.ts`, `requestCopy.ts` and the line constants at the top of `sendto.go`. The other peer's prose is never rendered or printed: a refusal travels as one of the twelve `RefusalCode`s plus a clamped count. The one visitor-derived text Floe Desktop shows is the engine's display-safe file name while a drop is receiving.
 - Only the host reports to the stats counter. A visitor is a sender and has no report path.
+- "Report this link" on `/r` writes to the built-in address on the two floe.one origins and nowhere else. On any other origin it writes to the operator's `REQUEST_REPORT_EMAIL`, and with none set the page has no such link (`reportAddressFor` in `client/lib/request/report.ts`). The `/r` server component reads the variable per request, checks it (`configuredReportAddress`: one plain address or nothing) and passes it down as a prop. It is never fetched and never a `NEXT_PUBLIC_` name; `client/lib/request/visitorBoundaries.test.ts` and `client/e2e/request-privacy.spec.ts` pin each step.
 
 ## Documentation Site
 

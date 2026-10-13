@@ -331,6 +331,84 @@ describe('the /r page boundaries', () => {
         for (const a of anchors) expect(a, a).toContain('rel="noreferrer"');
     });
 
+    // The owner's decision of 2026-10-14: off floe.one, "Report this link"
+    // writes to the address the server's operator set in REQUEST_REPORT_EMAIL,
+    // and with none set the page has no such link. The rule itself is
+    // report.test.ts. How the setting reaches the page is pinned here, because
+    // each step has a wrong neighbor. A fetch for it would be a request before
+    // Send, which the privacy spec counts as the page reaching for the network.
+    // A NEXT_PUBLIC_ name is inlined at build time, so the published image
+    // could never carry an operator's value. And a value handed down unchecked
+    // would sit in the served page as it was typed.
+    it('the report address comes from one server variable, checked there, and reaches only the mailto', () => {
+        const page = read('app/r/[linkId]/page.tsx');
+        // Still no props and no generateMetadata, so the link id is never in
+        // scope on the server: the setting is the server's own, the same for
+        // every link it serves, and it is the only thing read there.
+        expect(page).toContain('export default function RequestLinkPage() {');
+        expect(page).not.toMatch(/export\s+(?:async\s+)?(?:function|const)\s+generateMetadata\b/);
+        expect(page.match(/process\.env\.\w+/g)).toEqual(['process.env.REQUEST_REPORT_EMAIL']);
+        expect(page).toContain(
+            '<RequestShell reportAddress={configuredReportAddress(process.env.REQUEST_REPORT_EMAIL)} />',
+        );
+
+        // Every line of /r that names the prop, comments aside. Read line by
+        // line and trimmed, so a CRLF checkout reads the same.
+        const uses = (src: string) =>
+            src
+                .split('\n')
+                .map((line) => line.trim())
+                .filter((line) => /\breportAddress\b/.test(line) && !/^(?:\/\/|\/?\*|\{\/\*)/.test(line));
+        const sources = requestSources();
+        const named = Object.entries(sources)
+            .filter(([, src]) => uses(src).length > 0)
+            .map(([file]) => file);
+        expect(named.sort()).toEqual([
+            'app/r/[linkId]/page.tsx',
+            'components/RequestVisitor.tsx',
+            'components/request/RequestShell.tsx',
+        ]);
+        expect(uses(sources['components/request/RequestShell.tsx'])).toEqual([
+            'export function RequestShell({ reportAddress }: { reportAddress: string | null }) {',
+            '<RequestVisitor reportAddress={reportAddress} />',
+        ]);
+        // The one thing the visitor does with it: hand it to report.ts beside
+        // the page's own location. It is never drawn, logged or stored.
+        const visitor = sources['components/RequestVisitor.tsx'];
+        expect(uses(visitor)).toEqual([
+            'export function RequestVisitor({ reportAddress }: { reportAddress: string | null }) {',
+            'setReportHref(reportMailtoFromLocation(window.location, reportAddress));',
+            '}, [reportAddress]);',
+        ]);
+        expect(callArgs(visitor, 'reportMailtoFromLocation')).toEqual(['window.location, reportAddress']);
+
+        let fetches = 0;
+        for (const [file, src] of Object.entries(sources)) {
+            // No other /r source reads the environment.
+            if (file !== 'app/r/[linkId]/page.tsx') {
+                expect(/process\.env\b/.test(src), `${file} reads the environment`).toBe(false);
+            }
+            // Nothing on /r asks the client's own server for its settings,
+            // and the one fetch there is the ICE list's, made after Send.
+            expect(src.includes('/api/config'), `${file} asks for the runtime config`).toBe(false);
+            for (const args of callArgs(src, 'fetch')) {
+                fetches++;
+                expect(splitArgs(args)[0], `${file}: fetch(${args})`).toContain('/api/turn-credentials');
+            }
+            // floe.one's own address is drawn by /privacy and /terms, never
+            // by this page.
+            if (file !== 'lib/request/report.ts') {
+                expect(src.includes('REQUEST_REPORT_ADDRESS'), `${file} names the built-in address`).toBe(false);
+            }
+        }
+        expect(fetches).toBeGreaterThan(0);
+
+        // The link draws its fixed words; the address is in the href alone.
+        const link = read('components/request/ReportLink.tsx');
+        const anchor = link.slice(link.indexOf('<a'), link.indexOf('</a>'));
+        expect(anchor.match(/\{[^{}]*\}/g)).toEqual(['{href}', '{visitorCopy.reportLink}']);
+    });
+
     // The in-app browser notice is one component on two pages, and its advice
     // is right for only one of them: "Chrome or Safari" suits a share link on
     // the home page, and no request link page lists Safari. So /r hands the

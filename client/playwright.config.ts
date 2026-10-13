@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 import path from 'path';
+import { E2E_REPORT_EMAIL } from './e2e/report-email';
 import { E2E_SOCKET_URL } from './e2e/socket-url';
 
 export default defineConfig({
@@ -135,6 +136,14 @@ export default defineConfig({
                 // it. reconnect.spec.ts asserts the effective value at
                 // runtime either way.
                 NEXT_PUBLIC_SOCKET_URL: E2E_SOCKET_URL,
+                // Where a request link's "Report this link" writes. The
+                // suite's pages are on localhost, which is not floe.one, so
+                // without an address the link is not drawn at all
+                // (lib/request/report.ts): request-look.spec.ts measures its
+                // contrast and request-privacy.spec.ts reads its href. Unlike
+                // the variable above this is a plain name the /r page reads
+                // per request, so this block reaches `next start` on CI too.
+                REQUEST_REPORT_EMAIL: E2E_REPORT_EMAIL,
             },
         },
     ],

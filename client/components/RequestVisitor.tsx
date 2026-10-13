@@ -590,17 +590,20 @@ function rowsOf(files: RequestFile[]): PathRow[] {
  * The request link visitor (spec 07 4.7): one top-level component, never a
  * mode of the main transfer page. It renders the state the reducer is in and
  * hands every action to the controller above.
+ *
+ * Its one prop is this server's report address, or null, read and checked on
+ * the server (app/r/[linkId]/page.tsx). It goes to report.ts and nowhere else.
  */
-export function RequestVisitor() {
+export function RequestVisitor({ reportAddress }: { reportAddress: string | null }) {
     const [model, setModel] = useState<VisitorModel>(initialModel);
     const [attemptFiles, setAttemptFiles] = useState<RequestFile[]>([]);
     const [now, setNow] = useState(0);
     const [hideIp, setHideIp] = useState(false);
-    const [env, setEnv] = useState<{ canPickFolders: boolean; coarsePointer: boolean; reportHref: string | null }>({
+    const [env, setEnv] = useState<{ canPickFolders: boolean; coarsePointer: boolean }>({
         canPickFolders: false,
         coarsePointer: false,
-        reportHref: null,
     });
+    const [reportHref, setReportHref] = useState<string | null>(null);
     // Set once the page saw the computer sleep during a drop; C-98 then
     // replaces C-96 for the rest of the session.
     const [slept, setSlept] = useState(false);
@@ -647,8 +650,6 @@ export function RequestVisitor() {
         setEnv({
             canPickFolders: canPickFolders(window, navigator.userAgent),
             coarsePointer: isCoarsePointer(window),
-            // The link id from the path, never the fragment (report.ts).
-            reportHref: reportMailtoFromLocation(window.location),
         });
         const onHash = () => {
             const link = parseRequestLink(window.location.pathname, window.location.hash);
@@ -660,6 +661,16 @@ export function RequestVisitor() {
             controller.dispose();
         };
     }, [controller]);
+
+    // Report this link, built in the browser because the origin and the path
+    // exist only there: the link id from the path, never the fragment, and the
+    // address from this page's origin and this server's setting (report.ts).
+    // An effect of its own, so the prop is not a dependency of the load effect
+    // above: that one's cleanup disposes the controller, and it must run once.
+    useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setReportHref(reportMailtoFromLocation(window.location, reportAddress));
+    }, [reportAddress]);
 
     // The page's clock: the Waiting countdown every 15 s so the minute changes
     // on time, and the whole-drop estimate in Sending every 5 s.
@@ -803,7 +814,7 @@ export function RequestVisitor() {
                     onDrop={picks.handleDrop}
                     onFiles={picks.handleFileSelection}
                     onFolder={picks.handleFolderSelection}
-                    footerEnd={<ReportLink href={env.reportHref} />}
+                    footerEnd={<ReportLink href={reportHref} />}
                 />
             );
             break;

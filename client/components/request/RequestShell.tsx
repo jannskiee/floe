@@ -17,8 +17,12 @@ import { RequestBackdrop } from '@/components/request/RequestBackdrop';
  * no ICE list and builds no RTCPeerConnection until the visitor presses Send. A
  * link scanner, a preview fetcher or a curious forward can open /r and take
  * nothing away with it, not the room seat and not an IP address.
+ *
+ * Its one prop is this server's report address, or null: the page component
+ * read and checked it on the server (app/r/[linkId]/page.tsx), so it arrives
+ * with the page and costs no request. The shell only passes it on.
  */
-export function RequestShell() {
+export function RequestShell({ reportAddress }: { reportAddress: string | null }) {
     return (
         // The same centering shell as /, /download and not-found: the root
         // layout's <body> carries only the font variables, so a page that omits
@@ -57,7 +61,7 @@ export function RequestShell() {
             </header>
 
             <main className="flex w-full max-w-xl flex-1 flex-col items-center justify-center">
-                <RequestVisitor />
+                <RequestVisitor reportAddress={reportAddress} />
             </main>
 
             <RequestFooter />

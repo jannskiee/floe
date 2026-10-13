@@ -170,6 +170,7 @@ Even with the overlay this is a production build with no hot reload, so use it t
 |----------|----------|-------------|
 | `NEXT_PUBLIC_SOCKET_URL` | No | Signaling server URL the browser connects to. `pnpm dev` already defaults to `http://localhost:3001`; for UI-only work set it to `https://api.floe.one` to use the live server without running one locally (read [Test transfers and the public counter](#test-transfers-and-the-public-counter) first). Inlined at build time when set. Self-hosted Docker instances leave it unset and resolve the address at runtime instead. |
 | `NEXT_PUBLIC_SITE_URL` | No | Public base URL for canonical links, Open Graph tags, and the sitemap. Defaults to `https://www.floe.one`. Set to your own domain when self-hosting. |
+| `REQUEST_REPORT_EMAIL` | No | Where "Report this link" on a request link's page (`/r/...`) sends its email. floe.one uses a built-in address and ignores this. On any other origin, `localhost` included, the page shows the link only when this holds exactly one plain address, so set one to see the link while you work on that page. Read on every request and never inlined at build time. |
 | `NEXT_PUBLIC_SENTRY_DSN` | No | Your Sentry DSN for error tracking in the browser. Leave empty to disable. |
 | `SENTRY_DSN` | No | Your Sentry DSN for error tracking on the client's own server side (the Next.js server and edge runtimes, not the signaling server). Leave empty to disable. |
 | `SENTRY_ORG` | No | Your Sentry organization slug. |

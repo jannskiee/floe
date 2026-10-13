@@ -1,5 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
+import { REQUEST_REPORT_ADDRESS } from '../lib/request/report';
 import { visitorCopy } from '../lib/request/visitorCopy';
+import { E2E_REPORT_EMAIL } from './report-email';
 
 // ---------------------------------------------------------------------------
 // The /r visitor page, before any of it does anything.
@@ -340,6 +342,46 @@ test.describe('request privacy', () => {
         // preview fetcher from taking the seat or collecting an IP address.
         await expect(page.getByText('SEND FILES THROUGH THIS LINK')).toBeVisible();
         await expect(page.getByText(visitorCopy.readyIntro, { exact: true })).toBeVisible();
+        await page.waitForTimeout(1_000);
+        expect(signaling).toEqual([]);
+    });
+
+    test('Report this link writes to the address this server was given, with the link id and no fragment', async ({
+        page,
+    }) => {
+        // This page is on localhost, which is not floe.one, so the link is
+        // drawn only because playwright.config.ts gave the client an address
+        // (REQUEST_REPORT_EMAIL), and that address is the whole recipient. A
+        // server whose operator set none draws no link; that half is
+        // lib/request/report.test.ts, since one run has one client.
+        const signaling = watchSignaling(page);
+
+        await page.goto(LINK);
+
+        const report = page.getByRole('link', { name: visitorCopy.reportLink });
+        await expect(report).toBeVisible();
+        const href = (await report.getAttribute('href')) ?? '';
+        expect(href.startsWith('mailto:')).toBe(true);
+        const [to, query, ...more] = href.slice('mailto:'.length).split('?');
+        expect(more).toEqual([]);
+        expect(to).toBe(E2E_REPORT_EMAIL);
+        // floe.one's own address is for floe.one's links.
+        expect(href).not.toContain(REQUEST_REPORT_ADDRESS);
+
+        // The link id and this page's origin, and nothing else riding along.
+        const params = new URLSearchParams(query);
+        expect([...params.keys()]).toEqual(['subject', 'body']);
+        expect(params.get('subject')).toBe(`Report Floe request link ${LINK_ID}`);
+        expect(params.get('body')).toBe(`Link: ${new URL(page.url()).origin}/r/${LINK_ID}`);
+
+        // Never the room: the part after the # is the seat, and a report that
+        // carried it would hand the seat to whoever reads the mailbox.
+        expect(page.url()).toContain(`#${ROOM_ID}`);
+        expect(href).not.toContain(ROOM_ID);
+        expect(href).not.toContain('#');
+        expect(href.toLowerCase()).not.toContain('%23');
+
+        // The address came down with the page: it cost no request.
         await page.waitForTimeout(1_000);
         expect(signaling).toEqual([]);
     });

@@ -126,11 +126,15 @@ Floe's signaling server introduces the two computers and never receives the file
 
 ## Report a link {#report-a-link}
 
-**Report this link**, at the bottom of the page until you click **Send**, starts an email to Floe carrying
-the link's id: the part before the `#`. It never carries the part after it, so a report cannot be used to
-send files through the link. The email goes to the address in
+**Report this link**, at the bottom of the page until you click **Send**, starts an email carrying the
+link's id: the part before the `#`. It never carries the part after it, so a report cannot be used to send
+files through the link.
+
+On floe.one the email goes to Floe's maintainers, at the address in
 [SECURITY.md](https://github.com/jannskiee/floe/blob/main/SECURITY.md), the one security reports use. On a
-self-hosted server the button still writes to Floe's maintainers, who cannot act on another server's links.
+self-hosted server it goes to the address the person who runs that server
+[set for reports](/self-hosting/configuration#request-report-email). If they set none, the page shows no
+**Report this link**.
 
 ## What the page shows {#what-the-page-shows}
 

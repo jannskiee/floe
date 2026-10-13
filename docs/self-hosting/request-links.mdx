@@ -178,10 +178,14 @@ From the CLI, a sender has to name your signaling server as well as the link, wi
 `FLOE_SERVER`. Without it the send ends with `Couldn't connect to their computer. Nothing was sent.`
 before it contacts any server. See [floe send](/cli/send#send-through-a-request-link).
 
-The page a sender opens carries **Report this link** on every server, and on yours it still starts
-an email to Floe's maintainers, who cannot turn off another server's links. Tell the people you
-share links with how to reach you instead. The one switch you have is the policy file, which ends
-every waiting link at once.
+The page a sender opens shows **Report this link** only when you give the web client an address for
+reports, in [`REQUEST_REPORT_EMAIL`](/self-hosting/configuration#request-report-email): under
+Compose, a line in `.env`, then `docker compose up -d`. The link then starts an email to that
+address, carrying the link's id and never the part after the `#`. Without an address the page shows
+no report link, so tell the people you share links with how to reach you. The variable needs a web
+client newer than version 1.11.0: see
+[What an older web app shows](/self-hosting/operations#older-web-app-versions). The one switch you
+have is the policy file, which ends every waiting link at once.
 
 ## What Floe Desktop shows {#what-floe-desktop-shows}
 
