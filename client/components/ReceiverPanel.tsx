@@ -5,7 +5,7 @@ import { StatsContributionToggle } from '@/components/StatsContributionToggle';
 import { ReceivedFilesList } from '@/components/ReceivedFilesList';
 import { formatBytes } from '@/lib/utils';
 import type { ReceivedFile } from '@/hooks/useDownloadManager';
-import type { ReceiveSummary } from '@/lib/receiveSummary';
+import { bulkDownloadShown, joinStepsShown, type ReceiveSummary } from '@/lib/receiveSummary';
 
 interface ReceiverPanelProps {
     receivedFiles: ReceivedFile[];
@@ -15,6 +15,9 @@ interface ReceiverPanelProps {
     // right now: a link nobody holds, or a sender that dropped before the two
     // devices connected. See lib/roomSeat.ts.
     senderAbsent: boolean;
+    // The attempt is over: the peer connection closed or the receive engine
+    // stopped. The same latched fact `summary` is built from.
+    ended: boolean;
     reportStatsEnabled: boolean;
     onReportStatsChange: (enabled: boolean) => void;
     isZipping: boolean;
@@ -47,6 +50,7 @@ export function ReceiverPanel({
     status,
     isConnected,
     senderAbsent,
+    ended,
     reportStatsEnabled,
     onReportStatsChange,
     isZipping,
@@ -63,11 +67,13 @@ export function ReceiverPanel({
     // the status line at the foot vanished and the handshake pipeline came back
     // on screen for the length of the check.
     const busy = status.includes('Receiving') || status.includes('Verifying');
+    const showBulk = bulkDownloadShown({ received: receivedFiles.length, busy });
     return (
         <div className="space-y-3 pt-2">
-            {/* Handshake pipeline — shows what has happened and what comes next */}
-            {receivedFiles.length === 0 &&
-                !busy && (
+            {/* Handshake pipeline: what has happened and what comes next, for
+                an attempt that is under way. Not after one that ended with
+                nothing, where the banner is the whole account. */}
+            {joinStepsShown({ received: receivedFiles.length, busy, ended }) && (
                     <div className="space-y-3 px-1 py-3">
                         <div className={`flex items-center gap-2.5 text-sm ${isConnected ? 'text-zinc-400' : 'text-zinc-200'}`}>
                             {isConnected ? (
@@ -112,8 +118,7 @@ export function ReceiverPanel({
                 <StatsContributionToggle enabled={reportStatsEnabled} onChange={onReportStatsChange} />
             )}
 
-            {receivedFiles.length > 1 &&
-                !busy && (
+            {showBulk && (
                     <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 gap-2 mb-3 animate-in fade-in slide-in-from-top-2 duration-300">
                         <Button
                             onClick={onDownloadAll}
@@ -175,7 +180,7 @@ export function ReceiverPanel({
                 </div>
             )}
 
-            {typeof navigator !== 'undefined' && /iPhone|iPad|iPod/.test(navigator.userAgent) && receivedFiles.length > 0 && (
+            {typeof navigator !== 'undefined' && /iPhone|iPad|iPod/.test(navigator.userAgent) && showBulk && (
                 <p className="text-[10px] text-zinc-600 text-center mt-1">Tip: Use &quot;Download ZIP&quot; for the best experience on iOS.</p>
             )}
 
