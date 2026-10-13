@@ -175,16 +175,19 @@ the tag, so nobody has to look it up while something is wrong.
       vouch for is still a floor: you decide, line by line.
     - `WARN`: for example an `Unreleased` entry that has not been renamed.
 - Re-read every line that says "or earlier", under either label. The docs
-  describe a web change that is live on floe.one but in no image yet as "A
-  self-hosted web app on version X.Y.Z or earlier ..."
-  (docs/troubleshooting.mdx, docs/web-app/receiving.mdx), and most of those
-  run on into a verb, so they print as `STALE`. Each is right exactly when
-  X.Y.Z is the last `v*` release WITHOUT the change, so when this tag is the
-  first to carry it, the clause stands as written: bumping it to the new
-  number makes it false. The same re-read covers a line that names one
-  version alone ("on version X.Y.Z ends the line ...",
-  docs/web-app/request-links.mdx): decide whether it now means "X.Y.Z or
-  earlier".
+  describe a web change that is live on floe.one but in no image yet in one
+  place: the table "What an older web app shows" in
+  docs/self-hosting/operations.mdx (`#older-web-app-versions`). Its third
+  column is headed "What version X.Y.Z or earlier shows", and a cell may
+  narrow that ("Version X.Y.Z only: ...", "Versions A to B: ..."). The
+  header and those cells print as `STALE`. Each is right exactly when X.Y.Z
+  is the last `v*` release WITHOUT the change, so when this tag is the first
+  to carry it, the text stands as written: bumping it to the new number
+  makes it false. A row added after this tag is about a later version than
+  the header names, so its cell says its own version. The pages the table
+  links to carry one pointer to it and no such clause of their own: a hit
+  for "self-hosted web app on version" outside the table and the changelog
+  is a clause that belongs in the table.
 - The known pin set, so a hit there is never mistaken for history: CLAUDE.md
   (the version example), `.github/ISSUE_TEMPLATE/bug_report.yml` (the
   placeholder), DESKTOP.md (`Current release:` and the "Paired with" line
