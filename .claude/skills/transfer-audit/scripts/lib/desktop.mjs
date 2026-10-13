@@ -633,11 +633,32 @@ export const RELEASE_QUIET_S = 3;
 export const RELEASE_WAIT_MS = 40_000;
 export const RELEASE_POLL_MS = 500;
 /**
+ * How long a launch waits for an earlier leg that is still stopping. A stop
+ * is the release, two close rounds and a taskkill, about 41 s at worst; past
+ * this the launch goes on to its own checks, which refuse a running app
+ * (desktop-running) and an unrestored desktop.json edit.
+ */
+export const STOP_WAIT_MS = 45_000;
+/**
  * An earlier cell of the run could not put the owner's app back as it found
  * it (lib/request.mjs markHostRelease). Nothing more is launched on an exe
  * lane after that: the next cell would build on the leftover and add to it.
  */
 export const NOT_RELEASED = 'desktop-not-released';
+/**
+ * Whether a folder is one an audit run made for itself: an attempt's own
+ * folder, <evidence root>/cells/<cell id>/attempt-<n>/... . A remembered save
+ * folder that reads like this is the leftover of an earlier audit whose
+ * restore never happened (the owner came back, the app was killed), not the
+ * owner's choice. Taken for theirs it would be put "back" at release and
+ * reported as restored, and the owner's next real receive would land in a
+ * folder that cleanup deletes (review of #542, finding 1).
+ */
+export function isAuditFolder(p) {
+    return /[\\/]cells[\\/][^\\/]+[\\/]attempt-\d+(?:[\\/]|$)/i.test(
+        String(p ?? '')
+    );
+}
 
 // --------------------------------------------------------------- errors
 
@@ -1067,6 +1088,22 @@ export class DesktopConfigGuard {
         if (!this.configPath)
             throw new PreconditionError(
                 'desktop.json path unknown (no APPDATA)'
+            );
+        // One edit of this file at a time. A leg whose teardown ran out of
+        // time is still closing its app and has not put the file back; a
+        // guard that read it now would take the edited file for the owner's
+        // original, and its restore would write the edit back for good
+        // (review of #542, finding 2).
+        const open = [...activeGuards].find(
+            (g) =>
+                g !== this &&
+                g.applied &&
+                !g.restored &&
+                samePath(g.configPath, this.configPath)
+        );
+        if (open)
+            throw new PreconditionError(
+                'desktop.json is still edited by an earlier leg of this run, which has not put it back yet; refusing to take that edit for the original'
             );
         const running = await this.processes();
         if (running.length) {
@@ -1558,7 +1595,8 @@ export class ShellMenuGuard {
             note(
                 `explorer verb: re-read after the delete failed: ${err.message}`
             );
-            return { wrote: true, match: null };
+            // A call that failed wrote nothing.
+            return { wrote: answer !== null, match: null };
         }
         if (!after.exists) {
             note(
@@ -1566,6 +1604,14 @@ export class ShellMenuGuard {
             );
             return { wrote: true, match: true };
         }
+        // The delete call itself failed: the script never said whose key it
+        // is, so the message must not either, and it must not hand over a
+        // forced delete for a key that may be another install's.
+        if (answer === null)
+            throw new SafetyError(
+                `explorer verb: HKCU\\${this.key} was absent before the run and is there now (command ${shown}), and the delete call failed before it could tell whether the key is this run's. Read it with: reg query "HKCU\\${this.key}\\command" /ve, and remove it only if it names an exe under this run's folders`,
+                { key: this.key, want: null, got: after.values }
+            );
         throw new SafetyError(
             `explorer verb: HKCU\\${this.key} was absent before the run and is still there after the delete (command ${shown}). It names an exe the run deletes; remove it with: reg delete "HKCU\\${this.key}" /f`,
             { key: this.key, want: null, got: after.values }
@@ -1704,7 +1750,7 @@ export function shortFolderName(name, max = 34) {
  * link made with Auto-accept on, where nothing has to be pressed.
  */
 export class UiaDriver {
-    constructor(client, hwnd, { log = null } = {}) {
+    constructor(client, hwnd, { log = null, counter = null } = {}) {
         this.client = client;
         this.hwnd = hwnd;
         this.log = log;
@@ -1729,6 +1775,13 @@ export class UiaDriver {
         // What the Make link form's Save to field read before this driver
         // first set it (B2, restoreRequestSaveDir); undefined until then.
         this._saveToBefore = undefined;
+        this._saveToLeftover = null;
+        // Counts the pattern calls sent to a built app, each of which
+        // activates its window: the Safety table's row (lib/report.mjs).
+        this.counter = counter;
+    }
+    _count() {
+        if (this.counter) this.counter.exe += 1;
     }
     /** GetLastInputInfo before a pattern call on an away-only host. */
     async _away() {
@@ -1775,6 +1828,7 @@ export class UiaDriver {
     }
     async click(name, opts = {}) {
         await this._away();
+        this._count();
         return this.client.retry(
             'click',
             { hwnd: this.hwnd, name, ...opts },
@@ -1783,6 +1837,7 @@ export class UiaDriver {
     }
     async setValue(placeholder, value, opts = {}) {
         await this._away();
+        this._count();
         return this.client.request('set-value', {
             hwnd: this.hwnd,
             placeholder,
@@ -1944,6 +1999,7 @@ export class UiaDriver {
         if (box && box.enabled === false)
             return { before, after: before, changed: false };
         await this._away();
+        this._count();
         try {
             const r = await this.client.request('toggle', {
                 hwnd: this.hwnd,
@@ -2010,6 +2066,18 @@ export class UiaDriver {
         await this.click(REQUEST_STRINGS.choice, { controlType: 'Button' });
         if (await this._visible(REQUEST_STRINGS.makeAnother))
             await this.click(REQUEST_STRINGS.makeAnother, { controlType: 'Button' });
+        // What the field holds, read before anything is set: a read never
+        // activates the window, and the set's own answer below can be lost
+        // after the value has landed.
+        if (this._saveToBefore === undefined) {
+            try {
+                const had = await this.getValue(REQUEST_STRINGS.saveToPlaceholder);
+                if (had && typeof had.value === 'string')
+                    this._noteSaveToBefore(had.value);
+            } catch {
+                // The set's answer carries the same value.
+            }
+        }
         let set;
         try {
             set = await this.setValue(REQUEST_STRINGS.saveToPlaceholder, saveDir);
@@ -2025,7 +2093,7 @@ export class UiaDriver {
         // Only the first set of this driver read the owner's value; a later
         // one reads the run's own folder.
         if (set && this._saveToBefore === undefined)
-            this._saveToBefore = String(set.before ?? '');
+            this._noteSaveToBefore(String(set.before ?? ''));
         if (!set || set.after !== saveDir)
             throw new PhaseError(
                 'request',
@@ -2117,9 +2185,19 @@ export class UiaDriver {
      * having chosen a folder (INFERRED: that SetValue('') clears the field
      * on the app; the read-back decides). Nothing was set, nothing is done.
      */
+    /**
+     * Keep what the Save to field read before this driver first set it. An
+     * earlier audit's own folder is not the owner's value (isAuditFolder):
+     * the field then goes back to empty, the app's default, and the release
+     * says what it found.
+     */
+    _noteSaveToBefore(value) {
+        this._saveToLeftover = isAuditFolder(value) ? value : null;
+        this._saveToBefore = this._saveToLeftover ? '' : value;
+    }
     async restoreRequestSaveDir() {
         if (this._saveToBefore === undefined)
-            return { before: null, restored: null, after: null };
+            return { before: null, restored: null, after: null, leftover: null };
         const before = this._saveToBefore;
         await this._toRequestView();
         if (await this._visible(REQUEST_STRINGS.makeAnother))
@@ -2131,7 +2209,12 @@ export class UiaDriver {
             before
         );
         const after = set ? String(set.after ?? '') : null;
-        return { before, restored: after === before, after };
+        return {
+            before,
+            restored: after === before,
+            after,
+            leftover: this._saveToLeftover ?? null,
+        };
     }
     /** What restoreRequestSaveDir would put back, or null when nothing was set. */
     requestSaveDirBefore() {
@@ -3342,6 +3425,16 @@ export class DesktopLeg extends Leg {
     async launch(files = []) {
         const { opts } = this;
         if (this.mode !== 'wailsdev') this.refuseUnlessAllowed();
+        // A leg of an earlier cell that is still stopping (its teardown ran
+        // out of time) owns the app and the edited desktop.json until it is
+        // done: wait for it rather than launch into its close.
+        if (this.mode !== 'wailsdev')
+            for (const other of [...activeLegs])
+                if (other !== this && other._stopPromise)
+                    await Promise.race([
+                        other._stopPromise.catch(() => {}),
+                        sleep(opts.stopWaitMs ?? STOP_WAIT_MS),
+                    ]);
         if (this.mode !== 'wailsdev') await this.refuseSecondInstance();
         let storeExe = opts.storeExe ?? null;
         if (this.mode === 'store' && files.length && !storeExe) {
@@ -3447,6 +3540,7 @@ export class DesktopLeg extends Leg {
         this.marks.window = Date.now();
         this.driver = new UiaDriver(client, this.hwnd, {
             log: (l) => this.note(l),
+            counter: (opts.shared && opts.shared.desktopCalls) || null,
         });
         // FU-28: a UIA pattern call activates an exe's window (G2-F1), so
         // with --user-away every one re-reads the input idle time first,
@@ -3742,6 +3836,15 @@ export class DesktopLeg extends Leg {
             scope: 'receive',
         });
         this.saveDir.original = orig.value ?? '';
+        if (isAuditFolder(this.saveDir.original)) {
+            // An earlier audit's own folder, never restored: not the
+            // owner's choice, and not put "back" at stop.
+            this.saveDir.leftover = this.saveDir.original;
+            this.saveDir.original = '';
+            this.note(
+                `save dir: the field held "${this.saveDir.leftover}", an earlier audit's own folder and not the owner's choice; it goes back to empty (the app's default) when this leg stops`
+            );
+        }
         const setCode = await this.driver.setValue(
             STRINGS.codePlaceholder,
             target
@@ -3757,12 +3860,14 @@ export class DesktopLeg extends Leg {
                 }
             );
         }
+        // Before the call, not after: a set whose answer is lost has still
+        // changed the field, and stop() restores only what is marked changed.
+        this.saveDir.changed = true;
         const setDir = await this.driver.setValue(
             STRINGS.saveDirPlaceholder,
             opts.outDir,
             { scope: 'receive' }
         );
-        this.saveDir.changed = true;
         if (setDir.after !== opts.outDir) {
             throw new PhaseError(
                 'start',
@@ -4350,6 +4455,13 @@ export class DesktopLeg extends Leg {
                     log: (l) => this.note(l),
                 });
                 this.note(`close: ${JSON.stringify(closeResult)}`);
+            } else if (this.launchedDirect !== null) {
+                // Launched, and no window was ever found (a slow start).
+                // The app may be up all the same, holding the audit's
+                // settings in memory, and on the Store lane its pid was
+                // never known. refuseSecondInstance proved nothing ran
+                // before this launch, so whatever runs now is this leg's.
+                await this.endUnfoundApp();
             }
         } finally {
             // The user's desktop.json goes back whatever happened above: a
@@ -4387,6 +4499,27 @@ export class DesktopLeg extends Leg {
         // the helper is closed so the mismatch never leaks a process.
         if (restoreError) throw restoreError;
         return closeResult;
+    }
+
+    /** End the app of a launch that never showed a window (see _stop). */
+    async endUnfoundApp() {
+        let left = [];
+        try {
+            left = await listDesktopProcesses(this.lister);
+        } catch (err) {
+            this.note(`unfound app: the process list failed: ${err.message}`);
+            return;
+        }
+        for (const p of left) {
+            try {
+                await (this.opts.kill ?? taskkill)(p.pid);
+                this.note(
+                    `unfound app: ended ${p.image} pid ${p.pid}, which this leg launched and never found a window for`
+                );
+            } catch (err) {
+                this.note(`unfound app: could not end pid ${p.pid}: ${err.message}`);
+            }
+        }
     }
 
     evidence() {
@@ -4723,6 +4856,15 @@ export async function restoreConfig(
 ) {
     if (!record || !record.backup)
         return { ok: true, written: false, detail: 'no backup recorded' };
+    // The run put the file back itself and said so. Whatever it holds now is
+    // the owner's, a later change in Settings included: replaying the backup
+    // would roll that change back and call it a restore.
+    if (record.restored === true)
+        return {
+            ok: true,
+            written: false,
+            detail: 'the run already put desktop.json back; left as it is',
+        };
     const configPath = record.configPath || defaultConfigPath();
     if (!existsSync(record.backup))
         return {

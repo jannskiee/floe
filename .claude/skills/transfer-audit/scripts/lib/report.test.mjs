@@ -724,3 +724,17 @@ test('the Safety table says whether the input idle check was on', () => {
     assert.equal(row(newSafety()), 'on');
     assert.match(row({ ...newSafety(), idleCheckOff: true }), /^OFF \(--no-idle-check: the owner said/);
 });
+
+test('the Safety table counts window activations and says whether the desktop app was put back', () => {
+    const row = (s, start) => safetyRows(s).find(([k]) => k.startsWith(start))[1];
+    const s = newSafety();
+    assert.deepEqual(s.desktopCalls, { exe: 0 });
+    assert.equal(row(s, 'window activations'), '0');
+    s.desktopCalls.exe = 23;
+    assert.equal(row(s, 'window activations'), '23');
+    assert.equal(row(s, 'desktop app put back as found'), 'yes');
+    s.desktopNotReleased.push('S-DIR-W2D-req: host release: the link this cell made still reads waiting');
+    assert.match(row(s, 'desktop app put back as found'), /^NO: S-DIR-W2D-req: host release: the link/);
+    // The row that was a constant is gone.
+    assert.equal(safetyRows(s).some(([k]) => k === 'forced foreground'), false);
+});

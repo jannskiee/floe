@@ -2378,6 +2378,8 @@ export async function runCmd(opts, io = {}) {
                 // The same object the Safety table reads: every web context
                 // of the run counts the Sentry envelopes it answered here.
                 webGuards: safety.webGuards,
+                // And the driver's count of pattern calls on a built app.
+                desktopCalls: safety.desktopCalls,
             },
             onPid: (pid, label) => {
                 if (!pid) return;

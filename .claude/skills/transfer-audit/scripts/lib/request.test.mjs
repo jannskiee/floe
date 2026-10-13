@@ -1724,3 +1724,49 @@ test("a request cell whose retry is refused its link for the day keeps attempt 1
     assert.equal(clicksOf(w, 'Make link').length, 1, 'the retry made no link');
     assertNoRoom(ctx, r, 'H-DIR-W2D-req');
 });
+
+// Review of #542, finding 1, end to end on the Store lane: the leftover of an
+// earlier audit is not laundered into "the owner's folder, restored".
+test("B2 on the Store lane: a Save to field left on an earlier audit's folder is cleared, not put back, and the record says what was found", async () => {
+    const left =
+        'C:\\Users\\x\\AppData\\Local\\Temp\\lta\\20261012-200000-shipped-default\\cells\\S-DIR-W2D-reqauto\\attempt-1\\out';
+    const w = fakeRequestWorld({ lane: 'uia' });
+    w.dom.saveDir = left;
+    const ctx = ctxFor(w, { buildFor: STORE_BUILD, userAway: true });
+    const r = await runCell(small('S-DIR-W2D-reqauto'), ctx);
+    assert.equal(r.verdict, 'PASS', r.note);
+    const a = r.attempts[0];
+    assert.deepEqual(a.request.saveTo, { before: '', restored: true, leftover: left });
+    assert.equal(w.dom.saveDir, '', "the app's default, not the audit folder again");
+    assert.ok(
+        a.notes.some((n) => /an earlier audit's own folder and not the owner's choice/.test(n)),
+        a.notes.join('\n')
+    );
+    assert.deepEqual(ctx.safety.desktopNotReleased, [], 'a repair is not a failed release');
+});
+
+// A release that failed is in the Safety table whatever the cell's verdict.
+test('a host that could not be released is named in the Safety record, on a cell that ends SKIP', async () => {
+    const w = fakeRequestWorld({ lane: 'uia' });
+    let host = null;
+    const make = w.adapters.desktop.createLeg;
+    w.adapters.desktop.createLeg = (opts) => (host = make(opts));
+    const origSend = w.visitorSend;
+    w.visitorSend = (v) => {
+        if (w.uiaClient) w.uiaClient.state.idle = 0;
+        host.driver.releaseWaitMs = 40;
+        host.driver.releasePollMs = 5;
+        return origSend(v);
+    };
+    const ctx = ctxFor(w, { buildFor: EXE_BUILD, userAway: true });
+    const r = await runCell(small('H-DIR-W2D-req'), ctx);
+    assert.equal(r.verdict, 'SKIP', r.note);
+    assert.equal(ctx.safety.desktopNotReleased.length, 1);
+    assert.match(ctx.safety.desktopNotReleased[0], /^H-DIR-W2D-req: host release: /);
+    assert.match(ctx.safety.desktopNotReleased[0], /did not pause for 3 s/);
+    // And a clean run records none.
+    const clean = fakeRequestWorld({ lane: 'uia' });
+    const ctx2 = ctxFor(clean, { buildFor: EXE_BUILD, userAway: true });
+    await runCell(small('S-DIR-W2D-reqauto'), ctx2);
+    assert.deepEqual(ctx2.safety.desktopNotReleased, []);
+});

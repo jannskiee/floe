@@ -346,7 +346,18 @@ export function safetyRows(s) {
             'captures',
             `${s.captures?.count ?? 0}, ${s.captures?.allCropped === false ? 'NOT all cropped' : 'all cropped to window'}`,
         ],
-        ['forced foreground', `${s.forcedFocus ?? 0} times`],
+        [
+            // Each one activates the app's window (G2-F1). Counted by the
+            // driver; 0 on a run that drove no built app.
+            'window activations (UIA pattern calls on a built app)',
+            String(s.desktopCalls?.exe ?? 0),
+        ],
+        [
+            'desktop app put back as found',
+            s.desktopNotReleased?.length
+                ? `NO: ${s.desktopNotReleased.join(' | ')}`
+                : 'yes',
+        ],
         [
             'input idle check before desktop calls',
             s.idleCheckOff
@@ -645,7 +656,11 @@ export function newSafety() {
         turnBodyPrinted: false,
         serverEnvRead: false,
         captures: { count: 0, allCropped: true },
-        forcedFocus: 0,
+        // Pattern calls sent to a built app, counted by UiaDriver through
+        // shared.desktopCalls (the same object).
+        desktopCalls: { exe: 0 },
+        // One line per cell whose host release left something behind.
+        desktopNotReleased: [],
         killedPids: [],
         workingTreeUnchanged: null,
         saveDirRestored: null,

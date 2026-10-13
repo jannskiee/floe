@@ -355,6 +355,9 @@ async function startHost(
     // audit's interrupt shutdown) closes the link and puts the address back.
     host.beforeClose = () => releaseHost(st, rec);
     await host.launch([]);
+    // In the manifest at once, as every plain leg's pid is (lib/cell.mjs):
+    // a run that is killed mid-cell leaves `cleanup` the pid to end.
+    if (ctx.onPid && host.pid) ctx.onPid(host.pid, `${cell.id}:host`);
     // Every UIA pattern call from here on re-reads the input idle time first,
     // unless the run said not to (--no-idle-check).
     if (exe && host.driver && !ctx.noIdleCheck) host.driver.awayOnly = true;
@@ -486,6 +489,12 @@ async function releaseHost(st, rec) {
                     before: back.before,
                     restored: back.restored,
                 };
+                if (back.leftover) {
+                    rec.request.saveTo.leftover = back.leftover;
+                    note(
+                        `host release: when this cell started the Save to field held "${back.leftover}", an earlier audit's own folder and not the owner's choice; it was set to empty, the app's default`
+                    );
+                }
                 if (!back.restored)
                     fail(
                         `host release: ${undone} (it reads "${back.after}", not "${back.before}"); set it by hand on Receive > Request link`
@@ -539,6 +548,8 @@ function releaseProblems(st) {
  * keeps its own finding and gets the same words as a note.
  */
 export const HOST_RELEASE_KEY = 'host-release';
+/** How long teardown lets a timed-out host.start finish before it releases. */
+const START_SETTLE_MS = 15_000;
 function markHostRelease(rec, problems, st = null, ctx = null) {
     if (!problems.length) return;
     const first = (s) => String(s).split(/\r?\n/)[0].trim();
@@ -553,6 +564,12 @@ function markHostRelease(rec, problems, st = null, ctx = null) {
         if (!ctx.shared.desktopNotReleased)
             ctx.shared.desktopNotReleased = problems.map(first).join('; ');
     }
+    // In the Safety table whatever the cell's own verdict is: a SKIP or a
+    // FAIL keeps its finding, and this would otherwise be one note.
+    if (ctx?.safety && Array.isArray(ctx.safety.desktopNotReleased))
+        ctx.safety.desktopNotReleased.push(
+            scrub(`${rec.cellId}: ${problems.map(first).join('; ')}`)
+        );
     if (!rec.ok) {
         rec.notes.push(text);
         return;
@@ -1512,13 +1529,16 @@ export async function runRequestAttempt(cell, ctx, n) {
                     );
             });
         }
-        await phase('host.start', T.link + 30_000, () =>
-            startHost(cell, ctx, rec, st, {
-                outDir: st.outDir,
-                relayOnly: cell.receiver.relayOnly,
-                blipUrl,
-                proxyKey,
-            })
+        await phase(
+            'host.start',
+            T.link + 30_000,
+            () =>
+                (st.starting = startHost(cell, ctx, rec, st, {
+                    outDir: st.outDir,
+                    relayOnly: cell.receiver.relayOnly,
+                    blipUrl,
+                    proxyKey,
+                }))
         );
         const requestMs =
             T.accept +
@@ -1619,6 +1639,15 @@ export async function runRequestAttempt(cell, ctx, n) {
                     }
                 }
                 if (st.host) {
+                    // A host.start that lost its race with the phase timer
+                    // may still be making its link. Let it finish, inside a
+                    // bound, so the release sees the link it made and closes
+                    // it instead of reading "nothing of ours here".
+                    if (st.starting)
+                        await Promise.race([
+                            st.starting.catch(() => {}),
+                            (ctx.sleep || defaultSleep)(START_SETTLE_MS),
+                        ]);
                     try {
                         // stop() runs releaseHost first (beforeClose).
                         await st.host.stop(rec.ok ? 'done' : 'failed');

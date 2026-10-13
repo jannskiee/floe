@@ -119,6 +119,12 @@ export function fakeRequestUiaClient(h, { activates = true, idle = 600 } = {}) {
                     views.click(name);
                     return { via: 'invoke', type: 'Button', index: 0, count: 1 };
                 }
+                case 'get-value': {
+                    // A read: no pattern call, so it never activates.
+                    if (params.placeholder !== 'Downloads\\Floe' || !views.saveToShowing())
+                        throw err('not-found', `no Edit named '${params.placeholder}'`);
+                    return { value: dom.saveDir, matchedBy: 'help' };
+                }
                 case 'set-value': {
                     if (params.placeholder !== 'Downloads\\Floe' || !views.saveToShowing())
                         throw err('not-found', `no Edit named '${params.placeholder}'`);

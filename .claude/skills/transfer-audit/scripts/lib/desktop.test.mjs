@@ -1842,6 +1842,25 @@ test("ShellMenuGuard, key absent before the run: a key that is not this run's is
             () => g.restore((l) => n.push(l)),
             (err) => {
                 assert.ok(err instanceof SafetyError, err.stack);
+                if (flag === 'failDeletes') {
+                    // The call failed before the script could say whose key
+                    // it is: still an alarm, but it claims no ownership and
+                    // hands over no forced delete.
+                    assert.match(
+                        err.message,
+                        /was absent before the run and is there now/
+                    );
+                    assert.match(
+                        err.message,
+                        /the delete call failed before it could tell whether the key is this run's/
+                    );
+                    assert.match(
+                        err.message,
+                        /reg query "HKCU\\Software\\Classes\\\*\\shell\\Floe\\command" \/ve/
+                    );
+                    assert.doesNotMatch(err.message, /reg delete/);
+                    return true;
+                }
                 assert.match(
                     err.message,
                     /was absent before the run and is still there after the delete/
@@ -1925,7 +1944,8 @@ test(
                     '-Command',
                     `$t = $null; $e = $null; [void][System.Management.Automation.Language.Parser]::ParseFile('${file.replace(/'/g, "''")}', [ref]$t, [ref]$e); 'errors=' + @($e).Count; @($e) | ForEach-Object { $_.Message }`,
                 ],
-                { encoding: 'utf8', timeout: 60_000 }
+                // Hidden: from a parent with no console this would open one.
+                { encoding: 'utf8', timeout: 60_000, windowsHide: true }
             );
             assert.equal(r.status, 0, r.stderr);
             assert.match(r.stdout, /^errors=0\s*$/, r.stdout);
@@ -3574,4 +3594,67 @@ test('wailsdev relay cell: Hide my IP is set through Settings, proved by GetSett
     await p.leg.start();
     assert.ok(!p.driver.calls.some((c) => c[0] === 'set-toggle'));
     await p.leg.stop('test');
+});
+
+// Review of #542, finding 2: a second guard that reads desktop.json while the
+// first has not restored it takes the audit's edit for the owner's original.
+test('DesktopConfigGuard refuses to edit a desktop.json another guard of this run still holds, and takes it once that one has restored', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'lta-guard-overlap-'));
+    try {
+        const file = path.join(dir, 'desktop.json');
+        const original = JSON.stringify({ server: 'https://owner.example', reportStats: true });
+        writeFileSync(file, original);
+        const mk = () =>
+            new DesktopConfigGuard({
+                configPath: file,
+                edit: { server: 'https://audit.example', web: '', hideIP: false },
+                evidenceDir: null,
+                processes: async () => [],
+            });
+        const first = mk();
+        await first.apply();
+        assert.notEqual(readFileSync(file, 'utf8'), original, 'edited');
+        const second = mk();
+        await assert.rejects(second.apply(), (e) => {
+            assert.equal(e.name, 'PreconditionError');
+            assert.match(e.message, /still edited by an earlier leg of this run/);
+            return true;
+        });
+        assert.equal(second.applied, false);
+        first.restore();
+        assert.equal(readFileSync(file, 'utf8'), original);
+        await second.apply();
+        second.restore();
+        assert.equal(readFileSync(file, 'utf8'), original, "the owner's file, not the first guard's edit");
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+// Finding 10: cleanup replayed the backup even when the run had restored the
+// file itself, rolling back whatever the owner changed in Settings since.
+test('restoreConfig leaves desktop.json alone when the run already put it back', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'lta-restored-'));
+    try {
+        const file = path.join(dir, 'desktop.json');
+        const backup = path.join(dir, 'desktop.json.bak');
+        writeFileSync(backup, '{"reportStats":true}');
+        writeFileSync(file, '{"reportStats":true,"changedByTheOwnerSince":true}');
+        const r = await restoreConfig(
+            { backup, configPath: file, restored: true },
+            { lister: async () => [] }
+        );
+        assert.deepEqual([r.ok, r.written], [true, false]);
+        assert.match(r.detail, /already put desktop\.json back/);
+        assert.equal(readFileSync(file, 'utf8'), '{"reportStats":true,"changedByTheOwnerSince":true}');
+        // Not restored by the run (null, or a mismatch): the backup is replayed.
+        const again = await restoreConfig(
+            { backup, configPath: file, restored: null },
+            { lister: async () => [] }
+        );
+        assert.equal(again.written, true);
+        assert.equal(readFileSync(file, 'utf8'), '{"reportStats":true}');
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
 });

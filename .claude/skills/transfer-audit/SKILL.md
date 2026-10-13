@@ -493,9 +493,31 @@ come back, `restored byte-identical: NO` on a mismatch, `not edited (no
 Store-mode leg)` when only portable, head or wailsdev ran), local `/api/stats` 0/0 on the head
 profile, TURN bodies never, `server/.env` never read, captures N (desktop
 PrintWindow captures; browser page screenshots are not counted) all
-window-cropped, forced foreground 0, killed pids own only, working tree
-unchanged, and firewall Block rules on the exes under test `none (N exe(s)
-read)`.
+window-cropped, `desktop app put back as found` yes, killed pids own only,
+working tree unchanged, and firewall Block rules on the exes under test
+`none (N exe(s) read)`.
+
+Two desktop rows are facts, not a pass mark. `window activations (UIA
+pattern calls on a built app)` is the driver's count of the Invoke, SetValue
+and Toggle calls it sent to an exe, each of which brings the app's window to
+the foreground: 0 on a run that drove no built app, and never 0 on one that
+did (the row used to read `forced foreground: 0 times` on every run, from a
+counter nothing wrote). `input idle check before desktop calls` reads `on`,
+or `OFF` under `--no-idle-check`. And `desktop app put back as found` reads
+`NO:` with the cell and what was left (an open link, the Save to folder)
+whenever a host release could not finish, whatever that cell's verdict was.
+
+What an exe run changes on the owner's profile and does not put back,
+because nothing reads it afterwards: the tab the app opens on next time
+(`floe:mode`, set by each RECEIVE click), the remembered "a link is open"
+marker when the app was killed with one open (`floe:requestLinkOpenUntil`,
+so the next launch opens on Request link), and one History row per finished
+drop, the Auto-accept cells' included. A Save to or save folder that an
+earlier audit left on its own run folder is recognized at the next launch
+by its shape (`cells/<id>/attempt-<n>`), cleared to the app's default and
+reported; the owner's earlier choice of folder is not recoverable from the
+app, and the log of the run that lost it has the line `Save to field read
+"<folder>" before this cell`.
 
 One Safety row is a count with no required value: `Sentry envelopes
 (browser, answered locally)`. An audit page is not a visit, so every browser

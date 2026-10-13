@@ -832,3 +832,133 @@ test('once a cell could not put the app back, no later exe leg of the run launch
         rmSync(dir, { recursive: true, force: true });
     }
 });
+
+// ------------------------------------------------ review of #542, findings 2 and 8
+
+test('a leg does not launch into another leg that is still stopping: it waits for that stop, inside a bound', async () => {
+    const dir = tmp();
+    try {
+        const order = [];
+        let release;
+        const stopping = {
+            opts: { cellId: 'T-GATE-STOPPING' },
+            _stopPromise: new Promise((r) => (release = r)).then(() => order.push('stop finished')),
+        };
+        activeLegs.add(stopping);
+        const leg = portableLeg(dir, {
+            cellId: 'T-GATE-AFTER-STOP',
+            lister: async () => {
+                order.push('process list read');
+                return [];
+            },
+            launcher: async () => {
+                order.push('launched');
+                return { child: null, pid: 9696 };
+            },
+        });
+        const launching = leg.launch([]);
+        await new Promise((r) => setTimeout(r, 30));
+        assert.deepEqual(order, [], 'nothing yet: the other leg is still stopping');
+        release();
+        await launching;
+        assert.deepEqual(order.slice(0, 2), ['stop finished', 'process list read']);
+        assert.ok(order.includes('launched'));
+        activeLegs.delete(stopping);
+        activeLegs.delete(leg);
+        started.delete(9696);
+
+        // A stop that never ends does not hold the run forever.
+        const stuck = { opts: { cellId: 'T-GATE-STUCK' }, _stopPromise: new Promise(() => {}) };
+        activeLegs.add(stuck);
+        const late = new DesktopLeg({
+            role: 'receiver',
+            cellId: 'T-GATE-AFTER-STUCK',
+            input: 'code',
+            code: 'a-b-c',
+            outDir: path.join(dir, 'out2'),
+            build: { launch: 'portable', path: 'C:\\bogus\\floe-desktop.exe' },
+            scratch: dir,
+            allowForeground: true,
+            stopWaitMs: 40,
+            uia: {
+                log() {},
+                async findWindow() {
+                    return { hwnd: 7, pid: 9797, exe: 'C:\\bogus\\floe-desktop.exe', minimized: false };
+                },
+                async waitTree() {
+                    return { ready: true };
+                },
+            },
+            lister: async () => [],
+            launcher: async () => ({ child: null, pid: 9797 }),
+            monitor: 'off',
+            shellMenu: new ShellMenuGuard({ platform: 'linux' }),
+            infra: { server: 'http://127.0.0.1:9', web: 'http://127.0.0.1:9' },
+        });
+        const t0 = Date.now();
+        await late.launch([]);
+        assert.ok(Date.now() - t0 < 5_000, 'the bound, not the stuck stop');
+        activeLegs.delete(stuck);
+        activeLegs.delete(late);
+        started.delete(9797);
+    } finally {
+        for (const l of activeLegs) if (/^T-GATE/.test(l.opts?.cellId ?? '')) activeLegs.delete(l);
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('a launch whose window is never found is still ended at stop, by the process list', async () => {
+    const dir = tmp();
+    try {
+        let up = false;
+        const killed = [];
+        const leg = new DesktopLeg({
+            role: 'receiver',
+            cellId: 'T-GATE-UNFOUND',
+            input: 'code',
+            code: 'a-b-c',
+            outDir: path.join(dir, 'out'),
+            build: { launch: 'portable', path: 'C:\\bogus\\floe-desktop.exe' },
+            scratch: dir,
+            allowForeground: true,
+            uia: {
+                log() {},
+                async findWindow() {
+                    throw new Error('no window within the timeout');
+                },
+                async close() {},
+            },
+            // Nothing runs before the launch; the app does afterwards.
+            lister: async () => (up ? [{ image: EXE_NAME, pid: 4321 }] : []),
+            launcher: async () => {
+                up = true;
+                return { child: null, pid: null };
+            },
+            kill: async (pid) => {
+                killed.push(pid);
+                up = false;
+            },
+            monitor: 'off',
+            shellMenu: new ShellMenuGuard({ platform: 'linux' }),
+            infra: { server: 'http://127.0.0.1:9', web: 'http://127.0.0.1:9' },
+        });
+        await assert.rejects(leg.launch([]), /no window within the timeout/);
+        assert.equal(leg.driver, null);
+        await leg.stop('failed');
+        assert.deepEqual(killed, [4321]);
+        assert.ok(leg.notes.some((n) => /unfound app: ended floe-desktop\.exe pid 4321/.test(n)), leg.notes.join('\n'));
+        // A leg that never launched ends nothing.
+        const never = portableLeg(dir, {
+            cellId: 'T-GATE-NEVER',
+            allowForeground: false,
+            lister: async () => [{ image: EXE_NAME, pid: 999 }],
+            launcher: async () => ({ child: null, pid: null }),
+        });
+        await assert.rejects(never.launch([]), (e) => e.reason === 'present');
+        await never.stop('failed');
+        assert.deepEqual(killed, [4321], "the owner's own app is never ended");
+    } finally {
+        for (const l of activeLegs) if (/^T-GATE/.test(l.opts?.cellId ?? '')) activeLegs.delete(l);
+        rmSync(dir, { recursive: true, force: true });
+    }
+});

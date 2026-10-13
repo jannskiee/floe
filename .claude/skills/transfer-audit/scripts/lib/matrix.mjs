@@ -505,6 +505,14 @@ function buildCell(id, { cliHasRelayOnly }) {
     const expect = expectOf(variant);
     const timeouts = phaseTimeouts({ path: p, snd, rcv, expect, fixture });
     const request = flow ? requestSpec(variant, flow, snd) : null;
+    // Every request cell holds a desktop host, TA-17's quick cells included
+    // (W2C, C2W, C2C with a link open), and stopping a host takes the release
+    // and up to two close rounds: the 30 s a cell with no desktop side gets
+    // ran out while the stop was still going (review of #542, finding 2).
+    if (request && timeouts.teardown < 60_000) {
+        timeouts.hardCap += 60_000 - timeouts.teardown;
+        timeouts.teardown = 60_000;
+    }
     if (request && flow !== 'open-link-precondition') {
         // Make link and the prompt: 30 s plus the Accept wait; a blip adds
         // its cut and a reclaim; a decline adds the second visitor.

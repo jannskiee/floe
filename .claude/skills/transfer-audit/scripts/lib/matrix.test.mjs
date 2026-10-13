@@ -1224,3 +1224,14 @@ test('desktop-not-released is a documented SKIP that counts toward exit 5', () =
     assert.match(SKIP_REASONS['desktop-not-released'], /could not put the desktop app back/);
     assert.equal(UNCOUNTED_SKIPS.has('desktop-not-released'), false);
 });
+
+test('every request cell gets the 60 s teardown a desktop host needs, the quick cells with a link open included', () => {
+    const probe = { server: { features: ['request-1'] }, desktop: { available: true } };
+    const rows = cellPlan({ cells: ['*-req*'], probe, desktopMode: 'store', userAway: true, server: 'https://api.floe.one' });
+    const request = rows.filter((c) => c.request);
+    assert.ok(request.length >= 8, `${request.length} request cells`);
+    for (const c of request) assert.ok(c.timeouts.teardown >= 60_000, `${c.id}: ${c.timeouts.teardown}`);
+    const w2c = request.find((c) => c.id === 'S-DIR-W2C-reqopen');
+    assert.ok(w2c, 'the quick cell with no desktop side of its own');
+    assert.equal(w2c.timeouts.teardown, 60_000);
+});

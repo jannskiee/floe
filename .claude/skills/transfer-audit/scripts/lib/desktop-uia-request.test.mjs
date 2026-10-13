@@ -14,9 +14,11 @@ import { test } from 'node:test';
 import {
     ACCEPT_UNDRIVABLE,
     ACCEPT_WAIT_MS,
+    RE,
     REQUEST_STRINGS,
     UiaDriver,
     desktopFmtBytes,
+    isAuditFolder,
     requestStateFromItems,
 } from './desktop.mjs';
 import { FAKE_LINK, fakeRequestDom } from './tests/fake-request-dom.mjs';
@@ -734,7 +736,7 @@ test('UIA restoreRequestSaveDir puts the Save to field back to what it read befo
             h.dom.saveDir = before;
             assert.deepEqual(
                 await driver.restoreRequestSaveDir(clock),
-                { before: null, restored: null, after: null },
+                { before: null, restored: null, after: null, leftover: null },
                 'nothing was set yet'
             );
             assert.equal(
@@ -754,7 +756,7 @@ test('UIA restoreRequestSaveDir puts the Save to field back to what it read befo
             await driver.closeRequestLink(clock);
             // The ended view: Make another link brings the form back first.
             const back = await driver.restoreRequestSaveDir(clock);
-            assert.deepEqual(back, { before, restored: true, after: before });
+            assert.deepEqual(back, { before, restored: true, after: before, leftover: null });
             assert.equal(h.dom.saveDir, before);
             assert.equal(h.dom.state, 'ready');
             assert.equal(h.dom.gen, 2, 'no link was made to do it');
@@ -772,6 +774,7 @@ test('UIA restoreRequestSaveDir puts the Save to field back to what it read befo
                 before: 'D:\\owner',
                 restored: false,
                 after: dir,
+                leftover: null,
             }
         );
 
@@ -788,6 +791,126 @@ test('UIA restoreRequestSaveDir puts the Save to field back to what it read befo
             'waiting',
             'the open link was not touched'
         );
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+// Review of #542, finding 6: the count-based away test above passed with the
+// idle check deleted from the Toggle call, because closeAndWait sends the
+// same command and padded the count. Order is the claim, so order is checked.
+test('every pattern call an away-only host sends is directly preceded by its own idle read, the Auto-accept toggle included', async () => {
+    const dir = tmp();
+    try {
+        const { client, driver, clock } = hostWith({}, { idle: 600 });
+        driver.awayOnly = true;
+        await driver.makeRequestLink({ saveDir: dir, autoAccept: true, ...clock });
+        const cmds = client.calls.map(([c]) => c);
+        const patterns = ['click', 'set-value', 'toggle'];
+        assert.ok(cmds.includes('toggle'), 'the Auto-accept check was toggled');
+        cmds.forEach((c, i) => {
+            if (patterns.includes(c))
+                assert.equal(cmds[i - 1], 'foreground-check', `${c} at ${i} has no idle read before it`);
+        });
+        // With the owner back, the toggle is refused and never sent.
+        const back = hostWith({}, { idle: 600 });
+        back.driver.awayOnly = true;
+        back.client.state.idle = 30;
+        await assert.rejects(
+            back.driver.setToggle(RE.autoAcceptCheck, true),
+            (e) => e.verdict === 'SKIP' && e.reason === 'present'
+        );
+        assert.equal(back.client.calls.filter(([c]) => c === 'toggle').length, 0);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+// Finding 1: a release that never happened leaves the Save to field on an
+// audit folder, and the next run's driver read that folder as the owner's
+// value, put it "back" and reported it restored.
+test("an earlier audit's own folder in the Save to field is never taken for the owner's value: the field goes back to empty and the result says what was found", async () => {
+    assert.equal(isAuditFolder('C:\\Users\\x\\AppData\\Local\\Temp\\lta\\20261013-031359-shipped-default\\cells\\S-DIR-W2D-reqauto\\attempt-1\\out'), true);
+    assert.equal(isAuditFolder('/tmp/run/cells/H-DIR-W2D-req/attempt-2/host-drops'), true);
+    assert.equal(isAuditFolder('C:\\run\\cells\\S-DIR-D2C\\attempt-12'), true);
+    for (const own of ['D:\\owner\\Floe drops', '', 'C:\\Users\\x\\Downloads\\Floe', 'D:\\cells\\attempts', 'D:\\work\\cells\\notes\\attempt-x', null, undefined])
+        assert.equal(isAuditFolder(own), false, String(own));
+
+    const dir = tmp();
+    try {
+        const left = 'C:\\Users\\x\\AppData\\Local\\Temp\\lta\\20261012-200000-shipped-default\\cells\\S-DIR-W2D-reqauto\\attempt-1\\out';
+        const { h, client, driver, clock } = hostWith();
+        h.dom.saveDir = left;
+        await driver.makeRequestLink({ saveDir: dir, ...clock });
+        // Read before the set, with a call that activates nothing.
+        const cmds = client.calls.map(([c]) => c);
+        assert.ok(cmds.indexOf('get-value') >= 0 && cmds.indexOf('get-value') < cmds.indexOf('set-value'));
+        assert.equal(driver.requestSaveDirBefore(), '', 'not the leftover');
+        await driver.closeRequestLink(clock);
+        assert.deepEqual(await driver.restoreRequestSaveDir(clock), {
+            before: '',
+            restored: true,
+            after: '',
+            leftover: left,
+        });
+        assert.equal(h.dom.saveDir, '', "the app's default again");
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+// Finding 5: the Safety table said "forced foreground: 0 times" on every
+// run, from a counter nothing ever wrote.
+test('the driver counts each pattern call it sends to a built app, and none it was refused', async () => {
+    const dir = tmp();
+    try {
+        const h = fakeRequestDom({ link: FAKE_LINK });
+        const client = fakeRequestUiaClient(h, { activates: false, idle: 600 });
+        const counter = { exe: 0 };
+        const driver = new UiaDriver(client, 4242, { counter });
+        const clock = { now: h.now, nap: h.nap };
+        await driver.makeRequestLink({ saveDir: dir, autoAccept: true, ...clock });
+        const sent = client.calls.filter(([c]) => ['click', 'set-value', 'toggle'].includes(c)).length;
+        assert.ok(sent >= 4, `${sent} pattern calls`);
+        assert.equal(counter.exe, sent);
+        driver.awayOnly = true;
+        client.state.idle = 5;
+        await assert.rejects(driver.click('Close link'), (e) => e.reason === 'present');
+        assert.equal(counter.exe, sent, 'a refused call is not counted');
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+// Why the field is read before it is set: the set's own answer is the only
+// other place its old value appears, and an answer can be lost after the
+// value has landed (a helper timeout). Without the read the driver would then
+// hold no value to put back, and the owner's folder would stay replaced.
+test("a Save to set whose answer is lost still leaves the owner's folder known, and the release puts it back", async () => {
+    const dir = tmp();
+    try {
+        const { h, client, driver, clock } = hostWith();
+        h.dom.saveDir = 'D:\\owner\\Floe drops';
+        const request = client.request.bind(client);
+        let lose = true;
+        client.request = async (cmd, params) => {
+            const answer = await request(cmd, params);
+            if (cmd === 'set-value' && lose) {
+                lose = false;
+                throw Object.assign(new Error('helper timeout after 30000 ms'), { reason: 'timeout' });
+            }
+            return answer;
+        };
+        await assert.rejects(driver.makeRequestLink({ saveDir: dir, ...clock }), /helper timeout/);
+        assert.equal(h.dom.saveDir, dir, 'the value landed although its answer did not');
+        assert.equal(driver.requestSaveDirBefore(), 'D:\\owner\\Floe drops');
+        assert.deepEqual(await driver.restoreRequestSaveDir(clock), {
+            before: 'D:\\owner\\Floe drops',
+            restored: true,
+            after: 'D:\\owner\\Floe drops',
+            leftover: null,
+        });
+        assert.equal(h.dom.saveDir, 'D:\\owner\\Floe drops');
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
