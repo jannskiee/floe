@@ -148,8 +148,13 @@ func Connect(serverURL string, opts ...Option) (*Client, error) {
 
 	header := http.Header{}
 	header.Set("Origin", originFromServer(serverURL))
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, header)
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, header)
 	if err != nil {
+		// An HTTP answer in place of the upgrade: keep its status and nothing
+		// else of it (see HandshakeError).
+		if errors.Is(err, websocket.ErrBadHandshake) && resp != nil {
+			err = &HandshakeError{Status: resp.StatusCode}
+		}
 		return nil, fmt.Errorf("cannot connect to signaling server at %s: %w", wsURL, err)
 	}
 	conn.SetReadLimit(maxServerMessage)

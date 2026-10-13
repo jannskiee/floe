@@ -481,7 +481,6 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				// On first file: check compat, show summary, and optionally prompt
 				if waitingForFirst {
 					waitingForFirst = false
-					start = time.Now()
 					firstInfo = info
 
 					// Protocol compatibility check - before creating any files or
@@ -599,7 +598,26 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 						var answer string
 						fmt.Scanln(&answer)
 						answer = strings.TrimSpace(strings.ToLower(answer))
+						// The question the Decide path asks above, for the same
+						// reason: the prompt can wait as long as a person does,
+						// and the sender may have closed meanwhile. A yes for a
+						// peer that is gone used to create the folder and a
+						// .part, ack into a closed channel and report a close
+						// "mid-transfer" for a transfer that never started.
+						select {
+						case <-done:
+							return ErrSenderLeft
+						default:
+						}
 						if answer == "n" || answer == "no" {
+							// A no is a decision, and the sender is owed it as a
+							// Decide that declines gives it: the frame first and
+							// the close second. A bare close left a Go sender
+							// with "closed while waiting for the receiver", which
+							// cannot tell a person who said no from a terminal
+							// that was closed. The error stays the prompt's own
+							// value, not the ErrDeclined sentinel.
+							AbortWithCode(dc, localVer, CodeDeclined, CodeDeclined.WireReason(), 0)
 							dc.Close()
 							return fmt.Errorf("transfer declined")
 						}
@@ -608,6 +626,11 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					// Accepted, by Decide, the prompt or autoAccept: this is
 					// the total the rest of the drop is held to.
 					approvedTotal = info.TotalBytes
+					// The summary's clock starts here and not at the first
+					// metadata: the time a person took to answer is not time
+					// the files took, and it used to be counted into the
+					// Time row and the average speed.
+					start = time.Now()
 					if opts.Limits != nil && opts.Limits.HostRelayCheck {
 						relayVerdict = hostRelayVerdict(dc)
 					}

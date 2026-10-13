@@ -679,7 +679,20 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 		return err
 	}
 
+	// The summary's clock. It restarts at the first file's ack, which is the
+	// receiver's yes: until then this side is waiting on a person, for as
+	// long as the ack timeout allows, and that wait used to be counted into
+	// the Time row and the average speed. OnAck runs on this goroutine, so
+	// nothing else touches start.
 	start := time.Now()
+	onAck := func(index int) {
+		if index == 1 {
+			start = time.Now()
+		}
+		if opts.OnAck != nil {
+			opts.OnAck(index)
+		}
+	}
 
 	// ackCh receives JSON ack messages from the receiver.
 	// Accept ack as either string or binary: the CLI receiver sends binary for
@@ -795,7 +808,7 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 	var confirms bool
 	var sentSoFar int64
 	for i, entry := range files {
-		if err := sendFile(dc, ackCh, sendMore, done, flushed, entry, i+1, len(files), totalBytes, localVer, onProgress, opts.OnAck, opts.UpdateHint, ackTimeoutOrDefault(opts.AckTimeout), sentSoFar, chunk, &confirms, opts.Stop, opts.EndBarLine, opts.PeerVersionReleaseOnly); err != nil {
+		if err := sendFile(dc, ackCh, sendMore, done, flushed, entry, i+1, len(files), totalBytes, localVer, onProgress, onAck, opts.UpdateHint, ackTimeoutOrDefault(opts.AckTimeout), sentSoFar, chunk, &confirms, opts.Stop, opts.EndBarLine, opts.PeerVersionReleaseOnly); err != nil {
 			// A refusal the PEER sent is returned as it came. The wrap named
 			// entry.displayName, which is the file the sender had already moved
 			// on to: a receiver refuses file N after its end marker, and the
