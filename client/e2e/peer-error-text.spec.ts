@@ -38,8 +38,11 @@ const RECEIVER_SENTENCE =
 const SENDER_SENTENCE =
     'Connection failed. Ask the other device to open the link again. If it fails again, reload the page, add the files again, and share the new link.';
 
-/** A page of the test's own with a Socket.IO client and nothing else. */
-async function scriptedPeer(browser: Browser): Promise<{ page: Page; close: () => Promise<void> }> {
+/** A page of the test's own with a Socket.IO client, and simple-peer when asked. */
+async function scriptedPeer(
+    browser: Browser,
+    { simplePeer = false }: { simplePeer?: boolean } = {},
+): Promise<{ page: Page; close: () => Promise<void> }> {
     const ctx = await browser.newContext();
     // A page.route fulfilment counts as a public document to Chromium, which
     // then refuses its Socket.IO polling to localhost:3001. Only this
@@ -52,6 +55,7 @@ async function scriptedPeer(browser: Browser): Promise<{ page: Page; close: () =
     }));
     await page.goto(PEER_URL);
     await page.addScriptTag({ path: requireFromClient.resolve('socket.io-client/dist/socket.io.js') });
+    if (simplePeer) await page.addScriptTag({ path: requireFromClient.resolve('simple-peer/simplepeer.min.js') });
     return { page, close: () => ctx.close() };
 }
 
@@ -152,6 +156,51 @@ test.describe('peer error text', () => {
             expect(shown).not.toContain('SessionDescription');
         } finally {
             await senderCtx.close();
+            await peer.close();
+        }
+    });
+
+    // The Link Invalid card is drawn from one value of the banner state, and
+    // a sender that stops with a reason puts its own words there. The page
+    // used to ask whether the state contained "Link Expired", so a sender
+    // could switch a connected receiver to the card ("This link is expired,
+    // already in use ...") on a link that was good.
+    test('a stop reason that spells the Link Invalid value shows as an ordinary banner, never the card', async ({ browser }) => {
+        const roomId = randomUUID();
+        const peer = await scriptedPeer(browser, { simplePeer: true });
+        const receiverCtx = await browser.newContext();
+        try {
+            // A real connection this time: the frame travels the data channel.
+            await peer.page.evaluate(({ roomId, serverUrl, frame }) => new Promise<void>((resolve, reject) => {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const w = window as any;
+                const socket = w.io(serverUrl);
+                socket.on('connect', () => socket.emit('join-room', roomId));
+                socket.on('room-joined', () => resolve());
+                socket.on('room-full', () => reject(new Error('room-full')));
+                socket.on('user-connected', (userId: string) => {
+                    const p = new w.SimplePeer({ initiator: true, trickle: true, config: { iceServers: [] } });
+                    p.on('signal', (signal: unknown) => socket.emit('signal', { target: userId, roomId, signal }));
+                    socket.on('signal', (d: { signal: unknown }) => p.signal(d.signal));
+                    p.on('connect', () => p.send(frame));
+                    p.on('error', () => {});
+                });
+            }), {
+                roomId,
+                serverUrl: SERVER_URL,
+                frame: JSON.stringify({ type: 'incompatible', reason: 'Link Expired or Busy' }),
+            });
+
+            await receiverCtx.addInitScript(() => {
+                try { localStorage.setItem('floe:report-stats', 'false'); } catch { /* ignore */ }
+            });
+            const receiver = await receiverCtx.newPage();
+            await receiver.goto(`${WEB_URL}/#room=${roomId}`);
+
+            await expect(receiver.getByText('The sender stopped the transfer.', { exact: true })).toBeVisible({ timeout: 30_000 });
+            await expect(receiver.getByRole('heading', { name: 'Link Invalid' })).toHaveCount(0);
+        } finally {
+            await receiverCtx.close();
             await peer.close();
         }
     });

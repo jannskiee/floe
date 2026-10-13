@@ -121,6 +121,9 @@ describe('how the two components use it', () => {
         expect(at).toBeGreaterThan(0);
         const body = page.slice(at, page.indexOf('},', at));
         expect(body.indexOf('if (peerRef.current !== peer) return;')).toBeGreaterThan(0);
-        expect(body.indexOf('if (peerRef.current !== peer) return;')).toBeLessThan(body.indexOf('setError(msg);'));
+        // The banner call it guards (the message goes through peerBanner).
+        const sets = body.indexOf('setError(peerBanner(msg, ');
+        expect(sets).toBeGreaterThan(0);
+        expect(body.indexOf('if (peerRef.current !== peer) return;')).toBeLessThan(sets);
     });
 });

@@ -45,7 +45,7 @@ import type {SendEnd} from '@/lib/sendSummary';
 import {INITIAL_SEAT, seatStep, type SeatEvent} from '@/lib/roomSeat';
 import {REJOIN_FAILED_STATUS, REJOINING_STATUS, rejoinAllowed, rejoinDelay, statusOnceSeated} from '@/lib/rejoinRetry';
 import {peerDisconnectAction, teardownClaimsClose} from '@/lib/peerDisconnect';
-import {afterReconnect, withRefusalBanner, withoutRefusalBanner} from '@/lib/refusalBanner';
+import {LINK_INVALID, afterReconnect, isLinkInvalid, peerBanner, withRefusalBanner, withoutRefusalBanner} from '@/lib/refusalBanner';
 import {copyText} from '@/lib/clipboard';
 import {resolveSocketUrl} from '@/lib/socketUrl';
 
@@ -482,7 +482,7 @@ export function P2PTransfer() {
                 setStatus('Transfer complete');
                 return;
             }
-            setError('Link Expired or Busy');
+            setError(LINK_INVALID);
             setStatus('Access Denied');
         });
 
@@ -513,7 +513,7 @@ export function P2PTransfer() {
             });
             // A banner from the attempt that failed must not sit over the one
             // that is starting. The socket reconnect path clears it too.
-            setError((prev) => (prev.includes('Link Expired') ? prev : ''));
+            setError((prev) => (isLinkInvalid(prev) ? prev : ''));
             closedByUsRef.current = peerRef.current;
             peerRef.current?.destroy();
             hasJoinedRef.current = false;
@@ -736,8 +736,10 @@ export function P2PTransfer() {
                 wireReasonRef.current = true;
                 // The message first: this may run with the tab short of
                 // memory, and nothing below may cost the person the only
-                // explanation they get.
-                setError(msg);
+                // explanation they get. It can be the sender's own words
+                // (a stop with a reason), so it goes through peerBanner:
+                // it must never be the Link Invalid card's value.
+                setError(peerBanner(msg, 'The sender stopped the transfer.'));
                 setStatus('Transfer failed');
                 setReceiveEnded(true);
                 if (failure && !failure.senderSentVersion) {
@@ -804,7 +806,7 @@ export function P2PTransfer() {
                 // Fragment-derived state is set post-mount (SSR has no fragment),
                 // the same one-shot sync as the setIsSender effect above.
                 // eslint-disable-next-line react-hooks/set-state-in-effect
-                setError('Link Expired or Busy');
+                setError(LINK_INVALID);
                 setStatus('Access Denied');
                 return;
             }
@@ -1241,7 +1243,9 @@ export function P2PTransfer() {
                     // answer still reports its end, and that report is about a
                     // connection this page has moved on from.
                     if (peerRef.current !== peer) return;
-                    setError(msg);
+                    // The receiver's own words when it stopped with a
+                    // reason: never the Link Invalid card's value.
+                    setError(peerBanner(msg, 'The other side rejected the transfer.'));
                     setStatus('Transfer failed');
                     setSendEnd('failed');
                 },
@@ -1327,7 +1331,7 @@ export function P2PTransfer() {
                 </CardHeader>
 
                 <CardContent className="space-y-4">
-                    {error && error.includes('Link Expired') ? (
+                    {isLinkInvalid(error) ? (
                         <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
                             <div className="h-16 w-16 rounded-full bg-red-500/10 flex items-center justify-center mb-2">
                                 <ShieldCheck className="h-8 w-8 text-red-500" />
@@ -1351,7 +1355,7 @@ export function P2PTransfer() {
                         </div>
                     ) : (
                         <>
-                            {error && !error.includes('Link Expired') && (
+                            {error && !isLinkInvalid(error) && (
                                 <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 flex items-start gap-3">
                                     <AlertCircle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
                                     <div className="flex-1 text-sm text-red-300">{error}</div>
@@ -1563,7 +1567,7 @@ export function P2PTransfer() {
                         it told a person the card had just told to leave that
                         closing the tab would interrupt a download. */}
                     {(isSender && !generatedLink) ||
-                    (!isSender && (error.includes('Link Expired') || (senderAbsent && receivedFiles.length === 0))) ? (
+                    (!isSender && (isLinkInvalid(error) || (senderAbsent && receivedFiles.length === 0))) ? (
                         <p className="text-balance text-[10px] uppercase tracking-wide text-zinc-500 text-center leading-relaxed">
                             End-to-end encrypted. Files are never stored on a server.
                         </p>
