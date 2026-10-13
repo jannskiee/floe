@@ -96,21 +96,40 @@ test('Direction 2: browser send → CLI receive (SHA-256 integrity)', async ({ b
         // receiver matched it against the bytes it wrote.
         expect(stdout).toMatch(/Verified\s+SHA-256 matched/);
 
-        // Either string is the success status: onPeerDisconnected moves the
-        // sender from 'All Files Sent!' to 'Transfer complete' the moment the
-        // CLI receiver exits and drops its socket, which is always before the
-        // SHA-256 line below has had 15 s to appear. Asserted first, because by
-        // this point one of the two is already on the page.
-        await expect(page.locator('body')).toContainText(/All Files Sent!|Transfer complete/);
-        // Under either status the file left this browser, and the rows say
+        // A delivered send reads one of three sentences once the CLI has left,
+        // and which one is a race this test does not own. The CLI exits right
+        // after its `received`, and two things then reach the page: the
+        // server's word that the peer left its room (onPeerDisconnected:
+        // 'All Files Sent!' becomes 'Transfer complete') and the connection
+        // going away under it (the peer's error handler: 'Connection
+        // interrupted', which a delivered send keeps its rows under). The
+        // last one to arrive is the sentence that stays. This asked for the
+        // first two only, and a macOS runner where the connection error came
+        // last failed it twice in one job (2026-10-13); reconnect.spec.ts
+        // already takes either ending.
+        await expect(page.locator('body')).toContainText(
+            /All Files Sent!|Transfer complete|Connection interrupted/
+        );
+        // Under any of them the file left this browser, and the rows say
         // so. They used to follow the status sentence, so the CLI's exit put
         // "Sending file 1 of 1..." back under "Transfer complete".
         await expect(page.getByText('Sent 1 file', { exact: true })).toBeVisible();
         await expect(page.getByText(/Sending file [0-9]+ of [0-9]+/)).toHaveCount(0);
         // The CLI receiver's `received` frame carries verified=1 and now
         // reaches the page, because the session listener outlives onAllSent
-        // (F-SHA-4). Before this the finally closed the channel first.
-        await expect(page.locator('body')).toContainText('SHA-256 matched', { timeout: 15_000 });
+        // (F-SHA-4). Before this the finally closed the channel first. The
+        // page prints that line only under the two sentences that say the
+        // send is complete (ShareLinkPanel gates it on them), so under
+        // 'Connection interrupted' there is no line to wait for: the
+        // receiver's own verdict was read from its stdout above.
+        await expect(async () => {
+            const text = await page.locator('body').innerText();
+            expect(/SHA-256 matched|Connection interrupted/.test(text)).toBe(true);
+        }).toPass({ timeout: 15_000 });
+        const ending = (await page.locator('body').innerText()).match(
+            /All Files Sent!|Transfer complete|Connection interrupted/
+        );
+        test.info().annotations.push({ type: 'sender-ending', description: ending ? ending[0] : 'none read' });
 
         // Verify the file landed on disk with correct content.
         const expectedName = basename(fixturePath);

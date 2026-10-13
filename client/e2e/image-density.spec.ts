@@ -95,7 +95,17 @@ async function measureImages(page: Page): Promise<ImageReport[]> {
  * never loads, `complete` never turns true, and this would fail as a timeout
  * rather than as a density report. Forcing eager is what screenshot-matrix.mjs
  * already does for the same reason.
+ *
+ * The wait is long on purpose. On CI the client is `next start` over a fresh
+ * build, so the first test to ask for each width makes the image optimizer
+ * resize the master then and there, and this file's first test asks for all
+ * of the home page's at once. With 15 s, a slow macOS runner timed out on
+ * that test and again on its retry (2026-10-13, on main), while every test
+ * after it passed on the images the two attempts had warmed. The test is
+ * about how many pixels arrive, not how fast, and its own timeout is 90 s.
  */
+const IMAGES_SETTLE_MS = 60_000;
+
 async function settleImages(page: Page) {
     await page.evaluate(() => {
         for (const img of Array.from(document.querySelectorAll('img'))) {
@@ -105,7 +115,7 @@ async function settleImages(page: Page) {
     await page.waitForFunction(
         () => Array.from(document.querySelectorAll('img')).every((i) => i.complete),
         undefined,
-        { timeout: 15_000 }
+        { timeout: IMAGES_SETTLE_MS }
     );
 }
 
