@@ -24,8 +24,12 @@
  *     BROWSER_EXTENSION_URL_PATTERNS to run before
  *     NextjsClientStackFrameNormalization (see lib/browserExtensions.ts).
  *
- * Only the LAST exception value is ever tested, so a LinkedErrors cause
- * appended after the matching one would silently disable an entry.
+ * Only the LAST exception value is ever tested, and the last value is the
+ * error that was thrown: LinkedErrors puts each cause in FRONT of the values
+ * it already has (aggregateExceptionsFromError in @sentry/core builds
+ * `[cause, ...values]`). So an entry never fires when the error it matches is
+ * the cause of another one. The wrapper is last, and the wrapper is what is
+ * tested.
  */
 export const IGNORED_ERROR_PATTERNS: (string | RegExp)[] = [
     // Browser extensions (Google Translate, Grammarly, ad blockers) modify the DOM

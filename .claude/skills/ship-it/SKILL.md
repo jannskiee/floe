@@ -47,6 +47,8 @@ two together, which is not a full-suite PR. `Repo guardrails` and
 anything under .github/workflows/ or .github/scripts/ also runs `Lint workflows`
 (actionlint and shellcheck).
 references/lanes.md maps touched areas to local commands.
+A dependency PR (Dependabot) needs checks that CI cannot make: read
+references/dependency-prs.md before merging one.
 
 ## 3. Local checks
 

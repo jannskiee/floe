@@ -1,0 +1,23 @@
+# Dependency pull requests
+
+Dependabot opens one grouped PR per ecosystem per month, and one per major (.github/dependabot.yml). `CI green` is not enough for the cases below: each names something the suite cannot see. They were the standing items of issue 515, moved here when it was closed on 2026-10-14, so that they sit where a dependency PR is handled.
+
+## Go modules (`go-deps`: cli/ and desktop/)
+
+- **Run a forced-relay transfer before merging.** CI never exercises a TURN relay: every e2e CLI leg runs `--no-relay`. The pion modules change relay behavior between patch releases (pion/ice gathers relay candidates over IPv6 from 4.4.3, with follow-ups through 4.4.7; pion/mdns 2.2.2 changes its query format for Chromium). cli/go.mod was at pion/ice 4.4.0 and pion/mdns 2.1.0 when this was written. Use the relay cells of the transfer-audit skill, in both directions between the CLI and a browser.
+- **A stopgap that can go once pion/ice is at 4.4.3 or later:** `quietTURNClientLog` in cli/cmd/floe/pionlog.go, and the comments there that name pion/ice 4.4.0. Read its comment first: it exists because that version hands its TURN client pion's default logger, and it goes only when the new version's client logs through the escaping factory.
+- **`go.work` moves by hand.** Dependabot raises the `go` line of a module and never the workspace's, and every Go command then stops with "module . listed in go.work file requires go >= X". The comment in go.work lists everything that moves with it.
+- **A desktop/go.mod bump changes the released `floe` binary.** The workspace is active for every build, goreleaser's included.
+- **The first release built on a new Go minor:** read the `go version` line in that GoReleaser run's log. When the new Go changes a runtime default (1.26 made the Green Tea garbage collector the default), run the transfer audit's 500 MiB throughput baseline once on that build before the tag.
+
+## npm (`npm-deps`: client/, server/, desktop/frontend/)
+
+- **A group that moves `@sentry/nextjs`:** read the release notes of every version in the range before merging. CI cannot judge what leaves the browser, because the scrub tests never load the SDK. A minor has changed the SDK's own ignore list before (10.74.0 began dropping one of the fixtures by itself), which is why the controls in client/lib/ignoredErrors.pipeline.test.ts switch the SDK defaults off.
+- **`@sentry/nextjs` 11 is held, and is a hand migration, not a bump.** It moves `withSentryConfig` to `@sentry/nextjs/config`, streams spans by default (so `beforeSendTransaction` never runs and `beforeSendSpan` gets `name` and `attributes` instead of `description` and `data`), and replaces `sendDefaultPii` with `dataCollection`, whose defaults attach the IP address and cookies. The room-link scrub in client/lib/scrubUrl.ts and the privacy page rest on all three, and no test would notice. Due when the 10.x line stops getting releases, or when an advisory needs 11. The checklist: the `next.config.mjs` import and the top-level `reactComponentAnnotation`; an explicit `dataCollection` block equal to the v10 defaults in all three `sentry.*.config.ts`; either `traceLifecycle: 'static'` as a bridge or `scrubSpanJson` ported to `name` and `attributes`, with `beforeSendSpan` added to the server and edge configs; `URL_ATTRIBUTES` extended with `url.query`, `url.fragment` and `url.path`; then real envelopes captured from a production build on a receiver page and on `/r`.
+- **jsdom 30 is held** (desktop/frontend). Every 30.x needs Node `^22.22.2 || ^24.15.0 || >=26.0.0`, and that floor is the whole reason. A 29.x offer can be taken or skipped. Due when the Node used locally and in CI meets the floor.
+- **How the two holds are held.** Each was set with `@dependabot ignore this major version` on its PR (#496, #497), which lives in Dependabot's own state and shows nowhere in the repository. Reopening that PR lifts it. If a hold is ever written into .github/dependabot.yml instead (as a `version-update:semver-major` ignore, the shape the `@vitejs/plugin-react` entry has), do it right after a monthly round has merged: any edit to that file starts all four ecosystems at once.
+- **The `ws` override in server/package.json** puts engine.io and socket.io-adapter on a newer `ws` than each declares. The server suite, the e2e suite and the Docker smoke test pass on that pairing. When a group moves `socket.io`, check whether the override is still needed.
+
+## After a merge that changes server/
+
+Nothing in CI deploys api.floe.one. The `:main` images on ghcr carry every push, and `latest` moves only on a tag. A dependency change under server/ reaches the production signaling server at its next deploy, which is a step of the floe-release skill, not of this one.

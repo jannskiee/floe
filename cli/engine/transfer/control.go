@@ -211,7 +211,7 @@ func parseMetadata(text string) (FileInfo, error) {
 	if m.Index < 1 || m.Total < 1 {
 		return FileInfo{}, fmt.Errorf("file index %d of %d is not a position in a batch", m.Index, m.Total)
 	}
-	// Zero means "not announced" (pre-1.6.0 senders) and is fine; a batch that
+	// Zero means "not announced" (pre-1.5.0 senders) and is fine; a batch that
 	// is smaller than one of its own files is not, and the desktop preview
 	// would show it as the batch size ("1 B" for a 5 GB file).
 	if totalBytes > 0 && totalBytes < fileSize {

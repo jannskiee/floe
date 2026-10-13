@@ -200,15 +200,22 @@ describe('ignoreErrors in the Sentry event pipeline', () => {
         ).toBeNull();
     });
 
-    it('only ever tests the LAST exception value', () => {
-        // The sharp edge lib/ignoredErrors.ts warns about, made executable: a
-        // LinkedErrors cause appended after the matching value takes its place
-        // as the tested one, and the entry stops firing.
+    it('only ever tests the LAST exception value, which is the error that was thrown', () => {
+        // The sharp edge lib/ignoredErrors.ts warns about, made executable.
+        // LinkedErrors puts a cause in front of the values an event already
+        // has, so the list reads cause first and the thrown error last. Here
+        // the error our entry matches is the cause, and something else wraps
+        // it: the wrapper is the value that is tested, and the entry does not
+        // fire.
         const event = makeFloeHEvent();
+        const matching = event.exception?.values?.[0];
+        if (matching) {
+            matching.mechanism = { type: 'chained', handled: false, source: 'cause', exception_id: 1, parent_id: 0 };
+        }
         event.exception?.values?.push({
             type: 'Error',
-            value: 'some chained cause',
-            mechanism: { type: 'chained', handled: false, parent_id: 0 },
+            value: 'some error that wraps it',
+            mechanism: { type: 'generic', handled: false, exception_id: 0 },
         });
         expect(runEventFilters(event, { ignoreErrors: IGNORED_ERROR_PATTERNS })).not.toBeNull();
     });
@@ -217,10 +224,21 @@ describe('ignoreErrors in the Sentry event pipeline', () => {
         expect(runEventFilters(makeFloeKEvent(), { ignoreErrors: IGNORED_ERROR_PATTERNS })).toBeNull();
     });
 
-    it('keeps FLOE-K when ignoreErrors is absent (guards a false pass)', () => {
-        // Nothing in DEFAULT_IGNORE_ERRORS matches, and _isUselessError keeps an
-        // event that has a message. It must be OUR entry that drops FLOE-K.
-        expect(runEventFilters(makeFloeKEvent())).not.toBeNull();
+    it('keeps FLOE-K without our entry and drops it with ours alone (guards a false pass)', () => {
+        // The two halves of the FLOE-H control above, for the same reason.
+        // With the SDK's own list merged in, this control rested on "nothing
+        // in DEFAULT_IGNORE_ERRORS matches", the assumption that broke for
+        // FLOE-H at @sentry/core 10.74.0. With the defaults off and no entry
+        // of ours the event is kept (_isUselessError keeps an event that has
+        // a message); with only our entries it is dropped. It is OUR entry
+        // that drops FLOE-K, whichever SDK version is installed.
+        expect(runEventFilters(makeFloeKEvent(), { disableErrorDefaults: true })).not.toBeNull();
+        expect(
+            runEventFilters(makeFloeKEvent(), {
+                ignoreErrors: IGNORED_ERROR_PATTERNS,
+                disableErrorDefaults: true,
+            })
+        ).toBeNull();
     });
 
     it('drops FLOE-K on the exception value alone, with no message', () => {

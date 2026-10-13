@@ -182,7 +182,7 @@ func checkAnnouncedSize(size, volumeMax int64) (RefusalCode, string) {
 // passes (deep QA A3-02, T13-F1): an approved total of zero still holds the
 // drop to zero data bytes (checkFrame), and checkEveryMetadata holds every
 // later frame to the same total. With a first file that is not empty, a zero
-// total is one that is absent, as from a sender before 1.6.0. File 1 first is
+// total is one that is absent, as from a sender before 1.5.0. File 1 first is
 // also checked before every claim; asking it here too means the owner is
 // never prompted for a drop the next check would refuse.
 func checkFirstMetadata(info FileInfo, l *ReceiveLimits) (RefusalCode, string) {
