@@ -1,0 +1,11 @@
+Floe Desktop 0.3.0 moves files peer to peer, so please use Microsoft Edge on the same PC as the second device. Our server api.floe.one will stay online, with request links on, for the whole review.
+
+Normal transfer: open https://floe.one in Edge, choose a file, click Create secure link, then Copy. In Floe Desktop, open Receive, paste the link and click Receive.
+
+Request links (new, Beta) are in Receive, next to Code, and our server can turn them off for everyone. To test:
+1. In Floe Desktop open Receive, choose REQUEST LINK, click Make link, then Copy link.
+2. Open that link in Edge, add a small file, click Send.
+3. In Floe Desktop click Accept (clickable one second after the request shows or the window comes to the front; it counts down the time left, for example Accept (9:45)). The file lands in a new folder under Downloads\Floe.
+A link takes one drop and works only while Floe Desktop is open, so make a new link for each test. An optional Auto-accept check under Link ends is off by default; these steps do not use it.
+
+Received files go only to the PC that made the link and are never shown to other users. Anyone can report a link with "Report this link" at the bottom of its page, which starts an email to our report address (also listed at floe.one/privacy).

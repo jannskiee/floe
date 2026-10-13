@@ -290,16 +290,29 @@ first field, Save, reload and read it back (`references/partner-center.md`,
 the paragraph on the description and feature fields). Then fill everything
 else and Save once.
 
-The listing has no source in this repository. The description, the
-features, the screenshots and the certification notes live in Partner
-Center, and Submission 15's texts were drafted in the owner's release plan
-folder, outside it; what this repository holds is their lengths and
-fingerprints (the history table in the reference), not their words, and no
-record of how the four screenshots were made. So nothing here can be rendered or diffed the
-way What's new is. Before changing a field, read the live value back and
-keep it in a file under the scratchpad; the new text and the new images
-come from the user, and this skill never drafts a listing description on
-its own authority.
+The listing's source is `references/listing/en-US/`: the description, the
+product features, the screenshot captions, the four screenshots and the
+certification notes as Submission 15 saved them. Its `manifest.json` records
+each text's length and djb2 fingerprint and each image's size and SHA-256,
+and its README says how the screenshots were made.
+
+```text
+node .claude/skills/store-submit/scripts/listing.mjs
+```
+
+prints those fingerprints and exits 1 when the folder and its manifest
+disagree or a field would not fit the Store's form (a description over
+10,000 characters, more than 20 features or one over 200 characters, a
+caption over 200, notes over 6,000, an image under 1366 x 768). Before
+changing a field, read the live value back and compare its length and djb2
+with the manifest's. A difference means Partner Center was edited outside
+this record: stop and ask, and keep the live text in a file under the
+scratchpad. The new text and the new images come from the user, and this
+skill never drafts a listing description on its own authority. They go into
+that folder, with the manifest rows and a new row in the reference's history
+table, in the pull request that prepares the release, so what is pasted is
+what was reviewed. After the Save, read each field back once more and
+compare it with the new manifest.
 
 - Description: the textarea `#description-required`. It takes the same
   native-setter idiom as What's new (the snippet above with that selector).
@@ -338,7 +351,9 @@ on this page: the only proof is a reload and a read-back of `len` and
 `djb2`. A routine update leaves the
 notes as they are. Submission 15 replaced the 890-character notes with
 1,278 characters, and kept the old text before overwriting it; do the
-same.
+same. The current text is
+`references/listing/en-US/certification-notes.txt`, with its fingerprint in
+that folder's `manifest.json`.
 
 ## 6. Submit for certification (the record goes in the same message as the click)
 

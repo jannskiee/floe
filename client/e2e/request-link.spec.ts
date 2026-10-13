@@ -267,6 +267,34 @@ test.describe('request-link', () => {
         }
     });
 
+    // The ended page, read for real. A link its host closed while it waited,
+    // with nobody seated, is forgotten by the server, which answers every
+    // later request-join link-ended for a day. An expired link gets the same
+    // answer (server/server.test.js pins both), so this is the page a visitor
+    // reads on either. Until now the card was reached only through the
+    // reducer's own tests: no browser had opened a link that had really ended.
+    test('request-link: a link closed before anyone used it reads "This link has ended"', async ({ page, context }) => {
+        const stats = await guard(context);
+        makeFiles({ 'a.bin': 1024 });
+        const h = host({ closeBeforeVisit: true });
+        const link = await requestLink(h);
+        await waitForHostEvent(h, 'closed');
+        expect(await h.exited).toBe(0);
+
+        await page.goto(link);
+        await pickFiles(page, ['a.bin']);
+        await send(page);
+        await expect(page.getByRole('heading', { name: visitorCopy.endedTitle })).toBeVisible();
+        await expect(page.getByText(visitorCopy.endedBody)).toBeVisible();
+        // Not the host-absent card, which offers a retry, and not the used one.
+        await expect(page.getByRole('button', { name: visitorCopy.tryAgain })).toHaveCount(0);
+        await expect(page.getByRole('heading', { name: visitorCopy.hostAbsentTitle })).toHaveCount(0);
+        await expect(page.getByRole('heading', { name: visitorCopy.usedTitle })).toHaveCount(0);
+        // Nothing was sent anywhere: no file arrived, no report was tried.
+        expect(directoriesUnder(scratch.outDir)).toEqual([]);
+        expect(await stats()).toBe(0);
+    });
+
     test('request-link: decline, then keep waiting accepts a second visit', async ({ page, context }) => {
         const stats = await guard(context);
         const sent = makeFiles({ 'a.bin': 64 * 1024 });

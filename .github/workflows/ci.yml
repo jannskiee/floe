@@ -327,11 +327,20 @@ jobs:
           echo "desktop-v$v has all assets"
 
   server:
-    name: Server (Node.js)
+    name: Server (Node.js ${{ matrix.node }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [changes]
     if: needs.changes.outputs.code == 'true'
+    strategy:
+      # One leg failing says which Node broke; the other still reports.
+      fail-fast: false
+      matrix:
+        # 20 is the oldest version anything tests, which
+        # docs/self-hosting/without-docker.mdx tells self-hosters; 24 is what
+        # server/Dockerfile runs, so it is what floe.one's signaling server and
+        # every published image run. Until 2026-10-13 only 20 was tested.
+        node: [20, 24]
 
     steps:
       - name: Checkout
@@ -342,7 +351,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version: ${{ matrix.node }}
 
       - name: Install dependencies
         run: npm ci

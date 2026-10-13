@@ -263,6 +263,39 @@ describe('sender: resume offset from the receiver', () => {
         expect(sent.some((f) => f.includes('"end"'))).toBe(false);
     }, 5000);
 
+    // String() of an object runs the object's own toString, and JSON can carry
+    // one that is not a function: {"toString":0} made the call throw. The throw
+    // left sendFiles as a rejection, and the main page, which does not await
+    // the send, stayed on its last status line with nothing to say.
+    it('refuses an offset that is not a number with fixed words, and never throws on it', async () => {
+        const offsets = ['{"toString":0}', '{"toString":0,"valueOf":0}', '[{"toString":0}]', '{}', '[]', 'null', 'true', '"MARKER"'];
+        for (const offset of offsets) {
+            const errors: string[] = [];
+            const sent: string[] = [];
+            await sendFiles(
+                scriptedDeps((id) => `{"type":"ack","id":${JSON.stringify(id)},"offset":${offset}}`, sent),
+                [{ id: 'x', file: makeFile(16, 'a.bin') }],
+                { onError: (m) => errors.push(m) });
+            // Only a number is quoted back. Anything else gets the same fixed
+            // words, so no text the receiver chose is in the sentence.
+            expect(errors, offset).toEqual([
+                'The receiver asked to resume "a.bin" from a position that is not a number, which is not possible. Please try again.',
+            ]);
+            expect(sent.some((f) => f.includes('"end"')), offset).toBe(false);
+        }
+    }, 5000);
+
+    it('refuses an ack with no offset the same way', async () => {
+        const errors: string[] = [];
+        await sendFiles(
+            scriptedDeps((id) => JSON.stringify({ type: 'ack', id })),
+            [{ id: 'x', file: makeFile(16, 'a.bin') }],
+            { onError: (m) => errors.push(m) });
+        expect(errors).toHaveLength(1);
+        expect(errors[0]).toContain('from a position that is not a number');
+        expect(errors[0]).not.toContain('undefined');
+    }, 5000);
+
     it('still accepts a resume from inside the file', async () => {
         const errors: string[] = [];
         const sent: string[] = [];

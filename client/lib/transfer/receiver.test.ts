@@ -91,6 +91,27 @@ describe('receiver: onAllComplete fires once per transfer', () => {
         expect(calls).toHaveLength(1);
         expect(calls[0]).toEqual({ totalBytes: 512, fileCount: 1 });
     });
+
+    // The count goes to analytics as `files`. It used to be the total the
+    // sender announced, so one file sent as "7 of 7" was reported as seven.
+    it('reports the files it handed over, not the total the sender announced', () => {
+        const calls: { totalBytes: number; fileCount: number }[] = [];
+        const rx = createReceiver({
+            send: () => {},
+            onAllComplete: (totalBytes, fileCount) => calls.push({ totalBytes, fileCount }),
+        });
+
+        feedFile(rx, 'only', 512, 7, 7);
+        expect(calls).toEqual([{ totalBytes: 512, fileCount: 1 }]);
+
+        feedFile(rx, 'big', 64, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
+        expect(calls[1]).toEqual({ totalBytes: 64, fileCount: 1 });
+
+        // The count starts again with each transfer.
+        feedFile(rx, 'a', 10, 1, 2);
+        feedFile(rx, 'b', 20, 2, 2);
+        expect(calls[2]).toEqual({ totalBytes: 30, fileCount: 2 });
+    });
 });
 
 /**

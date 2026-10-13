@@ -260,12 +260,28 @@ export function checkCompat(
     remoteMin: number,
     remoteMax: number
 ): { ok: boolean; localTooOld: boolean } {
-    if (!remoteMin) remoteMin = 1;
-    if (!remoteMax) remoteMax = 1;
-    const lo = Math.max(localMin, remoteMin);
-    const hi = Math.min(localMax, remoteMax);
+    // The remote pair is cast off the wire, so it is whatever the peer typed.
+    // Each is turned into a number once, here, and a value that cannot be
+    // turned into one becomes NaN: JSON can carry an object whose toString is
+    // not a function, and Math.max threw on it, in the middle of three
+    // callers saying why a transfer stopped (unconvertible.test.ts). NaN fails
+    // every comparison below, which is the conservative reading, a mismatch
+    // that blames neither side. A falsy value still means the legacy 1, read
+    // off the value as sent, so nothing that used to convert changes.
+    const rMin = remoteMin ? wireNumber(remoteMin) : 1;
+    const rMax = remoteMax ? wireNumber(remoteMax) : 1;
+    const lo = Math.max(localMin, rMin);
+    const hi = Math.min(localMax, rMax);
     if (lo <= hi) return { ok: true, localTooOld: false };
-    return { ok: false, localTooOld: remoteMin > localMax };
+    return { ok: false, localTooOld: rMin > localMax };
+}
+
+function wireNumber(v: unknown): number {
+    try {
+        return Number(v);
+    } catch {
+        return NaN;
+    }
 }
 
 /** Matches maxDisplayVer in cli/engine/transfer/format.go. */

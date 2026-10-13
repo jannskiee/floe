@@ -1,0 +1,4 @@
+Send files with a room code, share link, or QR code
+Receive with a three-word code or a share link
+Request links (Beta): make a one-time link so one person can send you files from Chrome or Edge on their computer
+By default nothing is saved until you accept. The request shows how many files and how large, never a file name or anything the sender typed

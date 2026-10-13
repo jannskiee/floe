@@ -36,16 +36,16 @@ import {useTransferAnalytics} from '@/hooks/useTransferAnalytics';
 import {useRelayConfiguration} from '@/hooks/useRelayConfiguration';
 import {RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, probeIsRelay} from '@/lib/relay';
 import {buildShareLink, getRoomFromUrl, isValidRoomId} from '@/lib/roomLink';
-import {classifyPeerError, senderErrorBlamesRelay} from '@/lib/peerErrors';
+import {classifyPeerError, peerErrorBanner, peerErrorCodeOf, peerErrorReport, senderErrorBlamesRelay} from '@/lib/peerErrors';
 import {decideReceiverClose} from '@/lib/receiverClose';
-import {describeSenderStop, senderCloseInterrupted} from '@/lib/senderStop';
+import {SEND_INTERNAL_ERROR, describeSenderStop, senderCloseInterrupted} from '@/lib/senderStop';
 import {verifiedLine, VERIFIED_LINE} from '@/lib/verifiedLine';
 import {receiveSummary} from '@/lib/receiveSummary';
 import type {SendEnd} from '@/lib/sendSummary';
 import {INITIAL_SEAT, seatStep, type SeatEvent} from '@/lib/roomSeat';
 import {REJOIN_FAILED_STATUS, REJOINING_STATUS, rejoinAllowed, rejoinDelay, statusOnceSeated} from '@/lib/rejoinRetry';
 import {peerDisconnectAction, teardownClaimsClose} from '@/lib/peerDisconnect';
-import {afterReconnect, withRefusalBanner, withoutRefusalBanner} from '@/lib/refusalBanner';
+import {LINK_INVALID, afterReconnect, isLinkInvalid, peerBanner, withRefusalBanner, withoutRefusalBanner} from '@/lib/refusalBanner';
 import {copyText} from '@/lib/clipboard';
 import {resolveSocketUrl} from '@/lib/socketUrl';
 
@@ -280,7 +280,11 @@ export function P2PTransfer() {
                 Sentry.addBreadcrumb({
                     category: 'webrtc',
                     level: 'warning',
-                    message: `Ignored signal in state ${pc?.signalingState}: ${(err as Error).message}`,
+                    // The state is this browser's own word. The error's
+                    // message is not: it can quote the signal the other
+                    // peer sent (lib/peerErrors.ts).
+                    message: `Ignored signal in state ${pc?.signalingState}`,
+                    data: { errorCode: peerErrorCodeOf(err) },
                 });
             }
         },
@@ -478,7 +482,7 @@ export function P2PTransfer() {
                 setStatus('Transfer complete');
                 return;
             }
-            setError('Link Expired or Busy');
+            setError(LINK_INVALID);
             setStatus('Access Denied');
         });
 
@@ -509,7 +513,7 @@ export function P2PTransfer() {
             });
             // A banner from the attempt that failed must not sit over the one
             // that is starting. The socket reconnect path clears it too.
-            setError((prev) => (prev.includes('Link Expired') ? prev : ''));
+            setError((prev) => (isLinkInvalid(prev) ? prev : ''));
             closedByUsRef.current = peerRef.current;
             peerRef.current?.destroy();
             hasJoinedRef.current = false;
@@ -611,14 +615,14 @@ export function P2PTransfer() {
                 // "Ice connection failed." / "Connection failed." — relay likely disabled on sender
                 // "User-Initiated Abort" — sender closed the tab or peer was destroyed
                 // Log a breadcrumb but do NOT send to Sentry.
-                const { isExpected, reason } = classifyPeerError(err.message);
+                const { isExpected, reason } = classifyPeerError(err.message, { code: peerErrorCodeOf(err) });
 
                 if (isExpected) {
                     Sentry.addBreadcrumb({
                         category: 'webrtc',
-                        message: `Receiver: expected connection error — ${err.message}`,
+                        message: 'Receiver: expected connection error',
                         level: 'warning',
-                        data: { errorMessage: err.message },
+                        data: { reason, errorCode: peerErrorCodeOf(err) },
                     });
                     // A deliberate abort is not a connection problem, and telling
                     // someone to enable a relay that may already be on is the
@@ -640,17 +644,25 @@ export function P2PTransfer() {
                             : 'Connection failed. Ask the sender to try again. If they turned the relay off, ask them to leave it on.'
                     );
                 } else {
-                    // Unexpected error — capture for investigation.
+                    // Unexpected: reported for investigation by its code.
+                    // Never the error object or its message, which can quote
+                    // what the other peer sent (lib/peerErrors.ts).
+                    // The banner first: nothing in the report below may
+                    // cost the person the one explanation they get.
+                    setError(peerErrorBanner('receiver'));
+                    const report = peerErrorReport('receiver', err);
                     Sentry.withScope((scope) => {
                         scope.setContext('webrtc', {
                             role: 'receiver',
                             connectionType,
                             filesReceived: receivedFilesRef.current.length,
                             progressPercent: progressAtError,
+                            errorCode: report.code,
                         });
-                        Sentry.captureException(err);
+                        scope.setTags(report.tags);
+                        scope.setFingerprint(report.fingerprint);
+                        Sentry.captureMessage(report.message, 'error');
                     });
-                    setError(`Connection error: ${err.message}`);
                 }
                 // Track failed connection attempt
                 track('transfer-failed', { reason, role: 'receiver' });
@@ -724,8 +736,10 @@ export function P2PTransfer() {
                 wireReasonRef.current = true;
                 // The message first: this may run with the tab short of
                 // memory, and nothing below may cost the person the only
-                // explanation they get.
-                setError(msg);
+                // explanation they get. It can be the sender's own words
+                // (a stop with a reason), so it goes through peerBanner:
+                // it must never be the Link Invalid card's value.
+                setError(peerBanner(msg, 'The sender stopped the transfer.'));
                 setStatus('Transfer failed');
                 setReceiveEnded(true);
                 if (failure && !failure.senderSentVersion) {
@@ -792,7 +806,7 @@ export function P2PTransfer() {
                 // Fragment-derived state is set post-mount (SSR has no fragment),
                 // the same one-shot sync as the setIsSender effect above.
                 // eslint-disable-next-line react-hooks/set-state-in-effect
-                setError('Link Expired or Busy');
+                setError(LINK_INVALID);
                 setStatus('Access Denied');
                 return;
             }
@@ -1088,7 +1102,26 @@ export function P2PTransfer() {
                         return;
                     }
 
-                    sendAllFiles(peer, files);
+                    // Nothing awaits the send (this is a timer callback), so
+                    // a throw inside it was an unhandled rejection and nothing
+                    // else: the page stayed on its last status line for good.
+                    // The throw goes on after the words are up, so Sentry
+                    // reports it exactly as it did before.
+                    sendAllFiles(peer, files).catch((cause: unknown) => {
+                        // A session this page has moved on from, and a send
+                        // whose files had all left, keep what they show.
+                        if (peerRef.current === peer && !transferCompleteRef.current) {
+                            // Latched like a stop the peer reported: this is
+                            // the account of what went wrong, and the close or
+                            // error that follows when the other device gives
+                            // up must not replace it with "Connection lost".
+                            wireReasonRef.current = true;
+                            setError((prev) => prev || SEND_INTERNAL_ERROR);
+                            setStatus('Transfer failed');
+                            setSendEnd((end) => (end === 'open' ? 'failed' : end));
+                        }
+                        throw cause;
+                    });
                 }, 2000);
             });
             peer.on('close', () => {
@@ -1134,23 +1167,27 @@ export function P2PTransfer() {
                     return;
                 }
 
-                const { isExpected, reason } = classifyPeerError(err.message, { relayEnabled });
+                const { isExpected, reason } = classifyPeerError(err.message, { relayEnabled, code: peerErrorCodeOf(err) });
 
                 if (isExpected) {
                     Sentry.addBreadcrumb({
                         category: 'webrtc',
-                        message: `Sender: expected connection error — ${err.message}`,
+                        message: 'Sender: expected connection error',
                         level: 'warning',
-                        data: { relayEnabled, errorMessage: err.message },
+                        data: { relayEnabled, reason, errorCode: peerErrorCodeOf(err) },
                     });
                     // The relay sentence only when the relay could be the
                     // cause: see senderErrorBlamesRelay.
                     setError(
-                        senderErrorBlamesRelay(err.message, relayEnabled)
+                        senderErrorBlamesRelay(err.message, relayEnabled, peerErrorCodeOf(err))
                             ? 'Connection failed. This link was made with Network relay fallback off. Reload the page, add the files again, leave it on, and share the new link.'
                             : 'Connection lost. The other device may have closed the tab.'
                     );
                 } else {
+                    // By its code, never the error object or its message
+                    // (the receiver's handler above says why).
+                    setError(peerErrorBanner('sender'));
+                    const report = peerErrorReport('sender', err);
                     Sentry.withScope((scope) => {
                         scope.setContext('webrtc', {
                             role: 'sender',
@@ -1159,10 +1196,12 @@ export function P2PTransfer() {
                             filesCount: files.length,
                             totalBytes,
                             progressPercent: progressRef.current,
+                            errorCode: report.code,
                         });
-                        Sentry.captureException(err);
+                        scope.setTags(report.tags);
+                        scope.setFingerprint(report.fingerprint);
+                        Sentry.captureMessage(report.message, 'error');
                     });
-                    setError(`Connection error: ${err.message}`);
                 }
                 track('transfer-failed', {
                     reason,
@@ -1223,7 +1262,9 @@ export function P2PTransfer() {
                     // answer still reports its end, and that report is about a
                     // connection this page has moved on from.
                     if (peerRef.current !== peer) return;
-                    setError(msg);
+                    // The receiver's own words when it stopped with a
+                    // reason: never the Link Invalid card's value.
+                    setError(peerBanner(msg, 'The other side rejected the transfer.'));
                     setStatus('Transfer failed');
                     setSendEnd('failed');
                 },
@@ -1309,7 +1350,7 @@ export function P2PTransfer() {
                 </CardHeader>
 
                 <CardContent className="space-y-4">
-                    {error && error.includes('Link Expired') ? (
+                    {isLinkInvalid(error) ? (
                         <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
                             <div className="h-16 w-16 rounded-full bg-red-500/10 flex items-center justify-center mb-2">
                                 <ShieldCheck className="h-8 w-8 text-red-500" />
@@ -1333,7 +1374,7 @@ export function P2PTransfer() {
                         </div>
                     ) : (
                         <>
-                            {error && !error.includes('Link Expired') && (
+                            {error && !isLinkInvalid(error) && (
                                 <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 flex items-start gap-3">
                                     <AlertCircle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
                                     <div className="flex-1 text-sm text-red-300">{error}</div>
@@ -1545,7 +1586,7 @@ export function P2PTransfer() {
                         it told a person the card had just told to leave that
                         closing the tab would interrupt a download. */}
                     {(isSender && !generatedLink) ||
-                    (!isSender && (error.includes('Link Expired') || (senderAbsent && receivedFiles.length === 0))) ? (
+                    (!isSender && (isLinkInvalid(error) || (senderAbsent && receivedFiles.length === 0))) ? (
                         <p className="text-balance text-[10px] uppercase tracking-wide text-zinc-500 text-center leading-relaxed">
                             End-to-end encrypted. Files are never stored on a server.
                         </p>

@@ -1,7 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { REFUSAL_BANNER, afterReconnect, withRefusalBanner, withoutRefusalBanner } from './refusalBanner';
+import {
+    LINK_INVALID,
+    REFUSAL_BANNER,
+    afterReconnect,
+    isLinkInvalid,
+    peerBanner,
+    withRefusalBanner,
+    withoutRefusalBanner,
+} from './refusalBanner';
 
 describe('the refusal banner', () => {
     // The docs quote it as a heading and the transfer audit matches it.
@@ -78,7 +86,7 @@ describe('how the banner is wired', () => {
 
     it('P2PTransfer sets and clears it through these two functions only', () => {
         const page = read('../components/P2PTransfer.tsx');
-        expect(page).toContain("import {afterReconnect, withRefusalBanner, withoutRefusalBanner} from '@/lib/refusalBanner';");
+        expect(page).toContain("import {LINK_INVALID, afterReconnect, isLinkInvalid, peerBanner, withRefusalBanner, withoutRefusalBanner} from '@/lib/refusalBanner';");
         expect(page).toMatch(/^\s+setError\(withRefusalBanner\);$/m);
         expect(page).not.toContain("'Too many refreshes");
     });
@@ -95,5 +103,69 @@ describe('how the banner is wired', () => {
     it('P2PTransfer does nothing on connect but take the banner down', () => {
         const page = read('../components/P2PTransfer.tsx');
         expect(page).toMatch(/^\s+onConnect: \(\) => setError\(withoutRefusalBanner\),$/m);
+    });
+});
+
+// The Link Invalid card is drawn from one value of the banner state. Every
+// site used to ask whether the state CONTAINED the words "Link Expired", and
+// other peers' words reach that state: a refusal reason is the whole banner,
+// and a version string or a file name sits inside one. So the other peer
+// could switch a page to the card, on a link that was perfectly good.
+describe('the Link Invalid card answers to one value only', () => {
+    it('is that value and nothing that merely contains it', () => {
+        expect(LINK_INVALID).toBe('Link Expired or Busy');
+        expect(isLinkInvalid(LINK_INVALID)).toBe(true);
+        for (const other of [
+            '',
+            'Link Expired',
+            'Link Expired or Busy.',
+            ' Link Expired or Busy',
+            'link expired or busy',
+            'The sender stopped: Link Expired or Busy',
+            'Incomplete file "Link Expired or Busy": received 1 of 2 bytes',
+            'The sender is running Floe Link Expired or Busy, which is too old for this page.',
+        ]) {
+            expect(isLinkInvalid(other)).toBe(false);
+        }
+    });
+
+    it('lets the refusal banner go up over a message that only mentions the words', () => {
+        expect(withRefusalBanner('Incomplete file "Link Expired": received 1 of 2 bytes')).toBe(REFUSAL_BANNER);
+        expect(withRefusalBanner(LINK_INVALID)).toBe(LINK_INVALID);
+    });
+
+    it('clears such a message on a reconnect, like every other message', () => {
+        expect(afterReconnect('Incomplete file "Link Expired": received 1 of 2 bytes', false)).toBe('');
+        expect(afterReconnect(LINK_INVALID, false)).toBe(LINK_INVALID);
+    });
+
+    // The two places a peer's reason becomes the whole banner
+    // (lib/transfer/receiver.ts and compatErrorFromIncompatible in protocol.ts
+    // hand it over cleaned, capped and otherwise as sent).
+    it('never lets a peer message be the card value itself', () => {
+        expect(peerBanner(LINK_INVALID, 'The sender stopped the transfer.')).toBe('The sender stopped the transfer.');
+        expect(peerBanner(LINK_INVALID, 'The other side rejected the transfer.')).toBe(
+            'The other side rejected the transfer.'
+        );
+        for (const text of ['receiver ran out of disk space', 'Link Expired', '', 'x'.repeat(300)]) {
+            expect(peerBanner(text, 'fallback')).toBe(text);
+        }
+    });
+
+    it('P2PTransfer asks through isLinkInvalid at every site and never by substring', () => {
+        const page = readFileSync(fileURLToPath(new URL('../components/P2PTransfer.tsx', import.meta.url)), 'utf8');
+        expect(page).not.toContain("includes('Link Expired')");
+        expect(page).not.toContain("'Link Expired or Busy'");
+        expect(page.match(/isLinkInvalid\(/g)).toHaveLength(4);
+        expect(page.match(/setError\(LINK_INVALID\);/g)).toHaveLength(2);
+        // By identifier, so a new site cannot bring the substring back under
+        // another spelling: the constant is imported and written twice and
+        // compared nowhere by hand, and the banner state is never searched.
+        expect(page.match(/\bLINK_INVALID\b/g)).toHaveLength(3);
+        expect(page).not.toMatch(/\b(?:error|prev)\.(?:includes|startsWith|endsWith|indexOf|search|match)\(/);
+        // Both sinks of a peer's own words go through peerBanner.
+        expect(page).toContain("setError(peerBanner(msg, 'The sender stopped the transfer.'));");
+        expect(page).toContain("setError(peerBanner(msg, 'The other side rejected the transfer.'));");
+        expect(page).not.toMatch(/^\s+setError\(msg\);$/m);
     });
 });

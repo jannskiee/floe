@@ -499,9 +499,18 @@ async function sendSingleFile(
         // no more than a few characters, and a hostile one is bounded by the
         // frame alone, which is what let a bidi mark reorder the line for
         // pv and pvMin (protocolNumber's comment records that fix).
+        //
+        // Only a number is quoted. String() of an object runs the object's own
+        // toString, and JSON can carry one that is not a function
+        // ({"toString":0}): that call threw, the throw left sendFiles as a
+        // rejection, and a page that does not await the send stayed on its
+        // last status line. Anything that is not a number gets fixed words,
+        // which also keeps a string of the receiver's out of the sentence.
+        const from = typeof resumeAt === 'number'
+            ? `byte ${sanitizeDisplayText(String(resumeAt), 32)} of ${file.size}`
+            : 'a position that is not a number';
         cb.onError?.(
-            `The receiver asked to resume "${wireName}" from byte ` +
-            `${sanitizeDisplayText(String(resumeAt), 32)} of ${file.size}, ` +
+            `The receiver asked to resume "${wireName}" from ${from}, ` +
             `which is not possible. Please try again.`
         );
         return false;
@@ -782,7 +791,11 @@ function openSession(deps: SenderDeps, cb: SenderCallbacks, fileCount: number): 
     const reportStop = (): boolean => {
         if (!stopped) return false;
         if (!reported) {
-            reported = true;
+            // Everything read off the frame is worked out before the stop is
+            // marked as reported. A throw while the words were being built
+            // used to leave it marked with nothing said, and no later
+            // checkpoint would say it either (unconvertible.test.ts).
+            //
             // Rebuilt from the frame's pv range rather than printed as sent,
             // the way the Go sender has done since PR #282. On a genuine
             // version mismatch the peer's sentence names the sides from ITS
@@ -790,18 +803,21 @@ function openSession(deps: SenderDeps, cb: SenderCallbacks, fileCount: number): 
             // comes through verbatim: that is the overlapping-range half of
             // compatErrorFromIncompatible, and it is what carries the
             // relay-cap reason from PR #429.
-            cb.onError?.(compatErrorFromIncompatible(stopped));
+            const words = compatErrorFromIncompatible(stopped);
             // The typed stop carries only an allowlisted code and a clamped
             // count, never the peer's text.
             const raw: unknown = stopped.saved;
             const saved = typeof raw === 'number' && Number.isInteger(raw)
                 ? Math.min(Math.max(raw, 0), fileCount)
                 : 0;
-            // The same split compatErrorFromIncompatible makes one line above,
-            // as a boolean rather than as wording: false is a version mismatch
+            // The same split compatErrorFromIncompatible makes above, as a
+            // boolean rather than as wording: false is a version mismatch
             // and true a deliberate abort. Derived from the frame's pv range,
             // so it carries none of its text.
-            cb.onStopped?.({ code: refusalCodeOf(stopped), saved, rangeOverlaps: isAbortReason(stopped) });
+            const stop = { code: refusalCodeOf(stopped), saved, rangeOverlaps: isAbortReason(stopped) };
+            reported = true;
+            cb.onError?.(words);
+            cb.onStopped?.(stop);
         }
         return true;
     };
