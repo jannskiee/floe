@@ -13,7 +13,7 @@ import path from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { runCell } from './cell.mjs';
+import { recordDesktopConfig, runCell } from './cell.mjs';
 import {
     ACCEPT_UNDRIVABLE,
     ACCEPT_WAIT_MS,
@@ -21,7 +21,7 @@ import {
 } from './desktop.mjs';
 import { SKIP_REASONS, cellPlan } from './matrix.mjs';
 import { Ledger } from './pacing.mjs';
-import { buildRunJson, newSafety, renderMarkdown } from './report.mjs';
+import { buildRunJson, newSafety, renderMarkdown, safetyRows } from './report.mjs';
 import {
     AWAY_ONLY,
     DAILY_LIMIT,
@@ -1874,4 +1874,72 @@ test('teardown lets a host start that is still running finish, inside a bound, i
     const open = src.slice(src.indexOf('export function openLinkHooks('));
     assert.ok(open.includes('await (st.starting = startHost(cell, ctx, rec, st, {'), 'TA-17 keeps its start');
     assert.ok(open.indexOf('await hostStartSettled(st, ctx);') > 0);
+});
+
+// The first request cell run on the Store app (2026-10-13) edited and
+// restored the owner's desktop.json, its manifest said so, and the Safety
+// row read "desktop.json: not edited (no Store-mode leg)": only a plain
+// cell's legs fed that row.
+test("a request host's desktop.json restore reaches the Safety row, in both kinds of request cell", async () => {
+    const withConfig = (config) => {
+        const w = fakeRequestWorld();
+        const base = ctxFor(w);
+        const ctx = {
+            ...base,
+            getAdapter: async (name) => {
+                const a = await base.getAdapter(name);
+                if (name !== 'desktop') return a;
+                return {
+                    ...a,
+                    createLeg: (o) => {
+                        const leg = a.createLeg(o);
+                        if (o.label !== 'host') return leg;
+                        const evidence = leg.evidence.bind(leg);
+                        leg.evidence = () => ({ ...evidence(), config });
+                        return leg;
+                    },
+                };
+            },
+        };
+        return ctx;
+    };
+    const row = (ctx) => safetyRows(ctx.safety).find(([k]) => k.startsWith('desktop receivers'))[1];
+
+    // Restored, mtime and all: the row says so.
+    let ctx = withConfig({ applied: true, match: true, mtimeRestored: true });
+    let r = await runCell(small('H-DIR-W2D-req'), ctx);
+    assert.equal(r.verdict, 'PASS', r.note);
+    assert.equal(ctx.safety.desktopReceiversOptedOut.configMtimeRestored, true);
+    assert.match(row(ctx), /desktop\.json: contents and mtime restored$/);
+
+    // A restore that did not match is the row's NO.
+    ctx = withConfig({ applied: true, match: false, mtimeRestored: false });
+    await runCell(small('H-DIR-W2D-req'), ctx);
+    assert.equal(ctx.safety.desktopReceiversOptedOut.configRestoredIdentical, false);
+    assert.match(row(ctx), /desktop\.json restored byte-identical: NO$/);
+
+    // A host that edited nothing (the dev page, a portable exe) leaves the row alone.
+    ctx = withConfig({ applied: false, match: null, mtimeRestored: null });
+    await runCell(small('H-DIR-W2D-req'), ctx);
+    assert.match(row(ctx), /desktop\.json: not edited \(no Store-mode leg\)$/);
+
+    // The helper itself, on the shapes it is handed.
+    const s = newSafety();
+    recordDesktopConfig(null, s);
+    recordDesktopConfig({}, s);
+    recordDesktopConfig({ config: { applied: false, match: false, mtimeRestored: false } }, s);
+    assert.equal(s.desktopReceiversOptedOut.configMtimeRestored, null, 'nothing applied, nothing recorded');
+    recordDesktopConfig({ config: { applied: true, match: true, mtimeRestored: true } }, s);
+    assert.equal(s.desktopReceiversOptedOut.configMtimeRestored, true);
+    // One leg that could not put the mtime back keeps the run at "changed".
+    recordDesktopConfig({ config: { applied: true, match: true, mtimeRestored: false } }, s);
+    recordDesktopConfig({ config: { applied: true, match: true, mtimeRestored: true } }, s);
+    assert.equal(s.desktopReceiversOptedOut.configMtimeRestored, false);
+    recordDesktopConfig({ config: { applied: true, match: true, mtimeRestored: true } }, null);
+
+    // And the open-link cell's teardown records its host the same way.
+    const src = readFileSync(fileURLToPath(new URL('./request.mjs', import.meta.url)), 'utf8');
+    assert.equal(src.split('recordDesktopConfig(').length - 1, 2);
+    assert.ok(src.includes('recordDesktopConfig(hostEv, ctx.safety);'));
+    assert.ok(src.includes('recordDesktopConfig(rec.evidence.host, ctx.safety);'));
 });

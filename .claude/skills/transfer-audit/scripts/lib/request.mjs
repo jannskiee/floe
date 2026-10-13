@@ -37,6 +37,7 @@ import path from 'node:path';
 import {
     attemptTimeout,
     describeError,
+    recordDesktopConfig,
     runAttempt,
     statsProofCheck,
 } from './cell.mjs';
@@ -1727,6 +1728,9 @@ export async function runRequestAttempt(cell, ctx, n) {
         rec.evidence.captures = [...(hostEv?.captures || [])];
         if (ctx.safety?.captures)
             ctx.safety.captures.count += rec.evidence.captures.length;
+        // The host edited and restored the owner's desktop.json on the Store
+        // lane, as a plain desktop leg does: the Safety row says so.
+        recordDesktopConfig(hostEv, ctx.safety);
         if (
             ctx.ledger &&
             ctx.infra?.name === 'prod' &&
@@ -1835,6 +1839,7 @@ export function openLinkHooks(cell, ctx) {
                 rec.evidence.host = scrubDeep(safeEvidence(st.host));
                 if (ctx.safety?.captures)
                     ctx.safety.captures.count += (rec.evidence.host?.captures || []).length;
+                recordDesktopConfig(rec.evidence.host, ctx.safety);
                 rec.notes = rec.notes.map(scrub);
             }
         },

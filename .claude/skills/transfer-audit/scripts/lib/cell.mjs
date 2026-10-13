@@ -486,6 +486,29 @@ export function statsProofCheck(cell, ev, rec, ctx) {
     return out;
 }
 
+/**
+ * What one desktop leg's evidence says about the owner's real desktop.json,
+ * into the Safety record. The request runner calls it for its host as well:
+ * a request cell on the Store lane edits and restores the file exactly as a
+ * plain leg does, and the row used to read "not edited (no Store-mode leg)"
+ * for it (the first Store run of a request cell, 2026-10-13).
+ */
+export function recordDesktopConfig(ev, s) {
+    if (!s || !ev || !ev.config || !ev.config.applied) return;
+    // The Store-mode config guard reports its restore on both roles.
+    if (ev.config.match === false)
+        s.desktopReceiversOptedOut.configRestoredIdentical = false;
+    // Its mtime restore too (fix 14): one leg that could not put the mtime
+    // back keeps the line at "mtime changed" for the run.
+    if (ev.config.mtimeRestored === false)
+        s.desktopReceiversOptedOut.configMtimeRestored = false;
+    else if (
+        ev.config.mtimeRestored === true &&
+        s.desktopReceiversOptedOut.configMtimeRestored !== false
+    )
+        s.desktopReceiversOptedOut.configMtimeRestored = true;
+}
+
 /** Safety-section counters that only exist after teardown. */
 function recordSafety(cell, rec, ctx) {
     const s = ctx.safety;
@@ -498,20 +521,7 @@ function recordSafety(cell, rec, ctx) {
     for (const side of ['sender', 'receiver']) {
         const ev = rec.evidence[side];
         if (!ev || ev.surface !== 'desktop') continue;
-        // The Store-mode config guard reports its restore on both roles.
-        if (ev.config && ev.config.applied && ev.config.match === false)
-            s.desktopReceiversOptedOut.configRestoredIdentical = false;
-        // Its mtime restore too (fix 14): one leg that could not put the
-        // mtime back keeps the line at "mtime changed" for the run.
-        if (ev.config && ev.config.applied) {
-            if (ev.config.mtimeRestored === false)
-                s.desktopReceiversOptedOut.configMtimeRestored = false;
-            else if (
-                ev.config.mtimeRestored === true &&
-                s.desktopReceiversOptedOut.configMtimeRestored !== false
-            )
-                s.desktopReceiversOptedOut.configMtimeRestored = true;
-        }
+        recordDesktopConfig(ev, s);
         if (side === 'receiver' && ev.saveDir && ev.saveDir.changed) {
             const ok = ev.saveDir.restored === true;
             s.saveDirRestored = s.saveDirRestored === false ? false : ok;
