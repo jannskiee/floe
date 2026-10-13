@@ -1,0 +1,269 @@
+---
+title: "Glossary"
+sidebarTitle: "Glossary"
+description: "Plain definitions of the words Floe and these docs use, from share link and relay to WebRTC and STUN, each with a link to the page that explains it."
+keywords: ["glossary", "definitions", "what does it mean", "terms", "jargon", "what is a relay", "what is webrtc"]
+---
+
+This page explains the words you meet in Floe and in these docs, in one or two plain sentences
+each. Every entry ends with a link to the page that covers the subject properly.
+
+## Words you see in Floe
+
+Labels on screen, and the names Floe gives to what it shows you.
+
+### .floe-blocked file {#floe-blocked-file}
+
+A file from a request link that Floe Desktop saved with `.floe-blocked` added to its name, so File
+Explorer leaves it alone. Floe does this to the few file types that File Explorer opens by itself,
+such as `.lnk` and `.url`. Rename a file back only if you trust it. See
+[Request links](/desktop/request-links#renamed-files).
+
+### .part file {#part-file}
+
+A file that Floe Desktop or the `floe` CLI is still receiving, named like `report.pdf.part`. It
+gets its real name only once it is complete and has passed its checks. Anything in the folder
+without `.part` is whole. See [Receiving files](/desktop/receiving#if-a-transfer-stops-partway).
+
+### Auto-accept {#auto-accept}
+
+A check on one request link in Floe Desktop that lets files through that link save without the
+Accept step. It is off on every new link, and an unusual drop still asks first. See
+[Request links](/desktop/request-links#auto-accept).
+
+### badge {#badge}
+
+The dot and word at the top right of the transfer card. In the web app it reads **Offline**,
+**Ready**, **Direct** or **Relay**, and the last two tell you which way your files travel. See
+[Sending files](/web-app/sending#watch-the-connection).
+
+### Beta {#beta}
+
+A label for a part of Floe that you can use today but that is still being finished. Floe Desktop
+and request links carry it. See [Which Floe to use](/choosing-floe#feature-by-feature).
+
+### drop {#drop}
+
+One sending through a request link: everything one person sends in one go. A request link takes
+one drop and is then used up. See [Request links](/desktop/request-links#what-a-request-link-is).
+
+### Hide my IP {#hide-my-ip}
+
+A setting that sends everything through the [relay](#relay), so the other person sees the relay's
+address and not yours. It limits a transfer to 2 GB. Floe Desktop calls it **Hide my IP address**,
+a request link's page **Hide my IP (relay only, 2 GB per drop)**, and the CLI `--relay-only`. See
+[Relay fallback](/how-it-works/relay-connection#turning-it-off-and-the-opposite).
+
+### Network relay fallback {#network-relay-fallback}
+
+The checkbox on the web app's sending page that lets Floe use the [relay](#relay) when a direct
+connection is not possible. It is checked by default. These docs also call it relay fallback, and
+the CLI's `--no-relay` is the same as unchecking it. See
+[Sending files](/web-app/sending#decide-whether-the-relay-is-allowed).
+
+### peer {#peer}
+
+The other device in a transfer. The web app's status line uses the word: "Waiting for peer" means
+your page is waiting for the other device to join. See
+[Sending files](/web-app/sending#watch-the-connection).
+
+### request link {#request-link}
+
+A link made in Floe Desktop that works the other way around: whoever opens it sends files to the
+PC that made it. It has `/r/` in its address, takes one drop, and is in Beta. See
+[Request links](/desktop/request-links).
+
+### room code {#room-code}
+
+Three words, such as `olive-tiger-castle`, that the receiver can type in place of a link.
+`floe send` and Floe Desktop show one, and it works for 10 minutes at most. The web app neither
+makes nor accepts room codes. See
+[How a transfer works](/how-it-works/signaling#code-and-link-lifetime).
+
+### SHA-256 matched {#sha-256-matched}
+
+The line Floe shows when every file of a transfer matched the [SHA-256](#sha-256) the sender
+computed. It means the files arrived intact, not that they are safe to open. Floe Desktop shows a
+green check mark in place of the words. See
+[File checks](/how-it-works/file-checks#what-you-see-in-each-app).
+
+### share link {#share-link}
+
+The web address a sender gives the receiver. Opening it joins that one transfer, and it works only
+while the sender is still connected. See [Sending files](/web-app/sending#create-the-link).
+
+## How a transfer travels
+
+The ideas behind where your files go and who can see what.
+
+### direct connection {#direct-connection}
+
+A connection straight from one device to the other, with no server carrying the files. Floe sets
+no size limit on it, and most transfers are direct. See
+[Direct connections](/how-it-works/direct-connection).
+
+### encrypted end to end {#encrypted-end-to-end}
+
+Scrambled on your device and unscrambled only on the other person's, so nothing in between can
+read your files. That includes Floe's own servers, and every transfer works this way. See
+[Encryption](/how-it-works/encryption).
+
+### Floe's server / signaling server {#signaling-server}
+
+The server that introduces two devices so they can connect to each other. It passes their
+connection details and never receives your files. These docs call it Floe's server or the
+signaling server. See [How a transfer works](/how-it-works/signaling#what-the-server-does).
+
+### in-app browser {#in-app-browser}
+
+The small browser built into another app, such as Instagram or Facebook, that opens links inside
+that app. File transfers work poorly there, so Floe asks you to open the link in your own browser.
+See [Receiving files](/web-app/receiving#if-floe-says-open-in-your-browser).
+
+### IP address {#ip-address}
+
+The number that identifies your connection on the internet. It can show your internet provider and
+roughly where you are. On a direct connection the other person's device learns it. See
+[Known limitations](/how-it-works/known-limitations#the-other-person-learns-your-ip-address).
+
+### peer-to-peer {#peer-to-peer}
+
+Sent from one device to the other, with no server in between that stores the files or can read
+them. Floe's server only introduces the two devices. See
+[How a transfer works](/how-it-works/signaling).
+
+### relay / TURN relay {#relay}
+
+A server both devices can reach that passes the encrypted data along when they cannot connect
+directly. It cannot read the files, and a transfer through it is limited to 2 GB. Relay, TURN
+relay, relay fallback, **Network relay fallback**, **Hide my IP** and `--relay-only` all refer to
+this one server: some name it, and some are the settings that allow or require it. See
+[Relay fallback](/how-it-works/relay-connection).
+
+### room {#room}
+
+The private meeting point on Floe's server for one transfer. It holds two devices, one sender and
+one receiver, and turns a third away. A share link carries the room's id after the `#`. See
+[How a transfer works](/how-it-works/signaling#a-room-holds-exactly-two-people).
+
+### self-hosted {#self-hosted}
+
+Run on your own server instead of on floe.one. You run Floe's server and the web app yourself, and
+these docs call that setup an instance. The CLI and Floe Desktop can be pointed at it. See
+[Self-hosting overview](/self-hosting/overview).
+
+### SHA-256 {#sha-256}
+
+A fingerprint worked out from a file's contents. When the sender's and the receiver's fingerprints
+match, the file arrived unchanged. Floe never shows the value itself, only whether every file
+matched. See [File checks](/how-it-works/file-checks#the-sha-256-check).
+
+## Technical terms
+
+Names you can skip until an error message or a setup page uses one.
+
+### CLI {#cli}
+
+Short for command-line interface: a program you use by typing commands in a terminal. Floe's is
+the `floe` command, for macOS, Windows and Linux. See [Install the CLI](/cli/installation).
+
+### data channel {#data-channel}
+
+The encrypted connection between the two devices that carries the files. It is part of
+[WebRTC](#webrtc), and the signaling server is not part of it. See
+[Encryption](/how-it-works/encryption#how-the-encryption-works).
+
+### Docker Compose {#docker-compose}
+
+A tool that starts a set of packaged programs with one command, from one settings file. It is the
+standard way to run your own Floe. See [Docker quickstart](/self-hosting/quickstart).
+
+### DTLS {#dtls}
+
+The encryption that protects a WebRTC connection. It is the protection behind `https` web
+addresses, called TLS, adapted to this kind of connection. See
+[Encryption](/how-it-works/encryption#how-the-encryption-works).
+
+### ICE {#ice}
+
+The step in which the two devices try the network paths between them and keep one that works. Its
+result decides whether a transfer is direct or relayed. See
+[Direct connections](/how-it-works/direct-connection#how-floe-decides-a-connection-counts-as-direct).
+
+### mark of the web {#mark-of-the-web}
+
+The tag Windows puts on a file that came from the internet, so that it takes care before opening
+it. Floe Desktop and the CLI put it on every file they receive on Windows, where the drive can
+keep it. See [Receiving files](/desktop/receiving#received-files-are-marked-as-downloads).
+
+### NAT {#nat}
+
+The way a router lets many devices share one public address. Because of it, two devices usually
+cannot reach each other without help, which is what [STUN](#stun) and the [relay](#relay) are for.
+See
+[Direct connections](/how-it-works/direct-connection#how-two-devices-on-different-networks-find-each-other).
+
+### package manager {#package-manager}
+
+A tool that installs and updates programs for you, such as Homebrew, winget or Scoop. It is the
+fastest way to install the `floe` CLI. See [Install the CLI](/cli/installation#package-managers).
+
+### PATH {#path}
+
+The list of folders your terminal searches when you type a command name. `floe` runs by name only
+when its folder is on that list. See
+[Troubleshooting](/troubleshooting#floe-is-not-found-after-installing).
+
+### rate limit {#rate-limit}
+
+A cap on how many requests one network address may make in a set time, 60 seconds for most. Past
+it, Floe's server refuses more until earlier requests are old enough, so it clears by itself. See
+[Limits](/reference/limits#server-limits).
+
+### reverse proxy {#reverse-proxy}
+
+A web server, such as Caddy or nginx, placed in front of Floe that receives visitors' requests and
+passes them on. A self-hosted Floe in production normally sits behind one. See
+[Reverse proxy](/self-hosting/reverse-proxy).
+
+### SmartScreen {#smartscreen}
+
+The Windows warning shown the first time you run a program that carries no publisher's signature.
+Floe Desktop from GitHub shows it, and the Microsoft Store version does not. See
+[Install the desktop app](/desktop/installation#choose-a-channel).
+
+### STUN {#stun}
+
+A helper server that tells a device what its address looks like from the internet, so two devices
+can try to connect directly. It never sees a file. See
+[Direct connections](/how-it-works/direct-connection#how-two-devices-on-different-networks-find-each-other).
+
+### TURN {#turn}
+
+The technical name for the kind of [relay](#relay) Floe uses. Where these docs say TURN or TURN
+relay, they mean the relay. See [Relay fallback](/how-it-works/relay-connection).
+
+### URL fragment {#url-fragment}
+
+The part of a web address after the `#`. A browser does not send it when it requests a page, so
+the room id Floe keeps there stays out of web server logs. See
+[Security and privacy](/security-privacy#the-room-secret-stays-out-of-every-server-log).
+
+### WebRTC {#webrtc}
+
+The technology, built into browsers, that connects two devices to each other and encrypts what
+passes between them. Floe uses it to carry your files, in the web app, Floe Desktop and the CLI
+alike. See [How a transfer works](/how-it-works/signaling).
+
+### WebSocket {#websocket}
+
+A connection that stays open so a program and a server can send each other messages at any time.
+The CLI and Floe Desktop use one to talk to Floe's server, and the web app uses a library called
+Socket.IO for the same job. See
+[Architecture](/reference/architecture#two-signaling-transports-one-room-registry).
+
+### WebView2 {#webview2}
+
+A Microsoft component that Floe Desktop uses to draw its window. Windows 11 includes it, and Floe
+offers to install it when it is missing. See
+[Install the desktop app](/desktop/installation#requirements).
