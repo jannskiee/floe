@@ -663,6 +663,12 @@ export const LAUNCH_SETTLE_MS = 40_000;
 /** Clock slack before the launch call, for the same comparison. */
 export const UNFOUND_EARLY_MS = 2_000;
 /**
+ * How long the stop of a launch that returned no pid looks for its process
+ * before it concludes there is none. A Store start goes through the shell,
+ * and that call returns before the app's process exists.
+ */
+export const UNFOUND_LOOK_MS = 6_000;
+/**
  * An earlier cell of the run could not put the owner's app back as it found
  * it (lib/request.mjs markHostRelease). Nothing more is launched on an exe
  * lane after that: the next cell would build on the leftover and add to it.
@@ -2157,7 +2163,7 @@ export class UiaDriver {
         // Only the first set of this driver read the owner's value; a later
         // one reads the run's own folder.
         if (set && this._saveToBefore === undefined)
-            this._noteSaveToBefore(String(set.before ?? ''));
+            this._noteSaveToBefore(set.before);
         if (!set || set.after !== saveDir)
             throw new PhaseError(
                 'request',
@@ -3350,6 +3356,7 @@ export class DesktopLeg extends Leg {
         this._launching = null;
         this._launchCounted = false;
         this._unfoundNotEnded = [];
+        this._unfound = null;
         this._saveToDrift = null;
         this.samples = [];
         // The latest DIRECT or RELAY sample; route() reports it even after
@@ -4021,7 +4028,7 @@ export class DesktopLeg extends Leg {
         const own = ownerValue(
             this.mode === 'store' ? this.ownerState : null,
             'receiveSaveDir',
-            orig.value ?? '',
+            orig.value,
             isAuditFolder
         );
         this.saveDir.original = own.before;
@@ -4717,16 +4724,35 @@ export class DesktopLeg extends Leg {
      * own (ownsUnfound); anything else is left running and named.
      */
     async endUnfoundApp() {
+        // What this stop did about the launch, for leftBehind: a launch with
+        // no window is never "closed by itself", whatever became of it.
+        this._unfound = { ended: [], left: [], failed: [], listFailed: false };
         let left = [];
-        try {
-            left = await listDesktopProcesses(this.lister);
-        } catch (err) {
-            this.note(`unfound app: the process list failed: ${err.message}`);
-            return;
+        // A start through the shell returns before the app's process exists
+        // (no pid came back). An empty list right then is not "nothing was
+        // started": look for a few seconds before concluding, or the app
+        // comes up after this stop with nobody to end it (third review of
+        // #542, finding 3).
+        const span = this.launchSpan;
+        const lookUntil =
+            span && span.pid === null
+                ? Date.now() + (this.opts.unfoundLookMs ?? UNFOUND_LOOK_MS)
+                : 0;
+        for (;;) {
+            try {
+                left = await listDesktopProcesses(this.lister);
+            } catch (err) {
+                this._unfound.listFailed = true;
+                this.note(`unfound app: the process list failed: ${err.message}`);
+                return;
+            }
+            if (left.length || Date.now() >= lookUntil) break;
+            await sleep(500);
         }
         for (const p of left) {
             const own = await this.ownsUnfound(p);
             if (own !== true) {
+                this._unfound.left.push(p.pid);
                 this.note(
                     `unfound app: left ${p.image} pid ${p.pid} running (${own}); if it is the audit's, close it by hand`
                 );
@@ -4734,10 +4760,12 @@ export class DesktopLeg extends Leg {
             }
             try {
                 await (this.opts.kill ?? taskkill)(p.pid);
+                this._unfound.ended.push(p.pid);
                 this.note(
                     `unfound app: ended ${p.image} pid ${p.pid}, which this leg launched and never found a window for`
                 );
             } catch (err) {
+                this._unfound.failed.push(p.pid);
                 this._unfoundNotEnded.push(p.pid);
                 this.note(`unfound app: could not end pid ${p.pid}: ${err.message}`);
             }
@@ -4787,6 +4815,21 @@ export class DesktopLeg extends Leg {
             out.push(
                 `an app this leg started could not be ended (pid ${this._unfoundNotEnded.join(', ')})`
             );
+        } else if (this._unfound) {
+            // The launch never showed a window. Whatever the stop did about
+            // it, the app did not close by itself, and the row must not say
+            // it did (third review of #542, finding 2).
+            const u = this._unfound;
+            if (u.listFailed)
+                out.push('the launch showed no window and the process list could not be read');
+            if (u.ended.length)
+                out.push(
+                    `the launch showed no window and its process was ended with taskkill (pid ${u.ended.join(', ')})`
+                );
+            if (u.left.length)
+                out.push(
+                    `the launch showed no window, and a Floe process that may be its own was left running (pid ${u.left.join(', ')})`
+                );
         }
         if (this.saveDir.changed && this.saveDir.restored !== true)
             out.push('the save folder of a code Receive was not put back');
@@ -5716,12 +5759,11 @@ const PROBES = {
             leg = await probeLeg(opts);
             const d = leg.driver;
             await openReceiveCode(d);
-            const read =
-                (
-                    await d.getValue(STRINGS.saveDirPlaceholder, {
-                        scope: 'receive',
-                    })
-                ).value ?? '';
+            const read = (
+                await d.getValue(STRINGS.saveDirPlaceholder, {
+                    scope: 'receive',
+                })
+            ).value;
             // A probe or a cell that died between its set and its restore
             // left its own folder here: that is not what goes back.
             const own = ownerValue(

@@ -128,6 +128,25 @@ test('ownerValue: with nothing kept, or no record at all, a leftover goes back t
         // null and undefined read as the empty field.
         assert.equal(ownerValue(null, 'receiveSaveDir', null, isAuditFolder).before, '');
         assert.equal(ownerValue(null, 'receiveSaveDir', undefined, isAuditFolder).before, '');
+        // And a field that could not be read is never KEPT as the owner's:
+        // an empty record would later go back over a folder they had chosen
+        // (third review of #542, finding 4).
+        const fresh = tmp();
+        try {
+            for (const unread of [undefined, null, 7, {}, ['D:' + String.fromCharCode(92) + 'x']]) {
+                assert.deepEqual(ownerValue(ownerStateFor(fresh), 'receiveSaveDir', unread, isAuditFolder), {
+                    before: '',
+                    leftover: null,
+                    recalled: false,
+                });
+                assert.equal(ownerStateFor(fresh).recall('receiveSaveDir'), null, String(unread));
+            }
+            // The empty string is a real reading: the owner never chose a folder.
+            ownerValue(ownerStateFor(fresh), 'receiveSaveDir', '', isAuditFolder);
+            assert.equal(ownerStateFor(fresh).recall('receiveSaveDir').value, '');
+        } finally {
+            rmSync(fresh, { recursive: true, force: true });
+        }
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }

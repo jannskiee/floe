@@ -36,6 +36,7 @@ import {
     purgeRunData,
     readProbe,
     serverFeaturesRow,
+    PROBE_RUN,
     serverFor,
     unrestoredDesktopLine,
     unrestoredDesktopRuns,
@@ -2911,4 +2912,101 @@ test('run hands every desktop leg the records the Safety table reads, and says -
     const probing = io(fakeWorld());
     await main(['probe', '--desktop', 'portable', '--user-away', '--no-idle-check', '--root', root, '--out', out('shared-wiring-probe')], probing);
     assert.match(probing.lines[1], /--no-idle-check/);
+});
+
+// Third review of #542, finding 1. The desktop probes launch the Store app
+// behind the same guard a run uses, and they are the first and longest
+// command of a session. A probe killed between an edit and its restore left
+// nothing the start check could read, because only a run had a manifest.
+test('the desktop probes get a manifest of their own, which the start check reads and cleanup replays', async () => {
+    const outDir = out('probe-manifest');
+    let handed = null;
+    const base0 = io(fakeWorld());
+    const probing = {
+        ...base0,
+        getAdapter: async (name) => {
+            const adapter = await base0.getAdapter(name);
+            if (name !== 'desktop') return adapter;
+            return {
+                ...adapter,
+                probe: async (o) => {
+                    handed = o;
+                    return adapter.probe(o);
+                },
+            };
+        },
+        tryAdapter: async (name) => probing.getAdapter(name),
+    };
+    await main(['probe', '--desktop', 'portable', '--allow-foreground', '--root', root, '--out', outDir], probing);
+    assert.ok(handed, 'the desktop probe ran');
+    const shared = handed.shared;
+    assert.equal(shared.manifest.runId, PROBE_RUN);
+    assert.equal(shared.manifest.binDir, null, 'nothing for cleanup to delete');
+    assert.deepEqual(shared.manifest.fixtureDirs, []);
+    assert.equal(shared.ownerState.file, path.join(outDir, 'owner-state.json'));
+
+    // What a leg does when its guard edits desktop.json (recordGuard), and
+    // then the process dies before the restore.
+    const bak = path.join(outDir, 'probe', 'p9', 'desktop.json.bak');
+    mkdirSync(path.dirname(bak), { recursive: true });
+    writeFileSync(bak, '{"reportStats":true}\n');
+    shared.manifest.desktop = {
+        backup: bak,
+        configPath: path.join(base, 'appdata', 'floe', 'desktop.json'),
+        sha256: 'x',
+        restored: null,
+    };
+    shared.writeManifest();
+    const file = path.join(outDir, PROBE_RUN, 'manifest.json');
+    assert.equal(JSON.parse(readFileSync(file, 'utf8')).desktop.backup, bak);
+
+    // The next command sees it and names the cleanup.
+    assert.deepEqual(unrestoredDesktopRuns(outDir), [{ runId: PROBE_RUN, backup: bak }]);
+    assert.match(unrestoredDesktopLine({ out: outDir, desktop: 'store' }), /cleanup --run probe --out /);
+    const refused = io(fakeWorld());
+    assert.equal(
+        await main(['run', '--quick', '--allow-foreground', '--root', root, '--out', outDir], { ...refused, cellHook: shrink }),
+        3
+    );
+
+    // A bare cleanup still means the newest RUN: the probes' folder sorts
+    // after every run id and is not one.
+    const runId = '20260107-000000-shipped-quick';
+    mkdirSync(path.join(outDir, runId), { recursive: true });
+    writeFileSync(
+        path.join(outDir, runId, 'manifest.json'),
+        JSON.stringify({
+            runId,
+            binDir: null,
+            pids: [],
+            desktop: { backup: null, configPath: null, sha256: null, restored: null },
+            stack: { started: false },
+            fixtureDirs: [],
+            appDataRedirect: null,
+        })
+    );
+    const seen = [];
+    const restoring = () =>
+        io(fakeWorld(), {
+            tryAdapter: async (name) =>
+                name === 'desktop'
+                    ? {
+                          restoreConfig: async (rec) => {
+                              seen.push(rec.backup);
+                              return { ok: true, written: true, detail: 'restored (fake)' };
+                          },
+                      }
+                    : null,
+        });
+    assert.equal(await main(['cleanup', '--keep', '--root', root, '--out', outDir], restoring()), 0);
+    assert.deepEqual(seen, [], 'the newest run had no edit, and the probe folder was not taken for it');
+    assert.equal(unrestoredDesktopRuns(outDir).length, 1);
+
+    // cleanup --run probe replays the backup, records it, and deletes nothing.
+    const done = restoring();
+    assert.equal(await main(['cleanup', '--run', PROBE_RUN, '--keep', '--root', root, '--out', outDir], done), 0, done.errors.join('\n'));
+    assert.deepEqual(seen, [bak]);
+    assert.equal(JSON.parse(readFileSync(file, 'utf8')).desktop.restored, true);
+    assert.ok(existsSync(bak), 'the probe evidence is kept');
+    assert.deepEqual(unrestoredDesktopRuns(outDir), []);
 });

@@ -960,6 +960,8 @@ async function runProbes({ opts, io, ledger, fence, log, builds, versions }) {
                     portableExe: d.portableExe,
                     binDir: opts.binDir,
                     out: opts.out,
+                    // The record a killed probe leaves for the next command.
+                    shared: probeSharedFor(opts),
                     build: d.build,
                     userAway: opts.userAway,
                     allowForeground: Boolean(opts.allowForeground),
@@ -2773,6 +2775,46 @@ export function unrestoredDesktopRuns(outDir) {
     return left.sort((a, b) => a.runId.localeCompare(b.runId));
 }
 
+/** The folder under --out that holds the probes' evidence and their manifest. */
+export const PROBE_RUN = 'probe';
+
+/**
+ * What the desktop probes hand their legs. The probes launch the Store app
+ * behind the same guard a run uses, five times over, and they are the
+ * longest command of a session. A probe killed between an edit of
+ * desktop.json and its restore used to leave nothing the next command's
+ * start check could read, because only a run had a manifest (third review
+ * of #542, finding 1). <out>/probe/manifest.json is that record, in the
+ * shape `cleanup --run probe` replays; it names nothing for cleanup to
+ * delete.
+ */
+export function probeSharedFor(opts) {
+    const dir = path.join(opts.out, PROBE_RUN);
+    const file = path.join(dir, 'manifest.json');
+    const manifest = {
+        runId: PROBE_RUN,
+        kind: 'probe',
+        startedAt: new Date().toISOString(),
+        out: opts.out,
+        runDir: dir,
+        binDir: null,
+        binDirOwned: false,
+        pids: [],
+        desktop: { backup: null, configPath: null, sha256: null, restored: null },
+        stack: { owned: false, started: false },
+        fixtureDirs: [],
+        appDataRedirect: null,
+    };
+    return {
+        manifest,
+        writeManifest: () => {
+            mkdirSync(dir, { recursive: true });
+            writeJson(file, manifest);
+        },
+        ownerState: ownerStateFor(opts.out),
+    };
+}
+
 /** The refusal for unrestoredDesktopRuns, or null when a run may start. */
 export function unrestoredDesktopLine(opts) {
     if (opts.desktop === 'none' || opts.desktop === 'wailsdev') return null;
@@ -2788,6 +2830,9 @@ function newestRun(outDir) {
         .filter(
             (e) =>
                 e.isDirectory() &&
+                // The probes' folder has a manifest too; it is not a run, and
+                // its name would sort after every run id.
+                e.name !== PROBE_RUN &&
                 existsSync(path.join(outDir, e.name, 'manifest.json'))
         )
         .map((e) => e.name)

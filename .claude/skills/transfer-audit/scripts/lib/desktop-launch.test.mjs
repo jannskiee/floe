@@ -17,6 +17,7 @@ import {
     RELEASE_FIND_MS,
     ShellMenuGuard,
     UNFOUND_BORN_MS,
+    UNFOUND_LOOK_MS,
     activeLegs,
     launchProcess,
     listDesktopProcesses,
@@ -1265,7 +1266,7 @@ test('the Store lane arms the Explorer verb guard too, naming the package exe', 
                 shellMenu: fakeMenu(state),
                 infra: { server: 'http://127.0.0.1:9', web: 'http://127.0.0.1:9' },
             });
-        const exe = 'C:\Program Files\WindowsApps\Floe_1.3.0.0_x64__abc\floe-desktop.exe';
+        const exe = 'C:\\Program Files\\WindowsApps\\Floe_1.3.0.0_x64__abc\\floe-desktop.exe';
         for (const state of ['absent', 'armed']) {
             calls.length = 0;
             const l = leg(state);
@@ -1495,4 +1496,202 @@ test('the last look before the close catches a Save to field that moved after it
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
+});
+
+// Third review of #542, findings 2 and 3. A launch that never showed a window
+// read "yes, closed by itself" in the Safety row whatever became of its
+// process, and a Store start through the shell returns before the app's
+// process exists, so a stop that looked once found nothing and ended nothing.
+test('a launch that never showed a window is never reported as closed by itself', async () => {
+    const dir = tmp();
+    const unfound = (over) => {
+        const legs = { launched: 0, stopped: 0, problems: [] };
+        const killed = [];
+        let listed = 0;
+        const leg = new DesktopLeg({
+            role: 'receiver',
+            cellId: `T-GATE-NOWIN-${over.id}`,
+            input: 'code',
+            code: 'a-b-c',
+            outDir: path.join(dir, `out-${over.id}`),
+            build: { launch: 'portable', path: 'C:\\bogus\\floe-desktop.exe' },
+            scratch: dir,
+            allowForeground: true,
+            shared: { desktopLegs: legs },
+            unfoundLookMs: over.lookMs ?? 0,
+            uia: {
+                log() {},
+                async findWindow() {
+                    throw new Error('no window within the timeout');
+                },
+                async close() {},
+            },
+            lister: async () => {
+                listed += 1;
+                if (over.listFails && listed > 1) throw new Error('tasklist exited 1');
+                return over.rows(listed);
+            },
+            launcher: async () => ({ child: null, pid: over.launchPid ?? null }),
+            kill: async (pid) => {
+                if (over.killFails) throw new Error('access denied');
+                killed.push(pid);
+            },
+            creationTime: over.creationTime ?? (async () => new Date().toISOString()),
+            monitor: 'off',
+            shellMenu: new ShellMenuGuard({ platform: 'linux' }),
+            infra: { server: 'http://127.0.0.1:9', web: 'http://127.0.0.1:9' },
+        });
+        return { leg, legs, killed, listings: () => listed };
+    };
+    const run = async (over) => {
+        const u = unfound(over);
+        await assert.rejects(u.leg.launch([]), /no window within the timeout/);
+        await u.leg.stop('failed');
+        return u;
+    };
+    // The first listing is the second-instance check before the launch.
+    const after = (rows) => (n) => (n > 1 ? rows : []);
+    try {
+        // Ended with taskkill: counted as stopped, and said.
+        let u = await run({ id: 'ended', launchPid: 21, rows: after([{ image: EXE_NAME, pid: 21 }]) });
+        assert.deepEqual(u.killed, [21]);
+        assert.deepEqual(u.legs, {
+            launched: 1,
+            stopped: 1,
+            problems: ['T-GATE-NOWIN-ended: the launch showed no window and its process was ended with taskkill (pid 21)'],
+        });
+
+        // Left running because it cannot be shown to be this leg's: said.
+        u = await run({ id: 'left', rows: after([{ image: EXE_NAME, pid: 31 }]), creationTime: async () => null });
+        assert.deepEqual(u.killed, []);
+        assert.deepEqual(u.legs.problems, [
+            "T-GATE-NOWIN-left: the launch showed no window, and a Floe process that may be its own was left running (pid 31)",
+        ]);
+
+        // The kill failed: said, once.
+        u = await run({ id: 'failed', launchPid: 41, rows: after([{ image: EXE_NAME, pid: 41 }]), killFails: true });
+        assert.deepEqual(u.legs.problems, ['T-GATE-NOWIN-failed: an app this leg started could not be ended (pid 41)']);
+
+        // The list could not be read: not a yes.
+        u = await run({ id: 'nolist', launchPid: 51, rows: () => [], listFails: true });
+        assert.deepEqual(u.legs.problems, [
+            'T-GATE-NOWIN-nolist: the launch showed no window and the process list could not be read',
+        ]);
+
+        // No process at all, with a pid from the launch: nothing was left,
+        // and one look is enough.
+        // (a look of 1.5 s is on offer here, and must not be taken)
+        u = await run({ id: 'none', launchPid: 61, rows: () => [], lookMs: 1500 });
+        assert.deepEqual(u.legs.problems, []);
+        assert.equal(u.listings(), 2, 'no polling when the launch returned a pid');
+    } finally {
+        for (const l of activeLegs) if (/^T-GATE/.test(l.opts?.cellId ?? '')) activeLegs.delete(l);
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('a start through the shell whose process appears after the stop began is still found and ended', async () => {
+    const dir = tmp();
+    try {
+        assert.equal(UNFOUND_LOOK_MS, 6_000);
+        const killed = [];
+        let listed = 0;
+        const leg = new DesktopLeg({
+            role: 'receiver',
+            cellId: 'T-GATE-LATE-PROCESS',
+            input: 'code',
+            code: 'a-b-c',
+            outDir: path.join(dir, 'out'),
+            build: { launch: 'portable', path: 'C:\\bogus\\floe-desktop.exe' },
+            scratch: dir,
+            allowForeground: true,
+            unfoundLookMs: 5_000,
+            uia: {
+                log() {},
+                async findWindow() {
+                    throw new Error('no window within the timeout');
+                },
+                async close() {},
+            },
+            // Nothing before the launch, nothing at the stop's first two
+            // looks, then the process the shell started.
+            lister: async () => {
+                listed += 1;
+                return listed >= 4 && !killed.length ? [{ image: EXE_NAME, pid: 7171 }] : [];
+            },
+            // No pid: what a start through explorer.exe returns.
+            launcher: async () => ({ child: null, pid: null }),
+            kill: async (pid) => void killed.push(pid),
+            creationTime: async () => new Date().toISOString(),
+            monitor: 'off',
+            shellMenu: new ShellMenuGuard({ platform: 'linux' }),
+            infra: { server: 'http://127.0.0.1:9', web: 'http://127.0.0.1:9' },
+        });
+        await assert.rejects(leg.launch([]), /no window within the timeout/);
+        await leg.stop('failed');
+        assert.deepEqual(killed, [7171], 'found on a later look and ended');
+        assert.ok(listed >= 4);
+
+        // With no process ever, the look ends at its bound and ends nothing.
+        const never = new DesktopLeg({
+            role: 'receiver',
+            cellId: 'T-GATE-NO-PROCESS',
+            input: 'code',
+            code: 'a-b-c',
+            outDir: path.join(dir, 'out2'),
+            build: { launch: 'portable', path: 'C:\\bogus\\floe-desktop.exe' },
+            scratch: dir,
+            allowForeground: true,
+            unfoundLookMs: 700,
+            uia: {
+                log() {},
+                async findWindow() {
+                    throw new Error('no window within the timeout');
+                },
+                async close() {},
+            },
+            lister: async () => [],
+            launcher: async () => ({ child: null, pid: null }),
+            kill: async (pid) => void killed.push(pid),
+            monitor: 'off',
+            shellMenu: new ShellMenuGuard({ platform: 'linux' }),
+            infra: { server: 'http://127.0.0.1:9', web: 'http://127.0.0.1:9' },
+        });
+        await assert.rejects(never.launch([]), /no window within the timeout/);
+        const t0 = Date.now();
+        await never.stop('failed');
+        const took = Date.now() - t0;
+        assert.ok(took >= 600 && took < 4_000, `looked for ${took} ms`);
+        assert.deepEqual(killed, [7171]);
+    } finally {
+        for (const l of activeLegs) if (/^T-GATE/.test(l.opts?.cellId ?? '')) activeLegs.delete(l);
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+// Third review: six of the eight checks could be removed one at a time with
+// every test still green. Each sits after one await of the launch, and what
+// it guards is in the comment beside it; the count and the two that matter
+// most are pinned here.
+test('every await of a launch is followed by its stopped-while-starting check', () => {
+    const src = readFileSync(fileURLToPath(new URL('./desktop.mjs', import.meta.url)), 'utf8');
+    const launch = src.slice(src.indexOf('    async _launch(files = []) {'), src.indexOf('    spend(kind) {'));
+    assert.equal(launch.split('this.haltIfStopped();').length - 1, 8);
+    const at = (text) => {
+        const i = launch.indexOf(text);
+        assert.ok(i > 0, `not found in the launch: ${text}`);
+        return i;
+    };
+    const next = (from) => launch.indexOf('this.haltIfStopped();', from);
+    // Before desktop.json is edited: after the idle read.
+    assert.ok(next(at('const idle = await this.idleSeconds();')) < at('await this.guard.apply();'));
+    // After the edit and its record, before anything is launched.
+    assert.ok(next(at('this.recordGuard();')) < at('const launched = await this.launcher('));
+    // After the helper is up, still before the launch call.
+    assert.ok(next(at('const client = await this.uia();')) < at('const launched = await this.launcher('));
+    // After the launch call, before the window search.
+    assert.ok(next(at('this.registerPid(this.pid);')) < at('const win = await client.findWindow('));
+    // After the window search, once the driver exists for the stop to close.
+    // (the wailsdev branch above has a waitTree of its own, so the last one)
+    assert.ok(next(at('this.driver = new UiaDriver(')) < launch.lastIndexOf('await this.driver.waitTree('));
 });

@@ -77,9 +77,14 @@ export function ownerStateFor(outDir, { now = () => new Date() } = {}) {
  *   recalled: true when `before` came from the kept record
  */
 export function ownerValue(state, key, read, isLeftover) {
-    const value = String(read ?? '');
+    // A field that could not be read (no value came back) goes back to
+    // empty, as it always has, but it is never KEPT as the owner's: an empty
+    // record would later be put back over a folder the owner had chosen
+    // (third review of #542, finding 4).
+    const known = typeof read === 'string';
+    const value = known ? read : '';
     if (!isLeftover(value)) {
-        if (state) state.remember(key, value);
+        if (state && known) state.remember(key, value);
         return { before: value, leftover: null, recalled: false };
     }
     const kept = state ? state.recall(key) : null;

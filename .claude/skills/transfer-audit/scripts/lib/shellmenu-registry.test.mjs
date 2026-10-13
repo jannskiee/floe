@@ -23,7 +23,6 @@ import {
     readShellMenu,
     shellMenuCommand,
 } from './desktop.mjs';
-import { SafetyError } from './surfaces.mjs';
 
 const WIN = process.platform === 'win32';
 const ROOT = `Software\\FloeTransferAuditTest-${process.pid}-${randomBytes(4).toString('hex')}`;
@@ -167,5 +166,4 @@ test('a base key with no command is left alone for the rest of the process', { s
     guard.own('C:\\Temp\\lta-run\\bin\\floe-desktop.exe');
     assert.deepEqual(guard.restore(), { wrote: false, match: null });
     assert.equal(exists(key), true);
-    assert.ok(SafetyError);
 });

@@ -3782,3 +3782,100 @@ test("a code Receive that finds an earlier audit's folder in its save field neve
         rmSync(out, { recursive: true, force: true });
     }
 });
+
+// Third review of #542: no test executed P9, the probe that types into the
+// code Receive folder and puts it back, and it runs in the first command of
+// a session. With its restore changed to write the raw read back, every
+// suite stayed green.
+test('P9 on fakes: the folder goes back to what the owner had, and a folder an earlier audit left there never does', async () => {
+    const dir = tmp();
+    // One window for both launches of the probe: the field outlives a close,
+    // as the app's own remembered folder does.
+    const windowWith = (value) => {
+        const win = { value, sets: [], open: false };
+        win.client = {
+            log() {},
+            async findWindow() {
+                win.open = true;
+                return { hwnd: 4242, pid: 0, exe: 'C:\\bogus\\floe-desktop.exe', minimized: false, visible: true };
+            },
+            async waitTree() {
+                return { ready: true };
+            },
+            async readText() {
+                return { texts: [], count: 0 };
+            },
+            async retry() {
+                return {};
+            },
+            async request(cmd, params = {}) {
+                if (!win.open) throw Object.assign(new Error('not-a-window'), { reason: 'not-a-window' });
+                if (cmd === 'foreground-check') return { foreground: false, idleSeconds: 999 };
+                if (cmd === 'get-value') return { value: win.value, matchedBy: 'name' };
+                if (cmd === 'set-value') {
+                    const before = win.value;
+                    win.value = params.value;
+                    win.sets.push(params.value);
+                    return { before, after: params.value, matchedBy: 'name' };
+                }
+                return {};
+            },
+            async capture() {
+                return { path: null };
+            },
+            async closeWindow() {
+                win.open = false;
+                return { posted: true };
+            },
+            async show() {
+                return { wasIconic: false, iconic: false };
+            },
+            async close() {
+                return null;
+            },
+        };
+        return win;
+    };
+    const p9 = (win, out) =>
+        probe({
+            probe: 'P9',
+            build: { launch: 'portable', path: 'C:\\bogus\\floe-desktop.exe' },
+            scratch: dir,
+            out,
+            allowForeground: true,
+            uia: win.client,
+            lister: NO_PROCS,
+            launcher: async () => ({ child: null, pid: null }),
+            shellMenu: new ShellMenuGuard({ platform: 'linux' }),
+            monitor: 'off',
+            infra: INFRA_NOWHERE,
+        });
+    try {
+        const out = path.join(dir, 'out');
+        const typed = path.join(out, 'p9-save-dir');
+
+        // The owner's own folder: typed over, put back, still there after a
+        // relaunch.
+        const own = windowWith('D:\\owner\\Floe');
+        const a = await p9(own, out);
+        assert.equal(a.verdict, 'restored-across-relaunch', JSON.stringify(a));
+        assert.deepEqual(own.sets, [typed, 'D:\\owner\\Floe']);
+        assert.equal(own.value, 'D:\\owner\\Floe');
+        assert.equal(a.detail.original, 'D:\\owner\\Floe');
+        assert.equal(a.detail.leftover, undefined);
+
+        // A probe that died between its set and its restore left its own
+        // folder in the field. That is not what goes back.
+        const left = windowWith(typed);
+        const b = await p9(left, out);
+        assert.deepEqual(left.sets, [typed, '']);
+        assert.equal(left.value, '', "the app's default, not the audit's folder");
+        assert.equal(b.detail.leftover, typed);
+        assert.equal(b.detail.original, '');
+        assert.equal(b.verdict, 'restored-across-relaunch');
+        assert.ok(b.notes.some((n) => n.includes("an earlier audit's own folder")), b.notes.join(' | '));
+    } finally {
+        dropLegs(/./);
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
