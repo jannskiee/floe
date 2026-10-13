@@ -247,7 +247,9 @@ export function createReceiver(
         // in memory for as long as the hash takes (DV-AUDIT CP-0 F1). A
         // conforming sender has at most one frame in flight here: the next
         // file's metadata, or an incompatible.
-        if (new TextEncoder().encode(data).byteLength > CONTROL_MSG_MAX) {
+        const bytes = new TextEncoder().encode(data).byteLength;
+        if (bytes > CONTROL_MSG_MAX) {
+            refuseOversize(bytes);
             stopWhilePending(
                 'The sender sent a control message larger than ' +
                     `${CONTROL_MSG_MAX} bytes, so the transfer was stopped.`
@@ -265,6 +267,23 @@ export function createReceiver(
 
     // A stop while a check is pending: nothing more is queued or kept, and the
     // file being checked is not handed over when its digest settles.
+    // Tells the sender that a control message over the cap is why this side
+    // stopped, in the frame a Go receiver sends for it (receiver.go, the
+    // controlMsgMax branch). What crosses the cap in practice is the metadata
+    // of a deep folder path, so the frame carries path-too-long, and a current
+    // sender shows its fixed sentence at once. Before this, the sender heard
+    // nothing: this side showed its own error, and a Go sender waited out its
+    // 120 s ack deadline and reported a timeout. Best effort: a peer that is
+    // already gone gets the close and nothing else.
+    function refuseOversize(bytes: number): void {
+        try {
+            const reason = `receiver rejected the file description: control message is ${bytes} bytes, limit ${CONTROL_MSG_MAX}`;
+            cb.send(new Uint8Array(new TextEncoder().encode(incompatibleMessage(reason, 'path-too-long', filesHanded))));
+        } catch {
+            // The peer is gone; the close is all it will get.
+        }
+    }
+
     function stopWhilePending(message: string): void {
         aborted = true;
         queued = [];
@@ -528,12 +547,14 @@ export function createReceiver(
             // to fall through and append it to the file instead, which quietly
             // corrupted any transfer whose metadata ran long (a deep enough
             // folder path does it).
-            if (new TextEncoder().encode(text).byteLength > CONTROL_MSG_MAX) {
+            const textBytes = new TextEncoder().encode(text).byteLength;
+            if (textBytes > CONTROL_MSG_MAX) {
                 aborted = true;
                 partialDownloads.clear();
                 currentMetadata = null;
                 expectedSize = null;
                 clearProgress();
+                refuseOversize(textBytes);
                 cb.onError?.(
                     'The sender sent a control message larger than ' +
                         `${CONTROL_MSG_MAX} bytes, so the transfer was stopped.`

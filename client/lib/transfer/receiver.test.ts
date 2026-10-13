@@ -849,6 +849,69 @@ describe('receiver: a throw stops the transfer once', () => {
         expect(h.speedResets()).toBe(resetsBefore + 1);
     });
 
+    // A sender whose file description runs past the cap (the metadata of a
+    // deep enough folder path does it) used to hear nothing. This side stopped
+    // and showed its own error, and a Go sender waited out its 120 s ack
+    // deadline and reported a timeout. A Go receiver answers at once with
+    // path-too-long and the count of files it saved (receiver.go, the
+    // controlMsgMax branch), and so does this one.
+    describe('a control message over the cap', () => {
+        const big = '{"type":"metadata","pad":"' + 'x'.repeat(CONTROL_MSG_MAX) + '"}';
+        const stopped = `The sender sent a control message larger than ${CONTROL_MSG_MAX} bytes, so the transfer was stopped.`;
+        const frames = (sent: (string | Uint8Array)[]) =>
+            sent.filter((s): s is Uint8Array => typeof s !== 'string').map((b) => JSON.parse(new TextDecoder().decode(b)));
+
+        it('tells the sender why, with the code a Go receiver sends', () => {
+            const sent: (string | Uint8Array)[] = [];
+            const errors: string[] = [];
+            const rx = createReceiver({ send: (d) => sent.push(d), onError: (m) => errors.push(m) });
+            rx.handleMessage(big);
+            expect(errors).toEqual([stopped]);
+            const out = frames(sent);
+            expect(out).toHaveLength(1);
+            expect(out[0]).toMatchObject({ type: 'incompatible', code: 'path-too-long', saved: 0 });
+            expect(out[0].reason).toBe(
+                `receiver rejected the file description: control message is ${enc.encode(big).byteLength} bytes, limit ${CONTROL_MSG_MAX}`
+            );
+            // The answer fits the cap it reports, or a receiver of it would
+            // read it as file data.
+            const raw = sent.find((s): s is Uint8Array => typeof s !== 'string');
+            expect(raw!.byteLength).toBeLessThanOrEqual(CONTROL_MSG_MAX);
+        });
+
+        it('counts the files already handed over as saved', () => {
+            const sent: (string | Uint8Array)[] = [];
+            const done: string[] = [];
+            const rx = createReceiver({
+                send: (d) => sent.push(d),
+                onFileComplete: (f) => done.push(f.fileName),
+                onError: () => {},
+            });
+            rx.handleMessage(metadataMessage('a', 'a.bin', 6, 1, 2, 12));
+            rx.handleMessage(enc.encode('abcdef'));
+            rx.handleMessage(endMessage());
+            expect(done).toEqual(['a.bin']);
+            rx.handleMessage(big);
+            const out = frames(sent);
+            expect(out[out.length - 1]).toMatchObject({ type: 'incompatible', code: 'path-too-long', saved: 1 });
+        });
+
+        it('still stops, and still says so, when the peer is already gone', () => {
+            const errors: string[] = [];
+            const rx = createReceiver({
+                send: () => {
+                    throw new Error('the channel is closed');
+                },
+                onError: (m) => errors.push(m),
+            });
+            rx.handleMessage(big);
+            expect(errors).toEqual([stopped]);
+            // And nothing after the stop is read.
+            rx.handleMessage(metadataMessage('b', 'b.bin', 6, 1, 1, 6));
+            expect(errors).toEqual([stopped]);
+        });
+    });
+
     it('clears the progress line when a file description is refused mid-file', () => {
         const h = progressHarness();
         h.rx.handleMessage(metadataMessage('a', 'a.bin', 6, 1, 2, 12));

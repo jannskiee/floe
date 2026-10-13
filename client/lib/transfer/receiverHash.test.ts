@@ -198,9 +198,20 @@ describe('receiver: per-file SHA-256', () => {
         const h = harness({ hashBlob: held.hashBlob });
         const a = payload(300, 1);
         feed(h, 'a', a, 1, 2, endMessage(digestOf(a)));
-        h.rx.handleMessage('{"type":"metadata","pad":"' + 'x'.repeat(CONTROL_MSG_MAX) + '"}');
+        const big = '{"type":"metadata","pad":"' + 'x'.repeat(CONTROL_MSG_MAX) + '"}';
+        h.rx.handleMessage(big);
         expect(h.errors).toEqual([
             `The sender sent a control message larger than ${CONTROL_MSG_MAX} bytes, so the transfer was stopped.`,
+        ]);
+        // And the sender is told, as on the ordinary path. The file being
+        // checked has not been handed over, so it is not counted as saved.
+        expect(h.binaryFrames()).toEqual([
+            expect.objectContaining({
+                type: 'incompatible',
+                code: 'path-too-long',
+                saved: 0,
+                reason: `receiver rejected the file description: control message is ${new TextEncoder().encode(big).byteLength} bytes, limit ${CONTROL_MSG_MAX}`,
+            }),
         ]);
         held.release(digestOf(a));
         await h.rx.settled();

@@ -116,6 +116,11 @@ one line, such as `Error: A folder path is too long for their computer. Zip deep
 and exits with status 1. Files the recipient saved before that one stay there. See
 [Paths that are too deep or too long](/cli/receive#paths-too-deep-or-too-long).
 
+A browser recipient refuses one thing of this kind: a file whose description is longer than 1,000
+bytes, which takes a relative path of about 800 bytes. `floe send` stops with the same line. A
+self-hosted web app on version 1.11.0 or earlier sends no answer in that case, so `floe send` waits
+120 seconds and ends with `timed out waiting for ack`.
+
 ## When a send ends {#notes}
 
 A send that worked exits with status 0 after the `Sent` box. To `floe receive` 1.11.0 or later or Floe Desktop 0.3.0 or later, the box prints only after the receiver has said it saved every file. To a browser, or to an older receiver, it prints once the other side's connection has acknowledged all the data. See [File checks](/how-it-works/file-checks#delivery-confirmation).
