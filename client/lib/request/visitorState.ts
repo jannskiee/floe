@@ -43,6 +43,7 @@ export type VisitorState =
     | 'V6b' // Hide my IP needs a relay
     | 'V6c' // Refused by the connection limiter, retrying
     | 'V6d' // Canceled before accept (renders as Ready)
+    | 'V6e' // Hide my IP could not check for a relay (renders as Ready)
     | 'V7' // Waiting for accept
     | 'V8a' // Declined
     | 'V8b' // Timed out
@@ -72,7 +73,11 @@ export type VisitorEvent =
     | { type: 'CLEAR' } // E06
     | { type: 'HIDE_IP_TOGGLED' } // E07
     | { type: 'SEND'; count: number; size: number; hideIp: boolean; reading?: boolean } // E08
-    | { type: 'ICE_READY'; hasTurn: boolean } // E09
+    // E09. listRead is false when the page could not read the server's ICE
+    // list (the request failed, was refused, or did not parse) and holds its
+    // own STUN defaults: hasTurn is then false without the page knowing
+    // whether the server has a relay.
+    | { type: 'ICE_READY'; hasTurn: boolean; listRead?: boolean }
     | { type: 'SOCKET_REFUSED' } // E10
     | {
           type: 'JOIN_ANSWER'; // E11
@@ -210,17 +215,17 @@ export const initialModel: VisitorModel = {
  *  socket (E-04): that frees seat 1 for the host's request-reopen and keeps a
  *  late server answer out of the next attempt. */
 export const ATTEMPT_ENDING_STATES: readonly VisitorState[] = [
-    'V4', 'V5a', 'V5b', 'V5c', 'V5d', 'V6a', 'V6b', 'V6d', 'V8a', 'V8b', 'V9',
+    'V4', 'V5a', 'V5b', 'V5c', 'V5d', 'V6a', 'V6b', 'V6d', 'V6e', 'V8a', 'V8b', 'V9',
     'V11', 'V11a', 'V11b', 'V12', 'V12a', 'V13',
 ];
 
 /** States that render the Ready view and accept picks and Send. */
-const READY_LIKE: readonly VisitorState[] = ['V3', 'V3c', 'V6b', 'V6d'];
+const READY_LIKE: readonly VisitorState[] = ['V3', 'V3c', 'V6b', 'V6d', 'V6e'];
 /** States from which Try again (or Send) starts a new attempt (4.12.4). */
 const RETRY_FROM: readonly VisitorState[] = ['V4', 'V8a', 'V8b', 'V9', 'V6a', 'V6d', 'V12a'];
 /** The states with an attempt live. A changed fragment reloads the page in
  *  every OTHER state (E29): the card lists V1 to V5, V8 and V9, and the review
- *  (WP-W1 F4) found that the idle states it leaves out (V6a, V6b, V6d, V12a,
+ *  (WP-W1 F4) found that the idle states it leaves out (V6a, V6b, V6d, V6e, V12a,
  *  and the endings) would let the next Send or Try again join the old room
  *  while the address bar shows the new one. Mid-attempt the page ignores it:
  *  the room it is in is the one it joined. */
@@ -415,7 +420,12 @@ function connecting(model: VisitorModel, event: VisitorEvent): Step {
     const open = model.channelOpen;
     switch (event.type) {
         case 'ICE_READY':
-            if (model.hideIp && !event.hasTurn) return end(model, 'V6b');
+            // Hide my IP is relay only, so without a relay the attempt ends
+            // here, before anything joins. Which line it ends on depends on
+            // what the page knows: a list it read and found no relay in is
+            // the server's answer (V6b), and a list it could not read is no
+            // answer at all (V6e).
+            if (model.hideIp && !event.hasTurn) return end(model, event.listRead === false ? 'V6e' : 'V6b');
             return to(model, 'V6', {}, ['buildPeer', 'connectSocket']);
         case 'SOCKET_CONNECTED':
             // request-join goes out once per attempt. A reconnect later in the

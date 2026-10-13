@@ -670,6 +670,42 @@ test.describe('request-link', () => {
         expect(await stats()).toBe(0);
     });
 
+    test('request-link: Hide my IP with an unread relay list says so, and Send reads it again', async ({ page, context }) => {
+        // No stunOnlyIce here: this cell answers the ICE request itself, first
+        // the way a server limiting the visitor's network does, then with a
+        // list that has no relay in it. The real response is never fetched.
+        const stats = await guard(context, { stunOnly: false });
+        const frames = await forwardSocketFrames(page);
+        let asked = 0;
+        await context.route('**/api/turn-credentials', (route) => {
+            asked += 1;
+            return asked === 1
+                ? route.fulfill({ status: 429, json: { error: 'Too many requests' } })
+                : route.fulfill({ json: [{ urls: 'stun:stun.l.google.com:19302' }] });
+        });
+        makeFiles({ 'a.bin': 1024 });
+        await page.goto(strayLink());
+        await pickFiles(page, ['a.bin']);
+        await page.getByLabel(visitorCopy.hideIp).check();
+        await send(page);
+        // The page does not know whether the server has a relay, so it does
+        // not say the server has none.
+        await expect(page.locator('main section').getByText(visitorCopy.relayUnchecked)).toBeVisible();
+        await expect(page.getByRole('status')).toHaveText(visitorCopy.relayUnchecked);
+        await expect(page.getByText(visitorCopy.hideIpNeedsRelay)).toHaveCount(0);
+        expect(frames.socketsOpened()).toBe(0);
+        // Send is the "Try again": the files stay selected and the next
+        // attempt asks the server again. This time the list is read and has no
+        // relay in it, which is the server's own answer.
+        await send(page);
+        await expect(page.locator('main section').getByText(visitorCopy.hideIpNeedsRelay)).toBeVisible();
+        await expect(page.getByText(visitorCopy.relayUnchecked)).toHaveCount(0);
+        expect(asked).toBe(2);
+        expect(frames.socketsOpened()).toBe(0);
+        expect(framesFor(frames.outgoing, 'request-join')).toHaveLength(0);
+        expect(await stats()).toBe(0);
+    });
+
     test('request-link: metadata over the cap is refused at pick time', async ({ page, context }) => {
         const stats = await guard(context);
         // A name whose metadata frame, measured the page's own way, is exactly

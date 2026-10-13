@@ -112,6 +112,14 @@ export const visitorCopy = {
     /** C-53: V6b, shown under the switch back in Ready. "This Floe server"
      *  matters on a self-hosted server with no TURN. */
     hideIpNeedsRelay: 'This Floe server has no relay right now. Turn off Hide my IP to send directly.',
+    /** RLY-1: V6e, drawn where C-53 is. The page could not read the server's
+     *  relay list (the request failed, was refused, or did not parse), so it
+     *  does not know whether a relay exists, and C-53 there was a guess: on
+     *  a server that was only limiting requests it told the visitor there
+     *  was no relay. Send is the "Try again": every attempt reads the list
+     *  afresh. Added to the approved table after Checkpoint C: the owner
+     *  approved it on 2026-10-14. */
+    relayUnchecked: "Couldn't check for a relay. Try again, or turn off Hide my IP to send directly.",
 
     // ---- Server answers (V4, V5) ----
     /** C-40. */
@@ -408,8 +416,8 @@ function card(
 }
 
 /** The status card for every state that is not the Ready view (V3, V3c, V6b,
- *  V6d render Ready) and not the Sending view (V10); null for those. V1 and V2
- *  keep their own card. */
+ *  V6d and V6e render Ready) and not the Sending view (V10); null for those.
+ *  V1 and V2 keep their own card. */
 export function statusCopy(model: VisitorModel, ctx: StatusContext): StatusCopy | null {
     const total = model.total;
     const arrived = arrivedCount(model);

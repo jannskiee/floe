@@ -491,6 +491,7 @@ describe('visitor copy: Ready and Sending strings', () => {
             addMoreFiles: 'Add more files',
             coarsePointer: 'Keep this page open and your screen on.',
             hideIpNeedsRelay: 'This Floe server has no relay right now. Turn off Hide my IP to send directly.',
+            relayUnchecked: "Couldn't check for a relay. Try again, or turn off Hide my IP to send directly.",
             tryAgain: 'Try again',
             cancel: 'Cancel',
             backToFiles: 'Back to files',

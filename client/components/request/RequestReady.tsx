@@ -19,8 +19,9 @@ export interface RequestReadyProps {
     canPickFolders: boolean;
     coarsePointer: boolean;
     hideIp: boolean;
-    /** V6b: the last Send stopped because Hide my IP has no relay to use. */
-    needsRelay: boolean;
+    /** V6b or V6e: the line for a Send that stopped because Hide my IP had no
+     *  relay to use, already an approved string, or null. */
+    relayLine: string | null;
     /** Why Send is off, or null. */
     block: SendBlock;
     onHideIp: (on: boolean) => void;
@@ -36,7 +37,7 @@ export interface RequestReadyProps {
 }
 
 /**
- * V3 Ready (W1, W3; WV-01 to WV-08), also drawn for V3c, V6b and V6d, which
+ * V3 Ready (W1, W3; WV-01 to WV-08), also drawn for V3c, V6b, V6d and V6e, which
  * are Ready with one more line. Before the first pick only the dropzone, the
  * switch and the notice show; the count, Send and Clear arrive with a file.
  * Button labels never change to explain themselves: when Send is off, the
@@ -68,8 +69,8 @@ export function RequestReady(props: RequestReadyProps) {
             {props.block === 'relay-cap' && (
                 <p className="mt-2 text-sm leading-relaxed text-zinc-300">{visitorCopy.relayCapReady}</p>
             )}
-            {props.needsRelay && props.hideIp && (
-                <p className="mt-2 text-sm leading-relaxed text-zinc-300">{visitorCopy.hideIpNeedsRelay}</p>
+            {props.relayLine && props.hideIp && (
+                <p className="mt-2 text-sm leading-relaxed text-zinc-300">{props.relayLine}</p>
             )}
             {props.coarsePointer && hasFiles && (
                 <p className="mt-4 text-sm leading-relaxed text-zinc-300">{visitorCopy.coarsePointer}</p>

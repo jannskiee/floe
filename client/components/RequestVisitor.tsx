@@ -281,6 +281,10 @@ function createVisitorController(deps: ControllerDeps) {
      *  peer config, or put in a breadcrumb. */
     async function fetchIce(a: number) {
         let servers: RTCIceServer[] = [...DEFAULT_STUN_SERVERS];
+        // Whether the server's own list was read. When it was not, the STUN
+        // defaults above say nothing about a relay either way, and Hide my IP
+        // gets the line for "could not check", not the one for "has none".
+        let listRead = false;
         try {
             const base = await resolveSocketUrl();
             const res = await fetch(`${base}/api/turn-credentials`, {
@@ -289,14 +293,17 @@ function createVisitorController(deps: ControllerDeps) {
             });
             if (res.ok) {
                 const parsed = parseIceServers(await res.json());
-                if (parsed) servers = parsed;
+                if (parsed) {
+                    servers = parsed;
+                    listRead = true;
+                }
             }
         } catch {
             // Keep the STUN defaults.
         }
         if (!gate.isLive(a)) return;
         ice = servers;
-        dispatch({ type: 'ICE_READY', hasTurn: hasRelayUrl(servers) });
+        dispatch({ type: 'ICE_READY', hasTurn: hasRelayUrl(servers), listRead });
     }
 
     /** Step 5: the answering peer, built before the socket joins so an early
@@ -697,7 +704,12 @@ export function RequestVisitor() {
     });
 
     // Every Ready variant is one view: its controls stay mounted between them.
-    const ready = model.state === 'V3' || model.state === 'V3c' || model.state === 'V6b' || model.state === 'V6d';
+    const ready =
+        model.state === 'V3' ||
+        model.state === 'V3c' ||
+        model.state === 'V6b' ||
+        model.state === 'V6d' ||
+        model.state === 'V6e';
     const view = ready ? 'ready' : model.state;
 
     // A new card unmounts the button that was pressed (Send, Try again,
@@ -721,10 +733,20 @@ export function RequestVisitor() {
     // Hide my IP with no relay to use. They were drawn and never read out.
     // They go through the page's one status span like every other sentence
     // (4.18): a live region created with the line would not be read, which is
-    // exactly the V6b case, where Ready mounts again after Connecting.
-    const readyLine =
-        model.state === 'V6b' && hideIp
+    // exactly the V6b and V6e case, where Ready mounts again after Connecting.
+    //
+    // relayLine is the line under the switch when the last Send stopped for
+    // want of a relay: the server's list has none (V6b), or the page could
+    // not read the list (V6e). Null in every other state.
+    const relayLine =
+        model.state === 'V6b'
             ? visitorCopy.hideIpNeedsRelay
+            : model.state === 'V6e'
+              ? visitorCopy.relayUnchecked
+              : null;
+    const readyLine =
+        relayLine && hideIp
+            ? relayLine
             : model.state === 'V3c' && picks.notice
               ? picks.notice
               : ready && block === 'relay-cap'
@@ -753,6 +775,7 @@ export function RequestVisitor() {
         case 'V3c':
         case 'V6b':
         case 'V6d':
+        case 'V6e':
             body = (
                 <RequestReady
                     rows={pickedRows}
@@ -764,7 +787,7 @@ export function RequestVisitor() {
                     canPickFolders={env.canPickFolders}
                     coarsePointer={env.coarsePointer}
                     hideIp={hideIp}
-                    needsRelay={model.state === 'V6b'}
+                    relayLine={relayLine}
                     block={block}
                     onHideIp={(on) => {
                         setHideIp(on);

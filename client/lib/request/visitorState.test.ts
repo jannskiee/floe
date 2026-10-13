@@ -156,6 +156,52 @@ describe('visitor state: Connecting rows', () => {
         expect(r.effects).not.toContain('connectSocket');
         expect(r.effects).toContain('releaseWakeLock');
     });
+    // The page could not read the server's ICE list (the request failed, was
+    // refused, or did not parse), so it holds its own STUN defaults and does
+    // not know whether the server has a relay. "This Floe server has no relay
+    // right now" would be a guess there, and a wrong one whenever the server
+    // was only limiting requests. V6e says what happened instead.
+    it('V6 + E09 (Hide my IP on, the list unread) goes to V6e', () => {
+        const r = step(modelIn('V6', { hideIp: true, joinEmitted: false }), {
+            type: 'ICE_READY',
+            hasTurn: false,
+            listRead: false,
+        });
+        expect(r.model.state).toBe('V6e');
+        // Stopped before any socket or peer exists, exactly as V6b is.
+        expect(r.effects).not.toContain('buildPeer');
+        expect(r.effects).not.toContain('connectSocket');
+        expect(r.effects).toContain('releaseWakeLock');
+    });
+    it('V6 + E09 (Hide my IP on, the list read, no TURN in it) is still V6b', () => {
+        const r = step(modelIn('V6', { hideIp: true, joinEmitted: false }), {
+            type: 'ICE_READY',
+            hasTurn: false,
+            listRead: true,
+        });
+        expect(r.model.state).toBe('V6b');
+    });
+    it('V6 + E09 with Hide my IP off connects on the STUN defaults when the list is unread', () => {
+        const r = step(modelIn('V6', { hideIp: false, joinEmitted: false }), {
+            type: 'ICE_READY',
+            hasTurn: false,
+            listRead: false,
+        });
+        expect(r.model.state).toBe('V6');
+        expect(r.effects).toEqual(['buildPeer', 'connectSocket']);
+    });
+    it('V6e is Ready again: Send starts a new attempt, which reads the list again', () => {
+        const ended = step(modelIn('V6', { hideIp: true, joinEmitted: false }), {
+            type: 'ICE_READY',
+            hasTurn: false,
+            listRead: false,
+        }).model;
+        const again = step(ended, { type: 'SEND', count: 1, size: 10, hideIp: true });
+        expect(again.model.state).toBe('V6');
+        expect(again.effects).toEqual(['startAttempt']);
+        // And turning the switch off is an ordinary Ready edit.
+        expect(step(ended, { type: 'HIDE_IP_TOGGLED' }).model.state).toBe('V3');
+    });
     it('V6 + E09 (ok) goes to V6', () => {
         const r = step(modelIn('V6', { hideIp: true, joinEmitted: false }), { type: 'ICE_READY', hasTurn: true });
         expect(r.model.state).toBe('V6');
@@ -617,7 +663,7 @@ describe('visitor state: visibility and hash rows', () => {
     // WP-W1 review F4: the idle states that show Ready or Try again. Ignoring a
     // changed fragment there let the next Send join the OLD room while the
     // address bar showed the new one.
-    for (const s of ['V6a', 'V6b', 'V6d', 'V12a', 'V11', 'V11a', 'V11b', 'V12', 'V13'] as VisitorState[]) {
+    for (const s of ['V6a', 'V6b', 'V6d', 'V6e', 'V12a', 'V11', 'V11a', 'V11b', 'V12', 'V13'] as VisitorState[]) {
         it(`${s} + E29 (different roomId) reloads`, () => {
             const r = step(modelIn(s), { type: 'HASHCHANGE', roomId: '11111111-1111-4111-8111-111111111111' });
             expect(r.effects).toEqual(['reload']);
@@ -645,7 +691,7 @@ describe("visitor state: a discarded tab's reload (FT-R-DISCARD)", () => {
     const CTX: StatusContext = { pathAt: () => undefined, route: null, now: 0 };
     const ready = () => step(initialModel, { type: 'LINK_OK', roomId: ROOM }).model;
     const EVERY_STATE: VisitorState[] = [
-        'load', 'V1', 'V2', 'V3', 'V3c', 'V4', 'V5a', 'V5b', 'V5c', 'V6', 'V6a', 'V6b', 'V6c', 'V6d',
+        'load', 'V1', 'V2', 'V3', 'V3c', 'V4', 'V5a', 'V5b', 'V5c', 'V6', 'V6a', 'V6b', 'V6c', 'V6d', 'V6e',
         'V7', 'V8a', 'V8b', 'V9', 'V10', 'V11', 'V11a', 'V11b', 'V12', 'V12a', 'V13',
     ];
 
@@ -869,6 +915,7 @@ describe('visitor state: the rules carried from the reviews', () => {
             [modelIn('V6'), { type: 'SOCKET_CONNECT_TIMEOUT' }], // V6a
             [modelIn('V6', { joined: true }), { type: 'JOIN_ANSWER', answer: 'room-full', sincePreviousAttemptMs: 0 }], // V6a
             [modelIn('V6', { hideIp: true, joinEmitted: false }), { type: 'ICE_READY', hasTurn: false }], // V6b
+            [modelIn('V6', { hideIp: true, joinEmitted: false }), { type: 'ICE_READY', hasTurn: false, listRead: false }], // V6e
             [modelIn('V6'), { type: 'CANCEL' }], // V6d
             [modelIn('V7'), { type: 'CANCEL' }], // V6d
             [modelIn('V7'), { type: 'INCOMPATIBLE', refusal: 'declined', savedCount: 0, rangeOverlaps: true }], // V8a
@@ -896,7 +943,7 @@ describe('visitor state: the rules carried from the reviews', () => {
             reached.add(r.model.state);
         }
         expect([...reached].sort()).toEqual(
-            ['V4', 'V5a', 'V5b', 'V5c', 'V5d', 'V6a', 'V6b', 'V6d', 'V8a', 'V8b', 'V9', 'V11', 'V11a', 'V11b', 'V12', 'V12a', 'V13'].sort()
+            ['V4', 'V5a', 'V5b', 'V5c', 'V5d', 'V6a', 'V6b', 'V6d', 'V6e', 'V8a', 'V8b', 'V9', 'V11', 'V11a', 'V11b', 'V12', 'V12a', 'V13'].sort()
         );
         expect([...ATTEMPT_ENDING_STATES].sort()).toEqual([...reached].sort());
     });
