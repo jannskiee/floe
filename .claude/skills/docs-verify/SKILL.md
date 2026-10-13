@@ -11,11 +11,12 @@ Two layers. The script settles what a script can settle; you settle the rest aga
 
 From the repo root:
 
-    node .claude/skills/docs-verify/scripts/docs-check.mjs [all|links|nav|frontmatter|headings|labels|tables|env|dashes] [--root <dir>]
+    node .claude/skills/docs-verify/scripts/docs-check.mjs [all|links|nav|frontmatter|headings|labels|tables|env|dashes|readability|pagestandard|glossary|messages|captures] [--root <dir>]
 
 `all` is the default; a single check name runs only that check; `--root` points it at
 another checkout (default: the repo the script lives in). `links` also runs the footer
-mirror, the image and snippet paths and the client `/docs` paths.
+mirror, the image and snippet paths and the client `/docs` paths. The last five names are
+the report-only checks, which have a section of their own below.
 
 CI runs `docs-check.mjs all` on every PR: it is the `Docs pre-flight` step of the
 `Repo guardrails` job, which the `CI green` gate needs, so a HARD line blocks the merge.
@@ -105,6 +106,78 @@ Tests: `node --test .claude/skills/docs-verify/scripts/docs-check.test.mjs` (a d
 argument fails on Node 22). That file is a self-test of the script over the tree the
 skill lives in, with injected defects; it says nothing about the PR you are checking.
 Run the script itself for that.
+
+### The report-only checks
+
+Five checks print NOTE lines and cannot fail a run today, because the docs have not been
+cleared of what they measure. In an `all` run each prints its first 15 notes and one line
+saying how many it kept back; run one alone to see them all:
+
+    node .claude/skills/docs-verify/scripts/docs-check.mjs readability
+
+- `readability`, on the pages a person reads to use Floe (introduction, quickstart,
+  choosing-floe, faq, troubleshooting, glossary, security-privacy, and everything under
+  web-app/, desktop/ and how-it-works/): a sentence of more than 35 words, a table cell of
+  more than 40, an image alt text under 40 or over 150 characters or with no closing
+  period, and a page of more than 1,200 words with no `## The short version` among its
+  first three H2s. Prose is counted as a reader sees it: no frontmatter, code blocks, tags,
+  comments or link targets, and an inline code span is one word. Every other page is
+  counted in one info line and not listed.
+- `pagestandard`: the page standard, as far as a script can decide it. A callout other
+  than `<Warning>` or `<Info>`; any `<Accordion>`, `<AccordionGroup>`, `<Tooltip>`,
+  `<Badge>` or `<Expandable>`; frontmatter `icon` or `tag`; a missing `title`,
+  `sidebarTitle`, `description` or `keywords`; a description over 160 characters; a page
+  that starts on a heading or a table; a troubleshooting H3 with no `{#id}`; a heading with
+  nothing under it; two callouts under one H2 or one straight after another; a code fence
+  with no language; a raw lower-case `<word>` outside code; a message table not headed
+  `Message | What it means | What to do`; and the standard's word list (`afterwards`,
+  `e.g.`, `host name`, a spelled-out number with a unit). The changelog is exempt. Each
+  line starts with the kind of finding (`callout:`, `frontmatter:`, `opening:`), so the
+  output can be counted by kind.
+- `glossary`: each H3 of docs/glossary.mdx is a term (its H2s are the page's groups, and
+  one heading may give alternates, separated by ` / `). A user page that uses a term, as a
+  whole word outside code and headings, with no link anywhere on it to `/glossary#<id>`
+  gets one NOTE for that term. A term the glossary writes with a capital is matched as
+  written (`PATH` is not "a file's path"); one in lower case is matched in any case. One
+  everyday word is left to the writer, because a script cannot tell the term from the
+  word: `drop` (`GLOSSARY_LEFT_TO_THE_WRITER`). Without the page the check prints one info
+  line.
+- `messages`: references/messages.json is one row per message Floe can show: `surface`,
+  `text` (with `{name}` where the app fills something in), `source` (the file that types
+  it), `anchor` (the docs heading that explains it, or null) and `why_no_home` (why a row
+  with no anchor needs none: a button label, a heading that repeats the sentence under
+  it). A NOTE is a row whose text has left its source, a row whose anchor does not exist,
+  and docs/messages.mdx differing from what the generator prints; rows with no anchor and
+  no reason are counted in one line. A web, site or server row is read from the working
+  tree. A cli or desktop row is held to references/released-strings.json instead, because
+  the docs describe the released apps and main runs ahead of them.
+- `captures`: each `shots` entry of docs/images/\*/capture-manifest.json may record
+  `strings` (the UI texts that can be read in the picture) and `sources` (the files that
+  type them). A string that has left all of its sources is a NOTE, the web pictures read
+  from the working tree and the desktop ones from the snapshot. Shots that record nothing
+  are one line per manifest.
+
+Promoting one: each has a single constant at the top of its section in docs-check.mjs
+(`READABILITY_HARD`, `PAGESTANDARD_HARD`, `GLOSSARY_HARD`, `MESSAGES_HARD`,
+`CAPTURES_HARD`). Set it to `true` in the PR that clears the docs of everything the check
+reports, and each line it prints becomes HARD. Not sooner: CI runs `all` on every PR.
+
+The files behind `messages`, and when each is written:
+
+- references/messages.json was seeded once, from the audit of 2026-10-14, by
+  `scripts/messages-seed.mjs <audit dir>`, and is edited by hand since: add a row in the PR
+  that adds a message, and fill in `anchor` or `why_no_home` as the docs catch up. Run the
+  seed again only for a new audit. It keeps a row added by hand, every `why_no_home`, and
+  an anchor set by hand on a row the audit places nowhere, and it writes what it could not
+  match to two lists for a person to decide.
+- references/released-strings.json is written by
+  `node .claude/skills/docs-verify/scripts/released-strings.mjs --cli <v* tag> --desktop <desktop-v* tag>`,
+  at release prep and at no other time: between releases it is meant to stay behind main.
+  It reads the two tags with `git show` and lists what is not at its tag.
+- docs/messages.mdx is printed by `scripts/messages-index.mjs` (`--write` to write it).
+  Never edit the page by hand: change the row and write it again.
+
+Their tests are in `scripts/messages-index.test.mjs`.
 
 ### After the PR exists: the rendered check
 

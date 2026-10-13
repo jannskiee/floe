@@ -21,6 +21,7 @@ import {
     mkdtempSync,
     readdirSync,
     readFileSync,
+    realpathSync,
     rmSync,
     writeFileSync,
 } from 'node:fs';
@@ -34,7 +35,9 @@ import {
     headingSlugs,
     headingTagProblems,
     slug,
+    splitSentences,
 } from './docs-check.mjs';
+import { RELEASED_SURFACES, heldToRelease } from './released-strings.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url).replace(/\.test\.mjs$/, '.mjs');
 const REPO = resolve(dirname(SCRIPT), '..', '..', '..', '..');
@@ -981,4 +984,652 @@ test('a raw "<" in a heading is HARD, and the escaped, code, fenced, valid and f
         ),
         out
     );
+});
+
+// ---------------------------------------------------------------------------
+// The report-only checks: readability, pagestandard, glossary, captures.
+//
+// Each test builds a tree of its own with only the pages it names and runs
+// one check, so nothing in the repository's docs can move a result. The real
+// path is taken because the script resolves its root, and the suite's temp
+// directory is an 8.3 short name on the Windows runner.
+// ---------------------------------------------------------------------------
+
+const FRONT = [
+    '---',
+    'title: "A page"',
+    'sidebarTitle: "Page"',
+    'description: "A page for one check."',
+    'keywords: ["fixture"]',
+    '---',
+    '',
+];
+const page = (...body) => `${[...FRONT, ...body].join('\n')}\n`;
+// The 1-based line of the first line that starts with `text`.
+const lineOf = (mdx, text) =>
+    mdx.split('\n').findIndex((l) => l.startsWith(text)) + 1;
+const words = (n, word = 'word') =>
+    Array.from({ length: n }, () => word).join(' ');
+
+function small(files) {
+    const root = realpathSync.native(
+        mkdtempSync(join(tmpdir(), 'docs-check-small-'))
+    );
+    made.push(root);
+    const pages = Object.keys(files)
+        .filter((p) => p.startsWith('docs/') && p.endsWith('.mdx'))
+        .map((p) => p.slice('docs/'.length, -'.mdx'.length));
+    const all = {
+        'docs/docs.json': `${JSON.stringify({ navigation: { pages } })}\n`,
+        ...files,
+    };
+    for (const [path, content] of Object.entries(all)) {
+        mkdirSync(dirname(join(root, path)), { recursive: true });
+        writeFileSync(join(root, path), content);
+    }
+    return root;
+}
+
+function only(check, root) {
+    const r = spawnSync(process.execPath, [SCRIPT, check, '--root', root], {
+        encoding: 'utf8',
+    });
+    const out = r.stdout + r.stderr;
+    const lines = out.split(/\r?\n/);
+    return {
+        status: r.status,
+        out,
+        lines,
+        notes: lines.filter((l) => l.startsWith(`NOTE  ${check}  `)),
+        info: lines.filter((l) => l.startsWith(`info  ${check}  `)),
+    };
+}
+
+test('splitSentences: an abbreviation, a version, a file name, a decimal and an ellipsis end nothing', () => {
+    const split = (text) => splitSentences(text).map((s) => s.text.trim());
+    assert.deepEqual(
+        split(
+            'Use a relay, e.g. Cloudflare, when a direct path fails. Then retry.'
+        ),
+        [
+            'Use a relay, e.g. Cloudflare, when a direct path fails.',
+            'Then retry.',
+        ]
+    );
+    assert.deepEqual(
+        split('Floe 1.11.0 added request links. Floe Desktop 0.3.0 followed.'),
+        ['Floe 1.11.0 added request links.', 'Floe Desktop 0.3.0 followed.']
+    );
+    assert.deepEqual(split('Send a.bin first. Then b.tar.gz goes.'), [
+        'Send a.bin first.',
+        'Then b.tar.gz goes.',
+    ]);
+    assert.deepEqual(split('It took 2.5 seconds. That is fast.'), [
+        'It took 2.5 seconds.',
+        'That is fast.',
+    ]);
+    assert.deepEqual(
+        split('The line reads Waiting for peer... Then it changes. Done.'),
+        ['The line reads Waiting for peer... Then it changes.', 'Done.']
+    );
+    assert.deepEqual(
+        split('The line reads Connecting\u2026 Then it changes.'),
+        ['The line reads Connecting\u2026 Then it changes.']
+    );
+    // A quotation that ends on a full stop and goes on is one sentence.
+    assert.deepEqual(
+        split('The page says "Connection lost." and stops. Reload it.'),
+        ['The page says "Connection lost." and stops.', 'Reload it.']
+    );
+    // A sentence that starts on a lower-case name is still a sentence.
+    assert.deepEqual(
+        split('Run it once. floe prints the code. Is that all? Yes!'),
+        ['Run it once.', 'floe prints the code.', 'Is that all?', 'Yes!']
+    );
+    // A bold run-in sentence ends inside its emphasis marks.
+    assert.deepEqual(
+        split(
+            '**Most shortcuts pause while you type.** They do nothing in a text field.'
+        ),
+        [
+            '**Most shortcuts pause while you type.**',
+            'They do nothing in a text field.',
+        ]
+    );
+    assert.deepEqual(split('No full stop at the end'), [
+        'No full stop at the end',
+    ]);
+});
+
+test('readability: a sentence over 35 words is a NOTE with its line and count, and 35 is not', () => {
+    const mdx = page(
+        `Fine ${words(34)}.`,
+        '',
+        `Long ${words(35)}.`,
+        '',
+        `Two ${words(20)}. Halves ${words(20)}.`
+    );
+    const r = only('readability', small({ 'docs/faq.mdx': mdx }));
+    assert.equal(r.status, 0, r.out);
+    assert.deepEqual(r.notes, [
+        `NOTE  readability  docs/faq.mdx:${lineOf(mdx, 'Long ')}  a sentence of 36 words (the limit is 35)`,
+    ]);
+});
+
+test('readability: a sentence is counted across its lines and reported at the line it starts on', () => {
+    const mdx = page(
+        `Short one. Long ${words(10)}`,
+        words(13),
+        `${words(12)}.`
+    );
+    const r = only('readability', small({ 'docs/faq.mdx': mdx }));
+    assert.deepEqual(r.notes, [
+        `NOTE  readability  docs/faq.mdx:${lineOf(mdx, 'Short one.')}  a sentence of 36 words (the limit is 35)`,
+    ]);
+});
+
+test('readability: prose is what a reader sees, so code, tags, comments, imports and link targets are not words', () => {
+    const mdx = page(
+        "import Limits from '/snippets/limits.mdx';",
+        '',
+        // 34 words and a code span: 35.
+        `Code ${words(33)} \`floe send a.bin --to link. Not a sentence end\`.`,
+        '',
+        // 34 words and a link whose target is long: 35.
+        `Link ${words(33)} [label](/a/very/long/target/that/is/not/words#and-its-anchor).`,
+        '',
+        '```text',
+        `Fenced ${words(60)}.`,
+        '```',
+        '',
+        `{/* Comment ${words(60)}. */}`,
+        '',
+        // Attributes are not text; what is between the tags is.
+        `<Frame caption="${words(60)}">`,
+        `  <img src="/images/a.png" style={{ width: "100%" }} alt="An alt text of the right length that ends in a period." />`,
+        '</Frame>',
+        '',
+        '<Warning>',
+        `Inside ${words(35)}.`,
+        '</Warning>',
+        '',
+        // The same once the code span is a word too many.
+        `Over ${words(34)} \`floe\`.`
+    );
+    const r = only('readability', small({ 'docs/faq.mdx': mdx }));
+    assert.deepEqual(r.notes, [
+        `NOTE  readability  docs/faq.mdx:${lineOf(mdx, 'Inside ')}  a sentence of 36 words (the limit is 35)`,
+        `NOTE  readability  docs/faq.mdx:${lineOf(mdx, 'Over ')}  a sentence of 36 words (the limit is 35)`,
+    ]);
+});
+
+test('readability: a list item is a sentence of its own, and a table row is no sentence', () => {
+    const mdx = page(
+        `Intro ${words(19)}:`,
+        '',
+        `- First ${words(19)}`,
+        `- Second ${words(19)}`,
+        `  and its second line ${words(12)}`,
+        `1. Numbered ${words(35)}`,
+        '',
+        '| Name | Meaning |',
+        '| --- | --- |',
+        `| ${words(30)} | ${words(40)} |`,
+        `| short | ${words(41)} |`
+    );
+    const r = only('readability', small({ 'docs/faq.mdx': mdx }));
+    assert.deepEqual(r.notes, [
+        `NOTE  readability  docs/faq.mdx:${lineOf(mdx, '- Second ')}  a sentence of 36 words (the limit is 35)`,
+        `NOTE  readability  docs/faq.mdx:${lineOf(mdx, '1. Numbered ')}  a sentence of 36 words (the limit is 35)`,
+        `NOTE  readability  docs/faq.mdx:${lineOf(mdx, '| short ')}  a table cell of 41 words (the limit is 40)`,
+    ]);
+});
+
+test('readability: an image alt text is held to 40 to 150 characters and a closing period', () => {
+    const alt = (text) => `<img src="/images/a.png" alt="${text}" />`;
+    const forty = 'The send card with three files, staged..';
+    assert.equal(forty.length, 40);
+    const mdx = page(
+        'Pictures.',
+        '',
+        alt(forty),
+        alt('Too short.'),
+        alt('A long description of the card. '.repeat(5).trim()),
+        alt('The send card with three files staged and no period'),
+        '![Too short.](/images/b.png)',
+        alt(`${forty} It also shows the relay checkbox.`)
+    );
+    const r = only('readability', small({ 'docs/faq.mdx': mdx }));
+    const at = (n) => `NOTE  readability  docs/faq.mdx:${FRONT.length + n}  `;
+    assert.deepEqual(r.notes, [
+        `${at(4)}image alt text is 10 characters (the range is 40 to 150)`,
+        `${at(5)}image alt text is 159 characters (the range is 40 to 150)`,
+        `${at(6)}image alt text does not end in a period`,
+        `${at(7)}image alt text is 10 characters (the range is 40 to 150)`,
+    ]);
+});
+
+test('readability: a page over 1,200 words needs "The short version" among its first three H2s', () => {
+    const body = Array.from({ length: 61 }, () => `${words(20)}.`).join('\n\n');
+    const long = (...h2) =>
+        page(
+            'Opening.',
+            '',
+            ...h2.flatMap((h) => [`## ${h}`, '', 'Text.', '']),
+            body
+        );
+    const run = (mdx) =>
+        only('readability', small({ 'docs/faq.mdx': mdx })).notes;
+    assert.deepEqual(run(long('First', 'Second')), [
+        'NOTE  readability  docs/faq.mdx:1  1223 words of prose and no "The short version" among the first three H2 headings',
+    ]);
+    assert.deepEqual(
+        run(long('First', 'The short version {#summary}', 'Third')),
+        []
+    );
+    assert.equal(
+        run(long('First', 'Second', 'Third', 'The short version')).length,
+        1
+    );
+    // A page at the limit needs none.
+    assert.deepEqual(
+        run(
+            page(Array.from({ length: 60 }, () => `${words(20)}.`).join('\n\n'))
+        ),
+        []
+    );
+});
+
+test('readability: only user pages are listed, and every other page is one info line', () => {
+    const long = page(`Long ${words(40)}.`);
+    const r = only(
+        'readability',
+        small({
+            'docs/desktop/sending.mdx': long,
+            'docs/how-it-works/signaling.mdx': long,
+            'docs/cli/send.mdx': long,
+            'docs/reference/limits.mdx': long,
+            'docs/self-hosting/overview.mdx': long,
+            'docs/changelog.mdx': long,
+        })
+    );
+    assert.deepEqual(
+        r.notes.map((l) => l.split('  ')[2]),
+        [
+            `docs/desktop/sending.mdx:${lineOf(long, 'Long ')}`,
+            `docs/how-it-works/signaling.mdx:${lineOf(long, 'Long ')}`,
+        ]
+    );
+    assert.equal(
+        r.info.filter(
+            (l) =>
+                l.includes('4 other pages') &&
+                l.includes('4 sentences over 35 words')
+        ).length,
+        1,
+        r.out
+    );
+});
+
+test('a report-only check prints 15 notes in an `all` run and says how to see the rest', () => {
+    const mdx = page(
+        ...Array.from({ length: 20 }, () => [`Long ${words(35)}.`, '']).flat()
+    );
+    const root = small({ 'docs/faq.mdx': mdx });
+    const alone = only('readability', root);
+    assert.equal(alone.notes.length, 20, alone.out);
+
+    const r = spawnSync(process.execPath, [SCRIPT, 'all', '--root', root], {
+        encoding: 'utf8',
+    });
+    const lines = (r.stdout + r.stderr).split(/\r?\n/);
+    assert.equal(
+        lines.filter((l) => l.startsWith('NOTE  readability  ')).length,
+        15,
+        r.stdout
+    );
+    assert.ok(
+        lines.includes(
+            'info  readability  docs/  5 more notes not shown: `docs-check.mjs readability` prints them all'
+        ),
+        r.stdout
+    );
+    // Shown or not, a note is counted.
+    const total = lines
+        .find((l) => l.startsWith('docs-check: '))
+        .match(/(\d+) notes/);
+    assert.ok(Number(total[1]) >= 20, r.stdout);
+});
+
+test('pagestandard: callouts, components, frontmatter keys, the opening, and what a page must carry', () => {
+    const kinds = (mdx, name = 'docs/faq.mdx') =>
+        only('pagestandard', small({ [name]: mdx })).notes.map((l) =>
+            l.split('  ').slice(2).join('  ')
+        );
+    const at = (mdx, text) => `docs/faq.mdx:${lineOf(mdx, text)}`;
+
+    assert.deepEqual(
+        kinds(
+            page(
+                'A clean page.',
+                '',
+                '<Warning>',
+                'Careful.',
+                '</Warning>',
+                '',
+                '## Next',
+                '',
+                '<Info>',
+                'Also.',
+                '</Info>'
+            )
+        ),
+        []
+    );
+
+    const callouts = page(
+        'Opening.',
+        '',
+        '<Note>',
+        'A note.',
+        '</Note>',
+        '',
+        '## More',
+        '',
+        '<Tip>A tip.</Tip>'
+    );
+    assert.deepEqual(kinds(callouts), [
+        `${at(callouts, '<Note>')}  callout: <Note> is not used in these docs, only <Warning> and <Info>`,
+        `${at(callouts, '<Tip>')}  callout: <Tip> is not used in these docs, only <Warning> and <Info>`,
+    ]);
+
+    const parts = page(
+        'Opening.',
+        '',
+        '<AccordionGroup>',
+        '<Accordion title="One">Text.</Accordion>',
+        '</AccordionGroup>',
+        '',
+        'A <Tooltip tip="x">word</Tooltip> and a <Badge>Beta</Badge>.',
+        '',
+        '<Expandable title="more">Text.</Expandable>',
+        '',
+        // Named in code, a component is only being written about.
+        'Never `<Accordion>` or `<Badge>`.',
+        '',
+        '```mdx',
+        '<Tooltip tip="x">word</Tooltip>',
+        '```'
+    );
+    assert.deepEqual(kinds(parts), [
+        `${at(parts, '<AccordionGroup>')}  component: <AccordionGroup> is not used in these docs`,
+        `${at(parts, '<Accordion title')}  component: <Accordion> is not used in these docs`,
+        `${at(parts, 'A <Tooltip')}  component: <Tooltip> is not used in these docs`,
+        `${at(parts, 'A <Tooltip')}  component: <Badge> is not used in these docs`,
+        `${at(parts, '<Expandable')}  component: <Expandable> is not used in these docs`,
+    ]);
+
+    const keys = page('Opening.').replace(
+        'keywords: ["fixture"]',
+        'icon: "bolt"\ntag: "NEW"'
+    );
+    assert.deepEqual(kinds(keys), [
+        'docs/faq.mdx:1  frontmatter: no keywords',
+        'docs/faq.mdx:5  frontmatter: icon is not used in these docs',
+        'docs/faq.mdx:6  frontmatter: tag is not used in these docs',
+    ]);
+    assert.deepEqual(
+        kinds(page('Opening.').replace('sidebarTitle: "Page"\n', '')),
+        ['docs/faq.mdx:1  frontmatter: no sidebarTitle']
+    );
+
+    const fits = 'x'.repeat(160);
+    assert.deepEqual(
+        kinds(page('Opening.').replace('A page for one check.', fits)),
+        []
+    );
+    assert.deepEqual(
+        kinds(page('Opening.').replace('A page for one check.', `${fits}x`)),
+        [
+            'docs/faq.mdx:4  frontmatter: the description is 161 characters (the limit is 160)',
+        ]
+    );
+
+    const heading = page('## Starts on a heading', '', 'Text.');
+    assert.deepEqual(kinds(heading), [
+        `${at(heading, '## Starts')}  opening: the page starts on a heading`,
+    ]);
+    const table = page(
+        "import X from '/snippets/x.mdx';",
+        '',
+        '| A | B |',
+        '| --- | --- |',
+        '| 1 | 2 |'
+    );
+    assert.deepEqual(kinds(table), [
+        `${at(table, '| A | B |')}  opening: the page starts on a table`,
+    ]);
+});
+
+test('pagestandard: every troubleshooting H3 carries an explicit id, and the changelog is exempt', () => {
+    const mdx = page(
+        'Opening.',
+        '',
+        '## In the browser',
+        '',
+        '### Link invalid {#link-invalid}',
+        '',
+        'Text.',
+        '',
+        '### Offline',
+        '',
+        'Text.'
+    );
+    const r = only(
+        'pagestandard',
+        small({ 'docs/troubleshooting.mdx': mdx, 'docs/faq.mdx': mdx })
+    );
+    assert.deepEqual(r.notes, [
+        `NOTE  pagestandard  docs/troubleshooting.mdx:${lineOf(mdx, '### Offline')}  id: a troubleshooting H3 has no explicit {#id}`,
+    ]);
+
+    const log = [
+        '---',
+        'title: "Changelog"',
+        'description: "Releases."',
+        'icon: "clock"',
+        '---',
+        '',
+        '## Starts on a heading',
+        '',
+        '<Note>Old.</Note>',
+        '',
+    ].join('\n');
+    assert.deepEqual(
+        only('pagestandard', small({ 'docs/changelog.mdx': log })).notes,
+        []
+    );
+});
+
+const GLOSSARY = page(
+    'Words these docs use.',
+    '',
+    '## Words you see in Floe {#words-you-see-in-floe}',
+    '',
+    '### room code {#room-code}',
+    '',
+    'The short phrase that stands for a room.',
+    '',
+    '### drop {#drop}',
+    '',
+    'One sending through a request link.',
+    '',
+    '## Technical terms',
+    '',
+    '### relay / TURN relay {#relay}',
+    '',
+    'A server that carries the encrypted stream.',
+    '',
+    '### signaling server',
+    '',
+    'The server that introduces two devices.',
+    '',
+    '### PATH {#path}',
+    '',
+    'The folders a terminal searches.'
+);
+
+test('glossary: one info line and nothing else while docs/glossary.mdx does not exist', () => {
+    const r = only(
+        'glossary',
+        small({ 'docs/faq.mdx': page('A room code and a relay.') })
+    );
+    assert.equal(r.status, 0, r.out);
+    assert.deepEqual(r.notes, []);
+    assert.deepEqual(r.info, [
+        'info  glossary  docs/glossary.mdx  the page does not exist, so there is nothing to check',
+    ]);
+});
+
+test('glossary: a term used on a user page with no link to its entry is one NOTE per page and term', () => {
+    const faq = page(
+        'Share the Room Code with the other person.',
+        '',
+        'The room code expires. A TURN relay may carry the stream, and the relays differ.',
+        '',
+        'The `signaling server` is named in code here.',
+        '',
+        '```text',
+        'signaling server',
+        '```'
+    );
+    const linked = page(
+        'A [relay](/glossary#relay) carries the stream when a direct path fails.',
+        '',
+        'The signaling server only introduces the two devices.'
+    );
+    const r = only(
+        'glossary',
+        small({
+            'docs/glossary.mdx': GLOSSARY,
+            'docs/faq.mdx': faq,
+            'docs/web-app/sending.mdx': linked,
+            // Not a user page: never listed.
+            'docs/cli/send.mdx': page('The room code is printed first.'),
+        })
+    );
+    assert.equal(r.status, 0, r.out);
+    assert.deepEqual(r.notes, [
+        `NOTE  glossary  docs/faq.mdx:${lineOf(faq, 'Share the Room Code')}  "room code" is used and the page has no link to /glossary#room-code`,
+        `NOTE  glossary  docs/faq.mdx:${lineOf(faq, 'The room code expires')}  "TURN relay" is used and the page has no link to /glossary#relay`,
+        `NOTE  glossary  docs/web-app/sending.mdx:${lineOf(linked, 'The signaling server')}  "signaling server" is used and the page has no link to /glossary#signaling-server`,
+    ]);
+});
+
+test('glossary: a group heading is not a term, a capital is matched as written, and an everyday word is left to the writer', () => {
+    const faq = page(
+        'These are the words you see in Floe, and a few technical terms.',
+        '',
+        'Put the folder on your PATH. A file keeps its path, and a long path is refused.',
+        '',
+        'Drop the files on the page. A drop through a request link is one sending.'
+    );
+    const lower = page('The path to a file is not the list a terminal searches.');
+    const r = only(
+        'glossary',
+        small({
+            'docs/glossary.mdx': GLOSSARY,
+            'docs/faq.mdx': faq,
+            'docs/troubleshooting.mdx': lower,
+        })
+    );
+    assert.equal(r.status, 0, r.out);
+    // Only PATH as the glossary spells it. Not the two group headings, not
+    // "path" in lower case on either page, and not "drop" as verb or noun.
+    assert.deepEqual(r.notes, [
+        `NOTE  glossary  docs/faq.mdx:${lineOf(faq, 'Put the folder on your PATH')}  "PATH" is used and the page has no link to /glossary#path`,
+    ]);
+    assert.ok(
+        r.info.includes(
+            'info  glossary  docs/glossary.mdx  not checked, because a script cannot tell the term from the everyday word: drop'
+        ),
+        r.out
+    );
+});
+
+test('captures: a shot with no strings is summarized, and a recorded string must still be in one of its sources', () => {
+    const manifest = (shots) => `${JSON.stringify({ shots }, null, 2)}\n`;
+    const REFS = '.claude/skills/docs-verify/references';
+    const r = only(
+        'captures',
+        small({
+            'docs/faq.mdx': page('Pictures.'),
+            'docs/images/web/capture-manifest.json': manifest([
+                {
+                    name: '01-send.png',
+                    strings: [
+                        'Create secure link ({n} files)',
+                        'Network relay fallback',
+                        'A label that was renamed',
+                    ],
+                    sources: [
+                        'client/components/Card.tsx',
+                        'client/lib/copy.ts',
+                    ],
+                },
+                { name: '02-share.png' },
+                { name: '03-wait.png', strings: [] },
+                { name: '04-loose.png', strings: ['Copy'] },
+            ]),
+            'docs/images/desktop/capture-manifest.json': manifest([
+                {
+                    name: 'receive.png',
+                    strings: ['Request link', 'Save to'],
+                    sources: ['desktop/frontend/src/App.tsx'],
+                },
+            ]),
+            'client/components/Card.tsx':
+                '<button>Create secure link ({count} files)</button>\n',
+            'client/lib/copy.ts':
+                "export const RELAY = 'Network relay fallback';\n",
+            // main has both words; the released app has only the first.
+            'desktop/frontend/src/App.tsx':
+                '<b>Request link</b><b>Save to</b>\n',
+            [`${REFS}/released-strings.json`]: `${JSON.stringify({ refs: { cli: 'v1.11.0', desktop: 'desktop-v0.3.0' }, cli: {}, desktop: { 'desktop/frontend/src/App.tsx': ['Request link'] } })}\n`,
+        })
+    );
+    assert.equal(r.status, 0, r.out);
+    assert.deepEqual(r.notes, [
+        'NOTE  captures  docs/images/desktop/capture-manifest.json  receive.png: \u201cSave to\u201d is not in the snapshot of desktop-v0.3.0 for desktop/frontend/src/App.tsx',
+        'NOTE  captures  docs/images/web/capture-manifest.json  01-send.png: \u201cA label that was renamed\u201d is in none of client/components/Card.tsx, client/lib/copy.ts',
+        'NOTE  captures  docs/images/web/capture-manifest.json  04-loose.png: strings are recorded with no sources to hold them to',
+        'NOTE  captures  docs/images/web/capture-manifest.json  2 of 4 shots record no strings: 02-share.png, 03-wait.png',
+    ]);
+});
+
+// The baseline test copies SURFACES and nothing else. A row or a picture that
+// names a file outside them would be reported in the copy and not in the
+// repository, and the two runs would stop being the same run.
+test('every file the messages and captures checks read from the working tree is inside SURFACES', () => {
+    const inside = (path) =>
+        SURFACES.some((s) => path === s || path.startsWith(`${s}/`));
+    const refs = join(REPO, '.claude', 'skills', 'docs-verify', 'references');
+    assert.ok(inside('.claude/skills/docs-verify/references/messages.json'));
+    const outside = [];
+    if (existsSync(join(refs, 'messages.json'))) {
+        for (const row of JSON.parse(
+            readFileSync(join(refs, 'messages.json'), 'utf8')
+        ))
+            if (!heldToRelease(row) && !inside(row.source))
+                outside.push(row.source);
+    }
+    const images = join(REPO, 'docs', 'images');
+    for (const dir of existsSync(images) ? readdirSync(images) : []) {
+        const file = join(images, dir, 'capture-manifest.json');
+        if (RELEASED_SURFACES.includes(dir) || !existsSync(file)) continue;
+        for (const shot of JSON.parse(readFileSync(file, 'utf8')).shots || [])
+            for (const source of shot.sources || [])
+                if (!inside(source)) outside.push(source);
+    }
+    assert.deepEqual([...new Set(outside)], []);
 });

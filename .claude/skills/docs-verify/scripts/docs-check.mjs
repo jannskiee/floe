@@ -57,8 +57,18 @@
  * JSX block there may close many lines later, and telling that from a stray
  * tag needs the real compiler.
  *
+ * Why the last five checks only report: `readability`, `pagestandard`,
+ * `glossary`, `messages` and `captures` each measure something the docs were
+ * not clear of on the day the check was written (2026-10-14: 85 sentences of
+ * more than 35 words on the pages people read, 280 messages with no docs
+ * heading that explains them, no picture with its strings recorded). A check
+ * that failed on its first day would have been switched off, so each prints
+ * NOTE lines until the docs are cleared and one constant is flipped. The
+ * section they share, near the end of this file, says how.
+ *
  * Usage:
- *   node docs-check.mjs [all|links|nav|frontmatter|headings|labels|tables|env|dashes] [--root <dir>]
+ *   node docs-check.mjs [all|links|nav|frontmatter|headings|labels|tables|env|dashes|
+ *                        readability|pagestandard|glossary|messages|captures] [--root <dir>]
  * Tests:
  *   node --test .claude/skills/docs-verify/scripts/docs-check.test.mjs
  * Output lines: `HARD  <check>  <file>:<line>  <message>` and the same with
@@ -68,6 +78,18 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { haystack, textOccurs } from './message-match.mjs';
+import {
+    INDEX_PAGE,
+    MESSAGES_FILE,
+    SURFACES as MESSAGE_SURFACES,
+    renderIndex,
+} from './messages-index.mjs';
+import {
+    RELEASED_FILE,
+    RELEASED_SURFACES,
+    heldToRelease,
+} from './released-strings.mjs';
 
 const CHECKS = [
     'links',
@@ -78,6 +100,11 @@ const CHECKS = [
     'tables',
     'env',
     'dashes',
+    'readability',
+    'pagestandard',
+    'glossary',
+    'messages',
+    'captures',
 ];
 const SKIP_DIRS = new Set(['node_modules', '.next', 'dist', 'build', '.git']);
 const SITE = 'https://www.floe.one';
@@ -108,16 +135,20 @@ export const SURFACES = [
     'client/sentry.server.config.ts',
     'client/vitest.config.ts',
     'client/.env.example',
+    'client/public/install.sh',
+    'client/public/install.ps1',
     'cli',
     'desktop',
     'server/server.js',
     'server/turn.js',
     'server/stats.js',
+    'server/policy.js',
     'server/.env.example',
     '.env.docker.example',
     'docker-compose.yml',
     'unraid',
     '.goreleaser.yml',
+    '.claude/skills/docs-verify/references',
 ];
 
 // ---------------------------------------------------------------------------
@@ -486,8 +517,16 @@ function buildContext(root, report) {
     }
     const nav = navPages(docsJson);
     const mdxFiles = walk(docsDir, ['.mdx']);
+    const pages = readPages(docsDir);
+    return { root, report, docsDir, docsJson, nav, mdxFiles, pages };
+}
+
+// Every page under docs/ by its nav path. Exported for the message index
+// scripts, which resolve an anchor against the same heading ids the `links`
+// check uses: a second reading of which ids exist would let the two disagree.
+export function readPages(docsDir) {
     const pages = new Map();
-    for (const file of mdxFiles) {
+    for (const file of walk(docsDir, ['.mdx'])) {
         const text = read(file);
         const page = rel(docsDir, file).replace(/\.mdx$/, '');
         pages.set(page, {
@@ -497,7 +536,20 @@ function buildContext(root, report) {
             headings: headingSlugs(text),
         });
     }
-    return { root, report, docsDir, docsJson, nav, mdxFiles, pages };
+    return pages;
+}
+
+// The words a link to `anchor` (/page or /page#id) should carry: the heading's
+// own text, or the page's sidebar name. Those are what the `labels` check
+// accepts, so a generated page that uses them adds no label note. null when
+// the anchor names nothing.
+export function anchorLabel(pages, anchor) {
+    const [path, id] = anchor.split('#');
+    const rec = pages.get(path.replace(/^\/+|\/+$/g, ''));
+    if (!rec) return null;
+    if (id === undefined) return rec.fm.sidebarTitle || rec.fm.title || null;
+    const raw = rec.headings.ids.get(id);
+    return raw ? raw.replace(/["\u201c\u201d]/g, '') : null;
 }
 
 // Resolve a docs path (leading slash, no anchor) to a page record, a static
@@ -1873,6 +1925,921 @@ function checkDashes(ctx) {
 }
 
 // ---------------------------------------------------------------------------
+// The report-only checks: readability, pagestandard, glossary, messages,
+// captures
+// ---------------------------------------------------------------------------
+
+// Each of the five checks below measures something the docs have not been
+// cleared of yet, so each prints NOTE lines and cannot fail a run. Each has
+// one constant, named <CHECK>_HARD, at the top of its section: set it to true
+// in the change that clears the docs of what the check reports, and every
+// line it prints becomes HARD (the path `tables` took in #526).
+//
+// A check with hundreds of notes would bury the lines of every other check,
+// and a script whose output nobody reads is the failure the header warns of.
+// So in an `all` run each of these prints its first NOTE_CAP notes and one
+// line saying how many it kept back; run alone, it prints them all. A note
+// that is kept back is still counted in the closing total.
+const NOTE_CAP = 15;
+
+class Findings {
+    constructor(ctx, check, hard) {
+        Object.assign(this, { ctx, check, hard, count: 0 });
+    }
+    add(where, msg) {
+        const { report, single } = this.ctx;
+        this.count++;
+        if (this.hard) report.hardLine(this.check, where, msg);
+        else if (single || this.count <= NOTE_CAP)
+            report.note(this.check, where, msg);
+        else report.notes++;
+    }
+    // The lines of one file, in the order a reader meets them.
+    addAll(file, found) {
+        for (const f of found.sort((a, b) => a.line - b.line))
+            this.add(`${file}:${f.line}`, f.msg);
+    }
+    end() {
+        const kept = this.count - NOTE_CAP;
+        if (this.hard || this.ctx.single || kept <= 0) return;
+        this.ctx.report.info(
+            this.check,
+            'docs/',
+            `${kept} more notes not shown: \`docs-check.mjs ${this.check}\` prints them all`
+        );
+    }
+}
+
+// The pages a person reads to use Floe, as against the ones an operator or a
+// contributor looks things up in. `readability` and `glossary` list findings
+// on these only.
+const USER_PAGES = [
+    /^(introduction|quickstart|choosing-floe|faq|troubleshooting|glossary|security-privacy)$/,
+    /^(web-app|desktop|how-it-works)\//,
+];
+const isUserPage = (page) => USER_PAGES.some((re) => re.test(page));
+
+// What stands in for an inline code span: one word, whatever the code holds,
+// so `floe send a.bin --to <link>` is neither five words nor a sentence end.
+const CODE_WORD = '\ue000';
+
+// The index after the code span that opens with `run` backticks at `at`, or
+// -1 when no run of the same length closes it before the paragraph ends.
+function codeSpanEnd(text, at, run) {
+    const stop = text.slice(at).search(/\n[ \t]*\n/);
+    const body =
+        stop < 0 ? text.slice(at + run) : text.slice(at + run, at + stop);
+    for (const m of body.matchAll(/`+/g))
+        if (m[0].length === run) return at + run + m.index + run;
+    return -1;
+}
+
+// The text with every inline code span emptied, line for line. A span is read
+// the way Markdown reads one, so a double-backtick span that shows a backtick
+// is one span; `line.replace(/`[^`]*`/g, ...)` reads it as two and leaves the
+// middle standing as prose.
+function withoutCodeSpans(text) {
+    let out = '';
+    for (let i = 0; i < text.length; ) {
+        const run = text[i] === '`' ? text.slice(i).match(/^`+/)[0].length : 0;
+        const end = run ? codeSpanEnd(text, i, run) : -1;
+        const step = text[i] === '\\' ? 2 : run || 1;
+        out +=
+            end < 0
+                ? text.slice(i, i + step)
+                : `\`\`${text.slice(i, end).replace(/[^\n]/g, '')}`;
+        i = end < 0 ? i + step : end;
+    }
+    return out;
+}
+
+// The index after the `>` that closes the tag opening at `at`, or -1 when
+// what follows is not a tag. Unlike jsxTagAt this one crosses lines (an <img>
+// with one attribute per line) and does not judge the tag: prose only needs
+// to know where it stops. A `>` inside a quoted value or an attribute's
+// braces does not close it; a blank line or another `<` means it was text.
+function tagEnd(text, at) {
+    let quote = null;
+    for (let i = at + 1; i < text.length; i++) {
+        const c = text[i];
+        if (quote) {
+            if (c === quote) quote = null;
+        } else if (c === '"' || c === "'") quote = c;
+        else if (c === '{') {
+            const end = expressionEnd(text, i);
+            if (end < 0) return -1;
+            i = end - 1;
+        } else if (c === '>') return i + 1;
+        else if (
+            c === '<' ||
+            (c === '\n' && /^[ \t]*\n/.test(text.slice(i + 1)))
+        )
+            return -1;
+    }
+    return -1;
+}
+
+// A page as a reader sees it, line for line with the source: the frontmatter,
+// fenced code, MDX comments and import lines are blank, a tag is gone and the
+// text between its tags stays, an expression in braces is gone (the {#id} of
+// a heading with it), a code span is one CODE_WORD, and a link is its label.
+// Also returns every image's alt text with its line, which is not prose.
+function proseOf(mdx) {
+    const lines = stripFences(mdx).split('\n');
+    const fmEnd = lines[0] === '---' ? lines.indexOf('---', 1) : -1;
+    for (let i = 0; i < lines.length; i++)
+        if (i <= fmEnd || /^(import|export)\s/.test(lines[i])) lines[i] = '';
+    const text = lines.join('\n');
+    const images = [];
+    const blank = (s) => s.replace(/[^\n]/g, ' ');
+    let out = '';
+    for (let i = 0; i < text.length; ) {
+        const c = text[i];
+        let end = -1;
+        if (c === '\\' && ASCII_PUNCTUATION.test(text[i + 1] ?? '')) {
+            out += text[i + 1];
+            i += 2;
+            continue;
+        }
+        if (c === '`') {
+            const run = text.slice(i).match(/^`+/)[0].length;
+            end = codeSpanEnd(text, i, run);
+            if (end >= 0)
+                out += CODE_WORD + text.slice(i, end).replace(/[^\n]/g, '');
+        } else if (c === '{') {
+            end = expressionEnd(text, i);
+            if (end >= 0) out += blank(text.slice(i, end));
+        } else if (c === '<' && /[A-Za-z/>]/.test(text[i + 1] ?? '')) {
+            end = tagEnd(text, i);
+            if (end >= 0) {
+                const tag = text.slice(i, end);
+                const alt =
+                    /^<img\b/.test(tag) &&
+                    tag.match(/\balt=(?:"([^"]*)"|'([^']*)')/);
+                if (alt)
+                    images.push({
+                        line: lineOf(text, i),
+                        alt: alt[1] ?? alt[2],
+                    });
+                out += blank(tag);
+            }
+        }
+        if (end >= 0) i = end;
+        else out += text[i++];
+    }
+    out = out.replace(/!\[([^\]\n]*)\]\([^)\n]*\)/g, (m, alt, at) => {
+        images.push({ line: lineOf(out, at), alt });
+        return blank(m);
+    });
+    out = out.replace(/\[([^\]]*)\]\((?:[^()\n]|\([^()\n]*\))*\)/g, '$1');
+    return { text: out, images: images.sort((a, b) => a.line - b.line) };
+}
+
+// A word is anything between white space that holds a letter, a digit or a
+// code span, so a bullet, a pipe or a lone hyphen is not one.
+function wordCount(text) {
+    return (text.match(/\S+/g) || []).filter((w) =>
+        /[\p{L}\p{N}\ue000]/u.test(w)
+    ).length;
+}
+
+// What a full stop may follow without ending a sentence, and what it may
+// follow that ends one only before a capital.
+const ABBREVIATION = /(?:^|[^A-Za-z])(?:e\.g|i\.e|vs|cf|approx)$/;
+const ETC = /(?:^|[^A-Za-z])etc$/;
+
+/**
+ * The sentences of one block of prose, as { text, offset }. A sentence ends
+ * at `.`, `!` or `?` (and any closing quote, bracket or emphasis mark, so a
+ * bold run-in sentence is one of its own) followed by white
+ * space or the end. The full stops inside 1.11.0, a.bin and 2.5 are followed
+ * by neither, so they end nothing; nor does an abbreviation, an ellipsis
+ * (it trails off), or a quotation that closes in mid-sentence ('says
+ * "Connection lost." and stops'). Whether the next word has a capital is not
+ * asked: in these docs a sentence often starts with `floe` or `nginx`.
+ */
+export function splitSentences(text) {
+    const out = [];
+    let start = 0;
+    for (const m of text.matchAll(
+        /([.!?]+)(["'\u201d\u2019)\]*_]*)(?=\s|$)/g
+    )) {
+        const [whole, marks, closers] = m;
+        const before = text.slice(start, m.index);
+        const next = text.slice(m.index + whole.length).trimStart()[0] ?? '';
+        const goesOn = /[a-z]/.test(next);
+        if (/^\.{2,}$/.test(marks) || before.endsWith('\u2026')) continue;
+        if (
+            marks === '.' &&
+            (ABBREVIATION.test(before) || (ETC.test(before) && goesOn))
+        )
+            continue;
+        if (/["'\u201d\u2019]/.test(closers) && goesOn) continue;
+        out.push({
+            text: text.slice(start, m.index + whole.length),
+            offset: start,
+        });
+        start = m.index + whole.length;
+    }
+    if (/\S/.test(text.slice(start)))
+        out.push({ text: text.slice(start), offset: start });
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// readability
+// ---------------------------------------------------------------------------
+
+const READABILITY_HARD = false;
+const SENTENCE_MAX_WORDS = 35;
+const CELL_MAX_WORDS = 40;
+const ALT_MIN_CHARS = 40;
+const ALT_MAX_CHARS = 150;
+// A page longer than this, in words of prose, opens with a summary under an
+// H2 of this name, which has to be one of the first SHORT_VERSION_WITHIN.
+const LONG_PAGE_WORDS = 1200;
+const SHORT_VERSION = 'The short version';
+const SHORT_VERSION_WITHIN = 3;
+
+// Every finding on one page, with the page's word count. A paragraph is one
+// block and so is each list item (an item with no full stop is a sentence of
+// its own, never joined to the next); a table row is no sentence, and its
+// cells are measured one by one. Headings are not prose and are not counted.
+function measureProse(mdx) {
+    const { text, images } = proseOf(mdx);
+    const lines = text.split('\n');
+    const found = [];
+    const h2 = [];
+    let words = 0;
+
+    const inTable = new Set();
+    for (const t of tablesIn(text)) {
+        inTable.add(t.headerLine).add(t.headerLine + 1);
+        for (const row of [
+            { cells: t.header, line: t.headerLine },
+            ...t.rows,
+        ]) {
+            inTable.add(row.line);
+            for (const cell of row.cells) {
+                const n = wordCount(cell);
+                words += n;
+                if (n > CELL_MAX_WORDS)
+                    found.push({
+                        kind: 'cell',
+                        line: row.line,
+                        msg: `a table cell of ${n} words (the limit is ${CELL_MAX_WORDS})`,
+                    });
+            }
+        }
+    }
+
+    const blocks = [];
+    let open = null;
+    const close = () => {
+        if (open) blocks.push(open);
+        open = null;
+    };
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].replace(/^\s*>\s?/, '');
+        const heading = line.match(/^\s{0,3}(#{1,6})\s+(.*)$/);
+        const item = line.match(/^\s*(?:[-*+]|\d+[.)])\s+(.*)$/);
+        if (inTable.has(i + 1) || line.trim() === '') close();
+        else if (heading) {
+            close();
+            if (heading[1].length === 2) h2.push(heading[2].trim());
+        } else if (item) {
+            close();
+            open = { line: i + 1, text: item[1] };
+        } else if (open) open.text += `\n${line}`;
+        else open = { line: i + 1, text: line };
+    }
+    close();
+    for (const block of blocks)
+        for (const s of splitSentences(block.text)) {
+            const n = wordCount(s.text);
+            words += n;
+            if (n <= SENTENCE_MAX_WORDS) continue;
+            const lead = s.offset + s.text.search(/\S/);
+            found.push({
+                kind: 'sentence',
+                line:
+                    block.line +
+                    block.text.slice(0, lead).split('\n').length -
+                    1,
+                msg: `a sentence of ${n} words (the limit is ${SENTENCE_MAX_WORDS})`,
+            });
+        }
+
+    for (const { line, alt } of images) {
+        const n = alt.trim().length;
+        if (n < ALT_MIN_CHARS || n > ALT_MAX_CHARS)
+            found.push({
+                kind: 'alt',
+                line,
+                msg: `image alt text is ${n} characters (the range is ${ALT_MIN_CHARS} to ${ALT_MAX_CHARS})`,
+            });
+        if (!alt.trim().endsWith('.'))
+            found.push({
+                kind: 'alt',
+                line,
+                msg: 'image alt text does not end in a period',
+            });
+    }
+
+    const summarized = h2
+        .slice(0, SHORT_VERSION_WITHIN)
+        .some((h) => h.toLowerCase() === SHORT_VERSION.toLowerCase());
+    if (words > LONG_PAGE_WORDS && !summarized)
+        found.push({
+            kind: 'long',
+            line: 1,
+            msg: `${words} words of prose and no "${SHORT_VERSION}" among the first three H2 headings`,
+        });
+    return { found, words };
+}
+
+function checkReadability(ctx) {
+    const findings = new Findings(ctx, 'readability', READABILITY_HARD);
+    const count = (found, kind) => found.filter((f) => f.kind === kind).length;
+    const user = { pages: 0, sentence: 0, cell: 0, alt: 0, long: 0 };
+    const other = { pages: 0, sentence: 0, cell: 0 };
+    for (const [page, rec] of ctx.pages) {
+        const { found } = measureProse(rec.text);
+        const tally = isUserPage(page) ? user : other;
+        tally.pages++;
+        for (const kind of Object.keys(tally))
+            if (kind !== 'pages') tally[kind] += count(found, kind);
+        if (tally === user) findings.addAll(rel(ctx.root, rec.file), found);
+    }
+    findings.end();
+    ctx.report.info(
+        'readability',
+        'docs/',
+        `${user.pages} user pages: ${user.sentence} sentences over ${SENTENCE_MAX_WORDS} words, ${user.cell} table cells over ${CELL_MAX_WORDS} words, ${user.alt} image alt text findings, ${user.long} long pages with no "${SHORT_VERSION}"`
+    );
+    ctx.report.info(
+        'readability',
+        'docs/',
+        `${other.pages} other pages (cli/, self-hosting/, reference/, the changelog, snippets) are not listed: ${other.sentence} sentences over ${SENTENCE_MAX_WORDS} words, ${other.cell} table cells over ${CELL_MAX_WORDS} words`
+    );
+}
+
+// ---------------------------------------------------------------------------
+// pagestandard
+// ---------------------------------------------------------------------------
+
+// The page standard the docs were rewritten to in #518 to #522, as far as a
+// script can decide it. What needs a reader is not here: whether a page opens
+// by saying what the reader will have done, whether a callout is the right
+// one of the two, whether a fact is stated on the page that owns it.
+const PAGESTANDARD_HARD = false;
+// The changelog describes each release in the words of its day.
+const STANDARD_EXEMPT = ['changelog'];
+// Pages that only quote the apps. The message index is generated: its words
+// are the apps' own ("host name" is what Floe Desktop says), and its tables
+// are headed Message and Explained at, so the wording rules and the
+// message-table rule do not apply to it.
+const QUOTING_PAGES = [INDEX_PAGE];
+const REQUIRED_KEYS = ['title', 'sidebarTitle', 'description', 'keywords'];
+const BANNED_KEYS = ['icon', 'tag'];
+const DESCRIPTION_MAX = 160;
+// Two callouts exist in these docs. The render probe of 2026-10-11 showed
+// <Note> blue and <Tip> green against a neutral design.
+const CALLOUTS_USED = ['Warning', 'Info'];
+const CALLOUTS_NOT_USED = ['Note', 'Tip', 'Check', 'Danger', 'Callout'];
+const COMPONENTS_NOT_USED = [
+    'Accordion',
+    'AccordionGroup',
+    'Tooltip',
+    'Badge',
+    'Expandable',
+];
+const MESSAGE_TABLE =
+    /^\|\s*Message\s*\|\s*What it means\s*\|\s*What to do\s*\|\s*$/;
+// Lower-case tags a page may carry. Any other `<word>` outside code is a tag
+// MDX cannot close (a placeholder typed raw), and the page stops compiling.
+const HTML_USED = new Set(
+    'img span br a div p kbd code sub sup strong em b i table thead tbody tr td th ul ol li details summary hr pre'.split(
+        ' '
+    )
+);
+const WORDS = [
+    [/\bafterwards\b/i, '"afterwards" (use "afterward")'],
+    [/\be\.g\./, '"e.g." (use "for example")'],
+    [/\bi\.e\./, '"i.e." (use "that is")'],
+    [/\bhost name\b/i, '"host name" (use "hostname")'],
+    [/\bNginx\b(?! Proxy Manager)/, '"Nginx" (use "nginx")'],
+    [
+        /\b(?:from|before|in) this release\b/i,
+        '"this release" (name the version)',
+    ],
+    [
+        /\b(?:two|three|four|five|six|ten|twenty|thirty|forty|sixty|ninety)[ -](?:second|minute|hour|day)s?\b/i,
+        'a spelled-out number with a unit (use a numeral)',
+    ],
+    [
+        /\b(?:behaviour|cancelled|cancelling|colour|centre)\b/i,
+        'British spelling',
+    ],
+];
+
+function pageStandardFindings(page, rec) {
+    const found = [];
+    const note = (line, msg) => found.push({ line, msg });
+    const snippet = NAV_EXEMPT.some((re) => re.test(page));
+    const raw = rec.text.split('\n');
+    const fmEnd = raw[0] === '---' ? raw.indexOf('---', 1) : -1;
+
+    if (!snippet) {
+        const keys = new Map();
+        for (let i = 1; i < fmEnd; i++) {
+            const m = raw[i].match(/^([A-Za-z]+):/);
+            if (m && !keys.has(m[1])) keys.set(m[1], i + 1);
+        }
+        for (const key of REQUIRED_KEYS)
+            if (!keys.has(key)) note(1, `frontmatter: no ${key}`);
+        for (const key of BANNED_KEYS)
+            if (keys.has(key))
+                note(
+                    keys.get(key),
+                    `frontmatter: ${key} is not used in these docs`
+                );
+        const length = (rec.fm.description || '').length;
+        if (length > DESCRIPTION_MAX)
+            note(
+                keys.get('description'),
+                `frontmatter: the description is ${length} characters (the limit is ${DESCRIPTION_MAX})`
+            );
+
+        let first = fmEnd + 1;
+        while (
+            first < raw.length &&
+            (raw[first].trim() === '' || /^import\s/.test(raw[first]))
+        )
+            first++;
+        if (/^#{1,6}\s/.test(raw[first] ?? ''))
+            note(first + 1, 'opening: the page starts on a heading');
+        else if (/^\|/.test(raw[first] ?? ''))
+            note(first + 1, 'opening: the page starts on a table');
+    }
+
+    // Fences are read from the source, since what opens one is what is judged.
+    let fence = null;
+    for (let i = fmEnd + 1; i < raw.length; i++) {
+        const m = raw[i].match(/^\s*(`{3,}|~{3,})(.*)$/);
+        if (!m) continue;
+        if (fence === null) {
+            fence = { mark: m[1][0], length: m[1].length };
+            const info = m[2].trim();
+            if (info === '') note(i + 1, 'fence: a code fence has no language');
+            else if (/^mermaid\b/.test(info))
+                note(i + 1, 'diagram: these docs carry no diagrams');
+        } else if (
+            m[1][0] === fence.mark &&
+            m[1].length >= fence.length &&
+            m[2].trim() === ''
+        )
+            fence = null;
+    }
+
+    const lines = withoutCodeSpans(stripFences(rec.text)).split('\n');
+    const quoting = QUOTING_PAGES.includes(page);
+    let heading = null;
+    let callouts = 0;
+    let lastCalloutClose = -10;
+    const emptySection = (until) => {
+        if (
+            heading &&
+            !raw.slice(heading.at + 1, until).some((l) => l.trim() !== '')
+        )
+            note(heading.at + 1, 'section: a heading with nothing under it');
+    };
+    for (let i = fmEnd + 1; i < lines.length; i++) {
+        const line = lines[i];
+        const h = line.match(/^(#{1,6})\s+(.*)$/);
+        if (h) {
+            if (snippet)
+                note(i + 1, 'snippet: a snippet must not contain a heading');
+            // A heading followed at once by a deeper one is a parent with its
+            // first child, not an empty section.
+            if (heading && h[1].length <= heading.level) emptySection(i);
+            heading = { at: i, level: h[1].length };
+            if (h[1].length <= 2) callouts = 0;
+            if (
+                page === 'troubleshooting' &&
+                h[1].length === 3 &&
+                !/\{#[^}]+\}\s*$/.test(h[2])
+            )
+                note(i + 1, 'id: a troubleshooting H3 has no explicit {#id}');
+            continue;
+        }
+        for (const m of line.matchAll(/<([A-Za-z][A-Za-z0-9-]*)[\s>/]/g)) {
+            const name = m[1];
+            if (COMPONENTS_NOT_USED.includes(name))
+                note(i + 1, `component: <${name}> is not used in these docs`);
+            else if (CALLOUTS_NOT_USED.includes(name))
+                note(
+                    i + 1,
+                    `callout: <${name}> is not used in these docs, only <Warning> and <Info>`
+                );
+            else if (CALLOUTS_USED.includes(name)) {
+                if (++callouts > 1)
+                    note(i + 1, 'callout: more than one callout under one H2');
+                if (i - lastCalloutClose <= 2)
+                    note(i + 1, 'callout: two callouts in a row');
+            } else if (/^[a-z]/.test(name) && !HTML_USED.has(name))
+                note(
+                    i + 1,
+                    `tag: a raw <${name}> outside code is a tag MDX cannot close; put it in backticks`
+                );
+        }
+        if (/<\/(Warning|Info)>/.test(line)) lastCalloutClose = i;
+        if (snippet && /\]\(#/.test(line))
+            note(i + 1, 'snippet: a snippet must not contain a #fragment link');
+        if (quoting) continue;
+        for (const [re, what] of WORDS)
+            if (re.test(line)) note(i + 1, `words: ${what}`);
+        if (/^\|\s*Message\s*\|/.test(line) && !MESSAGE_TABLE.test(line))
+            note(
+                i + 1,
+                'table: a message table is headed "Message | What it means | What to do"'
+            );
+    }
+    emptySection(raw.length);
+    return found;
+}
+
+function checkPageStandard(ctx) {
+    const findings = new Findings(ctx, 'pagestandard', PAGESTANDARD_HARD);
+    // Every message starts with its kind ("callout: ..."), which is what the
+    // closing line counts by.
+    const kinds = new Map();
+    let pages = 0;
+    for (const [page, rec] of ctx.pages) {
+        if (STANDARD_EXEMPT.includes(page)) continue;
+        pages++;
+        const found = pageStandardFindings(page, rec);
+        for (const { msg } of found) {
+            const kind = msg.split(':')[0];
+            kinds.set(kind, (kinds.get(kind) || 0) + 1);
+        }
+        findings.addAll(rel(ctx.root, rec.file), found);
+    }
+    findings.end();
+    const byKind = [...kinds].map(([kind, n]) => `${kind} ${n}`).join(', ');
+    ctx.report.info(
+        'pagestandard',
+        'docs/',
+        `${pages} pages: ${findings.count} findings${byKind ? ` (${byKind})` : ''}`
+    );
+}
+
+// ---------------------------------------------------------------------------
+// glossary
+// ---------------------------------------------------------------------------
+
+const GLOSSARY_HARD = false;
+const GLOSSARY_PAGE = 'glossary';
+
+// One everyday word is a term too, and a script cannot tell the two apart:
+// "drop" is what one sending through a request link is called, and it is
+// also what a person does with files on the drop area. A name listed here is
+// left to the writer and the reviewer, and the check says so in one line.
+const GLOSSARY_LEFT_TO_THE_WRITER = ['drop'];
+
+// A term is an H3 of the glossary. The H2s are the page's groups ("Words you
+// see in Floe"), not terms. One heading may give several spellings of a
+// term, separated by " / "; they share the heading's id.
+function glossaryTerms(rec) {
+    const terms = [];
+    const lines = stripFences(rec.text).split('\n');
+    const fmEnd = lines[0] === '---' ? lines.indexOf('---', 1) : -1;
+    for (const line of lines.slice(fmEnd + 1)) {
+        const h = line.match(/^###\s+(.*)$/);
+        if (!h) continue;
+        const explicit = h[1].match(/^(.*?)\s*\{#([^}]+)\}\s*$/);
+        const text = (explicit ? explicit[1] : h[1]).trim();
+        const names = text
+            .split(' / ')
+            .map((n) => n.trim())
+            .filter(Boolean)
+            .filter((n) => !GLOSSARY_LEFT_TO_THE_WRITER.includes(n));
+        terms.push({ id: explicit ? explicit[2] : slug(text), names });
+    }
+    return terms;
+}
+
+function checkGlossary(ctx) {
+    const glossary = ctx.pages.get(GLOSSARY_PAGE);
+    if (!glossary) {
+        ctx.report.info(
+            'glossary',
+            `docs/${GLOSSARY_PAGE}.mdx`,
+            'the page does not exist, so there is nothing to check'
+        );
+        return;
+    }
+    const findings = new Findings(ctx, 'glossary', GLOSSARY_HARD);
+    const terms = glossaryTerms(glossary);
+    for (const [page, rec] of ctx.pages) {
+        if (page === GLOSSARY_PAGE || !isUserPage(page)) continue;
+        const source = stripFences(rec.text);
+        // Headings are not prose: a term in a heading needs no link.
+        const prose = proseOf(rec.text)
+            .text.split('\n')
+            .map((l) => (/^\s{0,3}#{1,6}\s/.test(l) ? '' : l))
+            .join('\n');
+        const found = [];
+        for (const term of terms) {
+            const target = `/${GLOSSARY_PAGE}#${term.id}`;
+            if (
+                source.includes(`(${target})`) ||
+                source.includes(`"${target}"`)
+            )
+                continue;
+            // The spelling that comes first on the page, the longer one on a
+            // tie ("TURN relay" before the "relay" inside it).
+            let first = null;
+            for (const name of term.names) {
+                const words = name
+                    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+                    .replace(/\s+/g, '\\s+');
+                // A name the glossary writes with a capital is matched as
+                // written: "PATH" is the list of folders a terminal
+                // searches, and "a file's path" is not that. A name in
+                // lower case is matched in any case, because it can start a
+                // sentence.
+                const m = prose.match(
+                    new RegExp(
+                        `(?<![\\p{L}\\p{N}])${words}(?![\\p{L}\\p{N}])`,
+                        /\p{Lu}/u.test(name) ? 'u' : 'iu'
+                    )
+                );
+                if (m && (first === null || m.index < first.at))
+                    first = { at: m.index, name };
+            }
+            if (first)
+                found.push({
+                    line: lineOf(prose, first.at),
+                    msg: `"${first.name}" is used and the page has no link to ${target}`,
+                });
+        }
+        findings.addAll(rel(ctx.root, rec.file), found);
+    }
+    findings.end();
+    ctx.report.info(
+        'glossary',
+        `docs/${GLOSSARY_PAGE}.mdx`,
+        `${terms.length} terms: ${findings.count} uses on a user page with no link to the entry`
+    );
+    ctx.report.info(
+        'glossary',
+        `docs/${GLOSSARY_PAGE}.mdx`,
+        `not checked, because a script cannot tell the term from the everyday word: ${GLOSSARY_LEFT_TO_THE_WRITER.join(', ')}`
+    );
+}
+
+// ---------------------------------------------------------------------------
+// messages
+// ---------------------------------------------------------------------------
+
+// references/messages.json is one row per message Floe can show: its surface,
+// its text, the file that types it and the docs heading that explains it. The
+// check holds each row to all three, and docs/messages.mdx to the rows.
+//
+// Which tree a row's text is looked up in depends on its surface. The docs
+// describe the RELEASED CLI and desktop app, and main runs ahead of both
+// between releases, so those rows are held to references/released-strings.json
+// (written by released-strings.mjs from the two release tags) and never to
+// the working tree. The web app and the server have no such gap, and neither
+// has a cli row typed in a file floe.one serves (`heldToRelease` says which).
+const MESSAGES_HARD = false;
+
+// A source file as message-match.mjs searches it, or null when the path is
+// not a file under the root. An environment file is never opened: server/.env
+// holds live credentials, and a row or a manifest must not be able to name it.
+function sourceHay(ctx, path) {
+    ctx.hays ??= new Map();
+    if (!ctx.hays.has(path)) {
+        const name = basename(path);
+        const secret = /^\.env(\.|$)/.test(name) && !name.endsWith('.example');
+        const file = resolve(ctx.root, path);
+        const inside =
+            !relative(ctx.root, file).startsWith('..') && file !== ctx.root;
+        let hay = null;
+        if (!secret && inside && existsSync(file) && statSync(file).isFile())
+            hay = haystack(read(file));
+        ctx.hays.set(path, hay);
+    }
+    return ctx.hays.get(path);
+}
+
+// The snapshot of the released apps, or null when there is none to read.
+function releasedStrings(ctx) {
+    if (ctx.released === undefined) {
+        ctx.released = null;
+        try {
+            ctx.released = JSON.parse(read(join(ctx.root, RELEASED_FILE)));
+        } catch {
+            // No file, or not JSON: both mean nothing can be held to it.
+        }
+    }
+    return ctx.released;
+}
+
+function checkMessages(ctx) {
+    const file = join(ctx.root, MESSAGES_FILE);
+    if (!existsSync(file)) {
+        ctx.report.info(
+            'messages',
+            MESSAGES_FILE,
+            'no messages.json in this tree, so there is nothing to check'
+        );
+        return;
+    }
+    const findings = new Findings(ctx, 'messages', MESSAGES_HARD);
+    let rows;
+    try {
+        rows = JSON.parse(read(file));
+        if (!Array.isArray(rows)) throw new Error('not an array of rows');
+    } catch (e) {
+        findings.add(MESSAGES_FILE, `cannot read the rows: ${e.message}`);
+        return;
+    }
+    const released = releasedStrings(ctx);
+    if (!released && rows.some(heldToRelease))
+        findings.add(
+            RELEASED_FILE,
+            'no released-strings.json to read, so no cli or desktop row can be checked; released-strings.mjs writes it'
+        );
+    let homeless = 0;
+    for (const row of rows) {
+        const said = `\u201c${String(row.text).replace(/\s+/g, ' ')}\u201d`;
+        if (!MESSAGE_SURFACES.includes(row.surface))
+            findings.add(
+                MESSAGES_FILE,
+                `${said}: unknown surface "${row.surface}"`
+            );
+        else if (heldToRelease(row)) {
+            if (
+                released &&
+                !released[row.surface]?.[row.source]?.includes(row.text)
+            )
+                findings.add(
+                    row.source,
+                    `${said} is not in the snapshot of ${released.refs?.[row.surface]}`
+                );
+        } else {
+            const hay = sourceHay(ctx, String(row.source));
+            if (!hay)
+                findings.add(
+                    String(row.source),
+                    `${said} (${row.surface}): no such file`
+                );
+            else if (!textOccurs(row.text, hay))
+                findings.add(row.source, `${said} is no longer in this file`);
+        }
+
+        if (row.anchor === null || row.anchor === undefined) {
+            if (!row.why_no_home) homeless++;
+            continue;
+        }
+        const [path, id] = String(row.anchor).split('#');
+        const target = resolveDocsPath(ctx, path);
+        if (
+            target.kind !== 'page' ||
+            (id !== undefined && !target.rec.headings.ids.has(id))
+        )
+            findings.add(
+                MESSAGES_FILE,
+                `${said}: the anchor ${row.anchor} does not exist`
+            );
+    }
+    // One line, not one per row: several hundred messages had no docs home
+    // on the day the file was seeded.
+    if (homeless)
+        findings.add(
+            MESSAGES_FILE,
+            `${homeless} of ${rows.length} rows have no docs anchor and no why_no_home`
+        );
+
+    const index = ctx.pages.get(INDEX_PAGE);
+    if (index) {
+        const want = renderIndex(rows, (anchor) =>
+            anchorLabel(ctx.pages, anchor)
+        ).split('\n');
+        const have = index.text.split('\n');
+        const at = want.findIndex((line, i) => line !== have[i]);
+        const differs =
+            at >= 0 ? at : have.length > want.length ? want.length : -1;
+        if (differs >= 0)
+            findings.add(
+                `docs/${INDEX_PAGE}.mdx:${differs + 1}`,
+                'differs from what messages-index.mjs prints from messages.json; run it with --write, never edit the page by hand'
+            );
+    }
+    findings.end();
+    const held = rows.filter(heldToRelease).length;
+    ctx.report.info(
+        'messages',
+        MESSAGES_FILE,
+        `${rows.length} rows: ${rows.length - held} read from the working tree, ${held} held to the release snapshot, ${homeless} with no docs anchor and no reason`
+    );
+}
+
+// ---------------------------------------------------------------------------
+// captures
+// ---------------------------------------------------------------------------
+
+// Each docs/images/<dir>/capture-manifest.json lists the pictures in its
+// directory under `shots`. A shot may record what can be read in the picture:
+// `strings`, the UI texts visible in it (with {placeholders} where the app
+// fills something in), and `sources`, the repo-relative files that type them.
+// A string that has left all of its sources is a picture that no longer shows
+// the app. A picture of a released app (the directory is named for the
+// surface) is held to the snapshot, like a row of messages.json.
+const CAPTURES_HARD = false;
+
+function checkCaptures(ctx) {
+    const findings = new Findings(ctx, 'captures', CAPTURES_HARD);
+    const images = join(ctx.docsDir, 'images');
+    const seen = { manifests: 0, shots: 0, recorded: 0 };
+    for (const dir of existsSync(images) ? readdirSync(images).sort() : []) {
+        const file = join(images, dir, 'capture-manifest.json');
+        if (!existsSync(file)) continue;
+        seen.manifests++;
+        const where = rel(ctx.root, file);
+        let shots;
+        try {
+            shots = JSON.parse(read(file)).shots;
+            if (!Array.isArray(shots)) throw new Error('no shots array');
+        } catch (e) {
+            findings.add(where, `cannot read the shots: ${e.message}`);
+            continue;
+        }
+        const released = RELEASED_SURFACES.includes(dir)
+            ? releasedStrings(ctx)
+            : undefined;
+        const bare = [];
+        let unheld = false;
+        for (const shot of shots) {
+            const strings = Array.isArray(shot.strings) ? shot.strings : [];
+            const sources = Array.isArray(shot.sources) ? shot.sources : [];
+            if (!strings.length) bare.push(shot.name);
+            else if (!sources.length)
+                findings.add(
+                    where,
+                    `${shot.name}: strings are recorded with no sources to hold them to`
+                );
+            else if (released === null) unheld = true;
+            else
+                for (const string of strings) {
+                    const said = `${shot.name}: \u201c${string}\u201d`;
+                    if (released) {
+                        if (
+                            !sources.some((p) =>
+                                released[dir]?.[p]?.includes(string)
+                            )
+                        )
+                            findings.add(
+                                where,
+                                `${said} is not in the snapshot of ${released.refs?.[dir]} for ${sources.join(', ')}`
+                            );
+                    } else if (
+                        !sources.some(
+                            (p) =>
+                                sourceHay(ctx, p) &&
+                                textOccurs(string, sourceHay(ctx, p))
+                        )
+                    )
+                        findings.add(
+                            where,
+                            `${said} is in none of ${sources.join(', ')}`
+                        );
+                }
+        }
+        if (unheld)
+            findings.add(
+                where,
+                'no released-strings.json to read, so the strings of these shots cannot be checked'
+            );
+        if (bare.length)
+            findings.add(
+                where,
+                `${bare.length} of ${shots.length} shots record no strings: ${bare.join(', ')}`
+            );
+        seen.shots += shots.length;
+        seen.recorded += shots.length - bare.length;
+    }
+    findings.end();
+    ctx.report.info(
+        'captures',
+        'docs/images/',
+        `${seen.shots} shots in ${seen.manifests} manifests: ${seen.recorded} with strings recorded`
+    );
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 
@@ -1909,6 +2876,7 @@ export function run(args) {
     }
     const report = new Report();
     const ctx = buildContext(root, report);
+    ctx.single = which !== 'all';
     const table = {
         links: checkLinks,
         nav: checkNav,
@@ -1918,6 +2886,11 @@ export function run(args) {
         tables: checkTables,
         env: checkEnv,
         dashes: checkDashes,
+        readability: checkReadability,
+        pagestandard: checkPageStandard,
+        glossary: checkGlossary,
+        messages: checkMessages,
+        captures: checkCaptures,
     };
     for (const name of which === 'all' ? CHECKS : [which]) table[name](ctx);
     console.log(`docs-check: ${report.hard} hard, ${report.notes} notes`);
