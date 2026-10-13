@@ -283,9 +283,12 @@ function settle(h) {
 /**
  * Spawn one CLI process. Returns a handle:
  *   { proc, pid, argv, t0, lines, stdout, stderr, lastOutputAt, exit,
- *     transcriptPath, waitLine, waitExit, stalledFor, stalled }
+ *     transcriptPath, transcriptError, waitLine, waitExit, stalledFor,
+ *     stalled }
  * lines: [{ t, stream: 'out'|'err', line }] split on \r\n, \r or \n.
  * exit: null until the process ends, then { code, signal, error, t }.
+ * transcriptError: null, or the message of the first error the transcript
+ * file raised (it could not be opened or written).
  */
 export function spawnFloe({
     bin,
@@ -306,6 +309,16 @@ export function spawnFloe({
     const t0 = Date.now();
     const transcriptPath = join(evidenceDir, `${label}.transcript.txt`);
     const transcript = createWriteStream(transcriptPath);
+    // A write stream opens its file later, on the thread pool, and its
+    // 'error' with no listener is an uncaught exception: one ended a CI run
+    // (2026-09-22, the folder was gone before the open ran), and in an audit
+    // it would end the driver before its cleanup. The transcript is evidence
+    // and never an oracle, so a failure is recorded on the handle and the run
+    // goes on; h.lines, h.stdout and h.stderr do not depend on it.
+    transcript.on('error', (err) => {
+        if (!h.transcriptError)
+            h.transcriptError = String((err && err.message) || err);
+    });
     const proc = spawn(bin, args, {
         cwd,
         env,
@@ -326,6 +339,7 @@ export function spawnFloe({
         lastOutputAt: t0,
         exit: null,
         transcriptPath,
+        transcriptError: null,
         stallMs,
         waiters: new Set(),
     };
@@ -362,6 +376,27 @@ export function spawnFloe({
             pending[stream] = '';
         }
     };
+    // The exit is announced to the waiters once the transcript is on disk.
+    // end() only queues the last writes, and settling in the same tick let a
+    // caller read the file while most of it was still in memory: with 6 MiB
+    // of output, 64 KiB to 1.8 MiB had been written when waitExit resolved,
+    // and a test that reads the transcript right after the exit failed once
+    // on a busy machine. h.exit is set before this, so a reader of the
+    // handle sees the exit at once; only the waiters wait. A transcript that
+    // has failed (the listener above) has nothing left to wait for.
+    let written = null;
+    const announce = () => {
+        if (!written)
+            written = new Promise((resolve) => {
+                if (transcript.destroyed || transcript.writableFinished)
+                    return resolve();
+                transcript.once('finish', resolve);
+                transcript.once('error', resolve);
+                transcript.once('close', resolve);
+                transcript.end();
+            });
+        written.then(() => settle(h));
+    };
     proc.stdout.on('data', feed('out'));
     proc.stderr.on('data', feed('err'));
     proc.on('error', (err) => {
@@ -375,15 +410,13 @@ export function spawnFloe({
             };
         }
         markExited();
-        transcript.end();
-        settle(h);
+        announce();
     });
     proc.on('close', (code, signal) => {
         flush();
         if (!h.exit) h.exit = { code, signal, error: null, t: Date.now() };
         markExited();
-        transcript.end();
-        settle(h);
+        announce();
     });
 
     const exitedError = (re) => {

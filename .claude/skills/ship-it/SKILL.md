@@ -42,10 +42,10 @@ first, per step 1; an unstaged edit is invisible to both). Same rule as ci.yml's
 `Detect changed paths` job: any path that is under neither docs/ nor .claude/skills/
 is code (full matrix; ten code PRs took 9 to 15 minutes). A PR whose every file is
 under docs/ or .claude/skills/ skips the heavy jobs: docs only, skills only, or the
-two together, which is not a full-suite PR. Whenever a file under .claude/skills/
-changed it also runs `Skill test suites`, which is outside the gate (step 7);
-`Repo guardrails` runs on every PR; anything under .github/workflows/ or
-.github/scripts/ also runs `Lint workflows` (actionlint and shellcheck).
+two together, which is not a full-suite PR. `Repo guardrails` and
+`Skill test suites` run on every PR whatever it touched, and both are in the gate;
+anything under .github/workflows/ or .github/scripts/ also runs `Lint workflows`
+(actionlint and shellcheck).
 references/lanes.md maps touched areas to local commands.
 
 ## 3. Local checks
@@ -111,18 +111,13 @@ references/blocked-pr.md), do not retry. Anything else: references/blocked-pr.md
 
 A step of its own, after the body file was written and read back (step 5).
 
-When the PR touches .claude/skills/, exit 0 is not yet the whole answer.
-`Skill test suites` is outside the gate's `needs`, so `CI green` goes green about two
-minutes before the only job that tests the change has reported, and a red there shows
-on the PR as `UNSTABLE`, which GitHub merges without complaint. Until that job joins
-the gate, read it by name on the PR's head commit before merging (Bash tool):
+`Skill test suites` has been in the gate's `needs` since 2026-10-13 and runs on every
+PR, so exit 0 from the wait covers it and no job is read by name any more.
 
-```text
-gh api repos/jannskiee/floe/commits/<full sha>/check-runs --jq '.check_runs[] | select(.name == "Skill test suites") | .status + " " + (.conclusion // "-")'
-```
-
-It must print `completed success`. `queued` or `in_progress` means wait and read it
-again; a failure is fixed, or explained in the PR, before the merge.
+The ruleset does not require a branch to be up to date, so `CI green` on a PR says
+nothing about what merged after its branch was cut. In a series of PRs, branch each one
+after the one before it has merged, or merge `origin/main` into it and let the checks
+run again before merging.
 
 `gh pr merge <n> --squash --match-head-commit <full sha> --subject "<subject> (#<n>)" --body-file <same body file>`.
 The SHA is the head the checks ran on, read with

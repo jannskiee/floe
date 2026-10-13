@@ -14,9 +14,9 @@
     - `BLOCKED`: the required `CI green` check is missing or failed (see 1 and 5).
     - `BEHIND`: mergeable; the ruleset does not require branches to be up to date.
     - `DIRTY`: conflicts. `git fetch origin; git merge origin/main`, resolve, commit from PowerShell. `gh pr update-branch` also works but produces a GitHub-signed merge commit on the branch.
-    - `UNSTABLE`: a check outside the gate is red, and GitHub will merge the PR anyway. Find out which before you do. A red `Skill test suites` reads this way, because that job is not in the gate's `needs`, and on a skills PR it is the only job that tested the change: fix it, or explain it in the PR. A red Mintlify preview is item 3.
+    - `UNSTABLE`: a check outside the gate is red, and GitHub will merge the PR anyway. Find out which before you do. No ci.yml job is outside the gate (`Skill test suites` joined it on 2026-10-13, and a red there now reads `BLOCKED`), so this is a check from another app. A red Mintlify preview is item 3.
     - `UNKNOWN`: just pushed; re-query.
-    - `CLEAN`: merge. On a PR that touches .claude/skills/, `CLEAN` can arrive before `Skill test suites` has reported; SKILL.md step 7 reads that job by name first.
+    - `CLEAN`: merge.
 
 5.  **CI green red.** `gh run view <run> --log-failed` (wait-ci prints the exact command). It answers "still in progress" until the WHOLE run has ended, not just the job that failed, so wait for the run and ask again; do not read that answer as "no failure". The log lines carry ANSI color codes, which defeat a search anchored at the start of a line. Flaky e2e: download the evidence artifact first (a rerun overwrites it), then `gh run rerun <run> --failed`.
 

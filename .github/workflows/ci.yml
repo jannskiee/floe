@@ -39,9 +39,6 @@ jobs:
       # 'true' when any changed file is under .github/workflows/ or .github/scripts/.
       # Gates the actionlint job; push events always report true, same as code.
       workflows: ${{ steps.filter.outputs.workflows }}
-      # 'true' when any changed file is under .claude/skills/. Gates the skills
-      # job; push events always report true, same as code.
-      skills: ${{ steps.filter.outputs.skills }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -58,12 +55,12 @@ jobs:
           # by PR merge, and a multi-commit (rebase) merge would make a HEAD^1
           # diff under-classify the push.
           if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
-            # Grouped, not three individual redirects: shellcheck's SC2129
-            # fires at three and actionlint runs shellcheck in CI.
+            # Grouped, not individual redirects: shellcheck's SC2129 fires
+            # at three, which one more output would reach, and actionlint
+            # runs shellcheck in CI.
             {
               echo "code=true"
               echo "workflows=true"
-              echo "skills=true"
             } >> "$GITHUB_OUTPUT"
             echo "push event: full suite"
             exit 0
@@ -80,11 +77,12 @@ jobs:
           # The negation above is what keeps a new top-level directory from
           # silently skipping CI, so it is not widened. The ONE subtraction
           # below is .claude/skills/ specifically, not .claude/ and not any
-          # other prefix: a skills-only PR runs the skills job instead, which
-          # is the job that actually tests what it changed, rather than paying
-          # for a three-OS Playwright matrix and a Windows Wails packaging run
-          # that exercise none of it. Anything else outside docs/ still counts
-          # as code, including .claude/ paths that are not skills.
+          # other prefix: a skills-only PR is tested by the skills job, which
+          # runs on every pull request and is the job that actually tests what
+          # it changed, rather than paying for a three-OS Playwright matrix
+          # and a Windows Wails packaging run that exercise none of it.
+          # Anything else outside docs/ still counts as code, including
+          # .claude/ paths that are not skills.
           non_docs_code="$(printf '%s\n' "$non_docs" | grep -v '^\.claude/skills/' || true)"
           if [ -n "$non_docs_code" ]; then
             echo "code=true" >> "$GITHUB_OUTPUT"
@@ -93,19 +91,10 @@ jobs:
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
             if [ -n "$non_docs" ]; then
-              echo "skills-only change: heavy jobs will be skipped, the skills job runs"
+              echo "skills-only change: heavy jobs will be skipped; the skills job runs on every pull request"
             else
               echo "docs-only change: heavy jobs will be skipped"
             fi
-          fi
-          # Third classification: skills edits gate the skills job.
-          skills_files="$(printf '%s\n' "$changed" | grep -E '^\.claude/skills/' || true)"
-          if [ -n "$skills_files" ]; then
-            echo "skills=true" >> "$GITHUB_OUTPUT"
-            echo "skills changes:"
-            echo "$skills_files"
-          else
-            echo "skills=false" >> "$GITHUB_OUTPUT"
           fi
           # Same diff, second classification: workflow edits gate actionlint.
           # scripts/ counts too. images.yml calls .github/scripts/smoke-image.sh,
@@ -213,14 +202,24 @@ jobs:
   skills:
     name: Skill test suites
     runs-on: windows-latest
-    timeout-minutes: 20
-    needs: [changes]
-    if: needs.changes.outputs.skills == 'true'
-    # Deliberately NOT in the CI green gate's needs yet. CLAUDE.md's exception
-    # for deterministic linters would permit going straight in, but most of the
-    # suites write files, spawn processes or fetch, and one of them tests a
-    # deletion tool. It soaks outside the gate (visible, non-blocking) and gets
-    # promoted once a few runs have shown it is hermetic.
+    timeout-minutes: 10
+    # No `needs` and no `if`, on purpose. This job runs on every pull request
+    # and every push, so it has no skip path, and it is in the CI green gate's
+    # needs. Every pull request, not only one that touches .claude/skills/,
+    # because some of the suites read product files: sentences of the web app
+    # that the transfer audit waits for, desktop and CLI source, docs pages.
+    # A change to one of those alone would otherwise go green without the test
+    # that pins it.
+    #
+    # It soaked outside the gate from 2026-09-05 and was promoted on
+    # 2026-10-13. Of the 194 completed runs counted that day, one failed for a
+    # reason that was not in its own change (an unhandled error on a
+    # transcript stream, fixed in the pull request that promoted the job,
+    # together with a second race in the same helper that a full local run
+    # hit that day) and none failed because of a product change. The median run took 152 s, so
+    # 10 minutes is a ceiling with room. The cost: a docs-only pull request
+    # waits about three minutes for this job where it used to go green in
+    # under one, and it depends on a Windows runner being free.
     #
     # windows-latest because parts of the transfer-audit suite drive the
     # PowerShell UIA helper and WSL.
@@ -934,18 +933,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # Every job in this workflow must be listed here, or its failure is
-    # invisible to branch protection. One job is soaking outside the gate right
-    # now: `skills`, which runs the skill test suites. It is deliberately
-    # absent from this list until a few runs have shown it hermetic, because
-    # most of those suites write files or spawn processes. `guardrails` and
-    # `gofmt` went straight in, as CLAUDE.md's exception for deterministic
+    # invisible to branch protection. No job is outside the gate today.
+    # `skills`, which runs the skill test suites, soaked outside it and was
+    # promoted on 2026-10-13 (its own comment has the numbers). `guardrails`
+    # and `gofmt` went straight in, as CLAUDE.md's exception for deterministic
     # linters allows.
     # See CLAUDE.md for the promotion policy.
     #
     # if: always() is load-bearing and must never become !cancelled():
     # without always() a failed or cancelled dependency would skip this job,
     # and GitHub counts a skipped required check as passing.
-    needs: [changes, actionlint, guardrails, build-and-lint, server, cli, gofmt, desktop, e2e, back-compat, docker-smoke]
+    needs: [changes, actionlint, guardrails, skills, build-and-lint, server, cli, gofmt, desktop, e2e, back-compat, docker-smoke]
     if: always()
     steps:
       - name: Report dependency results

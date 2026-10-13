@@ -294,11 +294,11 @@ Run `go vet ./...` and `go test ./...` in `cli/`, and in `desktop/` once the fro
 7. If you touched `cli/`, vet and test it: `go vet ./...` and `go test ./...` (in `cli/`). The desktop app is built on `cli/engine/`, so a change there can break `desktop/` as well.
 8. If you touched `desktop/`, vet and test it too: `go vet ./...` and `go test ./...` (in `desktop/`, after building the frontend) and `npm test` (in `desktop/frontend/`)
 9. Write commit messages in the conventional style: a lowercase, imperative subject with an optional scope, for example `fix(client): keep the progress bar visible while verifying` or `docs: clarify the relay cap`. PRs are squash-merged, so the PR title follows the same convention.
-10. Submit a pull request. The template asks for a short summary and a test plan. CI runs automatically on the PR, and the `CI green` check must pass before it can merge (docs-only PRs skip the heavy jobs and go green in about a minute).
+10. Submit a pull request. The template asks for a short summary and a test plan. CI runs automatically on the PR, and the `CI green` check must pass before it can merge (docs-only PRs skip the heavy jobs and go green in about three minutes).
 
 ### What CI runs, and how to run it locally
 
-A first job, `Detect changed paths`, decides which of the jobs below run, and `CI green` passes only when every one that ran has passed (`Skill test suites` is the exception, as its row says). "Code changed" means the PR touches at least one file outside `docs/` and `.claude/skills/`. A PR that changes only `docs/` runs `Repo guardrails` and skips the rest. Commands are for a bash shell.
+A first job, `Detect changed paths`, decides which of the jobs below run, and `CI green` passes only when every one that ran has passed. "Code changed" means the PR touches at least one file outside `docs/` and `.claude/skills/`. A PR that changes only `docs/` runs `Repo guardrails` and `Skill test suites` and skips the rest. Commands are for a bash shell.
 
 | CI job | Runs when | What it checks | Local command |
 |--------|-----------|----------------|---------------|
@@ -312,7 +312,7 @@ A first job, `Detect changed paths`, decides which of the jobs below run, and `C
 | `Back-compat (HEAD vs latest release)` | Code changed | The latest released CLI against your branch, in every pairing with the browser and the new CLI | In `client/`: `FLOE_RELEASED_CLI=/path/to/released/floe pnpm exec playwright test e2e/back-compat.spec.ts` |
 | `Docker (self-hosting stack)` | Code changed | The compose files are valid, both images build from source and pass their smoke test, and the stack starts with no `.env` | From the repository root: `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build --wait`, then `curl --fail http://localhost:3001/health` |
 | `Lint workflows` | `.github/workflows/` or `.github/scripts/` changed | actionlint over the workflows and shellcheck over the scripts | From the repository root: `actionlint -color` and `shellcheck .github/scripts/*.sh` |
-| `Skill test suites` | `.claude/skills/` changed | The skills' own test files, on Windows. `CI green` does not wait for this job yet. | From the repository root: `node --test ".claude/skills/**/*.test.mjs"` |
+| `Skill test suites` | Every PR | The test files of the skills under `.claude/skills/`, on Windows. Some of them read product files, which is why a PR that touches no skill runs them too. | From the repository root: `node --test ".claude/skills/**/*.test.mjs"` |
 
 ---
 

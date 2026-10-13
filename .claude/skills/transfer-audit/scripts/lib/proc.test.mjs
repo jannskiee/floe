@@ -8,7 +8,7 @@
  * Run: node --test .claude/skills/transfer-audit/scripts/lib/proc.test.mjs
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -335,6 +335,38 @@ test('a missing binary settles the waiters with the spawn error', async () => {
     });
 });
 
+// The transcript's file is opened later, on the thread pool, and a write
+// stream's 'error' with no listener is an uncaught exception. A CI run of
+// 2026-09-22 failed on it ("asynchronous activity after the test ended",
+// ENOENT opening missing.transcript.txt: the folder was gone before the open
+// ran). In an audit the same exception would end the driver before its
+// cleanup. A directory where the file would go makes the open fail every
+// time, on every platform.
+test('a transcript that cannot be opened is recorded, and the run goes on', async () => {
+    const dir = fresh();
+    mkdirSync(join(dir, 'blocked.transcript.txt'));
+    const h = spawnFloe({
+        bin: process.execPath,
+        args: [FAKE, 'send', 'a.bin'],
+        env: {
+            ...process.env,
+            FAKE_FLOE_MODE: 'normal',
+            FAKE_FLOE_DELAY_MS: '10',
+        },
+        label: 'blocked',
+        evidenceDir: dir,
+    });
+    assert.equal(h.transcriptError, null);
+    const exit = await h.waitExit(10_000);
+    assert.equal(exit.code, 0);
+    assert.ok(h.lines.length > 0, 'the lines are still captured');
+    // The open is asynchronous, so the record can land after the exit.
+    const until = Date.now() + 5000;
+    while (!h.transcriptError && Date.now() < until)
+        await new Promise((r) => setTimeout(r, 20));
+    assert.match(h.transcriptError, /EISDIR|EPERM|EACCES/);
+});
+
 test('classifyExit: the exit map and every stderr class', () => {
     assert.deepEqual(EXIT_MAP, { 0: 'ok', 1: 'error', 130: 'canceled' });
     assert.equal(classifyExit(0, '').kind, 'ok');
@@ -476,3 +508,27 @@ test(
         }
     }
 );
+
+// end() only queues the last writes. waitExit used to resolve in the same
+// tick, so a caller that read the transcript right away could find it short
+// on a busy machine: "a normal send ... stamps the transcript" failed that
+// way once in a full run of the skill suites (2026-10-13). A child that
+// prints several megabytes at once makes the gap wide enough to see every
+// time.
+test('the exit is announced only once the transcript is on disk', async () => {
+    const bytes = 6 * 1024 * 1024;
+    const h = spawnFloe({
+        bin: process.execPath,
+        args: ['-e', `process.stdout.write('x'.repeat(${bytes}))`],
+        label: 'big',
+        evidenceDir: fresh(),
+    });
+    const exit = await h.waitExit(30_000);
+    assert.equal(exit.code, 0);
+    assert.equal(h.stdout.length, bytes);
+    const onDisk = statSync(h.transcriptPath).size;
+    assert.ok(
+        onDisk >= bytes,
+        `${onDisk} of ${bytes} bytes were on disk when the exit was announced`
+    );
+});
