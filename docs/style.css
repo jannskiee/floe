@@ -774,6 +774,22 @@ html:not(.dark) #content-area a.link {
   display: none;
 }
 
+/* Glossary: the same cut, for the same reason.
+
+   41 terms under three sections made a contents list of 44 entries. In a
+   window 900 px tall, 20 of them fell below the box that holds the list,
+   and 26 in a window 720 px tall (measured on the preview, 2026-10-14).
+   The terms are in alphabetical order inside each section, so the three
+   section names are the map, and every term is still a heading with its
+   own anchor.
+
+   Scoped the same way, by two links only this page's list has. Both ids
+   are written out in docs/glossary.mdx, so a reworded heading keeps them.
+   If the full list comes back, one of the two ids was renamed. */
+#table-of-contents:has(a[href="#words-you-see-in-floe"]):has(a[href="#technical-terms"]) .toc-item[data-depth="1"] {
+  display: none;
+}
+
 /* Field names and the selected code tab, neutral in the light theme.
 
    Mintlify paints a ResponseField or ParamField name and the selected tab
