@@ -101,7 +101,8 @@ import http from 'node:http';
 import path from 'node:path';
 import { SW, launchDetached, launchDirect } from './detached.mjs';
 import { sha256OfFile } from './fixtures.mjs';
-import { registerPid, started } from './proc.mjs';
+import { ownerStateFor, ownerValue } from './ownerstate.mjs';
+import { creationTimeAsync, registerPid, started } from './proc.mjs';
 import { Leg, PhaseError, SafetyError, sleep } from './surfaces.mjs';
 import { defaultExec } from './versions.mjs';
 
@@ -633,12 +634,34 @@ export const RELEASE_QUIET_S = 3;
 export const RELEASE_WAIT_MS = 40_000;
 export const RELEASE_POLL_MS = 500;
 /**
+ * How long the helper may look for the element of a release call. Its usual
+ * wait is 5 s, and with one retry a call could land about ten seconds after
+ * the pause in input that allowed it, in the middle of typing.
+ */
+export const RELEASE_FIND_MS = 1_000;
+/**
  * How long a launch waits for an earlier leg that is still stopping. A stop
  * is the release, two close rounds and a taskkill, about 41 s at worst; past
  * this the launch goes on to its own checks, which refuse a running app
  * (desktop-running) and an unrestored desktop.json edit.
  */
 export const STOP_WAIT_MS = 45_000;
+/**
+ * How long after its launch call returned a process may have been created
+ * and still be that launch's own, when the launch returned no pid (a Store
+ * start through the shell). The start call creates the process within a
+ * second or two; a Floe that appears later than this was opened by somebody
+ * else and is never ended (endUnfoundApp).
+ */
+export const UNFOUND_BORN_MS = 15_000;
+/**
+ * How long a stop waits for its own leg's launch to reach its next step and
+ * end there (haltIfStopped). The longest single step is the window search,
+ * FIND_WINDOW_MS.
+ */
+export const LAUNCH_SETTLE_MS = 40_000;
+/** Clock slack before the launch call, for the same comparison. */
+export const UNFOUND_EARLY_MS = 2_000;
 /**
  * An earlier cell of the run could not put the owner's app back as it found
  * it (lib/request.mjs markHostRelease). Nothing more is launched on an exe
@@ -647,16 +670,19 @@ export const STOP_WAIT_MS = 45_000;
 export const NOT_RELEASED = 'desktop-not-released';
 /**
  * Whether a folder is one an audit run made for itself: an attempt's own
- * folder, <evidence root>/cells/<cell id>/attempt-<n>/... . A remembered save
- * folder that reads like this is the leftover of an earlier audit whose
- * restore never happened (the owner came back, the app was killed), not the
- * owner's choice. Taken for theirs it would be put "back" at release and
- * reported as restored, and the owner's next real receive would land in a
- * folder that cleanup deletes (review of #542, finding 1).
+ * folder, <evidence root>/cells/<cell id>/attempt-<n>/... , or the value the
+ * P9 probe types, <out>/p9-save-dir. A remembered save folder that reads
+ * like this is the leftover of an earlier audit whose restore never happened
+ * (the owner came back, the app was killed), not the owner's choice. Taken
+ * for theirs it would be put "back" at release and reported as restored, and
+ * the owner's next real receive would land in a folder that cleanup deletes
+ * (review of #542, finding 1).
  */
 export function isAuditFolder(p) {
-    return /[\\/]cells[\\/][^\\/]+[\\/]attempt-\d+(?:[\\/]|$)/i.test(
-        String(p ?? '')
+    const s = String(p ?? '');
+    return (
+        /[\\/]cells[\\/][^\\/]+[\\/]attempt-\d+(?:[\\/]|$)/i.test(s) ||
+        /[\\/]p9-save-dir[\\/]?$/i.test(s)
     );
 }
 
@@ -1750,10 +1776,18 @@ export function shortFolderName(name, max = 34) {
  * link made with Auto-accept on, where nothing has to be pressed.
  */
 export class UiaDriver {
-    constructor(client, hwnd, { log = null, counter = null } = {}) {
+    constructor(
+        client,
+        hwnd,
+        { log = null, counter = null, ownerState = null } = {}
+    ) {
         this.client = client;
         this.hwnd = hwnd;
         this.log = log;
+        // The owner's own values as earlier commands of this --out read
+        // them (lib/ownerstate.mjs); set on the Store lane only, the one
+        // exe that runs on the owner's profile.
+        this.ownerState = ownerState;
         // Set by lib/request.mjs on an exe request host, and by DesktopLeg
         // on every exe leg of a --user-away run (G2-F1).
         this.awayOnly = false;
@@ -1776,6 +1810,7 @@ export class UiaDriver {
         // first set it (B2, restoreRequestSaveDir); undefined until then.
         this._saveToBefore = undefined;
         this._saveToLeftover = null;
+        this._saveToRecalled = false;
         // Counts the pattern calls sent to a built app, each of which
         // activates its window: the Safety table's row (lib/report.mjs).
         this.counter = counter;
@@ -1814,8 +1849,15 @@ export class UiaDriver {
             try {
                 const fg = await this.client.foregroundCheck(this.hwnd);
                 idle = Number(fg && fg.idleSeconds);
-            } catch {
-                // Unreadable counts as input.
+            } catch (err) {
+                // A window that is gone is not somebody typing: say so at
+                // once instead of polling out the whole wait.
+                if (err && err.reason === 'not-a-window')
+                    throw new PhaseError(
+                        'teardown',
+                        'the Floe window is gone, so this step of the release could not be sent'
+                    );
+                // Anything else unreadable counts as input.
             }
             if (idle >= RELEASE_QUIET_S) return;
             if (Date.now() >= this._releaseUntil)
@@ -1826,24 +1868,46 @@ export class UiaDriver {
             await sleep(this.releasePollMs);
         }
     }
+    /**
+     * A pattern call of the release on an away-only host. The pause in input
+     * is read again before every attempt, and the helper gets RELEASE_FIND_MS
+     * to find the element: the pause used to be read once, ahead of the
+     * helper's own 5 s wait and of a retry that read nothing, so the call
+     * could land well after it, with the owner typing again (second review
+     * of #542, finding C). Only a missing element is tried again.
+     */
+    async _releaseCall(cmd, params, attempts) {
+        let last = null;
+        for (let i = 0; i < attempts; i++) {
+            await this._quiet();
+            this._count();
+            try {
+                return await this.client.request(cmd, {
+                    ...params,
+                    timeoutMs: params.timeoutMs ?? RELEASE_FIND_MS,
+                });
+            } catch (err) {
+                last = err;
+                if (!err || err.reason !== 'not-found') throw err;
+            }
+        }
+        throw last;
+    }
     async click(name, opts = {}) {
+        const params = { hwnd: this.hwnd, name, ...opts };
+        if (this.awayOnly && this.releasing)
+            return this._releaseCall('click', params, 2);
         await this._away();
         this._count();
-        return this.client.retry(
-            'click',
-            { hwnd: this.hwnd, name, ...opts },
-            { attempts: 2 }
-        );
+        return this.client.retry('click', params, { attempts: 2 });
     }
     async setValue(placeholder, value, opts = {}) {
+        const params = { hwnd: this.hwnd, placeholder, value, ...opts };
+        if (this.awayOnly && this.releasing)
+            return this._releaseCall('set-value', params, 1);
         await this._away();
         this._count();
-        return this.client.request('set-value', {
-            hwnd: this.hwnd,
-            placeholder,
-            value,
-            ...opts,
-        });
+        return this.client.request('set-value', params);
     }
     getValue(placeholder, opts = {}) {
         return this.client.request('get-value', {
@@ -2188,16 +2252,30 @@ export class UiaDriver {
     /**
      * Keep what the Save to field read before this driver first set it. An
      * earlier audit's own folder is not the owner's value (isAuditFolder):
-     * the field then goes back to empty, the app's default, and the release
-     * says what it found.
+     * the field then goes back to the owner's folder as an earlier command
+     * of this --out read it, or to empty, the app's default, when none did,
+     * and the release says what it found.
      */
     _noteSaveToBefore(value) {
-        this._saveToLeftover = isAuditFolder(value) ? value : null;
-        this._saveToBefore = this._saveToLeftover ? '' : value;
+        const own = ownerValue(
+            this.ownerState,
+            'requestSaveTo',
+            value,
+            isAuditFolder
+        );
+        this._saveToLeftover = own.leftover;
+        this._saveToRecalled = own.recalled;
+        this._saveToBefore = own.before;
     }
     async restoreRequestSaveDir() {
         if (this._saveToBefore === undefined)
-            return { before: null, restored: null, after: null, leftover: null };
+            return {
+                before: null,
+                restored: null,
+                after: null,
+                leftover: null,
+                recalled: false,
+            };
         const before = this._saveToBefore;
         await this._toRequestView();
         if (await this._visible(REQUEST_STRINGS.makeAnother))
@@ -2214,11 +2292,34 @@ export class UiaDriver {
             restored: after === before,
             after,
             leftover: this._saveToLeftover ?? null,
+            recalled: this._saveToRecalled,
         };
     }
     /** What restoreRequestSaveDir would put back, or null when nothing was set. */
     requestSaveDirBefore() {
         return this._saveToBefore === undefined ? null : this._saveToBefore;
+    }
+    /**
+     * The Save to field as it reads now, or null when the form is not on
+     * screen. A read, so it never activates the window: the leg's stop takes
+     * it as its last look before the close.
+     */
+    async readRequestSaveDir() {
+        try {
+            const r = await this.getValue(REQUEST_STRINGS.saveToPlaceholder, {
+                timeoutMs: 500,
+            });
+            return r && typeof r.value === 'string' ? r.value : null;
+        } catch {
+            return null;
+        }
+    }
+    /** The audit folder the field held when first read, and where `before` came from. */
+    requestSaveDirLeftover() {
+        return {
+            leftover: this._saveToLeftover ?? null,
+            recalled: this._saveToRecalled,
+        };
     }
     /** ReadLink: the full link is the read-only link field's value (LinkBlock). */
     async readRequestLink() {
@@ -3245,6 +3346,11 @@ export class DesktopLeg extends Leg {
         this.launchProof = null;
         // null until an exe is launched; then whether the F1 fallback ran.
         this.launchedDirect = null;
+        this.launchSpan = null;
+        this._launching = null;
+        this._launchCounted = false;
+        this._unfoundNotEnded = [];
+        this._saveToDrift = null;
         this.samples = [];
         // The latest DIRECT or RELAY sample; route() reports it even after
         // the pill has gone back to READY or the samples ring has moved on.
@@ -3262,6 +3368,7 @@ export class DesktopLeg extends Leg {
         this.launcher = opts.launcher ?? launchProcess;
         this.openDriver = opts.openDriver ?? PlaywrightDriver.open;
         this.shellMenu = opts.shellMenu ?? shellMenuGuard;
+        this.ownerState = opts.ownerState ?? opts.shared?.ownerState ?? null;
         this.shellMenuArmed = false;
         // Set by lib/request.mjs on a request link host; run by stop().
         this.beforeClose = opts.beforeClose ?? null;
@@ -3409,6 +3516,17 @@ export class DesktopLeg extends Leg {
             );
     }
 
+    /**
+     * Snapshot the Explorer verb (once per process, ShellMenuGuard.take) and
+     * name an exe this leg is about to launch, so a key that launch creates
+     * or rewrites is put back at stop.
+     */
+    armShellMenu(exe = null) {
+        const menu = this.shellMenu.take((l) => this.note(l));
+        this.shellMenuArmed = menu === 'armed' || menu === 'absent';
+        if (this.shellMenuArmed && exe) this.shellMenu.own(exe);
+    }
+
     /** Seconds of idle input from the helper; NaN when it cannot be read. */
     async idleSeconds() {
         try {
@@ -3421,8 +3539,36 @@ export class DesktopLeg extends Leg {
         }
     }
 
+    /**
+     * A stop that arrived while this launch was still on its way ends the
+     * launch at its next step. The wait for an earlier leg (STOP_WAIT_MS) is
+     * longer than the start phase it runs inside, so a cell's start can time
+     * out and its teardown stop this leg while launch() is still waiting; the
+     * launch then went ahead all the same, and nothing closed that app until
+     * finalize killed it (second review of #542, finding B). _stop waits for
+     * the launch to end here before it tears down, so it sees whatever the
+     * launch had made by then.
+     */
+    haltIfStopped() {
+        if (this._stopPromise)
+            throw new PhaseError(
+                'start',
+                `desktop ${this.role}: stopped while it was starting, so the launch went no further`
+            );
+    }
+
     /** Launch per mode, find the window, wait for the tree; sets this.driver. */
-    async launch(files = []) {
+    launch(files = []) {
+        const flight = this._launch(files);
+        this._launching = flight;
+        const done = () => {
+            if (this._launching === flight) this._launching = null;
+        };
+        flight.then(done, done);
+        return flight;
+    }
+
+    async _launch(files = []) {
         const { opts } = this;
         if (this.mode !== 'wailsdev') this.refuseUnlessAllowed();
         // A leg of an earlier cell that is still stopping (its teardown ran
@@ -3430,15 +3576,21 @@ export class DesktopLeg extends Leg {
         // done: wait for it rather than launch into its close.
         if (this.mode !== 'wailsdev')
             for (const other of [...activeLegs])
-                if (other !== this && other._stopPromise)
+                if (other !== this && other._stopPromise) {
                     await Promise.race([
                         other._stopPromise.catch(() => {}),
                         sleep(opts.stopWaitMs ?? STOP_WAIT_MS),
                     ]);
-        if (this.mode !== 'wailsdev') await this.refuseSecondInstance();
+                    this.haltIfStopped();
+                }
+        if (this.mode !== 'wailsdev') {
+            await this.refuseSecondInstance();
+            this.haltIfStopped();
+        }
         let storeExe = opts.storeExe ?? null;
         if (this.mode === 'store' && files.length && !storeExe) {
             const pkg = await storePackage();
+            this.haltIfStopped();
             if (!pkg.present || !pkg.exe)
                 throw new PreconditionError(
                     'desktop store: Get-AppxPackage found no Floe package'
@@ -3472,6 +3624,7 @@ export class DesktopLeg extends Leg {
         // the first pattern call's own check comes too late for that.
         if (this.userAway && !this.noIdleCheck) {
             const idle = await this.idleSeconds();
+            this.haltIfStopped();
             if (!(idle >= USER_AWAY_IDLE_S))
                 throw new PhaseError(
                     'start',
@@ -3491,6 +3644,17 @@ export class DesktopLeg extends Leg {
             // so `cleanup` can put desktop.json back even if this process
             // dies mid-cell.
             this.recordGuard();
+            // Stopped meanwhile: the stop that waits for this launch puts
+            // the edit back (its finally), and nothing is launched.
+            this.haltIfStopped();
+            // The Explorer verb is guarded on this lane too. A packaged
+            // launch never touches it, and then the guard finds the key as
+            // it was. But the Store exe started directly (F1) is the one
+            // launch whose package identity no run has shown, and a Floe
+            // without identity registers the verb for itself at startup
+            // (desktop/app.go), on the owner's real key, which nothing
+            // snapshotted (second review of #542, finding H).
+            this.armShellMenu(storeExe);
         } else {
             seedRedirectedConfig(this.plan.appData, this.edit());
             // An unpackaged exe points the user's Explorer verb at itself on
@@ -3498,14 +3662,16 @@ export class DesktopLeg extends Leg {
             // first-run default on this fresh profile); the first such launch
             // in this process snapshots it. Both an entry to put back and an
             // absence to restore are guarded at stop.
-            const menu = this.shellMenu.take((l) => this.note(l));
-            this.shellMenuArmed = menu === 'armed' || menu === 'absent';
-            if (this.shellMenuArmed) this.shellMenu.own(this.plan.command);
+            this.armShellMenu(this.plan.command);
         }
         // Read the proof now, before any restore, so evidence() reports the
         // config the app actually launched with.
         this.launchProof = statsProofFor(this.plan.configPath);
         const client = await this.uia();
+        this.haltIfStopped();
+        // When the launch call ran, and the pid it returned if any: what
+        // endUnfoundApp may call this leg's own if no window is ever found.
+        this.launchSpan = { from: Date.now(), to: null, pid: null };
         const launched = await this.launcher(this.plan, {
             evidenceDir: this.evidenceDir,
             // F1: the Store exe with files may need a direct spawn, which can
@@ -3513,9 +3679,16 @@ export class DesktopLeg extends Leg {
             // may make one (launchProcess).
             allowDirect: this.userAway,
         });
+        this.launchSpan.to = Date.now();
+        this.launchSpan.pid = Number.isInteger(launched.pid) ? launched.pid : null;
         this.child = launched.child;
         this.pid = launched.pid;
         this.launchedDirect = launched.direct === true;
+        // The Safety table's count of built apps started, which _stop
+        // answers once it has closed this one (lib/report.mjs).
+        const legs = (opts.shared && opts.shared.desktopLegs) || null;
+        if (legs) legs.launched += 1;
+        this._launchCounted = Boolean(legs);
         if (this.launchedDirect)
             this.note(
                 'the Store exe with files was started directly (Win32_Process.Create refused it, F1)'
@@ -3523,6 +3696,9 @@ export class DesktopLeg extends Leg {
         // Registered before the window search: a launch that never shows a
         // window is still ours to kill at finalize.
         this.registerPid(this.pid);
+        // Stopped while the launch call ran: the app is up and the stop
+        // that waits for this launch ends it (endUnfoundApp).
+        this.haltIfStopped();
         const win = await client.findWindow({
             class: WINDOW_CLASS,
             title: WINDOW_TITLE,
@@ -3541,6 +3717,10 @@ export class DesktopLeg extends Leg {
         this.driver = new UiaDriver(client, this.hwnd, {
             log: (l) => this.note(l),
             counter: (opts.shared && opts.shared.desktopCalls) || null,
+            // Only the Store build runs on the owner's profile; a portable
+            // or head exe has a profile of its own, whose values are not
+            // the owner's and must never be kept as theirs.
+            ownerState: this.mode === 'store' ? this.ownerState : null,
         });
         // FU-28: a UIA pattern call activates an exe's window (G2-F1), so
         // with --user-away every one re-reads the input idle time first,
@@ -3550,6 +3730,9 @@ export class DesktopLeg extends Leg {
         // --no-idle-check leaves it off: the owner said the app may be driven
         // while they use the PC, and the run's output says so.
         if (this.userAway && !this.noIdleCheck) this.driver.awayOnly = true;
+        // Stopped during the window search: the driver is set, so the stop
+        // that waits for this launch closes the app the ordinary way.
+        this.haltIfStopped();
         if (
             this.mode === 'store' &&
             !(win.exe || '').startsWith(WINDOWS_APPS)
@@ -3835,14 +4018,22 @@ export class DesktopLeg extends Leg {
         const orig = await this.driver.getValue(STRINGS.saveDirPlaceholder, {
             scope: 'receive',
         });
-        this.saveDir.original = orig.value ?? '';
-        if (isAuditFolder(this.saveDir.original)) {
+        const own = ownerValue(
+            this.mode === 'store' ? this.ownerState : null,
+            'receiveSaveDir',
+            orig.value ?? '',
+            isAuditFolder
+        );
+        this.saveDir.original = own.before;
+        if (own.leftover) {
             // An earlier audit's own folder, never restored: not the
             // owner's choice, and not put "back" at stop.
-            this.saveDir.leftover = this.saveDir.original;
-            this.saveDir.original = '';
+            this.saveDir.leftover = own.leftover;
+            this.saveDir.recalled = own.recalled;
             this.note(
-                `save dir: the field held "${this.saveDir.leftover}", an earlier audit's own folder and not the owner's choice; it goes back to empty (the app's default) when this leg stops`
+                own.recalled
+                    ? `save dir: the field held "${own.leftover}", an earlier audit's own folder and not the owner's choice; it goes back to "${own.before}", the owner's folder as an earlier command of this --out read it, when this leg stops`
+                    : `save dir: the field held "${own.leftover}", an earlier audit's own folder and not the owner's choice; it goes back to empty (the app's default) when this leg stops`
             );
         }
         const setCode = await this.driver.setValue(
@@ -4414,6 +4605,14 @@ export class DesktopLeg extends Leg {
         await super.stop(reason);
         this._stopped = true;
         this.stopSampler();
+        // A launch of this leg that is still on its way ends at its next
+        // step (haltIfStopped). Wait for that, so this teardown sees what
+        // it made: an edited desktop.json, a started app, a driver.
+        if (this._launching)
+            await Promise.race([
+                this._launching.catch(() => {}),
+                sleep(this.opts.launchSettleMs ?? LAUNCH_SETTLE_MS),
+            ]);
         // Everything from here puts the owner's app back (Cancel, the
         // request host's release, the save folder): the release rule.
         if (this.driver) this.driver.releasing = true;
@@ -4449,6 +4648,7 @@ export class DesktopLeg extends Leg {
                 }
                 await this.restoreRelayForcer();
                 await this.restoreSaveDir();
+                await this.lastLookAtSaveTo();
                 await this.capture('stop');
                 closeResult = await closeAndWait(this.driver, this.pid, {
                     lister: this.lister,
@@ -4495,13 +4695,27 @@ export class DesktopLeg extends Leg {
                 this.ownClient = false;
             }
         }
+        if (this._launchCounted) {
+            this._launchCounted = false;
+            const legs = this.opts.shared.desktopLegs;
+            legs.stopped += 1;
+            for (const p of this.leftBehind(closeResult, restoreError))
+                legs.problems.push(`${this.opts.cellId ?? this.role}: ${p}`);
+        }
         // A restore mismatch is a SafetyError (exit 4); it is thrown after
         // the helper is closed so the mismatch never leaks a process.
         if (restoreError) throw restoreError;
         return closeResult;
     }
 
-    /** End the app of a launch that never showed a window (see _stop). */
+    /**
+     * End the app of a launch that never showed a window (see _stop), and
+     * nothing else. "Nothing ran before this launch" does not make every
+     * process that runs now this leg's: the owner can open Floe in the half
+     * minute the window search takes, and a `wails dev` app has an image of
+     * its own. So a process is ended only when this leg can show it is its
+     * own (ownsUnfound); anything else is left running and named.
+     */
     async endUnfoundApp() {
         let left = [];
         try {
@@ -4511,15 +4725,107 @@ export class DesktopLeg extends Leg {
             return;
         }
         for (const p of left) {
+            const own = await this.ownsUnfound(p);
+            if (own !== true) {
+                this.note(
+                    `unfound app: left ${p.image} pid ${p.pid} running (${own}); if it is the audit's, close it by hand`
+                );
+                continue;
+            }
             try {
                 await (this.opts.kill ?? taskkill)(p.pid);
                 this.note(
                     `unfound app: ended ${p.image} pid ${p.pid}, which this leg launched and never found a window for`
                 );
             } catch (err) {
+                this._unfoundNotEnded.push(p.pid);
                 this.note(`unfound app: could not end pid ${p.pid}: ${err.message}`);
             }
         }
+    }
+
+    /**
+     * The last look before the close, on the Store lane: the release set
+     * the Make link form's Save to field and read it back, but the window is
+     * active after that call and the form's fields take keys, so a key typed
+     * in the seconds before WM_CLOSE would outlive the app unseen (second
+     * review of #542, finding C). A read never activates anything; a form
+     * that is not on screen has nothing to read.
+     */
+    async lastLookAtSaveTo() {
+        const d = this.driver;
+        if (this.mode !== 'store' || !d) return;
+        if (typeof d.requestSaveDirBefore !== 'function') return;
+        const before = d.requestSaveDirBefore();
+        if (before === null || typeof d.readRequestSaveDir !== 'function') return;
+        const now = await d.readRequestSaveDir();
+        if (now === null || now === before) return;
+        this._saveToDrift = { before, now };
+        this.note(
+            `last look: the Make link form's Save to field reads "${now}", not "${before}", just before the close; set it by hand on Receive > Request link`
+        );
+    }
+
+    /**
+     * What this leg's stop left on the owner's machine that was not there
+     * before: one short phrase each, empty when the app closed by itself and
+     * everything it set was read back. The Safety table's "put back as
+     * found" row is built from these and from nothing else, so a run that
+     * never measured a close cannot print "yes" (second review of #542,
+     * finding E).
+     */
+    leftBehind(closeResult, restoreError) {
+        const out = [];
+        if (this.driver) {
+            if (!closeResult)
+                out.push('the stop ended before the app was closed');
+            else if (closeResult.closed !== true)
+                out.push('the app was still running after the close');
+            else if (closeResult.how === 'taskkill')
+                out.push('the app did not close by itself and was ended with taskkill');
+        } else if (this._unfoundNotEnded.length) {
+            out.push(
+                `an app this leg started could not be ended (pid ${this._unfoundNotEnded.join(', ')})`
+            );
+        }
+        if (this.saveDir.changed && this.saveDir.restored !== true)
+            out.push('the save folder of a code Receive was not put back');
+        if (this._saveToDrift)
+            out.push(
+                `the Make link form's Save to field read "${this._saveToDrift.now}" at the close, not "${this._saveToDrift.before}"`
+            );
+        if (restoreError)
+            out.push(String(restoreError.message || restoreError).split(/\r?\n/)[0]);
+        return out;
+    }
+
+    /**
+     * true when a listed process is the one this leg's launch started, else
+     * the reason it is not taken for it. With a pid from the launch call
+     * (Win32_Process.Create, a direct start) only that pid is. Without one (a
+     * Store start through the shell) it is a floe-desktop.exe whose creation
+     * time falls inside the launch call or UNFOUND_BORN_MS after it; a
+     * creation time that cannot be read is not evidence.
+     */
+    async ownsUnfound(p) {
+        if (p.image !== EXE_NAME) return 'not the image an exe lane launches';
+        const span = this.launchSpan;
+        if (!span || !span.to) return 'this leg has no finished launch call';
+        if (span.pid !== null)
+            return p.pid === span.pid ? true : `not pid ${span.pid}, which the launch returned`;
+        let born = NaN;
+        try {
+            born = Date.parse(
+                await (this.opts.creationTime ?? creationTimeAsync)(p.pid)
+            );
+        } catch {
+            born = NaN;
+        }
+        if (!Number.isFinite(born)) return 'its creation time could not be read';
+        if (born < span.from - UNFOUND_EARLY_MS) return 'created before this launch';
+        if (born > span.to + UNFOUND_BORN_MS)
+            return `created more than ${UNFOUND_BORN_MS / 1000} s after this launch returned`;
+        return true;
     }
 
     evidence() {
@@ -5410,13 +5716,32 @@ const PROBES = {
             leg = await probeLeg(opts);
             const d = leg.driver;
             await openReceiveCode(d);
-            const original =
+            const read =
                 (
                     await d.getValue(STRINGS.saveDirPlaceholder, {
                         scope: 'receive',
                     })
                 ).value ?? '';
+            // A probe or a cell that died between its set and its restore
+            // left its own folder here: that is not what goes back.
+            const own = ownerValue(
+                leg.mode === 'store'
+                    ? (leg.ownerState ??
+                          (opts.out ? ownerStateFor(opts.out) : null))
+                    : null,
+                'receiveSaveDir',
+                read,
+                isAuditFolder
+            );
+            const original = own.before;
             detail.original = original;
+            if (own.leftover) {
+                detail.leftover = own.leftover;
+                detail.recalled = own.recalled;
+                notes.push(
+                    `P9: the field held "${own.leftover}", an earlier audit's own folder; "${original}" goes back in its place (${own.recalled ? "the owner's folder as an earlier command read it" : "the app's default"})`
+                );
+            }
             detail.value = probeValue;
             const set = await d.setValue(
                 STRINGS.saveDirPlaceholder,

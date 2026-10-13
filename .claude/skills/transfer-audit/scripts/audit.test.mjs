@@ -37,6 +37,8 @@ import {
     readProbe,
     serverFeaturesRow,
     serverFor,
+    unrestoredDesktopLine,
+    unrestoredDesktopRuns,
     webHeadLabel,
     webHeadRow,
 } from './audit.mjs';
@@ -2711,4 +2713,202 @@ test('a run or probe with --no-idle-check says so in its second line, and only t
     assert.match(line, /keys typed then can land in it/);
     // It never hides the not-driven line: the two cannot both apply.
     assert.equal(foregroundLine({ desktop: 'store', userAway: true, noIdleCheck: true }), null);
+});
+
+// Second review of #542, finding A: one command runs one cell, and the guard
+// that knows desktop.json is edited lives in the process that edited it. A
+// command killed after the edit left the file changed; the next command's
+// guard then backed that file up as the owner's and "restored" it, identical
+// and wrong.
+test('a run or probe refuses to start while an earlier run under --out left desktop.json edited, and cleanup clears it', async () => {
+    const outDir = out('unrestored-desktop');
+    const runId = '20260106-000000-shipped-quick';
+    const runDir = path.join(outDir, runId);
+    mkdirSync(runDir, { recursive: true });
+    const bak = path.join(runDir, 'desktop.json.bak');
+    writeFileSync(bak, '{"reportStats":true}\n');
+    const cfg = path.join(base, 'appdata', 'floe', 'desktop.json');
+    const manifestFile = path.join(runDir, 'manifest.json');
+    const write = (desktop) =>
+        writeFileSync(
+            manifestFile,
+            JSON.stringify({
+                runId,
+                binDir: path.join(outDir, 'bin'),
+                pids: [],
+                desktop,
+                stack: { started: false },
+                fixtureDirs: [],
+                appDataRedirect: null,
+            })
+        );
+    const edited = { backup: bak, configPath: cfg, sha256: 'x', restored: null };
+
+    // The pure reading first: only an edit with no restore on record counts.
+    write({ backup: null, configPath: null, sha256: null, restored: null });
+    assert.deepEqual(unrestoredDesktopRuns(outDir), []);
+    write({ ...edited, restored: true });
+    assert.deepEqual(unrestoredDesktopRuns(outDir), []);
+    for (const restored of [null, false, undefined, 'true']) {
+        write({ ...edited, restored });
+        assert.deepEqual(unrestoredDesktopRuns(outDir), [{ runId, backup: bak }], String(restored));
+    }
+    write(edited);
+    // A folder with no manifest, or one that is not JSON, is not a run.
+    mkdirSync(path.join(outDir, 'bin'), { recursive: true });
+    mkdirSync(path.join(outDir, 'junk'), { recursive: true });
+    writeFileSync(path.join(outDir, 'junk', 'manifest.json'), '{ not json');
+    assert.deepEqual(unrestoredDesktopRuns(outDir), [{ runId, backup: bak }]);
+    assert.deepEqual(unrestoredDesktopRuns(path.join(outDir, 'nowhere')), []);
+    for (const desktop of ['none', 'wailsdev'])
+        assert.equal(unrestoredDesktopLine({ out: outDir, desktop }), null, desktop);
+    for (const desktop of ['auto', 'store', 'portable'])
+        assert.match(unrestoredDesktopLine({ out: outDir, desktop }), /cleanup --run 20260106-000000-shipped-quick/, desktop);
+
+    // run and probe: exit 3 before anything is created or launched.
+    const before = readdirSync(outDir).sort();
+    for (const cmd of ['run', 'probe']) {
+        const i = io(fakeWorld());
+        const code = await main(
+            [cmd, '--quick', '--allow-foreground', '--root', root, '--out', outDir].filter((a) => cmd === 'run' || a !== '--quick'),
+            { ...i, cellHook: shrink }
+        );
+        assert.equal(code, 3, `${cmd}: ${i.errors.join('\n')}`);
+        assert.ok(
+            i.errors.some((l) => /edited the real desktop\.json and its manifest does not say the file was put back/.test(l)),
+            i.errors.join('\n')
+        );
+        assert.equal(i.lines.filter((l) => l.startsWith('PROGRESS ')).length, 0);
+        assert.deepEqual(readdirSync(outDir).sort(), before, `${cmd} created nothing`);
+    }
+    // A run with no desktop side has nothing to do with the file.
+    const web = io(fakeWorld());
+    const webCode = await main(
+        ['run', '--quick', '--desktop', 'none', '--root', root, '--out', outDir],
+        { ...web, cellHook: shrink }
+    );
+    assert.notEqual(webCode, 3, web.errors.join('\n'));
+
+    // cleanup that could not restore leaves the refusal standing.
+    const refusing = io(fakeWorld(), {
+        tryAdapter: async (name) =>
+            name === 'desktop'
+                ? { restoreConfig: async () => ({ ok: false, written: false, detail: 'backup missing (fake)' }) }
+                : null,
+    });
+    assert.equal(await main(['cleanup', '--run', runId, '--keep', '--root', root, '--out', outDir], refusing), 1);
+    assert.equal(JSON.parse(readFileSync(manifestFile, 'utf8')).desktop.restored, null);
+    assert.equal(unrestoredDesktopRuns(outDir).length, 1);
+
+    // cleanup that restored says so in the manifest, and the next run starts.
+    const restoring = io(fakeWorld(), {
+        tryAdapter: async (name) =>
+            name === 'desktop'
+                ? { restoreConfig: async () => ({ ok: true, written: true, detail: 'restored (fake)' }) }
+                : null,
+    });
+    assert.equal(
+        await main(['cleanup', '--run', runId, '--keep', '--root', root, '--out', outDir], restoring),
+        0,
+        restoring.errors.join('\n')
+    );
+    if (existsSync(manifestFile)) {
+        const m = JSON.parse(readFileSync(manifestFile, 'utf8'));
+        assert.equal(m.desktop.restored, true);
+        assert.equal(m.desktop.restoredBy, 'cleanup');
+    }
+    assert.deepEqual(unrestoredDesktopRuns(outDir), []);
+    assert.equal(unrestoredDesktopLine({ out: outDir, desktop: 'store' }), null);
+});
+
+// Second review of #542, finding F. What the Safety table says about a built
+// app comes from objects the run hands every leg through `shared`, and the
+// second line of a --no-idle-check run from one call in run and one in
+// probe. Each was right by reading and pinned by nothing: with the wiring
+// removed, every test still passed. This one runs `run` and `probe`.
+test('run hands every desktop leg the records the Safety table reads, and says --no-idle-check in its second line and in the table', async () => {
+    const world = fakeWorld();
+    const outDir = out('shared-wiring');
+    const base0 = io(world);
+    const seen = [];
+    const withCapture = {
+        ...base0,
+        getAdapter: async (name) => {
+            const adapter = await base0.getAdapter(name);
+            if (name !== 'desktop') return adapter;
+            return {
+                ...adapter,
+                createLeg: (opts) => {
+                    seen.push(opts.shared);
+                    // What a real leg and its driver do with them.
+                    opts.shared.desktopCalls.exe += 3;
+                    opts.shared.desktopLegs.launched += 1;
+                    opts.shared.desktopLegs.stopped += 1;
+                    return adapter.createLeg(opts);
+                },
+            };
+        },
+    };
+    const code = await main(
+        ['run', '--quick', '--desktop', 'portable', '--user-away', '--no-idle-check', '--root', root, '--out', outDir],
+        { ...withCapture, cellHook: shrink }
+    );
+    assert.equal(code, 0, base0.errors.join('\n'));
+    assert.equal(base0.lines[0], 'profile: shipped (default)');
+    assert.match(base0.lines[1], /--no-idle-check/);
+    assert.equal(base0.lines[1], idleCheckLine({ userAway: true, noIdleCheck: true, desktop: 'portable' }));
+
+    assert.ok(seen.length >= 2, `${seen.length} desktop legs were made`);
+    for (const shared of seen) {
+        assert.equal(shared, seen[0], 'one shared object for the whole run');
+        assert.deepEqual(Object.keys(shared.desktopLegs).sort(), ['launched', 'problems', 'stopped']);
+        assert.equal(typeof shared.desktopCalls.exe, 'number');
+        // The owner's values are kept under this run's --out, nowhere else.
+        assert.equal(shared.ownerState.file, path.join(outDir, 'owner-state.json'));
+    }
+
+    const runs = readdirSync(outDir).filter((n) => existsSync(path.join(outDir, n, 'audit.md')));
+    assert.equal(runs.length, 1);
+    const md = readFileSync(path.join(outDir, runs[0], 'audit.md'), 'utf8');
+    const safety = md.split('## Safety')[1].split('## Failures')[0];
+    // The value cell of a Safety row, without the table's padding.
+    const valueIn = (section, label) => {
+        const line = section.split('\n').find((l) => l.includes(label));
+        assert.ok(line, `no Safety row "${label}"`);
+        return line.split('|')[2].trim();
+    };
+    const cell = (label) => valueIn(safety, label);
+    // The same objects the table reads: what the legs wrote is what it says.
+    assert.equal(cell('window activations'), String(seen.length * 3));
+    assert.ok(
+        cell('desktop app put back as found').startsWith(`yes (${seen.length} of ${seen.length} launched app(s) closed by themselves`),
+        cell('desktop app put back as found')
+    );
+    assert.ok(cell('input idle check before desktop calls').startsWith('OFF (--no-idle-check'), cell('input idle check'));
+
+    // Without the flag the line is not printed and the row reads on.
+    const plainWorld = fakeWorld();
+    const plain = io(plainWorld);
+    const plainOut = out('shared-wiring-plain');
+    assert.equal(
+        await main(['run', '--quick', '--desktop', 'portable', '--user-away', '--root', root, '--out', plainOut], {
+            ...plain,
+            cellHook: shrink,
+        }),
+        0,
+        plain.errors.join('\n')
+    );
+    assert.equal(plain.lines.some((l) => /--no-idle-check/.test(l)), false);
+    const plainRun = readdirSync(plainOut).filter((n) => existsSync(path.join(plainOut, n, 'audit.md')));
+    const plainMd = readFileSync(path.join(plainOut, plainRun[0], 'audit.md'), 'utf8');
+    const plainSafety = plainMd.split('## Safety')[1].split('## Failures')[0];
+    assert.equal(valueIn(plainSafety, 'input idle check before desktop calls'), 'on');
+    // No built app was really launched by the fakes: the row says so.
+    assert.equal(valueIn(plainSafety, 'desktop app put back as found'), 'n/a (no built app was launched)');
+    assert.equal(valueIn(plainSafety, 'window activations'), '0');
+
+    // probe prints the same second line.
+    const probing = io(fakeWorld());
+    await main(['probe', '--desktop', 'portable', '--user-away', '--no-idle-check', '--root', root, '--out', out('shared-wiring-probe')], probing);
+    assert.match(probing.lines[1], /--no-idle-check/);
 });

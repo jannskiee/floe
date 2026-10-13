@@ -732,9 +732,24 @@ test('the Safety table counts window activations and says whether the desktop ap
     assert.equal(row(s, 'window activations'), '0');
     s.desktopCalls.exe = 23;
     assert.equal(row(s, 'window activations'), '23');
-    assert.equal(row(s, 'desktop app put back as found'), 'yes');
+    // Nothing launched is not "yes": the row answers only for what was
+    // measured (second review of #542, finding E).
+    assert.deepEqual(s.desktopLegs, { launched: 0, stopped: 0, problems: [] });
+    assert.equal(row(s, 'desktop app put back as found'), 'n/a (no built app was launched)');
+    s.desktopLegs.launched = 2;
+    assert.match(row(s, 'desktop app put back as found'), /^NO: 2 of 2 launched app\(s\) had not finished stopping/);
+    s.desktopLegs.stopped = 1;
+    assert.match(row(s, 'desktop app put back as found'), /^NO: 1 of 2 launched app\(s\) had not finished stopping/);
+    s.desktopLegs.stopped = 2;
+    assert.match(row(s, 'desktop app put back as found'), /^yes \(2 of 2 launched app\(s\) closed by themselves/);
+    s.desktopLegs.problems.push('S-DIR-D2C: the app did not close by itself and was ended with taskkill');
+    assert.equal(row(s, 'desktop app put back as found'), 'NO: S-DIR-D2C: the app did not close by itself and was ended with taskkill');
     s.desktopNotReleased.push('S-DIR-W2D-req: host release: the link this cell made still reads waiting');
-    assert.match(row(s, 'desktop app put back as found'), /^NO: S-DIR-W2D-req: host release: the link/);
+    assert.match(row(s, 'desktop app put back as found'), /^NO: S-DIR-W2D-req: host release: the link.* \| S-DIR-D2C: the app did not close/);
+    // A request release that failed is a NO even with no launch counted.
+    const only = newSafety();
+    only.desktopNotReleased.push('S-DIR-W2D-req: host release: x');
+    assert.match(row(only, 'desktop app put back as found'), /^NO: S-DIR-W2D-req/);
     // The row that was a constant is gone.
     assert.equal(safetyRows(s).some(([k]) => k === 'forced foreground'), false);
 });

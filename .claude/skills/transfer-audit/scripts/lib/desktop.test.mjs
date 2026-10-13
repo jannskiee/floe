@@ -84,6 +84,7 @@ import {
     writeShellMenu,
     xpathLiteral,
 } from './desktop.mjs';
+import { ownerStateFor } from './ownerstate.mjs';
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), 'desktop-test-'));
 const INTERRUPT_CHILD = fileURLToPath(
@@ -2169,7 +2170,13 @@ test('B1: a key the run created and could not remove is a SafetyError thrown aft
     }
 });
 
-test('Store and wailsdev legs never touch the Explorer verb', async () => {
+// Up to the second review of #542 a Store leg never read the key at all. A
+// packaged launch does not touch it, but the Store exe started directly is
+// the one launch whose package identity no run has shown, and a Floe without
+// identity registers the verb for itself (finding H). So the Store lane reads
+// it once, writes nothing when the launch left it alone, and puts it back
+// when the launch rewrote it. A wailsdev leg starts nothing and reads nothing.
+test('a Store leg guards the Explorer verb and writes only when its launch changed it; a wailsdev leg never touches it', async () => {
     const dir = tmp();
     const savedAppData = process.env.APPDATA;
     const reg = fakeRegistry(ORIGINAL_MENU);
@@ -2183,6 +2190,7 @@ test('Store and wailsdev legs never touch the Explorer verb', async () => {
         mkdirSync(path.dirname(cfg), { recursive: true });
         const original = Buffer.from('{"reportStats":true,"migrated":true}\n');
         writeFileSync(cfg, original);
+        const OWNER_RECORD = ownerStateFor(path.join(dir, 'owner-out'));
         const store = new DesktopLeg({
             allowForeground: true,
             role: 'receiver',
@@ -2196,11 +2204,47 @@ test('Store and wailsdev legs never touch the Explorer verb', async () => {
             shellMenu: guard,
             launcher: async () => ({ child: null, pid: null }),
             infra: INFRA_NOWHERE,
+            shared: { ownerState: OWNER_RECORD },
         });
         await store.launch([]);
         assert.equal(store.guard.state().applied, true);
+        assert.equal(store.shellMenuArmed, true);
+        assert.equal(guard.state, 'armed');
+        // The Store build runs on the owner's profile, so its driver is the
+        // one that gets the record of the owner's own folders.
+        assert.equal(store.driver.ownerState, OWNER_RECORD);
         await store.stop('test');
         assert.ok(readFileSync(cfg).equals(original));
+        assert.equal(reg.writes + reg.deletes, 0, 'a launch that left the key alone costs reads only');
+        assert.deepEqual(reg.menu(), ORIGINAL_MENU);
+        assert.ok(store.notes.some((n) => n === 'explorer verb: unchanged'), store.notes.join(' | '));
+
+        // The launch ran without identity and pointed the verb at itself.
+        const direct = new DesktopLeg({
+            allowForeground: true,
+            role: 'receiver',
+            cellId: 'T-MENU-STORE-DIRECT',
+            input: 'code',
+            code: 'a-b-c',
+            outDir: path.join(dir, 'out2'),
+            build: { launch: 'store' },
+            uia: fakeUiaClient(`${WINDOWS_APPS}x\\floe-desktop.exe`),
+            lister: NO_PROCS,
+            shellMenu: guard,
+            launcher: async () => {
+                reg.set(SELF_HEAL(`${WINDOWS_APPS}x\\floe-desktop.exe`));
+                return { child: null, pid: null };
+            },
+            infra: INFRA_NOWHERE,
+        });
+        await direct.launch([]);
+        assert.notDeepEqual(reg.menu(), ORIGINAL_MENU);
+        await direct.stop('test');
+        assert.deepEqual(reg.menu(), ORIGINAL_MENU, "the owner's entry is back");
+        assert.equal(reg.writes, 1);
+        assert.ok(readFileSync(cfg).equals(original));
+
+        const before = reg.calls.length;
         const wailsdev = new DesktopLeg({
             allowForeground: true,
             role: 'sender',
@@ -2226,9 +2270,8 @@ test('Store and wailsdev legs never touch the Explorer verb', async () => {
             }),
         });
         await wailsdev.launch();
-        assert.equal(store.shellMenuArmed || wailsdev.shellMenuArmed, false);
-        assert.equal(guard.state, 'unread');
-        assert.equal(reg.calls.length, 0, 'no registry call at all');
+        assert.equal(wailsdev.shellMenuArmed, false);
+        assert.equal(reg.calls.length, before, 'a wailsdev leg makes no registry call at all');
     } finally {
         if (savedAppData === undefined) delete process.env.APPDATA;
         else process.env.APPDATA = savedAppData;
@@ -3656,5 +3699,86 @@ test('restoreConfig leaves desktop.json alone when the run already put it back',
         assert.equal(readFileSync(file, 'utf8'), '{"reportStats":true}');
     } finally {
         rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+// Second review of #542, finding F: the code Receive half of the leftover
+// rule, and the order "mark changed, then set", had no test. Reverting either
+// left every suite green.
+test("a code Receive that finds an earlier audit's folder in its save field never takes it for the owner's, and marks the field changed before the set", async () => {
+    const out = tmp();
+    try {
+        const LEFT = 'C:\\Temp\\lta\\20261012-200000-shipped-default\\cells\\S-DIR-C2D\\attempt-1\\out';
+        const receiver = (over, values) => {
+            const state = {
+                values: { [STRINGS.saveDirPlaceholder]: values },
+                texts: ['READY', 'Enter a code or link, then click Receive.'],
+                buttons: ['SEND', 'RECEIVE', 'Browse', 'Receive'],
+            };
+            state.onClick = (name, opts) => {
+                if (sameText(name, 'Receive') && opts.after === STRINGS.codePlaceholder)
+                    state.texts = ['ACTIVE', STRINGS.connecting, 'KEEP THIS WINDOW OPEN. CLOSING IT CANCELS THE TRANSFER.'];
+            };
+            const made = legWith(
+                { role: 'receiver', input: 'code', code: 'olive-tiger-castle', outDir: 'C:\\out\\a1', ...over },
+                state
+            );
+            return { ...made, state };
+        };
+
+        // No record anywhere: the leftover goes back to the app's default.
+        let r = receiver({ build: { launch: 'portable', path: 'x' } }, LEFT);
+        await r.leg.start();
+        assert.equal(r.leg.saveDir.original, '', 'not the leftover');
+        assert.equal(r.leg.saveDir.leftover, LEFT);
+        assert.ok(r.leg.notes.some((n) => n.includes('an earlier audit\'s own folder') && n.includes('goes back to empty')), r.leg.notes.join(' | '));
+        await r.leg.restoreSaveDir();
+        assert.equal(r.state.values[STRINGS.saveDirPlaceholder], '');
+        assert.equal(r.leg.saveDir.restored, true);
+
+        // On the Store lane the owner's own folder is kept under --out ...
+        const state1 = ownerStateFor(out);
+        r = receiver({ build: { launch: 'store' }, ownerState: state1 }, 'D:\\owner\\Floe');
+        await r.leg.start();
+        assert.equal(r.leg.saveDir.original, 'D:\\owner\\Floe');
+        assert.equal(ownerStateFor(out).recall('receiveSaveDir').value, 'D:\\owner\\Floe');
+        // ... and put back by a later command that finds a leftover there.
+        r = receiver({ build: { launch: 'store' }, ownerState: ownerStateFor(out) }, LEFT);
+        await r.leg.start();
+        assert.equal(r.leg.saveDir.original, 'D:\\owner\\Floe');
+        assert.equal(r.leg.saveDir.leftover, LEFT);
+        assert.equal(r.leg.saveDir.recalled, true);
+        await r.leg.restoreSaveDir();
+        assert.equal(r.state.values[STRINGS.saveDirPlaceholder], 'D:\\owner\\Floe');
+
+        // A portable exe has a profile of its own: its field is never kept as
+        // the owner's, and the Store record is never read for it.
+        r = receiver({ build: { launch: 'portable', path: 'x' }, ownerState: ownerStateFor(out) }, 'E:\\portable profile');
+        await r.leg.start();
+        assert.equal(ownerStateFor(out).recall('receiveSaveDir').value, 'D:\\owner\\Floe');
+        r = receiver({ build: { launch: 'portable', path: 'x' }, ownerState: ownerStateFor(out) }, LEFT);
+        await r.leg.start();
+        assert.equal(r.leg.saveDir.original, '');
+        assert.equal(r.leg.saveDir.recalled, false);
+
+        // The set's answer can be lost after the value has landed. The field
+        // is marked changed before the call, so the stop still puts it back.
+        r = receiver({ build: { launch: 'portable', path: 'x' } }, 'D:\\owner\\Floe');
+        const set = r.driver.setValue.bind(r.driver);
+        r.driver.setValue = async (placeholder, value, opts) => {
+            const answer = await set(placeholder, value, opts);
+            if (placeholder === STRINGS.saveDirPlaceholder && value === 'C:\\out\\a1')
+                throw Object.assign(new Error('helper timeout after 30000 ms'), { reason: 'timeout' });
+            return answer;
+        };
+        await assert.rejects(r.leg.start(), /helper timeout/);
+        assert.equal(r.state.values[STRINGS.saveDirPlaceholder], 'C:\\out\\a1', 'the value landed');
+        assert.equal(r.leg.saveDir.changed, true, 'and the leg knows it has something to put back');
+        r.driver.setValue = set;
+        await r.leg.restoreSaveDir();
+        assert.equal(r.state.values[STRINGS.saveDirPlaceholder], 'D:\\owner\\Floe');
+    } finally {
+        dropLegs(/./);
+        rmSync(out, { recursive: true, force: true });
     }
 });

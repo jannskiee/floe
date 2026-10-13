@@ -304,6 +304,25 @@ function desktopJsonState(d = {}) {
     return 'desktop.json: not edited (no Store-mode leg)';
 }
 
+/**
+ * The "desktop app put back as found" row. It answers yes only for what was
+ * measured: every built app this run started was closed by a stop that read
+ * its own results back. A run that launched none says so, and a launch whose
+ * stop had not finished when the report was written is a NO, not a yes by
+ * default (second review of #542, finding E).
+ */
+export function putBackRow(s) {
+    const legs = s.desktopLegs || { launched: 0, stopped: 0, problems: [] };
+    const problems = [...(s.desktopNotReleased || []), ...(legs.problems || [])];
+    if (legs.stopped < legs.launched)
+        problems.push(
+            `${legs.launched - legs.stopped} of ${legs.launched} launched app(s) had not finished stopping when this was written`
+        );
+    if (problems.length) return `NO: ${problems.join(' | ')}`;
+    if (!legs.launched) return 'n/a (no built app was launched)';
+    return `yes (${legs.stopped} of ${legs.launched} launched app(s) closed by themselves, with what the run set read back)`;
+}
+
 export function safetyRows(s) {
     const ok = (v) => (v === null || v === undefined ? 'n/a' : v);
     const killed =
@@ -352,12 +371,7 @@ export function safetyRows(s) {
             'window activations (UIA pattern calls on a built app)',
             String(s.desktopCalls?.exe ?? 0),
         ],
-        [
-            'desktop app put back as found',
-            s.desktopNotReleased?.length
-                ? `NO: ${s.desktopNotReleased.join(' | ')}`
-                : 'yes',
-        ],
+        ['desktop app put back as found', putBackRow(s)],
         [
             'input idle check before desktop calls',
             s.idleCheckOff
@@ -661,6 +675,9 @@ export function newSafety() {
         desktopCalls: { exe: 0 },
         // One line per cell whose host release left something behind.
         desktopNotReleased: [],
+        // Built apps this run started and closed, and what a close left
+        // behind (DesktopLeg._stop writes it through shared.desktopLegs).
+        desktopLegs: { launched: 0, stopped: 0, problems: [] },
         killedPids: [],
         workingTreeUnchanged: null,
         saveDirRestored: null,

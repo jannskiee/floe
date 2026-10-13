@@ -21,6 +21,7 @@ import {
     isAuditFolder,
     requestStateFromItems,
 } from './desktop.mjs';
+import { ownerStateFor } from './ownerstate.mjs';
 import { FAKE_LINK, fakeRequestDom } from './tests/fake-request-dom.mjs';
 import { fakeRequestUiaClient } from './tests/fake-request-uia.mjs';
 
@@ -736,7 +737,7 @@ test('UIA restoreRequestSaveDir puts the Save to field back to what it read befo
             h.dom.saveDir = before;
             assert.deepEqual(
                 await driver.restoreRequestSaveDir(clock),
-                { before: null, restored: null, after: null, leftover: null },
+                { before: null, restored: null, after: null, leftover: null, recalled: false },
                 'nothing was set yet'
             );
             assert.equal(
@@ -756,7 +757,7 @@ test('UIA restoreRequestSaveDir puts the Save to field back to what it read befo
             await driver.closeRequestLink(clock);
             // The ended view: Make another link brings the form back first.
             const back = await driver.restoreRequestSaveDir(clock);
-            assert.deepEqual(back, { before, restored: true, after: before, leftover: null });
+            assert.deepEqual(back, { before, restored: true, after: before, leftover: null, recalled: false });
             assert.equal(h.dom.saveDir, before);
             assert.equal(h.dom.state, 'ready');
             assert.equal(h.dom.gen, 2, 'no link was made to do it');
@@ -775,6 +776,7 @@ test('UIA restoreRequestSaveDir puts the Save to field back to what it read befo
                 restored: false,
                 after: dir,
                 leftover: null,
+                recalled: false,
             }
         );
 
@@ -852,9 +854,65 @@ test("an earlier audit's own folder in the Save to field is never taken for the 
             restored: true,
             after: '',
             leftover: left,
+            recalled: false,
         });
         assert.equal(h.dom.saveDir, '', "the app's default again");
     } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+// Second review, finding A: one command runs one cell, and the owner's own
+// folder lived only in the memory of the command that read it. After a
+// release that never happened, the next command had nothing better to put
+// back than the app's default. The value is now kept under --out.
+test("a leftover in the Save to field goes back to the owner's folder when an earlier command of the same --out read it", async () => {
+    const out = tmp();
+    const dir = tmp();
+    try {
+        const owner = 'D:\\owner\\Floe drops';
+        // Command 1: reads the owner's folder, sets its own, and dies before
+        // its release (no restore is called on this driver).
+        const first = hostWith();
+        first.h.dom.saveDir = owner;
+        const d1 = new UiaDriver(first.client, 4242, { ownerState: ownerStateFor(out) });
+        await d1.makeRequestLink({ saveDir: path.join(dir, 'cells', 'S-DIR-W2D-reqauto', 'attempt-1', 'out'), ...first.clock });
+        const left = first.h.dom.saveDir;
+        assert.equal(isAuditFolder(left), true);
+        assert.equal(ownerStateFor(out).recall('requestSaveTo').value, owner);
+
+        // Command 2: a new process, a new driver, the same --out.
+        const next = hostWith();
+        next.h.dom.saveDir = left;
+        const d2 = new UiaDriver(next.client, 4242, { ownerState: ownerStateFor(out) });
+        await d2.makeRequestLink({ saveDir: path.join(dir, 'cells', 'S-DIR-W2D-req', 'attempt-1', 'out'), ...next.clock });
+        assert.equal(d2.requestSaveDirBefore(), owner);
+        assert.deepEqual(d2.requestSaveDirLeftover(), { leftover: left, recalled: true });
+        await d2.closeRequestLink(next.clock);
+        assert.deepEqual(await d2.restoreRequestSaveDir(next.clock), {
+            before: owner,
+            restored: true,
+            after: owner,
+            leftover: left,
+            recalled: true,
+        });
+        assert.equal(next.h.dom.saveDir, owner, "the owner's folder, not the default");
+        // The leftover never replaced the kept value.
+        assert.equal(ownerStateFor(out).recall('requestSaveTo').value, owner);
+
+        // A driver given no record (a portable or head exe) keeps nothing.
+        const other = tmp();
+        try {
+            const plain = hostWith();
+            plain.h.dom.saveDir = 'E:\\portable profile';
+            await plain.driver.makeRequestLink({ saveDir: dir, ...plain.clock });
+            assert.equal(ownerStateFor(other).recall('requestSaveTo'), null);
+            assert.equal(ownerStateFor(out).recall('requestSaveTo').value, owner, 'and never writes the Store record');
+        } finally {
+            rmSync(other, { recursive: true, force: true });
+        }
+    } finally {
+        rmSync(out, { recursive: true, force: true });
         rmSync(dir, { recursive: true, force: true });
     }
 });
@@ -909,6 +967,7 @@ test("a Save to set whose answer is lost still leaves the owner's folder known, 
             restored: true,
             after: 'D:\\owner\\Floe drops',
             leftover: null,
+            recalled: false,
         });
         assert.equal(h.dom.saveDir, 'D:\\owner\\Floe drops');
     } finally {

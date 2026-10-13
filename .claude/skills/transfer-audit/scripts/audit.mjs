@@ -80,6 +80,7 @@ import {
     foregroundRefused,
     matchCells,
 } from './lib/matrix.mjs';
+import { ownerStateFor } from './lib/ownerstate.mjs';
 import { Ledger } from './lib/pacing.mjs';
 import {
     selectCli,
@@ -1804,6 +1805,13 @@ export async function runCmd(opts, io = {}) {
                 `--cells ${opts.cells.join(',')} matches no executable ${opts.profile}/${opts.subset} cell id`
             );
     }
+    // An earlier command that left desktop.json edited is put right before
+    // this one creates or launches anything.
+    const unrestored = unrestoredDesktopLine(opts);
+    if (unrestored) {
+        err(`${NAME}: ${unrestored}`);
+        return EXIT.precondition;
+    }
     // The fence comes first: nothing is created, not even --out, until it
     // has vouched for the paths this run will write.
     const fence = fenceFor(opts, io, exec, { allow: [opts.out, opts.binDir] });
@@ -2380,6 +2388,11 @@ export async function runCmd(opts, io = {}) {
                 webGuards: safety.webGuards,
                 // And the driver's count of pattern calls on a built app.
                 desktopCalls: safety.desktopCalls,
+                // And the count of built apps started and put back.
+                desktopLegs: safety.desktopLegs,
+                // The owner's own Save to and save folder, as any command
+                // of this --out read them (lib/ownerstate.mjs).
+                ownerState: ownerStateFor(opts.out),
             },
             onPid: (pid, label) => {
                 if (!pid) return;
@@ -2536,6 +2549,12 @@ export async function probeCmd(opts, io = {}) {
     const out = io.stdout || ((s) => process.stdout.write(s + '\n'));
     const err = io.stderr || ((s) => process.stderr.write(s + '\n'));
     const exec = io.exec || defaultExec;
+    // The desktop probes launch the app behind the same guard a run uses.
+    const unrestored = unrestoredDesktopLine(opts);
+    if (unrestored) {
+        err(`${NAME}: ${unrestored}`);
+        return EXIT.precondition;
+    }
     // Fence first, then the directory and the log it vouched for.
     const fence = fenceFor(opts, io, exec, { allow: [opts.out, opts.binDir] });
     fence.assertWritable(path.join(opts.out, 'probe.json'));
@@ -2726,6 +2745,43 @@ export async function versionsCmd(opts, io = {}) {
     return code;
 }
 
+/**
+ * Runs under --out whose manifest says the Store-mode guard edited the real
+ * desktop.json and never says the file was put back: the command was killed
+ * after the edit, or its restore failed. The guard of a new command would
+ * back up that edited file as the owner's and "restore" it at the end,
+ * identical and wrong (second review of #542, finding A), so a desktop run
+ * refuses to start until `cleanup` has replayed the earlier backup.
+ */
+export function unrestoredDesktopRuns(outDir) {
+    if (!outDir || !existsSync(outDir)) return [];
+    const left = [];
+    for (const e of readdirSync(outDir, { withFileTypes: true })) {
+        if (!e.isDirectory()) continue;
+        const file = path.join(outDir, e.name, 'manifest.json');
+        if (!existsSync(file)) continue;
+        let m = null;
+        try {
+            m = JSON.parse(readFileSync(file, 'utf8'));
+        } catch {
+            continue;
+        }
+        const d = m && m.desktop;
+        if (d && d.backup && d.restored !== true)
+            left.push({ runId: e.name, backup: String(d.backup) });
+    }
+    return left.sort((a, b) => a.runId.localeCompare(b.runId));
+}
+
+/** The refusal for unrestoredDesktopRuns, or null when a run may start. */
+export function unrestoredDesktopLine(opts) {
+    if (opts.desktop === 'none' || opts.desktop === 'wailsdev') return null;
+    const left = unrestoredDesktopRuns(opts.out);
+    if (!left.length) return null;
+    const ids = left.map((l) => l.runId).join(', ');
+    return `an earlier run under --out (${ids}) edited the real desktop.json and its manifest does not say the file was put back. Nothing is launched: a new run would take the edited file for the owner's. Run "cleanup --run ${left[0].runId} --out ${opts.out}" first; if it cannot restore the file, restore it by hand from ${left[0].backup} and delete that run's folder.`;
+}
+
 function newestRun(outDir) {
     if (!existsSync(outDir)) return null;
     const dirs = readdirSync(outDir, { withFileTypes: true })
@@ -2835,6 +2891,13 @@ export async function cleanupCmd(opts, io = {}) {
                     `desktop.json: ${r && r.detail ? r.detail : 'restore attempted'}`
                 );
                 if (r && r.ok === false) refused += 1;
+                else if (manifest.desktop.restored !== true && existsSync(file)) {
+                    // On record, so the next run's start check
+                    // (unrestoredDesktopLine) lets it through.
+                    manifest.desktop.restored = true;
+                    manifest.desktop.restoredBy = 'cleanup';
+                    writeJson(file, manifest);
+                }
             } catch (e) {
                 err(`${NAME}: desktop.json restore failed: ${e.message}`);
                 refused += 1;

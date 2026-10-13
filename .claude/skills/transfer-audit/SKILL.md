@@ -97,7 +97,23 @@ a peer.
   in input, inside 40 s for the whole release, where every other step wants
   120 s of idle. Past the 40 s a step is not sent: the cell names it as
   `host-release` with what to set by hand, and no later cell of the run
-  launches anything on an exe lane (SKIP `desktop-not-released`).
+  launches anything on an exe lane (SKIP `desktop-not-released`). Each
+  release call reads that pause again right before it is sent and gives the
+  helper one second to find its element, so the call lands next to the pause
+  that allowed it; a missing element is tried once more, after another read.
+  The last thing a Store leg does before it closes the app is read the Save
+  to field once more: a value that moved after it was put back is reported.
+- State that outlives one command is checked by the next. A `run` or `probe`
+  on an exe lane exits 3, before it creates or launches anything, when a
+  manifest under `--out` says `desktop.json` was edited and does not say it
+  was put back (a command that was killed after the edit); the line names
+  the `cleanup --run <id>` to run first, and `cleanup` records its restore
+  in that manifest. And `<out>/owner-state.json` keeps the owner's own
+  folders as the Store lane first read them (the Make link form's Save to,
+  and the code Receive folder), so a later command that finds an earlier
+  run's folder in one of those fields puts the owner's value back, not the
+  app's default. It holds two folder paths and nothing else. Do not delete
+  it between the commands of one session; `cleanup` keeps it.
 - The gate is in the launcher as well as in the plan: a desktop leg on an
   exe refuses to launch when the run carried neither flag, whatever built
   the leg.
@@ -461,6 +477,13 @@ put the desktop app back as it found it (its `host-release` note says what:
 a link still open, the Save to folder not restored), so every later cell
 with an exe on one side is SKIP with this reason instead of building on the
 leftover. Set the named thing right by hand, then run the remaining cells.
+That latch lives in one command. The next command of the same `--out` is
+allowed to launch, reads the field, knows an audit's own folder when it sees
+one (`.../cells/<id>/attempt-<n>/...`, or the P9 probe's `p9-save-dir`), and
+sets the owner's folder from `owner-state.json` at its own release:
+`request.saveTo` then carries `leftover` and `recalled: true`, and the note
+says which folder went back. With nothing kept for that field it sets the
+app's default and says that instead.
 
 What each side says about its own per-file SHA-256 check is carried as
 evidence and never judged: the CLI's `Verified   SHA-256 matched` row and
@@ -482,7 +505,9 @@ precondition or infra abort; 4 a safety invariant tripped (a stats attempt
 on an opted-out receiver, a `desktop.json` restore mismatch); 5 partial
 (SKIP, FLAKY or ERROR present, no FAIL); 6 version drift only; 130
 interrupted. Precedence 2, 4, 3, 130, 1, 5, 6, 0. `versions` exits 0 or 6,
-`probe` 0 or 3, `cleanup` 0 or 1.
+`probe` 0 or 3, `cleanup` 0 or 1. A 3 from `run` or `probe` with the line
+`an earlier run under --out (...) edited the real desktop.json` is the start
+check of section 0: nothing was created, and `cleanup --run <id>` clears it.
 
 The Safety section is printed every run and must read: browser stats
 attempts 0 (all aborted), `floe:bytes-reported` events 0, CLI receivers
@@ -493,7 +518,9 @@ come back, `restored byte-identical: NO` on a mismatch, `not edited (no
 Store-mode leg)` when only portable, head or wailsdev ran), local `/api/stats` 0/0 on the head
 profile, TURN bodies never, `server/.env` never read, captures N (desktop
 PrintWindow captures; browser page screenshots are not counted) all
-window-cropped, `desktop app put back as found` yes, killed pids own only,
+window-cropped, `desktop app put back as found` `yes (k of k launched
+app(s) closed by themselves, ...)` or `n/a (no built app was launched)`,
+killed pids own only,
 working tree unchanged, and firewall Block rules on the exes under test
 `none (N exe(s) read)`.
 
@@ -503,9 +530,31 @@ and Toggle calls it sent to an exe, each of which brings the app's window to
 the foreground: 0 on a run that drove no built app, and never 0 on one that
 did (the row used to read `forced foreground: 0 times` on every run, from a
 counter nothing wrote). `input idle check before desktop calls` reads `on`,
-or `OFF` under `--no-idle-check`. And `desktop app put back as found` reads
-`NO:` with the cell and what was left (an open link, the Save to folder)
-whenever a host release could not finish, whatever that cell's verdict was.
+or `OFF` under `--no-idle-check`. And `desktop app put back as found`
+answers only for what was measured. It reads `n/a` when the run launched no
+built app, `yes (k of k ...)` when every app it started was closed by its
+own stop with nothing left over, and `NO:` with the cell and what was left
+whatever that cell's verdict was: a host release that could not finish (an
+open link, the Save to folder), a close that needed taskkill, a code Receive
+folder not put back, a Save to field that moved between its restore and the
+close, or a launch whose stop had not finished when the report was written.
+It used to read `yes` on a run that had measured nothing.
+
+A launch that never shows a window is ended at its stop only when the leg
+can show the process is its own: the pid the launch call returned, or, for
+a Store start through the shell, a `floe-desktop.exe` created while that
+call ran or within 15 s of it. Anything else (a Floe the owner opened
+meanwhile, a `wails dev` app, a process whose creation time cannot be read)
+is left running and named in an `unfound app:` note, and the next cell with
+an exe side reads SKIP `desktop-running`.
+
+The Explorer verb (`HKCU\Software\Classes\*\shell\Floe`) is guarded on the
+Store lane as well as on the portable and head ones. A packaged launch does
+not touch the key, and the leg's note then reads `explorer verb: unchanged`
+or `still absent`. A Store exe started directly is the one launch whose
+package identity no run had shown; a Floe without identity registers the
+verb for itself at startup, and the stop then puts the key back as it was
+(`removed ...` when there was none, `put back command ...` when there was).
 
 What an exe run changes on the owner's profile and does not put back,
 because nothing reads it afterwards: the tab the app opens on next time

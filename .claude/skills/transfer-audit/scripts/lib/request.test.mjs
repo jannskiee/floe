@@ -11,6 +11,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { runCell } from './cell.mjs';
 import {
@@ -21,7 +22,13 @@ import {
 import { SKIP_REASONS, cellPlan } from './matrix.mjs';
 import { Ledger } from './pacing.mjs';
 import { buildRunJson, newSafety, renderMarkdown } from './report.mjs';
-import { AWAY_ONLY, DAILY_LIMIT, scrubDeep } from './request.mjs';
+import {
+    AWAY_ONLY,
+    DAILY_LIMIT,
+    START_SETTLE_MS,
+    hostStartSettled,
+    scrubDeep,
+} from './request.mjs';
 import { SafetyError } from './surfaces.mjs';
 import { FAKE_ROOM } from './tests/fake-request-dom.mjs';
 import { fakeWorld, makeFakeAdapters } from './tests/fake-legs.mjs';
@@ -1769,4 +1776,102 @@ test('a host that could not be released is named in the Safety record, on a cell
     const ctx2 = ctxFor(clean, { buildFor: EXE_BUILD, userAway: true });
     await runCell(small('S-DIR-W2D-reqauto'), ctx2);
     assert.deepEqual(ctx2.safety.desktopNotReleased, []);
+});
+
+// Second review of #542, finding F: two lines of the request runner were
+// right by reading and pinned by nothing.
+test("the request host's pid goes to the manifest hook the moment the host is launched, and a host with no pid reports none", async () => {
+    const hostWithPid = (pid) => {
+        const w = fakeRequestWorld();
+        const base = ctxFor(w);
+        const pids = [];
+        const order = [];
+        const ctx = {
+            ...base,
+            onPid: (p, label) => {
+                pids.push([p, label]);
+                order.push(`pid ${label}`);
+            },
+            getAdapter: async (name) => {
+                const a = await base.getAdapter(name);
+                if (name !== 'desktop') return a;
+                return {
+                    ...a,
+                    createLeg: (o) => {
+                        const leg = a.createLeg(o);
+                        if (o.label !== 'host') return leg;
+                        const launch = leg.launch.bind(leg);
+                        leg.launch = async (...args) => {
+                            const r = await launch(...args);
+                            leg.pid = pid;
+                            order.push('launched');
+                            return r;
+                        };
+                        return leg;
+                    },
+                };
+            },
+        };
+        return { w, ctx, pids, order };
+    };
+    const one = hostWithPid(4242);
+    const r = await runCell(small('H-DIR-W2D-req'), one.ctx);
+    assert.equal(r.verdict, 'PASS', r.note);
+    assert.deepEqual(
+        one.pids.filter(([, label]) => String(label).endsWith(':host')),
+        [[4242, 'H-DIR-W2D-req:host']]
+    );
+    // Straight after the launch, before the host is driven any further.
+    assert.equal(one.order.indexOf('pid H-DIR-W2D-req:host'), one.order.indexOf('launched') + 1);
+
+    const none = hostWithPid(null);
+    const r2 = await runCell(small('H-DIR-W2D-req'), none.ctx);
+    assert.equal(r2.verdict, 'PASS', r2.note);
+    assert.deepEqual(none.pids.filter(([, label]) => String(label).endsWith(':host')), []);
+});
+
+test('teardown lets a host start that is still running finish, inside a bound, in both kinds of request cell', async () => {
+    assert.equal(START_SETTLE_MS, 15_000);
+    // Nothing in flight: no wait at all.
+    let slept = 0;
+    const ctx = { sleep: async () => void (slept += 1) };
+    await hostStartSettled({ starting: null }, ctx);
+    await hostStartSettled(null, ctx);
+    assert.equal(slept, 0);
+
+    // A start that finishes is waited for, and its failure is not thrown.
+    const order = [];
+    let finish;
+    const starting = new Promise((_, reject) => (finish = () => reject(new Error('host.start failed late'))));
+    const waiting = hostStartSettled(
+        { starting },
+        { sleep: () => new Promise(() => {}) }
+    ).then(() => order.push('settled'));
+    await new Promise((r) => setTimeout(r, 10));
+    assert.deepEqual(order, [], 'still waiting for the start');
+    finish();
+    await waiting;
+    assert.deepEqual(order, ['settled']);
+
+    // A start that never ends does not hold the teardown: the bound does.
+    const asked = [];
+    await hostStartSettled(
+        { starting: new Promise(() => {}) },
+        { sleep: async (ms) => void asked.push(ms) }
+    );
+    assert.deepEqual(asked, [START_SETTLE_MS]);
+
+    // Both teardowns go through it, each before its host is stopped: the
+    // plain attempt, and the quick cell with a link held open (TA-17), which
+    // used to release at once and could read "nothing of ours here".
+    const src = readFileSync(fileURLToPath(new URL('./request.mjs', import.meta.url)), 'utf8');
+    const calls = [...src.matchAll(/await hostStartSettled\(st, ctx\);/g)].map((m) => m.index);
+    assert.equal(calls.length, 2);
+    for (const at of calls) {
+        const next = src.indexOf('.host.stop(', at);
+        assert.ok(next > at && next - at < 400, 'the stop follows the settle');
+    }
+    const open = src.slice(src.indexOf('export function openLinkHooks('));
+    assert.ok(open.includes('await (st.starting = startHost(cell, ctx, rec, st, {'), 'TA-17 keeps its start');
+    assert.ok(open.indexOf('await hostStartSettled(st, ctx);') > 0);
 });

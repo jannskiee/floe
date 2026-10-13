@@ -411,10 +411,17 @@ async function startHost(
             typeof host.driver?.requestSaveDirBefore === 'function'
                 ? host.driver.requestSaveDirBefore()
                 : null;
-        if (before !== null && ctx.log)
+        if (before !== null && ctx.log) {
+            const left =
+                typeof host.driver.requestSaveDirLeftover === 'function'
+                    ? host.driver.requestSaveDirLeftover()
+                    : null;
             ctx.log(
-                `${cell.id}: the Make link form's Save to field read ${JSON.stringify(before)} before this cell; it is put back when the host is released`
+                left && left.leftover
+                    ? `${cell.id}: the Make link form's Save to field held ${JSON.stringify(left.leftover)} before this cell, an earlier audit's own folder; the release sets ${JSON.stringify(before)} (${left.recalled ? "the owner's folder as an earlier command read it" : "the app's default"})`
+                    : `${cell.id}: the Make link form's Save to field read ${JSON.stringify(before)} before this cell; it is put back when the host is released`
             );
+        }
     }
     const read = await host.driver.readRequestLink();
     st.link = read.link;
@@ -491,8 +498,11 @@ async function releaseHost(st, rec) {
                 };
                 if (back.leftover) {
                     rec.request.saveTo.leftover = back.leftover;
+                    if (back.recalled) rec.request.saveTo.recalled = true;
                     note(
-                        `host release: when this cell started the Save to field held "${back.leftover}", an earlier audit's own folder and not the owner's choice; it was set to empty, the app's default`
+                        back.recalled
+                            ? `host release: when this cell started the Save to field held "${back.leftover}", an earlier audit's own folder and not the owner's choice; it was set to "${back.before}", the owner's folder as an earlier command of this --out read it`
+                            : `host release: when this cell started the Save to field held "${back.leftover}", an earlier audit's own folder and not the owner's choice; it was set to empty, the app's default`
                     );
                 }
                 if (!back.restored)
@@ -549,8 +559,28 @@ function releaseProblems(st) {
  */
 export const HOST_RELEASE_KEY = 'host-release';
 /** How long teardown lets a timed-out host.start finish before it releases. */
-const START_SETTLE_MS = 15_000;
-function markHostRelease(rec, problems, st = null, ctx = null) {
+export const START_SETTLE_MS = 15_000;
+/**
+ * A host.start that lost its race with the phase timer may still be making
+ * its link. Teardown lets it finish, inside a bound, so the release sees the
+ * link it made and closes it instead of reading "nothing of ours here". Both
+ * kinds of request cell go through here: the plain attempt and the quick
+ * cell with a link held open (TA-17), which used to release at once.
+ */
+export async function hostStartSettled(st, ctx) {
+    if (!st || !st.starting) return;
+    await Promise.race([
+        st.starting.catch(() => {}),
+        ((ctx && ctx.sleep) || defaultSleep)(START_SETTLE_MS),
+    ]);
+}
+function markHostRelease(
+    rec,
+    problems,
+    st = null,
+    ctx = null,
+    cellId = rec.cellId
+) {
     if (!problems.length) return;
     const first = (s) => String(s).split(/\r?\n/)[0].trim();
     const text = scrub(
@@ -568,7 +598,7 @@ function markHostRelease(rec, problems, st = null, ctx = null) {
     // FAIL keeps its finding, and this would otherwise be one note.
     if (ctx?.safety && Array.isArray(ctx.safety.desktopNotReleased))
         ctx.safety.desktopNotReleased.push(
-            scrub(`${rec.cellId}: ${problems.map(first).join('; ')}`)
+            scrub(`${cellId ?? 'request host'}: ${problems.map(first).join('; ')}`)
         );
     if (!rec.ok) {
         rec.notes.push(text);
@@ -1639,15 +1669,7 @@ export async function runRequestAttempt(cell, ctx, n) {
                     }
                 }
                 if (st.host) {
-                    // A host.start that lost its race with the phase timer
-                    // may still be making its link. Let it finish, inside a
-                    // bound, so the release sees the link it made and closes
-                    // it instead of reading "nothing of ours here".
-                    if (st.starting)
-                        await Promise.race([
-                            st.starting.catch(() => {}),
-                            (ctx.sleep || defaultSleep)(START_SETTLE_MS),
-                        ]);
+                    await hostStartSettled(st, ctx);
                     try {
                         // stop() runs releaseHost first (beforeClose).
                         await st.host.stop(rec.ok ? 'done' : 'failed');
@@ -1785,10 +1807,12 @@ export function openLinkHooks(cell, ctx) {
             rec.request = newRequestRecord(cell);
             st.drops = path.join(rec.evidenceDir, 'host-drops');
             mkdirSync(st.drops, { recursive: true });
-            await startHost(cell, ctx, rec, st, {
+            // Kept, so a teardown that starts while this is still making its
+            // link can let it finish first (hostStartSettled).
+            await (st.starting = startHost(cell, ctx, rec, st, {
                 outDir: st.drops,
                 relayOnly: false,
-            });
+            }));
         },
         async afterVerify(rec) {
             const snap = await snapshotOf(st.host);
@@ -1804,6 +1828,7 @@ export function openLinkHooks(cell, ctx) {
         async teardown(rec) {
             st.live.on = false;
             if (!st.host) return;
+            await hostStartSettled(st, ctx);
             try {
                 await st.host.stop(rec.ok ? 'done' : 'failed');
             } finally {
@@ -1828,7 +1853,8 @@ export async function runOpenLinkAttempt(cell, ctx, n, opts = {}) {
     const rec = await runAttempt(cell, ctx, n, { ...opts, hooks });
     const problems = hooks.releaseProblems();
     if (problems.length) {
-        markHostRelease(rec, problems, hooks.state(), ctx);
+        // runAttempt's record carries no cell id of its own.
+        markHostRelease(rec, problems, hooks.state(), ctx, cell.id);
         rec.notes = rec.notes.map(scrub);
         if (rec.evidenceDir) {
             try {
