@@ -62,7 +62,8 @@ export interface ReceiverCallbacks {
     onFileComplete?: (file: ReceivedFile, index: number, total: number) => void;
     /**
      * Fires exactly once when the final file of a transfer completes (index === total),
-     * carrying the summed bytes and file count for the whole transfer. Use this for
+     * carrying the summed bytes and the number of files handed over, both counted
+     * here and neither taken from what the sender announced. Use this for
      * per-transfer side effects (analytics, the global byte counter) so they run once
      * instead of once per file. Mirrors the sender's `onAllSent`.
      */
@@ -290,7 +291,9 @@ export function createReceiver(
         // last file so reporting happens a single time per transfer.
         sessionBytes += size;
         if (meta.index === meta.total) {
-            cb.onAllComplete?.(sessionBytes, meta.total);
+            // This side's own count, never meta.total: the number goes to
+            // analytics, and the announced total is whatever the sender typed.
+            cb.onAllComplete?.(sessionBytes, filesHanded);
             sessionBytes = 0; // reset for a possible subsequent transfer
             filesHanded = 0;
         }

@@ -38,7 +38,7 @@ import {RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, probeIsRelay} fro
 import {buildShareLink, getRoomFromUrl, isValidRoomId} from '@/lib/roomLink';
 import {classifyPeerError, peerErrorBanner, peerErrorCodeOf, peerErrorReport, senderErrorBlamesRelay} from '@/lib/peerErrors';
 import {decideReceiverClose} from '@/lib/receiverClose';
-import {describeSenderStop, senderCloseInterrupted} from '@/lib/senderStop';
+import {SEND_INTERNAL_ERROR, describeSenderStop, senderCloseInterrupted} from '@/lib/senderStop';
 import {verifiedLine, VERIFIED_LINE} from '@/lib/verifiedLine';
 import {receiveSummary} from '@/lib/receiveSummary';
 import type {SendEnd} from '@/lib/sendSummary';
@@ -1102,7 +1102,21 @@ export function P2PTransfer() {
                         return;
                     }
 
-                    sendAllFiles(peer, files);
+                    // Nothing awaits the send (this is a timer callback), so
+                    // a throw inside it was an unhandled rejection and nothing
+                    // else: the page stayed on its last status line for good.
+                    // The throw goes on after the words are up, so Sentry
+                    // reports it exactly as it did before.
+                    sendAllFiles(peer, files).catch((cause: unknown) => {
+                        // A session this page has moved on from, and a send
+                        // whose files had all left, keep what they show.
+                        if (peerRef.current === peer && !transferCompleteRef.current) {
+                            setError((prev) => prev || SEND_INTERNAL_ERROR);
+                            setStatus('Transfer failed');
+                            setSendEnd((end) => (end === 'open' ? 'failed' : end));
+                        }
+                        throw cause;
+                    });
                 }, 2000);
             });
             peer.on('close', () => {

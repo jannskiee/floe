@@ -12,6 +12,13 @@ import type { RefusalCode } from '@/lib/transfer/protocol';
 export const SENDER_HASH_STOP =
     'The other side discarded a file that did not match what was sent. Try sending again.';
 
+// What the sending page says when its own send code throws. The twin of
+// INTERNAL_ERROR_MESSAGE in lib/transfer/receiver.ts, ending in the remedy the
+// sending page's other failures name. The send is started from a timer and
+// never awaited, so until it had a catch a throw in it showed nothing at all.
+export const SEND_INTERNAL_ERROR =
+    'Something went wrong while sending, so the transfer was stopped. Reload the page, add the files again, and share the new link.';
+
 /**
  * The fixed sentence for a stop this side can name, or null when today's
  * onError wording should stand. Only hash-mismatch has its own sentence; every

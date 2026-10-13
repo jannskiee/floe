@@ -499,9 +499,18 @@ async function sendSingleFile(
         // no more than a few characters, and a hostile one is bounded by the
         // frame alone, which is what let a bidi mark reorder the line for
         // pv and pvMin (protocolNumber's comment records that fix).
+        //
+        // Only a number is quoted. String() of an object runs the object's own
+        // toString, and JSON can carry one that is not a function
+        // ({"toString":0}): that call threw, the throw left sendFiles as a
+        // rejection, and a page that does not await the send stayed on its
+        // last status line. Anything that is not a number gets fixed words,
+        // which also keeps a string of the receiver's out of the sentence.
+        const from = typeof resumeAt === 'number'
+            ? `byte ${sanitizeDisplayText(String(resumeAt), 32)} of ${file.size}`
+            : 'a position that is not a number';
         cb.onError?.(
-            `The receiver asked to resume "${wireName}" from byte ` +
-            `${sanitizeDisplayText(String(resumeAt), 32)} of ${file.size}, ` +
+            `The receiver asked to resume "${wireName}" from ${from}, ` +
             `which is not possible. Please try again.`
         );
         return false;

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
-import { describeSenderStop, SENDER_HASH_STOP, senderCloseInterrupted } from './senderStop';
+import { describeSenderStop, SEND_INTERNAL_ERROR, SENDER_HASH_STOP, senderCloseInterrupted } from './senderStop';
 
 // The code type is deliberately not imported here: the consumer-map checker
 // counts that name as a peer-field token, and its warning total is a max
@@ -114,5 +114,38 @@ describe('how the sender page uses a stop', () => {
         expect(block).toContain('wireReasonRef.current = false;');
         expect(block).toContain('transferCompleteRef.current = false;');
         expect(block).toContain('progressRef.current = 0;');
+    });
+});
+
+// The send starts inside a timer callback, so nothing awaits it. A throw
+// inside the send engine was an unhandled rejection and nothing else: the
+// report went to Sentry and the page stayed on its last status line for good.
+describe('a send that throws', () => {
+    const page = readFileSync(fileURLToPath(new URL('../components/P2PTransfer.tsx', import.meta.url)), 'utf8');
+
+    it('has fixed words of its own, the twin of the receiver sentence', () => {
+        expect(SEND_INTERNAL_ERROR).toBe(
+            'Something went wrong while sending, so the transfer was stopped. Reload the page, add the files again, and share the new link.'
+        );
+    });
+
+    it('is caught where the send is started, and nowhere started without the catch', () => {
+        expect(page.match(/sendAllFiles\(peer, files\)/g)).toHaveLength(1);
+        expect(page).toContain('sendAllFiles(peer, files).catch((cause: unknown) => {');
+    });
+
+    // The handler says something and then lets the throw go on, so the report
+    // Sentry already made of it (an unhandled rejection) is the one it keeps
+    // making. A session the page has moved on from, and a send whose files had
+    // all left, keep what they show.
+    it('shows the sentence without talking over a banner, and rethrows', () => {
+        const from = page.indexOf('sendAllFiles(peer, files).catch((cause: unknown) => {');
+        const handler = page.slice(from, page.indexOf('\n                    });', from));
+        expect(handler).toContain('if (peerRef.current === peer && !transferCompleteRef.current) {');
+        expect(handler).toContain('setError((prev) => prev || SEND_INTERNAL_ERROR);');
+        expect(handler).toContain("setStatus('Transfer failed');");
+        expect(handler).toContain("setSendEnd((end) => (end === 'open' ? 'failed' : end));");
+        expect(handler.trimEnd().endsWith('throw cause;')).toBe(true);
+        expect(handler).not.toContain('Sentry.');
     });
 });

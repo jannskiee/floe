@@ -204,4 +204,63 @@ test.describe('peer error text', () => {
             await peer.close();
         }
     });
+
+    // The ack's offset is whatever the receiver typed. An object whose
+    // toString is not a function made the sending page throw while it worded
+    // its refusal, and nothing awaited the send: the page stayed on
+    // "Connected" for good, with no banner. It now refuses in fixed words.
+    test('a sending page refuses an ack whose offset is an object, and says so', async ({ browser }, testInfo) => {
+        const fixture = testInfo.outputPath('bad-ack.bin');
+        writeFileSync(fixture, Buffer.alloc(1024, 7));
+        const senderCtx = await browser.newContext();
+        const peer = await scriptedPeer(browser, { simplePeer: true });
+        try {
+            const sender = await senderCtx.newPage();
+            const link = await browserSenderSetup(sender, fixture);
+            const roomId = new URL(link).hash.replace(/^#room=/, '');
+
+            // The second joiner is the receiver: a real connection, and one
+            // answer to the first file's metadata.
+            await peer.page.evaluate(({ roomId, serverUrl }) => new Promise<void>((resolve, reject) => {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const w = window as any;
+                const socket = w.io(serverUrl);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                let p: any = null;
+                socket.on('connect', () => socket.emit('join-room', roomId));
+                socket.on('room-joined', () => resolve());
+                socket.on('room-full', () => reject(new Error('room-full')));
+                socket.on('signal', (d: { sender: string; signal: unknown }) => {
+                    if (!p) {
+                        p = new w.SimplePeer({ initiator: false, trickle: true, config: { iceServers: [] } });
+                        p.on('signal', (signal: unknown) => socket.emit('signal', { target: d.sender, roomId, signal }));
+                        p.on('error', () => {});
+                        p.on('data', (data: Uint8Array) => {
+                            let msg: { type?: string; id?: string };
+                            try {
+                                msg = JSON.parse(new TextDecoder().decode(data));
+                            } catch {
+                                return;
+                            }
+                            if (msg.type !== 'metadata') return;
+                            // Binary, like every receiver-to-sender frame.
+                            p.send(new TextEncoder().encode(
+                                `{"type":"ack","id":${JSON.stringify(msg.id)},"offset":{"toString":0}}`
+                            ));
+                        });
+                    }
+                    p.signal(d.signal);
+                });
+            }), { roomId, serverUrl: SERVER_URL });
+
+            await expect(sender.getByText(
+                'The receiver asked to resume "bad-ack.bin" from a position that is not a number, which is not possible. Please try again.',
+                { exact: true },
+            )).toBeVisible({ timeout: 30_000 });
+            await expect(sender.getByText('Transfer failed', { exact: true })).toBeVisible();
+        } finally {
+            await senderCtx.close();
+            await peer.close();
+        }
+    });
 });
