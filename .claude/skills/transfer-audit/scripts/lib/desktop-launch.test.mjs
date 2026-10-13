@@ -1288,10 +1288,15 @@ test('the Store lane arms the Explorer verb guard too, naming the package exe', 
         assert.equal(plain.shellMenuArmed, true);
         assert.deepEqual(calls, ['take']);
 
-        // Both exe lanes go through it, each after its own config step.
+        // Both exe lanes go through it, each after its own config step. The
+        // source is read by single lines only: a Windows runner checks the
+        // file out with CRLF, and a search across a line break found nothing
+        // there (the first CI run of this test).
         const src = readFileSync(fileURLToPath(new URL('./desktop.mjs', import.meta.url)), 'utf8');
         const launch = src.slice(src.indexOf('    async _launch(files = []) {'), src.indexOf('    spend(kind) {'));
-        const store = launch.slice(launch.indexOf("if (this.mode === 'store') {\n            this.guard = new DesktopConfigGuard("), launch.indexOf('seedRedirectedConfig('));
+        assert.ok(launch.length > 1000 && launch.indexOf('this.guard = new DesktopConfigGuard(') > 0);
+        const store = launch.slice(launch.indexOf('this.guard = new DesktopConfigGuard('), launch.indexOf('seedRedirectedConfig('));
+        assert.ok(store.length > 100, 'the Store branch was found');
         assert.ok(store.includes('this.armShellMenu(storeExe);'), 'the Store lane arms it');
         assert.ok(store.indexOf('await this.guard.apply();') < store.indexOf('this.armShellMenu(storeExe);'));
         const rest = launch.slice(launch.indexOf('seedRedirectedConfig('));
