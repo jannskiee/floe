@@ -127,6 +127,53 @@ const HOSTILE = [
     '',
 ];
 
+// The message alone used to decide which of Floe's sentences shows, whether
+// Sentry hears of the error and which label Umami gets. A peer can put the
+// words of an abort, or the exact text of an ICE failure, in a description
+// that does not parse.
+describe('classifyPeerError with the error code', () => {
+    it('takes an abort only from a data channel error', () => {
+        expect(classifyPeerError('User-Initiated Abort, reason=Close called', { code: 'ERR_DATA_CHANNEL' })).toEqual({
+            isExpected: true,
+            reason: 'abort',
+        });
+        expect(
+            classifyPeerError('Failed to parse SessionDescription. x=User-Initiated Abort Expect line: o=', {
+                code: 'ERR_SET_REMOTE_DESCRIPTION',
+            })
+        ).toEqual({ isExpected: false, reason: 'unknown' });
+        expect(classifyPeerError('User-Initiated Abort', { code: 'unknown' })).toEqual({
+            isExpected: false,
+            reason: 'unknown',
+        });
+    });
+
+    it('takes an ICE or connection failure from its code, whatever the text', () => {
+        expect(classifyPeerError('Ice connection failed.', { code: 'ERR_ICE_CONNECTION_FAILURE' }).reason).toBe('ice-failed');
+        expect(classifyPeerError('Connection failed.', { code: 'ERR_CONNECTION_FAILURE' }).reason).toBe('conn-failed');
+        expect(classifyPeerError('anything', { code: 'ERR_ICE_CONNECTION_FAILURE' }).isExpected).toBe(true);
+        // The same two sentences under another code are not those failures.
+        expect(classifyPeerError('Ice connection failed.', { code: 'ERR_SET_REMOTE_DESCRIPTION' })).toEqual({
+            isExpected: false,
+            reason: 'unknown',
+        });
+        expect(classifyPeerError('Connection failed.', { code: 'ERR_ADD_ICE_CANDIDATE' }).isExpected).toBe(false);
+    });
+
+    it('keeps the relay-off rule: every early error is expected and counted as relay-disabled', () => {
+        expect(
+            classifyPeerError('whatever', { relayEnabled: false, code: 'ERR_SET_REMOTE_DESCRIPTION' })
+        ).toEqual({ isExpected: true, reason: 'relay-disabled' });
+    });
+
+    it('blames the relay unless a data channel error says the other side left', () => {
+        expect(senderErrorBlamesRelay('User-Initiated Abort, reason=Close called', false, 'ERR_DATA_CHANNEL')).toBe(false);
+        // The words alone, in a description that did not parse, are not a peer leaving.
+        expect(senderErrorBlamesRelay('x=User-Initiated Abort', false, 'ERR_SET_REMOTE_DESCRIPTION')).toBe(true);
+        expect(senderErrorBlamesRelay('Ice connection failed.', true, 'ERR_ICE_CONNECTION_FAILURE')).toBe(false);
+    });
+});
+
 describe('peerErrorCodeOf', () => {
     it('returns the code simple-peer set, and only one from its own list', () => {
         for (const code of PEER_ERROR_CODES) {
@@ -221,6 +268,45 @@ describe('P2PTransfer puts no peer error text on the page or in a report', () =>
         expect(main).not.toMatch(/setError\([^;]*\+\s*\(?\w+(?: as Error)?\)?\.message/);
         expect(main.split("setError(peerErrorBanner('receiver'))")).toHaveLength(2);
         expect(main.split("setError(peerErrorBanner('sender'))")).toHaveLength(2);
+    });
+
+    // By identifier, not by spelling: an added `detail: err.message` or a
+    // status line built from the message would pass a check that only looks
+    // for the old call names.
+    it('reads an error message in four places only, each a compare or a classifier', () => {
+        const uses = main.match(/\b\w+\.message\b/g) ?? [];
+        expect(uses.filter((u) => u !== 'report.message')).toEqual([
+            'err.message', // the signaling refusal, compared with one literal
+            'err.message', // classifyPeerError, receiver
+            'err.message', // classifyPeerError, sender
+            'err.message', // senderErrorBlamesRelay
+        ]);
+        expect(main).toContain("if (err.message === 'Rate limit exceeded') {");
+        expect(main).toContain('classifyPeerError(err.message, { code: peerErrorCodeOf(err) })');
+        expect(main).toContain('classifyPeerError(err.message, { relayEnabled, code: peerErrorCodeOf(err) })');
+        expect(main).toContain('senderErrorBlamesRelay(err.message, relayEnabled, peerErrorCodeOf(err))');
+        expect(main).not.toContain('(err as Error).message');
+        // And the error object itself: a parameter, a message read as above,
+        // a name compare, or an argument of the two helpers. Nothing else.
+        const total = (main.match(/\berr\b/g) ?? []).length;
+        const allowed = [
+            /catch \(err\)/g,
+            /\(err\) =>/g,
+            /\berr\.message\b/g,
+            /\(err as Error\)\.name/g,
+            /peerErrorCodeOf\(err\)/g,
+            /peerErrorReport\('(?:receiver|sender)', err\)/g,
+        ].reduce((n, re) => n + (main.match(re) ?? []).length, 0);
+        expect(total).toBe(allowed);
+    });
+
+    it('shows the banner before it builds the report', () => {
+        for (const role of ['receiver', 'sender']) {
+            const banner = main.indexOf(`setError(peerErrorBanner('${role}'))`);
+            const report = main.indexOf(`peerErrorReport('${role}', err)`);
+            expect(banner).toBeGreaterThan(0);
+            expect(banner).toBeLessThan(report);
+        }
     });
 
     it('never hands a peer error object or its message to Sentry', () => {

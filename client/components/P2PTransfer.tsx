@@ -615,7 +615,7 @@ export function P2PTransfer() {
                 // "Ice connection failed." / "Connection failed." — relay likely disabled on sender
                 // "User-Initiated Abort" — sender closed the tab or peer was destroyed
                 // Log a breadcrumb but do NOT send to Sentry.
-                const { isExpected, reason } = classifyPeerError(err.message);
+                const { isExpected, reason } = classifyPeerError(err.message, { code: peerErrorCodeOf(err) });
 
                 if (isExpected) {
                     Sentry.addBreadcrumb({
@@ -647,6 +647,9 @@ export function P2PTransfer() {
                     // Unexpected: reported for investigation by its code.
                     // Never the error object or its message, which can quote
                     // what the other peer sent (lib/peerErrors.ts).
+                    // The banner first: nothing in the report below may
+                    // cost the person the one explanation they get.
+                    setError(peerErrorBanner('receiver'));
                     const report = peerErrorReport('receiver', err);
                     Sentry.withScope((scope) => {
                         scope.setContext('webrtc', {
@@ -660,7 +663,6 @@ export function P2PTransfer() {
                         scope.setFingerprint(report.fingerprint);
                         Sentry.captureMessage(report.message, 'error');
                     });
-                    setError(peerErrorBanner('receiver'));
                 }
                 // Track failed connection attempt
                 track('transfer-failed', { reason, role: 'receiver' });
@@ -1144,7 +1146,7 @@ export function P2PTransfer() {
                     return;
                 }
 
-                const { isExpected, reason } = classifyPeerError(err.message, { relayEnabled });
+                const { isExpected, reason } = classifyPeerError(err.message, { relayEnabled, code: peerErrorCodeOf(err) });
 
                 if (isExpected) {
                     Sentry.addBreadcrumb({
@@ -1156,13 +1158,14 @@ export function P2PTransfer() {
                     // The relay sentence only when the relay could be the
                     // cause: see senderErrorBlamesRelay.
                     setError(
-                        senderErrorBlamesRelay(err.message, relayEnabled)
+                        senderErrorBlamesRelay(err.message, relayEnabled, peerErrorCodeOf(err))
                             ? 'Connection failed. This link was made with Network relay fallback off. Reload the page, add the files again, leave it on, and share the new link.'
                             : 'Connection lost. The other device may have closed the tab.'
                     );
                 } else {
                     // By its code, never the error object or its message
                     // (the receiver's handler above says why).
+                    setError(peerErrorBanner('sender'));
                     const report = peerErrorReport('sender', err);
                     Sentry.withScope((scope) => {
                         scope.setContext('webrtc', {
@@ -1178,7 +1181,6 @@ export function P2PTransfer() {
                         scope.setFingerprint(report.fingerprint);
                         Sentry.captureMessage(report.message, 'error');
                     });
-                    setError(peerErrorBanner('sender'));
                 }
                 track('transfer-failed', {
                     reason,

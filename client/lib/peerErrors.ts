@@ -30,14 +30,23 @@ export type PeerErrorReason =
  * connection failure is expected and attributed to `relay-disabled`. The receiver
  * has no relay toggle, so it omits the option and the default (`true`) neutralizes
  * that term, matching the receiver's original behavior.
+ *
+ * `code` is the error's own code (peerErrorCodeOf). With it, the three expected
+ * kinds are told apart by the code simple-peer set, and the message only
+ * confirms an abort on a data channel error. Without it the message alone
+ * decided, and a peer can put the words "User-Initiated Abort" in an SDP line
+ * that does not parse: its parse error then read as a peer that left, showed
+ * the abort sentence, sent Sentry nothing and counted as `abort`. Both
+ * handlers pass the code; the message-only form stays for callers that have
+ * none.
  */
 export function classifyPeerError(
     message: string | undefined,
-    { relayEnabled = true }: { relayEnabled?: boolean } = {}
+    { relayEnabled = true, code }: { relayEnabled?: boolean; code?: string } = {}
 ): { isExpected: boolean; reason: PeerErrorReason } {
-    const isAbort = message?.includes('User-Initiated Abort') ?? false;
-    const isIceFailed = message === 'Ice connection failed.';
-    const isConnFailed = message === 'Connection failed.';
+    const isAbort = isPeerAbort(message, code);
+    const isIceFailed = code === undefined ? message === 'Ice connection failed.' : code === 'ERR_ICE_CONNECTION_FAILURE';
+    const isConnFailed = code === undefined ? message === 'Connection failed.' : code === 'ERR_CONNECTION_FAILURE';
 
     const isExpected = !relayEnabled || isIceFailed || isConnFailed || isAbort;
 
@@ -141,6 +150,13 @@ export function peerErrorReport(
  * and make a new link, and a recipient who closed their tab during the
  * handshake can simply open the same link again.
  */
-export function senderErrorBlamesRelay(message: string | undefined, relayEnabled: boolean): boolean {
-    return !relayEnabled && !(message?.includes('User-Initiated Abort') ?? false);
+export function senderErrorBlamesRelay(message: string | undefined, relayEnabled: boolean, code?: string): boolean {
+    return !relayEnabled && !isPeerAbort(message, code);
+}
+
+/** The other end closed its side: a data channel error whose text says so.
+ *  With no code to go by (an older caller), the text alone. */
+function isPeerAbort(message: string | undefined, code?: string): boolean {
+    const says = message?.includes('User-Initiated Abort') ?? false;
+    return code === undefined ? says : says && code === 'ERR_DATA_CHANNEL';
 }
