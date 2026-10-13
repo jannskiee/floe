@@ -21,8 +21,13 @@
 // a location on a browser report again, the item goes back on that list (see
 // the comment above the table of contents in app/privacy/page.tsx).
 //
-// Browser reports only. A report from the site's server arrives from the
-// hosting provider's address, so a location on one is the data center's.
+// Every runtime: the browser's two hooks, and the server's and the edge's.
+// A report from the site's server arrives from the hosting provider's
+// address, so a location on one was the data center's and named no visitor
+// (measured in Sentry on 2026-10-13: every server span since the browser
+// change held the same city). It is emptied all the same, so that a location
+// anywhere in the project is a regression to look into, not a question of
+// whose it is.
 //
 // A standalone span has no user field and does not pass through here. None is
 // sent: the only ones the SDK made were interaction timings, which are off

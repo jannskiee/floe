@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/nextjs';
+import { withoutLocation } from './lib/noLocation';
 import { scrubServerErrorEvent, scrubServerTransactionEvent } from './lib/scrubUrl';
 import { tracesSampler } from './lib/traceSampling';
 
@@ -17,14 +18,15 @@ Sentry.init({
     sendClientReports: false,
     // The same server scrub as sentry.server.config.ts: request headers but the
     // user agent, the query string and contexts.nextjs.request_path as well as
-    // request.url. See lib/scrubUrl.ts.
+    // request.url. See lib/scrubUrl.ts. No location either, as in
+    // sentry.server.config.ts.
     beforeSend(event) {
-        return scrubServerErrorEvent(event);
+        return withoutLocation(scrubServerErrorEvent(event));
     },
     // Transactions skip beforeSend, and a traced request carries its URL in
     // the trace context and span attributes just as an error carries it in
     // request.url. Same scrub, same reason.
     beforeSendTransaction(event) {
-        return scrubServerTransactionEvent(event);
+        return withoutLocation(scrubServerTransactionEvent(event));
     },
 });

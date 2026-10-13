@@ -102,3 +102,30 @@ describe('sentry.client.config.ts', () => {
         expect(lines).toContain('        return withoutLocation(stripDeviceHints(scrubTransactionEvent(event)));');
     });
 });
+
+// The server and the edge runtime send reports too. Theirs arrive from the
+// hosting provider's address, so a location on one is a data center's and
+// names no visitor (measured in Sentry on 2026-10-13: every server span since
+// the browser change held the same city). They leave empty all the same, so
+// that a location anywhere in the project is a regression to look into and
+// never a judgment call about whose it is.
+for (const config of ['sentry.server.config.ts', 'sentry.edge.config.ts']) {
+    describe(config, () => {
+        const lines = readFileSync(fileURLToPath(new URL(`../${config}`, import.meta.url)), 'utf8').split(/\r?\n/);
+
+        it('imports the function', () => {
+            expect(lines).toContain("import { withoutLocation } from './lib/noLocation';");
+        });
+
+        it('ends both hooks in it, outside the scrub', () => {
+            expect(lines).toContain('        return withoutLocation(scrubServerErrorEvent(event));');
+            expect(lines).toContain('        return withoutLocation(scrubServerTransactionEvent(event));');
+            // Neither hook has another way out.
+            const returned = lines.map((l) => l.trim()).filter((l) => l.startsWith('return '));
+            expect(returned).toEqual([
+                'return withoutLocation(scrubServerErrorEvent(event));',
+                'return withoutLocation(scrubServerTransactionEvent(event));',
+            ]);
+        });
+    });
+}

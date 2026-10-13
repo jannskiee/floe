@@ -65,7 +65,8 @@ export const metadata: Metadata = {
 // derive one from the address a report arrives from: measured in Sentry on
 // 2026-10-12, in aggregate, stored page-load traces and error reports held a
 // country, most of them a region and a city, and none an address. Every
-// browser report now leaves with an empty location field, which makes
+// report, from the browser and from the site's own server, now leaves with an
+// empty location field, which makes
 // Sentry's servers skip that lookup (lib/noLocation.ts, measured against the
 // real ingest on 2026-10-12), so the item that disclosed it is gone. If that
 // line is ever removed, or a later check finds a location on a browser report

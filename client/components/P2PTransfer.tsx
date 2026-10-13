@@ -26,6 +26,7 @@ import {v4 as uuidv4} from 'uuid';
 import * as Sentry from '@sentry/nextjs';
 import {formatSpeed, formatETA} from '@/lib/transferUtils';
 import {createReceiver} from '@/lib/transfer/receiver';
+import {reportableCause} from '@/lib/transfer/failureReport';
 import {sendFiles as sendFilesEngine, sendAbortReason, CONTROL_FLUSH_MS} from '@/lib/transfer/sender';
 import {useWakeLock} from '@/hooks/useWakeLock';
 import {useFileManagement, type FileWithId} from '@/hooks/useFileManagement';
@@ -777,7 +778,11 @@ export function P2PTransfer() {
                                 scope.setFingerprint(['receiver-out-of-memory']);
                                 Sentry.captureMessage('Receiver ran out of memory', 'warning');
                             } else {
-                                Sentry.captureException(failure.cause);
+                                // Fixed words, the error's class and its
+                                // stack frames. Never the thrown value: its
+                                // message is the engine's, written while it
+                                // handled the other device's frames.
+                                Sentry.captureException(reportableCause(failure.cause));
                             }
                         });
                     }

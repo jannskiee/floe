@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/nextjs';
+import { withoutLocation } from './lib/noLocation';
 import { scrubServerErrorEvent, scrubServerTransactionEvent } from './lib/scrubUrl';
 import { withoutServerSessions } from './lib/sentryIntegrations';
 import { tracesSampler } from './lib/traceSampling';
@@ -44,13 +45,19 @@ Sentry.init({
     // request headers (all but the user agent go; an RSC request from /r names
     // /r/<linkId> in two of them), the query string and, on an error from
     // captureRequestError, contexts.nextjs.request_path. See lib/scrubUrl.ts.
+    //
+    // And no location, as from the browser. A server report arrives from the
+    // hosting provider's address, so the location Sentry worked out for it
+    // was a data center's and named no visitor. It leaves empty all the same,
+    // so that a location anywhere in the project is a regression and never a
+    // question of whose it is. See lib/noLocation.ts.
     beforeSend(event) {
-        return scrubServerErrorEvent(event);
+        return withoutLocation(scrubServerErrorEvent(event));
     },
     // Transactions skip beforeSend, and a traced request carries its URL in
     // the trace context and span attributes just as an error carries it in
     // request.url. Same scrub, same reason.
     beforeSendTransaction(event) {
-        return scrubServerTransactionEvent(event);
+        return withoutLocation(scrubServerTransactionEvent(event));
     },
 });

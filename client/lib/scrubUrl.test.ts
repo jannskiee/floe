@@ -1092,8 +1092,13 @@ describe('server and edge events', () => {
         // read as text, as visitorBoundaries.test.ts reads the /r sources.
         for (const file of ['sentry.server.config.ts', 'sentry.edge.config.ts']) {
             const src = readFileSync(fileURLToPath(new URL(`../${file}`, import.meta.url)), 'utf8');
-            expect(src, file).toMatch(/beforeSend\(event\) \{\s*return scrubServerErrorEvent\(event\);\s*\}/);
-            expect(src, file).toMatch(/beforeSendTransaction\(event\) \{\s*return scrubServerTransactionEvent\(event\);\s*\}/);
+            // The scrub is the innermost call of each hook, so it runs first and
+            // on the whole event. What wraps it only empties the location
+            // field (lib/noLocation.ts, pinned in noLocation.test.ts).
+            expect(src, file).toMatch(/beforeSend\(event\) \{\s*return withoutLocation\(scrubServerErrorEvent\(event\)\);\s*\}/);
+            expect(src, file).toMatch(
+                /beforeSendTransaction\(event\) \{\s*return withoutLocation\(scrubServerTransactionEvent\(event\)\);\s*\}/
+            );
             // A whole code line, so a commented-out one fails.
             expect(src, file).toMatch(/^\s+sendDefaultPii: false,\r?$/m);
         }
