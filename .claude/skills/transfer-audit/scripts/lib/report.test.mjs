@@ -718,3 +718,9 @@ test('the Safety table counts the Sentry envelopes the audit answered itself', (
         '0'
     );
 });
+
+test('the Safety table says whether the input idle check was on', () => {
+    const row = (s) => safetyRows(s).find(([k]) => k === 'input idle check before desktop calls')[1];
+    assert.equal(row(newSafety()), 'on');
+    assert.match(row({ ...newSafety(), idleCheckOff: true }), /^OFF \(--no-idle-check: the owner said/);
+});

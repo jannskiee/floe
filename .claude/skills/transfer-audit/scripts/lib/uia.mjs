@@ -593,6 +593,15 @@ export class UiaClient {
         return this.request('foreground-check', { hwnd });
     }
 
+    /**
+     * Seconds since the last key or pointer input, with no window needed
+     * (the helper's ping carries it): what a leg reads before it launches.
+     */
+    async idleSeconds() {
+        const r = await this.request('ping');
+        return Number(r && r.idleSeconds);
+    }
+
     /** { path, productVersion, fileVersion, productName } via VerQueryValue. */
     exeVersion(filePath) {
         return this.request('exe-version', { path: filePath });

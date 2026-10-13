@@ -754,7 +754,7 @@ function scriptedDriver(state) {
 }
 
 function legWith(opts, state) {
-    const leg = new DesktopLeg({ evidenceDir: null, ...opts });
+    const leg = new DesktopLeg({ evidenceDir: null, allowForeground: true, ...opts });
     const driver = scriptedDriver(state);
     leg.launch = async () => {
         leg.driver = driver;
@@ -1037,6 +1037,7 @@ test('--user-away stages only after 120 s of input idle; otherwise SKIP present 
 test('wailsdev: a receiver is driven only when GetSettings already shows the audit values', async () => {
     const mk = (settings, role = 'receiver') =>
         new DesktopLeg({
+            allowForeground: true,
             role,
             input: 'code',
             code: 'a-b-c',
@@ -1117,6 +1118,7 @@ test('launch registers the app pid with lib/proc.mjs (spawned and window-found a
             },
         };
         const leg = new DesktopLeg({
+            allowForeground: true,
             role: 'receiver',
             cellId: 'T-PID',
             input: 'code',
@@ -1174,6 +1176,7 @@ test('a sender leg reports that it launched with toasts off, with no stats proof
             },
         };
         const leg = new DesktopLeg({
+            allowForeground: true,
             role: 'sender',
             cellId: 'T-TOAST',
             files: ['C:\\x\\a.bin'],
@@ -1571,6 +1574,7 @@ function unpackagedLeg(
     { id, exe, mode = 'portable', registeredAs = exe }
 ) {
     return new DesktopLeg({
+        allowForeground: true,
         role: 'receiver',
         cellId: id,
         input: 'code',
@@ -2160,6 +2164,7 @@ test('Store and wailsdev legs never touch the Explorer verb', async () => {
         const original = Buffer.from('{"reportStats":true,"migrated":true}\n');
         writeFileSync(cfg, original);
         const store = new DesktopLeg({
+            allowForeground: true,
             role: 'receiver',
             cellId: 'T-MENU-STORE',
             input: 'code',
@@ -2177,6 +2182,7 @@ test('Store and wailsdev legs never touch the Explorer verb', async () => {
         await store.stop('test');
         assert.ok(readFileSync(cfg).equals(original));
         const wailsdev = new DesktopLeg({
+            allowForeground: true,
             role: 'sender',
             cellId: 'T-MENU-WAILSDEV',
             files: ['a'],
@@ -2733,6 +2739,8 @@ test('probe() never throws and names its probes; store paths sit under WindowsAp
         probe: 'P2',
         build: { launch: 'portable' },
         out: null,
+        // Past the launcher's own stop, to the missing exe this is about.
+        allowForeground: true,
     });
     assert.equal(failing.probe, 'P2');
     assert.equal(failing.verdict, 'error');

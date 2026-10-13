@@ -299,3 +299,20 @@ test('--allow-foreground is its own flag on run and probe: off by default, never
     assert.equal((USAGE.match(/\[--allow-foreground\]/g) || []).length, 2);
     assert.match(USAGE, /On an exe lane[^]*--user-away[^]*--allow-foreground/);
 });
+
+test('--no-idle-check only goes with --user-away, on run and probe, and is off by default', () => {
+    for (const cmd of ['run', 'probe']) {
+        assert.equal(parse([cmd]).opts.noIdleCheck, false);
+        assert.equal(parse([cmd, '--user-away']).opts.noIdleCheck, false);
+        const off = parse([cmd, '--user-away', '--no-idle-check']).opts;
+        assert.deepEqual([off.userAway, off.noIdleCheck], [true, true]);
+        // Alone, or beside the other flag only, it has nothing to turn off.
+        assert.throws(() => parse([cmd, '--no-idle-check']), /only goes with --user-away/);
+        assert.throws(
+            () => parse([cmd, '--allow-foreground', '--no-idle-check']),
+            /only goes with --user-away/
+        );
+    }
+    assert.throws(() => parse(['versions', '--no-idle-check']));
+    assert.match(USAGE, /--no-idle-check goes with --user-away/);
+});

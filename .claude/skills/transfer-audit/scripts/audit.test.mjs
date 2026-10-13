@@ -26,6 +26,7 @@ import {
     parseWslList,
     exesUnderTest,
     foregroundLine,
+    idleCheckLine,
     prepareHarnessBuild,
     probeFirewall,
     prepareWslBuild,
@@ -2700,4 +2701,14 @@ test('the floe.one row names a challenge and stays not ok', () => {
         headers: { 'x-vercel-mitigated': 'deny' },
     });
     assert.equal(odd.detail, '403 via www.floe.one, etag none');
+});
+
+test('a run or probe with --no-idle-check says so in its second line, and only then', () => {
+    assert.equal(idleCheckLine({}), null);
+    assert.equal(idleCheckLine({ userAway: true }), null);
+    const line = idleCheckLine({ userAway: true, noIdleCheck: true });
+    assert.match(line, /^desktop: the input idle check is OFF \(--no-idle-check\)/);
+    assert.match(line, /keys typed then can land in it/);
+    // It never hides the not-driven line: the two cannot both apply.
+    assert.equal(foregroundLine({ desktop: 'store', userAway: true, noIdleCheck: true }), null);
 });

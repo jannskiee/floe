@@ -174,7 +174,7 @@ rl.on('line', (line) => {
         out({ id: req.id, ok: false, ms: Date.now() - t0, reason, detail });
     switch (req.cmd) {
         case 'ping':
-            return reply({ pong: true, pid: process.pid, ps: 'fake' });
+            return reply({ pong: true, pid: process.pid, ps: 'fake', idleSeconds: 321.5 });
         case 'echo': {
             const { id, cmd, ...rest } = req;
             return reply({ echo: rest, cmd });

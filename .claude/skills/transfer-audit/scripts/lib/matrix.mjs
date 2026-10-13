@@ -213,6 +213,8 @@ export const SKIP_REASONS = Object.freeze({
         'the prompt came up on a built exe, where a UIA Invoke cannot press Accept or Decline (the prompt ignores input for 1 s after every focus change, and an Invoke is one): the cell proved the link and the prompt and invoked nothing. Accept is proven on the wailsdev lane, a delivery on this one by the Auto-accept cells',
     'request-daily-limit':
         'the server refused Make link with `limited`: this network address has made its 20 request links for the day (REQUEST_CREATES_PER_DAY in server/server.js), and every attempt of a request cell makes one',
+    'desktop-not-released':
+        'an earlier cell of this run could not put the desktop app back as it found it (an open request link, a Save to folder; its host-release note says which and what to set by hand), so nothing more is launched on an exe lane in this run',
     'web-checkpoint':
         "a page load was answered with Vercel's Security Checkpoint instead of the app (`x-vercel-mitigated: challenge`): Vercel is challenging this machine's scripted requests, which follows a burst of them and lasts some minutes. No later web leg of the run loads a page. The audit cannot tell from here whether other visitors are affected; wait and run again",
     filtered: 'excluded by --cells',

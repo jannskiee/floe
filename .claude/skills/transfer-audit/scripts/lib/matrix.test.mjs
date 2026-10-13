@@ -1219,3 +1219,8 @@ test('web-checkpoint is a documented SKIP about this machine, and it counts towa
         true
     );
 });
+
+test('desktop-not-released is a documented SKIP that counts toward exit 5', () => {
+    assert.match(SKIP_REASONS['desktop-not-released'], /could not put the desktop app back/);
+    assert.equal(UNCOUNTED_SKIPS.has('desktop-not-released'), false);
+});

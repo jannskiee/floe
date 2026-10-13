@@ -40,7 +40,14 @@ import {
     runAttempt,
     statsProofCheck,
 } from './cell.mjs';
-import { RE, REQUEST_STRINGS, desktopFmtBytes, safeCode, samePath } from './desktop.mjs';
+import {
+    NOT_RELEASED,
+    RE,
+    REQUEST_STRINGS,
+    desktopFmtBytes,
+    safeCode,
+    samePath,
+} from './desktop.mjs';
 import { compareOutputs, ensureFixture, walkOutputs } from './fixtures.mjs';
 import { REQUEST_CADDY_RECONNECT_MS, isLoopbackUrl } from './matrix.mjs';
 import { redactRequestLinks } from './report.mjs';
@@ -314,12 +321,23 @@ async function startHost(
         label: 'host',
         monitor: ctx.monitor ?? 'secondary',
         userAway: Boolean(ctx.userAway),
+        allowForeground: Boolean(ctx.allowForeground),
+        noIdleCheck: Boolean(ctx.noIdleCheck),
         shared: ctx.shared || {},
         clientDir: ctx.shared?.clientDir ?? null,
         log: ctx.log,
     });
     const exe = host.mode !== 'wailsdev';
     if (exe) {
+        // An earlier cell left the owner's app changed (markHostRelease):
+        // nothing more is launched on it in this run. DesktopLeg.launch has
+        // the same stop for every other desktop leg.
+        if (ctx.shared?.desktopNotReleased)
+            throw new PhaseError(
+                'host.start',
+                `${NOT_RELEASED}: an earlier cell of this run could not put the desktop app back as it found it (${ctx.shared.desktopNotReleased}); no host was launched`,
+                { verdict: 'SKIP', reason: NOT_RELEASED }
+            );
         // The matrix gate SKIPs this without --user-away; this is the
         // runner's own stop, before anything launches.
         if (!ctx.userAway)
@@ -337,8 +355,9 @@ async function startHost(
     // audit's interrupt shutdown) closes the link and puts the address back.
     host.beforeClose = () => releaseHost(st, rec);
     await host.launch([]);
-    // Every UIA pattern call from here on re-reads the input idle time first.
-    if (exe && host.driver) host.driver.awayOnly = true;
+    // Every UIA pattern call from here on re-reads the input idle time first,
+    // unless the run said not to (--no-idle-check).
+    if (exe && host.driver && !ctx.noIdleCheck) host.driver.awayOnly = true;
     await clearLeftover(host, ctx, rec, st);
     await host.applyRelayForcer();
     rec.request.tab = await awaitRequestTab(host, st.clock);
@@ -418,6 +437,11 @@ async function releaseHost(st, rec) {
     st.released = true;
     const { host } = st;
     const { now, nap } = st.clock;
+    // Putting the owner's app back is never refused for want of 120 s of
+    // idle input: these steps wait for a short pause instead (desktop.mjs
+    // RELEASE_QUIET_S), and what could not be sent is a release failure
+    // below, with what to set by hand.
+    if (host?.driver) host.driver.releasing = true;
     const note = (l) => rec.notes.push(scrub(l));
     const fail = (l) => {
         note(l);
@@ -515,12 +539,20 @@ function releaseProblems(st) {
  * keeps its own finding and gets the same words as a note.
  */
 export const HOST_RELEASE_KEY = 'host-release';
-function markHostRelease(rec, problems) {
+function markHostRelease(rec, problems, st = null, ctx = null) {
     if (!problems.length) return;
     const first = (s) => String(s).split(/\r?\n/)[0].trim();
     const text = scrub(
         `${HOST_RELEASE_KEY}: the host was not left as found (${problems.map(first).join('; ')}); the next desktop-host cell would inherit it`
     );
+    // On an exe lane that is the owner's own app (the Store build runs on
+    // their profile), so the run launches nothing more on the desktop:
+    // DesktopLeg.launch reads this and stops as SKIP desktop-not-released.
+    if (st?.host && st.host.mode !== 'wailsdev' && ctx) {
+        ctx.shared = ctx.shared || {};
+        if (!ctx.shared.desktopNotReleased)
+            ctx.shared.desktopNotReleased = problems.map(first).join('; ');
+    }
     if (!rec.ok) {
         rec.notes.push(text);
         return;
@@ -1620,7 +1652,7 @@ export async function runRequestAttempt(cell, ctx, n) {
         } catch (e) {
             rec.notes.push(scrub(`teardown: ${e.message}`));
         }
-        markHostRelease(rec, releaseProblems(st));
+        markHostRelease(rec, releaseProblems(st), st, ctx);
         // Every visitor's report attempts reach the Safety table, pass or
         // fail; verify only turns them into the cell's verdict.
         if (ctx.safety) {
@@ -1718,6 +1750,8 @@ export function openLinkHooks(cell, ctx) {
     return {
         /** What the host release left undone (runOpenLinkAttempt reads it). */
         releaseProblems: () => releaseProblems(st),
+        /** The attempt's state, for the same reader's latch (markHostRelease). */
+        state: () => st,
         async afterSetup(rec) {
             rec.request = newRequestRecord(cell);
             st.drops = path.join(rec.evidenceDir, 'host-drops');
@@ -1765,7 +1799,7 @@ export async function runOpenLinkAttempt(cell, ctx, n, opts = {}) {
     const rec = await runAttempt(cell, ctx, n, { ...opts, hooks });
     const problems = hooks.releaseProblems();
     if (problems.length) {
-        markHostRelease(rec, problems);
+        markHostRelease(rec, problems, hooks.state(), ctx);
         rec.notes = rec.notes.map(scrub);
         if (rec.evidenceDir) {
             try {

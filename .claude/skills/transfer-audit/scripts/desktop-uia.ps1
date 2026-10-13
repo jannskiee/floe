@@ -39,7 +39,7 @@
 # retries; exception is reserved for the unexpected.
 #
 # Commands (hwnd is the top-level window handle from find-window):
-#   ping                                  -> pong, pid, ps
+#   ping                                  -> pong, pid, ps, idleSeconds (needs no window)
 #   find-window {class?, title?, pid?, timeoutMs?}
 #                                         -> hwnd, pid, exe, class, title, rect{l,t,r,b,w,h}, minimized, visible, count
 #                                            defaults: class wailsWindow, title Floe (desktop/main.go, the wails.Run Title option);
@@ -761,7 +761,9 @@ $Handlers = @{}
 
 $Handlers['ping'] = {
     param($req)
-    return @{ pong = $true; pid = $PID; ps = $PSVersionTable.PSVersion.ToString() }
+    # idleSeconds here as well as in foreground-check, which needs a window:
+    # a leg reads the input idle time before it launches one.
+    return @{ pong = $true; pid = $PID; ps = $PSVersionTable.PSVersion.ToString(); idleSeconds = [FloeUia.Native]::IdleSeconds() }
 }
 
 $Handlers['find-window'] = {

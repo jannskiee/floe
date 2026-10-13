@@ -1342,10 +1342,13 @@ test('an exe host whose owner is back before Make link stops as SKIP present, ha
     assert.equal(w.visitors.length, 0);
 });
 
-// The owner coming back AFTER the prompt costs the release, not the verdict:
-// the cell is still the prompt it proved, and the note says the link could
-// not be closed (closing it is a pattern call, which would take the window).
-test('an exe host whose owner comes back once the prompt is up keeps SKIP request-accept-undrivable, and says the link was left open', async () => {
+// The owner coming back AFTER the prompt costs neither the verdict nor the
+// release. The cell is still the prompt it proved, and putting the app back
+// is never refused for want of 120 s of idle input: the release waits only
+// for a short pause (desktop.mjs RELEASE_QUIET_S), which an owner who is back
+// and not typing this very second gives it. Before this the link stayed open
+// and, on the Store lane, Save to stayed on the run folder.
+test('an exe host whose owner comes back once the prompt is up keeps SKIP request-accept-undrivable, and the release still closes the link', async () => {
     const w = fakeRequestWorld({ lane: 'uia' });
     const origSend = w.visitorSend;
     w.visitorSend = (v) => {
@@ -1356,17 +1359,65 @@ test('an exe host whose owner comes back once the prompt is up keeps SKIP reques
     const r = await runCell(small('H-DIR-W2D-req'), ctx);
     assert.equal(r.verdict, 'SKIP', r.note);
     assert.equal(r.reason, ACCEPT_UNDRIVABLE);
-    assert.equal(
-        clicksOf(w, 'Close link').length,
-        0,
-        'no pattern call with the owner back'
-    );
+    assert.equal(clicksOf(w, 'Close link').length, 1, 'the link was closed');
+    // The ended view: only the Store lane goes on to bring the form back.
+    assert.equal(w.dom.state, 'closed');
     assert.ok(
-        r.attempts[0].notes.some((n) =>
-            /^host-release: the host was not left as found/.test(n)
-        ),
+        !r.attempts[0].notes.some((n) => /host-release/.test(n)),
         r.attempts[0].notes.join('\n')
     );
+    assert.equal(ctx.shared?.desktopNotReleased, undefined);
+});
+
+// An owner who never pauses for the whole release: the step is not sent
+// (keys typed then would land in the Floe window), the link is left and said
+// so by name, and the run launches nothing more on the desktop.
+test('an exe host whose owner types through the whole release: the link is left, named as host-release, and no later host is launched', async () => {
+    const w = fakeRequestWorld({ lane: 'uia' });
+    let host = null;
+    const make = w.adapters.desktop.createLeg;
+    w.adapters.desktop.createLeg = (opts) => (host = make(opts));
+    const origSend = w.visitorSend;
+    w.visitorSend = (v) => {
+        if (w.uiaClient) w.uiaClient.state.idle = 0;
+        // The release deadline, shortened: the rule is the same at 40 s.
+        host.driver.releaseWaitMs = 40;
+        host.driver.releasePollMs = 5;
+        return origSend(v);
+    };
+    const ctx = ctxFor(w, { buildFor: EXE_BUILD, userAway: true });
+    const r = await runCell(small('H-DIR-W2D-req'), ctx);
+    assert.equal(r.verdict, 'SKIP', r.note);
+    assert.equal(r.reason, ACCEPT_UNDRIVABLE);
+    assert.equal(clicksOf(w, 'Close link').length, 0, 'nothing was sent into the typing');
+    const notes = r.attempts[0].notes.join('\n');
+    assert.match(notes, /host-release: the host was not left as found/);
+    assert.match(notes, /did not pause for 3 s/);
+    assert.match(ctx.shared.desktopNotReleased, /did not pause for 3 s/);
+
+    // The next request cell of the same run launches no host.
+    const launches = w.launchEdits.length;
+    const next = await runCell(small('S-DIR-W2D-reqauto'), ctx);
+    assert.equal(next.verdict, 'SKIP', next.note);
+    assert.equal(next.reason, 'desktop-not-released');
+    assert.match(next.note, /could not put the desktop app back/);
+    assert.equal(w.launchEdits.length, launches, 'no second launch');
+});
+
+test('--no-idle-check: an exe host is driven with the owner present, and nothing reads the idle time', async () => {
+    const w = fakeRequestWorld({ lane: 'uia', uia: { idle: 0 } });
+    const ctx = ctxFor(w, { buildFor: EXE_BUILD, userAway: true, noIdleCheck: true });
+    const r = await runCell(small('S-DIR-W2D-reqauto'), ctx);
+    assert.equal(r.verdict, 'PASS', r.note);
+    assert.equal(w.dom.state, 'ready', 'the link was closed at release');
+    // Without the flag the same world stops before Make link.
+    const w2 = fakeRequestWorld({ lane: 'uia', uia: { idle: 0 } });
+    const r2 = await runCell(
+        small('S-DIR-W2D-reqauto'),
+        ctxFor(w2, { buildFor: EXE_BUILD, userAway: true })
+    );
+    assert.equal(r2.verdict, 'SKIP', r2.note);
+    assert.equal(r2.reason, 'present');
 });
 
 test('TA-13 on an exe host: the blip proxy address rides desktop.json at launch, the cut still reaches the host, and the cell then stops at the prompt', async () => {

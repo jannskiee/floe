@@ -51,6 +51,10 @@ export const FLAGS = Object.freeze({
     // takes the foreground (lib/matrix.mjs foregroundRefused). Nothing
     // else ever sets it.
     '--allow-foreground': { value: false, cmds: ['run', 'probe'] },
+    // Only with --user-away: the legs do not read the input idle time
+    // before a desktop call. For a session in which the owner has said the
+    // app may be driven while they use the PC, and for nothing else.
+    '--no-idle-check': { value: false, cmds: ['run', 'probe'] },
     '--pause-max': { value: true, cmds: ['run', 'probe'] },
     '--web-sha': { value: true, cmds: ['run', 'probe', 'versions'] },
     '--web-sha-file': { value: true, cmds: ['run', 'probe', 'versions'] },
@@ -72,13 +76,14 @@ export const USAGE = `usage: node audit.mjs <run | probe | versions | cleanup> [
 
 run       [--profile shipped|head] [--quick | --deep] [--cells <id-or-glob,...>]
           [--desktop auto|store|portable|wailsdev|none] [--bin-dir <dir>] [--pin]
-          [--strict] [--pion-trace] [--user-away] [--allow-foreground]
-          [--pause-max <min>]
+          [--strict] [--pion-trace] [--user-away [--no-idle-check]]
+          [--allow-foreground] [--pause-max <min>]
           [--web-sha <sha> | --web-sha-file <json>] [--server-sha <sha>]
           [--keep] [--keep-data] [--monitor secondary|primary|off|<n>]
           [--dry-run] [--relaxed] [--caddy]
-probe     [--profile ...] [--desktop ...] [--bin-dir <dir>] [--user-away]
-          [--allow-foreground] [--pause-max <min>] [--web-sha ...]
+probe     [--profile ...] [--desktop ...] [--bin-dir <dir>]
+          [--user-away [--no-idle-check]] [--allow-foreground]
+          [--pause-max <min>] [--web-sha ...]
           [--server-sha <sha>] [--relaxed]
 versions  [--web-sha <sha> | --web-sha-file <json>] [--server-sha <sha>]
           [--desktop ...] [--bin-dir <dir>] [--pin]
@@ -92,6 +97,12 @@ nothing on the desktop unless you pass --user-away (nobody is at the PC; the
 input idle time is checked before each call) or --allow-foreground (you
 accept the focus change). Without either, the desktop probes are skipped and
 every cell with a desktop side is SKIP present.
+
+--no-idle-check goes with --user-away and turns its input idle check off:
+the app is driven while someone uses the PC, its window takes the foreground
+on every call, and keys typed then can land in it. Pass it only when the
+owner has said so in the same session; the output and the report say it is
+off.
 
 Exit: 0 clean; 1 any FAIL (or FLAKY under --strict); 2 usage; 3 precondition
 or mid-run infra abort; 4 safety invariant tripped; 5 partial (SKIP, FLAKY
@@ -157,6 +168,7 @@ export function parseArgs(argv, { defaultRoot, fs } = {}) {
         pionTrace: false,
         userAway: false,
         allowForeground: false,
+        noIdleCheck: false,
         pauseMaxMin: DEFAULT_PAUSE_MAX_MIN,
         webSha: null,
         webShaFile: null,
@@ -242,6 +254,9 @@ export function parseArgs(argv, { defaultRoot, fs } = {}) {
             case '--allow-foreground':
                 opts.allowForeground = true;
                 break;
+            case '--no-idle-check':
+                opts.noIdleCheck = true;
+                break;
             case '--pause-max': {
                 const n = Number(value);
                 if (!Number.isFinite(n) || n <= 0 || n > 240)
@@ -307,6 +322,10 @@ export function parseArgs(argv, { defaultRoot, fs } = {}) {
     opts.profileGiven = seen.has('--profile');
     if (opts.quick && opts.deep)
         throw new UsageError('--quick and --deep are exclusive');
+    if (opts.noIdleCheck && !opts.userAway)
+        throw new UsageError(
+            '--no-idle-check only goes with --user-away (it turns that flag\'s input idle check off; --allow-foreground has none to turn off)'
+        );
     opts.subset = opts.quick ? 'quick' : opts.deep ? 'deep' : 'default';
     if (opts.webSha && opts.webShaFile)
         throw new UsageError('--web-sha and --web-sha-file are exclusive');

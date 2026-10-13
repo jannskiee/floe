@@ -137,6 +137,8 @@ test('fake helper: open, ping, typed helper, UTF-8 echo, close', async () => {
     assert.equal(c.alive, true);
     const pong = await c.ping();
     assert.equal(pong.pong, true);
+    // The idle time rides the ping, so a leg can read it with no window yet.
+    assert.equal(await c.idleSeconds(), 321.5);
     const win = await c.findWindow({ class: 'wailsWindow', title: 'Floe' });
     assert.equal(win.hwnd, 4242);
     const echo = await c.request('echo', {
@@ -340,6 +342,10 @@ test(
             const pong = await c.ping();
             assert.equal(pong.pong, true);
             assert.match(pong.ps, /^5\.1/);
+            // GetLastInputInfo through the real helper: a number of seconds,
+            // never the -1 it returns when the call fails.
+            const idle = await c.idleSeconds();
+            assert.ok(Number.isFinite(idle) && idle >= 0, `idleSeconds ${idle}`);
             await assert.rejects(
                 c.request('bogus-cmd'),
                 (err) => err.reason === 'unknown-cmd'

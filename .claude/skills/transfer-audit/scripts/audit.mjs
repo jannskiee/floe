@@ -961,6 +961,8 @@ async function runProbes({ opts, io, ledger, fence, log, builds, versions }) {
                     out: opts.out,
                     build: d.build,
                     userAway: opts.userAway,
+                    allowForeground: Boolean(opts.allowForeground),
+                    noIdleCheck: Boolean(opts.noIdleCheck),
                     pauseMaxMin: opts.pauseMaxMin,
                     fence,
                     log,
@@ -1064,6 +1066,16 @@ const DESKTOP_NOT_DRIVEN =
 export function foregroundLine(opts) {
     if (!foregroundRefused(presenceOf(opts))) return null;
     return `desktop: not launched or driven. On an exe lane (--desktop ${opts.desktop}) every UIA call brings the Floe window to the foreground, so the desktop probes are skipped and every cell with a desktop side is SKIP present. Pass --user-away when nobody is at the PC (the input idle time is checked before each call), or --allow-foreground to accept the focus change.`;
+}
+
+/**
+ * The line printed when the input idle check is off, or null: said before
+ * anything runs, in the output and in the log, so no transcript of such a
+ * run reads like an ordinary away run.
+ */
+export function idleCheckLine(opts) {
+    if (!opts.noIdleCheck) return null;
+    return 'desktop: the input idle check is OFF (--no-idle-check). The app is launched and driven while someone may be using the PC: its window takes the foreground on every call, and keys typed then can land in it. Only for a session in which the owner said so.';
 }
 
 /**
@@ -1835,6 +1847,7 @@ export async function runCmd(opts, io = {}) {
             strict: opts.strict,
             userAway: opts.userAway,
             allowForeground: Boolean(opts.allowForeground),
+            noIdleCheck: Boolean(opts.noIdleCheck),
             pionTrace: opts.pionTrace,
             desktop: opts.desktop,
             pin: opts.pin,
@@ -1850,7 +1863,7 @@ export async function runCmd(opts, io = {}) {
     );
     if (!opts.json) out(profileLine(opts));
     // Said before anything runs, and kept in log.txt whatever the output mode.
-    const notDriven = foregroundLine(opts);
+    const notDriven = foregroundLine(opts) || idleCheckLine(opts);
     if (notDriven) {
         log(notDriven);
         if (!opts.json) out(notDriven);
@@ -1858,6 +1871,7 @@ export async function runCmd(opts, io = {}) {
     if (opts.dryRun) return dryRun({ opts, io, out, log });
 
     const safety = newSafety();
+    safety.idleCheckOff = Boolean(opts.noIdleCheck);
     const ledger =
         io.ledger ||
         Ledger.open(path.join(opts.out, 'ledger.json'), {
@@ -2351,6 +2365,8 @@ export async function runCmd(opts, io = {}) {
             pionTrace: opts.pionTrace,
             cliHasRelayOnly: Boolean(builds.cli?.hasRelayOnly),
             userAway: opts.userAway,
+            allowForeground: Boolean(opts.allowForeground),
+            noIdleCheck: Boolean(opts.noIdleCheck),
             pauseMaxMin: opts.pauseMaxMin,
             shared: {
                 fence,
@@ -2530,7 +2546,7 @@ export async function probeCmd(opts, io = {}) {
         io.echoLog ? out : null
     );
     if (!opts.json) out(profileLine(opts));
-    const notDriven = foregroundLine(opts);
+    const notDriven = foregroundLine(opts) || idleCheckLine(opts);
     if (notDriven) {
         log(notDriven);
         if (!opts.json) out(notDriven);

@@ -257,6 +257,8 @@ function legOpts(cell, role, ctx, rec, extra) {
         iface: ctx.iface || [],
         monitor: ctx.monitor ?? 'secondary',
         userAway: Boolean(ctx.userAway),
+        allowForeground: Boolean(ctx.allowForeground),
+        noIdleCheck: Boolean(ctx.noIdleCheck),
         pauseMaxMin: ctx.pauseMaxMin,
         shared: ctx.shared || {},
         // lib/web.mjs resolves Playwright from the installed client tree.

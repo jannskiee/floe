@@ -347,6 +347,12 @@ export function safetyRows(s) {
             `${s.captures?.count ?? 0}, ${s.captures?.allCropped === false ? 'NOT all cropped' : 'all cropped to window'}`,
         ],
         ['forced foreground', `${s.forcedFocus ?? 0} times`],
+        [
+            'input idle check before desktop calls',
+            s.idleCheckOff
+                ? 'OFF (--no-idle-check: the owner said in the session that the app may be driven while they use the PC)'
+                : 'on',
+        ],
         ['processes killed', killed],
         [
             'working tree',

@@ -618,6 +618,26 @@ export const COMPLETION_PILL_READY = 'pill-ready-after-decisive';
  * input arrived for this long.
  */
 export const USER_AWAY_IDLE_S = 120;
+/**
+ * A release step (Cancel, Close link, putting Save to back) is the audit
+ * undoing what it did to the owner's own app, so it is never refused for
+ * want of 120 s of idle input: an owner who came back mid-cell would be left
+ * with an open link and a Save to folder that points into a deleted run
+ * folder, and on this machine something makes an input event about every
+ * 219 s with nobody there. A release step waits only for the keyboard and
+ * mouse to pause for RELEASE_QUIET_S, inside RELEASE_WAIT_MS for the whole
+ * release (the request runner's teardown budget is 60 s). Past that it is
+ * not sent: the step is reported with what to set by hand, never forced.
+ */
+export const RELEASE_QUIET_S = 3;
+export const RELEASE_WAIT_MS = 40_000;
+export const RELEASE_POLL_MS = 500;
+/**
+ * An earlier cell of the run could not put the owner's app back as it found
+ * it (lib/request.mjs markHostRelease). Nothing more is launched on an exe
+ * lane after that: the next cell would build on the leftover and add to it.
+ */
+export const NOT_RELEASED = 'desktop-not-released';
 
 // --------------------------------------------------------------- errors
 
@@ -1691,6 +1711,13 @@ export class UiaDriver {
         // Set by lib/request.mjs on an exe request host, and by DesktopLeg
         // on every exe leg of a --user-away run (G2-F1).
         this.awayOnly = false;
+        // Set once the leg or the request runner starts putting things back
+        // (DesktopLeg._stop, lib/request.mjs releaseHost): from then on an
+        // away-only host's pattern calls take the release rule, _quiet().
+        this.releasing = false;
+        this.releaseWaitMs = RELEASE_WAIT_MS;
+        this.releasePollMs = RELEASE_POLL_MS;
+        this._releaseUntil = null;
         this.pollMs = UIA_REQUEST_POLL_MS;
         // The links this driver made: the view shows neither a generation
         // nor the save folder, and _autoAccept is true only for a link whose
@@ -1706,6 +1733,7 @@ export class UiaDriver {
     /** GetLastInputInfo before a pattern call on an away-only host. */
     async _away() {
         if (!this.awayOnly) return;
+        if (this.releasing) return this._quiet();
         let idle = NaN;
         try {
             const fg = await this.client.foregroundCheck(this.hwnd);
@@ -1719,6 +1747,31 @@ export class UiaDriver {
                 `desktop uia: input idle ${Number.isFinite(idle) ? idle : 'unknown'} s (< ${USER_AWAY_IDLE_S}); the owner may be at the PC, and a UIA pattern call activates the Floe window (G2-F1)`,
                 { verdict: 'SKIP', reason: 'present' }
             );
+    }
+    /**
+     * The release rule (RELEASE_QUIET_S): wait for a short pause in input,
+     * inside one deadline shared by every step of the release, and refuse
+     * the step past it. An unreadable idle time counts as input.
+     */
+    async _quiet() {
+        if (this._releaseUntil === null)
+            this._releaseUntil = Date.now() + this.releaseWaitMs;
+        for (;;) {
+            let idle = NaN;
+            try {
+                const fg = await this.client.foregroundCheck(this.hwnd);
+                idle = Number(fg && fg.idleSeconds);
+            } catch {
+                // Unreadable counts as input.
+            }
+            if (idle >= RELEASE_QUIET_S) return;
+            if (Date.now() >= this._releaseUntil)
+                throw new PhaseError(
+                    'teardown',
+                    `the keyboard and mouse did not pause for ${RELEASE_QUIET_S} s within ${Math.round(this.releaseWaitMs / 1000)} s of the release starting, so this step was not sent (a UIA pattern call activates the Floe window, and keys typed then land in it, G2-F1)`
+                );
+            await sleep(this.releasePollMs);
+        }
     }
     async click(name, opts = {}) {
         await this._away();
@@ -3087,6 +3140,12 @@ export class DesktopLeg extends Leg {
             (opts.evidenceDir ? path.dirname(opts.evidenceDir) : null);
         this.evidenceDir = opts.evidenceDir ?? null;
         this.userAway = Boolean(opts.userAway);
+        // The run accepted that the Floe window takes the foreground
+        // (--allow-foreground), or told the legs not to read the input idle
+        // time (--no-idle-check, valid only with --user-away: the owner said
+        // in the session that the app may be driven while they use the PC).
+        this.allowForeground = Boolean(opts.allowForeground);
+        this.noIdleCheck = Boolean(opts.noIdleCheck);
         this.client = opts.uia ?? null;
         this.ownClient = false;
         this.lister = opts.lister ?? defaultLister;
@@ -3243,9 +3302,46 @@ export class DesktopLeg extends Leg {
         }
     }
 
+    /**
+     * The launcher's own stop on an exe lane, whatever the planner decided
+     * (lib/matrix.mjs foregroundRefused gates the plan; a caller that built
+     * a leg without going through it must not reach a window). A run that
+     * said neither that nobody is at the PC nor that the focus change is
+     * accepted launches nothing, and neither does a run whose earlier cell
+     * left the owner's app changed.
+     */
+    refuseUnlessAllowed() {
+        const left = this.opts.shared && this.opts.shared.desktopNotReleased;
+        if (left)
+            throw new PhaseError(
+                'start',
+                `${NOT_RELEASED}: an earlier cell of this run could not put the desktop app back as it found it (${left}); nothing more is launched on the desktop until that is set right by hand`,
+                { verdict: 'SKIP', reason: NOT_RELEASED }
+            );
+        if (!this.userAway && !this.allowForeground)
+            throw new PhaseError(
+                'start',
+                `desktop ${this.role}: the run carried neither --user-away nor --allow-foreground, so the ${this.mode} app is not launched (a launch and every UIA pattern call bring its window to the foreground, G2-F1)`,
+                { verdict: 'SKIP', reason: 'present' }
+            );
+    }
+
+    /** Seconds of idle input from the helper; NaN when it cannot be read. */
+    async idleSeconds() {
+        try {
+            const client = await this.uia();
+            return typeof client.idleSeconds === 'function'
+                ? Number(await client.idleSeconds())
+                : NaN;
+        } catch {
+            return NaN;
+        }
+    }
+
     /** Launch per mode, find the window, wait for the tree; sets this.driver. */
     async launch(files = []) {
         const { opts } = this;
+        if (this.mode !== 'wailsdev') this.refuseUnlessAllowed();
         if (this.mode !== 'wailsdev') await this.refuseSecondInstance();
         let storeExe = opts.storeExe ?? null;
         if (this.mode === 'store' && files.length && !storeExe) {
@@ -3276,6 +3372,19 @@ export class DesktopLeg extends Leg {
             this.settingsRead = await this.driver.settings();
             this.assertWailsdevConfig(this.settingsRead);
             return this.driver;
+        }
+        // --user-away is a claim; the idle time is the evidence, and it is
+        // read before the owner's desktop.json is edited or anything is
+        // launched: a launch can take the foreground once all by itself, and
+        // the first pattern call's own check comes too late for that.
+        if (this.userAway && !this.noIdleCheck) {
+            const idle = await this.idleSeconds();
+            if (!(idle >= USER_AWAY_IDLE_S))
+                throw new PhaseError(
+                    'start',
+                    `desktop ${this.role}: --user-away but input idle ${Number.isFinite(idle) ? idle : 'unknown'} s (< ${USER_AWAY_IDLE_S}); the owner may be at the PC, so nothing was launched or changed`,
+                    { verdict: 'SKIP', reason: 'present' }
+                );
         }
         if (this.mode === 'store') {
             this.guard = new DesktopConfigGuard({
@@ -3344,7 +3453,9 @@ export class DesktopLeg extends Leg {
         // as the request host has since FU-26: an owner who comes back
         // mid-cell stops the leg as SKIP present instead of losing the
         // foreground to it.
-        if (this.userAway) this.driver.awayOnly = true;
+        // --no-idle-check leaves it off: the owner said the app may be driven
+        // while they use the PC, and the run's output says so.
+        if (this.userAway && !this.noIdleCheck) this.driver.awayOnly = true;
         if (
             this.mode === 'store' &&
             !(win.exe || '').startsWith(WINDOWS_APPS)
@@ -3502,17 +3613,24 @@ export class DesktopLeg extends Leg {
                     }
                 );
             }
-            // --user-away is a claim; GetLastInputInfo is the evidence.
-            const fg = await this.driver.foregroundCheck();
-            const idle = Number(fg && fg.idleSeconds);
-            if (!(idle >= USER_AWAY_IDLE_S)) {
-                throw new PhaseError(
-                    'start',
-                    `desktop sender: --user-away but input idle only ${fg && fg.idleSeconds} s (< ${USER_AWAY_IDLE_S}); staging would activate the window`,
-                    { verdict: 'SKIP', reason: 'present' }
+            // --user-away is a claim; GetLastInputInfo is the evidence,
+            // unless the run said not to read it (--no-idle-check).
+            if (this.noIdleCheck) {
+                this.note('staging via WM_COPYDATA (--no-idle-check)');
+            } else {
+                const fg = await this.driver.foregroundCheck();
+                const idle = Number(fg && fg.idleSeconds);
+                if (!(idle >= USER_AWAY_IDLE_S)) {
+                    throw new PhaseError(
+                        'start',
+                        `desktop sender: --user-away but input idle only ${fg && fg.idleSeconds} s (< ${USER_AWAY_IDLE_S}); staging would activate the window`,
+                        { verdict: 'SKIP', reason: 'present' }
+                    );
+                }
+                this.note(
+                    `staging via WM_COPYDATA (user away, idle ${idle} s)`
                 );
             }
-            this.note(`staging via WM_COPYDATA (user away, idle ${idle} s)`);
             await this.driver.stage(files, path.dirname(files[0]));
             staged = await this.waitForButton(want, this.budget(STAGE_MS));
         }
@@ -4191,6 +4309,9 @@ export class DesktopLeg extends Leg {
         await super.stop(reason);
         this._stopped = true;
         this.stopSampler();
+        // Everything from here puts the owner's app back (Cancel, the
+        // request host's release, the save folder): the release rule.
+        if (this.driver) this.driver.releasing = true;
         let closeResult = null;
         let restoreError = null;
         try {

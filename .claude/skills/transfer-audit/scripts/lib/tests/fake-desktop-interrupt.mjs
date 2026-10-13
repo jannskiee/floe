@@ -73,6 +73,7 @@ const fakeClient = {
 };
 
 const leg = new DesktopLeg({
+    allowForeground: true,
     role: 'receiver',
     cellId: 'T-INTERRUPT',
     input: 'code',

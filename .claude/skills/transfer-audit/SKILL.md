@@ -71,7 +71,9 @@ a peer.
   else ever implies either.
   `--user-away` says nobody is at the PC: each pattern call then re-reads
   `GetLastInputInfo` first and stops the leg as SKIP `present` below 120 s
-  of idle input. `--allow-foreground` accepts the focus change: desktop
+  of idle input, and the same read comes once before the launch, before the
+  owner's `desktop.json` is edited, so a run that starts while someone is
+  typing launches and changes nothing. `--allow-foreground` accepts the focus change: desktop
   cells run with no idle check, as they did by default before the flag
   existed, and what was away-only then still is (request hosts, SKIP
   `request-host-away-only`; staging files into a running Store app; the
@@ -81,6 +83,24 @@ a peer.
   drive. What only reads is not gated: `versions`, the `Get-AppxPackage`
   lookup that resolves `auto`, the firewall read. `--pause-max` is parsed
   and handed to the legs, and nothing waits on it.
+- `--no-idle-check` goes only with `--user-away` and turns its idle read
+  off, before the launch and before every call. The app is then driven
+  while someone uses the PC: its window takes the foreground on each call,
+  and keys typed at that moment can land in it (the first trap below). It
+  exists for one case: the owner has said, in the same session, that the
+  desktop may be driven while they work. Never pass it on your own judgment,
+  on an idle reading, or because a note or an earlier session says the owner
+  once agreed. The second line of output and the Safety row `input idle
+  check before desktop calls` say that it is off.
+- Putting the app back is never refused. From the moment a leg stops, its
+  steps (Cancel, Close link, the Save to folder) wait only for a 3 s pause
+  in input, inside 40 s for the whole release, where every other step wants
+  120 s of idle. Past the 40 s a step is not sent: the cell names it as
+  `host-release` with what to set by hand, and no later cell of the run
+  launches anything on an exe lane (SKIP `desktop-not-released`).
+- The gate is in the launcher as well as in the plan: a desktop leg on an
+  exe refuses to launch when the run carried neither flag, whatever built
+  the leg.
 - The relay byte rule: direct cells move 12 MiB (64 MiB with a desktop
   side), relay cells 4 MiB each (32 MiB per default run, eight relay cells,
   with a CLI that lists `--relay-only`, as every release since v1.10.6
@@ -435,6 +455,12 @@ answer would SKIP every browser relay cell for the day `probe.json` is
 reused). It is not floe.one being down, and the audit cannot tell from where
 it runs whether other visitors are affected. Wait, then run again. A `deny`
 or a bare 403 is not this SKIP: the leg goes on and fails.
+
+`desktop-not-released` is the run stopping itself. An earlier cell could not
+put the desktop app back as it found it (its `host-release` note says what:
+a link still open, the Save to folder not restored), so every later cell
+with an exe on one side is SKIP with this reason instead of building on the
+leftover. Set the named thing right by hand, then run the remaining cells.
 
 What each side says about its own per-file SHA-256 check is carried as
 evidence and never judged: the CLI's `Verified   SHA-256 matched` row and
@@ -897,6 +923,9 @@ in this order, each prefixed with
 `node .claude/skills/transfer-audit/scripts/audit.mjs` and given the same
 `--out <dir>`. Every line carries `--user-away`: without it nothing here
 launches the app at all. Steps 3 to 5 spend one of the day's 20 links each.
+When the owner has said in the session that the app may be driven while they
+use the PC, add `--no-idle-check` to every line (section 0); the order and
+what each step proves are the same, and the idle windows no longer matter.
 
 1. `probe --profile shipped --desktop store --user-away --monitor secondary`
 2. `run --profile shipped --desktop store --user-away --monitor secondary --cells S-DIR-D2C`
@@ -991,13 +1020,20 @@ SKIP: it stops the whole run before any cell as a precondition (exit 3).
   `scripts/desktop-uia.ps1`), the leg compares that one reading, and
   nothing reads the field again before Receive or Make link is clicked. A
   value that read back right can therefore still be wrong when it is used.
-  Away-only is the guard; there is no second read yet.
+  Away-only is the guard; there is no second read yet. `--no-idle-check`
+  takes that guard away on purpose: under it a keystroke can spoil a cell,
+  which costs a rerun, and the release still reads the Save to folder back
+  before it reports it restored.
 - **Something on this PC makes an input event about every 219 s, even with
   nobody there.** `--user-away` wants 120 s of idle input before each
   pattern call, so every cycle leaves about 95 s in which the desktop may be
   driven. That is one or two desktop cells per run: name them with `--cells`
   rather than asking for the whole matrix, and expect SKIP `present` on a
-  cell that straddles the event.
+  cell that straddles the event. Such a cell still puts the app back: its
+  release needs only a 3 s pause (section 0). Before that rule a straddled
+  cell left its link open and, on the Store lane, the Save to folder on a
+  run folder. `--no-idle-check` takes the idle read away altogether, and it
+  is the owner's to ask for, never the operator's to choose.
 - **Twenty request links a day.** Each attempt of each request cell spends
   one, and so did every earlier run of the day from this address (section
   7a).

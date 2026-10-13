@@ -94,7 +94,15 @@ test('listDesktopProcesses counts the wails dev app beside floe-desktop.exe, and
     );
 });
 
-function portableLeg(dir, { lister, launcher, secondInstanceWaitMs, cellId = 'T-FU26-SECOND', userAway = false, uia = null }) {
+// A leg launches only on a run that said the owner is away or accepted the
+// focus change (DesktopLeg.refuseUnlessAllowed), so the helper passes one of
+// the two; and an away leg reads the idle time before it launches, which a
+// fake helper answers with a long idle unless the test gives its own.
+const withIdle = (client) =>
+    typeof client.idleSeconds === 'function'
+        ? client
+        : Object.assign(client, { idleSeconds: async () => 300 });
+function portableLeg(dir, { lister, launcher, secondInstanceWaitMs, cellId = 'T-FU26-SECOND', userAway = false, allowForeground = !userAway, noIdleCheck = false, shared = undefined, uia = null }) {
     return new DesktopLeg({
         role: 'receiver',
         cellId,
@@ -104,7 +112,10 @@ function portableLeg(dir, { lister, launcher, secondInstanceWaitMs, cellId = 'T-
         build: { launch: 'portable', path: 'C:\\bogus\\floe-desktop.exe' },
         scratch: dir,
         userAway,
-        uia: uia ?? {
+        allowForeground,
+        noIdleCheck,
+        shared,
+        uia: withIdle(uia ?? {
             log() {},
             async findWindow() {
                 return { hwnd: 7, pid: 8181, exe: 'C:\\bogus\\floe-desktop.exe', minimized: false };
@@ -112,7 +123,7 @@ function portableLeg(dir, { lister, launcher, secondInstanceWaitMs, cellId = 'T-
             async waitTree() {
                 return { ready: true };
             },
-        },
+        }),
         lister,
         launcher,
         secondInstanceWaitMs,
@@ -548,6 +559,276 @@ test('a leg notes a direct start and reports which way it launched', async () =>
     } finally {
         for (const l of activeLegs)
             if (/^T-F1/.test(l.opts.cellId ?? '')) activeLegs.delete(l);
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+// ------------------------------------------------ the launcher's own stops
+
+// The planner SKIPs every desktop cell of a run that said neither that the
+// owner is away nor that the focus change is accepted (lib/matrix.mjs
+// foregroundRefused). That gate lives in the plan; this one lives in the
+// thing that launches, so a leg built any other way still reaches no window.
+test('an exe leg of a run that carried neither --user-away nor --allow-foreground launches nothing and changes nothing', async () => {
+    const dir = tmp();
+    try {
+        let launched = 0;
+        const leg = portableLeg(dir, {
+            cellId: 'T-GATE-NONE',
+            allowForeground: false,
+            lister: async () => {
+                throw new Error('not even the process list is read');
+            },
+            launcher: async () => {
+                launched++;
+                return { child: null, pid: 9191 };
+            },
+        });
+        await assert.rejects(leg.launch([]), (e) => {
+            assert.equal(e.verdict, 'SKIP');
+            assert.equal(e.reason, 'present');
+            assert.match(e.message, /neither --user-away nor --allow-foreground/);
+            return true;
+        });
+        assert.equal(launched, 0);
+        assert.equal(existsSync(path.join(dir, 'appdata')), false, 'no profile was seeded');
+        assert.equal(leg.driver, null);
+        assert.equal(activeLegs.has(leg), false);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('with --user-away the idle time is read before anything is seeded or launched; an idle that is short or cannot be read stops the leg as SKIP present', async () => {
+    const dir = tmp();
+    try {
+        const client = (idleSeconds) => ({
+            log() {},
+            idleSeconds,
+            async findWindow() {
+                return { hwnd: 7, pid: 9292, exe: 'C:\\bogus\\floe-desktop.exe', minimized: false };
+            },
+            async waitTree() {
+                return { ready: true };
+            },
+        });
+        for (const [what, idleSeconds, shown] of [
+            ['the owner typed 10 s ago', async () => 10, /input idle 10 s \(< 120\)/],
+            [
+                'the helper cannot say',
+                async () => {
+                    throw new Error('helper gone');
+                },
+                /input idle unknown s/,
+            ],
+            ['the helper answers nonsense', async () => 'soon', /input idle unknown s/],
+        ]) {
+            let launched = 0;
+            const leg = portableLeg(dir, {
+                cellId: 'T-GATE-IDLE',
+                userAway: true,
+                lister: async () => [],
+                launcher: async () => {
+                    launched++;
+                    return { child: null, pid: 9292 };
+                },
+                uia: client(idleSeconds),
+            });
+            await assert.rejects(
+                leg.launch([]),
+                (e) => {
+                    assert.equal(e.verdict, 'SKIP', what);
+                    assert.equal(e.reason, 'present', what);
+                    assert.match(e.message, shown, what);
+                    assert.match(e.message, /nothing was launched or changed/, what);
+                    return true;
+                },
+                what
+            );
+            assert.equal(launched, 0, what);
+            assert.equal(existsSync(path.join(dir, 'appdata')), false, `${what}: no profile was seeded`);
+            activeLegs.delete(leg);
+        }
+        // Idle long enough: the same leg launches.
+        let launched = 0;
+        const ok = portableLeg(dir, {
+            cellId: 'T-GATE-IDLE-OK',
+            userAway: true,
+            lister: async () => [],
+            launcher: async () => {
+                launched++;
+                return { child: null, pid: 9292 };
+            },
+            uia: client(async () => 120),
+        });
+        await ok.launch([]);
+        assert.equal(launched, 1);
+        assert.equal(ok.driver.awayOnly, true);
+        activeLegs.delete(ok);
+        started.delete(9292);
+    } finally {
+        for (const l of activeLegs) if (/^T-GATE/.test(l.opts.cellId ?? '')) activeLegs.delete(l);
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('--no-idle-check: the leg launches and clicks without one read of the idle time', async () => {
+    const dir = tmp();
+    try {
+        const calls = [];
+        const leg = portableLeg(dir, {
+            cellId: 'T-GATE-NOIDLE',
+            userAway: true,
+            noIdleCheck: true,
+            lister: async () => [],
+            launcher: async () => ({ child: null, pid: 9393 }),
+            uia: {
+                log() {},
+                async idleSeconds() {
+                    throw new Error('the idle time must not be read');
+                },
+                async foregroundCheck() {
+                    throw new Error('the idle time must not be read');
+                },
+                async findWindow() {
+                    return { hwnd: 7, pid: 9393, exe: 'C:\\bogus\\floe-desktop.exe', minimized: false };
+                },
+                async waitTree() {
+                    return { ready: true };
+                },
+                async retry(cmd) {
+                    calls.push(cmd);
+                    return { ok: true };
+                },
+            },
+        });
+        await leg.launch([]);
+        assert.equal(leg.driver.awayOnly, false);
+        await leg.driver.click('Send');
+        assert.deepEqual(calls, ['click']);
+        activeLegs.delete(leg);
+        started.delete(9393);
+    } finally {
+        for (const l of activeLegs) if (/^T-GATE/.test(l.opts.cellId ?? '')) activeLegs.delete(l);
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+// Putting the owner's app back is the one thing an away-only leg does with
+// less than 120 s of idle input: an owner who came back mid-cell would
+// otherwise be left with what the cell changed.
+test('a release step waits for a short pause in input instead of being refused, and is not sent into continuous typing', async () => {
+    const dir = tmp();
+    try {
+        const calls = [];
+        const client = {
+            idle: 10,
+            log() {},
+            async idleSeconds() {
+                return 300;
+            },
+            async findWindow() {
+                return { hwnd: 7, pid: 9494, exe: 'C:\\bogus\\floe-desktop.exe', minimized: false };
+            },
+            async waitTree() {
+                return { ready: true };
+            },
+            async foregroundCheck() {
+                calls.push('foreground-check');
+                return { idleSeconds: typeof this.idle === 'function' ? this.idle() : this.idle, foreground: false };
+            },
+            async retry(cmd) {
+                calls.push(cmd);
+                return { ok: true };
+            },
+        };
+        const leg = portableLeg(dir, {
+            cellId: 'T-GATE-RELEASE',
+            userAway: true,
+            lister: async () => [],
+            launcher: async () => ({ child: null, pid: 9494 }),
+            uia: client,
+        });
+        await leg.launch([]);
+        const d = leg.driver;
+        // Mid-cell, the owner 10 s back: an ordinary step is refused.
+        await assert.rejects(d.click('Make link'), (e) => e.verdict === 'SKIP' && e.reason === 'present');
+        assert.deepEqual(calls, ['foreground-check']);
+        // The same moment, releasing: 10 s is pause enough.
+        calls.length = 0;
+        d.releasing = true;
+        await d.click('Close link');
+        assert.deepEqual(calls, ['foreground-check', 'click']);
+
+        // Typing now, then a pause: the step waits and goes out after it.
+        calls.length = 0;
+        d._releaseUntil = null;
+        d.releaseWaitMs = 2_000;
+        d.releasePollMs = 5;
+        const readings = [0, 1, 2, 3];
+        client.idle = () => (readings.length > 1 ? readings.shift() : readings[0]);
+        await d.click('Close link');
+        assert.deepEqual(calls, [
+            'foreground-check',
+            'foreground-check',
+            'foreground-check',
+            'foreground-check',
+            'click',
+        ]);
+
+        // Typing through the whole release: not sent, not a SKIP, and the
+        // deadline is one for the release, not one per step.
+        calls.length = 0;
+        client.idle = 1;
+        d._releaseUntil = null;
+        d.releaseWaitMs = 40;
+        await assert.rejects(d.click('Close link'), (e) => {
+            assert.equal(e.verdict, undefined, 'a release that could not be sent is not a SKIP');
+            assert.match(e.message, /did not pause for 3 s within/);
+            assert.match(e.message, /this step was not sent/);
+            return true;
+        });
+        assert.ok(!calls.includes('click'));
+        const t0 = Date.now();
+        await assert.rejects(d.setValue('Downloads\\Floe', 'D:\\owner'), /did not pause for 3 s/);
+        assert.ok(Date.now() - t0 < 30, 'the second step does not start a new wait');
+        // An unreadable idle time counts as input.
+        client.foregroundCheck = async () => {
+            throw new Error('helper gone');
+        };
+        await assert.rejects(d.click('Close link'), /did not pause for 3 s/);
+        activeLegs.delete(leg);
+        started.delete(9494);
+    } finally {
+        for (const l of activeLegs) if (/^T-GATE/.test(l.opts.cellId ?? '')) activeLegs.delete(l);
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('once a cell could not put the app back, no later exe leg of the run launches', async () => {
+    const dir = tmp();
+    try {
+        for (const flags of [{ userAway: true }, { allowForeground: true }, { userAway: true, noIdleCheck: true }]) {
+            let launched = 0;
+            const leg = portableLeg(dir, {
+                cellId: 'T-GATE-LATCH',
+                ...flags,
+                shared: { desktopNotReleased: 'host release: the link this cell made still reads waiting' },
+                lister: async () => [],
+                launcher: async () => {
+                    launched++;
+                    return { child: null, pid: 9595 };
+                },
+            });
+            await assert.rejects(leg.launch([]), (e) => {
+                assert.equal(e.verdict, 'SKIP');
+                assert.equal(e.reason, 'desktop-not-released');
+                assert.match(e.message, /the link this cell made still reads waiting/);
+                return true;
+            });
+            assert.equal(launched, 0, JSON.stringify(flags));
+        }
+    } finally {
         rmSync(dir, { recursive: true, force: true });
     }
 });
