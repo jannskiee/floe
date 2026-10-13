@@ -9,34 +9,33 @@ export default function sitemap(): MetadataRoute.Sitemap {
         return [];
     }
 
+    // No modification date on any entry. A date here is a claim that the page
+    // changed then, and none is tracked: every entry used to carry the time
+    // of the build, so each deploy told crawlers that all five pages had just
+    // changed.
     return [
         {
             url: siteUrl,
-            lastModified: new Date(),
             changeFrequency: 'weekly',
             priority: 1.0,
         },
         {
             url: `${siteUrl}/download`,
-            lastModified: new Date(),
             changeFrequency: 'monthly',
             priority: 0.8,
         },
         {
             url: `${siteUrl}/how-it-works`,
-            lastModified: new Date(),
             changeFrequency: 'monthly',
             priority: 0.7,
         },
         {
             url: `${siteUrl}/privacy`,
-            lastModified: new Date(),
             changeFrequency: 'monthly',
             priority: 0.3,
         },
         {
             url: `${siteUrl}/terms`,
-            lastModified: new Date(),
             changeFrequency: 'monthly',
             priority: 0.3,
         },

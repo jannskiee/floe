@@ -4,7 +4,7 @@ import './globals.css';
 import { ServiceWorkerRegistration } from '@/components/ServiceWorkerRegistration';
 import { UmamiScript } from '@/components/UmamiScript';
 
-import { siteUrl, metadataBase } from '@/lib/siteUrl';
+import { metadataBase } from '@/lib/siteUrl';
 import { sharedOpenGraph, sharedTwitter } from '@/lib/socialMetadata';
 
 const geistSans = Geist({
@@ -102,26 +102,6 @@ export default function RootLayout({
                     (/r/<linkId>) keeps its id in the path, so knowing the path
                     is what decides whether the script renders at all. */}
                 <UmamiScript websiteId={process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID} />
-                {/* JSON-LD structured data: tells Google this is a free web application */}
-                <script
-                    type="application/ld+json"
-                    dangerouslySetInnerHTML={{
-                        __html: JSON.stringify({
-                            '@context': 'https://schema.org',
-                            '@type': 'WebApplication',
-                            name: 'Floe',
-                            // Omitted entirely when the origin is unknown. This
-                            // block is hand-rolled rather than part of the
-                            // Metadata API, so nothing else would strip it.
-                            ...(siteUrl && { url: siteUrl }),
-                            description: 'Secure, encrypted P2P file transfer. No accounts, no file storage, no registration required.',
-                            applicationCategory: 'UtilitiesApplication',
-                            operatingSystem: 'Any',
-                            offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
-                            browserRequirements: 'Requires a modern browser with WebRTC support',
-                        }),
-                    }}
-                />
             </body>
         </html>
     );

@@ -10,6 +10,8 @@ import { Footer } from '@/components/layout/Footer';
 import { GlobalStats } from '@/components/GlobalStats';
 import { P2PTransfer } from '@/components/P2PTransfer';
 import { InAppBrowserGuard } from '@/components/InAppBrowserGuard';
+import { siteUrl } from '@/lib/siteUrl';
+import { webApplicationJsonLd } from '@/lib/structuredData';
 
 export default function Home() {
     return (
@@ -46,6 +48,15 @@ export default function Home() {
             <FAQSection />
 
             <Footer />
+
+            {/* JSON-LD: tells a search engine this page is a free web
+                application. On the home page only: it describes the site,
+                and in the root layout it also went out on the request link
+                page, which is noindex and kept bare on purpose. */}
+            <script
+                type="application/ld+json"
+                dangerouslySetInnerHTML={{ __html: webApplicationJsonLd(siteUrl) }}
+            />
         </div>
     );
 }
