@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { sendProgressLabel, sendRowMark, type SendEnd } from './sendSummary';
+import { sendProgressLabel, sendRowMark, shareStatusComplete, type SendEnd } from './sendSummary';
 
 const marks = (files: number, currentFileIndex: number, progress: number, end: SendEnd) =>
     Array.from({ length: files }, (_, index) => sendRowMark({ index, currentFileIndex, progress, end }));
@@ -125,5 +125,38 @@ describe('how the two components use it', () => {
         const sets = body.indexOf('setError(peerBanner(msg, ');
         expect(sets).toBeGreaterThan(0);
         expect(body.indexOf('if (peerRef.current !== peer) return;')).toBeLessThan(sets);
+    });
+});
+
+// The check mark beside the share link. The status line is not only the
+// page's own sentences: while a file moves it reads "Sending: <name>", with
+// the sender's own file name in it. The panel asked whether the line
+// CONTAINED "Transfer complete", so a file of that name earned the green
+// check, and lost its spinner, while it was still being sent.
+describe('the share panel reads the status whole', () => {
+    const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
+
+    it('is complete for the two sentences that say so, and for nothing that only contains them', () => {
+        expect(shareStatusComplete('All Files Sent!')).toBe(true);
+        expect(shareStatusComplete('Transfer complete')).toBe(true);
+        for (const status of [
+            '',
+            'Sending: Transfer complete.txt',
+            'Sending: All Files Sent!',
+            'Sending: notes on Transfer complete',
+            'Transfer complete.',
+            'transfer complete',
+            'Transfer failed',
+            'Connection interrupted',
+            'Peer disconnected. Waiting for reconnection',
+        ]) {
+            expect(shareStatusComplete(status), status).toBe(false);
+        }
+    });
+
+    it('is the only way the panel decides, and the panel never searches the line', () => {
+        const panel = read('../components/ShareLinkPanel.tsx');
+        expect(panel).toContain('const isComplete = shareStatusComplete(status);');
+        expect(panel).not.toMatch(/\bstatus\.(?:includes|startsWith|endsWith|indexOf|search|match)\(/);
     });
 });

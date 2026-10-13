@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -923,23 +924,36 @@ func TestSendToOneFileArrivesInTheSingular(t *testing.T) {
 
 // TestSendToClockRunsFromTheAccept (D9; review lens A finding 3, re-check
 // LA2-7): the arrived line's duration runs from the host's accept to its
-// received, never from the join. A host that decides for 3 s and then takes
-// a 64 KB file at once reads "in 0s" ("1s" on a slow machine), never the
-// seconds it spent deciding.
+// received, never from the join. A host that decides for 6 s and then takes
+// a 64 KB file reads the seconds the file took, never the seconds it spent
+// deciding.
+//
+// The file's own time is measured here, on the host, and the line is held to
+// it. The test used to demand "in 0s" or "in 1s" outright, and a Windows CI
+// runner that took 2 s to move the file failed it on two pushes to main in
+// one day (2026-10-13) with the clock exactly right. A clock that ran from
+// the join would read at least the 6 s of deciding more than the file took,
+// and the line is allowed 3 s over it, so the two cannot be confused however
+// slow the machine is.
 func TestSendToClockRunsFromTheAccept(t *testing.T) {
+	const deciding = 6 * time.Second
+	const slack = 3 * time.Second
 	o := captureOutput(t)
 	s := newReqServer(t, "seat")
 	stubNetwork(t, s.URL)
 	p, _ := oneFile(t, t.TempDir(), "a.bin", 64*1024)
 	out := t.TempDir()
+	// Written on the host's goroutine, read after h.wait says it has ended.
+	var acceptedAt, doneAt time.Time
 	h := startHost(t, s, func(h *testHost) error {
 		if err := h.offer(); err != nil {
 			return err
 		}
 		return h.receive(out, func(transfer.IncomingInfo) transfer.Decision {
-			time.Sleep(3 * time.Second)
+			time.Sleep(deciding)
+			acceptedAt = time.Now()
 			return transfer.Decision{Kind: transfer.DecisionAccept, OutputDir: out}
-		}, func(transfer.FileDone) {})
+		}, func(transfer.FileDone) { doneAt = time.Now() })
 	})
 	r := runCLI(t, p, "--to", linkFor(), "--server", s.URL)
 	herr := h.wait(t)
@@ -947,8 +961,21 @@ func TestSendToClockRunsFromTheAccept(t *testing.T) {
 	if r.err != nil || herr != nil {
 		t.Fatalf("the drop failed: %v, host %v\nstderr:\n%s", r.err, herr, r.stderr)
 	}
-	if !regexp.MustCompile(`(?m)^  1 file arrived \(64 KB in [01]s, direct\)\.$`).MatchString(r.stdout) {
-		t.Fatalf("the arrived line's clock did not start at the accept:\n%s", r.stdout)
+	if acceptedAt.IsZero() || doneAt.IsZero() || doneAt.Before(acceptedAt) {
+		t.Fatalf("the host never recorded its accept and its file: %v, %v", acceptedAt, doneAt)
+	}
+	m := regexp.MustCompile(`(?m)^  1 file arrived \(64 KB in (\d+)s, direct\)\.$`).FindStringSubmatch(r.stdout)
+	if m == nil {
+		t.Fatalf("stdout lacks the arrived line with a duration in seconds:\n%s", r.stdout)
+	}
+	said, err := strconv.Atoi(m[1])
+	if err != nil {
+		t.Fatalf("the arrived line's seconds: %v", err)
+	}
+	fileTook := doneAt.Sub(acceptedAt)
+	if got := time.Duration(said) * time.Second; got > fileTook+slack {
+		t.Fatalf("the arrived line says %s for a file the host took %s to receive after its accept: the clock did not start at the accept (it decided for %s first)\n%s",
+			got, fileTook.Round(time.Millisecond), deciding, r.stdout)
 	}
 }
 
