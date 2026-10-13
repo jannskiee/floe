@@ -1111,6 +1111,11 @@ export function P2PTransfer() {
                         // A session this page has moved on from, and a send
                         // whose files had all left, keep what they show.
                         if (peerRef.current === peer && !transferCompleteRef.current) {
+                            // Latched like a stop the peer reported: this is
+                            // the account of what went wrong, and the close or
+                            // error that follows when the other device gives
+                            // up must not replace it with "Connection lost".
+                            wireReasonRef.current = true;
                             setError((prev) => prev || SEND_INTERNAL_ERROR);
                             setStatus('Transfer failed');
                             setSendEnd((end) => (end === 'open' ? 'failed' : end));

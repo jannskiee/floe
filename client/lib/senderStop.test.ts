@@ -129,8 +129,10 @@ describe('a send that throws', () => {
         );
     });
 
+    // Every call, whatever its arguments are named: the definition is an
+    // assignment and does not match.
     it('is caught where the send is started, and nowhere started without the catch', () => {
-        expect(page.match(/sendAllFiles\(peer, files\)/g)).toHaveLength(1);
+        expect(page.match(/\bsendAllFiles\(/g)).toHaveLength(1);
         expect(page).toContain('sendAllFiles(peer, files).catch((cause: unknown) => {');
     });
 
@@ -142,6 +144,9 @@ describe('a send that throws', () => {
         const from = page.indexOf('sendAllFiles(peer, files).catch((cause: unknown) => {');
         const handler = page.slice(from, page.indexOf('\n                    });', from));
         expect(handler).toContain('if (peerRef.current === peer && !transferCompleteRef.current) {');
+        // Latched, so the error or close that follows when the other device
+        // gives up does not replace the sentence with "Connection lost".
+        expect(handler).toContain('wireReasonRef.current = true;');
         expect(handler).toContain('setError((prev) => prev || SEND_INTERNAL_ERROR);');
         expect(handler).toContain("setStatus('Transfer failed');");
         expect(handler).toContain("setSendEnd((end) => (end === 'open' ? 'failed' : end));");

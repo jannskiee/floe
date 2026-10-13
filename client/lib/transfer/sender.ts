@@ -791,7 +791,11 @@ function openSession(deps: SenderDeps, cb: SenderCallbacks, fileCount: number): 
     const reportStop = (): boolean => {
         if (!stopped) return false;
         if (!reported) {
-            reported = true;
+            // Everything read off the frame is worked out before the stop is
+            // marked as reported. A throw while the words were being built
+            // used to leave it marked with nothing said, and no later
+            // checkpoint would say it either (unconvertible.test.ts).
+            //
             // Rebuilt from the frame's pv range rather than printed as sent,
             // the way the Go sender has done since PR #282. On a genuine
             // version mismatch the peer's sentence names the sides from ITS
@@ -799,18 +803,21 @@ function openSession(deps: SenderDeps, cb: SenderCallbacks, fileCount: number): 
             // comes through verbatim: that is the overlapping-range half of
             // compatErrorFromIncompatible, and it is what carries the
             // relay-cap reason from PR #429.
-            cb.onError?.(compatErrorFromIncompatible(stopped));
+            const words = compatErrorFromIncompatible(stopped);
             // The typed stop carries only an allowlisted code and a clamped
             // count, never the peer's text.
             const raw: unknown = stopped.saved;
             const saved = typeof raw === 'number' && Number.isInteger(raw)
                 ? Math.min(Math.max(raw, 0), fileCount)
                 : 0;
-            // The same split compatErrorFromIncompatible makes one line above,
-            // as a boolean rather than as wording: false is a version mismatch
+            // The same split compatErrorFromIncompatible makes above, as a
+            // boolean rather than as wording: false is a version mismatch
             // and true a deliberate abort. Derived from the frame's pv range,
             // so it carries none of its text.
-            cb.onStopped?.({ code: refusalCodeOf(stopped), saved, rangeOverlaps: isAbortReason(stopped) });
+            const stop = { code: refusalCodeOf(stopped), saved, rangeOverlaps: isAbortReason(stopped) };
+            reported = true;
+            cb.onError?.(words);
+            cb.onStopped?.(stop);
         }
         return true;
     };
