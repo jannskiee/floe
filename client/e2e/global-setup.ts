@@ -21,16 +21,24 @@
  * made for the suite. Playwright has already started both servers by the time
  * this runs (the webServer plugins set up before globalSetup), and no test has
  * run yet, so throwing here stops the run with nothing sent anywhere.
+ *
+ * Last, it asks the client for every image its pages name, one at a time
+ * (warm-images.ts). A test that closes a page while the image optimizer is
+ * still working on an image leaves that image unanswerable for minutes, and
+ * a later test then times out waiting for it. An image that is already in the
+ * optimizer's cache is not affected, so no test may be the first to ask.
  */
 
 import { execSync } from 'child_process';
 import { mkdirSync } from 'fs';
 import { join } from 'path';
+import type { FullConfig } from '@playwright/test';
 import { CLI_BUILD_BINARY, CLI_BUILD_DIR, E2E_HOST_BINARY } from './cli-binary';
 import { bundleLoopbackSender } from './loopback/bundle';
 import { buildCarriesE2eSocketUrl, E2E_SOCKET_URL } from './socket-url';
+import { warmImages } from './warm-images';
 
-export default function globalSetup(): void {
+export default async function globalSetup(config: FullConfig): Promise<void> {
     // With CI set the client is `next start` over whatever build is on disk
     // (playwright.config.ts), and the signaling address is compiled into it.
     // Without CI the client is `next dev`, which takes the address from the
@@ -55,4 +63,10 @@ export default function globalSetup(): void {
     });
     process.env.FLOE_E2E_HOST_BINARY = E2E_HOST_BINARY;
     bundleLoopbackSender();
+
+    // The address the tests themselves load pages from.
+    const base = config.projects[0]?.use.baseURL;
+    if (!base) throw new Error('playwright.config.ts gives no baseURL to warm the image optimizer at');
+    const warmed = await warmImages(base);
+    console.log(`warmed the image optimizer: ${warmed} addresses`);
 }
