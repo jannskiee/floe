@@ -174,9 +174,11 @@ After the other side disconnects, the status may change to "Transfer complete", 
 result. If their device drops off the network without closing the connection, the status can
 change to "Connection interrupted" instead, although every byte had already left this browser.
 Either way the file rows keep their check marks and the progress row still reads "Sent 3 files",
-with your own number. A self-hosted web app on version 1.11.0 or earlier turns the last file's
-check mark back into a spinner when the status changes, and its progress row reads "Sending file 3
-of 3..." at 100%. Every file was still sent.
+with your own number.
+
+This is what the web app at floe.one shows. A web app that someone hosts themselves can run an
+older version, where a few of these lines read differently: see
+[What an older web app shows](/self-hosting/operations#older-web-app-versions).
 
 If the receiving side discards a file because it did not match, the status reads "Transfer failed"
 instead, even when "All Files Sent!" was already showing, and the card says "The other side

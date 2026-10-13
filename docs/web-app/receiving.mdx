@@ -145,10 +145,11 @@ What you see when the sender leaves depends on how far things had got:
 | After at least one file finished, with more still to come | The badge goes back to **Offline**, the progress row goes away, and an amber line under the list says how far the transfer got, such as "Received 1 of 3 files. The transfer ended before the rest arrived." The files that arrived stay listed. See [Troubleshooting](/troubleshooting#the-transfer-ended-before-the-rest-arrived). |
 
 In that last case, save what arrived and ask the sender to send the rest in a new transfer: Floe
-[cannot resume](/how-it-works/known-limitations#no-resume) one that stopped. A self-hosted web app
-on version 1.11.0 or earlier shows no such line. Its list keeps a green check and a count such as
-"1 file received", and a progress row for the file that never finished can stay on screen, so
-there the count is the only sign that files are missing.
+[cannot resume](/how-it-works/known-limitations#no-resume) one that stopped.
+
+This is what the web app at floe.one shows. A web app that someone hosts themselves can run an
+older version, where a few of these lines read differently: see
+[What an older web app shows](/self-hosting/operations#older-web-app-versions).
 
 While a transfer of several files is still running, the same place reads "Received 1 of 3 files.
 Waiting for the rest" between files. The green check and a count such as "3 files received"

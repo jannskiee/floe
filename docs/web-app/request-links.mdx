@@ -155,16 +155,20 @@ says "This link has already been used" for about 24 hours after it closed. A ser
 sooner. After that, and for a link that never existed, the page reads "Their computer is not connected right
 now", as it does while the computer that made the link is asleep or offline.
 
+These are the messages of the web app at floe.one. A web app that someone hosts themselves can run an older
+version, where a few of them read differently: see
+[What an older web app shows](/self-hosting/operations#older-web-app-versions).
+
 ### Before and while you send {#messages-on-the-senders-page}
 
 | Message | What it means | What to do |
 |---|---|---|
-| “Open in your browser”, with “Open the link in current Chrome or Edge on a computer.” | The link was opened inside another app's built-in browser, such as a chat app's. Nothing of the page loads until you continue. A self-hosted web app on version 1.11.0 says “Open Floe in Chrome or Safari for the best experience.” there instead. | Open the link in current Chrome or Edge on a computer. See [Open in your browser](/troubleshooting#open-in-your-browser). |
+| “Open in your browser”, with “Open the link in current Chrome or Edge on a computer.” | The link was opened inside another app's built-in browser, such as a chat app's. Nothing of the page loads until you continue. | Open the link in current Chrome or Edge on a computer. See [Open in your browser](/troubleshooting#open-in-your-browser). |
 | “This link looks incomplete”, then “Copy the whole link again, including everything after the # sign.” | The link was cut short, often at the `#`. | Copy the whole link again from where you got it. |
 | “This browser cannot send through Floe”, then “Open the link in current Chrome or Edge.” | This browser cannot open a WebRTC data channel, which is the one thing the page checks for. | Open the link in current Chrome or Edge. |
 | “This browser cannot pick folders. Drag the folder in, or zip it first.” | This browser has no working folder picker, or a folder you dropped could not be read as one. | Do what the message says. |
 | “Empty folders are not sent.” | A folder you dropped held an empty folder. The files are still selected. | Nothing. Zip the folder first if the empty folders matter. |
-| “Relayed drops are capped at 2 GB. Turn off Hide my IP, or send 2 GB or less.” | With Hide my IP on, the drop goes through the relay, and your selection is over 2 GB. A self-hosted web app on version 1.11.0 ends the line “or remove files.” | Turn off Hide my IP, or click **Clear** and pick 2 GB or less. |
+| “Relayed drops are capped at 2 GB. Turn off Hide my IP, or send 2 GB or less.” | With Hide my IP on, the drop goes through the relay, and your selection is over 2 GB. | Turn off Hide my IP, or click **Clear** and pick 2 GB or less. |
 | “This drop has more than 10,000 files. Zip them first.” | A drop can hold up to 10,000 files. Nothing from that pick was added. | Zip them and send the archive. |
 | “A folder path is too long to send. Zip deeply nested folders first.” | A file sits too deep in its folders, or its name is too long, to be sent. Nothing from that pick was added. | Do what the message says. |
 | “Some files in this folder could not be read. Nothing was added.” | The browser could not read part of a folder you dropped, so none of it was added. | Check the folder, or zip it and send the archive. |
@@ -175,11 +179,11 @@ now", as it does while the computer that made the link is asleep or offline.
 | “Request links are not available on this Floe server.” | The server did not answer the page within 10 seconds, as a server older than request links does not. | Ask the person who made the link. |
 | “Couldn't connect to their computer. Nothing was sent.” | Your browser and their PC could not finish connecting. | Click **Try again**. If it keeps happening, a network on one side may be blocking the connection. |
 | “This Floe server has no relay right now. Turn off Hide my IP to send directly.” | Hide my IP needs a relay, and the server's list has none. | Turn off Hide my IP to send directly. |
-| “Couldn't check for a relay. Try again, or turn off Hide my IP to send directly.” | Hide my IP needs a relay, and the page could not read the server's relay list: the request failed, or the server was limiting requests from your network. A self-hosted web app on version 1.11.0 or earlier says “This Floe server has no relay right now. Turn off Hide my IP to send directly.” here too. | Click **Send** again: your files stay selected, and the page asks the server again on every try. If the message comes back, wait 1 minute and try once more, or turn off Hide my IP to send directly. |
+| “Couldn't check for a relay. Try again, or turn off Hide my IP to send directly.” | Hide my IP needs a relay, and the page could not read the server's relay list: the request failed, or the server was limiting requests from your network. | Click **Send** again: your files stay selected, and the page asks the server again on every try. If the message comes back, wait 1 minute and try once more, or turn off Hide my IP to send directly. |
 | “Too many connections from this network. Trying again shortly.” | The server is limiting connections from your network for a moment. | Wait: the page tries again by itself. |
 | “They declined. Nothing was sent.” | They clicked **Decline**. | Ask them before you send again. |
 | “They did not answer in time. Nothing was sent.” | Nobody clicked **Accept** or **Decline** in time. The link stays open. | Ask them to be at their PC, then send again. |
-| “Relay limit”, then “This connection needs a relay, and relayed drops are capped at 2 GB. Send 2 GB or less, or try another network.” | The connection goes through the relay, because the two networks allow nothing else or because their Floe has Hide my IP on, and your selection is over 2 GB. Nothing was sent. A self-hosted web app on version 1.11.0 says “Remove files” where this says “Send 2 GB or less”. | Click **Back to files**, then **Clear**, and pick 2 GB or less. Or try another network, or ask them to turn off Hide my IP if it is on. See [File size limits](/how-it-works/2gb-limit). |
+| “Relay limit”, then “This connection needs a relay, and relayed drops are capped at 2 GB. Send 2 GB or less, or try another network.” | The connection goes through the relay, because the two networks allow nothing else or because their Floe has Hide my IP on, and your selection is over 2 GB. Nothing was sent. | Click **Back to files**, then **Clear**, and pick 2 GB or less. Or try another network, or ask them to turn off Hide my IP if it is on. See [File size limits](/how-it-works/2gb-limit). |
 | “This computer may have slept. If the connection drops, the file that was moving starts over.” | While you were away from the tab, the computer's clock jumped ahead of the page's, as it does after a sleep. | Keep the computer awake until the last file arrives. |
 | “You stopped this drop.” | You clicked **Cancel** after they accepted, and confirmed. | Ask for a new link to send the rest. |
 | “Their Floe needs an update.” | Their Floe and this page speak versions of the transfer protocol that do not overlap. | Ask them to update Floe. |
@@ -197,7 +201,7 @@ file was saved." for a single file) or "Nothing was sent.", and the files that a
 | “Their computer ran out of space” | Their save drive filled up, or the next file would have left it with less than the 2 GB it has to keep free. | Ask them to free space, then ask for a new link. |
 | “Their computer could not save a file” | Windows refused a write on their side. | Ask them to check their save folder. |
 | “A file changed or was damaged on the way, so their Floe deleted it”, and after the count “Ask them for a new link to send the rest.” | A file's SHA-256 did not match on their side. | Do what the message says. |
-| “Relayed drops are capped at 2 GB”, with “Nothing was sent. Send 2 GB or less.” in place of the count when nothing was saved | Their Floe found the drop going through the relay and past 2 GB. A self-hosted web app on version 1.11.0 or earlier ends the line “Send under 2 GB.” | Send 2 GB or less, or ask them to turn off Hide my IP. |
+| “Relayed drops are capped at 2 GB”, with “Nothing was sent. Send 2 GB or less.” in place of the count when nothing was saved | Their Floe found the drop going through the relay and past 2 GB. | Send 2 GB or less, or ask them to turn off Hide my IP. |
 | “A folder path is too long for their computer”, and after the count “Zip deeply nested folders first.” | A file's path was too deep or too long to save on their side. | Do what the message says. |
 | “A file is too large for the drive they save to” | Their save drive cannot hold a file that large. | Ask them to save to another drive. |
 | “Their computer blocked saving a file” | Their Floe could not move a finished file into place, after 5 minutes of retries. The complete file stays there with a `.part` ending. | Ask them about that file before you send it again. |

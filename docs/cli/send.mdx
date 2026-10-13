@@ -118,8 +118,8 @@ and exits with status 1. Files the recipient saved before that one stay there. S
 
 A browser recipient refuses one thing of this kind: a file whose description is longer than 1,000
 bytes, which takes a relative path of about 800 bytes. `floe send` stops with the same line. A
-self-hosted web app on version 1.11.0 or earlier sends no answer in that case, so `floe send` waits
-120 seconds and ends with `timed out waiting for ack`.
+web app that someone hosts themselves can run an older version, which does not answer in that case:
+see [What an older web app shows](/self-hosting/operations#older-web-app-versions).
 
 ## When a send ends {#notes}
 
