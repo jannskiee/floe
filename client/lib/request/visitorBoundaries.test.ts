@@ -336,11 +336,23 @@ describe('the /r page boundaries', () => {
     // the home page, and no request link page lists Safari. So /r hands the
     // notice the approved row, and the notice keeps its own sentence as the
     // default for the home page.
-    it('the in-app browser notice takes its advice from the approved copy on /r only', () => {
-        expect(read('app/r/[linkId]/page.tsx')).toContain('<InAppBrowserGuard advice={visitorCopy.inAppAdvice}>');
+    //
+    // The title of the box of steps is the second thing /r words for itself.
+    // Its sentence recommends a computer, and the steps open the phone's own
+    // browser, so on /r the box says it is the other choice. The home page
+    // keeps "How to open in your browser", where the sentence and the steps
+    // agree.
+    it('the in-app browser notice takes its advice and its steps title from the approved copy on /r only', () => {
+        expect(read('app/r/[linkId]/page.tsx')).toContain(
+            '<InAppBrowserGuard advice={visitorCopy.inAppAdvice} stepsTitle={visitorCopy.inAppStepsTitle}>',
+        );
         expect(read('app/page.tsx')).toContain('<InAppBrowserGuard>');
         const guard = read('components/InAppBrowserGuard.tsx');
         expect(guard).toContain("advice = 'Open Floe in Chrome or Safari for the best experience.'");
         expect(guard).toContain('has limited support for file transfers. {advice}');
+        expect(guard).toContain("stepsTitle = 'How to open in your browser'");
+        // Drawn from the prop and written nowhere else, so /r cannot show both.
+        expect(guard).toContain('{stepsTitle}');
+        expect(guard.match(/How to open in your browser/g)).toHaveLength(1);
     });
 });

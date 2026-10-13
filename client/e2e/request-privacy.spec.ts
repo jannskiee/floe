@@ -295,6 +295,10 @@ test.describe('request privacy', () => {
             // not. The steps under it still do ("Open in Safari" on an
             // iPhone): leaving the app's browser is the first move either way.
             await expect(page.getByText(/Chrome or Safari/)).toHaveCount(0);
+            // So the box of steps says what it is here: the other choice, not
+            // the way to do what the sentence above it asked.
+            await expect(page.getByText(visitorCopy.inAppStepsTitle, { exact: true })).toBeVisible();
+            await expect(page.getByText('How to open in your browser')).toHaveCount(0);
             // The longer sentence still fits a phone: no sideways scroll.
             expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
             // Withheld, not covered: nothing of the page behind is rendered.

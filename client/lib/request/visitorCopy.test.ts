@@ -76,7 +76,9 @@ describe('visitor copy: the refusal table (spec 07 4.15.2)', () => {
             '4 of 12 files were saved.',
             'Ask them for a new link to send the rest.',
         ]);
-        expect(refusalCopy('relay-cap', 0, 12).lines).toEqual(['Nothing was sent. Send under 2 GB.']);
+        // "2 GB or less", not "under 2 GB": the gate is strictly greater-than,
+        // so a drop of exactly 2 GB goes through a relay.
+        expect(refusalCopy('relay-cap', 0, 12).lines).toEqual(['Nothing was sent. Send 2 GB or less.']);
         expect(refusalCopy('relay-cap', 3, 12).lines).toEqual(['3 of 12 files were saved.']);
         expect(refusalCopy('disk-full', 4, 12).showArrived).toBe(true);
         expect(refusalCopy('disk-full', 0, 12).showArrived).toBe(false);
@@ -519,6 +521,16 @@ describe('visitor copy: Ready and Sending strings', () => {
         expect(visitorCopy.inAppAdvice).toBe('Open the link in current Chrome or Edge on a computer.');
         expect(visitorCopy.inAppAdvice).toContain('current Chrome');
         expect(visitorCopy.betaSupport).toBe('Works in current Chrome and Edge on a computer.');
+    });
+
+    // The title of the box of steps under that sentence, on /r only. The
+    // sentence recommends a computer and the steps open the phone's own
+    // browser, so under "How to open in your browser" the steps read as the
+    // way to do what the sentence had just asked, and they are not. The title
+    // names them as the other choice. Approved by the owner on 2026-10-14.
+    it('the steps under the in-app browser advice are titled as the phone option', () => {
+        expect(visitorCopy.inAppStepsTitle).toBe('To use this phone instead');
+        expect(visitorCopy.inAppAdvice).toContain('on a computer');
     });
 
     it('the intro, the support line and the safety lines read as D-136 approved them', () => {

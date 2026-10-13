@@ -405,7 +405,7 @@ export default function PrivacyPolicy() {
                 <LegalList
                     items={[
                         'Error stack traces and browser metadata (browser version, OS, device type, approximate device memory, language, and time zone)',
-                        'Connection type (direct or relay), whether relay fallback was on, transfer progress, file count, and total size at the time of an error',
+                        'Connection type (direct or relay), whether relay fallback was on, transfer progress, file count, and total size, sent with an error report or with a page performance trace that falls in the 10% sample',
                     ]}
                 />
                 <p>
@@ -439,8 +439,8 @@ export default function PrivacyPolicy() {
                     ]}
                 />
                 <p>
-                    Umami does not use cookies and stores nothing on your device. It does not collect
-                    personally identifiable information: your IP address and browser signature are
+                    Umami does not use cookies and stores nothing on your device. It does not keep
+                    your IP address: the address and your browser signature are
                     hashed with a salt that rotates on a schedule, so Umami can count a returning
                     visitor for a while without keeping the address, and the hash is tied to
                     floe.one, so it cannot follow you to other websites. File names and file contents

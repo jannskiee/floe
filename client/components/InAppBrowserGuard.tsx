@@ -13,11 +13,17 @@ interface Props {
      *  works in fewer passes its own, as /r does: "Chrome or Safari" there
      *  sent people to a browser no request link page lists. */
     advice?: string;
+    /** The title of the box of steps. The default suits a share link, where
+     *  the steps are how to do what the sentence above them asks. /r passes
+     *  its own: its sentence recommends a computer, and the steps open the
+     *  phone's own browser, which is the other choice. */
+    stepsTitle?: string;
 }
 
 export function InAppBrowserGuard({
     children,
     advice = 'Open Floe in Chrome or Safari for the best experience.',
+    stepsTitle = 'How to open in your browser',
 }: Props) {
     const [{ detectedApp, android, currentUrl, ready }, setInit] = useState<{
         detectedApp: DetectedApp | null;
@@ -114,7 +120,7 @@ export function InAppBrowserGuard({
                         {/* Platform-specific instructions */}
                         <div className="mb-5 rounded-xl border border-white/[0.06] bg-white/[0.03] p-4">
                             <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-zinc-400">
-                                How to open in your browser
+                                {stepsTitle}
                             </p>
                             {android ? (
                                 <ol className="space-y-3">

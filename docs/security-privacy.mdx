@@ -166,9 +166,11 @@ On the floe.one website:
 
 - **Sentry** records application errors and a 10% sample of page performance traces. It is
   configured to attach no cookies and no IP address; each report carries the page address, the
-  browser's user agent, language and time zone, and the referring page, and may add the connection type, whether relay
-  fallback was on, the transfer's progress, the file count, the total size, and the device's approximate memory at the time of an
-  error. Sentry's servers see the IP address a report arrives from, as any server does. Each report
+  browser's user agent, language and time zone, and the referring page. An error report, or a
+  performance trace that falls in the 10% sample, may add the connection type, whether relay
+  fallback was on, the transfer's progress, the file count, and the total size. A report of a
+  failed receive may also add the device's approximate memory. Sentry's servers see the IP address
+  a report arrives from, as any server does. Each report
   from the browser is sent with an empty location field, which keeps Sentry from working out a
   location from that address. The room secret is stripped out of every error report,
   breadcrumb, and performance trace before it is sent.

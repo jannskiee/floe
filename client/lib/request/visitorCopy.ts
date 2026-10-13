@@ -55,6 +55,15 @@ export const visitorCopy = {
      *  Safari, which no request link page lists. Added to the approved table
      *  after Checkpoint C: the owner approved it on 2026-10-12. */
     inAppAdvice: 'Open the link in current Chrome or Edge on a computer.',
+    /** IAB-2: the title of the box of steps under IAB-1, on /r.
+     *  InAppBrowserGuard takes it as a prop there and keeps "How to open in
+     *  your browser" on the home page. IAB-1 recommends a computer and the
+     *  steps open the phone's own browser, so under the old title they read
+     *  as the way to do what the sentence had just asked. They stay, because
+     *  a phone is where its owner's photos are, and the title says they are
+     *  the other choice. Added to the approved table after Checkpoint C: the
+     *  owner approved it on 2026-10-14. */
+    inAppStepsTitle: 'To use this phone instead',
 
     /** C-30: V3a, this browser cannot pick folders. It is also the refusal for a
      *  dropped folder that arrived as a directory pseudo-File, because from the
@@ -200,8 +209,12 @@ export const visitorCopy = {
     nothingSent: 'Nothing was sent.',
     /** 4.15.2: after the codes where sending the rest makes sense. */
     askForTheRest: 'Ask them for a new link to send the rest.',
-    /** 4.15.2: relay-cap's second line when nothing was saved. */
-    relayCapNothing: 'Nothing was sent. Send under 2 GB.',
+    /** 4.15.2: relay-cap's second line when nothing was saved. It said "Send
+     *  under 2 GB." until 2026-10-14, when the owner approved this wording:
+     *  the gate is strictly greater-than, so a drop of exactly 2 GB goes
+     *  through a relay, and C-31 and C-80 on this page already say "2 GB or
+     *  less". */
+    relayCapNothing: 'Nothing was sent. Send 2 GB or less.',
     /** 4.15.2: path-too-long's line after the saved line (C-33's words). */
     zipNested: 'Zip deeply nested folders first.',
     /** 4.15.2: over-approved's line after the saved line. */

@@ -61,9 +61,9 @@ import {
     AlertCircle,
     AlertTriangle,
     ArrowRight,
+    Link2Off,
     Loader2,
     Plus,
-    ShieldCheck,
     UploadCloud,
     X,
 } from 'lucide-react';
@@ -1353,7 +1353,7 @@ export function P2PTransfer() {
                     {isLinkInvalid(error) ? (
                         <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
                             <div className="h-16 w-16 rounded-full bg-red-500/10 flex items-center justify-center mb-2">
-                                <ShieldCheck className="h-8 w-8 text-red-500" />
+                                <Link2Off className="h-8 w-8 text-red-500" />
                             </div>
                             <div className="space-y-1">
                                 <h3 className="text-xl font-semibold text-white">

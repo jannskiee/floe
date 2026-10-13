@@ -91,12 +91,14 @@ export default function RequestLinkPage() {
     // The notice's last sentence is this page's own. The guard's default says
     // "Chrome or Safari", which is right for a share link and wrong here, where
     // the support line reads "current Chrome and Edge on a computer". The steps
-    // for leaving the app's browser stay: that is still the first move, and
-    // the page it leads to states its support under the heading.
+    // for leaving the app's browser stay, under a title of this page's own:
+    // they open the phone's browser, which is not what the sentence asked
+    // for, so the box says it is the other choice. The page that browser
+    // opens states its support under the heading.
     return (
         <>
             <style>{PAGE_CANVAS}</style>
-            <InAppBrowserGuard advice={visitorCopy.inAppAdvice}>
+            <InAppBrowserGuard advice={visitorCopy.inAppAdvice} stepsTitle={visitorCopy.inAppStepsTitle}>
                 <RequestShell />
             </InAppBrowserGuard>
         </>

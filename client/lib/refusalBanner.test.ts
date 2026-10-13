@@ -168,4 +168,13 @@ describe('the Link Invalid card answers to one value only', () => {
         expect(page).toContain("setError(peerBanner(msg, 'The other side rejected the transfer.'));");
         expect(page).not.toMatch(/^\s+setError\(msg\);$/m);
     });
+
+    // The card is an error, and it wore a shield with a check mark in a red
+    // circle: the mark for "this is safe" on the one card that says the link
+    // cannot be used. It names what is wrong instead, the link.
+    it('the card wears a broken link, not a shield with a check mark', () => {
+        const page = readFileSync(fileURLToPath(new URL('../components/P2PTransfer.tsx', import.meta.url)), 'utf8');
+        expect(page).toContain('<Link2Off className="h-8 w-8 text-red-500" />');
+        expect(page).not.toContain('ShieldCheck');
+    });
 });
