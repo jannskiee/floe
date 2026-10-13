@@ -235,13 +235,17 @@ pnpm test:e2e                                    # the whole suite
 pnpm exec playwright test e2e/transfer.spec.ts   # one spec
 ```
 
-A run starts the signaling server on `:3001` and the client on `:3000` (with `pnpm dev` locally; CI builds the client and serves the build). The server it starts is set up for the suite:
+A run starts the signaling server on `:3001` and the client on `:3000` (with `next dev` locally; CI builds the client and serves the build with `next start`). The server it starts is set up for the suite:
 
 - Request links are on, through the policy file `client/e2e/fixtures/request-policy-on.json`.
 - The connection, room-code and TURN rate limits are raised to 1,000 a minute.
 - The Upstash variables are overridden with a dummy local address and token, so no test byte can reach a real counter.
 
-> **Warning:** If something already answers on `:3001`, Playwright uses it instead of starting its own server, and none of that setup applies. A server you started yourself has request links off unless you turned them on (the request-link specs then fail), keeps the default rate limits, and sends test bytes to whatever counter its `server/.env` configures. A client already answering on `:3000` is used as it is too, with whatever `NEXT_PUBLIC_SOCKET_URL` it was started with. If that is `https://api.floe.one` (the Client Only setup above), the browser side of the suite runs through the live server, and its test receives add their bytes to the public counter. Stop your own server and your own client before a run.
+> **Warning:** A run refuses to start when something already answers on `:3001` or `:3000`. Playwright stops before any test and says the address "is already used". Stop your own server and your own client, then run again, and do not follow the hint in that message to set `reuseExistingServer:true`. A server you started yourself has none of the setup above: request links are off unless you turned them on, the default rate limits apply, and test bytes go to whatever counter its `server/.env` configures. A client you started yourself keeps whatever `NEXT_PUBLIC_SOCKET_URL` it was started with. If that is `https://api.floe.one` (the Client Only setup above), the browser side of the suite would run through the live server, and its test receives would add their bytes to the public counter.
+>
+> On Windows, stopping `next dev` or `next start` can leave a `next-server` process holding `:3000`. Find it with `Get-NetTCPConnection -LocalPort 3000 -State Listen` in PowerShell and stop the process it names.
+>
+> With `CI` set, the client is served from the build already in `client/.next`, and the signaling address is compiled into a build. The run refuses a build that was not made with `NEXT_PUBLIC_SOCKET_URL=http://127.0.0.1:3001`.
 
 CI runs the suite on Linux, Windows and macOS, with one worker and one retry. A local run uses Playwright's default workers and no retry. On every CI run that was not canceled, the Playwright report, the traces of retried tests and the CLI transcripts are uploaded as an artifact and kept for 7 days.
 
