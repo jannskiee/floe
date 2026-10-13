@@ -81,19 +81,31 @@ instance that sets a non-empty socket URL loses it silently.
     WebSocket handshake fails: the CLI and Floe Desktop cannot connect, and
     browsers are left on HTTP long-polling.
 
-    ```nginx nginx.conf
+    Save this as a site file, for example `/etc/nginx/conf.d/floe.conf`. nginx reads site files
+    inside its `http` block, which is where `map` and `server` have to sit, so do not paste it over
+    `nginx.conf` itself. nginx will not load it without a certificate for your domain: get one
+    first, for example with Certbot, and put its two paths on the `ssl_certificate` lines.
+
+    ```nginx /etc/nginx/conf.d/floe.conf
     map $http_upgrade $connection_upgrade {
         default upgrade;
         ''      close;
+    }
+
+    # Plain HTTP only redirects to HTTPS.
+    server {
+        listen 80;
+        server_name floe.example.com;
+        return 301 https://$host$request_uri;
     }
 
     server {
         listen 443 ssl;
         server_name floe.example.com;
 
-        # Your TLS certificate goes here.
-        # ssl_certificate     /etc/letsencrypt/live/floe.example.com/fullchain.pem;
-        # ssl_certificate_key /etc/letsencrypt/live/floe.example.com/privkey.pem;
+        # Your TLS certificate. nginx refuses a `listen ... ssl` server that has none.
+        ssl_certificate     /etc/letsencrypt/live/floe.example.com/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/floe.example.com/privkey.pem;
 
         # The client's own runtime config. An exact-match location outranks the
         # regex location below, so this stays on the client.
@@ -127,6 +139,12 @@ instance that sets a non-empty socket URL loses it silently.
             proxy_set_header X-Forwarded-Proto $scheme;
         }
     }
+    ```
+
+    Check the file, then load it:
+
+    ```bash Terminal
+    sudo nginx -t && sudo systemctl reload nginx
     ```
   </Tab>
 </Tabs>

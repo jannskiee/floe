@@ -74,7 +74,9 @@ Canonical links stay relative, and the share-preview image and the sitemap entri
 are left out. [Container images](/self-hosting/images#share-previews-and-canonical-links)
 has the full list.
 
-To put your own domain in them, build the client yourself:
+To put your own domain in them, build the client yourself. This needs a clone of the repository,
+because the build reads its `client` folder and `docker-compose.build.yml`: see
+[Building from source](/self-hosting/images#building-from-source). Run it from the repository root:
 
 ```bash Terminal
 NEXT_PUBLIC_SITE_URL=https://files.example.com \

@@ -179,6 +179,10 @@ closing or reloading the tab, or through a network blip. The link still works: w
 recipient's page rejoins, or they open the link again, your page builds a fresh connection by
 itself.
 
+The same line also replaces "Connection interrupted" when a recipient closes their page partway
+through a file. A red banner then reads "The connection closed before the transfer finished."
+Nothing resumes: when they open the link again, your page sends every file from the start.
+
 That recovery exists only for a sender in the browser, and only for a recipient who comes back
 from the same network. `floe send` and Floe Desktop end the transfer as soon as the other side
 leaves, and a recipient on a new network is
@@ -240,7 +244,8 @@ On the receiving page, when the connection to the sender closed before any file 
 second wording, "The sender ended the transfer. Ask them to start it again.", appears when the
 browser reports that the sender's side aborted the connection. Either way the sender's side closed
 the connection: they closed or reloaded the tab, canceled or quit in Floe Desktop, or their
-`floe send` stopped with an error. A sender who pressed `Ctrl+C` in `floe send`, or whose device went to sleep or lost its network, closes
+`floe send` stopped with an error. A sender in the browser also closes it on purpose when they
+had unchecked **Network relay fallback** and only a relayed connection was possible. A sender who pressed `Ctrl+C` in `floe send`, or whose device went to sleep or lost its network, closes
 nothing, and that reads as
 ["Connection failed. Ask the sender to try again."](#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again)
 instead.
@@ -251,7 +256,8 @@ simply ended, with no stop message from the sender's app, there is no red banner
 [how far the transfer got](#the-transfer-ended-before-the-rest-arrived) instead.
 
 Save any files that did arrive, then ask the sender to start a new transfer for the rest. Nothing
-resumes.
+resumes. If it happens twice with a sender in the browser, ask whether they unchecked **Network
+relay fallback**, and to leave it on for the new link.
 
 ### "Received 1 of 3 files. The transfer ended before the rest arrived." {#the-transfer-ended-before-the-rest-arrived}
 
@@ -511,7 +517,10 @@ From `floe receive`, after `WebRTC setup failed: `. `floe send` prints its mirro
 sent nothing to start the connection. Its browser tab may be asleep in the background, or the
 device may have gone offline before the server noticed.
 
-Ask the other person to bring Floe to the front, then run the command again.
+Ask the other person to bring Floe to the front, then try again. With `floe receive`, use the
+link this time: a room code stops working once you have joined with it, so the same code now
+answers `not found or expired`. If the link fails as well, ask the sender to start a new transfer.
+With `floe send`, run it again and share the new code or link.
 
 ### `timed out establishing a connection` {#timed-out-establishing-a-connection}
 
@@ -859,6 +868,11 @@ mid-transfer without a more specific reason: the other side quit or lost its net
 stopped draining for a minute, or, when sending, every byte went out and the connection closed
 before the receiving app said it had saved every file. On the receiving side, files that finished
 are kept and the one that was arriving is discarded.
+
+It also appears right after you click **Send** or **Receive**, before any transfer exists, when
+the server closed the connection without giving the app a place in a room. The usual reason is the
+server's limit on new connections from one network address, 30 a minute by default. Wait a minute
+and try again.
 
 Check with the other person what arrived before you send again. When this appears at the very end
 of a send, they may already have every file.

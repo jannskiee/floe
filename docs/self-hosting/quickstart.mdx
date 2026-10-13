@@ -18,7 +18,9 @@ Two commands give you a complete Floe instance on one machine: the web app on po
     ```bash Terminal
     curl -fsSLO https://raw.githubusercontent.com/jannskiee/floe/main/docker-compose.yml
     ```
-    That is the only file you need. There is nothing to clone and no toolchain to install.
+    That is the only file you need. There is nothing to clone and no toolchain to install. In
+    Windows PowerShell, type `curl.exe` in place of `curl`: plain `curl` there is another command,
+    and it does not take these options.
   </Step>
   <Step title="Start the stack">
     ```bash Terminal
@@ -37,7 +39,7 @@ A `.env` file is optional. Every setting has a working default, so the two comma
 curl -fsSL https://raw.githubusercontent.com/jannskiee/floe/main/.env.docker.example -o .env
 ```
 
-Compose reads `.env` when it creates the containers, so run `docker compose up -d` again after each edit. Every variable is described in [Configuration](/self-hosting/configuration).
+In Windows PowerShell this one is `curl.exe` too. Compose reads `.env` when it creates the containers, so run `docker compose up -d` again after each edit. Every variable is described in [Configuration](/self-hosting/configuration).
 
 ## What this runs
 

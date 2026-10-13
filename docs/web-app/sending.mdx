@@ -52,8 +52,14 @@ button. Leave it on unless you have a specific reason not to.
 Unchecking it shows an amber warning: "Relay fallback is disabled. Transfers may fail if either
 device is on mobile data or a restricted network and a direct connection cannot be established."
 
-Turn it off only when you need certainty that files never pass through a relay, for compliance
-reasons for example. You do not need to turn it off to send more than 2 GB: the cap applies only
+Turn it off only when you do not want Floe to use a relay, for compliance reasons for example.
+Your page then offers no relay of its own. If the connection still comes up relayed through the
+other side, your page closes it before any file moves and says "Connection failed. This link was
+made with Network relay fallback off. Reload the page, add the files again, leave it on, and share
+the new link." It is not a guarantee: when your page cannot read which route the connection took,
+it lets the transfer go ahead.
+
+You do not need to turn it off to send more than 2 GB: the cap applies only
 when the connection actually ends up relayed, so leaving fallback on costs a direct transfer
 nothing.
 
