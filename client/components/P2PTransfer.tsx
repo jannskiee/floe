@@ -36,7 +36,7 @@ import {useTransferAnalytics} from '@/hooks/useTransferAnalytics';
 import {useRelayConfiguration} from '@/hooks/useRelayConfiguration';
 import {RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, probeIsRelay} from '@/lib/relay';
 import {buildShareLink, getRoomFromUrl, isValidRoomId} from '@/lib/roomLink';
-import {classifyPeerError, senderErrorBlamesRelay} from '@/lib/peerErrors';
+import {classifyPeerError, peerErrorBanner, peerErrorCodeOf, peerErrorReport, senderErrorBlamesRelay} from '@/lib/peerErrors';
 import {decideReceiverClose} from '@/lib/receiverClose';
 import {describeSenderStop, senderCloseInterrupted} from '@/lib/senderStop';
 import {verifiedLine, VERIFIED_LINE} from '@/lib/verifiedLine';
@@ -280,7 +280,11 @@ export function P2PTransfer() {
                 Sentry.addBreadcrumb({
                     category: 'webrtc',
                     level: 'warning',
-                    message: `Ignored signal in state ${pc?.signalingState}: ${(err as Error).message}`,
+                    // The state is this browser's own word. The error's
+                    // message is not: it can quote the signal the other
+                    // peer sent (lib/peerErrors.ts).
+                    message: `Ignored signal in state ${pc?.signalingState}`,
+                    data: { errorCode: peerErrorCodeOf(err) },
                 });
             }
         },
@@ -616,9 +620,9 @@ export function P2PTransfer() {
                 if (isExpected) {
                     Sentry.addBreadcrumb({
                         category: 'webrtc',
-                        message: `Receiver: expected connection error — ${err.message}`,
+                        message: 'Receiver: expected connection error',
                         level: 'warning',
-                        data: { errorMessage: err.message },
+                        data: { reason, errorCode: peerErrorCodeOf(err) },
                     });
                     // A deliberate abort is not a connection problem, and telling
                     // someone to enable a relay that may already be on is the
@@ -640,17 +644,23 @@ export function P2PTransfer() {
                             : 'Connection failed. Ask the sender to try again. If they turned the relay off, ask them to leave it on.'
                     );
                 } else {
-                    // Unexpected error — capture for investigation.
+                    // Unexpected: reported for investigation by its code.
+                    // Never the error object or its message, which can quote
+                    // what the other peer sent (lib/peerErrors.ts).
+                    const report = peerErrorReport('receiver', err);
                     Sentry.withScope((scope) => {
                         scope.setContext('webrtc', {
                             role: 'receiver',
                             connectionType,
                             filesReceived: receivedFilesRef.current.length,
                             progressPercent: progressAtError,
+                            errorCode: report.code,
                         });
-                        Sentry.captureException(err);
+                        scope.setTags(report.tags);
+                        scope.setFingerprint(report.fingerprint);
+                        Sentry.captureMessage(report.message, 'error');
                     });
-                    setError(`Connection error: ${err.message}`);
+                    setError(peerErrorBanner('receiver'));
                 }
                 // Track failed connection attempt
                 track('transfer-failed', { reason, role: 'receiver' });
@@ -1139,9 +1149,9 @@ export function P2PTransfer() {
                 if (isExpected) {
                     Sentry.addBreadcrumb({
                         category: 'webrtc',
-                        message: `Sender: expected connection error — ${err.message}`,
+                        message: 'Sender: expected connection error',
                         level: 'warning',
-                        data: { relayEnabled, errorMessage: err.message },
+                        data: { relayEnabled, reason, errorCode: peerErrorCodeOf(err) },
                     });
                     // The relay sentence only when the relay could be the
                     // cause: see senderErrorBlamesRelay.
@@ -1151,6 +1161,9 @@ export function P2PTransfer() {
                             : 'Connection lost. The other device may have closed the tab.'
                     );
                 } else {
+                    // By its code, never the error object or its message
+                    // (the receiver's handler above says why).
+                    const report = peerErrorReport('sender', err);
                     Sentry.withScope((scope) => {
                         scope.setContext('webrtc', {
                             role: 'sender',
@@ -1159,10 +1172,13 @@ export function P2PTransfer() {
                             filesCount: files.length,
                             totalBytes,
                             progressPercent: progressRef.current,
+                            errorCode: report.code,
                         });
-                        Sentry.captureException(err);
+                        scope.setTags(report.tags);
+                        scope.setFingerprint(report.fingerprint);
+                        Sentry.captureMessage(report.message, 'error');
                     });
-                    setError(`Connection error: ${err.message}`);
+                    setError(peerErrorBanner('sender'));
                 }
                 track('transfer-failed', {
                     reason,

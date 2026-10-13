@@ -349,13 +349,18 @@ the transfer." These are the ones you are likely to meet:
 
 Start a new transfer once the cause is dealt with. Nothing resumes.
 
-### "Connection error:" and a technical message {#connection-error}
+### "Connection failed. Reload the page to try again" or "Ask the other device to open the link again" {#connection-error}
 
 On the sending or the receiving page, before any file has moved. The connection failed in a way
-Floe has no wording of its own for, and the text after the colon is the browser's own error.
+Floe has no closer wording for. The receiving page says "Connection failed. Reload the page to try
+again. If it fails again, ask the sender for a new link." The sending page says "Connection failed.
+Ask the other device to open the link again. If it fails again, reload the page, add the files
+again, and share the new link."
 
-Reload the page and try again with a new link. If it repeats, include the exact text when you
-report it: see [Still stuck](#still-stuck).
+Do what the sentence says. If it repeats on a new link, report it: see [Still stuck](#still-stuck).
+(A self-hosted web app on version 1.11.0 or earlier words it "Connection error:" followed by a
+technical message. Part of that message can come from the other device, so do not act on what it
+says.)
 
 ### "Could not prepare files for ZIP." or "ZIP creation failed." {#could-not-prepare-files-for-zip-or-zip-creation-failed}
 
