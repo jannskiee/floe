@@ -62,6 +62,9 @@ export interface RequestHostOptions {
     /** -stop-reason: the reason that stop's frame carries; the harness never
      *  prints it. Only with stopAfterFile. */
     stopReason?: string;
+    /** -close-before-visit: the host closes its link right after joining,
+     *  with nobody seated (Close link while it waits), and exits 0. */
+    closeBeforeVisit?: boolean;
 }
 
 export interface RequestHost {
@@ -120,6 +123,7 @@ export function startRequestHost(opts: RequestHostOptions): RequestHost {
     if (opts.maxFiles !== undefined) args.push('-max-files', String(opts.maxFiles));
     if (opts.stopAfterFile !== undefined) args.push('-stop-after-file', opts.stopAfterFile);
     if (opts.stopReason !== undefined) args.push('-stop-reason', opts.stopReason);
+    if (opts.closeBeforeVisit) args.push('-close-before-visit');
     const proc = spawn(E2E_HOST_BINARY, args, { stdio: [opts.joinOnStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
     const events: RequestHostEvent[] = [];
     const host = { proc, events, outDir: opts.outDir } as RequestHost & { waiters: Array<() => void>; closed: boolean };

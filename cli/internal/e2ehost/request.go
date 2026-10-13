@@ -174,6 +174,11 @@ type requestConfig struct {
 	// first committed file, so the visitor stays in Sending with its data
 	// channel open for as long as a spec needs (S1-WEB-05 test 9).
 	holdAfterFile time.Duration
+	// closeBeforeVisit closes the link right after the host has joined, with
+	// nobody seated: Close link while it waits. The room is unsealed, so the
+	// server forgets the reservation and answers every later request-join
+	// link-ended, which is what a spec needs to read the ended page for real.
+	closeBeforeVisit bool
 	// stopCode, when set (-stop-after-file), stops the drop after its first
 	// committed file the way a receiver that refused it would: the refusal
 	// frame with this code, stopReason and saved 1, then the connection
@@ -215,6 +220,7 @@ func parseRequestFlags(args []string) (requestConfig, error) {
 	holdAfterFile := fs.Int("hold-after-file", 0, "after the first committed file, hold the receive loop this many milliseconds")
 	stopAfterFile := fs.String("stop-after-file", "", "after the first committed file, stop the drop with this refusal code")
 	stopReason := fs.String("stop-reason", "", "the reason the -stop-after-file frame carries (default: the code's stock sentence)")
+	closeBeforeVisit := fs.Bool("close-before-visit", false, "close the link right after joining, before any visitor, then exit 0")
 	if err := fs.Parse(args); err != nil {
 		return requestConfig{}, err
 	}
@@ -289,6 +295,8 @@ func parseRequestFlags(args []string) (requestConfig, error) {
 		holdAfterFile: time.Duration(*holdAfterFile) * time.Millisecond,
 		stopCode:      stopCode,
 		stopReason:    reason,
+
+		closeBeforeVisit: *closeBeforeVisit,
 	}, nil
 }
 
@@ -642,6 +650,20 @@ func runRequest(ev *events, stdin io.Reader, args []string) {
 		h.sc = h.connect()
 		h.emit("joined", map[string]interface{}{"role": "host", "roomId": h.room})
 		h.emit("link", map[string]interface{}{"link": link})
+	}
+
+	if cfg.closeBeforeVisit {
+		// The same frame the desktop sends for Close link, with no visitor
+		// ever seated. The server reads it before it sees the socket close:
+		// both travel the one connection, in order.
+		if err := h.sc.RequestClose(); err != nil {
+			ev.fail("close")
+		}
+		h.emit("closed", nil)
+		watchdog.Stop()
+		ev.emit(map[string]interface{}{"event": "done", "files": h.files, "verified": h.verified})
+		h.sc.Close()
+		ev.exit(0)
 	}
 
 	for n := 0; ; n++ {

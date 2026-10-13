@@ -9,6 +9,7 @@
 //	floe-e2ehost send [-server URL] [-web URL] [-room UUID] [-corrupt-hash | -malformed-hash] <paths>
 //	floe-e2ehost request -out <dir> [-server URL] [-web URL] [-decide STEPS] [-fast-timers]
 //	    [-keep-waiting] [-corrupt-hash] [-blip-after EVENT] [-join-after MS | -join-on-stdin]
+//	    [-close-before-visit]
 //	    [-hold-after-file MS | -stop-after-file CODE [-stop-reason TEXT]] [-timeout D]
 //
 // The first argument is a mode word. Send mode is a CLI-shaped sender whose

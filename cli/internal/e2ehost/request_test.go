@@ -138,6 +138,22 @@ func TestFastTimersShrinkOnlyUnderTheFlag(t *testing.T) {
 	}
 }
 
+// -close-before-visit is off unless given, and changes nothing else in the
+// config: the spec that reads the ended page is the only caller.
+func TestCloseBeforeVisitIsOffUnlessAsked(t *testing.T) {
+	plain, err := parseRequestFlags([]string{"-out", t.TempDir()})
+	if err != nil || plain.closeBeforeVisit {
+		t.Fatalf("without the flag: closeBeforeVisit %v, err %v", plain.closeBeforeVisit, err)
+	}
+	closing, err := parseRequestFlags([]string{"-out", t.TempDir(), "-close-before-visit"})
+	if err != nil || !closing.closeBeforeVisit {
+		t.Fatalf("with the flag: closeBeforeVisit %v, err %v", closing.closeBeforeVisit, err)
+	}
+	if closing.keepWaiting || closing.joinOnStdin || closing.joinAfter != 0 || closing.limits != nil {
+		t.Fatalf("the flag moved something else: %+v", closing)
+	}
+}
+
 // -max-files and -block-shell-types reach ReceiveOptions.Limits, and nothing
 // else in it moves: no free-space reserve (a test must not depend on this
 // disk), no host relay check, the engine's default commit retry. With neither
