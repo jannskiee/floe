@@ -108,7 +108,10 @@ a peer.
   manifest under `--out` says `desktop.json` was edited and does not say it
   was put back (a command that was killed after the edit); the line names
   the `cleanup --run <id>` to run first, and `cleanup` records its restore
-  in that manifest. And `<out>/owner-state.json` keeps the owner's own
+  in that manifest. The desktop probes keep the same record, in
+  `<out>/probe/manifest.json`: a probe that was killed is cleared with
+  `cleanup --run probe`, which replays the backup and deletes nothing (a
+  bare `cleanup` still means the newest run). And `<out>/owner-state.json` keeps the owner's own
   folders as the Store lane first read them (the Make link form's Save to,
   and the code Receive folder), so a later command that finds an earlier
   run's folder in one of those fields puts the owner's value back, not the
@@ -537,7 +540,9 @@ own stop with nothing left over, and `NO:` with the cell and what was left
 whatever that cell's verdict was: a host release that could not finish (an
 open link, the Save to folder), a close that needed taskkill, a code Receive
 folder not put back, a Save to field that moved between its restore and the
-close, or a launch whose stop had not finished when the report was written.
+close, a launch that never showed a window (whether its process was ended
+with taskkill or left running), or a launch whose stop had not finished when
+the report was written.
 It used to read `yes` on a run that had measured nothing.
 
 A launch that never shows a window is ended at its stop only when the leg
@@ -546,7 +551,9 @@ a Store start through the shell, a `floe-desktop.exe` created while that
 call ran or within 15 s of it. Anything else (a Floe the owner opened
 meanwhile, a `wails dev` app, a process whose creation time cannot be read)
 is left running and named in an `unfound app:` note, and the next cell with
-an exe side reads SKIP `desktop-running`.
+an exe side reads SKIP `desktop-running`. When the launch returned no pid,
+the stop looks for its process for six seconds before it concludes there is
+none: the shell call returns before the app's process exists.
 
 The Explorer verb (`HKCU\Software\Classes\*\shell\Floe`) is guarded on the
 Store lane as well as on the portable and head ones. A packaged launch does
@@ -1016,20 +1023,55 @@ what each step proves are the same, and the idle windows no longer matter.
    `attempt.json` read `explorer verb: ... absent before the run` and then
    `explorer verb: removed ...`)
 
-Not covered by any cell, so a green request run says nothing about them:
+Not covered by a live cell (decided). A green request run says nothing about
+these, and does not have to: each was weighed on 2026-10-13 and left to the
+tests that already pin it, named here so the claim can be checked. A live
+cell for any of them would spend one of the day's 20 links, or minutes of
+wall clock, on something that has no network in it.
 
 - Link expiry. Every cell makes a 24 hour link and none waits for one to
   end; the five other Link ends choices are only ever a label the Make link
-  verb can pick.
-- Close link as a finding. Teardown closes the cell's own link, but no
-  visitor is opened on a closed link to read `This link has ended`.
+  verb can pick. The clocks are pinned in `desktop/requestlink_test.go`
+  (`TestShortLinkEndsOnItsOwnClock`, `TestNoNewVisitorAfterLinkEnd`) and the
+  server's answers in `server/server.test.js` ("a link closed or expired
+  unused answers link-ended for a day, then host-absent", "a reservation
+  still in its grace answers link-ended once its end has passed").
+- Close link, and what a visitor reads on a link that has ended. The page
+  half is a browser spec that CI runs on three operating systems for every
+  pull request: `client/e2e/request-link.spec.ts`, "request-link: a link
+  closed before anyone used it reads "This link has ended"". Its host closes
+  the link before any visit, and the server answers an expired link and a
+  closed unused one alike, so it is the page for both. The app half, the
+  built app's Close link reaching production, is exercised by the release of
+  every request cell, which clicks Close link and waits for the ended view;
+  `TestCloseRequestLinkSendsCloseAndEnds` in `desktop/requestlink_test.go`
+  pins the frame it sends.
 - Stop. Cancel drop on the host, and a visitor that cancels, are teardown
-  steps only, never an oracle.
-- The receiver's limits (`requestLimits` in `desktop/transfer.go`, and the
-  10,000 files a drop may carry).
-- Accept and Decline on a built exe. No UIA Invoke presses them there (SKIP
-  `request-accept-undrivable`), so both are proven on the wailsdev lane
-  only, and `H-DIR-W2D-reqdecline` has no shipped twin.
+  steps only, never an oracle. Pinned by `TestRunRequestDropCancelSendsStopped`
+  and `TestRunRequestDropStopReportsSavedBytesOnce` in
+  `desktop/transfer_test.go`, by "a reload waits for the Cancel reason to
+  reach the host" in `client/lib/request/visitorBoundaries.test.ts`, and by
+  `TestSendToCtrlCMidFileTakesOneLineBreak` in
+  `cli/cmd/floe/sendto_barline_test.go`.
+- The receiver's limits (`requestLimits` in `desktop/transfer.go`, the
+  10,000 files a drop may carry, the 24 hour drop limit). Pinned in
+  `cli/engine/transfer/limits_test.go`
+  (`TestLimitsFileCountOverMaxRefusesOverApproved`,
+  `TestLimitsBytesReceivedPastApprovedRefusedMidFileNoPart`,
+  `TestLimitsFreeSpaceBelowReserveRefusesBeforeAck`), by
+  `TestMaxDropFilesMatchesTheOtherSurfaces` in
+  `cli/engine/transfer/dropcheck_test.go`, by
+  `TestRunRequestDropTimeLimitAbortsWithCode` in `desktop/transfer_test.go`,
+  and on the page by "request-link: over-approved refusal shows fixed copy
+  and never the reason" in `client/e2e/request-link.spec.ts`.
+- Accept and Decline on a built exe. This one is a rule, not a gap: the
+  audit never synthesizes input (no mouse, no keys), and no UIA Invoke
+  presses those two buttons on a built app, because a guard there re-arms on
+  every focus change. So a prompted request cell on a built app ends SKIP
+  `request-accept-undrivable` once the prompt is on record, both buttons are
+  proven on the wailsdev lane only, and `H-DIR-W2D-reqdecline` has no shipped
+  twin. Delivery on a built app is proven through Auto-accept
+  (`S-DIR-W2D-reqauto`, `S-DIR-C2D-reqauto`).
 - A prompted CLI visitor on a shipped build. There is no `S-DIR-C2D-req`:
   it would spend one of the day's 20 links to stop at the prompt
   `S-DIR-W2D-req` already proves. The released CLI delivers through
