@@ -263,9 +263,14 @@ export function LegalLink({ href, children }: { href: string; children: ReactNod
     );
 }
 
-export function InlineCode({ children }: { children: ReactNode }) {
+// Code stays on one line by default. `wrap` is for a value too long for a
+// 320 px phone, such as a registry path: it may break where the caller puts a
+// <wbr />, and anywhere at all as a last resort, instead of widening the page.
+export function InlineCode({ children, wrap = false }: { children: ReactNode; wrap?: boolean }) {
     return (
-        <code className="whitespace-nowrap rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[13px] text-zinc-300">
+        <code
+            className={`${wrap ? '[overflow-wrap:anywhere]' : 'whitespace-nowrap'} rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[13px] text-zinc-300`}
+        >
             {children}
         </code>
     );

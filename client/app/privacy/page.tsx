@@ -624,7 +624,10 @@ export default function PrivacyPolicy() {
                                     them off or makes them silent; a request then still flashes the
                                     taskbar button and shows in the window title. On the GitHub
                                     build, Windows needs a per-user registry entry (under{' '}
-                                    <InlineCode>HKCU\Software\Classes\AppUserModelId</InlineCode>)
+                                    <InlineCode wrap>
+                                        HKCU\<wbr />Software\<wbr />Classes\<wbr />AppUserModelId
+                                    </InlineCode>
+                                    )
                                     and a small icon file in your temp folder to show Floe&apos;s name
                                     on its notifications; the app writes them, and uninstalling
                                     leaves them.
