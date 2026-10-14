@@ -3509,6 +3509,39 @@ describe('handleRequestControl', () => {
         assert.ok(roomMeta.get(o.id).signaled.size <= 2);
     });
 
+    it('request-reopen while request links are off ends the link as the switch does: refused disabled to the host', () => {
+        // A sealed room outlives the switch going off (applyPolicyChange leaves
+        // it to finish). A reopen of it while off (the owner's Keep waiting
+        // after a decline) used to unseal a room no request-join could reach,
+        // so the link sat on "Waiting for files" for good (audit row A2-B7).
+        for (const seated of [true, false]) {
+            resetRequestState(true);
+            const { id, host, visitor } = pairedRequestRoom('198.51.100.1', '198.51.100.2');
+            handleRequestControl(host, 'request-seal', id);
+            if (!seated) handleDisconnect(visitor);
+            policyStore.apply({ requestLinks: false });
+            assert.ok(roomMeta.has(id), 'the sealed room survives the switch');
+            host.msgs.length = 0;
+            visitor.msgs.length = 0;
+
+            handleRequestControl(host, 'request-reopen', id, RQ_T0);
+            assert.deepEqual(host.msgs, [{ type: 'refused', data: { code: 'disabled' } }], `seated ${seated}`);
+            assert.deepEqual(visitor.msgs, seated ? [{ type: 'disabled', data: {} }] : [], `seated ${seated}`);
+            assert.equal(rooms.has(id), false);
+            assert.equal(roomMeta.has(id), false);
+            assert.equal(endedLinks.has(id), true, 'the id answers link-ended for a while, as after the switch');
+        }
+    });
+
+    it('request-reopen while request links are on still unseals and evicts with room-full', () => {
+        const { id, host, visitor } = pairedRequestRoom('198.51.100.1', '198.51.100.2');
+        handleRequestControl(host, 'request-seal', id);
+        handleRequestControl(host, 'request-reopen', id, RQ_T0);
+        assert.deepEqual(visitor.msgs, [{ type: 'room-full', data: {} }]);
+        assert.equal(roomMeta.get(id).sealed, false);
+        assert.equal(host.msgs.length, 0);
+    });
+
     it('request-seal with no visitor is a no-op', () => {
         const token = newToken();
         const id = roomIdFromToken(token);
