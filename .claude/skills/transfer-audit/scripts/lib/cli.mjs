@@ -87,8 +87,10 @@ export const REFUSAL_PREFIX =
 // Stdout markers, cli/cmd/floe unless noted. "Connected" accepts the optional
 // route suffix a CLI from v1.10.6 on prints.
 export const MARKERS = Object.freeze({
-    turnWarning:
-        /^ {2}Warning: could not reach signaling server for TURN credentials\. Using STUN only\.$/, // ice/credentials.go Fetch
+    // ice/credentials.go FetchDetail: any of its three STUN-only warnings,
+    // unreachable, a status, or (after floe 1.11.0) an answer it could not
+    // read; each still ends the same way.
+    turnWarning: /^ {2}Warning: .*TURN credentials.*\. Using STUN only\.$/,
     codeWarning: /^ {2}Warning: could not generate short code/, // send.go runSend
     sending: /^ {2}Sending {3}(.+)$/, // send.go runSend
     waiting: /^ {2}Waiting for peer\.\.\.$/, // send.go runSend

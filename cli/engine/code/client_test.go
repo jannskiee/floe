@@ -14,18 +14,19 @@ import (
 // links (?room=) so that a link from either the browser or the CLI works in
 // `floe receive`. The URL branch parses locally and never touches the network.
 func TestResolveURL(t *testing.T) {
+	const room = "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"
 	cases := []struct {
 		name  string
 		input string
 		want  string
 	}{
-		{"fragment", "https://floe.one/#room=abc-123", "abc-123"},
-		{"query", "https://floe.one/?room=abc-123", "abc-123"},
-		{"query without slash", "https://floe.one?room=abc-123", "abc-123"},
+		{"fragment", "https://floe.one/#room=" + room, room},
+		{"query", "https://floe.one/?room=" + room, room},
+		{"query without slash", "https://floe.one?room=" + room, room},
 		// The browser and the desktop app pair the fragment with a meaningless
 		// ?s= cache-buster; the query lookup must miss it and fall through.
-		{"fragment with nonce", "https://floe.one/?s=deadbeef#room=abc-123", "abc-123"},
-		{"local fragment", "http://localhost:3000/#room=xyz", "xyz"},
+		{"fragment with nonce", "https://floe.one/?s=deadbeef#room=" + room, room},
+		{"local fragment", "http://localhost:3000/#room=" + room, room},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -85,6 +86,81 @@ func TestLinkHostReadsALinkAsResolveDoes(t *testing.T) {
 func TestResolveURLWithoutRoom(t *testing.T) {
 	if _, err := Resolve("", "https://floe.one/about"); err == nil {
 		t.Fatal("expected an error for a URL with no room id, got nil")
+	}
+}
+
+// TestResolveRefusesARoomValueThatIsNotARoomID (A4-B27): a #room= or ?room=
+// value that is not a room id (a link cut short, a typo in it) is refused
+// here with fixed text, before any network call. It used to be handed to the
+// server, whose join answered "Invalid room ID", a line with no advice.
+func TestResolveRefusesARoomValueThatIsNotARoomID(t *testing.T) {
+	const room = "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	for _, input := range []string{
+		"https://floe.one/#room=" + room[:13],
+		"https://floe.one/#room=" + room[:35],
+		"https://floe.one/?room=" + room[:20],
+		"https://floe.one/#room=" + room + "x",
+		"https://floe.one/#room=" + strings.Replace(room, "-", "", 1),
+		"https://floe.one/#room=abc-123",
+		"floe.one/#room=" + room[:13],
+		"http://localhost:3000/#room=6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7g",
+	} {
+		roomID, err := Resolve(srv.URL, input)
+		if err == nil || roomID != "" {
+			t.Errorf("Resolve(%q) = %q, %v; want the incomplete-link refusal", input, roomID, err)
+			continue
+		}
+		if err.Error() != "the room id in this link is incomplete or mistyped" {
+			t.Errorf("Resolve(%q) answered %q, want the fixed incomplete-link text", input, err)
+		}
+	}
+	if n := hits.Load(); n != 0 {
+		t.Fatalf("%d requests reached the server, want 0", n)
+	}
+	// Any letter case still resolves: the server's UUID_REGEX takes it.
+	if got, err := Resolve(srv.URL, "https://floe.one/#room="+strings.ToUpper(room)); err != nil || got != strings.ToUpper(room) {
+		t.Fatalf("an upper-case room id: %q, %v", got, err)
+	}
+}
+
+// TestResolveAnswersAMistypedCodeAsACode (A8b-B4): an input with no slash, no
+// hash and no scheme is where a code goes, so one that is not shaped like a
+// code (an underscore, a space, a room id pasted alone) is answered as a code
+// that was not recognized, with fixed text that names what a code looks
+// like and quotes nothing. It used to be answered "invalid URL", which sent
+// someone who typed a code to look for a link.
+func TestResolveAnswersAMistypedCodeAsACode(t *testing.T) {
+	const want = "code not recognized: a code is words joined by hyphens, like olive-tiger-castle"
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	for _, input := range []string{
+		"olive_tiger_castle",
+		"olive tiger castle",
+		"olive--tiger",
+		"-olive-tiger",
+		"6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f",
+	} {
+		_, err := Resolve(srv.URL, input)
+		if err == nil || err.Error() != want {
+			t.Errorf("Resolve(%q) = %v, want %q", input, err, want)
+		}
+	}
+	if n := hits.Load(); n != 0 {
+		t.Fatalf("%d requests reached the code API, want 0", n)
+	}
+	// A paste that is a link and does not parse is still a URL problem.
+	if _, err := Resolve(srv.URL, "https://floe.one:port/#room=6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"); err == nil || err.Error() != "invalid URL" {
+		t.Fatalf("a link that does not parse answered %v, want \"invalid URL\"", err)
 	}
 }
 
@@ -272,7 +348,8 @@ func TestResolveNeverSendsALinkToTheCodeAPI(t *testing.T) {
 	// Review round 1 (rev-eng-a L1, rev-eng-b E1): pastes with neither a slash
 	// nor a hash went to the code API too, several with the room id or the
 	// link id in the path. Only a code-shaped input is looked up now; these
-	// are refused here with the fixed "invalid URL" text.
+	// are refused here with fixed text: errNotACode since A8b-B4, the
+	// "invalid URL" before it.
 	pastes := []struct{ name, input string }{
 		{"a room id alone", room},
 		{"a room id in angle brackets", "<" + room + ">"},
@@ -302,8 +379,8 @@ func TestResolveNeverSendsALinkToTheCodeAPI(t *testing.T) {
 			if n := hits.Load(); n != 0 {
 				t.Errorf("%d requests reached the code API, want 0", n)
 			}
-			if !errors.Is(err, errInvalidURL) {
-				t.Fatalf("Resolve returned %q, %v; want the fixed \"invalid URL\"", roomID, err)
+			if !errors.Is(err, errNotACode) {
+				t.Fatalf("Resolve returned %q, %v; want the fixed errNotACode", roomID, err)
 			}
 			if anyUUID.MatchString(err.Error()) || strings.Contains(strings.ToLower(err.Error()), strings.ToLower(id)) {
 				t.Fatalf("the error quotes the paste: %q", err.Error())

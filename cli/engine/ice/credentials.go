@@ -213,8 +213,14 @@ func FetchDetail(serverURL string) (servers []webrtc.ICEServer, degraded bool, e
 		return defaults(), true, nil
 	}
 
+	// A 200 that is not a readable list, or a list with nothing to connect
+	// with: a reverse proxy that answers /api/ with a web page lands here. It
+	// falls back like the two cases above and says so in their form; it used
+	// to fall back in silence, and a transfer that needed the relay then
+	// ended as a plain timeout (A4-B19).
 	parsed, err := ParseServers(resp.Body)
 	if err != nil || len(parsed) == 0 {
+		fmt.Println("  Warning: could not read TURN credentials from the signaling server. Using STUN only.")
 		return defaults(), true, nil
 	}
 	return trimICEServers(parsed), false, nil

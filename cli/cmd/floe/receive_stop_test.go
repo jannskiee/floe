@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -31,10 +32,11 @@ func TestHandleInterruptsStopStepRunsBeforeTheCleanupAndKeepsTheSecondSignalSwal
 	interruptHook.Store(nil)
 	var mu sync.Mutex
 	var order []string
-	step := func() {
+	step := func() bool {
 		mu.Lock()
 		order = append(order, "stop")
 		mu.Unlock()
+		return false
 	}
 	interruptStop.Store(&step)
 	entered := make(chan struct{})
@@ -99,7 +101,7 @@ func TestHandleInterruptsStopAndCleanupShareOneDeadline(t *testing.T) {
 	o := captureOutput(t)
 	interruptHook.Store(nil)
 	stall := make(chan struct{})
-	step := func() { <-stall }
+	step := func() bool { <-stall; return false }
 	interruptStop.Store(&step)
 	got := make(chan time.Duration, 1)
 	prev := abandonPartials
@@ -134,20 +136,36 @@ func TestHandleInterruptsStopAndCleanupShareOneDeadline(t *testing.T) {
 }
 
 // TestReceiveStopTellsOnlyWhileThereIsSomethingToStop: the step tells the
-// sender nothing before the channel opens (today's behavior) and nothing once
-// every announced file is committed; in between it tells it once, with the
-// saved count. After the receive returned on its own, the step leaves the
-// command's ending alone.
+// sender nothing before the channel opens (today's behavior); after that and
+// until the engine has queued "received" it tells it once, with the saved
+// count, and takes the command's ending. That holds with every file committed
+// and the frame still to come, the summary box printing (CLI-02), because a
+// close then would cut the frame off. Once the frame is queued it ends the
+// receive's linger instead and leaves the command its own ending (A4-B22), as
+// it does after the receive returned on its own.
 func TestReceiveStopTellsOnlyWhileThereIsSomethingToStop(t *testing.T) {
 	var calls []int
 	prev := tellStopped
 	tellStopped = func(_ *webrtc.DataChannel, _ *peer.Connection, saved int) { calls = append(calls, saved) }
-	t.Cleanup(func() { tellStopped = prev })
+	ended := make(chan struct{}, 4)
+	prevEnd := endLinger
+	endLinger = func(*webrtc.DataChannel, *peer.Connection) { ended <- struct{}{} }
+	t.Cleanup(func() { tellStopped, endLinger = prev, prevEnd })
 	dc, conn := &webrtc.DataChannel{}, &peer.Connection{}
+	noLinger := func(when string) {
+		t.Helper()
+		select {
+		case <-ended:
+			t.Fatalf("%s the step closed the connection as if the receive had finished", when)
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 
 	// Before the channel: nothing to tell, and the command parks.
 	r := &receiveRun{}
-	r.stop()
+	if r.stop() {
+		t.Fatal("before the channel the step left the command its ending")
+	}
 	if len(calls) != 0 {
 		t.Fatalf("the step told the sender %v before the channel opened", calls)
 	}
@@ -155,28 +173,58 @@ func TestReceiveStopTellsOnlyWhileThereIsSomethingToStop(t *testing.T) {
 		t.Fatal("a receive whose setup Ctrl+C ended went on to receive")
 	}
 
-	// Mid-transfer: 1 of 3 saved.
+	// Mid-transfer: 1 saved.
 	r = &receiveRun{}
 	r.connected(dc, conn)
-	r.files.Store(3)
 	r.saved.Store(1)
-	r.stop()
+	if r.stop() {
+		t.Fatal("mid-transfer the step left the command its ending")
+	}
 	if len(calls) != 1 || calls[0] != 1 {
 		t.Fatalf("mid-transfer the step told %v, want one stop with 1 saved", calls)
 	}
 	if r.finish() {
 		t.Fatal("the command kept its ending after Ctrl+C took it")
 	}
+	noLinger("mid-transfer")
 
-	// Every file committed: nothing to stop.
+	// Every file committed, "received" not yet queued (CLI-02): still a
+	// stop, told with the saved count, and no close ahead of the frame.
 	calls = nil
 	r = &receiveRun{}
 	r.connected(dc, conn)
-	r.files.Store(2)
 	r.saved.Store(2)
-	r.stop()
+	if r.stop() {
+		t.Fatal("between the last commit and the received frame the step left the command its ending")
+	}
+	if len(calls) != 1 || calls[0] != 2 {
+		t.Fatalf("between the last commit and the received frame the step told %v, want one stop with 2 saved", calls)
+	}
+	if r.finish() {
+		t.Fatal("the command kept its ending after Ctrl+C took it")
+	}
+	noLinger("before the received frame was queued")
+
+	// "received" queued: nothing to stop, the linger ends, and the command
+	// keeps its ending.
+	calls = nil
+	r = &receiveRun{}
+	r.connected(dc, conn)
+	r.saved.Store(2)
+	r.receivedSent()
+	if !r.stop() {
+		t.Fatal("after the received frame was queued the step took the command's ending")
+	}
 	if len(calls) != 0 {
-		t.Fatalf("the step told the sender %v after the last file was committed", calls)
+		t.Fatalf("the step told the sender %v after the received frame was queued", calls)
+	}
+	select {
+	case <-ended:
+	case <-time.After(5 * time.Second):
+		t.Fatal("after the received frame was queued the step did not end the receive's linger")
+	}
+	if !r.finish() {
+		t.Fatal("a receive that had finished lost its ending to Ctrl+C")
 	}
 
 	// The receive returned first: the command keeps its ending.
@@ -185,9 +233,54 @@ func TestReceiveStopTellsOnlyWhileThereIsSomethingToStop(t *testing.T) {
 	if !r.finish() {
 		t.Fatal("a receive that returned before Ctrl+C lost its ending")
 	}
-	r.stop()
+	if !r.stop() {
+		t.Fatal("after the receive returned the step took the command's ending")
+	}
 	if len(calls) != 0 {
 		t.Fatalf("the step told the sender %v after the receive had returned", calls)
+	}
+	select {
+	case <-ended:
+		t.Fatal("the step closed a connection the receive had already finished with")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// TestHandleInterruptsLeavesAnEndedStepsCommandAlone (A4-B22): a stop step
+// that reports its command has ended (a receive that has queued "received")
+// leaves that command to end on its own: no "Canceled.", no partial-file
+// cleanup and no exit from the handler. A second Ctrl+C still exits 130 at
+// once, so a command slow to end never holds the terminal.
+func TestHandleInterruptsLeavesAnEndedStepsCommandAlone(t *testing.T) {
+	o := captureOutput(t)
+	interruptHook.Store(nil)
+	step := func() bool { return true }
+	interruptStop.Store(&step)
+	var cleaned atomic.Int32
+	prev := abandonPartials
+	abandonPartials = func(time.Duration) { cleaned.Add(1) }
+	sig := make(chan os.Signal, 1)
+	exits := make(exitRecorder, 4)
+	t.Cleanup(func() {
+		abandonPartials = prev
+		resetReceiveStop()
+	})
+	go handleInterrupts(sig, exits.exit)
+	sig <- os.Interrupt
+	select {
+	case code := <-exits:
+		t.Fatalf("the handler exited %d for a command that had ended", code)
+	case <-time.After(500 * time.Millisecond):
+	}
+	sig <- os.Interrupt
+	if code := exits.awaitExit(t, 5*time.Second, "the second Ctrl+C"); code != 130 {
+		t.Fatalf("exit %d, want 130", code)
+	}
+	if n := cleaned.Load(); n != 0 {
+		t.Fatalf("the partial-file cleanup ran %d time(s), want none", n)
+	}
+	if _, stderr := o.text(); stderr != "" {
+		t.Fatalf("stderr = %q, want nothing", stderr)
 	}
 }
 

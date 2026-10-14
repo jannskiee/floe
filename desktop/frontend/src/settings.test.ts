@@ -71,24 +71,42 @@ describe('advancedSummary', () => {
 });
 
 describe('webPlaceholder', () => {
-    // The cases mirror TestWeb in cli/engine/serverurl/serverurl_test.go, which
-    // pins engine/serverurl.Web, the function that actually builds the link.
-    // Nothing runs both tables: this one guards only the TypeScript side, so a
-    // case added to the Go table has to be carried over here by hand.
+    // One table for both implementations: this test runs webPlaceholder over
+    // it, and TestWebMatchesTheDesktopPlaceholder in
+    // cli/engine/serverurl/serverurl_test.go reads the rows between the two
+    // markers and runs engine/serverurl.Web, the function that actually builds
+    // the link, over the same rows. A row added here is checked on both sides;
+    // keep each row on one line, in single quotes.
+    // WEB-VECTORS-BEGIN
     it.each([
         ['production', 'https://api.floe.one', 'https://floe.one'],
         ['production with trailing slash', 'https://api.floe.one/', 'https://floe.one'],
+        ['production in capitals', 'https://API.floe.one', 'https://floe.one'],
+        ['production with its default port', 'https://api.floe.one:443', 'https://floe.one'],
+        ['production in capitals with port and slash', 'HTTPS://Api.Floe.One:443/', 'https://floe.one'],
+        ['production with the root dot', 'https://api.floe.one.', 'https://floe.one'],
+        ['production with the root dot, port and slash', 'https://API.floe.one.:443/', 'https://floe.one'],
+        ['production over http is not production', 'http://api.floe.one', 'http://api.floe.one'],
         ['local dev', 'http://localhost:3001', 'http://localhost:3000'],
         ['local dev with trailing slash', 'http://localhost:3001/', 'http://localhost:3000'],
+        ['local dev in capitals', 'http://LocalHost:3001', 'http://localhost:3000'],
+        ['local dev with the root dot', 'http://localhost.:3001', 'http://localhost:3000'],
         // One-domain self-hosting: the web app and the API share an origin, so
-        // the server address is already the right link base.
+        // the server address is already the right link base, spelled the way
+        // the engine spells it.
         ['self-hosted one domain', 'https://floe.example.com', 'https://floe.example.com'],
         ['self-hosted with trailing slash', 'https://floe.example.com/', 'https://floe.example.com'],
+        ['self-hosted in capitals with its default port', 'https://Floe.Example.com:443', 'https://floe.example.com'],
+        ['self-hosted on another port', 'https://floe.example.com:8443', 'https://floe.example.com:8443'],
+        ['self-hosted path keeps its case', 'https://Floe.Example.com/Floe/', 'https://floe.example.com/Floe'],
+        ['self-hosted with the root dot keeps it', 'https://floe.example.com.', 'https://floe.example.com.'],
     ])('%s', (_name, server, want) => {
         expect(webPlaceholder(server)).toBe(want);
     });
+    // WEB-VECTORS-END
 
-    // The one deliberate divergence from the Go table, where Web('') is ''.
+    // The one deliberate divergence from engine/serverurl.Web, where Web('')
+    // is '', and the reason this case is outside the shared rows.
     // Go's callers pass an already-resolved server; this placeholder is shown
     // while the Server address field is still blank, and blank means Floe's
     // own server, so the field shows what that resolves to rather than nothing.

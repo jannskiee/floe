@@ -95,7 +95,11 @@ func windowsInstall(exe, newBinary string) error {
 	if err := copyFile(newBinary, staged, 0o755); err != nil {
 		return err
 	}
-	bak := exe + ".bak"
+	// The .bak is the name earlier versions moved the old image to; an
+	// update has always cleared it before its rename, and still does, so one
+	// those versions left goes at the next update as it always did.
+	_ = os.Remove(exe + ".bak")
+	bak := updateBackupPath(exe)
 	_ = os.Remove(bak)
 	if err := os.Rename(exe, bak); err != nil {
 		_ = os.Remove(staged)
@@ -106,8 +110,46 @@ func windowsInstall(exe, newBinary string) error {
 		_ = os.Remove(staged)
 		return fmt.Errorf("cannot install new binary: %w", err)
 	}
+	// Fails while this process runs from bak, which is every update run from
+	// floe itself; RemoveUpdateBackup takes it at the next start.
 	_ = os.Remove(bak)
 	return nil
+}
+
+// updateBackupPath is where windowsInstall moves the running image: a name
+// only floe makes, so the cleanup at every start can never take a file a
+// person made. floe.exe.bak, the name before, is the obvious one for a copy
+// kept by hand before trying a new build (CLI-03).
+func updateBackupPath(exe string) string {
+	return exe + ".floe-update-old"
+}
+
+// RemoveUpdateBackup removes the old image windowsInstall leaves beside
+// floe.exe (A4-B17): the update renames the running image aside, and its own
+// delete cannot succeed while that process runs, so the file stayed until the
+// next update. main calls this at every start, when the process runs from the
+// new floe.exe and nothing holds the old one. One still running (another floe
+// started before the update) cannot be removed and is left for a later start.
+// Windows only: no other platform's update leaves an old image.
+func RemoveUpdateBackup() {
+	if runtime.GOOS != "windows" {
+		return
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	removeUpdateBackup(exe)
+}
+
+// removeUpdateBackup is RemoveUpdateBackup for the executable at exe. It
+// removes updateBackupPath(exe) and nothing else: a floe.exe.bak is left
+// alone, because no update of this build made it (CLI-03).
+func removeUpdateBackup(exe string) {
+	_ = os.Remove(updateBackupPath(exe))
 }
 
 // copyFile copies src to dst, creating or truncating dst with the given mode.

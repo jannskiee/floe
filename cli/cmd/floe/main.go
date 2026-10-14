@@ -17,6 +17,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -28,7 +29,9 @@ import (
 
 	"github.com/jannskiee/floe/cli/engine/peer"
 	"github.com/jannskiee/floe/cli/engine/serverurl"
+	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/jannskiee/floe/cli/engine/transfer"
+	"github.com/jannskiee/floe/cli/internal/selfupdate"
 	"github.com/spf13/cobra"
 )
 
@@ -175,6 +178,36 @@ func requireRelay(hasRelay, degraded bool) error {
 	return fmt.Errorf("--relay-only needs a TURN relay and %s offers none; drop the flag, or configure a relay on the server", flagServer)
 }
 
+// hintHandshake403 and hintHandshake404 follow the /ws line when a server or
+// a proxy answered the upgrade with that status (signaling.HandshakeError,
+// whose comment says what each status means). Fixed text: nothing of the
+// answer's body or headers is ever printed.
+const (
+	hintHandshake403 = "A reverse proxy in front of the server may be changing the Host header: make it pass Host through unchanged."
+	hintHandshake404 = "Check the server address, and that a reverse proxy in front of the server forwards /ws with the WebSocket upgrade."
+)
+
+// signalingConnectError is the error floe send and floe receive end on when
+// the /ws connection fails: the words both have always printed, then, for an
+// upgrade refused with 403 or 404, the one cause that status is known for
+// (H-1). The engine's own "cannot connect to signaling server" stays inside
+// the outer words, doubled as it reads: the transfer audit's classifiers and
+// Floe Desktop's rule match "failed to connect to signaling server", and a
+// released build prints that, so the outer words cannot go before every
+// matcher reads the engine's too.
+func signalingConnectError(err error) error {
+	var hs *signaling.HandshakeError
+	if errors.As(err, &hs) {
+		switch hs.Status {
+		case http.StatusForbidden:
+			return fmt.Errorf("failed to connect to signaling server: %w. %s", err, hintHandshake403)
+		case http.StatusNotFound:
+			return fmt.Errorf("failed to connect to signaling server: %w. %s", err, hintHandshake404)
+		}
+	}
+	return fmt.Errorf("failed to connect to signaling server: %w", err)
+}
+
 // connectedLine is the status line printed once the data channel is open. It
 // names the route ICE settled on, "direct" or "relay", so a user can tell at a
 // glance whether the transfer is device to device or through the TURN relay.
@@ -231,7 +264,13 @@ var interruptHook atomic.Pointer[func() (line string, stop func())]
 // Unlike interruptHook it is never consulted for the second signal: a command
 // that sets only this keeps its second Ctrl+C swallowed while the cleanup
 // runs (review re-check LA2-5, FU-54 review 1 M1).
-var interruptStop atomic.Pointer[func()]
+//
+// The step reports whether the command has its outcome and ends on its own:
+// floe receive's does once the receive has finished, the engine having queued
+// "received", and only its wait for the sender to read it is left (A4-B22). The handler then prints nothing, runs no cleanup and leaves the
+// exit code to the command, and a second signal exits 130 at once, as for a
+// hook's nil stop. A step that stalls past interruptStopBound reports false.
+var interruptStop atomic.Pointer[func() (ended bool)]
 
 // interruptCleanupBound is the one deadline the step and the partial-file
 // cleanup share (FU-12's 5 s): the cleanup gets what the step left of it.
@@ -259,7 +298,8 @@ func interruptLine() (string, func()) {
 // runs the stop and exits 130. For a command with a hook (interruptHook), a
 // second one while that runs exits 130 at once, so a stop that stalls never
 // holds the terminal, and a nil stop leaves a command that has its outcome
-// to end on its own while a second signal still ends it at once. Every other
+// to end on its own while a second signal still ends it at once; so does a
+// stop step that reports its command has ended (interruptStop). Every other
 // command keeps the handler it always had: its second signal is swallowed,
 // so the partial-file cleanup runs to its end or its 5 s bound (review
 // re-check LA2-5).
@@ -291,7 +331,15 @@ func handleInterrupts(sigCh <-chan os.Signal, exit func(int)) {
 	// The receive's stop step, before the cleanup: once the connection is
 	// closed, the write failure the cleanup causes has nowhere to go.
 	if step != nil {
-		runWithin(*step, interruptStopBound)
+		if runWithin(*step, interruptStopBound) {
+			if interruptHook.Load() == nil {
+				go func() {
+					<-sigCh
+					exit(130)
+				}()
+			}
+			return
+		}
 		fmt.Fprintln(os.Stderr, line)
 	}
 	// os.Exit skips every defer, including the receiver's partial-file
@@ -306,17 +354,17 @@ func handleInterrupts(sigCh <-chan os.Signal, exit func(int)) {
 	exit(130)
 }
 
-// runWithin runs step and waits for it at most d; a step that stalls carries
-// on in the background until the process exits.
-func runWithin(step func(), d time.Duration) {
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		step()
-	}()
+// runWithin runs step, waits for it at most d and returns its answer; a step
+// that stalls carries on in the background until the process exits, and
+// counts as false.
+func runWithin(step func() bool, d time.Duration) bool {
+	done := make(chan bool, 1)
+	go func() { done <- step() }()
 	select {
-	case <-done:
+	case ended := <-done:
+		return ended
 	case <-time.After(d):
+		return false
 	}
 }
 
@@ -343,6 +391,9 @@ func main() {
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	go handleInterrupts(sigCh, os.Exit)
 
+	// The old binary a Windows `floe update` could not delete while it ran.
+	selfupdate.RemoveUpdateBackup()
+
 	if err := execute(os.Args[1:]); err != nil {
 		os.Exit(1)
 	}
@@ -366,18 +417,19 @@ func main() {
 // nothing: the request-link send has already printed the lines that end it
 // (sendto.go). Both still return the error, so main exits 1.
 //
-// One unknown command does not reach cobra: a request link typed where the
-// command goes (`floe <link>`, the subcommand forgotten). Cobra's error
-// quotes it, and a request link's fragment is its room id, the key to its
-// one seat, so it ends on the plain send's outcome instead, errLinkTypedAsPath
-// (D-153), printed the same way (FU-53, FU-46 review 1 L4).
+// Two unknown commands do not reach cobra: a request link or a room link
+// typed where the command goes (`floe <link>`, the subcommand forgotten).
+// Cobra's error quotes it, and either link carries a room id, the key to a
+// seat. A request link ends on the plain send's outcome instead,
+// errLinkTypedAsPath (D-153, FU-53, FU-46 review 1 L4), and a room link on
+// errRoomLinkTypedAsCommand (A4-B21), each printed the same way.
 func execute(args []string) error {
 	for _, c := range rootCmd.Commands() {
 		c.SilenceErrors = true
 	}
 	rootCmd.SetArgs(args)
-	if linkTypedAsCommand(args) {
-		err := outcomeError{errLinkTypedAsPath}
+	if typed := linkTypedAsCommand(args); typed != nil {
+		err := outcomeError{typed}
 		fmt.Fprintln(rootCmd.ErrOrStderr(), "  "+errorText(err))
 		return err
 	}
@@ -425,32 +477,76 @@ func firstWord(args []string) int {
 	return -1
 }
 
-// linkTypedAsCommand reports whether cobra, run on args, would end on an
+// errRoomLinkTypedAsCommand ends `floe <room link>`, the subcommand
+// forgotten (A4-B21): cobra's unknown-command error quoted the link and its
+// room id. execute prints it as an outcome, alone on the indent, and main
+// exits 1. Fixed text in the form of errLinkTypedAsPath.
+var errRoomLinkTypedAsCommand = errors.New("That looks like a link to receive from. To receive, use: floe receive <link>")
+
+// linkTypedAsCommand is the outcome for a run that cobra would end on an
 // unknown command whose name, the first argument that is not a root flag or
-// a flag's value, is a request link (looksLikeRequestLink). It asks cobra's
-// own Find, which parses no flag and makes no network call; a run Find does
-// not refuse, or refuses for another name, goes to cobra unchanged.
+// a flag's value, is a link that carries a room id: errLinkTypedAsPath for a
+// request link (looksLikeRequestLink), errRoomLinkTypedAsCommand for a room
+// link (looksLikeRoomLink), nil for every other run. It asks cobra's own
+// Find, which parses no flag and makes no network call; a run Find does not
+// refuse, or refuses for another name, goes to cobra unchanged.
 //
 // `floe help <link>` is the same slip one word later: cobra adds its help
 // command inside ExecuteC, and help answers an unknown topic with "Unknown
 // help topic" and the link quoted, room id and all (deep QA A3-07). Find
 // cannot see help yet, so the first word is read here.
-func linkTypedAsCommand(args []string) bool {
+func linkTypedAsCommand(args []string) error {
 	if i := firstWord(args); i >= 0 && args[i] == "help" {
 		for _, a := range args[i+1:] {
-			if looksLikeRequestLink(a) {
-				return true
+			if typed := linkAsCommand(a); typed != nil {
+				return typed
 			}
 		}
 	}
 	cmd, _, err := rootCmd.Find(args)
 	if err == nil || cmd != rootCmd {
-		return false
+		return nil
 	}
 	for _, a := range args {
-		if looksLikeRequestLink(a) && strings.Contains(err.Error(), strconv.Quote(a)) {
-			return true
+		if typed := linkAsCommand(a); typed != nil && strings.Contains(err.Error(), strconv.Quote(a)) {
+			return typed
 		}
+	}
+	return nil
+}
+
+// linkAsCommand is linkTypedAsCommand's outcome for one argument. A request
+// link is asked first: its fragment holds no room=, but a query can.
+func linkAsCommand(a string) error {
+	switch {
+	case looksLikeRequestLink(a):
+		return errLinkTypedAsPath
+	case looksLikeRoomLink(a):
+		return errRoomLinkTypedAsCommand
+	}
+	return nil
+}
+
+// looksLikeRoomLink reports whether arg is a room link, whole or cut short:
+// "room=" after a # or a ? or an &, in any letter case, in arg as typed or
+// with its percent escapes decoded, up to three times over, as
+// looksLikeRequestLink decodes. A room id is not required after it, so a
+// link cut short is caught too; a file name with "room=" in it is a command
+// cobra would refuse anyway, and only the words of that refusal change.
+func looksLikeRoomLink(arg string) bool {
+	s := arg
+	for range 4 {
+		l := strings.ToLower(s)
+		for _, mark := range []string{"#room=", "?room=", "&room="} {
+			if strings.Contains(l, mark) {
+				return true
+			}
+		}
+		decoded := percentDecodeLoose(s)
+		if decoded == s {
+			return false
+		}
+		s = decoded
 	}
 	return false
 }

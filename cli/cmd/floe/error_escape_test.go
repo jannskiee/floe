@@ -222,6 +222,49 @@ func TestRequestLinkTypedAsTheCommandIsNeverPrintedBack(t *testing.T) {
 	}
 }
 
+// TestRoomLinkTypedAsTheCommandIsNeverPrintedBack (A4-B21): `floe <room
+// link>`, the subcommand forgotten, ended on cobra's unknown-command error,
+// which quotes the link and its room id, the key to the receiving seat, into
+// scrollback. It now ends on one fixed line that names floe receive, alone on
+// the indent, in the shapes a room link is pasted in, after a root flag and
+// after help too; main exits 1 on the error. A request link keeps its own
+// line (TestRequestLinkTypedAsTheCommandIsNeverPrintedBack).
+func TestRoomLinkTypedAsTheCommandIsNeverPrintedBack(t *testing.T) {
+	const line = "That looks like a link to receive from. To receive, use: floe receive <link>"
+	room := uuid.New().String()
+	link := "https://floe.one/#room=" + room
+	for name, args := range map[string][]string{
+		"a whole link":                 {link},
+		"a query link":                 {"https://floe.one/?room=" + room},
+		"a self-hosted link":           {"https://files.example.com/#room=" + room},
+		"no scheme":                    {"floe.one/#room=" + room},
+		"angle brackets":               {"<" + link + ">"},
+		"a capital ROOM":               {"https://floe.one/#ROOM=" + room},
+		"a link cut short":             {"https://floe.one/#room=" + room[:13]},
+		"percent-encoded":              {"https%3A%2F%2Ffloe.one%2F%23room%3D" + room},
+		"after a root flag":            {"--no-relay", link},
+		"after --server and its value": {"--server", closedServer, link},
+		"with --help after it":         {link, "--help"},
+		"after help":                   {"help", link},
+	} {
+		t.Run(name, func(t *testing.T) {
+			stdout, stderr, err := runArgsAll(t, args...)
+			all := strings.ToLower(stdout + stderr)
+			for _, leak := range []string{strings.ToLower(room[:13]), "unknown command", "unknown help topic"} {
+				if strings.Contains(all, leak) {
+					t.Fatalf("%q was printed:\nstdout:\n%s\nstderr:\n%s", leak, stdout, stderr)
+				}
+			}
+			if err == nil {
+				t.Fatal("execute returned nil, want the outcome main exits 1 on")
+			}
+			if stdout != "" || stderr != "  "+line+"\n" {
+				t.Fatalf("want the one line %q on stderr and nothing on stdout\nstdout:\n%q\nstderr:\n%q", line, stdout, stderr)
+			}
+		})
+	}
+}
+
 // runArgsAll runs the command tree through execute with args, as main runs
 // it, and returns what reached stdout (cobra's writer and the process's) and
 // the error writer, with the error main turns into exit 1.

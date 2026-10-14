@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"hash"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -22,6 +23,21 @@ import (
 	"github.com/pion/webrtc/v4"
 	"github.com/schollz/progressbar/v3"
 )
+
+// countingReader counts the bytes read through it: the Accept prompt's read
+// of stdin, so the prompt can tell an answer from no input at all (CLI-06).
+// fmt reads a reader that is not an io.RuneScanner one byte at a time, as it
+// reads os.Stdin, so wrapping it changes nothing about what is consumed.
+type countingReader struct {
+	r io.Reader
+	n int
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += n
+	return n, err
+}
 
 // Receive-loop stall watchdog. Before the first metadata the sender needs no
 // human input and metadata is due about one RTT after the channel opens, so a
@@ -80,9 +96,12 @@ type FileInfo struct {
 
 // reportBytesToServer posts the received byte count to the server's stats
 // endpoint after a successful transfer. Fire-and-forget: errors are silently
-// ignored so a network hiccup never affects the transfer outcome.
+// ignored so a network hiccup never affects the transfer outcome. A count of
+// zero or less posts nothing: a transfer of only empty files completes with
+// zero, and the server answers that 400 after its per-IP limiter has already
+// counted the request (A5-B9).
 func reportBytesToServer(serverURL string, byteCount int64) {
-	if serverURL == "" {
+	if serverURL == "" || byteCount <= 0 {
 		return
 	}
 	payload, _ := json.Marshal(map[string]int64{"bytes": byteCount})
@@ -139,6 +158,16 @@ type ReceiveOptions struct {
 	// next ack, so keep it fast, never call back into the engine and never
 	// block on UI.
 	OnFileDone func(FileDone)
+	// OnReceivedSent fires once, right after the "received" frame is handed to
+	// the channel: the loop has committed as many files as the total it is
+	// held to, the latest metadata's, and has finished but for its wait for
+	// the sender to read that frame and the byte report. It is the only
+	// signal that says so. The first metadata's total cannot (a sender may
+	// raise it in a later frame), and neither can the last OnFileDone, which
+	// fires before the frame is queued (CLI-01, CLI-02). Never fired for a
+	// receive that ends any other way. It runs on the receive loop: keep it
+	// fast and never call back into the engine.
+	OnReceivedSent func()
 	// Decide, when non-nil, is consulted exactly once and synchronously, right
 	// after OnIncoming for the first metadata: after the compatibility check,
 	// before any directory or staging file is created and before the first
@@ -596,7 +625,21 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					if opts.Decide == nil && !autoAccept {
 						fmt.Print("  Accept? [Y/n] ")
 						var answer string
-						fmt.Scanln(&answer)
+						in := &countingReader{r: os.Stdin}
+						fmt.Fscanln(in, &answer)
+						// A read that took nothing (stdin closed, Ctrl+D or
+						// Ctrl+Z at the prompt) echoed nothing, so the prompt
+						// ends its own line; it used to share one with the
+						// first progress line (A4-B25). Anything read, even an
+						// empty line, adds nothing: a terminal echoed its Enter,
+						// and a console that echoes typed input through a pipe
+						// (mintty, an IDE's run console) cannot be told from a
+						// pipe, where a line break would follow the echo as a
+						// blank line. A piped answer keeps the shared line
+						// (CLI-06).
+						if in.n == 0 {
+							fmt.Println()
+						}
 						answer = strings.TrimSpace(strings.ToLower(answer))
 						// The question the Decide path asks above, for the same
 						// reason: the prompt can wait as long as a person does,
@@ -911,6 +954,9 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 						// hashes and no file carried one.
 						receivedMsg, _ := json.Marshal(map[string]interface{}{"type": "received", "verified": verifiedCount})
 						dc.Send([]byte(receivedMsg))
+						if opts.OnReceivedSent != nil {
+							opts.OnReceivedSent()
+						}
 						sentReceived := time.Now()
 
 						// Keep the connection until the sender has this frame:

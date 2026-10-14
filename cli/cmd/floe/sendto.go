@@ -684,9 +684,10 @@ func savedSentence(saved, n int) string {
 }
 
 // lostLine is TL-27: "Connection lost. 4 of 12 files arrived. Ask them for a
-// new link to send the other 8.", with "the rest" when none are left to name
-// and D-123's singular (approved-copy-web.md C-111: "0 of 1 file arrived. Ask
-// them for a new link to send it.").
+// new link to send the other 8.", with "the rest" when none are left to name,
+// D-123's singular (approved-copy-web.md C-111: "0 of 1 file arrived. Ask
+// them for a new link to send it.") and, for exactly one left of more than
+// one, "the other one" (owner answer 22, the /r page's words too).
 func lostLine(arrived, n int) string {
 	arrived = clampCount(arrived, n)
 	count := fmt.Sprintf("%d of %d files arrived.", arrived, n)
@@ -697,6 +698,8 @@ func lostLine(arrived, n int) string {
 	switch left := n - arrived; {
 	case left > 0 && n == 1:
 		rest = "Ask them for a new link to send it."
+	case left == 1:
+		rest = "Ask them for a new link to send the other one."
 	case left > 0:
 		rest = fmt.Sprintf("Ask them for a new link to send the other %d.", left)
 	}

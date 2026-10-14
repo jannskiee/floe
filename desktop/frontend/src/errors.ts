@@ -65,6 +65,11 @@ export const RULES: Array<[pattern: string, friendly: string]> = [
     // when resolving code': a 502 or 503 from a proxy in front of a stopped
     // server, a 500) says nothing about the code, so it is not read as a typo.
     ['when resolving code', "Can't reach the server"],
+    // A room link whose #room= value is not a room id, cut short when it was
+    // copied (A4-B27): the engine refuses it in Resolve now, behind the same
+    // wrapper, so it says what the server's 'Invalid room ID' below says for
+    // a build that predates the check.
+    ['room id in this link is incomplete', 'That link is incomplete'],
     // The 404 behind the same wrapper lands here however the engine words it
     // ("not found or expired (codes expire after 10 minutes)", or "not found:
     // it was already used, the sender left, or it expired ..."): the match is

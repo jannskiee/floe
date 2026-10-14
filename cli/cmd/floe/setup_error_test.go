@@ -156,7 +156,7 @@ func requireEscapedSetupError(t *testing.T, printed string) {
 func TestReceiveEscapesAHostileOffer(t *testing.T) {
 	t.Setenv("FLOE_NO_STATS", "1")
 	url := hostilePeer(t, "receiver")
-	printed := runAgainst(t, url, "receive", url+"/#room=floe-hostile-sdp", "--no-report", "--output", t.TempDir())
+	printed := runAgainst(t, url, "receive", url+"/#room=6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f", "--no-report", "--output", t.TempDir())
 	requireEscapedSetupError(t, printed)
 }
 

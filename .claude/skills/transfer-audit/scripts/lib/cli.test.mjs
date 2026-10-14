@@ -744,6 +744,35 @@ test(
     }
 );
 
+// The engine's STUN-only warnings (cli/engine/ice/credentials.go FetchDetail):
+// the unreachable one every release has printed, the status one, and the
+// unreadable-answer one added after floe 1.11.0 (A4-B19). The marker read only
+// the first, so a leg that fell back to STUN for either other reason was not
+// marked. Read from the Go source, so a reworded warning fails here first.
+test('turnWarning reads every STUN-only warning the engine prints, old and new', () => {
+    const src = readFileSync(
+        new URL('../../../../../cli/engine/ice/credentials.go', import.meta.url),
+        'utf8'
+    );
+    const printed = [
+        ...src.matchAll(/fmt\.Print(?:ln|f)\("(  Warning: [^"]*Using STUN only\.)(?:\\n)?"/g),
+    ].map((m) => m[1].replace('%d', '429'));
+    assert.equal(printed.length, 3, `the engine's warnings: ${printed.join(' | ')}`);
+    for (const line of [
+        '  Warning: could not reach signaling server for TURN credentials. Using STUN only.',
+        '  Warning: signaling server returned 429 for TURN credentials. Using STUN only.',
+        '  Warning: could not read TURN credentials from the signaling server. Using STUN only.',
+        ...printed,
+    ])
+        assert.ok(MARKERS.turnWarning.test(line), line);
+    for (const line of [
+        '  Warning: could not generate short code',
+        'Warning: could not reach signaling server for TURN credentials. Using STUN only.',
+        '  Using STUN only.',
+    ])
+        assert.ok(!MARKERS.turnWarning.test(line), line);
+});
+
 test('parses the Verified row', () => {
     // Shape from receiver.go's summary: labels padded to the longest one.
     const lines = [

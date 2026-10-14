@@ -41,6 +41,17 @@ import (
 // peers have joined.
 func plainRoom(t *testing.T) (url string, seated func() int) {
 	t.Helper()
+	url, seated, _ = plainRoomWithStats(t)
+	return url, seated
+}
+
+// plainRoomWithStats is plainRoom that also takes the receiver's byte report
+// (POST /api/stats/report, on this loopback server and nowhere else); posts
+// returns the bodies it was sent.
+func plainRoomWithStats(t *testing.T) (url string, seated func() int, posts func() []string) {
+	t.Helper()
+	var statsMu sync.Mutex
+	var bodies []string
 	type seat struct {
 		ws  *websocket.Conn
 		wmu sync.Mutex
@@ -59,6 +70,12 @@ func plainRoom(t *testing.T) (url string, seated func() int) {
 	})
 	mux.HandleFunc("/api/code", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"code": "olive-tiger-castle"})
+	})
+	mux.HandleFunc("/api/stats/report", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<10))
+		statsMu.Lock()
+		bodies = append(bodies, string(body))
+		statsMu.Unlock()
 	})
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		ws, err := up.Upgrade(w, r, nil)
@@ -117,11 +134,17 @@ func plainRoom(t *testing.T) (url string, seated func() int) {
 		mu.Unlock()
 		srv.Close()
 	})
-	return srv.URL, func() int {
+	seated = func() int {
 		mu.Lock()
 		defer mu.Unlock()
 		return len(seats)
 	}
+	posts = func() []string {
+		statsMu.Lock()
+		defer statsMu.Unlock()
+		return append([]string(nil), bodies...)
+	}
+	return srv.URL, seated, posts
 }
 
 // engineSender is the in-process sender: seated first, it waits for the
@@ -218,9 +241,22 @@ type receiveCtrlC struct {
 
 func startReceiveCtrlC(t *testing.T, url string, args ...string) *receiveCtrlC {
 	t.Helper()
+	return startReceiveCtrlCReport(t, url, false, args...)
+}
+
+// startReceiveCtrlCReport is startReceiveCtrlC with the byte report on when
+// report is set. url must be a loopback test server: the report goes to it.
+func startReceiveCtrlCReport(t *testing.T, url string, report bool, args ...string) *receiveCtrlC {
+	t.Helper()
 	resetSharedFlags(t)
 	t.Setenv("FLOE_SERVER", url)
 	t.Setenv("FLOE_NO_STATS", "1")
+	if report {
+		if !strings.HasPrefix(url, "http://127.0.0.1:") {
+			t.Fatalf("a reporting receive must report to a loopback test server, not %s", url)
+		}
+		t.Setenv("FLOE_NO_STATS", "")
+	}
 	rootCmd.SetOut(nil)
 	rootCmd.SetErr(nil)
 	c := &receiveCtrlC{
@@ -242,7 +278,10 @@ func startReceiveCtrlC(t *testing.T, url string, args ...string) *receiveCtrlC {
 		c.exits.exit(code)
 	})
 	argv := append([]string{"receive"}, args...)
-	argv = append(argv, "--server", url, "--no-report")
+	argv = append(argv, "--server", url)
+	if !report {
+		argv = append(argv, "--no-report")
+	}
 	go func() {
 		defer close(c.done)
 		c.err = execute(argv)
@@ -563,18 +602,21 @@ func TestReceiveCtrlCBetweenFilesCarriesTheSavedCount(t *testing.T) {
 	}
 }
 
-// TestReceiveCtrlCAfterTheLastCommitTellsNothing (FU-54 review 2 L1): once
-// the sender has read "received" every announced file is committed, and a
-// Ctrl+C in the receive's linger has nothing to stop, so no frame goes out.
-// This pins the OnIncoming count: without it the step cannot tell "all saved"
-// from "nothing announced yet".
-func TestReceiveCtrlCAfterTheLastCommitTellsNothing(t *testing.T) {
+// TestReceiveCtrlCAfterTheLastCommitEndsAsASuccess (A4-B22, FU-54 review 2
+// L1): once the engine has queued "received" the receive has finished, and a
+// Ctrl+C in its linger (the wait after the summary box for the sender to read
+// that frame) has nothing to stop. No frame goes out, nothing is printed, the
+// byte report is posted and the command ends on its own with no error, at
+// once rather than when the linger would have run out. It used to print
+// "Canceled.", exit 130 and skip the report. This pins the OnReceivedSent
+// wiring: without it the step cannot tell "finished" from "still receiving".
+func TestReceiveCtrlCAfterTheLastCommitEndsAsASuccess(t *testing.T) {
 	o := captureOutput(t)
 	var told atomic.Int32
 	prevTell := tellStopped
 	tellStopped = func(*webrtc.DataChannel, *peer.Connection, int) { told.Add(1) }
 	t.Cleanup(func() { tellStopped = prevTell })
-	url, _ := plainRoom(t)
+	url, _, posts := plainRoomWithStats(t)
 	src := filepath.Join(t.TempDir(), "only.txt")
 	if err := os.WriteFile(src, []byte("only file"), 0o600); err != nil {
 		t.Fatal(err)
@@ -582,7 +624,7 @@ func TestReceiveCtrlCAfterTheLastCommitTellsNothing(t *testing.T) {
 	room := uuid.New().String()
 	_, result := engineSender(t, url, room, []string{src})
 	out := t.TempDir()
-	c := startReceiveCtrlC(t, url, url+"/#room="+room, "-y", "--output", out)
+	c := startReceiveCtrlCReport(t, url, true, url+"/#room="+room, "-y", "--output", out)
 	select {
 	case err := <-result:
 		if err != nil {
@@ -591,14 +633,223 @@ func TestReceiveCtrlCAfterTheLastCommitTellsNothing(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("the send never ended")
 	}
-	// The sender holds its connection, so the receive is in its linger.
+	// The sender holds its connection, so the receive is in its linger, which
+	// would end on its own 5 s from now (the engine's receivedGrace).
+	pressed := time.Now()
 	c.sig <- os.Interrupt
-	c.wantCanceledAnd130(t, o)
+	select {
+	case <-c.done:
+	case code := <-c.exits:
+		t.Fatalf("Ctrl+C after the last commit exited %d", code)
+	case <-c.parked:
+		t.Fatal("Ctrl+C after the last commit took the command's ending")
+	case <-time.After(10 * time.Second):
+		t.Fatal("the command did not end after Ctrl+C")
+	}
+	if waited := time.Since(pressed); waited > 3*time.Second {
+		t.Fatalf("the command ended %v after Ctrl+C: it waited out its linger", waited)
+	}
+	if c.err != nil {
+		t.Fatalf("the command ended on %v, want success (exit 0)", c.err)
+	}
+	select {
+	case code := <-c.exits:
+		t.Fatalf("the handler exited %d after the command ended on its own", code)
+	case <-time.After(300 * time.Millisecond):
+	}
+	if _, stderr := o.text(); pionLog.ReplaceAllString(stderr, "") != "" {
+		t.Fatalf("stderr = %q, want nothing", stderr)
+	}
 	if n := told.Load(); n != 0 {
 		t.Fatalf("Ctrl+C after the last commit told the sender stopped %d time(s), want none", n)
 	}
+	if got := posts(); len(got) != 1 || got[0] != `{"bytes":9}` {
+		t.Fatalf("byte reports %q, want one of the file's 9 bytes", got)
+	}
 	if _, err := os.Stat(filepath.Join(out, "only.txt")); err != nil {
 		t.Fatalf("the committed file is gone: %v", err)
+	}
+}
+
+// handRoomSender is a sender seated first in the plain room that speaks the
+// wire by hand: run gets its open channel and every frame the receiver sends
+// back, and its error arrives on the returned channel. Like engineSender it
+// never closes its connection before the test ends.
+func handRoomSender(t *testing.T, url, room string, run func(dc *webrtc.DataChannel, back <-chan webrtc.DataChannelMessage) error) <-chan error {
+	t.Helper()
+	sc, err := signaling.Connect(url)
+	if err != nil {
+		t.Fatalf("sender signaling connect: %v", err)
+	}
+	if err := sc.JoinRoom(room); err != nil {
+		t.Fatalf("sender join: %v", err)
+	}
+	select {
+	case role := <-sc.Role:
+		if role != "sender" {
+			t.Fatalf("the hand sender was seated as %q", role)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the hand sender was never seated")
+	}
+	res := make(chan error, 1)
+	var conn *peer.Connection
+	var connMu sync.Mutex
+	go func() {
+		select {
+		case <-sc.PeerConnected:
+		case <-time.After(30 * time.Second):
+			res <- errors.New("no receiver came")
+			return
+		}
+		c, err := peer.New(nil, sc)
+		if err != nil {
+			res <- err
+			return
+		}
+		connMu.Lock()
+		conn = c
+		connMu.Unlock()
+		dc, err := c.SetupAsSender()
+		if err != nil {
+			res <- err
+			return
+		}
+		res <- run(dc, c.Early().Msgs)
+	}()
+	t.Cleanup(func() {
+		connMu.Lock()
+		if conn != nil {
+			conn.Close()
+		}
+		connMu.Unlock()
+		sc.Close()
+	})
+	return res
+}
+
+// frameOf reads a receiver's frame, text or binary (acks and "received" go
+// out as binary), as its type and the two fields a refusal carries.
+func frameOf(m webrtc.DataChannelMessage) (typ, code string, saved int) {
+	var f struct {
+		Type  string `json:"type"`
+		Code  string `json:"code"`
+		Saved int    `json:"saved"`
+	}
+	if json.Unmarshal(m.Data, &f) != nil {
+		return "", "", 0
+	}
+	return f.Type, f.Code, f.Saved
+}
+
+// TestReceiveCtrlCAfterARaisedTotalTellsTheSenderStopped (CLI-01): a sender
+// announces 2 files, then 3 in its second metadata frame, and is partway
+// through file 3 when Ctrl+C comes. Two files are committed, as many as the
+// first frame announced, but the receive is held to the latest total and has
+// not finished: Ctrl+C is a stop like any other. The sender is told code
+// stopped with 2 saved, the receiver prints "Canceled." alone and exits 130,
+// and only the .part goes. Deciding from the first total used to close the
+// connection under the running receive, which then ended on its own error
+// with exit 1 and told the sender nothing.
+func TestReceiveCtrlCAfterARaisedTotalTellsTheSenderStopped(t *testing.T) {
+	o := captureOutput(t)
+	url, _ := plainRoom(t)
+	room := uuid.New().String()
+	midFile := make(chan struct{})
+	told := make(chan int, 1)
+	result := handRoomSender(t, url, room, func(dc *webrtc.DataChannel, back <-chan webrtc.DataChannelMessage) error {
+		await := func(want string) (code string, saved int, err error) {
+			for deadline := time.After(30 * time.Second); ; {
+				select {
+				case m := <-back:
+					if typ, code, saved := frameOf(m); typ == want {
+						return code, saved, nil
+					} else if typ == "incompatible" {
+						return "", 0, fmt.Errorf("the receiver refused (%s) while this side waited for %s", code, want)
+					}
+				case <-deadline:
+					return "", 0, fmt.Errorf("no %s from the receiver", want)
+				}
+			}
+		}
+		file := func(name string, size, index, total int, body []byte, end bool) error {
+			meta, _ := json.Marshal(map[string]any{
+				"type": "metadata", "id": fmt.Sprintf("hand-%d", index), "fileName": name,
+				"fileSize": size, "index": index, "total": total, "totalBytes": 3 + 10_000_000,
+			})
+			if err := dc.SendText(string(meta)); err != nil {
+				return err
+			}
+			if _, _, err := await("ack"); err != nil {
+				return err
+			}
+			if err := dc.Send(body); err != nil {
+				return err
+			}
+			if end {
+				return dc.SendText(`{"type":"end"}`)
+			}
+			return nil
+		}
+		if err := file("a.txt", 1, 1, 2, []byte("a"), true); err != nil {
+			return err
+		}
+		if err := file("b.txt", 2, 2, 3, []byte("bb"), true); err != nil {
+			return err
+		}
+		if err := file("c.bin", 10_000_000, 3, 3, make([]byte, 4096), false); err != nil {
+			return err
+		}
+		close(midFile)
+		code, saved, err := await("incompatible")
+		if err != nil {
+			return err
+		}
+		if code != string(transfer.CodeStopped) {
+			return fmt.Errorf("the receiver refused with code %q, want stopped", code)
+		}
+		told <- saved
+		return nil
+	})
+	out := t.TempDir()
+	c := startReceiveCtrlC(t, url, url+"/#room="+room, "-y", "--output", out)
+	select {
+	case <-midFile:
+	case err := <-result:
+		t.Fatalf("the hand sender ended before file 3: %v", err)
+	case <-time.After(30 * time.Second):
+		t.Fatal("the hand sender never reached file 3")
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		if fi, err := os.Stat(filepath.Join(out, "c.bin.part")); err == nil && fi.Size() >= 4096 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the receive never wrote file 3's first bytes")
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	c.sig <- os.Interrupt
+
+	select {
+	case saved := <-told:
+		if saved != 2 {
+			t.Fatalf("the sender was told stopped with %d saved, want 2", saved)
+		}
+	case err := <-result:
+		t.Fatalf("the hand sender ended without being told stopped: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the sender heard nothing within 5 s of the receiver's Ctrl+C")
+	}
+	c.wantCanceledAnd130(t, o)
+	if parts, _ := filepath.Glob(filepath.Join(out, "*.part")); len(parts) != 0 {
+		t.Fatalf("the canceled receive left %v behind", parts)
+	}
+	for _, name := range []string{"a.txt", "b.txt"} {
+		if _, err := os.Stat(filepath.Join(out, name)); err != nil {
+			t.Fatalf("the committed %s is gone: %v", name, err)
+		}
 	}
 }
 
