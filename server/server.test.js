@@ -22,6 +22,10 @@ const path = require('node:path');
 const POLICY_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'floe-policy-test-'));
 const POLICY_PATH = path.join(POLICY_DIR, 'policy.json');
 process.env.POLICY_FILE = POLICY_PATH;
+// The address tests assume one trusted proxy hop. Set here, before the
+// require, because dotenv never overrides a variable that is already set: a
+// server/.env copied from .env.example (which ships 0) must not change them.
+process.env.TRUSTED_PROXY_COUNT = '1';
 after(() => fs.rmSync(POLICY_DIR, { recursive: true, force: true }));
 
 const {
@@ -32,6 +36,8 @@ const {
 } = require('./policy');
 
 const { roomIdFromToken } = require('./hosttoken');
+
+const { envLimit } = require('./envlimit');
 
 const {
     errorHandler,
@@ -297,14 +303,16 @@ describe('isAllowedOrigin', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleUpgradeRequest order', () => {
-    it('keeps the error listener first and the origin check after both pass-through returns', () => {
+    it('keeps the error listener first and the Socket.IO pass-through above the 404 and the origin check', () => {
         // CLAUDE.md (File Size and Structure): the no-op socket error listener has
         // to precede anything that can throw, and the Socket.IO pass-through has to
-        // precede anything that can refuse. A refusal placed above either return
-        // would write a status line into a socket engine.io owns. On the wire that is
-        // invisible today, because engine.io refuses a foreign Origin itself
-        // before this handler runs (crashguard.test.js has the live check), so
-        // the order is pinned here as well, from the source.
+        // precede anything that can refuse. A refusal placed above that return
+        // would write a status line into a socket engine.io owns. Two refusals
+        // sit below it: the 404 for a path that is neither /ws nor engine.io's,
+        // and the origin check. For the second the wire shows nothing today,
+        // because engine.io refuses a foreign Origin itself before this handler
+        // runs (crashguard.test.js has the live checks for both), so the order
+        // is pinned here as well, from the source.
         const source = require('node:fs').readFileSync(require.resolve('./server.js'), 'utf8');
         const start = source.indexOf('function handleUpgradeRequest(');
         const end = source.indexOf("server.on('upgrade', handleUpgradeRequest);");
@@ -322,8 +330,9 @@ describe('handleUpgradeRequest order', () => {
         };
         const order = [
             "socket.on('error', () => {});",
-            "if (pathname !== '/ws') return;",
             "if (req.url.startsWith(io.path() + '/')) return;",
+            "if (pathname !== '/ws') {",
+            'refuseUpgrade(socket, 404);',
             'if (!isAllowedOrigin(req.headers.origin, req.headers.host)) {',
             // The warn call rather than refuseUpgrade(socket, 403), which later
             // checks in this handler may also use; this call is the origin check's own.
@@ -333,6 +342,13 @@ describe('handleUpgradeRequest order', () => {
         for (let i = 1; i < order.length; i++) {
             assert.ok(order[i - 1] < order[i], `check ${i} runs before check ${i - 1}`);
         }
+
+        // One return leaves the socket alone, and it is the pass-through. Any
+        // other bare return is an upgrade nobody answers and nobody owns.
+        const bareReturns = code.split('\n')
+            .filter(line => /^\s*if \(.*\) return;\s*$/.test(line))
+            .map(line => line.trim());
+        assert.deepEqual(bareReturns, ["if (req.url.startsWith(io.path() + '/')) return;"]);
     });
 });
 
@@ -1422,6 +1438,87 @@ describe('statsRateLimits', () => {
 });
 
 // ---------------------------------------------------------------------------
+// envLimit: how the six MAX_* settings are read (server/envlimit.js)
+// ---------------------------------------------------------------------------
+
+describe('envLimit', () => {
+    // One read against an environment of its own, with every line it logged.
+    function read(value, fallback = 30) {
+        const lines = [];
+        const env = value === undefined ? {} : { MAX_EXAMPLE: value };
+        const result = envLimit('MAX_EXAMPLE', fallback, { env, warn: (line) => lines.push(line) });
+        return { result, lines };
+    }
+
+    it('unset, empty and blank mean the default and say nothing', () => {
+        // Compose passes an empty string for a variable its .env leaves out, and
+        // the Unraid template does the same for a field left empty.
+        for (const value of [undefined, '', ' ', '\t']) {
+            assert.deepEqual(read(value), { result: 30, lines: [] }, JSON.stringify(value));
+        }
+    });
+
+    it('a whole number of at least 1, written in digits, is used', () => {
+        const rows = [
+            ['1', 1],
+            ['30', 30],
+            ['1000', 1000],
+            [' 45 ', 45],
+            ['007', 7],
+            ['5497558138880', 5497558138880],
+            // Past 2^53 the number is no longer exact, and no check it feeds
+            // needs it to be: every one is `count >= max`.
+            ['99999999999999999999', 1e20],
+        ];
+        for (const [value, expected] of rows) {
+            assert.deepEqual(read(value), { result: expected, lines: [] }, JSON.stringify(value));
+        }
+    });
+
+    it('anything else gets the default and one line', () => {
+        // Each of these either refused everything the limit guards (a negative
+        // number is truthy, and every check is `count >= max`), or was read as
+        // a number its writer did not mean: parseInt made "1e3" and "1,000"
+        // into 1 and "12.5" into 12.
+        const values = [
+            '0', '-1', '-30', '-0', '+5',
+            'abc', 'unlimited', 'none', 'NaN', 'Infinity', 'true',
+            '12.5', '1e3', '1,000', '1_000', '0x10', '30abc', '30 per minute', '3 0',
+        ];
+        for (const value of values) {
+            const { result, lines } = read(value);
+            assert.equal(result, 30, JSON.stringify(value));
+            assert.equal(lines.length, 1, `${JSON.stringify(value)} logged ${lines.length} lines`);
+        }
+    });
+
+    it('the line names the variable and the default, never the value', () => {
+        const { result, lines } = read('hunter2-not-a-number', 5 * 1024 ** 4);
+        assert.equal(result, 5 * 1024 ** 4);
+        // Whole, so nothing can ride along with it: an operator can paste a
+        // secret into the wrong field, and a log is read by more people.
+        assert.deepEqual(lines, ['MAX_EXAMPLE is not a whole number of at least 1. Using the default, 5497558138880.']);
+    });
+
+    it('reads process.env and logs to console.warn unless told otherwise', (t) => {
+        const warned = [];
+        t.mock.method(console, 'warn', (line) => warned.push(line));
+        const name = 'MAX_EXAMPLE_FROM_PROCESS_ENV';
+        t.after(() => { delete process.env[name]; });
+
+        delete process.env[name];
+        assert.equal(envLimit(name, 60), 60);
+        process.env[name] = '75';
+        assert.equal(envLimit(name, 60), 75);
+        assert.deepEqual(warned, []);
+
+        process.env[name] = '-1';
+        assert.equal(envLimit(name, 60), 60);
+        assert.deepEqual(warned, [`${name} is not a whole number of at least 1. Using the default, 60.`]);
+    });
+});
+
+// ---------------------------------------------------------------------------
 // Rate limiting — checkRateLimit
 // ---------------------------------------------------------------------------
 
@@ -1774,6 +1871,13 @@ describe('CORS refusal over HTTP', () => {
         assert.equal(answer.headers['access-control-allow-origin'], undefined, 'a refused origin must not be granted');
 
         assert.deepEqual(lines, ['Refused a request with 403.']);
+    });
+
+    it('HSTS covers this host only: one year, no includeSubDomains', async () => {
+        // helmet's default adds includeSubDomains, which a self-hosted server on a
+        // bare domain would push onto every other subdomain of its operator.
+        const answer = await get('/health', {});
+        assert.equal(answer.headers['strict-transport-security'], 'max-age=31536000');
     });
 
     it('an allowed origin still gets through, granted and unlogged', async () => {

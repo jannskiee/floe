@@ -23,7 +23,7 @@ Only `CLIENT_URL` is required, and only in production. Every other variable is o
 | [`PORT`](#port) | server | `3001` |
 | [`CLIENT_PORT`](#client-port) | compose | `3000` |
 | [`NODE_ENV`](#node-env) | server | `production` (set by the image) |
-| [`CLIENT_URL`](#client-url) | server | _(none)_; Compose passes `http://localhost:3000` |
+| [`CLIENT_URL`](#client-url) | server | _(none)_; Compose passes `http://localhost:3000`, or the port in `CLIENT_PORT` |
 | [`TRUSTED_PROXY_COUNT`](#trusted-proxy-count) | server | `1`; Compose and the Unraid template pass `0` |
 | [`MAX_CONNECTIONS_PER_IP`](#max-connections-per-ip) | server | `30` |
 | [`MAX_TURN_REQUESTS_PER_IP`](#max-turn-requests-per-ip) | server | `20` |
@@ -81,11 +81,11 @@ Address that **Report this link**, on the page a sender opens from a [request li
 
 ### `PORT` {#port}
 
-**Host** port the signaling server is published on. Inside the container it always listens on 3001; Docker Compose maps `${PORT}` to it. Outside Docker this is the port the server process binds directly. Change this and you must also update `NEXT_PUBLIC_SOCKET_URL` to match, then run `docker compose up -d`, or browsers keep dialing the old port. No rebuild is needed, because the client reads that address at runtime.
+**Host** port the signaling server is published on. Inside the container it always listens on 3001; Docker Compose maps `${PORT}` to it. Outside Docker this is the port the server process binds directly. Under Compose the address browsers are given follows it: while `NEXT_PUBLIC_SOCKET_URL` is unset, it is `http://localhost:` and this port. A `NEXT_PUBLIC_SOCKET_URL` you set yourself has to carry the new port, or browsers keep dialing the old one. Run `docker compose up -d` to apply. No rebuild is needed, because the client reads that address at runtime.
 
 ### `CLIENT_PORT` {#client-port}
 
-**Host** port the web client is published on. Inside the container it always listens on 3000. Change this and you must also set `CLIENT_URL` to the new origin, for example `http://localhost:8080`, then run `docker compose up -d`. `CLIENT_URL` names the origin the server accepts your web client from, so a page served from a port it does not name loads and never connects. Compose-only; it has no effect outside Docker.
+**Host** port the web client is published on. Inside the container it always listens on 3000. While `CLIENT_URL` is unset, Compose passes the server `http://localhost:` and this port, so on one machine changing it is all you need; run `docker compose up -d` to apply. A `CLIENT_URL` you set yourself has to carry the new port: it names the origin the server accepts your web client from, so a page served from a port it does not name loads and never connects. Compose-only; it has no effect outside Docker.
 
 ### `NODE_ENV` {#node-env}
 
@@ -93,7 +93,7 @@ Standard Node.js runtime flag. The server image sets it to `production`, and Com
 
 ### `CLIENT_URL` {#client-url}
 
-Required in production. Frontend origin allowed by CORS and by the WebSocket origin check. Matched exactly, including the scheme and the port, and with no trailing slash. Use `https://floe.example.com` for a [one-domain deployment](/self-hosting/reverse-proxy), or `https://app.your-domain.com` when the client has its own subdomain. If you change `CLIENT_PORT`, this has to carry the new port. Holds **one** origin: a comma-separated list matches nothing at all. It governs browser traffic only: the CLI and Floe Desktop reach your server regardless of it, as long as any proxy in front passes the `Host` header through. That rule, and the origins the server always accepts, are in [Origins the server accepts](/self-hosting/production#cors-note).
+Required in production. Frontend origin allowed by CORS and by the WebSocket origin check. Matched exactly, including the scheme and the port, and with no trailing slash. Use `https://floe.example.com` for a [one-domain deployment](/self-hosting/reverse-proxy), or `https://app.your-domain.com` when the client has its own subdomain. Under Compose it defaults to `http://localhost:` and the value of `CLIENT_PORT`. A value you set has to carry the port itself. Holds **one** origin: a comma-separated list matches nothing at all. It governs browser traffic only: the CLI and Floe Desktop reach your server regardless of it, as long as any proxy in front passes the `Host` header through. That rule, and the origins the server always accepts, are in [Origins the server accepts](/self-hosting/production#cors-note).
 
 ### `TRUSTED_PROXY_COUNT` {#trusted-proxy-count}
 

@@ -143,6 +143,7 @@ export const SURFACES = [
     'server/turn.js',
     'server/stats.js',
     'server/policy.js',
+    'server/envlimit.js',
     'server/.env.example',
     '.env.docker.example',
     'docker-compose.yml',
@@ -197,8 +198,11 @@ const BUILD_DEPENDENT = {
     NEXT_PUBLIC_SITE_URL: 'inlined by next build; the image carries no value',
 };
 // Docker and Unraid publish container ports directly, so 0 proxy hops is the
-// correct default there even though server.js defaults to 1.
-const ALLOW = { TRUSTED_PROXY_COUNT: { docker: '0', unraid: '0' } };
+// correct default there even though server.js defaults to 1. server/.env.example
+// ships 0 for the same reason: it describes a direct run with no proxy in front.
+const ALLOW = {
+    TRUSTED_PROXY_COUNT: { docker: '0', unraid: '0', 'server-example': '0' },
+};
 // Surfaces that document a deliberate subset of the server keys. Each list is
 // printed once as an info line; a missing key NOT listed here is a NOTE, and a
 // listed key that turns up present is a NOTE too, so the lists stay honest.
@@ -251,7 +255,8 @@ const CLOSES_WITH_QUOTE = /[^\s\w.!?"`]"(?:\*\*|__|\*|_|~~|\]\([^)]*\))*$/;
 // 2026-10-11).
 const TYPESET_KEYS = ['title', 'sidebarTitle', 'description'];
 // The server modules read exactly 18 keys between them today: ten in
-// server.js, five in turn.js and three in stats.js. Fewer means the extractor
+// server.js, five in turn.js and three in stats.js, the six MAX_* ones
+// through envLimit. Fewer means the extractor
 // regex broke, not that the server lost a setting; raise this when a key is
 // added, in the same PR. It stood at 16 for two keys after #503 added
 // POLICY_FILE and FLOE_TEST_REQUEST_GRACE_MS, so the extractor could have lost
@@ -1405,6 +1410,26 @@ function serverEnv(root) {
             if (!keys.has(key) || (keys.get(key) === null && def !== null))
                 keys.set(key, def);
         }
+        // The six MAX_* settings are read as envLimit('NAME', default):
+        // server/envlimit.js looks the variable up by its name, so the line
+        // holds no process.env.NAME for the scan above, and the default is the
+        // second argument. Plain arithmetic only (30, or the 5 TiB product);
+        // anything else leaves the default unknown, which checkEnv fails on
+        // for a MAX_* key rather than compare nothing.
+        for (const m of line.matchAll(
+            /\benvLimit\('([A-Z_][A-Z0-9_]*)',\s*([^)]*)\)/g
+        )) {
+            let def = null;
+            if (/^[\d\s*+-]*\d[\d\s*+-]*$/.test(m[2])) {
+                try {
+                    def = String(Function(`"use strict"; return (${m[2]});`)());
+                } catch {
+                    def = null;
+                }
+            }
+            if (!keys.has(m[1]) || (keys.get(m[1]) === null && def !== null))
+                keys.set(m[1], def);
+        }
     }
     return { keys, file };
 }
@@ -1560,7 +1585,33 @@ function bytesOf(value) {
     );
 }
 
-function parseCompose(root) {
+// Every ${NAME:-value} and ${NAME-value} on a line, with braces balanced so
+// a default that holds another reference (${CLIENT_URL:-http://localhost:${CLIENT_PORT:-3000}})
+// is read whole, and the references inside a default are read too.
+function composeRefs(line) {
+    const out = [];
+    const re = /\$\{([A-Z_][A-Z0-9_]*)(:-|-|:\?|\?|:\+|\+)?/g;
+    let m;
+    while ((m = re.exec(line))) {
+        let depth = 1;
+        let i = re.lastIndex;
+        const start = i;
+        for (; i < line.length && depth > 0; i++) {
+            if (line[i] === '$' && line[i + 1] === '{') {
+                depth++;
+                i++;
+            } else if (line[i] === '}') depth--;
+        }
+        if (depth !== 0) break;
+        const value = line.slice(start, i - 1);
+        out.push([m[1], m[2] ?? '', value]);
+        out.push(...composeRefs(value));
+        re.lastIndex = i;
+    }
+    return out;
+}
+
+export function parseCompose(root) {
     const file = join(root, 'docker-compose.yml');
     const present = new Set();
     const defaults = new Map();
@@ -1569,12 +1620,10 @@ function parseCompose(root) {
     for (const line of read(file).split('\n')) {
         n++;
         if (/^\s*#/.test(line)) continue;
-        for (const m of line.matchAll(
-            /\$\{([A-Z_][A-Z0-9_]*)(:-|-)([^}]*)\}/g
-        )) {
-            present.add(m[1]);
-            if (m[2] === ':-' && m[3] !== '' && !defaults.has(m[1]))
-                defaults.set(m[1], { value: m[3], line: n });
+        for (const [name, op, value] of composeRefs(line)) {
+            present.add(name);
+            if (op === ':-' && value !== '' && !defaults.has(name))
+                defaults.set(name, { value, line: n });
         }
         const lit = line.match(/^\s+([A-Z_][A-Z0-9_]*):\s*(.*)$/);
         if (lit) {

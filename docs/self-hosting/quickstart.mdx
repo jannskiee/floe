@@ -9,7 +9,7 @@ Two commands give you a complete Floe instance on one machine: the web app on po
 
 ## Prerequisites
 
-- [Docker](https://docs.docker.com/get-started/get-docker/) and Docker Compose v2 (`docker compose`, bundled with Docker Desktop and modern Docker Engine).
+- [Docker](https://docs.docker.com/get-started/get-docker/) and Docker Compose 2.8.0 or later (`docker compose`, bundled with Docker Desktop and modern Docker Engine; check with `docker compose version`). An older Compose stops with `invalid interpolation format` when it reads `docker-compose.yml`.
 
 ## Steps
 
@@ -72,19 +72,16 @@ The CLI and Floe Desktop on another device take the server's address on port 300
 
 ## Change the ports
 
-Set `PORT` and `CLIENT_PORT` in `.env` to publish the signaling server and the web app on host ports other than 3001 and 3000. Neither is a one-line change, because each port is also written into a second setting:
+Set `PORT` and `CLIENT_PORT` in `.env` to publish the signaling server and the web app on host ports other than 3001 and 3000. On one machine that is all it takes: while `NEXT_PUBLIC_SOCKET_URL` and `CLIENT_URL` are unset, each follows its port. If you have set either one yourself, it has to carry the new port:
 
-- Change `PORT`, and `NEXT_PUBLIC_SOCKET_URL` has to name the server's address on the new port, or the browser keeps looking for the old one.
-- Change `CLIENT_PORT`, and `CLIENT_URL` has to name the web app's address on the new port, or the server refuses the page's connections.
+- A `NEXT_PUBLIC_SOCKET_URL` you set has to name the server's address on the new port, or the browser keeps looking for the old one.
+- A `CLIENT_URL` you set has to name the web app's address on the new port, or the server refuses the page's connections.
 
 For example, to move both:
 
 ```dotenv .env
 PORT=4001
-NEXT_PUBLIC_SOCKET_URL=http://localhost:4001
-
 CLIENT_PORT=8080
-CLIENT_URL=http://localhost:8080
 ```
 
 ```bash Terminal
@@ -94,7 +91,7 @@ docker compose up -d
 No rebuild is needed for either one.
 
 <Warning>
-  Change `CLIENT_PORT` without `CLIENT_URL` and the page still loads, but it never connects: the badge stays on **Offline**. `CLIENT_URL` names the browser origin the server accepts and defaults to `http://localhost:3000`, so a page served from any other port fails both the server's CORS check and its WebSocket origin check.
+  A `CLIENT_URL` set in `.env` does not follow `CLIENT_PORT`. Change the port with an old `CLIENT_URL` still in place and the page loads but never connects: the badge stays on **Offline**. Remove the line, or give it the new port. The same holds for `NEXT_PUBLIC_SOCKET_URL` and `PORT`. A `docker-compose.yml` downloaded before October 2026 has fixed defaults, so with it both addresses always have to be set.
 </Warning>
 
 ## If something goes wrong

@@ -9,6 +9,12 @@
 # fetch the annotated example alongside this file:
 #   curl -fsSL https://raw.githubusercontent.com/jannskiee/floe/main/.env.docker.example -o .env
 #
+# Needs Docker Compose 2.8.0 or later (check with `docker compose version`). Two
+# defaults below are built from the port variables, which an older Compose and
+# the retired docker-compose v1 cannot read. They stop with "invalid interpolation
+# format" at the client's SOCKET_URL line instead of starting a stack that loads
+# and never connects.
+#
 # Images are prebuilt and published to ghcr.io. To build from source instead, add
 # the overlay: docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 #
@@ -30,7 +36,13 @@ services:
       # The server always listens on 3001 inside the container; the host port above
       # is what changes. Everything else is interpolated from .env.
       PORT: 3001
-      CLIENT_URL: ${CLIENT_URL:-http://localhost:3000}
+      # The browser origin the server accepts for your web app. The default follows
+      # CLIENT_PORT, the host port the web app is published on below, so changing
+      # that port alone still gives a page that connects. localhost names this
+      # machine only: to open the web app from another device, or under a domain,
+      # set CLIENT_URL to the address browsers use, port included, and set
+      # NEXT_PUBLIC_SOCKET_URL with it.
+      CLIENT_URL: ${CLIENT_URL:-http://localhost:${CLIENT_PORT:-3000}}
       # Reverse-proxy hops in front of the server. This stack publishes ports
       # directly, so the default is 0. Set it to 1 when you put a proxy in front
       # (see https://www.floe.one/docs/self-hosting/reverse-proxy), or every visitor
@@ -74,7 +86,16 @@ services:
       # `-` and not `:-` on purpose: the default applies only when the variable
       # is absent. An explicitly empty value must stay empty, or the one-domain
       # setup above would silently fall back to localhost.
-      SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL-http://localhost:3001}
+      #
+      # The default follows PORT, the host port the server is published on above,
+      # so changing that port alone still sends browsers to the right one.
+      #
+      # The last ${...+} is the version check from the top of this file, not a
+      # setting: it is always empty, and only Compose 2.8.0 and later can read it.
+      # Measured on the release binaries: 2.2.0 to 2.7.0 read the default before
+      # it as "3001}" whatever you set, and docker-compose 1.29.2 reads neither
+      # this default nor the server's CLIENT_URL; all of them stop here instead.
+      SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL-http://localhost:${PORT:-3001}}${NEEDS_DOCKER_COMPOSE_2_8_OR_LATER+}
       # Where "Report this link" on a request link's page sends its email, read
       # at request time like the value above. Empty means the page shows no
       # report link. Set one plain address, such as reports@your-domain.com,

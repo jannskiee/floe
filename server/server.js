@@ -17,6 +17,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const crypto = require('crypto');
 const { rateKey } = require('./ratekey');
+const { envLimit } = require('./envlimit');
 const { HOST_TOKEN_REGEX, hostTokenHash, roomIdFromToken } = require('./hosttoken');
 
 // ---------------------------------------------------------------------------
@@ -24,12 +25,26 @@ const { HOST_TOKEN_REGEX, hostTokenHash, roomIdFromToken } = require('./hosttoke
 // ---------------------------------------------------------------------------
 
 const app = express();
-app.use(helmet());
+// HSTS for this host only. helmet's default adds includeSubDomains, which a
+// self-hosted server on a bare domain would push onto every subdomain of its
+// operator; one year is helmet's default max-age, kept.
+app.use(helmet({ strictTransportSecurity: { maxAge: 31536000, includeSubDomains: false } }));
 
 // Trust N proxy hops so req.ip resolves to the real client IP.
 // Set TRUSTED_PROXY_COUNT=0 for direct exposure, 1 (default) behind one proxy (Render/Fly/Vercel).
 const TRUSTED_PROXY_COUNT = parseInt(process.env.TRUSTED_PROXY_COUNT || '1', 10);
 app.set('trust proxy', TRUSTED_PROXY_COUNT);
+
+// Logged once at startup when the variable is unset or empty, the two cases
+// the `||` above fills in. The right count depends on what stands in front of
+// this server, which only its operator knows, so a count nobody chose gets one
+// line that says which is in use. Compose, the Unraid template and
+// server/.env.example each pass one, so those starts log nothing. Null when a
+// value was given; the text is fixed and carries only the count.
+const PROXY_COUNT_UNSET_LINE = process.env.TRUSTED_PROXY_COUNT
+    ? null
+    : `TRUSTED_PROXY_COUNT is not set, so the default of ${TRUSTED_PROXY_COUNT} is in use. ` +
+      'Set it to the number of reverse proxies in front of this server, or 0 if there are none.';
 
 // Extract the real client IP from an X-Forwarded-For header, discarding
 // client-supplied spoofed entries by only trusting the rightmost N hops.
@@ -209,10 +224,10 @@ try { policyStore.reload(); } catch { /* fails closed: the store starts off */ }
 // real transfer makes; raise via MAX_CODE_REQUESTS_PER_IP for CI/staging.
 const codeRateLimits = new Map();
 const CODE_RATE_WINDOW = 60000;
-const CODE_MAX_REQUESTS = parseInt(process.env.MAX_CODE_REQUESTS_PER_IP, 10) || 60;
+const CODE_MAX_REQUESTS = envLimit('MAX_CODE_REQUESTS_PER_IP', 60);
 // Hard ceiling on simultaneously-live codes, bounding memory regardless of how
 // requests are spread across IPs.
-const MAX_ACTIVE_CODES = parseInt(process.env.MAX_ACTIVE_CODES, 10) || 10000;
+const MAX_ACTIVE_CODES = envLimit('MAX_ACTIVE_CODES', 10000);
 // A second, much tighter budget for FAILED resolves only, on the same 60 s
 // window and the same key as the limiter above. The shared 60/min ceiling is a
 // volume control, not a guessing control: it lets one address try 60 phrases a
@@ -220,7 +235,7 @@ const MAX_ACTIVE_CODES = parseInt(process.env.MAX_ACTIVE_CODES, 10) || 10000;
 // typo, a stale code), so charging only misses costs legitimate use nothing
 // while cutting an address's guessing rate by six.
 const codeFailures = new Map(); // rate key → [timestamps of failed resolves]
-const CODE_FAIL_MAX = parseInt(process.env.MAX_FAILED_CODE_RESOLVES, 10) || 10;
+const CODE_FAIL_MAX = envLimit('MAX_FAILED_CODE_RESOLVES', 10);
 
 // Generic per-IP sliding-window limiter as Express middleware. req.ip resolves
 // correctly via the `trust proxy` setting above, matching the turn/stats logic.
@@ -417,7 +432,7 @@ const connectionCounts = new Map();
 const RATE_LIMIT_WINDOW = 60000;
 // Configurable so test/staging environments (which drive many connections from a
 // single IP) can raise the ceiling. Production keeps the default of 30.
-const MAX_CONNECTIONS_PER_IP = parseInt(process.env.MAX_CONNECTIONS_PER_IP, 10) || 30;
+const MAX_CONNECTIONS_PER_IP = envLimit('MAX_CONNECTIONS_PER_IP', 30);
 
 // Counts admitted connections only: a refused attempt is not recorded. Recording
 // it (the old push-then-compare) let a client that retries faster than the limit,
@@ -1669,10 +1684,11 @@ function refuseUpgrade(socket, code) {
 // which kills Socket.IO's transport upgrade and forces unreliable long-polling.
 function handleUpgradeRequest(req, socket, head) {
     // First, before anything below can throw. Node removes its own socket
-    // 'error' listener before emitting 'upgrade', and for a target neither we
-    // nor engine.io claims nothing attaches another, so a client reset in that
-    // window is an unhandled 'error' event. ws attaches its own in setSocket, so
-    // a completed /ws connection is unaffected.
+    // 'error' listener before emitting 'upgrade', and nothing attaches another
+    // to a socket this handler refuses, so a client reset while the refusal is
+    // being written is an unhandled 'error' event (measured on the 400 and the
+    // 404). ws attaches its own in setSocket, so a completed /ws connection is
+    // unaffected.
     socket.on('error', () => {});
 
     // req.url is a raw request target, not a URL. Node's parser accepts several
@@ -1688,22 +1704,33 @@ function handleUpgradeRequest(req, socket, head) {
         return;
     }
 
-    if (pathname !== '/ws') return;
-
-    // engine.io claims a socket by a literal prefix compare on the UNPARSED
-    // target (`path === req.url.slice(0, path.length)`) while the line above
-    // compares a normalized pathname, so "/socket.io/../ws?EIO=4" satisfies
-    // both. engine.io runs first and has already upgraded the socket, and
-    // completing it twice throws. Reusing engine.io's own predicate, rather than
-    // matching dot segments, covers the %2e%2e and backslash spellings too.
+    // Socket.IO's upgrades are left alone, and this return stays above every
+    // refusal below it: engine.io's own listener runs first and has already
+    // claimed these sockets, so a status line written here would land in one
+    // it owns. engine.io claims by a literal prefix compare on the UNPARSED
+    // target (`path === req.url.slice(0, path.length)`) while the checks below
+    // compare a normalized pathname, so "/socket.io/../ws?EIO=4" is engine.io's
+    // by the first and /ws by the second, and completing it twice throws.
+    // Reusing engine.io's own predicate, rather than matching dot segments,
+    // covers the %2e%2e and backslash spellings too.
     if (req.url.startsWith(io.path() + '/')) return;
 
-    // The Origin check, and the only refusal below the two returns above, on
-    // purpose: placed above either one it would answer for sockets engine.io
-    // owns. By here the socket is ours, because the return above reuses
-    // engine.io's own claim predicate. Socket.IO's half of the check is its
-    // allowRequest option, not this. No ws verifyClient and no check in the
-    // connection handler: both run after this point and would only repeat it.
+    // Neither ours nor engine.io's, so it is answered here. Left alone, the
+    // socket gets no status at all (engine.io ends an upgrade it did not claim
+    // about a second later, empty), and a proxy that forwards /ws/ or a
+    // prefixed path then looks like a server that is down. No log line with
+    // the 404: the path is the caller's text, at the caller's rate.
+    if (pathname !== '/ws') {
+        refuseUpgrade(socket, 404);
+        return;
+    }
+
+    // The Origin check, below the pass-through like the 404, on purpose: placed
+    // above that return it would answer for sockets engine.io owns. By here
+    // the socket is ours, because the pass-through reuses engine.io's own claim
+    // predicate. Socket.IO's half of the check is its allowRequest option, not
+    // this. No ws verifyClient and no check in the connection handler: both run
+    // after this point and would only repeat it.
     if (!isAllowedOrigin(req.headers.origin, req.headers.host)) {
         warnRejectedOrigin('/ws', req.headers.origin, req.headers.host);
         refuseUpgrade(socket, 403);
@@ -1873,6 +1900,8 @@ if (require.main === module) {
     process.on('uncaughtException', (err, origin) => {
         console.error(`Unhandled error (${origin}), server still serving:`, err);
     });
+
+    if (PROXY_COUNT_UNSET_LINE) console.warn(PROXY_COUNT_UNSET_LINE);
 
     server.listen(PORT, () => server.off('error', failFastOnBindError));
     initStats().catch(() => {}); // seed cachedTotal from Redis on startup

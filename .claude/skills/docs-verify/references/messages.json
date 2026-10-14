@@ -5993,6 +5993,13 @@
     },
     {
         "surface": "server",
+        "text": "Request Link Policy Folder",
+        "source": "unraid/floe-server.xml",
+        "anchor": "/self-hosting/unraid#request-links",
+        "why_no_home": null
+    },
+    {
+        "surface": "server",
         "text": "request links: off",
         "source": "server/policy.js",
         "anchor": "/self-hosting/request-links#turn-request-links-on-or-off",
@@ -6056,6 +6063,13 @@
     },
     {
         "surface": "server",
+        "text": "TRUSTED_PROXY_COUNT is not set, so the default of {n} is in use. Set it to the number of reverse proxies in front of this server, or 0 if there are none.",
+        "source": "server/server.js",
+        "anchor": "/self-hosting/operations#the-server-logs-very-little",
+        "why_no_home": null
+    },
+    {
+        "surface": "server",
         "text": "Unhandled error ({origin}), server still serving:",
         "source": "server/server.js",
         "anchor": "/self-hosting/operations",
@@ -6086,6 +6100,13 @@
         "surface": "server",
         "text": "WebSocket close {n}, reason: Server shutting down",
         "source": "server/server.js",
+        "anchor": "/self-hosting/operations#the-server-logs-very-little",
+        "why_no_home": null
+    },
+    {
+        "surface": "server",
+        "text": "{NAME} is not a whole number of at least 1. Using the default, {n}.",
+        "source": "server/envlimit.js",
         "anchor": "/self-hosting/operations#the-server-logs-very-little",
         "why_no_home": null
     }

@@ -22,11 +22,12 @@
 // checkout holds.
 
 const { rateKey } = require('./ratekey');
+const { envLimit } = require('./envlimit');
 
 const statsRateLimits = new Map();
 const STATS_RATE_WINDOW = 60000;
 const STATS_MAX_REPORTS = 60; // per IP per minute
-const MAX_REPORT_BYTES = parseInt(process.env.MAX_REPORT_BYTES || '', 10) || (5 * 1024 * 1024 * 1024 * 1024); // 5 TiB
+const MAX_REPORT_BYTES = envLimit('MAX_REPORT_BYTES', 5 * 1024 * 1024 * 1024 * 1024); // 5 TiB
 
 // ---------------------------------------------------------------------------
 // Global stats — Upstash Redis (durable) + fast in-memory read cache
@@ -62,9 +63,18 @@ async function upstashPost(command) {
     }
 }
 
+// The total only moves up. A report that lands while the startup GET is on its
+// way is counted in cachedTotal already, and that GET may have been read before
+// the report's INCRBY reached the counter, so the seed never lowers what is
+// there; each INCRBY's reply, the counter's new total, raises it in turn.
+function raiseTotal(value) {
+    const n = Number(value);
+    if (Number.isFinite(n) && n > cachedTotal) cachedTotal = n;
+}
+
 async function initStats() {
     const val = await upstashPost(['GET', STATS_KEY]);
-    if (val !== null) cachedTotal = Number(val) || 0;
+    if (val !== null) raiseTotal(val);
 }
 
 function validateReportBytes(bytes, maxBytes) {
@@ -95,7 +105,7 @@ function statsReportHandler(req, res) {
     }
 
     cachedTotal += bytes;
-    upstashPost(['INCRBY', STATS_KEY, bytes]);
+    upstashPost(['INCRBY', STATS_KEY, bytes]).then(raiseTotal);
 
     res.json({ totalBytes: cachedTotal });
 }

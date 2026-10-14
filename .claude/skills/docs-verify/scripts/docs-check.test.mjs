@@ -797,6 +797,114 @@ test('the server key floor: fewer keys is HARD, more is a NOTE to raise it, the 
     assert.doesNotMatch(broken.out, /the floor is behind/);
 });
 
+// The six MAX_* settings are read as envLimit('NAME', default): the helper in
+// server/envlimit.js looks the variable up by its name, so the line holds no
+// process.env.NAME for the key scan to find, and the default is the second
+// argument. A tree of its own, like envTree, one key short of the floor until
+// the envLimit line is counted, so losing that pattern fails here by the count.
+function envLimitTree(limitLine, variable, documented) {
+    const tmp = envTree(SERVER_KEY_FLOOR - 1);
+    edit(tmp, 'server/server.js', (t) => `${t}${limitLine}\n`);
+    mkdirSync(join(tmp, 'docs', 'self-hosting'));
+    writeFileSync(
+        join(tmp, 'docs', 'self-hosting', 'configuration.mdx'),
+        [
+            '---',
+            'title: "Configuration reference"',
+            'sidebarTitle: "Configuration"',
+            'description: "Every variable."',
+            '---',
+            '',
+            '| Variable | Service | Default |',
+            '| --- | --- | --- |',
+            `| \`${variable}\` | server | \`${documented}\` |`,
+            '',
+        ].join('\n')
+    );
+    const r = spawnSync(process.execPath, [SCRIPT, 'env', '--root', tmp], {
+        encoding: 'utf8',
+    });
+    return { status: r.status, hards: envHards(r.stdout + r.stderr) };
+}
+
+test('a default read through envLimit is counted as a key and compared with the documented one', () => {
+    const plain = "const MAX_CONNECTIONS_PER_IP = envLimit('MAX_CONNECTIONS_PER_IP', 30);";
+    const right = envLimitTree(plain, 'MAX_CONNECTIONS_PER_IP', '30');
+    assert.deepEqual(right.hards, []);
+    assert.equal(right.status, 0);
+
+    const wrong = envLimitTree(plain, 'MAX_CONNECTIONS_PER_IP', '31');
+    assert.equal(wrong.status, 1);
+    assert.equal(wrong.hards.length, 1, wrong.hards.join('\n'));
+    assert.match(
+        wrong.hards[0],
+        /MAX_CONNECTIONS_PER_IP documented default 31 but server\/ defaults to 30$/
+    );
+
+    // A default written as arithmetic is worked out, as the 5 TiB report cap is.
+    const product =
+        "const MAX_REPORT_BYTES = envLimit('MAX_REPORT_BYTES', 5 * 1024 * 1024 * 1024 * 1024); // 5 TiB";
+    assert.deepEqual(
+        envLimitTree(product, 'MAX_REPORT_BYTES', '5497558138880').hards,
+        []
+    );
+    const stale = envLimitTree(product, 'MAX_REPORT_BYTES', '1099511627776');
+    assert.equal(stale.hards.length, 1, stale.hards.join('\n'));
+    assert.match(
+        stale.hards[0],
+        /MAX_REPORT_BYTES documented default 1099511627776 but server\/ defaults to 5497558138880$/
+    );
+});
+
+test('an envLimit default that is not plain arithmetic is HARD, not a default nobody compares', () => {
+    const named = envLimitTree(
+        "const MAX_CONNECTIONS_PER_IP = envLimit('MAX_CONNECTIONS_PER_IP', DEFAULT_CONNECTIONS);",
+        'MAX_CONNECTIONS_PER_IP',
+        '31'
+    );
+    assert.equal(named.status, 1);
+    assert.equal(named.hards.length, 1, named.hards.join('\n'));
+    assert.match(
+        named.hards[0],
+        new RegExp(
+            `HARD  env  server/server\\.js:1  extractor found ${SERVER_KEY_FLOOR} keys, no default for MAX_CONNECTIONS_PER_IP; the regex no longer matches the source`
+        )
+    );
+});
+
+test('the proxy count the server example ships is 0 by design, and any other value there is still a NOTE', () => {
+    // server/.env.example describes a direct run with no proxy in front, so it
+    // ships TRUSTED_PROXY_COUNT=0 beside a code default of 1, as Compose and the
+    // Unraid template do. That one value is admitted; the comparison itself
+    // must stay on.
+    const proxyNotes = (out) =>
+        out
+            .split(/\r?\n/)
+            .filter(
+                (l) =>
+                    l.startsWith('NOTE  env  server/.env.example:') &&
+                    l.includes('TRUSTED_PROXY_COUNT')
+            );
+
+    const shipped = fresh();
+    assert.match(
+        readFileSync(join(shipped, 'server/.env.example'), 'utf8'),
+        /^TRUSTED_PROXY_COUNT=0$/m
+    );
+    assert.deepEqual(proxyNotes(run(shipped).out), []);
+
+    const other = fresh();
+    edit(other, 'server/.env.example', (t) =>
+        t.replace(/^TRUSTED_PROXY_COUNT=0$/m, 'TRUSTED_PROXY_COUNT=2')
+    );
+    const notes = proxyNotes(run(other).out);
+    assert.equal(notes.length, 1, notes.join('\n'));
+    assert.match(
+        notes[0],
+        /TRUSTED_PROXY_COUNT=2 here but server\/ defaults to 1$/
+    );
+});
+
 test('headingTagProblems agrees with the MDX compiler on every heading here, both ways', () => {
     // Each string was compiled as "### <string>" by @mdx-js/mdx 3.1.1 on
     // 2026-10-12. REFUSED is what the compiler stops on and COMPILED is what it
@@ -1632,4 +1740,32 @@ test('every file the messages and captures checks read from the working tree is 
                 if (!inside(source)) outside.push(source);
     }
     assert.deepEqual([...new Set(outside)], []);
+});
+
+test('parseCompose reads a nested default whole, and the default inside it too', async () => {
+    const { parseCompose } = await import('./docs-check.mjs');
+    const dir = mkdtempSync(join(tmpdir(), 'dc-compose-'));
+    try {
+        writeFileSync(
+            join(dir, 'docker-compose.yml'),
+            [
+                'services:',
+                '  server:',
+                '    environment:',
+                '      CLIENT_URL: ${CLIENT_URL:-http://localhost:${CLIENT_PORT:-3000}}',
+                '      SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL-http://localhost:${PORT:-3001}}${NEEDS_CHECK+}',
+                '',
+            ].join('\n')
+        );
+        const { present, defaults } = parseCompose(dir);
+        assert.equal(defaults.get('CLIENT_URL').value, 'http://localhost:${CLIENT_PORT:-3000}');
+        assert.equal(defaults.get('CLIENT_PORT').value, '3000');
+        assert.equal(defaults.get('PORT').value, '3001');
+        for (const k of ['CLIENT_URL', 'CLIENT_PORT', 'NEXT_PUBLIC_SOCKET_URL', 'PORT', 'SOCKET_URL'])
+            assert.ok(present.has(k), k);
+        // "-" without the colon is not a default the checks compare.
+        assert.equal(defaults.has('NEXT_PUBLIC_SOCKET_URL'), false);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
 });
