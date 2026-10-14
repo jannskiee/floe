@@ -5,9 +5,18 @@ description: "Send files, folders, or a typed note from Floe Desktop on Windows 
 keywords: ["send with floe", "send a folder", "paste a screenshot", "room code"]
 ---
 
-Send files, whole folders or a typed note from Floe Desktop to one person on any Floe app: a
-browser, the `floe` CLI or another Floe Desktop. You stage what to send on the **Send** tab, click
-**Send**, and hand over the room code, link or QR code that appears.
+Send files, whole folders or a typed note from Floe Desktop to one person on any Floe app: a browser, the
+`floe` [CLI](/glossary#cli) (Floe's command-line tool) or another Floe Desktop. You stage what to send on the
+**Send** tab, click **Send**, and hand over the code, link or QR code that appears.
+
+**Needs:** Floe Desktop on Windows, open on your PC until the transfer finishes. See
+[Installation](/desktop/installation).
+
+## The short version {#the-short-version}
+
+Add files on the **Send** tab and click **Send**. Floe shows a [room code](/glossary#room-code) (three
+words), a [share link](/glossary#share-link) and a QR code. Give one of them to one person, and keep Floe open:
+the transfer starts by itself when they join.
 
 <Steps>
   <Step title="Add what you want to send">
@@ -38,91 +47,117 @@ Stage files in any of these ways, and mix them freely:
 | `Ctrl` `V` | Pastes files you copied in File Explorer, or an image from the clipboard. See [Paste to send](#paste-to-send). |
 | **Send with Floe** | In File Explorer's right-click menu. See [Send from File Explorer](#send-from-file-explorer). |
 
-Everything you add appears in a list under **Files**. Remove a single entry with the `X` on its
-row. Adding a path that is already in the list does nothing, so dragging a file you already staged
-is safe. One edge is worth knowing: if you add a folder **and** a file that lives inside it, that
-file is sent twice, because the folder is walked separately.
+Everything you add appears in a list under **Files**. Remove a single entry with the `X` on its row. Once
+something is staged, the big drop zone shrinks to a slim **Add files** row, and **Files** and **Folder**
+become two small icons at its right, named **Add files** and **Add a folder**.
 
-While a send or a receive is running, Floe ignores anything new you drop, paste or send to it from
-File Explorer.
+Adding a path that is already in the list does nothing, so dragging a file you already staged is safe. One
+edge is worth knowing: if you add a folder **and** a file that lives inside it, that file is sent twice,
+because the folder is walked separately.
+
+Anything you drop, paste or send with **Send with Floe** takes you to **Send** > **Files**, from Receive,
+History or Settings too.
+
+Floe ignores anything new you drop, paste or send to it from File Explorer while a send or a receive is
+running. It does the same while one of these dialogs is open: **Start over?**, **Close Floe?** or **Reset all
+settings?**. Answer the dialog, then add the files again. During a send or a receive the drop zone and its
+buttons are hidden, and what you staged before stays staged.
 
 ### Paste to send
 
 `Ctrl` `V` handles two different clipboard contents:
 
-- **Files copied in File Explorer** are staged by path, so nothing is duplicated on disk no
-  matter how large they are.
+- **Files and folders copied in File Explorer** are staged by path, so nothing is duplicated on disk no
+  matter how large they are. When the clipboard holds both files and an image, the files win.
 - **An image**, such as a screenshot from `Win` `Shift` `S`, is written to a temporary file named
-  `pasted-image-<date>-<time>-<ms>.png`, for example `pasted-image-20260820-143512-407.png`, and
-  staged from there. The timestamp runs down to the millisecond, so two pastes in the same second
-  stay apart, and it is also the name the person receiving sees. Floe clears these temporary files
-  the next time it starts.
+  `pasted-image-<date>-<time>-<ms>.png`, for example `pasted-image-20260820-143512-407.png`, and staged from
+  there. The timestamp runs down to the millisecond, so two pastes in the same second stay apart. It is also
+  the name the person receiving sees. Floe clears these temporary files the next time it starts.
 
-Paste is ignored while you are typing in a text field, so pasting a room code into the Receive
-tab still works normally.
+An image pastes only when the program that copied it put it on the clipboard in PNG form. Otherwise
+`Ctrl` `V` does nothing and shows no message.
+
+Paste is ignored while you are typing in a text field, so pasting a code into the Receive tab still works
+normally.
 
 ### Folders
 
-Folders are sent as folders. Floe walks the folder and sends each file with its path inside it. An
-empty folder holds nothing to send, so it is left out. A Floe Desktop or `floe` CLI receiver
-rebuilds the same structure inside its save folder, with no zipping step on either side. A browser
-receiver lists the files one by one, and only its **Download ZIP** keeps the folders. See
-[Receiving files](/web-app/receiving).
+Folders are sent as folders. Floe walks the folder and sends each file with its path inside it. An empty
+folder holds nothing to send, so it is left out. A Floe Desktop or `floe` CLI receiver rebuilds the same
+structure inside its save folder, with no zipping step on either side. A browser receiver lists the files one
+by one, and only its **Download ZIP** keeps the folders. See [Receiving files](/web-app/receiving).
+
+Floe walks your selection when you click **Send**, before any code is made, and stops there when it cannot
+send it:
+
+- A selection that holds no file at all, only empty folders:
+  `Error: The folders you chose have no files to send`.
+- A link or a junction inside a folder that points to another folder:
+  `Error: cannot walk <folder>: cannot send <path>: it is a link to a folder, which Floe does not follow`.
+- A link inside a folder that points nowhere:
+  `Error: cannot walk <folder>: cannot read <path>: <reason>`.
+- A file or folder you added that is gone, for example one you moved or deleted after you added it:
+  `Error: cannot read <path>: <reason>`.
+
+A link to a file inside a folder is sent as that file, at the file's own size. A folder you add directly
+that is itself a link is walked like any folder.
 
 ### Clear and Undo {#clear-and-undo}
 
-**Clear**, beside the Send button, empties what the tab you are on is holding: the file list on
-**Files**, or the box on **Text**. It appears only while that tab is holding something, and while
-a transfer is sending its place belongs to **Cancel**, so on an empty tab or mid-send there is no
-Clear to find. It leaves your settings, the Receive tab, your history and the files themselves
-alone.
+**Clear**, beside the Send button, empties what the tab you are on is holding: the file list on **Files**, or
+the box on **Text**. It appears only while that tab is holding something. During a send, **Cancel** takes its
+place. Clear leaves your settings, the Receive tab, your history and the files themselves alone.
 
-Clear does not ask first. It offers **Undo** instead, in a bar at the bottom of the window, which
-puts back exactly what you had staged, whitespace and all. The bar shows for 10 seconds, longer
-while you point at it or reach it with the keyboard.
+Clear does not ask first. It offers **Undo** instead, in a bar at the bottom of the window, which puts back
+exactly what you had staged, whitespace and all. The bar shows for 10 seconds, longer while you point at it
+or reach it with the keyboard.
 
-The undo outlasts its bar, and `Ctrl` `Z` takes it once the bar has gone. It stands until you put
-something new on that same tab, clear something else, or start over. Looking somewhere else does
-not spend it: switch tabs, open Settings, check History, send from the other tab or cancel a
-transfer, and the undo is still there when you come back. `Ctrl` `Z` works only on the Send tab
-the clear came from, and is ignored while the cursor is in a text box, so click out of the box
-first.
+The undo outlasts its bar, and `Ctrl` `Z` takes it once the bar has gone. It stands until you put something
+new on that same tab, clear something else, or start over. Looking somewhere else does not spend it: switch
+tabs, open Settings, check History, send from the other tab or cancel a transfer, and the undo is still
+there when you come back. `Ctrl` `Z` works only on the Send tab the clear came from, and is ignored while the
+cursor is in a text box, so click out of the box first.
 
-Floe holds one undo at a time. Clearing on one tab while an undo from the other is still standing
-replaces it, so if you cleared a note, undo it before you clear a file list.
+Floe holds one undo at a time. Clearing on one tab while an undo from the other is still standing replaces
+it, so if you cleared a note, undo it before you clear a file list.
 
 ### Start over {#start-over}
 
-`Ctrl` `R` starts over: it cancels any transfer and puts the Send and Receive tabs back the way
-they were when Floe opened. Your settings, your save folder, your history and an open
-[request link](/desktop/request-links) are kept. Clicking **Floe** at the left of the title bar
-does the same.
+`Ctrl` `R` starts over. It cancels a send or a receive by code, closes Settings or History, and puts the Send
+and Receive tabs back the way they were when Floe opened. You land on whichever of the two you used last. Your
+settings, your save folder and your history are kept. So are an open [request link](/glossary#request-link)
+and a drop arriving through it. Clicking **Floe** at the left of the title bar does the same.
 
 It asks first only when something would be lost, and the dialog says what:
 
 - A transfer that is already moving data: "Starting over cancels the transfer".
 - A note in the text box that has not been sent: "Starting over clears your unsent text".
-- A note you cleared that had never been sent and whose Undo is still standing: "Starting over
-  discards the text you can still undo".
+- A note you cleared that had never been sent and whose Undo is still standing: "Starting over discards the
+  text you can still undo".
 
-It does not ask while a send is still connecting or waiting for the other person, so that Start
-over stays a one-click way out of a stuck connection. A note you were sending is cleared with it.
-To stop that send and keep the note, click **Cancel** instead.
+A send that is still connecting or waiting for the other person gets the same prompt when it carries a note
+that has not been delivered. **Keep going** keeps both the note and the send. With nothing to lose, Start
+over stays a one-click way out of a stuck connection.
 
-The shortcut does nothing while you are typing in a field. The click on the title bar always
-works.
+A note counts as sent only while the box still holds exactly what went out. So typing a new note after a
+send asks again, and so does a note you typed and then left for a file send. With a request link open, the
+dialog adds "Your request link stays open". Its buttons are **Keep going** and **Start over**.
+
+The shortcut does nothing while you are typing in a field. Neither the shortcut nor the click does anything
+behind the **Close Floe?** and **Reset all settings?** dialogs.
 
 ## Send a text note
 
-Switch from **Files** to **Text** and type or paste into the box. Floe sends the text as a file
-called `message.txt`, so the person receiving does not need Floe Desktop: any Floe peer, in a
-browser or on the command line, receives it as an ordinary file.
+Switch from **Files** to **Text** and type or paste into the box. Floe sends the text as a file called
+`message.txt`, so the person receiving does not need Floe Desktop. Any Floe [peer](/glossary#peer), the app
+on the other end, receives it as an ordinary file, in a browser or on the command line.
 
 Press `Ctrl` `Enter` in the box to send without reaching for the button.
 
 ## Share the code or link
 
-Click **Send**. Floe registers a room and shows three ways to hand it over.
+Click **Send**. Floe registers a [room](/glossary#room), the meeting point on Floe's
+[signaling server](/glossary#signaling-server), and shows three ways to hand it over.
 
 <Frame caption="The share panel, with the QR code shown">
   <img src="/images/desktop/send-share.png" style={{ width: "100%", maxWidth: "476px", borderRadius: "12px" }} alt="The Floe Desktop Send card with a room open: the status Active, 3 items, a Cancel button, a room code, a share link, a Hide QR button above a QR code, and the line Waiting for the receiver" />
@@ -132,108 +167,158 @@ Click **Send**. Floe registers a room and shows three ways to hand it over.
 |---|---|
 | **Room code** | Someone on the `floe` CLI, or another Floe Desktop. Three words. |
 | **Share link** | Anyone with a browser. Opens the web app and joins the room. |
-| **QR code** | A phone. Click **Show QR**, then have them point their camera at it. |
+| **QR code** | A phone. Click **Show QR**, then have them point their camera at it. The code holds the share link. |
 
-A phone receives in its browser. On iOS, tell them to use **Download ZIP** rather than saving
-files one at a time, which behaves inconsistently there. See
-[Receiving files](/web-app/receiving).
+The small copy icon beside the code, and the one beside the link, put it on your clipboard. Each turns into
+a green check for 1.5 seconds. A share link looks like `https://floe.one/?s=<8 characters>#room=<room id>`.
+The `s` value carries no information: it only makes each link a new page, so a phone that already has Floe
+open joins the new room.
 
-The room code works for one receiver, and for 10 minutes at most. The link keeps working for as
-long as Floe is still waiting, so for a longer wait, share the link. See
-[How a transfer works](/how-it-works/signaling#code-and-link-lifetime).
+A phone receives in its browser. On iOS, tell them to use **Download ZIP** rather than saving files one at a
+time, which behaves inconsistently there. See [Receiving files](/web-app/receiving).
 
-The code and the link are all that protect the transfer. Whoever enters the code or opens the link
-first gets the files, and Floe Desktop does not ask you to approve them, so share them only over a
-channel you trust. See
+The code and the link are all that protect the transfer. Whoever enters the code or opens the link first gets
+the files, and Floe Desktop does not ask you to approve them, so share them only over a channel you trust. See
 [Known limitations](/how-it-works/known-limitations#anyone-with-the-link-or-code-can-receive).
 
-If the server could not register a code, the panel shows the link and the QR code without one. The
-panel is there only while Floe waits: it goes away as soon as the other person joins.
+A room takes exactly one receiver, so send again for a second person. The room code works for 10 minutes at
+most. The link keeps working while Floe waits, so for a longer wait, share the link. See
+[How a transfer works](/how-it-works/signaling#code-and-link-lifetime) and
+[A room holds exactly two people](/how-it-works/signaling#a-room-holds-exactly-two-people).
 
-A room takes exactly one receiver, so send again for a second person. See
-[How a transfer works](/how-it-works/signaling#a-room-holds-exactly-two-people).
+The wait has no timer, but it needs your PC awake and connected. Floe does not keep the PC awake while it only
+waits. If the PC sleeps, loses its network or the server restarts, the code and the link stop working, and
+the status line reads `Error: Can't reach the server`. Click **Send** again for new ones.
+
+If the server could not register a code, the panel shows the link and the QR code without one. The panel is
+there only while Floe waits: it goes away as soon as the other person joins.
 
 To have someone send files to you instead, make a [request link](/desktop/request-links).
 
-Floe runs one send or one receive by code at a time, so wait for the current one to finish before
-starting the next. There is no queue. A request link runs alongside either.
+Floe runs one send or one receive by code at a time, so wait for the current one to finish before starting
+the next. There is no queue. A request link runs alongside either.
+
+## What the other person sees {#what-the-other-person-sees}
+
+What happens on their side depends on the app they use:
+
+| They use | What they see |
+|---|---|
+| A browser | The share link opens Floe's web app, which joins your room and receives the files. See [Receiving files](/web-app/receiving). |
+| The `floe` CLI | `floe receive` shows what you are sending and asks `Accept? [Y/n]` before it saves anything, unless they pass `-y`. See [floe receive](/cli/receive). |
+| Floe Desktop | It starts receiving as soon as it connects, with nothing to accept. See [Receiving files](/desktop/receiving). |
+
+If they answer no at the `floe receive` prompt, your status line reads
+`Error: They declined. Nothing was sent`. If their `floe` is 1.11.0 or earlier, a no reads
+`Error: The receiver left or declined` instead. If they press `Ctrl` `C` at the prompt, it reads
+`Error: They stopped the transfer`.
 
 ## While it sends
 
-The transfer starts by itself as soon as the other side joins. Nothing to confirm.
+The transfer starts by itself as soon as the other side joins. There is nothing to confirm.
 
 <Warning>
-  Keep Floe open until the transfer finishes. Closing it stops the send, and a transfer that
-  stops cannot be resumed, only sent again.
+  Keep Floe open until the transfer finishes. Closing it stops the send, and a transfer that stops cannot be
+  resumed, only sent again.
 </Warning>
 
-The badge at the top right of the card tells you what is happening:
+The status line under the card follows the send: `Setting up...` after you click **Send**,
+`Waiting for the receiver` once the code and link show, then `Sending...` when the other person joins, and
+then a progress bar. The progress bar shows the current file, the percentage, the speed, and the estimated time remaining.
+While a send runs, the file list folds into one row, such as **3 items**, which opens a read-only list.
 
-| Badge | Meaning |
-|---|---|
-| **READY** | Idle, nothing in flight. A [request link](/desktop/request-links#the-status-at-the-top) waiting for files reads **READY** too. |
-| **AUTO-ACCEPT** | A [request link](/desktop/request-links#auto-accept) made with Auto-accept is waiting; a drop that qualifies will save without asking. |
-| **ACTIVE** | A transfer is under way: either waiting for the other side to join, or connected and still working out which route it took. |
-| **DIRECT** | Connected device to device, with no relay in the middle. Floe sets no size limit on this route. |
-| **RELAY** | Connected through the encrypted TURN relay. The 2 GB cap applies. |
+The [badge](/glossary#badge) at the top right of the card tells you what is happening:
+
+| Badge | Meaning | What to do |
+|---|---|---|
+| **READY** | Idle, nothing in flight. A [request link](/desktop/request-links#the-status-at-the-top) waiting for files reads **READY** too. | Stage something and click **Send**. |
+| **AUTO-ACCEPT** | A request link made with [Auto-accept](/glossary#auto-accept) is waiting; a drop that qualifies will save without asking. | Nothing. See [Auto-accept](/desktop/request-links#auto-accept). |
+| **ACTIVE** | A transfer is under way: either waiting for the other side to join, or connected and still working out which route it took. | Wait, and keep Floe open. |
+| **DIRECT** | Connected device to device, a [direct connection](/glossary#direct-connection) with nothing in the middle, in which each side sees the other's [IP address](/glossary#ip-address). Floe sets no size limit on this route. | Nothing. |
+| **RELAY** | Connected through Floe's encrypted [relay](/glossary#relay), a server that passes the data along. The 2 GB cap applies. | Keep the send at 2 GB or less. See [Size limits](#size-limits). |
 
 The dot beside the word is green, or amber when the transfer goes through the relay or
-**Hide my IP address** is on. An amber **READY** means that setting is on, so the next transfer
-will be relayed and capped at 2 GB. It is the one state that explains itself when you point at it:
+**Hide my IP address** ([Hide my IP](/glossary#hide-my-ip)) is on. An amber **READY** means that setting is on, so the next
+transfer will be relayed and capped at 2 GB. It is the one state that explains itself when you point at it:
 "Hide my IP limits transfers to 2 GB".
 
-Below it, a progress bar shows the current file, the percentage, the speed, and the estimated
-time remaining. **Cancel** stops the transfer at any point: the status line reads `Canceled`, and
-the code and link you shared stop working. A send that fails shows a red line starting with
-`Error: ` and drops its code and link the same way, so click **Send** again for new ones.
+**Cancel** stops the transfer at any point: the status line reads `Canceled`, and the code and link you
+shared stop working. A send that fails shows a red line starting with `Error: ` and drops its code and link
+the same way, so click **Send** again for new ones.
 
-You can minimize the window and the transfer keeps running, because the transfer happens in
-Floe's core rather than in the window. Windows is also asked not to sleep while a transfer is
-connected, though not while Floe is only waiting for the other side to join, and closing a laptop
-lid or choosing Sleep yourself still wins. Closing the window while a send is waiting or running
-asks first; choosing **Close** stops the transfer and closes Floe, and **Keep open** goes back.
+You can minimize the window, and the transfer keeps running.
 
-When it finishes the card reads **Sent 1 item**, or **Sent 4 items** for four. It counts what you
-staged, not what crossed the wire, so a single folder holding 50 files reads **Sent 1 item**. A
-text note is one item too, since it travels as a single `message.txt`. The check mark beside it is
-green when the other side reports that every file's SHA-256 matched, and gray otherwise (see
-[File checks](/how-it-works/file-checks#the-sha-256-check)). With notifications on, Floe also shows a
-Windows notification when a transfer finishes or fails while it is in the background. See
-[Notifications](/desktop/settings#notifications).
+Once the other person has joined, Floe asks Windows not to sleep until the transfer ends. The screen can
+still turn off. Closing a laptop lid or choosing Sleep yourself still wins, and ends the transfer: after
+waking, the status line usually reads `Error: The connection dropped before the transfer finished`. Send
+the files that did not arrive again. See
+[A device that sleeps ends the transfer](/how-it-works/known-limitations#a-device-that-sleeps).
+
+While a send waits or runs, the line under the card reads "Keep this window open until it's done". Closing
+the window then asks first, in a dialog titled **Close Floe?** that reads "Closing now stops the transfer and
+they get nothing". **Keep open** (or `Esc`) goes back, and **Close** stops the transfer and quits Floe. The
+dialog covers the title bar's close button, `Alt` `F4` and the taskbar's **Close**, and it goes away by
+itself if the transfer ends first.
+
+## When it finishes {#when-it-finishes}
+
+The card reads **Sent 1 item**, or **Sent 4 items** for four. It counts what you staged, not what crossed the
+wire, so a single folder holding 50 files reads **Sent 1 item**. A text note is one item too, since it travels
+as a single `message.txt`.
+
+The check mark beside it is green when the other side confirms that every file arrived exactly as sent,
+checked by its [SHA-256](/glossary#sha-256) fingerprint, and gray otherwise. See
+[File checks](/how-it-works/file-checks#the-sha-256-check).
+
+What you staged stays staged, files and note alike, so **Send** again makes a new code for the next person
+with one click. With notifications on, Floe also shows a Windows notification when a transfer finishes or
+fails while it is in the background. See [Notifications](/desktop/settings#notifications).
 
 ## Send from File Explorer
 
-With [**Show in right-click menu**](/desktop/settings#show-in-right-click-menu) on, which it is by
-default in the build from GitHub, right-click one file or a selection of files in File Explorer
-and choose **Send with Floe**. On Windows 11 it sits under **Show more options**. Floe opens with
-those files already staged, or, if Floe is already running, brings the existing window forward and
-adds them to it. A selection of several files works: Windows launches Floe once per selected file,
-and every one of them lands in the same window. The entry is for files, not folders.
+With [**Show in right-click menu**](/desktop/settings#show-in-right-click-menu) on, you can send straight
+from File Explorer. It is on by default in the installer build from GitHub. The portable build leaves it off
+until you turn it on.
+
+<Steps>
+  <Step title="Select the files">
+    In File Explorer, select one file or several. The entry is for files, not folders.
+  </Step>
+  <Step title="Right-click them">
+    On Windows 11, choose **Show more options** to see the full menu.
+  </Step>
+  <Step title="Choose Send with Floe">
+    Floe opens with those files staged. If Floe is already running, its window comes forward and the files
+    are added to it.
+  </Step>
+</Steps>
+
+Only one Floe runs at a time. Windows launches Floe once per selected file, and every one of them lands in
+the same window.
 
 The Microsoft Store build does not have this entry. See
 [Installation](/desktop/installation#choose-a-channel).
 
 ## Size limits
 
-Floe sets no size limit on a direct connection, though a browser on the receiving end can only
-hold so much. A send that goes through the relay is capped at 2 GB. When Floe confirms the route
-is relayed and you staged more than that, it stops before any file data moves:
+Floe sets no size limit on a direct connection, though a browser on the receiving end can only hold so much.
+A send that goes through the relay is capped at 2 GB. When Floe confirms the route is relayed and you staged
+more than that, it stops before any file data moves:
 
 ```text Status line
 Error: transfer blocked: relay connections are capped at 2 GB (selected 2.5 GB)
 ```
 
-With [**Hide my IP address**](/desktop/settings#hide-my-ip-address) on, every send is relayed, so
-the cap always applies, and the line ends with `. Turn off Hide my IP to send larger files`.
+With [**Hide my IP address**](/desktop/settings#hide-my-ip-address) on, every send is relayed, so the cap
+always applies, and the line ends with `. Turn off Hide my IP to send larger files`.
 
-See [File size limits](/how-it-works/2gb-limit) for what decides the route and what counts toward
-the cap, and [Known limitations](/how-it-works/known-limitations) for what a browser receiver can
-hold.
+See [File size limits](/how-it-works/2gb-limit) for what decides the route and what counts toward the cap,
+and [Known limitations](/how-it-works/known-limitations) for what a browser receiver can hold.
 
 ## Keyboard
 
-`Ctrl` `O` adds files, `Ctrl` `Enter` sends, `Ctrl` `Z` undoes a **Clear**, `Ctrl` `R` starts
-over. The full list is in [Keyboard shortcuts](/desktop/keyboard-shortcuts).
+`Ctrl` `O` adds files, `Ctrl` `Enter` sends, `Ctrl` `Z` undoes a **Clear**, `Ctrl` `R` starts over. The full
+list is in [Keyboard shortcuts](/desktop/keyboard-shortcuts).
 
 ## If something goes wrong
 

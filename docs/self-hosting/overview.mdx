@@ -5,11 +5,11 @@ description: "Run your own Floe signaling server, web client, and optional TURN 
 keywords: ["self host", "run your own", "on premise", "private instance"]
 ---
 
-You can run the whole Floe stack yourself, independently of `floe.one`: the web app, the signaling server, and an optional TURN relay. The standard setup is Docker Compose, which pulls two published images and starts the stack with one command. Unraid templates and a plain Node.js run are covered too.
+You can run the whole Floe stack yourself, independently of `floe.one`: the web app, the [signaling server](/glossary#signaling-server), and an optional TURN [relay](/glossary#relay). The standard setup is [Docker Compose](/glossary#docker-compose), which pulls two published images and starts the stack with one command. Unraid templates and a plain Node.js run are covered too.
 
 ## What you are hosting
 
-The signaling server brokers WebRTC connection setup (offer, answer, ICE candidates) and issues TURN credentials that last 24 hours. **File data never passes through it.** Transfers go peer-to-peer over encrypted WebRTC data channels. TURN is optional and relays (still encrypted) traffic only when a direct connection is not possible or a transfer is set to use the relay.
+The signaling server introduces two devices to each other and then steps aside. **File data never passes through it.** Technically, it passes the [WebRTC](/glossary#webrtc) connection details between the two [peers](/glossary#peer) (offer, answer, and [ICE](/glossary#ice) candidates), and once a relay is set up it also issues relay credentials that last 24 hours. Transfers go [peer-to-peer](/glossary#peer-to-peer) over encrypted WebRTC data channels. A relay is optional, and it carries the (still encrypted) traffic only when a firewall or [NAT](/glossary#nat) rules out a [direct connection](/glossary#direct-connection), or when a transfer is set to use the relay.
 
 ## Components
 
@@ -17,11 +17,33 @@ The signaling server brokers WebRTC connection setup (offer, answer, ICE candida
 |-----------|-------------|
 | `client` | Next.js web app, on container port 3000 |
 | `server` | Node.js signaling server, on container port 3001 |
-| `coturn` | Optional self-hosted TURN relay (profile-gated in Docker Compose). Alternatively, use managed Cloudflare Realtime TURN with no extra container. |
+| `coturn` | Optional [self-hosted](/glossary#self-hosted) [TURN](/glossary#turn) relay (profile-gated in Docker Compose). Alternatively, use managed Cloudflare Realtime TURN with no extra container. |
 
 Those are the ports inside the containers. In production you normally put both
 behind a single domain, so your users never see either one. See
 [Run behind one domain](/self-hosting/reverse-proxy).
+
+Both images run the newest release by default, not what floe.one runs: floe.one serves the web
+app from the newest code, which is what the web-app pages of these docs describe. Until the next
+release, your instance can word some things differently, and
+[What an older web app shows](/self-hosting/operations#older-web-app-versions) lists each place.
+
+## What the web app on your domain serves
+
+The client image serves the same site as floe.one, under your address:
+
+- The transfer page, and the page a [request link](/glossary#request-link) opens, under `/r/`.
+- floe.one's other pages, unchanged: `/download`, `/how-it-works`, `/privacy`, and `/terms`. The
+  privacy policy and the terms describe floe.one and the servers its maintainers run, not your
+  instance, and no setting replaces them.
+- The [CLI](/glossary#cli) install scripts, at `/install.sh` and `/install.ps1`.
+- `/docs`, which sends visitors on to the same page of floe.one's documentation instead of serving
+  the documentation itself.
+
+The web app refuses to be shown inside another page: every page carries a `frame-ancestors 'none'`
+policy and `X-Frame-Options: DENY`. A dashboard that embeds apps in a frame shows a blank frame
+for Floe, so open it in its own tab. The headers are fixed when the image is built, and no setting
+changes them.
 
 ## Who can connect
 
@@ -36,18 +58,17 @@ them can transfer with each other on your server.
 
 Both peers must be on the same server. Servers do not talk to each other.
 
-`CLIENT_URL` governs browser traffic only. CLI and desktop peers connect over `/ws` and
-send your server's own address as their origin, which the server accepts when it is your
-`CLIENT_URL` or names the same host as the `Host` header your proxy forwards. They reach
-your server without `CLIENT_URL` listing them, as long as the proxy does not rewrite `Host`.
+The CLI and Floe Desktop need no setting on the server: `CLIENT_URL` governs browsers only. A
+[reverse proxy](/glossary#reverse-proxy) in front of the server has to pass the `Host` header through for them, as
+[Origins the server accepts](/self-hosting/production#cors-note) explains.
 
 ## Off until you turn it on
 
 Two features need setup before a new instance has them.
 
 A new instance has no TURN relay. Two devices that cannot reach each other directly do not
-connect, and a transfer that insists on the relay (**Hide my IP address** in Floe Desktop,
-`--relay-only` on the CLI) stops with a message before it starts. See
+connect. A transfer that insists on the relay stops with a message before it starts: [Hide my IP
+address](/glossary#hide-my-ip) in Floe Desktop, or `--relay-only` on the CLI. See
 [TURN relay](/self-hosting/turn-relay).
 
 [Request links](/desktop/request-links) are off. Until a policy file turns them on,
@@ -56,8 +77,8 @@ connect, and a transfer that insists on the relay (**Hide my IP address** in Flo
 
 ## Run one instance, not several
 
-The signaling server keeps rooms, room codes, open request links, and its rate limiters in
-the memory of a single process.
+The signaling server keeps [rooms](/glossary#room), [room codes](/glossary#room-code), open
+request links, and its rate limiters in the memory of a single process.
 
 <Warning>
   Putting two replicas behind a load balancer does not scale Floe out. It breaks pairing,
@@ -75,11 +96,14 @@ held, as a [restart](/self-hosting/operations#common-commands) does.
   <Card title="Docker quickstart" href="/self-hosting/quickstart">
     Get the stack running with Docker Compose in minutes.
   </Card>
-  <Card title="Container images" href="/self-hosting/images">
-    The prebuilt images on ghcr.io: tags, pinning a version or digest, and supported architectures.
+  <Card title="Without Docker" href="/self-hosting/without-docker">
+    Run the client and signaling server straight from Node.
   </Card>
   <Card title="Unraid" href="/self-hosting/unraid">
     Install the client and signaling server on Unraid from Floe's two container templates.
+  </Card>
+  <Card title="Container images" href="/self-hosting/images">
+    The prebuilt images on ghcr.io: tags, pinning a version or digest, and supported architectures.
   </Card>
   <Card title="Configuration" href="/self-hosting/configuration">
     Environment variable reference for all settings.
@@ -90,19 +114,16 @@ held, as a [restart](/self-hosting/operations#common-commands) does.
   <Card title="Reverse proxy" href="/self-hosting/reverse-proxy">
     Serve the client and signaling server from one domain, with Caddy and nginx examples.
   </Card>
-  <Card title="Production deployment" href="/self-hosting/production">
-    HTTPS, custom domains, and the two-subdomain layout.
-  </Card>
   <Card title="TURN relay" href="/self-hosting/turn-relay">
     Use Cloudflare's managed TURN or add coturn to support peers behind strict NAT or CGNAT.
   </Card>
   <Card title="Turn on request links" href="/self-hosting/request-links">
     Let Floe Desktop users on your server make request links, with a policy file you can switch without a restart.
   </Card>
+  <Card title="Production deployment" href="/self-hosting/production">
+    HTTPS, custom domains, and the two-subdomain layout.
+  </Card>
   <Card title="Operations" href="/self-hosting/operations">
     Day-to-day commands, updates, and health checks.
-  </Card>
-  <Card title="Without Docker" href="/self-hosting/without-docker">
-    Run the client and signaling server straight from Node.
   </Card>
 </Columns>

@@ -5,17 +5,16 @@ description: "Add a TURN relay to a self-hosted Floe instance, managed by Cloudf
 keywords: ["coturn", "turn server", "cloudflare turn", "cgnat"]
 ---
 
-This page adds a TURN relay to a self-hosted instance, for the transfers that cannot go direct. A relay carries the stream, still end-to-end encrypted, when two peers cannot reach each other, which is common behind symmetric NAT or carrier-grade NAT. Without one, those transfers fail, and every other transfer still connects directly.
+This page adds a TURN [relay](/glossary#relay) to a [self-hosted](/glossary#self-hosted) instance, for the transfers that cannot go direct. Some home, office, and mobile networks do not let two devices connect to each other directly, which is common behind symmetric [NAT](/glossary#nat) or carrier-grade NAT. A relay carries the stream for those, still end-to-end encrypted. Without one, those transfers fail, and every other transfer still connects directly.
 
-You have two options: a managed TURN service (recommended) or a self-hosted coturn relay.
+You have two options: a managed [TURN](/glossary#turn) service (recommended) or a self-hosted coturn relay.
 
-<Warning>
-  A relay does not keep every client away from Google. When a client cannot fetch connection details
-  from your server, because the request is misrouted, rate limited, or the server is down, it falls
-  back to two hard-coded Google STUN addresses rather than giving up. The web app, the CLI, and Floe
-  Desktop all do this, and only a transfer that forces the relay stops instead. If your instance
-  exists so that no traffic leaves your control, plan for it.
-</Warning>
+## The short version {#the-short-version}
+
+With a Cloudflare account, create a TURN key, put its two values in `.env`, and run
+`docker compose up -d`. Running coturn yourself instead takes a Linux host with a public IP
+address, a domain, a TLS certificate (unless you set `TURN_TLS=off`), and open UDP ports. Either way, check the result with a
+transfer that may only use the relay.
 
 ## Managed TURN via Cloudflare (recommended)
 
@@ -33,7 +32,7 @@ Cloudflare's Realtime TURN service runs on Cloudflare's global anycast network. 
     CLOUDFLARE_TURN_KEY_API_TOKEN=<your API token>
     ```
 
-    The signaling server mints credentials from Cloudflare that last 24 hours, and caches them for 5 minutes. These variables take precedence over the coturn variables below, so you do not need to run coturn. Set both: with only one of the pair, the server skips Cloudflare and logs nothing about it.
+    The [signaling server](/glossary#signaling-server) mints credentials from Cloudflare that last 24 hours, and caches them for 5 minutes. These variables take precedence over the coturn variables below, so you do not need to run coturn. Set both: with only one of the pair, the server skips Cloudflare and logs nothing about it.
   </Step>
   <Step title="Recreate the server">
     ```bash Terminal
@@ -49,12 +48,12 @@ Cloudflare's Realtime TURN service runs on Cloudflare's global anycast network. 
 Prefer to run the relay yourself? Leave the Cloudflare variables unset and configure coturn instead.
 
 <Info>
-  The bundled `coturn` service needs a Linux host with a public IP address, a domain name, and TLS
-  certificates. It uses host networking (`network_mode: host`), which only works on Linux. On macOS
-  or Windows with Docker Desktop, run coturn separately or on a Linux VM.
+  The bundled `coturn` service needs a Linux host with a public [IP address](/glossary#ip-address),
+  a domain name, and TLS certificates, unless you set `TURN_TLS=off`. It uses host networking (`network_mode: host`), which only
+  works on Linux. On macOS or Windows with Docker Desktop, run coturn separately or on a Linux VM.
 </Info>
 
-## Setup
+## Set up coturn {#setup}
 
 <Steps>
   <Step title="Create the coturn config">
@@ -70,16 +69,24 @@ Prefer to run the relay yourself? Leave the Cloudflare variables unset and confi
 
       Recovering needs `rmdir coturn/turnserver.conf` **first**: copying onto a directory succeeds and writes the file inside it, so the obvious fix appears to work and does not.
     </Warning>
-
+  </Step>
+  <Step title="Set the secret, the realm, and the public address">
     Edit `coturn/turnserver.conf` and set:
     - `static-auth-secret` to a strong random value (for example, the output of `openssl rand -hex 32`)
-    - `realm` to your TURN hostname (for example, `turn.your-domain.com`), the same value the server gets as `TURN_DOMAIN` in the next step
-    - `cert` and `pkey` (both commented out) to the paths of your TLS certificate and key
+    - `realm` to your TURN hostname (for example, `turn.your-domain.com`), the same value the server gets as `TURN_DOMAIN` in a later step. Give that hostname a DNS record that points at this machine.
     - `external-ip` to the machine's public IP, if the interface itself holds a private address
 
     `external-ip` is commented out in the example file, and uncommenting it is the normal case on AWS, GCP, Azure, and any VPS behind 1:1 NAT. Leave it commented out only when the public address is bound directly to the interface. Get it wrong and coturn advertises a relay candidate nobody can route to, so relayed transfers fail with no error message.
+  </Step>
+  <Step title="Add the TLS certificate">
+    Copy your certificate and its key into a `coturn/certs` folder next to `docker-compose.yml`, as `coturn/certs/fullchain.pem` and `coturn/certs/privkey.pem`. In `coturn/turnserver.conf`, uncomment the two lines that name them:
 
-    The certificate mount is shipped commented out too. Uncomment it in `docker-compose.yml` so the paths you just set in `turnserver.conf` exist inside the container:
+    ```text coturn/turnserver.conf
+    cert=/etc/coturn/certs/fullchain.pem
+    pkey=/etc/coturn/certs/privkey.pem
+    ```
+
+    The certificate mount is shipped commented out too. Uncomment it in `docker-compose.yml` so those paths exist inside the container:
 
     ```yaml docker-compose.yml
     volumes:
@@ -87,7 +94,7 @@ Prefer to run the relay yourself? Leave the Cloudflare variables unset and confi
       - ./coturn/certs:/etc/coturn/certs:ro
     ```
 
-    If you started from the `curl` quickstart rather than a clone, that means editing your downloaded `docker-compose.yml`. Skip it and the signaling server still advertises a `turns:` URL, pointing at a port that cannot complete a TLS handshake.
+    If you started from the `curl` quickstart rather than a clone, that means editing your downloaded `docker-compose.yml`. No certificate? Leave both lines commented out, skip the mount, and set `TURN_TLS=off` in the next step. Skip this step without it and the signaling server still advertises a `turns:` URL, pointing at a port that cannot complete a TLS handshake.
   </Step>
   <Step title="Match the server environment">
     In `.env`:
@@ -95,9 +102,10 @@ Prefer to run the relay yourself? Leave the Cloudflare variables unset and confi
     ```dotenv .env
     TURN_SECRET=<same value as static-auth-secret>
     TURN_DOMAIN=turn.your-domain.com
+    # TURN_TLS=off   # only when coturn has no TLS certificate
     ```
 
-    The signaling server uses these to issue time-limited HMAC-SHA1 credentials for coturn. Credentials expire after 24 hours. Set both: with only one of the pair, the server hands out no coturn entries and logs nothing about it.
+    The signaling server uses these to issue time-limited HMAC-SHA1 credentials for coturn. Credentials expire after 24 hours. Set both: with only one of the pair, the server hands out no coturn entries and logs nothing about it. Set `TURN_TLS=off` when coturn runs without a certificate: the server then hands out the `stun:` and `turn:` entries only.
   </Step>
   <Step title="Open firewall ports">
     On the host, open the following ports:
@@ -105,17 +113,17 @@ Prefer to run the relay yourself? Leave the Cloudflare variables unset and confi
     | Port | Protocol | Purpose |
     |------|----------|---------|
     | `3478` | UDP/TCP | STUN and TURN |
-    | `5349` | UDP/TCP | TURNS (TURN over TLS) |
+    | `5349` | UDP/TCP | TURNS (TURN over TLS). Not used with `TURN_TLS=off` |
     | `49152-65535` | UDP | Relay data range (configurable in `turnserver.conf`) |
 
-    These ports must be reachable directly. TURN is not HTTP, so it cannot be routed through the reverse proxy that fronts the web client and signaling server. Even on a [one-domain deployment](/self-hosting/reverse-proxy), coturn keeps its own ports and its own TLS certificate.
+    These ports must be reachable directly. TURN is not HTTP, so it cannot be routed through the [reverse proxy](/glossary#reverse-proxy) that fronts the web client and signaling server. Even on a [one-domain deployment](/self-hosting/reverse-proxy), coturn keeps its own ports and its own TLS certificate.
   </Step>
   <Step title="Start the stack with the TURN profile">
     ```bash Terminal
     docker compose --profile turn up -d
     ```
 
-    Create `coturn/turnserver.conf` first, as the earlier step describes. Starting the profile without it looks successful and is not.
+    Create `coturn/turnserver.conf` first, as the first step describes. Starting the profile without it looks successful and is not.
   </Step>
 </Steps>
 
@@ -137,16 +145,51 @@ With coturn configured, the response contains `turn:` and `turns:` entries, plus
 ]
 ```
 
-With Cloudflare configured the response is two entries rather than three, and `urls` is an array rather than a string: one `stun:stun.cloudflare.com:3478` with no username or credential, and one carrying both a `turn:` and a `turns:` URL with the credentials. See [the API reference](/reference/http-api#relay-credentials) for the exact shape. When neither the Cloudflare variables nor `TURN_SECRET` / `TURN_DOMAIN` are set, the endpoint returns the Google public STUN servers only.
+With `TURN_TLS=off` the `turns:` entry is left out, and the response holds the first two.
+
+With Cloudflare configured the response is two entries rather than three, and `urls` is an array rather than a string. One holds `stun:stun.cloudflare.com:3478` with no username or credential, and the other a `turn:` and a `turns:` URL with the credentials. See [the API reference](/reference/http-api#relay-credentials) for the exact shape. When neither the Cloudflare variables nor `TURN_SECRET` / `TURN_DOMAIN` are set, the endpoint returns the Google public [STUN](/glossary#stun) servers only.
+
+That check proves the server hands out credentials, not that the relay carries data. A coturn with a wrong `external-ip`, a closed UDP range, or a bad certificate passes it. To prove the relay end to end, run a transfer that may only use the relay, between two machines:
+
+```bash Terminal
+floe send photo.jpg --server https://floe.example.com --relay-only
+floe receive <code> --server https://floe.example.com --relay-only
+```
+
+Each side prints this line once the relay carries the connection:
+
+```text Output
+  Connected (relay)
+```
+
+A server that offers no relay stops the command at once instead:
+
+```text Output
+Error: --relay-only needs a TURN relay and https://floe.example.com offers none; drop the flag, or configure a relay on the server
+```
+
+[Hide my IP](/glossary#hide-my-ip) address in Floe Desktop makes the same test from the desktop app.
 
 Cloudflare credentials are minted upstream and then cached in memory for 5 minutes. Two consequences are worth planning around:
 
 - Both keys are read once at startup, so a changed key takes effect only after `docker compose up -d` (a restart, without Docker). The server starts with an empty cache, so the new key is used at once.
-- If the Cloudflare API starts failing, including after a key is deleted, the server keeps serving the last good copy for up to about 23 hours after it was minted, and logs `Cloudflare TURN mint failed` at most once every 5 minutes. Only then does it fall back to coturn, if that is configured, or to Google STUN. A broken key can look healthy for most of a day.
+- If the Cloudflare API starts failing, including after a key is deleted, the server keeps serving the last good copy for up to about 23 hours after it was minted. It logs `Cloudflare TURN mint failed` at most once every 5 minutes. Only then does it fall back to coturn, if that is configured, or to Google STUN. A broken key can look healthy for most of a day.
+
+## What still leaves your server {#what-still-leaves-your-server}
+
+A relay does not keep every client away from Google. When a client cannot fetch connection details
+from your server, because the request is misrouted, rate limited, or the server is down, it falls
+back to two hard-coded Google STUN addresses rather than giving up. The web app, the [CLI](/glossary#cli),
+and Floe Desktop all do this, and only a transfer that forces the relay stops instead.
+
+The web app's `/docs` link sends visitors on to floe.one's documentation. If your instance exists
+so that no traffic leaves your control, plan for both.
 
 ## How credentials work
 
 For coturn, the signaling server generates time-limited credentials using HMAC-SHA1. The username is `{expiry_unix_timestamp}:floeuser` and the password is `base64(HMAC-SHA1(TURN_SECRET, username))`. coturn validates these against the shared secret without needing a database of user accounts.
+
+## Your relay keeps the 2 GB cap {#your-relay-keeps-the-2-gb-cap}
 
 Running your own relay does not lift the 2 GB cap on a relayed transfer. The cap is compiled into the browser client, the CLI, and the desktop app, not read from your server, so raising it means building all three from modified source. See [File size limits](/how-it-works/2gb-limit).
 
@@ -203,8 +246,9 @@ Cloudflare answers `204` when the credential is revoked; see its
 Every client that fetched credentials while that username was current holds the same one, so
 revoking it revokes theirs too. If `/api/turn-credentials` still returns the username you revoked,
 restart the server (`docker compose restart server`) so it mints a new one at once, or wait up to 5
-minutes for the next mint. A restart also forgets every room code and stops any CLI or Floe Desktop
-sender still waiting for its receiver; see [Operations](/self-hosting/operations#common-commands).
+minutes for the next mint. A restart also forgets every [room](/glossary#room) and [room code](/glossary#room-code) and stops
+any CLI or Floe Desktop sender still waiting for its receiver; see
+[Operations](/self-hosting/operations#common-commands).
 
 ### Rotate the key
 
@@ -238,11 +282,14 @@ firewall instead, and plan on what they already hold lasting up to 24 hours.
   never reach a `coturn/turnserver.conf` that already exists.
 </Warning>
 
+The compose file pins coturn to `coturn/coturn:4.15`, so pulling the stack keeps you on that
+version. Moving to a newer coturn means changing the `image` line of the `coturn` service.
+
 ## If something goes wrong
 
 - A relay is configured but transfers that need it still fail: see
   [The TURN relay is not working](/troubleshooting#the-turn-relay-is-not-working).
 - The coturn log says `Default realm: localdomain`: see
   [coturn logs `Default realm: localdomain`](/troubleshooting#coturn-logs-default-realm-localdomain).
-- **Test** in Floe Desktop answers "Connected, but there's no relay for Hide my IP": see
+- **Test** in Floe Desktop answers "Connected, but this server has no relay: Hide my IP will not work, and some networks will not connect": see
   [The Test button says the server has no TURN relay](/troubleshooting#the-test-button-says-the-server-has-no-turn-relay).

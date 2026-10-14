@@ -6,42 +6,96 @@ keywords: ["error", "not working", "cannot connect", "failed", "stuck", "trouble
 boost: 2
 ---
 
-Most transfers just work. When one does not, Floe usually tells you why. Find the message you are
-looking at below, or use the page search. Each entry says where the message appears, what causes
-it, and what to do.
+This page lists the messages Floe shows when a transfer does not work: where each one appears, what
+causes it, and what to do.
 
-This page covers the messages people meet most, not every line Floe can print. Four other pages
-hold the complete table for their own area:
+## The short version {#the-short-version}
 
-| Messages from | The complete table |
-|---|---|
-| A request link, for the person who made it | [Request links](/desktop/request-links#messages-on-your-pc) |
-| A request link, for the person sending through it | [Sending through a request link](/web-app/request-links#messages) |
-| `floe send --to` | [floe send](/cli/send#messages-from-floe-send-to) |
-| The **Test** button in Floe Desktop | [Settings](/desktop/settings#server) |
+Find your message in the table at the top of the section for the app you were using, or use the
+page search. Most failures have one of three causes: the other person is not there, a network blocks
+a [direct connection](/glossary#direct-connection) and no [relay](/glossary#relay) is available, or
+a link or [room code](/glossary#room-code) was already used. Nothing resumes. Files that arrived
+whole are kept, and a new transfer starts again from the first file.
 
 If you have no message at all and the transfer simply never starts, begin with
 [The transfer never starts](#the-transfer-never-starts).
 
+This page covers the messages people meet most. Four other pages hold the complete table for their
+own area:
+
+| Messages from | The complete table |
+|---|---|
+| A [request link](/glossary#request-link), for the person who made it | [Request links](/desktop/request-links#messages-on-your-pc) |
+| A request link, for the person sending through it | [Sending through a request link](/web-app/request-links#messages) |
+| `floe send --to` | [floe send](/cli/send#messages-from-floe-send-to) |
+| The **Test** button in Floe Desktop | [Settings](/desktop/settings#server) |
+
 ## In the browser {#in-the-browser}
 
-These appear on floe.one, or on your own web client, as a red banner inside the transfer card
-unless the entry says otherwise.
+These appear on floe.one, or on a [self-hosted](/glossary#self-hosted) web app. The label at the top
+left of the transfer card reads Send or Receive, which tells you which page you are on. Most
+messages are a red banner inside the card, and its X closes it without retrying anything. Some are
+the status line under the [share link](/glossary#share-link) instead, and the entry says so.
 
-The wording is that of the web app at floe.one. A web app that someone hosts themselves can run an
-older version, where a few of these messages read differently: see
-[What an older web app shows](/self-hosting/operations#older-web-app-versions).
+A web app that someone hosts themselves can run an older version, where a few of these messages read
+differently: see [What an older web app shows](/self-hosting/operations#older-web-app-versions).
+
+| Where you see it | Why | What to do |
+|---|---|---|
+| [“Open in your browser”](#open-in-your-browser), a card in place of the page | The link opened inside another app's built-in browser. | Open the link in Chrome, Safari, Edge, or Firefox. |
+| [Nothing happens](#the-transfer-never-starts), on either page | The sender left, the recipient has not answered, or no network path exists. | Check the three causes in order. |
+| [The badge stays on Offline](#the-badge-stays-on-offline), on either page | The page cannot reach Floe's server. | Try another network or turn off blocking extensions, then reload. |
+| [A page that asks for files](#the-link-opens-the-send-page), from a link you were sent | The link lost its end, the part from `#room=` on. | Ask for the whole link again. |
+| [“Link Invalid”](#link-invalid), a card on the page you receive on | Someone else holds the link, it was cut short, or your network changed. | Close other tabs and reload, or copy the whole link again. |
+| [“The sender is not connected”](#the-sender-is-not-connected), page you receive on | Nobody is on the sending side of the link. | Wait a minute or two, reload once, then ask for a new link. |
+| [Refused after a network change](#a-device-that-changed-networks-is-refused), either page | Your device came back on a new network partway through. | Start a new transfer. |
+| [“Too many refreshes. Reconnecting”](#too-many-refreshes-reconnecting), either page | Too many connections from your network in a minute. | Wait a minute without reloading. |
+| [“Connection failed. Ask the sender to try again.”](#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again), page you receive on | No network path, often because the sender turned the relay off. | Ask for a new link with the relay left on. |
+| [“This link was made with Network relay fallback off”](#connection-failed-enable-network-relay-to-connect-across-restrictive-networks), page you send from | Only a relayed path existed, and you had turned the relay off. | Reload, add the files, leave the box checked, share the new link. |
+| [“Connection lost. The other device may have closed the tab.”](#connection-lost-the-other-device-may-have-closed-the-tab), page you send from | The recipient left or lost their network before the transfer started. | Ask them to open the same link again. |
+| [“Peer disconnected. Waiting for reconnection”](#peer-disconnected-waiting-for-reconnection), status line, page you send from | The recipient dropped off before the devices connected, or left partway through a file. | Keep the page open and ask them to open the link again. |
+| [“Reconnecting to your link”](#reconnecting-to-your-link), status line, page you send from | Your own connection to the server came back. | Nothing. It clears within about a minute. |
+| [“This link stopped working”](#this-link-stopped-working), page you send from | The server would not put your page back in its room. | Reload, add the files again, share the new link. |
+| [“Transfer blocked. Relay limit exceeded.”](#transfer-blocked-relay-limit-exceeded), status line, page you send from | The connection is relayed and the files total more than 2 GB. | Send 2 GB or less, or from a network that connects directly. |
+| [“Transfer timed out waiting for receiver”](#transfer-timed-out-waiting-for-receiver-please-try-again), page you send from | The other side did not take the file within 2 minutes. | Ask them to be ready and open the same link again. |
+| [“The sender ended the transfer”](#the-sender-ended-the-transfer), or the sender's own reason, page you receive on | The sender's side closed or stopped the transfer. | Save what arrived, then ask for the rest. |
+| [“Received 1 of 3 files”](#the-transfer-ended-before-the-rest-arrived), amber line, page you receive on | The connection ended partway. | Save what arrived, then ask for the rest. |
+| [“The connection closed before the transfer finished.”](#the-connection-closed-before-the-transfer-finished), page you send from | The receiving side left partway through. | Ask what arrived, then send the rest. |
+| [“Could not read” and a file's name](#could-not-read-a-file), page you send from | A file you picked was moved, renamed, or deleted. | Put it back, then send it in a new transfer. |
+| [“Incomplete file”](#a-file-did-not-appear-at-all), page you receive on | A file arrived shorter or longer than announced and was discarded. | Ask the sender to send it again. |
+| [“A file did not match what was sent”](#a-file-did-not-match-what-was-sent), either page | A file failed its SHA-256 check and was discarded. | Save what arrived, then ask for the rest. |
+| [“This browser ran out of memory while receiving”](#this-browser-ran-out-of-memory), page you receive on | The browser could not hold any more. | Receive with Floe Desktop or `floe receive`. |
+| [“Something went wrong while receiving”](#something-went-wrong-while-receiving), page you receive on | An error Floe did not expect. | Ask for a new transfer. Report it if it repeats. |
+| [“Something went wrong while sending”](#something-went-wrong-while-sending), page you send from | An error Floe did not expect. | Reload and send again. Report it if it repeats. |
+| [A banner that starts with “receiver”](#a-banner-that-starts-with-receiver), page you send from | The receiving app stopped on purpose and said why. | Deal with the cause it names, then send again. |
+| [“The sender sent a control message larger than 1000 bytes”](#the-sender-sent-something-floe-could-not-read), and two similar banners, page you receive on | The sending app sent something Floe refuses. | Ask the sender to zip deep folders, or to update Floe. |
+| [“The receiver asked to resume”](#the-receiver-asked-to-resume), page you send from | The receiving app asked for a position outside the file. | Ask them to update Floe or use another Floe app. |
+| [“Connection failed. Reload the page to try again”](#connection-error), or the sending page's twin | The connection failed in a way Floe has no closer words for. | Do what the sentence says. |
+| [“Cannot transfer: your browser is running an older version of Floe.”](#cannot-transfer-your-floe-is-too-old-for-this-peer), either page | The two apps speak protocol versions that do not overlap. | Update the side the message names. |
+| [“Could not prepare files for ZIP.” or “ZIP creation failed.”](#could-not-prepare-files-for-zip-or-zip-creation-failed), page you receive on | Zipping needs every file in memory at once. | Click **Download All** instead. |
+| [Downloads behave oddly on iOS](#downloads-behave-oddly-on-ios) | Safari saves several files one at a time unreliably. | Use **Download ZIP**. |
+| [The page reloaded by itself](#the-page-reloaded-by-itself), either page | The web app was updated while your tab was open. | Start the transfer again. |
+| [“Page not found”](#page-not-found) | The address matches no page, often a link cut short. | Copy the whole link again. |
+| [“Something went wrong” and a **Reload page** button](#something-went-wrong-reload-page) | The web app itself failed. | Click **Reload page**. |
 
 ### "Open in your browser" {#open-in-your-browser}
 
-A full-screen card in place of the page. Floe is running inside another app's built-in browser,
-such as the one in Facebook, Instagram, or TikTok, and those handle file transfers poorly. Until you
-leave it or continue, the page has not joined the room, so nothing is lost by switching.
+A full-screen card in place of the page. Floe is running inside another app's built-in browser, an
+[in-app browser](/glossary#in-app-browser) such as the one in Facebook, Instagram, or TikTok, and
+those handle file transfers poorly. Until you leave it or continue, the page has not joined the
+[room](/glossary#room), so nothing is lost by switching.
 
 Follow the two steps on screen, or tap **Copy link to paste in browser** and open the link in
 Chrome, Safari, Edge, or Firefox. The link is also shown on the card: if the copy fails, the card
 says "Couldn’t copy. Press and hold the link above to copy it." **Continue anyway (some features
-may not work)** carries on where you are. See [Receiving files](/web-app/receiving#if-floe-says-open-in-your-browser). If the link is a request link, one with `/r/` in it, the card says to open it in current Chrome or Edge on a computer, which is where request links are supported: see [Sending through a request link](/web-app/request-links).
+may not work)** carries on where you are. See
+[Receiving files](/web-app/receiving#if-floe-says-open-in-your-browser).
+
+A request link, one with `/r/` in it, is the exception. There the card says to open the link in
+current Chrome or Edge on a computer, which is where request links are supported. Under it, a box
+titled "To use this phone instead" gives the steps to open the link in your phone's own browser.
+**Copy link to paste in browser** and **Continue anyway** work as they do for a share link. See
+[Sending through a request link](/web-app/request-links).
 
 ### The transfer never starts {#the-transfer-never-starts}
 
@@ -52,33 +106,63 @@ time, and the connection is made directly between the two devices, so three thin
   ends the session, and nothing resumes it. A browser that opens the link afterward says
   ["The sender is not connected"](#the-sender-is-not-connected).
 - **The recipient has not answered.** In the browser and in Floe Desktop a transfer starts by
-  itself once both sides are connected. `floe receive` asks first, so a sender can sit connected
-  with no progress while the recipient has not answered the `Accept? [Y/n]` prompt. The sender
-  waits 2 minutes for that answer, and `-y` skips the prompt.
-- **The network allows no direct path, and no relay is available.** In the browser the relay is
-  the sender's **Network relay fallback** checkbox, checked by default, and a browser recipient
-  has no such control. On the CLI it means nobody passed `--no-relay`. Floe Desktop has no control
-  for it and uses the relay whenever the server offers one.
+  itself once both sides are connected. `floe receive` asks first, with an `Accept? [Y/n]`
+  prompt. The sender waits 2 minutes for that answer, and `-y` skips the prompt.
+- **The network allows no direct path, and no relay is available.** The two devices cannot reach
+  each other directly, and the fallback that passes the data through a server is off or missing.
+  In the browser that fallback is the sender's
+  [Network relay fallback](/glossary#network-relay-fallback) checkbox, checked by default. A
+  recipient in the browser has no such control. On the [CLI](/glossary#cli) it means nobody
+  passed `--no-relay`. Floe Desktop has no control for it and uses the relay whenever the server
+  offers one.
 
-Check those three in order: make sure the sender still has Floe open, have the recipient open the
-link or answer the prompt, then ask the sender to allow the relay and start a new transfer.
+Check those three in order. Make sure the sender still has Floe open, and have the recipient open
+the link or answer the prompt. Then ask the sender to allow the relay and start a new transfer.
+
+The page sets no time limit of its own on connecting. It waits until the browser gives the
+connection up, and only then shows a banner. `floe` and Floe Desktop stop after 30 seconds of
+trying to connect. If the [badge](/glossary#badge) at the top right of the card reads Offline,
+start with [The badge stays on Offline](#the-badge-stays-on-offline).
+
+### The badge stays on Offline {#the-badge-stays-on-offline}
+
+On either page, with no banner. The badge at the top right of the card reads Offline beside a red
+dot, where it should read Ready. The page cannot reach Floe's [signaling server](/glossary#signaling-server):
+your network or a browser extension blocks it, or the server is down.
+
+The page you send from still shows a share link after 3 seconds, but that link works only once the
+badge reads Ready. Someone who opens it before then reads
+["The sender is not connected"](#the-sender-is-not-connected).
+
+Try another network, or turn off extensions that block requests, then reload the page. On your own
+server, see
+[The browser cannot connect to my signaling server](#the-browser-cannot-connect-to-my-signaling-server).
+
+### The link opens a page that asks for files {#the-link-opens-the-send-page}
+
+You opened a link someone sent you, and the card's label reads Send, with an area to drop files. The
+link lost its end, the part from `#room=` on, which some chat and mail apps cut off. Without it the
+page cannot tell which transfer you meant, so it opens as a new send.
+
+Ask the sender to send the link again, and copy all of it, including everything after the `#` sign.
 
 ### "Link Invalid" {#link-invalid}
 
-A card in place of the transfer on the receiving page. It reads "This link is incomplete, already
-in use, or locked to the networks that first used it." and has a **Back to Home** button. Three things produce it:
+A card in place of the transfer on the page you receive on. It reads "This link is incomplete,
+already in use, or locked to the networks that first used it." and has a **Back to Home** button.
+Three things produce it:
 
 - **Someone is already connected on this link,** including you in another tab. A room takes one
   sender and one receiver.
 - **The link was cut short or altered,** so the room id in it is no longer complete.
-- **The device is on a third network.** Once a sender and a receiver have started connecting, the
-  room turns away a device from any other network, which catches a phone that moved from Wi-Fi to
-  mobile data. See
+- **The device is on a third network.** Once a sender and a receiver on two different networks
+  have started connecting, the room turns away a device from any other network. That catches a
+  phone that moved from Wi-Fi to mobile data. See
   [A device that changed networks is refused](#a-device-that-changed-networks-is-refused).
 
 When the page's own connection to the server dropped and came back, it first tries again for about
-a minute, because its old connection can still hold its place in the room; the card appears only
-if the room still refuses it.
+a minute, because its old connection can still hold its place in the room. The card appears only if
+the room still refuses it.
 
 Close the other tab and reload if you opened the link twice, or copy the whole link again if it
 was cut. Otherwise ask the sender to start a new transfer.
@@ -88,79 +172,93 @@ A link whose sender has simply left does not show this card. The page says
 
 ### "The sender is not connected" {#the-sender-is-not-connected}
 
-On the receiving page, as the second step of the card, with "Keep this page open if they are
+On the page you receive on, as the second step of the card, with "Keep this page open if they are
 coming back. Otherwise ask them for a new link." under it. Your page reached Floe's server and
-found nobody on the sending side of this link: the sender closed their page or app, their device
-is asleep or offline, their connection to the server dropped before the two devices connected, or
-the link is from a transfer that already ended.
+found nobody on the sending side of this link. Usually one of these happened:
+
+- The sender closed their page or app.
+- Their device is asleep or offline.
+- Their connection to the server dropped before the two devices connected.
+- The link is from a transfer that already ended.
 
 What happens next depends on the sender. A sender in the browser whose page is still open comes
 back by itself when its connection returns, and the transfer then starts with nothing more from
 you. A link from `floe send` or Floe Desktop does not come back, because those senders never
-rejoin a room, and neither does a browser link whose transfer already finished. If nothing
-changes after a minute or two, ask the sender for a new link.
+rejoin a room. Neither does a browser link whose transfer already finished.
 
-One case still reads "Waiting for the sender to start" with nobody there: when another browser
-already has the same link open, the server tells the second page that someone is in the room,
-and the page cannot tell that it is not the sender.
+If nothing changes after a minute or two, reload the page once. If it still says this, ask the
+sender for a new link.
+
+One case still reads "Waiting for the sender to start" with nobody there: another browser already
+has the same link open. The server tells the second page that someone is in the room, and the page
+cannot tell that it is not the sender. If you opened the link in two tabs or on two devices, close
+one and reload the other.
 
 ### A device that changed networks is refused {#a-device-that-changed-networks-is-refused}
 
-This one has no message of its own. Once a sender and a receiver on two different networks have
-started connecting, the room accepts nobody from a third network for as long as it exists, so that
-a stranger holding the link cannot take a seat that was left empty. A device whose network changes
-during that time comes back with a new address and counts as the third network: a phone that moves
-from Wi-Fi to mobile data, or a laptop whose VPN connects. The rule arrived with server 1.11.0.
+This one has no message of its own. It happens when your phone switches from Wi-Fi to mobile data,
+or your laptop's VPN connects, while a transfer is connecting.
 
-What each side then sees differs:
+Once a sender and a receiver on two different networks have started connecting, the room accepts
+nobody from a third network for as long as it exists. That keeps a stranger who holds the link
+from taking a place that was left empty. A device whose network changes comes back with a new
+address, so it counts as that third network.
 
-| Who came back on a new network | What they see |
-|---|---|
-| A receiver in the browser | The ["Link Invalid"](#link-invalid) card. |
-| `floe receive` or Floe Desktop, given the link again | [`room is full (someone else may already be receiving)`](#room-is-full-someone-else-may-already-be-receiving) |
-| A sender in the browser | The status line reads ["Reconnecting to your link"](#reconnecting-to-your-link) for about a minute, then a red banner says the link stopped working. |
+| Who came back on a new network | What they see | What to do |
+|---|---|---|
+| A receiver in the browser | The [“Link Invalid”](#link-invalid) card. | Ask the sender for a new link. |
+| `floe receive` or Floe Desktop, given the link again | [`room is full (someone else may already be receiving)`](#room-is-full-someone-else-may-already-be-receiving) | Ask the sender for a new code or link. |
+| A sender in the browser | The status line reads [“Reconnecting to your link”](#reconnecting-to-your-link) for about a minute, then a red banner says the link stopped working. | Reload the page, add the files again, and share the new link. |
 
-Start a new transfer: the sender makes a new link, which in the browser means reloading the page
-and adding the files again, and the receiver opens that one. See
-[How a transfer works](/how-it-works/signaling#a-room-holds-exactly-two-people).
+See [How a transfer works](/how-it-works/signaling#a-room-holds-exactly-two-people).
 
 ### "Too many refreshes. Reconnecting" {#too-many-refreshes-reconnecting}
 
-On the sending or the receiving page. The server refused this page's connection because too many
-connections came from your network address within a minute: repeated reloads, many open tabs, or
-many people behind one address. The page retries by itself, a few seconds apart at first and then
-up to a minute apart, and the banner goes away once a retry gets through.
+On either page. The server refused this page's connection because too many connections came from
+your network address within a minute: repeated reloads, many open tabs, or many people behind one
+address. That is the server's [rate limit](/glossary#rate-limit). The page retries by itself, a few
+seconds apart at first and then up to a minute apart, and the banner goes away once a retry gets
+through.
 
 Wait a minute without reloading, because every reload opens another connection. If it keeps
 happening on your own server, see [429, or "Rate limit exceeded"](#429-or-rate-limit-exceeded).
 
-### "Connection failed. Ask the sender to try again. If they turned the relay off, ask them to leave it on." {#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again}
+### "Connection failed. Ask the sender to try again." {#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again}
 
-On the receiving page. The two
-devices lost, or never found, a network path to each other before any file
-had finished. The usual reason is that no direct path exists and no relay was on offer: the sender
+On the page you receive on, as a red banner: "Connection failed. Ask the sender to try again. If
+they turned the relay off, ask them to leave it on."
+
+The two devices lost, or never found, a network path to each other before any file had finished
+arriving. The usual reason is that no direct path exists and no relay was on offer: the sender
 unchecked **Network relay fallback**, ran `floe send --no-relay`, or uses a server that has no
-relay. A sender who pressed `Ctrl+C` in `floe send`, or whose device went to sleep or lost its network, before the first file finished ends
-the same way, so the relay is not always the culprit.
+relay. A sender whose device went to sleep or lost its network ends the same way: see
+[A device that sleeps ends the transfer](/how-it-works/known-limitations#a-device-that-sleeps). So
+does one who pressed `Ctrl+C` in `floe send` 1.11.0 or earlier. The relay is not always the
+culprit.
 
 Ask the sender to start a new transfer, with the relay left on if they had turned it off, then
 open the new link.
 
-### "Connection failed. This link was made with Network relay fallback off. Reload the page, add the files again, leave it on, and share the new link." {#connection-failed-enable-network-relay-to-connect-across-restrictive-networks}
+### "Connection failed. This link was made with Network relay fallback off." {#connection-failed-enable-network-relay-to-connect-across-restrictive-networks}
 
-On the sending page, when **Network relay fallback** is unchecked. Either the only path that came
-up was a relayed one, and Floe closed it rather than send over a route you excluded, or the
-connection failed for another reason while the box was unchecked.
+On the page you send from, as a red banner: "Connection failed. This link was made with Network
+relay fallback off. Reload the page, add the files again, leave it on, and share the new link." It
+appears only when **Network relay fallback** was unchecked.
+
+Either the only path that came up was a relayed one, and Floe closed it rather than send over a
+route you excluded, or the connection failed for another reason while the box was unchecked. In
+the first case the other side is told why.
 
 Reload the page, add the files again, leave **Network relay fallback** checked, and share the new
 link.
 
 ### "Connection lost. The other device may have closed the tab." {#connection-lost-the-other-device-may-have-closed-the-tab}
 
-On the sending page. The recipient joined, and then the connection to them failed or closed while
-the page was still connecting, or while it waited for them to take a file: they closed the tab,
-lost their network, answered `n` at the `Accept? [Y/n]` prompt of `floe receive`, or the two
-devices never found a path to each other.
+On the page you send from. The recipient joined, and then the connection to them failed or closed
+before the transfer started. That can happen while the page is still connecting, or while it waits
+for them to take a file. Usually they closed the tab or lost their network, or the two devices
+never found a path to each other. A no at the prompt of `floe receive` 1.11.0 or earlier ends the
+same way.
 
 Keep the page open and ask the recipient to open the same link again. Your page builds a fresh
 connection when they rejoin from the same network. If it fails the same way again, see
@@ -168,210 +266,297 @@ connection when they rejoin from the same network. If it fails the same way agai
 
 ### "Peer disconnected. Waiting for reconnection" {#peer-disconnected-waiting-for-reconnection}
 
-On the sending page, as the status line under the share link. The recipient had joined and then
-dropped off the server before the connection between the two devices was up, for example by
-closing or reloading the tab, or through a network blip. The link still works: when the
-recipient's page rejoins, or they open the link again, your page builds a fresh connection by
-itself.
+On the page you send from, as the status line under the share link. The recipient, the
+[peer](/glossary#peer), had joined and then dropped off the server before the connection between
+the two devices was up. Closing or reloading the tab does that, and so does a network blip. The
+link still works: when the recipient's page rejoins, or they open the link again, your page builds
+a fresh connection by itself.
 
 The same line also replaces "Connection interrupted" when a recipient closes their page partway
 through a file. A red banner then reads "The connection closed before the transfer finished."
 Nothing resumes: when they open the link again, your page sends every file from the start.
 
-That recovery exists only for a sender in the browser, and only for a recipient who comes back
-from the same network. `floe send` and Floe Desktop end the transfer as soon as the other side
-leaves, and a recipient on a new network is
-[refused](#a-device-that-changed-networks-is-refused). Once a file has arrived in full, the
-recipient's page no longer rejoins by itself, so a connection that drops after that point ends the
-transfer.
+The page does not recover by itself in these cases:
+
+- The sender is `floe send` or Floe Desktop, which end the transfer as soon as the other side
+  leaves.
+- The recipient comes back on a new network, which the room
+  [refuses](#a-device-that-changed-networks-is-refused).
+- A file has already arrived in full. The recipient's page then no longer rejoins by itself, so a
+  connection that drops ends the transfer.
 
 Keep the page open and ask the recipient to open the link again.
 
 ### "Reconnecting to your link" {#reconnecting-to-your-link}
 
-On the sending page, as the status line under the share link, after your page lost its connection
-to Floe's server and came back. The server would not put the page back in its own room, because
-the room looked full: usually the page's old connection had not been cleared yet, which can take
-up to about 45 seconds, and a recipient had already opened the link. The page tries again by
-itself for about a minute, and the status goes back to "Waiting for peer" once it is in. You do
-not need to do anything, and the recipient can keep their page open.
+On the page you send from, as the status line under the share link. Your page lost its connection
+to Floe's server and came back, and the server would not yet put it back in its own room. The room
+looked full: usually the page's old connection had not been cleared yet, which can take up to about
+45 seconds, and a recipient had already opened the link.
 
-### "This link stopped working. Reload the page, add the files again, and share the new link." {#this-link-stopped-working}
+The page tries again by itself for about a minute, and the status goes back to "Waiting for peer"
+once it is in. You do not need to do anything, and the recipient can keep their page open.
 
-On the sending page, in a red banner, with the status "Link stopped working". It follows about a
-minute of ["Reconnecting to your link"](#reconnecting-to-your-link): the server kept refusing to
-put your page back in its own room. Either two other devices hold the link, or the room is
-[closed to new networks](#a-device-that-changed-networks-is-refused) and your device came back on
-a different one.
+### "This link stopped working" {#this-link-stopped-working}
+
+On the page you send from, in a red banner: "This link stopped working. Reload the page, add the
+files again, and share the new link." The status reads "Link stopped working".
+
+It follows about a minute of ["Reconnecting to your link"](#reconnecting-to-your-link): the server
+kept refusing to put your page back in its own room. Either two other devices hold the link, or the
+room is [closed to new networks](#a-device-that-changed-networks-is-refused) and your device came
+back on a different one.
 
 Do what the banner says: reload the page, add the files again, create a new link and share that
 one. Do not rely on the old link.
 
 ### "Transfer blocked. Relay limit exceeded." {#transfer-blocked-relay-limit-exceeded}
 
-On the sending page, as the status line under the share link, with an amber notice that starts
-"Transfer limit exceeded." The connection turned out to be relayed and the files total more than
-2 GB, so nothing was sent. The receiving page is told why: "Transfer blocked: relay connections are
-capped at 2 GB. Ask the sender to send 2 GB or less, or to try a network that allows a direct
-connection."
+On the page you send from, as the status line under the share link, with an amber notice that
+starts "Transfer limit exceeded." The connection turned out to be relayed: the two devices could
+not connect directly, so the data would have gone through a relay server, which takes 2 GB per
+transfer at most. Your files total more than that, so nothing was sent.
 
-Start a new transfer with less than 2 GB in it, or from a network that connects directly, where
-Floe sets no limit. The file list is locked once a link exists, so either way means reloading
-the page and adding the files again, as the notice says. See
-[File size limits](/how-it-works/2gb-limit).
+The file count beside the list shows the cap next to your total, for example `3 · 2.4 GB / 2 GB`.
+The receiving page is told why: "Transfer blocked: relay connections are capped at 2 GB. Ask the
+sender to send 2 GB or less, or to try a network that allows a direct connection."
+
+Start a new transfer with 2 GB or less in it, or from a network that connects directly, where Floe
+sets no limit. The file list is locked once a link exists, so either way means reloading the page
+and adding the files again, as the notice says. See [File size limits](/how-it-works/2gb-limit).
 
 ### "Transfer timed out waiting for receiver. Please try again." {#transfer-timed-out-waiting-for-receiver-please-try-again}
 
-On the sending page. The sender announced a file and the other side did not take it within
+On the page you send from. Your page announced a file and the other side did not take it within
 2 minutes. The usual cause is a recipient on `floe receive` who did not answer its `Accept? [Y/n]`
-prompt in time. A connection that died without closing looks the same.
+prompt in time. A connection that died without closing looks the same. The page then stops and
+tells the other side: "The sender stopped after waiting 2 minutes for this device to answer. Ask
+them to send again."
 
-Ask the recipient to be ready, then start a new transfer. On `floe receive`, `-y` accepts without
-asking.
+Keep the page open. Ask the recipient to be ready, then to open the same link again: your page
+starts the transfer over when they join. On `floe receive`, `-y` accepts without asking, and the
+link works where the code no longer does.
 
 ### "The sender ended the transfer before it finished." {#the-sender-ended-the-transfer}
 
-On the receiving page, when the connection to the sender closed before any file was complete. A
-second wording, "The sender ended the transfer. Ask them to start it again.", appears when the
+On the page you receive on, when the connection to the sender closed before any file was complete.
+A second wording, "The sender ended the transfer. Ask them to start it again.", appears when the
 browser reports that the sender's side aborted the connection. Either way the sender's side closed
 the connection: they closed or reloaded the tab, canceled or quit in Floe Desktop, or their
-`floe send` stopped with an error. A sender in the browser that had unchecked **Network relay
-fallback**, where only a relayed connection was possible, says so instead: the banner reads "The
-sender has Network relay fallback off, and this connection needs the relay. Ask them to reload,
-leave it on, and share a new link." A sender who pressed `Ctrl+C` in `floe send`, or whose device went to sleep or lost its network, closes
-nothing, and that reads as
+`floe send` stopped with an error.
+
+A sender whose device went to sleep or lost its network closes nothing. That reads as
 ["Connection failed. Ask the sender to try again."](#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again)
 instead.
 
-A sender that stops on purpose says why, and the banner then carries its reason, or "The sender
-stopped the transfer." when it gave none. A sender in the browser that stops on its own says why
-too: "The sender stopped: a file could not be read on their device. Ask them to check it and send
-again.", "The sender stopped after waiting 2 minutes for this device to answer. Ask them to send
-again." or "The sender stopped because of an error on their side. Ask them to send again." Files
-that arrived before it stay in the list. A stop that comes after every file has arrived changes
-nothing: the page still reads as complete. When some files had already arrived and the connection
-simply ended, with no stop message from the sender's app, there is no red banner: the page shows
+A sender that stops on purpose says why, and the banner shows its reason. These are the ones you
+are likely to see:
+
+| Banner | Why | What to do |
+|---|---|---|
+| “The sender stopped.” | They pressed `Ctrl+C` in `floe send`. | Ask whether they meant to stop. |
+| “The sender stopped the transfer.” | Their app stopped without giving a reason. | Ask them to send again. |
+| “The sender has Network relay fallback off, and this connection needs the relay. Ask them to reload, leave it on, and share a new link.” | Only a relayed path was possible, and they had turned the relay off. | Do what the banner says. |
+| “Transfer blocked: relay connections are capped at 2 GB. Ask the sender to send 2 GB or less, or to try a network that allows a direct connection.” | The connection is relayed, and a sender in the browser picked more than 2 GB. | Do what the banner says. |
+| “transfer blocked: relay connections are capped at 2 GB (selected 2.5 GB)” | The same cap, from `floe send` or Floe Desktop. | Ask them to send 2 GB or less at a time. |
+| “the sender's copy of "report.pdf" changed while it was being sent, so nothing further was sent” | A file changed on their computer while `floe send` or Floe Desktop was sending it. | Ask them to send it again once it stops changing. |
+| “The sender stopped: a file could not be read on their device. Ask them to check it and send again.” | A file they picked in the browser was moved, renamed, or deleted. | Do what the banner says. |
+| “The sender stopped after waiting 2 minutes for this device to answer. Ask them to send again.” | Your page did not take the file in time. | Do what the banner says. |
+| “The sender stopped because of an error on their side. Ask them to send again.” | The sending page hit an error it did not expect. | Do what the banner says. |
+
+Files that arrived before it stay in the list. A stop that comes after every file has arrived
+changes nothing: the page still reads as complete. When some files had already arrived and the
+connection simply ended, with no stop message, there is no red banner. The page shows
 [how far the transfer got](#the-transfer-ended-before-the-rest-arrived) instead.
 
 Save any files that did arrive, then ask the sender to start a new transfer for the rest. Nothing
-resumes. If it happens twice with a sender in the browser, ask whether they unchecked **Network
-relay fallback**, and to leave it on for the new link.
+resumes.
 
 ### "Received 1 of 3 files. The transfer ended before the rest arrived." {#the-transfer-ended-before-the-rest-arrived}
 
-On the receiving page, in amber under the file list, with your own numbers in it. The connection
-ended after at least one file had arrived and before every file the sender announced had. The line
-names no cause on purpose, because several look the same from here: the sender closed their page
-or app, their device went to sleep, or a network failed on either side. When there is a known
-reason, because the sender's app gave one or a file failed a check on your side, a red banner
-above the list carries it as well.
+On the page you receive on, in amber under the file list, with your own numbers in it. The
+connection ended after at least one file had arrived and before every file the sender announced
+had. The line names no cause on purpose, because several look the same from here: the sender
+closed their page or app, their device went to sleep, or a network failed on either side. When
+there is a known reason, a red banner above the list carries it as well.
 
 The files that arrived are whole and stay in the list, and the file that was arriving is gone.
-Save what arrived, then ask the sender to send the rest in a new transfer. Nothing resumes.
+Save what arrived, then ask the sender to send the rest in a new transfer. Nothing resumes. When a
+device went to sleep, see
+[A device that sleeps ends the transfer](/how-it-works/known-limitations#a-device-that-sleeps).
 
 ### "The connection closed before the transfer finished." {#the-connection-closed-before-the-transfer-finished}
 
-On the sending page, with the status "Connection interrupted", after at least one file had started
-moving. The connection to the receiving side ended before everything was sent, and they gave no
-reason: they closed the tab, their device went to sleep or lost its network, or their browser
-stopped the receive.
+On the page you send from, after at least one file had started moving. The status reads
+"Connection interrupted", or "Peer disconnected. Waiting for reconnection" once the page hears that
+the recipient left. The connection to the receiving side ended before everything was sent, and they
+gave no reason: they closed the tab, their device went to sleep or lost its network, or their
+browser stopped the receive. Your own device going to sleep, such as a laptop whose lid you closed,
+reads the same once it wakes: see
+[A device that sleeps ends the transfer](/how-it-works/known-limitations#a-device-that-sleeps).
 
 If the status changes to "Connection interrupted" after it already read "All Files Sent!", with no
 banner, every file had been sent, and the connection to the other device was lost afterward.
 
 Ask the recipient what arrived, then start a new transfer for the rest. Nothing resumes.
 
-### "Could not read "&lt;name&gt;". It may have been moved, renamed, or on a drive or folder that is no longer available. Nothing further was sent." {#could-not-read-a-file}
+### "Could not read" and a file's name {#could-not-read-a-file}
 
-On the sending page, with the file's name in place of `<name>`. The browser could not read a file
-you picked when its turn came: it was moved, renamed or deleted after you picked it, its drive was
-disconnected, or it is a cloud file whose local copy is gone. On Windows, Chrome and Edge also
-cannot read a file whose full path is over 260 characters. The files before it arrived and nothing
-after it was sent. The receiving side is told why ("The sender stopped: a file could not be read on
-their device.") and the connection closes.
+On the page you send from, as a red banner with the file's name in it:
+
+```text Banner
+Could not read "report.pdf". It may have been moved, renamed, or on a drive or folder that is no longer available. Nothing further was sent.
+```
+
+The browser could not read a file you picked when its turn came. It was moved, renamed, or deleted
+after you picked it, its drive was disconnected, or it is a cloud file whose local copy is gone. On
+Windows, Chrome and Edge also cannot read a file whose full path is over 260 characters.
+
+The files before it arrived, and nothing after it was sent. The receiving side is told why ("The
+sender stopped: a file could not be read on their device.") and the connection closes.
 
 Put the file back, move it to a folder with a shorter path, or zip it, then send it in a new
 transfer.
 
-### A file did not appear at all {#a-file-did-not-appear-at-all}
+On a request link's page the card reads "Could not read a file" with the file's path. If the person
+who made the link had not accepted yet, reload the page and send again through the same link.
+Otherwise ask them for a new link to send the rest. See
+[Sending through a request link](/web-app/request-links#messages-on-the-senders-page).
 
-On the receiving page: a file the sender chose is missing from the list, usually under a banner
-that starts `Incomplete file`. Floe compares what arrived against the size the sender announced and
-discards anything that does not match, in either direction, rather than hand you a file that looks
-whole and is not. A file that fails its SHA-256 is discarded the same way, with the banner in the
-next entry. Either one stops the rest of the transfer, so files queued behind it do not arrive.
+### "Incomplete file": a file did not appear at all {#a-file-did-not-appear-at-all}
+
+On the page you receive on: a file the sender chose is missing from the list, usually under a red
+banner like this one, with the file's name and sizes in it:
+
+```text Banner
+Incomplete file "report.pdf": received 1048576 of 2097152 bytes. The transfer was cut short, so the file was discarded. Ask the sender to try again.
+```
+
+Floe compares what arrived against the size the sender announced. It discards anything that does
+not match, in either direction, rather than hand you a file that looks whole and is not. The other
+ending, "More data arrived than the sender announced, so the file was discarded.", means the sending
+app sent more than it said it would.
+
+A file that fails its [SHA-256](/glossary#sha-256) check, a fingerprint of the file's contents, is
+discarded the same way, with the banner in the next entry. Either one stops the rest of the
+transfer, so files queued behind it do not arrive.
 
 Ask the sender to send the missing files again in a new transfer. See
 [File checks](/how-it-works/file-checks).
 
 ### "A file did not match what was sent, so it was discarded. Ask the sender to try again." {#a-file-did-not-match-what-was-sent}
 
-On the receiving page. The sender's SHA-256 for that file did not match the bytes that arrived, so
-Floe discarded the file rather than hand you a damaged copy, and the transfer stopped. Files that
-arrived before it are fine. A second wording, "The sender's SHA-256 for a file could not be read,
-so the file was discarded. Ask the sender to try again.", means the value itself was malformed. The
-sending page says "The other side discarded a file that did not match what was sent. Try sending
-again."
+The sender's app works out each file's SHA-256 and the receiving side checks it. When the two
+differ, Floe discards the file rather than hand you a damaged copy, and the transfer stops. Files
+that arrived before it are fine. Three messages come from this check:
 
-Save the files that did arrive, then ask the sender to send the rest again. A file that was still
-being written on the sender's side while a browser sent it, such as a download in progress, can
-fail this way, so have them wait until it stops changing.
+| Message | What it means | What to do |
+|---|---|---|
+| “A file did not match what was sent, so it was discarded. Ask the sender to try again.” (page you receive on) | The file's SHA-256 did not match the bytes that arrived. | Save the files that did arrive, then ask the sender to send the rest again. |
+| “The sender's SHA-256 for a file could not be read, so the file was discarded. Ask the sender to try again.” (page you receive on) | The value the sender sent was malformed. | The same. |
+| “The other side discarded a file that did not match what was sent. Try sending again.” (page you send from) | The receiving app checked the file and threw it away. | Send it again. |
 
-### "This browser ran out of memory while receiving, so the transfer was stopped. Receive large files on a computer with Floe Desktop (Windows) or the Floe CLI, which save straight to disk." {#this-browser-ran-out-of-memory}
+A file that was still being written on the sender's side while a browser sent it, such as a
+download in progress, can fail this way. Have the sender wait until it stops changing.
 
-On the receiving page. The browser could not hold any more of the transfer, so Floe stopped it and
-let go of the file that was arriving. Files that had already finished stay in the list. How much a
-browser can hold depends on the browser and the device: see
+### "This browser ran out of memory while receiving" {#this-browser-ran-out-of-memory}
+
+On the page you receive on: "This browser ran out of memory while receiving, so the transfer was
+stopped. Receive large files on a computer with Floe Desktop (Windows) or the Floe CLI, which save
+straight to disk."
+
+The browser could not hold any more of the transfer, so Floe stopped it and let go of the file that
+was arriving. Files that had already finished stay in the list. How much a browser can hold depends
+on the browser and the device: see
 [Known limitations](/how-it-works/known-limitations#a-browser-receiver-is-limited-by-what-the-browser-can-hold).
 
 Save the files that finished, then receive the rest with Floe Desktop or `floe receive`, which
-write to disk as the bytes arrive.
+write to disk as the bytes arrive. On a phone, where neither runs, ask the sender for the rest in
+smaller separate transfers. A single file that is too large for the phone has to go to a computer:
+see [Known limitations](/how-it-works/known-limitations#a-browser-receiver-is-limited-by-what-the-browser-can-hold).
 
-### "Something went wrong while receiving, so the transfer was stopped. Ask the sender to try again." {#something-went-wrong-while-receiving}
+### "Something went wrong while receiving" {#something-went-wrong-while-receiving}
 
-On the receiving page. Floe hit an error it did not expect while handling what arrived, and stopped
-rather than carry on with a file it could not vouch for. Files that had already finished stay in
-the list.
+On the page you receive on: "Something went wrong while receiving, so the transfer was stopped.
+Ask the sender to try again." Floe hit an error it did not expect while handling what arrived, and
+stopped rather than carry on with a file it could not vouch for. Files that had already finished
+stay in the list.
 
 Save the files that finished, then ask the sender to start a new transfer. If it happens again
 with the same files, report it: see [Still stuck](#still-stuck).
 
-### "Something went wrong while sending, so the transfer was stopped. Reload the page, add the files again, and share the new link." {#something-went-wrong-while-sending}
+### "Something went wrong while sending" {#something-went-wrong-while-sending}
 
-On the sending page. Floe hit an error it did not expect while sending, and stopped. Files the
-other device had already received in full stay with it. The file that was moving did not arrive.
+On the page you send from: "Something went wrong while sending, so the transfer was stopped. Reload
+the page, add the files again, and share the new link." Floe hit an error it did not expect while
+sending, and stopped. Files the other device had already received in full stay with it. The file
+that was moving did not arrive.
 
 Reload the page, add the files again, and share the new link. If it happens again with the same
 files, report it: see [Still stuck](#still-stuck).
 
 ### A banner that starts with "receiver" {#a-banner-that-starts-with-receiver}
 
-On the sending page. The receiving app stopped the transfer on purpose and said why, and the page
-shows its words as they arrived. With no reason given, the banner reads "The other side rejected
-the transfer." These are the ones you are likely to meet:
+On the page you send from. The receiving app stopped the transfer on purpose and said why, and the
+page shows its words as they arrived. With no reason given, the banner reads "The other side
+rejected the transfer." These are the ones you are likely to meet:
 
-| Message | What it means | What to do |
+| Banner | Why | What to do |
 |---|---|---|
+| “receiver declined the transfer” | They answered `n` at the prompt of `floe receive`. | Check with them before you send again. |
 | “receiver stopped the transfer” | They pressed `Ctrl+C` in `floe receive`. | Ask whether they meant to, then send again. |
 | “receiver ran out of memory after receiving ...” | Their browser could not hold any more of the transfer. | Ask them to receive with Floe Desktop or `floe receive`. |
+| “receiver stopped because of an internal error” | Their browser hit an error it did not expect. | Send again. If it repeats, report it. |
 | “receiver ran out of disk space” | The drive they save to is full. | Send again once they have made room. |
-| “receiver could not finish writing a file” | Their computer refused a write into the save folder. | Ask them to choose another folder, then send again. |
+| “receiver could not finish writing a file” or “receiver could not create a file” | Their computer refused a write into the save folder. | Ask them to choose another folder, then send again. |
+| “receiver cannot store a file this large on its drive” | A file is 4 GB or larger, and their drive holds just under 4 GB per file, as FAT32 drives such as many USB sticks do. | Ask them to save to another drive. |
+| “receiver cannot store a file path this deep or long” | A file's name is too long for their computer to save. | Rename the file to something shorter, or zip it, then send again. |
+| “receiver rejected the file description: control message is ... bytes, limit 1000” | A file's name is so long that its description is over 1,000 bytes. | Rename the file to something shorter, then send again. |
+| “receiver could not move a finished file into place” | The file arrived whole, but another program on their computer was holding it. | Ask them to remove the `.part` ending from that file, then send the rest. |
+| “receiver discarded a file: Incomplete file ...” or “receiver discarded a file: incomplete file ...” | A file arrived shorter or longer than your page announced. | Send it again. If it was still being written, wait until it stops changing. |
 
-Start a new transfer once the cause is dealt with. Nothing resumes.
+A banner that starts "receiver" and is not listed here means the same thing: the receiving app
+stopped on purpose. Start a new transfer once the cause it names is dealt with. Nothing resumes.
+
+### "The sender sent a control message larger than 1000 bytes" and similar {#the-sender-sent-something-floe-could-not-read}
+
+On the page you receive on. The sending app sent something your page refuses, so the transfer
+stopped. Files that arrived before it stay in the list.
+
+| Banner | Why | What to do |
+|---|---|---|
+| “The sender sent a control message larger than 1000 bytes, so the transfer was stopped.” | A file's path is so long, or so deeply nested, that its description is over 1,000 bytes. | Ask the sender to zip deeply nested folders, then send the zip. |
+| “The sender described a file in a way Floe could not read, so the transfer was stopped. Ask the sender to try again.” | The sending app gave a size, name, or position that cannot be right. | Ask the sender to update Floe. The same app fails the same way again. |
+| “The sender sent more messages than a transfer allows while a file was being checked, so the transfer was stopped.” | The sending app kept sending while your page checked a file's SHA-256. | Ask the sender to update Floe. |
+
+The last two mean the sending app is out of date, faulty, or modified.
+
+### "The receiver asked to resume" {#the-receiver-asked-to-resume}
+
+On the page you send from, as a red banner with the file's name and two numbers in it:
+
+```text Banner
+The receiver asked to resume "report.pdf" from byte 4096 of 2048, which is not possible. Please try again.
+```
+
+A second form says "from a position that is not a number". The receiving app asked to start a file
+at a position outside it, which means that app is faulty or modified. Trying again with the same
+receiving app fails the same way. Ask the other person to update Floe, or to receive with another
+Floe app.
 
 ### "Connection failed. Reload the page to try again" or "Ask the other device to open the link again" {#connection-error}
 
-On the sending or the receiving page, before any file has moved. The connection failed in a way
-Floe has no closer wording for. The receiving page says "Connection failed. Reload the page to try
-again. If it fails again, ask the sender for a new link." The sending page says "Connection failed.
-Ask the other device to open the link again. If it fails again, reload the page, add the files
-again, and share the new link."
+The connection failed in a way Floe has no closer wording for. On the page you receive on it shows
+before any file has finished arriving, and reads "Connection failed. Reload the page to try again.
+If it fails again, ask the sender for a new link." On the page you send from it shows before any
+file has started moving, and reads "Connection failed. Ask the other device to open the link
+again. If it fails again, reload the page, add the files again, and share the new link."
 
 Do what the sentence says. If it repeats on a new link, report it: see [Still stuck](#still-stuck).
 
 ### "Could not prepare files for ZIP." or "ZIP creation failed." {#could-not-prepare-files-for-zip-or-zip-creation-failed}
 
-On the receiving page, after you click **Download ZIP**. Both end with
+On the page you receive on, after you click **Download ZIP**. Both end with
 `Try "Download All" instead.` Zipping reads every received file back into memory at once, so a
 large transfer can exhaust a phone or a tab. A third wording, such as "1 file(s) could not be
 included in ZIP.", means the archive was saved but that many files are missing from it.
@@ -389,75 +574,259 @@ the transfer finishes. A single file is saved from the download button on its ow
 Use **Download ZIP** when there is more than one file. If zipping fails on a very large transfer,
 save the files from their own rows instead.
 
+### The page reloaded by itself {#the-page-reloaded-by-itself}
+
+On either page, with no message. Floe's web app was updated while your tab was open, and the tab
+asked for a part of the old version that no longer exists. It reloads once to fetch the new
+version, and not again within 10 seconds. A transfer running in that tab ends, and a link the page
+had made stops working.
+
+Start the transfer again. On the page you send from, add the files again and share the new link.
+
+### "Page not found" {#page-not-found}
+
+A page that reads "404", "Page not found" and "That link points at nothing here. If you were sent
+a share link, check that you copied the whole thing." It has a **Send a file** button and a link
+to How Floe works. The address matches no page on the site, which usually means a link was cut
+short when it was copied.
+
+Copy the whole link again. If a chat or mail app cut it, ask the sender to send it again.
+
+### "Something went wrong" with a Reload page button {#something-went-wrong-reload-page}
+
+The whole page is replaced by "Something went wrong" and "Reload the page to try again.", with a
+**Reload page** button. The web app itself failed. A transfer that was running in that tab has
+ended.
+
+Click **Reload page**, then start the transfer again if one was running. If it keeps happening,
+see [Still stuck](#still-stuck).
+
 ## On the command line {#on-the-command-line}
 
-`floe` prints a failure as one line that starts `Error: ` and exits with status 1. The headings
-below leave that prefix out, all but `Error: They stopped the transfer.`, along with wrappers such
-as `WebRTC setup failed: ` or `error sending notes.txt: ` that some lines carry in front of the
-part quoted here.
+Most failures print one line that starts `Error: `, and `floe` exits with status 1, the number a
+script reads to tell that the command failed. Some lines carry
+a wrapper in front of the part the headings below quote, such as `WebRTC setup failed: ` or
+`error sending notes.txt: `. A whole line then reads like this:
 
-### `code "olive-tiger-castle" not found or expired (codes expire after 10 minutes)` {#code-olive-tiger-castle-not-found-or-expired-codes-expire-after-10-minutes}
+```text Output
+Error: error sending notes.txt: timed out waiting for ack
+```
+
+The headings leave out the prefix and the wrapper, all but `Error: They stopped the transfer.` A
+few endings look different. A line that
+starts `Warning:` belongs to a run that carries on. A refused link prints one sentence on a
+two-space indent, with no prefix. `Ctrl+C` prints `Canceled.` and exits with status 130. See
+[In scripts and CI](/cli/flags#in-scripts) for every exit code.
+
+| Where you see it | Why | What to do |
+|---|---|---|
+| [`code not recognized`](#code-not-recognized), from `floe receive` | What you typed is not shaped like a code. | Type the code with hyphens, or paste the link. |
+| [`code "olive-tiger-castle" not found`](#code-olive-tiger-castle-not-found-or-expired-codes-expire-after-10-minutes), from `floe receive` | The code was used, its sender left, it expired, or it was mistyped. | Ask for the link, or for a new code. |
+| [`server returned 429 when resolving code`](#server-returned-429-when-resolving-code), from `floe receive` | Too many wrong codes from your network in a minute. | Wait a minute, check the code, try again. |
+| [`This link looks incomplete`](#this-link-looks-incomplete), from `floe receive` or `floe send --to` | The link was cut short or mistyped. | Copy the whole link again, in quotes. |
+| [`invalid URL` or `URL does not contain a room id`](#could-not-resolve-invalid-url), from `floe receive` | What you pasted is not a usable room link. | Paste the whole link, or type the code. |
+| [`this code or link is no longer active`](#this-code-is-no-longer-active-ask-for-a-new-one), from `floe receive` | The sender is no longer in the transfer. | Ask for a new code or link. |
+| [`room is full`](#room-is-full-someone-else-may-already-be-receiving), from `floe receive` | Someone else already joined this transfer. | Ask for a transfer of your own. |
+| [`That link is for another Floe server`](#that-link-is-for-another-floe-server), from `floe receive` | The link and your `--server` setting disagree. | Do what the line says. |
+| [`unknown command` or `accepts 1 arg(s)`](#unknown-command-or-wrong-number-of-arguments) | The command is missing a word, or has too many. | Use `floe receive` and the code as one word. |
+| [`cannot create output directory`](#cannot-create-output-directory), from `floe receive -o` | The folder cannot be made or written. | Fix the path. The same code still works. |
+| [`failed to connect to signaling server`](#failed-to-connect-to-signaling-server) | The server address is wrong, the server is down, or something blocks it. | Check `--server` and your network. |
+| [`connection closed before the server assigned a role`](#connection-closed-before-the-server-assigned-a-role) | The server's limit on new connections. | Wait a minute, then run it again. |
+| [`Warning: ... Using STUN only.`](#warning-could-not-reach-signaling-server-for-turn-credentials-using-stun-only) | `floe` could not get the relay details. | Check the server address, or wait a minute. |
+| [`Warning: could not generate short code`](#warning-could-not-generate-short-code), from `floe send` | The server gave no room code. | Share the link instead. |
+| [`--relay-only needs a TURN relay`](#relay-only-needs-a-turn-relay) | The server offers no relay. | Drop the flag, or add a relay to the server. |
+| [`timed out waiting for the peer's offer`](#timed-out-waiting-for-the-peers-offer) or its twin | The other side sent nothing for 30 seconds. | Ask them to bring Floe to the front. |
+| [`timed out establishing a connection`](#timed-out-establishing-a-connection) | No network path worked within 30 seconds. | Allow the relay on both sides. |
+| [`the other side left before the connection was established`](#the-other-side-left-before-the-connection-was-established) | The other person left while connecting. | Run it again when they are ready. |
+| [`the connection to the server was lost before the peer connected`](#the-connection-to-the-server-was-lost-before-the-peer-connected) | Your own connection to the server closed. | Check your network, then run it again. |
+| [A long wait with a VPN or virtual machine](#slow-to-connect-when-a-vpn-or-virtual-machine-is-running) | `floe` tries every network interface. | Pin the interface with `--iface`. |
+| [`connected, but no data arrived from the sender within 30s`](#connected-but-no-data-arrived-from-the-sender-within-30s) | The sender's app stalled after connecting. | Ask for a new transfer. |
+| [`timed out waiting for ack`](#timed-out-waiting-for-ack), from `floe send` | The receiver did not take the file within 2 minutes. | Ask them to be ready, then send again. |
+| [`the sender left before the transfer was accepted`](#the-sender-left-before-the-transfer-was-accepted), from `floe receive` | You answered the prompt after the sender had gone. | Ask them to send again, and answer within 2 minutes. |
+| [`They declined. Nothing was sent.`](#they-declined-nothing-was-sent), from `floe send` | The recipient answered `n` at the prompt. | Check with them first. |
+| [`connection closed while waiting for the receiver`](#connection-closed-while-waiting-for-the-receiver-transfer-declined-or-receiver-exited), from `floe send` | The receiver closed before taking the file. | Check with them first. |
+| [`relay connections are capped at 2 GB`](#relay-connections-are-capped-at-2-gb) | The connection is relayed and the files total more than 2 GB. | Send 2 GB or less at a time. |
+| [`They stopped the transfer.`](#they-stopped-the-transfer), from `floe send` | The recipient pressed `Ctrl+C`. | Ask, then send what did not arrive. |
+| [`The sender stopped.`](#the-sender-stopped), or the sender's own reason, from `floe receive` | The sender pressed `Ctrl+C`, or stopped and said why. | Ask for what did not arrive. |
+| [`connection closed before any file arrived`](#connection-closed-before-any-file-arrived) and two similar lines, from `floe receive` | The sender's side closed the connection. | Ask for what did not arrive. |
+| [`transfer stalled: no data for 1m0s`](#transfer-stalled), from `floe receive` | Nothing moved for a minute. | Check both networks, then ask again. |
+| [`connection closed mid-transfer`](#connection-closed-mid-transfer-from-floe-send) and similar lines, from `floe send` | The receiver quit or lost its network during a file. | Ask what arrived, then send the rest. |
+| [`timed out waiting for delivery confirmation from peer`](#timed-out-waiting-for-delivery-confirmation-from-peer), from `floe send` | The receiver went quiet after the last file. | Ask what arrived. |
+| [`the connection closed before the receiver confirmed delivery`](#the-connection-closed-before-the-receiver-confirmed-delivery), from `floe send` | The receiving app did not say every file was saved. | Ask what arrived. |
+| [`the file shrank while it was being sent`](#the-file-shrank-or-grew-while-it-was-being-sent), or `grew`, from `floe send` | A file changed on disk while it was read. | Send it again once it stops changing. |
+| [`cannot read` or `cannot send` and a path](#cannot-read-a-path), from `floe send` | A path does not exist, or is a link to a folder. | Check the path. |
+| [`receive stopped: a file's path is too deep or too long`](#receive-stopped-path-too-deep-or-too-long), from `floe receive` | A path in the transfer is too deep or long to save. | Ask the sender to zip it first. |
+| [`rejected the sender's file description`](#rejected-the-senders-file-description) and similar lines, from `floe receive` | The sending app sent something that cannot be right. | Ask the sender to send again or update Floe. |
+| [`a file did not match the SHA-256`](#a-file-did-not-match-the-sha-256), from `floe receive` | A file failed its SHA-256 check and was deleted. | Ask the sender to send it again. |
+| [`write error`](#write-error), from `floe receive` | The drive filled up, or a write failed. | Free space or choose another folder. |
+| [`received a file in full but could not finish saving it`](#received-a-file-in-full-but-could-not-finish-saving-it), from `floe receive` | Another program held the finished file. | Remove the `.part` ending from it. |
+| [`Cannot transfer: your floe is too old for this peer.`](#cannot-transfer-your-floe-is-too-old-for-this-peer) | The two apps speak protocol versions that do not overlap. | Update the side the message names. |
+| [`no files to send`](#no-files-to-send), from `floe send` | Every path is an empty folder. | Send at least one file. |
+| [`floe` is not found after installing](#floe-is-not-found-after-installing) | Your terminal does not search the install folder yet. | Open a new terminal. |
+| [`Cannot update a dev build.`](#cannot-update-a-dev-build), from `floe update` | The binary has no release version. | Install a release build. |
+| [`installed via homebrew`](#installed-via-homebrew-run-brew-upgrade-floe-to-update), from `floe update` | A package manager owns this binary. | Run the command the line names. |
+| [Other lines from `floe update`](/cli/update#messages), such as `update failed: checksum mismatch` | The update could not finish, and the installed `floe` is unchanged. | See the table on that page. |
+| [If the install script stops](/cli/installation#if-the-install-script-stops), for example `Checksum verification failed!` | The script could not finish the install. | See the table on that page. |
+| [A browser recipient cannot join](#a-browser-recipient-cannot-join-a-cli-transfer) | The web app has nowhere to type a code. | Share the link with them. |
+
+### `code not recognized: a code is words joined by hyphens, like olive-tiger-castle` {#code-not-recognized}
+
+From `floe receive`, after `could not resolve "olive_tiger_castle": ` with what you typed in the
+quotes. What you typed is where a code goes but is not shaped like one, for example words joined
+by underscores. Nothing was sent to the server.
+
+Type the code as the sender shows it, words joined by hyphens, or paste the whole link. A code
+typed with spaces between the words reaches `floe` as three words: see
+[`accepts 1 arg(s)`](#unknown-command-or-wrong-number-of-arguments).
+
+Floe Desktop's similar "That code wasn't recognized" usually means something else: the server does
+not know the code. See [That code wasn't recognized](#that-code-was-not-recognized).
+
+### `code "olive-tiger-castle" not found: it was already used, the sender left, or it expired (a code lasts 10 minutes at most)` {#code-olive-tiger-castle-not-found-or-expired-codes-expire-after-10-minutes}
 
 From `floe receive`, after `could not resolve "olive-tiger-castle": `. The server does not know the
-code. It was mistyped, it is more than 10 minutes old, or it was retired early: a code stops
-working as soon as a receiver joins, as soon as the sender leaves, and as soon as that sender
-registers a new one. See [How a transfer works](/how-it-works/signaling#code-and-link-lifetime).
+code. A code stops working when:
+
+- someone has joined the transfer with it
+- the sender left, or registered a new code
+- 10 minutes have passed
+- or it was mistyped.
+
+`floe` 1.11.0 and earlier word it
+`code "olive-tiger-castle" not found or expired (codes expire after 10 minutes)`. See
+[How a transfer works](/how-it-works/signaling#code-and-link-lifetime).
 
 Looking a code up does not use it up, so a receive that failed before it joined can retry the same
 code. Capitalization does not matter either: `floe receive` and Floe Desktop lowercase what you
 type, so `Olive-Tiger-Castle` works. Surrounding spaces and one pair of quotes or angle brackets are
 removed, but a typo inside a word is not corrected.
 
-Ask the sender for the link from the same transfer, which still works if they are still waiting
-for a receiver, or for a new code from a new transfer.
+Ask the sender for the link from the same transfer, which still works while they are waiting for
+a receiver, or for a new code from a new transfer.
 
 ### `server returned 429 when resolving code` {#server-returned-429-when-resolving-code}
 
 From `floe receive`, after `could not resolve` and the code. The server is refusing code lookups
 from your network address for the moment. Wrong codes use up a small per-minute budget, and once
-it is spent even a correct code is refused until the minute has passed.
+it is spent even a correct code is refused until the minute has passed. Floe Desktop shows
+["The server is limiting requests from this network. Wait a minute and try again"](#the-server-is-limiting-requests-from-this-network)
+for the same refusal.
 
-Wait a minute, check the code with the sender, and try again.
+Wait a minute, check the code with the sender, and try again. Another number in the line, such as
+`500`, means the server itself failed: try again later, or check the server if you run it.
 
-### `this code is no longer active; ask for a new one` {#this-code-is-no-longer-active-ask-for-a-new-one}
+### `This link looks incomplete` {#this-link-looks-incomplete}
 
-From `floe receive`, and from Floe Desktop with the same words after `Error: `. The room you joined
-was empty, so nobody is sharing on it: the sender finished, quit, or dropped. In practice this
-comes from a pasted link, which has no clock of its own but works only while its sender is in the
-room. A room code rarely ends here, because a code stops working the moment its room empties and
-then reads
-[`not found or expired`](#code-olive-tiger-castle-not-found-or-expired-codes-expire-after-10-minutes).
+From `floe receive` and `floe send --to`, on a two-space indent with no `Error: `:
+
+```text Output
+  This link looks incomplete. Copy the whole link again, including everything after the # sign. Put the link in quotes.
+```
+
+The link's room
+id was cut short or mistyped, or what you pasted holds a room id in a shape `floe` cannot use, such
+as a room id on its own. `floe` stops before it contacts any server, and never prints the link
+back. Floe Desktop says ["That link is incomplete"](#that-link-is-incomplete).
+
+Copy the whole link again and put it in quotes, as the line says.
+
+### `invalid URL` or `URL does not contain a room id (#room= or ?room=)` {#could-not-resolve-invalid-url}
+
+From `floe receive`, after `could not resolve` and what you pasted. `invalid URL` means it starts
+like a link but cannot be read as one. `URL does not contain a room id` means the address is a Floe
+page with no room in it, such as the home page.
+
+Paste the whole link from the sender, or type the code.
+
+### `this code or link is no longer active; ask the sender for a new one` {#this-code-is-no-longer-active-ask-for-a-new-one}
+
+From `floe receive`, and from Floe Desktop with the same words after `Error: `. `floe` 1.11.0 and
+earlier, and Floe Desktop 0.3.0, word it `this code is no longer active; ask for a new one`.
+
+The room you joined was empty, so nobody is sharing on it: the sender finished, quit, or dropped.
+In practice this comes from a pasted link. A link never runs out by time, but it works only while
+its sender keeps that transfer open. A room code rarely ends here, because a code stops working the
+moment its room empties, and then reads
+[`not found`](#code-olive-tiger-castle-not-found-or-expired-codes-expire-after-10-minutes).
 
 Ask the sender to start a new transfer and send you the new code or link.
 
 ### `room is full (someone else may already be receiving)` {#room-is-full-someone-else-may-already-be-receiving}
 
-From `floe receive`, and from Floe Desktop with the same words after `Error: `. The link's room
-already holds a sender and a receiver, or you are joining from a third network after the two of
-them started connecting, which the room
-[refuses](#a-device-that-changed-networks-is-refused). A room code does not end here: a code is
-retired the moment a receiver joins, so a second person who types it gets
-[`not found or expired`](#code-olive-tiger-castle-not-found-or-expired-codes-expire-after-10-minutes).
+From `floe receive`, and from Floe Desktop with the same words after `Error: `. Someone else has
+already joined this transfer: the link's room holds a sender and a receiver. It also appears when
+you join from a third network after the two of them started connecting, which the room
+[refuses](#a-device-that-changed-networks-is-refused).
+
+A room code does not end here. A code is retired the moment a receiver joins, so a second person
+who types it gets [`not found`](#code-olive-tiger-castle-not-found-or-expired-codes-expire-after-10-minutes).
 
 Ask the sender to start a new transfer. A second recipient needs a transfer of their own.
+
+### `That link is for another Floe server` {#that-link-is-for-another-floe-server}
+
+From `floe receive`, on a two-space indent with no `Error: `, before it contacts any server. A room
+link names the server that holds its transfer, and that has to be the server `floe` is set to use.
+The line says which way the two differ. A link from a self-hosted server, while `floe` uses
+floe.one:
+
+```text Output
+  That link is for another Floe server, but this Floe is set to use floe.one. Use --server with that server's address, then try again.
+```
+
+A link from floe.one, while `--server` or `FLOE_SERVER` names another server:
+
+```text Output
+  That link is for floe.one, but this Floe is set to use another server. Unset FLOE_SERVER or use --server https://api.floe.one, then try again.
+```
+
+Do what the line says. A room code is never refused this way, because a code names no server.
+Floe Desktop has its own wording: see
+["That link is for floe.one" or "That link is for another Floe server"](#that-link-is-for-another-server-in-floe-desktop).
+
+### `unknown command` or `accepts 1 arg(s)` {#unknown-command-or-wrong-number-of-arguments}
+
+From `floe`, before it does anything. The command is missing a word, or has one too many:
+
+| Line | What it means | What to do |
+|---|---|---|
+| `Error: unknown command "olive-tiger-castle" for "floe"`, then `Run 'floe --help' for usage.` | The word `receive` was left out. | Run `floe receive olive-tiger-castle`. |
+| `That looks like a link to receive from. To receive, use: floe receive <link>` | A room link was typed without `receive`. | Run `floe receive` with the link in quotes. |
+| `Error: accepts 1 arg(s), received 3` | `floe receive` got three words, usually a code typed with spaces. | Type the code with hyphens between the words. |
+| `Error: requires at least 1 arg(s), only received 0` | `floe send` was given nothing to send. | Name the files or folders to send. |
+| `Error: if any flags in the group [relay-only no-relay] are set none of the others can be; [no-relay relay-only] were all set` | `--relay-only` and `--no-relay` were both given. | Keep one of the two. |
+
+### `cannot create output directory` {#cannot-create-output-directory}
+
+From `floe receive -o`, followed by the folder and the reason, before it joins the transfer. The
+folder you named cannot be made or written, for example one on a drive that does not exist, or one
+you have no permission to write to.
+
+Fix the path and run the command again. Nothing was joined, so the same code still works.
 
 ### `failed to connect to signaling server` {#failed-to-connect-to-signaling-server}
 
 From `floe send` or `floe receive`, followed by the address it tried and the reason. `floe` could
 not open its realtime connection to the server: the address is wrong, the server is down, or
-something in between refused it. A reason of `websocket: bad handshake` means a server answered
-but would not upgrade the connection, which on a self-hosted instance is usually a reverse proxy
-that does not forward `/ws` or that rewrites the `Host` header.
+something in between refused it. With a code, `floe receive` usually stops one step earlier, at the
+code lookup, with `could not resolve "olive-tiger-castle": could not reach signaling server:` and
+the reason.
 
-Check `--server` and `FLOE_SERVER`, then your network. For a self-hosted server, see
+Check `--server` and `FLOE_SERVER`, then your network.
+
+If you run the server, a reason of `websocket: bad handshake` means a server answered but would not
+upgrade the connection, and the status in brackets says why. `websocket: bad handshake (HTTP 403)`
+is the server's origin check, usually a [reverse proxy](/glossary#reverse-proxy) that rewrites the
+`Host` header. `(HTTP 404)` means the proxy does not forward `/ws`, or forwards it under another
+path. `floe` adds one sentence with the fix for each. See
 [Run behind one domain](/self-hosting/reverse-proxy).
 
 ### `connection closed before the server assigned a role` {#connection-closed-before-the-server-assigned-a-role}
 
 From `floe send` or `floe receive`, right after it starts. The server accepted the connection and
-then closed it before giving this side a seat. The usual cause is the server's limit on new
-connections from one network address in a minute, which many runs in a row, or many people behind
-one address, can reach. A server that goes quiet instead ends with
+then closed it before letting `floe` into the transfer. The usual cause is the server's limit of 30
+new connections from one network address in a minute, by default. Many runs in a row, or many
+people behind one address, can reach it. A server that goes quiet instead ends with
 `timed out waiting for the server to assign a role` after 20 seconds.
 
 Wait a minute, then run the command again.
@@ -465,13 +834,15 @@ Wait a minute, then run the command again.
 ### `Warning: could not reach signaling server for TURN credentials. Using STUN only.` {#warning-could-not-reach-signaling-server-for-turn-credentials-using-stun-only}
 
 From `floe send` or `floe receive`, as a warning before the transfer carries on. `floe` could not
-fetch the server's connection details, so it continues with public STUN servers and no relay. A
-second wording, `Warning: signaling server returned 429 for TURN credentials. Using STUN only.`,
-means the server answered with an error, here its limit on repeated requests. On a network that
-blocks direct paths the transfer will then fail.
+get the server's relay details, so it tries a direct connection only, through public
+[STUN](/glossary#stun) servers. On a network that blocks direct paths the transfer will then fail.
+Three warnings end `Using STUN only.`:
 
-Check the server address, including `FLOE_SERVER` in your environment if you did not pass
-`--server`. For a 429, wait a minute before you run the command again.
+| Warning | What it means | What to do |
+|---|---|---|
+| `could not reach signaling server for TURN credentials` | The server was not heard from. | Check the server address, including `FLOE_SERVER` if you did not pass `--server`. |
+| `signaling server returned 429 for TURN credentials` | The server's limit on repeated requests, 20 a minute from one address by default. Another number is another error from the server. | For a 429, wait a minute before you run the command again. |
+| `could not read TURN credentials from the signaling server` | Something answered, but not with the relay details, usually a reverse proxy that answers `/api/` with a page of its own. | Make the proxy forward `/api/` to the server. |
 
 ### `Warning: could not generate short code` {#warning-could-not-generate-short-code}
 
@@ -484,24 +855,27 @@ forwards `/api/`.
 
 ### `--relay-only needs a TURN relay` {#relay-only-needs-a-turn-relay}
 
-From `floe send` or `floe receive`, before the transfer starts. The full line names the server it
-asked:
+From `floe send` or `floe receive`, before the transfer starts. `--relay-only` sends everything
+through the [TURN](/glossary#turn) relay and never tries a direct path, so a server that offers no
+relay leaves it nowhere to go. The full line names the server it asked:
 
 ```text Output
 Error: --relay-only needs a TURN relay and https://floe.example.com offers none; drop the flag, or configure a relay on the server
 ```
 
-`--relay-only` sends everything through the relay and never tries a direct path, so a server that
-offers no relay leaves it nowhere to go. Floe's own server offers a relay, so this normally points
-at a self-hosted address.
+Floe's own server offers a relay, so this normally points at a self-hosted address. Drop the flag,
+and unset `FLOE_RELAY_ONLY` if you set it, or add a relay to the server: see
+[TURN relay](/self-hosting/turn-relay).
 
-A second wording says that the connection details from the server `could not be read`. It means
-the server was never heard from, or answered with an error, so `floe` cannot say what it offers.
+A second wording means the server was never heard from, or answered with an error, so `floe` cannot
+say what it offers:
 
-Drop the flag, and unset `FLOE_RELAY_ONLY` if you set it, or add a relay to the server: see
-[TURN relay](/self-hosting/turn-relay). For the second wording, check `--server` for a typo, check
-that a reverse proxy forwards `/api/`, or wait a minute, because that endpoint limits repeated
-requests from one address.
+```text Output
+Error: --relay-only needs a TURN relay, and the connection details from https://floe.example.com could not be read; check --server, or drop the flag
+```
+
+Check `--server` for a typo, and check that a reverse proxy forwards `/api/`. Or wait a minute,
+because that endpoint limits repeated requests from one address.
 
 ### `timed out waiting for the peer's offer` {#timed-out-waiting-for-the-peers-offer}
 
@@ -512,20 +886,26 @@ device may have gone offline before the server noticed.
 
 Ask the other person to bring Floe to the front, then try again. With `floe receive`, use the
 link this time: a room code stops working once you have joined with it, so the same code now
-answers `not found or expired`. If the link fails as well, ask the sender to start a new transfer.
+answers `not found`. If the link fails as well, ask the sender to start a new transfer.
 With `floe send`, run it again and share the new code or link.
 
 ### `timed out establishing a connection` {#timed-out-establishing-a-connection}
 
 From `floe send` or `floe receive`, after `WebRTC setup failed: `. Both sides were present and
 exchanged connection details, and then 30 seconds passed without a network path that works. A peer
-that never joined cannot produce this line. The usual cause is a strict network on one side with no
-relay to fall back on: someone passed `--no-relay`, a sender in the browser unchecked **Network
-relay fallback**, or the server has no relay. With `--no-relay` the relay is taken out of the list
-before connecting, so there is nothing else to try and the failure is this plain timeout.
+that never joined cannot produce this line.
 
-`--relay-only` against a server with no relay does not end here. It stops at once with
-[`--relay-only needs a TURN relay`](#relay-only-needs-a-turn-relay).
+The usual cause is a strict network on one side with no relay to fall back on. The relay is
+missing when:
+
+- someone passed `--no-relay`, which takes the relay out of the list before connecting
+- a sender in the browser unchecked **Network relay fallback**
+- the server has no relay.
+
+Two more wordings have the same cause and the same fix:
+`connection failed (state: failed)`, which can print first for the same 30-second wait, and
+`connected but the data channel did not open`. `--relay-only` against a server with no relay does
+not end here. It stops at once with [`--relay-only needs a TURN relay`](#relay-only-needs-a-turn-relay).
 
 Drop `--no-relay` if you passed it, ask the other side to allow the relay too, and run the
 transfer again.
@@ -535,30 +915,33 @@ transfer again.
 From `floe send` or `floe receive`, while connecting. The server reported that the other side left
 the room before the two devices finished connecting: they pressed `Ctrl+C`, closed or reloaded
 their tab, or lost their own connection to the server. `floe` stops at once instead of waiting out
-a timeout.
+a timeout. `floe send` prints it too when a receiver joins and leaves again while the send is still
+waiting.
 
-Run the command again once the other person is ready. A room code is used up the moment both sides
-are in the room, so use the link or ask for a new code.
+Run the command again once the other person is ready. With `floe receive`, use the link or ask for
+a new code: the code stopped working once both sides were in the room. With `floe send`, share the
+new code and link it prints.
 
 ### `the connection to the server was lost before the peer connected` {#the-connection-to-the-server-was-lost-before-the-peer-connected}
 
-From `floe send` or `floe receive`, while connecting. This computer's own connection to the
-signaling server closed before the two devices had finished connecting, so the details they still
-had to exchange had no way across. A `floe send` that loses the server earlier, while it is still
-waiting for a receiver, prints `peer disconnected before connecting` instead.
+From `floe send` or `floe receive`, while connecting, or from `floe send` while it is still waiting
+for a receiver. This computer's own connection to the signaling server closed, so the details the
+two devices still had to exchange had no way across. `floe` 1.11.0 and earlier printed
+`peer disconnected before connecting` when that happened during the wait.
 
-Check your network, then run the command again. On a self-hosted server, check that the server is
-still running.
+Check your network, then run the command again. With `floe receive`, use the link or ask for a new
+code. With `floe send`, share the new code and link it prints. On a self-hosted server, check that
+the server is still running.
 
 ### Slow to connect when a VPN or virtual machine is running {#slow-to-connect-when-a-vpn-or-virtual-machine-is-running}
 
 In `floe send` or `floe receive`: a long wait while connecting, with no error. A VPN such as
-Tailscale, or virtualization software such as VMware, VirtualBox, WSL, or Hyper-V, adds network
-interfaces, and `floe` tries each one. It already ignores link-local addresses, which covers dead
-auto-configured adapters, but a VPN adapter with a routable address, such as Tailscale's `100.x`
-range, is still tried. The transfer completes in the end.
+Tailscale, or virtualization software such as VMware, VirtualBox, WSL, or Hyper-V, adds extra
+network connections, and `floe` tries each one. The transfer completes in the end.
 
-Pin `floe` to the interface you mean:
+Find the name of the connection you mean: `ipconfig` on Windows, `ip link` on Linux, or `ifconfig`
+on macOS. Then pin `floe` to it. The name matches any part of an interface's name, in any letter
+case:
 
 ```bash Terminal
 floe receive olive-tiger-castle --iface Ethernet
@@ -566,6 +949,9 @@ floe receive olive-tiger-castle --iface Ethernet
 
 Repeat the flag or separate names with commas for several. It is an allowlist, not a preference,
 so remove it again when you change networks, or the connection fails outright.
+
+`floe` already ignores link-local addresses, which covers dead auto-configured adapters. A VPN
+adapter with a routable address, such as Tailscale's `100.x` range, is still tried.
 
 ### `connected, but no data arrived from the sender within 30s` {#connected-but-no-data-arrived-from-the-sender-within-30s}
 
@@ -576,17 +962,35 @@ Ask the sender to start a new transfer.
 
 ### `timed out waiting for ack` {#timed-out-waiting-for-ack}
 
-From `floe send`, after `error sending` and the file's name. The receiver did not take the file
-within 2 minutes. On `floe receive` that is how long the person has to answer `Accept? [Y/n]`. A
-connection that died without closing looks the same.
+From `floe send`, after `error sending` and the file's name. The ack is the receiving app's reply
+that it is ready for the file, and none came within 2 minutes. On `floe receive` that is how long
+the person has to answer `Accept? [Y/n]`. A connection that died without closing looks the same.
 
 Ask the recipient to be ready at the prompt, or to pass `-y`, then send again.
 
+### `the sender left before the transfer was accepted` {#the-sender-left-before-the-transfer-was-accepted}
+
+From `floe receive`, as `Error: the sender left before the transfer was accepted`, when you answer
+`Accept? [Y/n]` after the sender has gone. Their side waits 120 seconds for your answer and then
+gives up, and a `floe send` there ends with [`timed out waiting for ack`](#timed-out-waiting-for-ack).
+Or they stopped while you decided. Nothing was created. `floe` 1.11.0 and earlier started the
+transfer anyway and ended with `connection closed mid-transfer`.
+
+Ask the sender to send again, then answer the prompt within 2 minutes, or pass `-y`.
+
+### `They declined. Nothing was sent.` {#they-declined-nothing-was-sent}
+
+From `floe send`, as `Error: They declined. Nothing was sent.` The recipient answered `n` at the
+`Accept? [Y/n]` prompt of `floe receive`, and their own terminal shows `transfer declined`. Nothing
+was sent.
+
+Check with the recipient before you send again.
+
 ### `connection closed while waiting for the receiver (transfer declined or receiver exited)` {#connection-closed-while-waiting-for-the-receiver-transfer-declined-or-receiver-exited}
 
-From `floe send`. The other side answered `n` at the `Accept? [Y/n]` prompt, or their
-`floe receive` ended before it took the file. When they declined, their own terminal shows
-`transfer declined`, and nothing was sent.
+From `floe send`. The other side's app ended before it took the file, without saying why: for
+example, `floe receive` was killed at its prompt. A no at the prompt of `floe receive` 1.11.0 or
+earlier also ends this way, because that version does not tell the sender.
 
 Check with the recipient before you send again.
 
@@ -594,10 +998,15 @@ Check with the recipient before you send again.
 
 From `floe send`, before any file moves, in full
 `transfer blocked: relay connections are capped at 2 GB (selected 2.5 GB)`. The connection came up
-relayed and the files total more than 2 GB. The receiver is shown the same sentence. With
-`--relay-only` every transfer is relayed, so the cap always applies.
+relayed and the files total more than 2 GB. With `--relay-only` every transfer is relayed, so the
+cap always applies.
 
-Send less than 2 GB at a time, or get a direct connection, which starts with dropping
+The receiver is shown the same sentence. `floe receive` prints whatever the sender's app says, so
+from a sender in the browser it reads
+`Transfer blocked: relay connections are capped at 2 GB. Ask the sender to send 2 GB or less, or to try a network that allows a direct connection.`
+Only the sender can change this.
+
+Send 2 GB or less at a time, or get a direct connection, which starts with dropping
 `--relay-only` if you passed it. See [File size limits](/how-it-works/2gb-limit).
 
 ### `Error: They stopped the transfer.` {#they-stopped-the-transfer}
@@ -608,13 +1017,30 @@ already saved stay saved, and the file that was arriving is discarded.
 
 Ask whether they meant to stop, then send again whatever did not arrive. Nothing resumes.
 
+### `The sender stopped.` {#the-sender-stopped}
+
+From `floe receive`, as `Error: The sender stopped.` The sender pressed `Ctrl+C` in `floe send`.
+Files that finished are kept, and the file that was arriving is deleted.
+
+A sender that stops for another reason says so, and `floe receive` prints its words. Examples are
+`the sender's copy of "report.pdf" changed while it was being sent, so nothing further was sent`
+and the relay cap in
+[`relay connections are capped at 2 GB`](#relay-connections-are-capped-at-2-gb).
+
+Ask whether they meant to stop, then ask them to send again whatever did not arrive.
+
 ### `connection closed before any file arrived (the sender canceled, or the transfer was blocked)` {#connection-closed-before-any-file-arrived}
 
-From `floe receive`. The sender's side closed the connection before the first file had started to
-arrive: they closed their tab, canceled or quit in Floe Desktop, or their `floe send` stopped with
-an error. Once a file is arriving the same event reads `connection closed mid-transfer`, with the
-file and how far it got, and between files it reads `connection closed after 2 of 5 files`. Files
-that finished are kept, and the file that was arriving is deleted.
+From `floe receive`. The sender's side closed the connection without saying why: they closed their
+tab, canceled or quit in Floe Desktop, or their `floe send` stopped with an error. A `Ctrl+C` in
+`floe send` whose reason could not get out before the connection closed ends this way too. The
+line depends on how far the transfer had got:
+
+| Line | When | What was kept |
+|---|---|---|
+| `connection closed before any file arrived (the sender canceled, or the transfer was blocked)` | Before the first file started | Nothing |
+| `connection closed mid-transfer: report.pdf (1048576 of 2097152 bytes)` | During a file | The files that finished. The file that was arriving is deleted. |
+| `connection closed after 2 of 5 files` | Between files | The files that finished |
 
 Ask the sender to send again whatever did not arrive.
 
@@ -626,23 +1052,65 @@ dropped on one side. Files that finished are kept.
 
 Check both networks, then ask the sender to send again whatever did not arrive.
 
+### `connection closed mid-transfer`, from `floe send` {#connection-closed-mid-transfer-from-floe-send}
+
+From `floe send`, after `error sending` and the file's name. The receiver quit, canceled, or closed
+its tab in the middle of a file, or lost its network. The same event can read any of these:
+
+- `connection closed mid-transfer (1048576 bytes still buffered)`
+- `failed to send chunk:` and a reason
+- `backpressure stall: peer not draining (1048576 bytes buffered)`
+
+After the last file, to a receiver that does not confirm delivery, such as a browser, it reads
+`connection closed before delivery was confirmed (1048576 bytes unacknowledged)`. The last file may
+not have arrived.
+
+Files that finished on their side are kept there, and nothing resumes. Check with the recipient
+what arrived, then send the rest again.
+
 ### `timed out waiting for delivery confirmation from peer` {#timed-out-waiting-for-delivery-confirmation-from-peer}
 
-From `floe send`, after the last file. Every byte was handed to the connection, but for a full
-minute the receiver neither confirmed delivery nor took in any more of the data still on its way.
-The connection has most likely stalled.
+From `floe send`, after the last file. `floe` sent everything, then heard nothing back for a full
+minute: the receiver neither confirmed delivery nor took in more of the data still on its way. It
+cannot tell whether the last part arrived. The connection has most likely stalled.
 
 Check with the recipient what arrived before you send again.
 
 ### `the connection closed before the receiver confirmed delivery` {#the-connection-closed-before-the-receiver-confirmed-delivery}
 
-From `floe send`, after the last file, when the receiver is `floe receive` 1.11.0 or later or Floe
-Desktop 0.3.0 or later. Every byte was sent, but the connection closed before the receiving app
-said it had saved every file, or the receiver went silent for about 30 seconds. They may or may
-not have every file, and `floe send` cannot tell, so it exits with status 1 instead of reporting
-success.
+From `floe send`, after the last file. `floe send` cannot tell whether everything arrived. Every
+byte was sent, but the connection closed before the receiving app said it had saved every file, or
+the receiver went silent for about 30 seconds. They may or may not have every file, so `floe send`
+exits with status 1 instead of reporting success. It applies when the receiver is
+`floe receive` 1.11.0 or later or Floe Desktop 0.3.0 or later.
 
 Check with the recipient what arrived before you send again.
+
+### `the file shrank while it was being sent` {#the-file-shrank-or-grew-while-it-was-being-sent}
+
+From `floe send`, after `error sending` and the file's name:
+
+```text Output
+Error: error sending app.log: the file shrank while it was being sent (announced 2097152 bytes, read 1048576); send it again once it stops changing
+```
+
+The twin says `the file grew while it was being sent`. The file changed size on disk while `floe`
+was reading it, as a download or an export that is still being written does. Nothing after that
+file was sent, and the receiver is told why.
+
+Wait until the file stops changing, then send it again.
+
+### `cannot read` or `cannot send` and a path {#cannot-read-a-path}
+
+From `floe send`, before it contacts any server. Floe Desktop shows the same words after `Error: `
+when you click **Send**. Each line names the path:
+
+| Line | What it means | What to do |
+|---|---|---|
+| `cannot read` and a path | A file or folder you added does not exist or cannot be opened, for example on a drive that was unplugged. | Check the path, or add the file again. |
+| `cannot walk` and a folder, then `cannot send` and a path ending `it is a link to a folder, which Floe does not follow` | A folder you send holds a link to another folder: a symbolic link or a junction, which are shortcuts the file system follows. | Send the folder the link points to on its own. |
+| `cannot walk` and a folder, then `cannot read` and a path | A link inside that folder points nowhere. | Remove the link, or restore what it pointed to. |
+| `cannot walk` and a folder, then another reason | A folder inside what you send could not be listed. | Check that you can open that folder. |
 
 ### `receive stopped: a file's path is too deep or too long to save in this folder` {#receive-stopped-path-too-deep-or-too-long}
 
@@ -651,16 +1119,33 @@ transfer is too long, for `floe receive` to save it safely. It refuses such a fi
 it, and no flag turns that off. The sender sees
 `A folder path is too long for their computer. Zip deeply nested folders first.`
 
+A path long enough to make the file's description longer than 1,000 bytes stops one step earlier,
+with `rejected the sender's control message: 1204 bytes, limit 1000`. The fix is the same.
+
 Ask the sender to zip deeply nested folders first. See
 [Paths that are too deep or too long](/cli/receive#paths-too-deep-or-too-long) for the limits.
 
+### `rejected the sender's file description` and similar lines {#rejected-the-senders-file-description}
+
+From `floe receive`. Each of these means the sending app sent something that cannot be right, so
+`floe` stopped. Files saved before it are kept.
+
+| Line | What it means | What to do |
+|---|---|---|
+| `rejected the sender's file description:` and a detail | The sending app gave a size or a position that cannot be right. | Ask the sender to update Floe. |
+| `incomplete file "report.pdf": received 1048576 of 2097152 bytes` | Fewer bytes of the file arrived than announced, so it was deleted. | Ask the sender to send it again. |
+| `sender exceeded the announced size of "report.pdf"` | More bytes arrived than announced, so the file was deleted. | Ask the sender to send it again once it stops changing. |
+| `the sender stopped the transfer` | The sender stopped with a message `floe` could not read. | Ask the sender to send again. |
+| `transfer abandoned while completing "report.pdf"` | The receive was stopped while it saved that file. | Check the save folder, then ask for what is missing. |
+
 ### `a file did not match the SHA-256 the sender computed, so it was not kept` {#a-file-did-not-match-the-sha-256}
 
-From `floe receive`. The sender's SHA-256 for that file did not match the bytes that arrived, so
-the file was deleted before it took its name, and the transfer stopped. Files saved before it are
-kept. A second wording,
-`the sender's SHA-256 for a file could not be read, so the file was not kept`, means the value
-itself was malformed. The `floe send` on the other side ends with
+From `floe receive`. The sender's app works out each file's SHA-256, a fingerprint of its
+contents, and `floe receive` checks it. For that file the two did not match, so the file was
+deleted before it took its name, and the transfer stopped. Files saved before it are kept.
+
+A second wording, `the sender's SHA-256 for a file could not be read, so the file was not kept`,
+means the value itself was malformed. The `floe send` on the other side ends with
 `A file changed or was damaged on the way, so their Floe deleted it.`
 
 Ask the sender to send it again. See [File checks](/how-it-works/file-checks).
@@ -671,36 +1156,45 @@ From `floe receive`. The drive you are saving to filled up while a file was arri
 partial file was removed and the transfer stopped. A second wording,
 `write error: could not finish writing a file, so it was not kept`, means the write failed for
 another reason, such as a folder you cannot write to or a drive that was unplugged. Files saved
-before it are kept. The sender sees `Their computer ran out of space.` or
-`Their computer could not save a file.`
+before it are kept.
 
 Free some space, or choose another folder with `-o`, then ask the sender to send again.
+
+The sender sees `Their computer ran out of space.` or `Their computer could not save a file.` The
+second also appears when the receiver is a browser that ran out of memory or hit an error. Then the
+fix is to receive with Floe Desktop or `floe receive`.
 
 ### `received a file in full but could not finish saving it; the complete file was kept in the save folder with a .part ending` {#received-a-file-in-full-but-could-not-finish-saving-it}
 
 From `floe receive`. The file arrived whole and passed its checks, but `floe` could not rename it
 into place after five tries, usually because another program such as an antivirus scanner was
 holding it. The transfer stopped there, and the complete file is still in the save folder under
-its name plus `.part`.
+its name plus `.part`, a [.part file](/glossary#part-file).
 
 Remove the `.part` ending from that file to use it, then ask the sender for any files that were
 still to come.
 
 ### `Cannot transfer: your floe is too old for this peer.` {#cannot-transfer-your-floe-is-too-old-for-this-peer}
 
-From `floe send` or `floe receive`. The other form is `Cannot transfer: peer's floe is too old.`
-Two more lines follow: both sides as `You:` and `Peer:`, each with its protocol and version, then
-the remedy. It appears only when the two apps speak transfer protocol versions that do not
-overlap. A different release number is never the cause by itself, and every release so far speaks
-protocol 1, so two released versions cannot produce it today.
+In any Floe app, before any file moves. It appears only when the two apps speak transfer protocol
+versions that do not overlap. A different release number is never the cause by itself. Every
+release so far speaks protocol 1, so two released versions cannot produce it today.
 
-Each app works out which side is old from the protocol numbers, not from the other side's words,
-so the remedy you see is the one for your own app. An old peer can still show you the other side's
-wording, and then the `You:` and `Peer:` lines are what to go by.
+Each app words it its own way. Each form has a line with both sides as `You:` and `Peer:`, then
+the remedy:
 
-Update the side the message calls too old. Refresh the page to update a browser, update Floe
-Desktop through the Microsoft Store or from the download page, and update `floe` with the command
-that matches how you installed it:
+| Where you see it | First line | Remedy line |
+|---|---|---|
+| `floe send` or `floe receive` | `Cannot transfer: your floe is too old for this peer.` | ``Run `floe update` to upgrade.`` |
+| `floe send` or `floe receive`, when the other side is old | `Cannot transfer: peer's floe is too old.` | ``Ask the other side to run `floe update`.`` |
+| The browser | “Cannot transfer: your browser is running an older version of Floe.” | “Refresh the page to get the latest version.” |
+| The browser, when the other side is old | “Cannot transfer: peer's floe is too old.” | “Ask the other side to update Floe.” |
+| Floe Desktop, after `Error: transfer failed: ` | `Cannot transfer: your floe is too old for this peer.` | “Update Floe from the Microsoft Store or floe.one/download” |
+| Floe Desktop, when the other side is old | `Cannot transfer: peer's floe is too old.` | “Ask the other side to update Floe.” |
+
+Update the side the message calls too old. Refresh the page to update a browser, and update Floe
+Desktop through the Microsoft Store or from the download page. Update `floe` with the command that
+matches how you installed it:
 
 ```bash Terminal
 floe update                     # script or manual installs
@@ -709,45 +1203,57 @@ winget upgrade jannskiee.floe   # Winget
 scoop update floe               # Scoop
 ```
 
+Each app works out which side is old from the protocol numbers, not from the other side's words,
+so the remedy you see is the one for your own app. An old peer can still show you the other side's
+wording, and then the `You:` and `Peer:` lines are what to go by.
+
 ### `no files to send` {#no-files-to-send}
 
-From `floe send`, before it contacts any server. Every path you gave is an empty folder, or a
-folder that holds only empty folders. A path that does not exist stops earlier, with `cannot read`
-and the path.
+From `floe send`, before it contacts any server. Floe Desktop shows "The folders you chose have no
+files to send" when you click **Send**, before a code is made. Every path you gave is an empty
+folder, or a folder that holds only empty folders. A path that does not exist stops earlier, with
+[`cannot read`](#cannot-read-a-path) and the path.
 
 Check the paths, and make sure there is at least one file in what you send.
 
 ### `floe` is not found after installing {#floe-is-not-found-after-installing}
 
-In your terminal, right after an install: the shell does not know a command named `floe`. The
-install put `floe` in a folder that the terminal you have open does not search yet. The PowerShell
-script adds its install folder, under `%LOCALAPPDATA%`, to your user `PATH`, and only a terminal
-opened afterward reads the change. The macOS and Linux script installs to `/usr/local/bin`, or to
-`~/.local/bin` when `sudo` is missing or cannot be used, and prints a note when that folder is not
-on your `PATH`, with the line to add to the file your login shell reads: `~/.zprofile` for zsh,
-`~/.bash_profile` for bash when you have one, `~/.profile` otherwise.
+In your terminal, right after an install: the shell does not know a command named `floe`. Open a
+new terminal and run `floe version`.
 
-Open a new terminal and run `floe version`. If the command is still not found, add the install folder
-to your `PATH`. See [Install the CLI](/cli/installation).
+The install put `floe` in a folder that the terminal you have open does not search yet. That list
+of folders is your [PATH](/glossary#path). The PowerShell script adds its install folder, under
+`%LOCALAPPDATA%`, to your user `PATH`, and only a terminal opened afterward reads the change.
+
+The macOS and Linux script installs to `/usr/local/bin`, or to `~/.local/bin` when `sudo` is
+missing or cannot be used. It prints a note when that folder is not on your `PATH`. The note gives
+the line to add to the file your login shell reads: `~/.zprofile` for zsh, `~/.bash_profile` for
+bash when you have one, `~/.profile` otherwise.
+
+If the command is still not found in a new terminal, add the install folder to your `PATH`. See
+[Install the CLI](/cli/installation).
 
 ### `Cannot update a dev build.` {#cannot-update-a-dev-build}
 
-From `floe update`, which then exits without changing anything. The binary was built from source
-or installed with `go install`, so it carries no release version to compare and cannot replace
-itself.
+From `floe update`, as `Error: Cannot update a dev build.`, and the command exits with status 1
+without changing anything. `floe` 1.11.0 and earlier printed the sentence alone and exited with
+status 0. The binary was built from source or installed with `go install`, so it carries no release
+version to compare and cannot replace itself.
 
-Install a release build through a package manager or the install script to get working
-self-update. See [Install the CLI](/cli/installation).
+Install a release build. The install script gives you `floe update`, and a
+[package manager](/glossary#package-manager) updates `floe` with its own upgrade command. See
+[Install the CLI](/cli/installation).
 
 ### ``installed via homebrew - run `brew upgrade floe` to update`` {#installed-via-homebrew-run-brew-upgrade-floe-to-update}
 
 From `floe update` and `floe update --check`. A package manager owns this binary, so `floe` will
 not replace it. The line names `homebrew`, `scoop`, or `winget` and that manager's own command.
-Detection is a match on the binary's path for `homebrew`, `cellar`, `linuxbrew`, `scoop`, or
-`winget`, so a script install that lives under a folder with one of those words in its name is
-treated the same way.
 
 Run the command the message names.
+
+`floe` tells by the binary's path, which it matches for `homebrew`, `cellar`, `caskroom`,
+`linuxbrew`, `scoop`, or `winget`. A script install in a folder with one of those words in its name
+is treated the same way.
 
 ### A browser recipient cannot join a CLI transfer {#a-browser-recipient-cannot-join-a-cli-transfer}
 
@@ -760,20 +1266,77 @@ someone on `floe receive` or Floe Desktop, both of which accept the link too.
 
 Every failure on the **Send** and **Receive** tabs is shown with an `Error: ` prefix, so a message
 on screen reads `Error: That code wasn't recognized`. While a custom **Server address** is set, the
-line also ends with ` · Both people must use ` and that server's hostname, because two people on
-different servers never find each other. Request-link messages carry no prefix.
+line also names that server's host, with its port if it has one, because two people on different
+servers never find each other:
+
+```text Status line
+Error: That code wasn't recognized · Both people must use files.example.com:8443
+```
+
+Request-link messages carry no prefix.
+
+| Where you see it | Why | What to do |
+|---|---|---|
+| [“That code wasn't recognized”](#that-code-was-not-recognized), **Receive** | A typo, a used or expired code, or a code from another server. | Check the code, or paste the link. |
+| [“The server is limiting requests from this network. Wait a minute and try again”](#the-server-is-limiting-requests-from-this-network), **Receive** | Too many wrong codes from your network in a minute. | Wait a minute, then try again. |
+| [“That link is incomplete”](#that-link-is-incomplete), **Receive** | The end of the link was cut off. | Copy the whole link again. |
+| [“That link is for floe.one” or “That link is for another Floe server”](#that-link-is-for-another-server-in-floe-desktop), **Receive** | The link and your **Server address** disagree. | Do what the line says. |
+| [“this code or link is no longer active”](#this-code-is-no-longer-active-ask-for-a-new-one), **Receive** | The sender is no longer in the transfer. | Ask for a new code or link. |
+| [“room is full”](#room-is-full-someone-else-may-already-be-receiving), **Receive** | Someone else already joined this transfer. | Ask for a transfer of your own. |
+| [“Can't reach the server”](#could-not-reach-the-server), **Send** or **Receive** | The app lost, or never had, its connection to the server. | Check your network and the **Server address**. |
+| [“The server is limiting connections from this network. Wait a minute and try again”](#the-server-is-limiting-connections-from-this-network), **Send** or **Receive** | Too many new connections from your network in a minute. | Wait a minute, then try again. |
+| [“The receiver left before it started”](#the-receiver-left-before-it-started), **Send** | Someone joined with your code or link and left again. | Click **Send** again for a new code and link. |
+| [“They left before the connection was made”](#they-left-before-the-connection-was-made), **Send** or **Receive** | The other person left while connecting. | Start again when they are ready. |
+| [“Couldn't connect the two devices”](#could-not-connect-the-two-devices), **Send** or **Receive** | No network path worked within 30 seconds. | Ask the other side to allow the relay. |
+| [“Both people need Floe open at the same time”](#both-people-need-floe-open-at-the-same-time), **Send** or **Receive** | The other device did not respond in time. | Ask them to be ready, then start again. |
+| [“The sender never started sending”](#connected-but-the-sender-never-started-sending), **Receive** | The sender's app stalled after connecting. | Ask for a new transfer. |
+| [“The sender canceled before it started”](#the-sender-canceled-before-it-started), **Receive** | The sender's side closed before any file arrived. | Ask for a new transfer. |
+| [“transfer failed: The sender stopped”](#the-sender-stopped-in-floe-desktop), **Receive** | The sender stopped on purpose and said why. | Ask for what did not arrive. |
+| [“The receiver left or declined”](#the-receiver-left-or-declined), **Send** | The receiver closed before taking the file. | Check with them first. |
+| [“They stopped the transfer”](#they-stopped-the-transfer-in-floe-desktop), **Send** | The receiving app stopped on purpose. | Ask, then send what did not arrive. |
+| [“Their computer ran out of space” and other reasons](#their-computer-ran-out-of-space), **Send** | The receiving app stopped and said why. | Deal with the cause it names. |
+| [“They didn't get a file whole, so it was discarded”](#they-did-not-get-a-file-whole), **Send** | A file arrived on their side shorter or longer than announced. | Send it again. |
+| [“A file arrived incomplete and wasn't kept”](#a-file-arrived-incomplete), **Receive** | A file arrived shorter than announced. | Ask the sender to send it again. |
+| [“The transfer stalled”](#the-transfer-stalled), **Receive** | Nothing moved for a minute. | Check both networks, then ask again. |
+| [“The connection dropped before the transfer finished”](#the-connection-dropped-before-the-transfer-finished), **Send** or **Receive** | The connection ended partway, with no closer reason. | Ask what arrived, then send the rest. |
+| [“They discarded a file that didn't match what was sent”](#they-discarded-a-file), **Send** | A file failed its SHA-256 check on their side. | Send it again. |
+| [“A file changed while sending and wasn't delivered”](#a-file-changed-while-sending), **Send** or **Receive** | A file changed on the sending computer while it was sent. | Send it again once it stops changing. |
+| [“Can't write to the save folder”](#cannot-write-to-the-save-folder), **Receive** | The folder in **Save to** cannot be made, or a write failed. | Choose another folder or free some space. |
+| [“A file's path is too deep or too long to save in this folder”](#a-files-path-is-too-deep-or-too-long), **Receive** | A path in the transfer is too deep or long. | Ask the sender to zip it first. |
+| [“A received file couldn't be saved, so it was kept with a .part ending”](#a-received-file-could-not-be-saved), **Receive** | Another program held the finished file. | Remove the `.part` ending from it. |
+| [“The folders you chose have no files to send”](#no-files-to-send), **Send** | Every folder you picked is empty. | Add at least one file. |
+| [`cannot read` or `cannot send` and a path](#cannot-read-a-path), **Send** | A file was moved, or a folder holds a link to a folder. | Add the file again, or send the linked folder on its own. |
+| [“Hide my IP needs a relay this server doesn't have”](#hide-my-ip-needs-a-relay) | The server has no relay. | Turn off **Hide my IP address**, or add a relay. |
+| [“Couldn't read this server's relay details for Hide my IP”](#relay-details-unreadable) | The server was not heard from, or answered with an error. | Check the **Server address** with **Test**. |
+| [`relay connections are capped at 2 GB`](#every-transfer-is-capped-at-2-gb), **Send** or **Receive** | The connection is relayed and the files total more than 2 GB. | Send 2 GB or less, or turn off **Hide my IP address**. |
+| [“Cannot transfer: your floe is too old for this peer.”](#cannot-transfer-your-floe-is-too-old-for-this-peer), **Send** or **Receive** | The two apps speak protocol versions that do not overlap. | Update the side the message names. |
+| [“The server refused the realtime connection”](#the-test-button-says-the-realtime-connection-was-refused), Settings, **Test** | The proxy does not forward `/ws`, or changes the `Host` header. | Fix the proxy as the line says. |
+| [“The API answered HTTP 404”](#the-test-button-says-the-api-answered-with-an-http-error), Settings, **Test** | `/api/` is not reaching the server. | Forward `/api/` to the server. |
+| [“Connected, but this server has no relay”](#the-test-button-says-the-server-has-no-turn-relay), Settings, **Test** | The server works but offers no relay. | Leave **Hide my IP address** off, or add a relay. |
+| [“That address answered HTTP 404 (likely the web app, not the server)”](#the-test-button-says-it-may-be-the-web-app-rather-than-the-signaling-server), Settings, **Test** | You entered the web app's address. | Enter the signaling server's address. |
+| [No right-click menu setting](#there-is-no-right-click-menu-setting), Settings | This is the Microsoft Store build. | Install the build from GitHub if you need it. |
+| [The right-click menu switch turns itself off](#the-switch-for-the-right-click-menu-keeps-turning-itself-off), Settings | Windows refused the registry entry. | Send from the Floe window instead. |
+| [“Floe could not start.”](#floe-will-not-start), a dialog | WebView2 is missing, or something else failed at startup. | Install WebView2, or report the text. |
 
 ### "That code wasn't recognized" {#that-code-was-not-recognized}
 
 On the **Receive** tab. The causes are those of the CLI's
-[`not found or expired`](#code-olive-tiger-castle-not-found-or-expired-codes-expire-after-10-minutes):
+[`not found`](#code-olive-tiger-castle-not-found-or-expired-codes-expire-after-10-minutes):
 a typo, a code more than 10 minutes old, or a code already retired because a receiver joined or
 the sender left. It also appears when the code belongs to a different server from the one the app
-is set to, when what you entered is neither a code nor a share link, and for the rest of a minute
-after several wrong codes in a row from your network, while the server refuses further lookups.
+is set to, and when what you entered is neither a code nor a share link.
 
 Check the code with the sender, or paste their link instead. If you set a **Server address** in
 Settings, make sure the sender uses the same server.
+
+### "The server is limiting requests from this network. Wait a minute and try again" {#the-server-is-limiting-requests-from-this-network}
+
+On the **Receive** tab, after you enter a code. The server is refusing code lookups from your
+network address for the moment. Wrong codes use up a small per-minute budget, and once it is spent
+even a correct code is refused until the minute has passed. `floe receive` reports the same refusal
+as [`server returned 429 when resolving code`](#server-returned-429-when-resolving-code).
+
+Wait a minute, check the code with the sender, and try again.
 
 ### "That link is incomplete" {#that-link-is-incomplete}
 
@@ -782,13 +1345,44 @@ the end of the link was cut off when it was copied.
 
 Copy the whole link again and paste it.
 
+### "That link is for floe.one" or "That link is for another Floe server" {#that-link-is-for-another-server-in-floe-desktop}
+
+On the **Receive** tab, before the app contacts any server. A room link names the server that holds
+its transfer, and that has to be the server Floe Desktop is set to use. The line says which way the
+two differ:
+
+| Message | What it means | What to do |
+|---|---|---|
+| “That link is for floe.one, but Floe is set to use another server. Clear Server address in Settings, then try again” | The link was made on floe.one, and Settings names another **Server address**. | Clear **Server address**, then paste the link again. |
+| “That link is for another Floe server. Set its address as Server address in Settings, then try again” | The link was made on a self-hosted server, and the app uses floe.one. | Set that server as **Server address**, then paste the link again. |
+
+A room code is never refused this way, because a code names no server.
+
 ### "Can't reach the server" {#could-not-reach-the-server}
 
-On the **Send** or **Receive** tab. The app could not reach the signaling server, the server did
-not give it a seat within 20 seconds, or the connection to the server dropped while the two
-devices were still connecting.
+On the **Send** or **Receive** tab. The app could not reach the signaling server, or the server
+did not let it into the transfer within 20 seconds. It also appears when the app's connection to
+the server dropped while a send was waiting for its receiver, or while the two devices were still
+connecting.
 
 Check your network. If you set a **Server address** in Settings, check it with **Test**.
+
+### "The server is limiting connections from this network. Wait a minute and try again" {#the-server-is-limiting-connections-from-this-network}
+
+On the **Send** or **Receive** tab, right after you click, before any transfer exists. The server
+turned the connection away: by default it takes 30 new connections a minute from one network
+address. Floe Desktop 0.3.0 showed this as
+["The connection dropped before the transfer finished"](#the-connection-dropped-before-the-transfer-finished).
+
+Wait a minute and try again. If it keeps happening on your own server, see
+[429, or "Rate limit exceeded"](#429-or-rate-limit-exceeded).
+
+### "The receiver left before it started" {#the-receiver-left-before-it-started}
+
+On the **Send** tab, after the code and link appeared. Someone joined with your code or link and
+left again before the two devices began connecting. The code and link are no longer in use.
+
+Click **Send** again for a new code and link, and share those.
 
 ### "They left before the connection was made" {#they-left-before-the-connection-was-made}
 
@@ -803,7 +1397,7 @@ the room, so the old one no longer works.
 
 On the **Send** or **Receive** tab. Both devices were present and exchanged connection details,
 and then 30 seconds passed without a network path that works. The usual cause is a strict network
-on one side with no relay to fall back on: the other side refused the relay, with `--no-relay` on
+on one side with no relay to fall back on. The other side refused the relay, with `--no-relay` on
 the CLI or with **Network relay fallback** unchecked in the browser, or the server has no relay.
 
 Ask the other side to allow the relay, or try from another network. If you run your own server,
@@ -831,23 +1425,72 @@ canceled or quit in Floe Desktop, closed their tab, or their app stopped the sen
 
 Ask the sender to start a new transfer.
 
+### "transfer failed: The sender stopped" and the sender's other reasons {#the-sender-stopped-in-floe-desktop}
+
+On the **Receive** tab, as `Error: transfer failed: ` and the sender's own sentence, without its
+closing period. `The sender stopped` means they pressed `Ctrl+C` in `floe send` 1.11.1 or later. A
+sender in the browser names its reason instead:
+
+- `The sender stopped: a file could not be read on their device. Ask them to check it and send again`
+- `The sender stopped after waiting 2 minutes for this device to answer. Ask them to send again`
+- `The sender stopped because of an error on their side. Ask them to send again`
+- `The sender has Network relay fallback off, and this connection needs the relay. Ask them to reload, leave it on, and share a new link`
+
+Files that finished are kept, and the file that was arriving is deleted.
+
+Ask the sender for what did not arrive.
+
 ### "The receiver left or declined" {#the-receiver-left-or-declined}
 
 On the **Send** tab. The connection closed while Floe was waiting for the receiver to take a file.
-With `floe receive` on the other side, the person answered `n` at its prompt or closed it before
-answering.
+With `floe receive` on the other side, it was killed before they answered its prompt. A no at
+the prompt of `floe receive` 1.11.0 or earlier ends this way too. A newer `floe receive` tells
+the sender, and this tab then shows `Error: They declined. Nothing was sent`.
 
 Check with the recipient before you send again.
 
 ### "They stopped the transfer" {#they-stopped-the-transfer-in-floe-desktop}
 
-On the **Send** tab. The receiving app ended the transfer on purpose and told Floe Desktop so.
-This short line appears when it stopped because more data arrived for a file than was announced.
-The stop people actually meet, someone pressing `Ctrl+C` in `floe receive` 1.11.0 or later,
-reaches Floe Desktop 0.3.0 in other words: `Error: transfer failed: They stopped this drop`. In
-both cases the files they had already saved stay saved.
+On the **Send** tab. The receiving app ended the transfer on purpose and told Floe Desktop so. It
+is the line for someone pressing `Ctrl+C` in `floe receive` 1.11.0 or later, and for a receiver
+that stopped because more data arrived for a file than was announced. Floe Desktop 0.3.0 showed
+the `Ctrl+C` case as `Error: transfer failed: They stopped this drop`. In every case the files
+they had already saved stay saved.
 
 Ask the other person whether they meant to stop, then send again whatever did not arrive.
+
+### "Their computer ran out of space" and the receiver's other reasons {#their-computer-ran-out-of-space}
+
+On the **Send** tab. The receiving app stopped on purpose and named a reason, and Floe Desktop shows
+that reason as its own line:
+
+| Message | What it means | What to do |
+|---|---|---|
+| `Error: They declined. Nothing was sent` | They answered `n` at the prompt of `floe receive`. | Check with them before you send again. |
+| `Error: Their computer ran out of space` | The drive they save to is full. | Send again once they have made room. |
+| `Error: Their computer could not save a file` | A write failed on their side. From a browser, it ran out of memory or hit an error. | Ask them to choose another folder, or to receive with Floe Desktop or `floe receive`. |
+| `Error: A folder path is too long for their computer. Zip deeply nested folders first` | A file sits too many folders deep, or its path is too long, for their computer. | Zip deeply nested folders, then send the zip. |
+| `Error: A file is too large for the drive they save to` | A file is 4 GB or larger, and their drive holds just under 4 GB per file, as FAT32 drives do. | Ask them to save to another drive. |
+
+Floe Desktop 0.3.0 showed each of these after `Error: transfer failed: `. Files they had already
+saved stay saved, and nothing resumes.
+
+### "They didn't get a file whole, so it was discarded" {#they-did-not-get-a-file-whole}
+
+On the **Send** tab. The receiving app counted a different number of bytes for a file than Floe
+announced, threw the file away, and stopped the transfer. Files they had already saved stay saved.
+
+Send the file again. If it was still being written while it was sent, wait until it stops
+changing.
+
+### "A file arrived incomplete and wasn't kept" {#a-file-arrived-incomplete}
+
+On the **Receive** tab. Fewer bytes of a file arrived than the sender announced, so Floe deleted
+it rather than keep a file that looks whole and is not. The transfer stopped there, and files saved
+before it are kept. When more bytes arrived than announced, the line reads
+`Error: transfer failed: sender exceeded the announced size of` and the file's name instead.
+
+Ask the sender to send the file again. See [File checks](/how-it-works/file-checks).
 
 ### "The transfer stalled" {#the-transfer-stalled}
 
@@ -858,16 +1501,19 @@ Check both networks, then ask the sender to send again whatever did not arrive.
 
 ### "The connection dropped before the transfer finished" {#the-connection-dropped-before-the-transfer-finished}
 
-On the **Send** or **Receive** tab. It is the app's line for every connection that ended
-mid-transfer without a more specific reason: the other side quit or lost its network, the data
-stopped draining for a minute, or, when sending, every byte went out and the connection closed
-before the receiving app said it had saved every file. On the receiving side, files that finished
-are kept and the one that was arriving is discarded.
+On the **Send** or **Receive** tab. It is the app's line for a connection that ended mid-transfer
+without a more specific reason:
 
-It also appears right after you click **Send** or **Receive**, before any transfer exists, when
-the server closed the connection without giving the app a place in a room. The usual reason is the
-server's limit on new connections from one network address, 30 a minute by default. Wait a minute
-and try again.
+- The other side quit or lost its network.
+- Nothing moved for a minute.
+- When sending, every byte went out and the connection closed before the receiving app said it had
+  saved every file.
+
+On the receiving side, files that finished are kept and the one that was arriving is discarded.
+
+It can also appear while the two devices are still connecting, when the network path between them
+failed. Then the fix in [Couldn't connect the two devices](#could-not-connect-the-two-devices)
+applies.
 
 Check with the other person what arrived before you send again. When this appears at the very end
 of a send, they may already have every file.
@@ -883,12 +1529,13 @@ Send the file again. See [File checks](/how-it-works/file-checks).
 
 ### "A file changed while sending and wasn't delivered" {#a-file-changed-while-sending}
 
-On the **Send** tab. One of your files changed size on disk while Floe was reading it, so Floe
-stopped rather than send a copy that does not match what it announced. Nothing after that file was
-sent.
+On the **Send** or **Receive** tab. A file changed size on the sending computer while Floe was
+reading it, so Floe stopped rather than send a copy that does not match what it announced. Nothing
+after that file was sent. On the **Send** tab it was one of your files. On the **Receive** tab it
+was one of the sender's.
 
 Wait until the file stops changing, for example until a download or an export finishes, then send
-it again.
+it again. On the **Receive** tab, ask the sender to do that.
 
 ### "Can't write to the save folder" {#cannot-write-to-the-save-folder}
 
@@ -916,14 +1563,16 @@ still to come.
 
 ### "Hide my IP needs a relay this server doesn't have" {#hide-my-ip-needs-a-relay}
 
-On the **Send** or **Receive** tab, and when you make a request link, while **Hide my IP address**
-is on. The server answered, and its list had no relay in it, so Floe stops before the transfer
-starts instead of failing later as a connection that could not be made. Floe's own server offers a
-relay, so this normally means a self-hosted address. **Test** in Settings reports the same thing
-about an address before you rely on it.
+On the **Send** or **Receive** tab, and when you make a request link, while
+**Hide my IP address** is on. That setting sends every transfer through a relay, so the other
+person sees the relay's address and not yours: see [Hide my IP](/glossary#hide-my-ip). The server
+answered, and its list had no relay in
+it. Floe stops before the transfer starts, instead of failing later as a connection that could not
+be made. Floe's own server offers a relay, so this normally means a self-hosted address. **Test**
+in Settings reports the same thing about an address before you rely on it.
 
-Turn **Hide my IP address** off, or add a relay to your server. See
-[TURN relay](/self-hosting/turn-relay).
+Turn **Hide my IP address** off, or add a relay to your server. With it off, the other person's
+device can see your [IP address](/glossary#ip-address). See [TURN relay](/self-hosting/turn-relay).
 
 ### "Couldn't read this server's relay details for Hide my IP" {#relay-details-unreadable}
 
@@ -933,7 +1582,8 @@ whether it offers a relay. Common causes are a mistyped **Server address**, a re
 does not forward `/api/`, and the server's limit on repeated requests from one address.
 
 Check the **Server address** and run **Test** against it, or wait a minute and try again. Turning
-**Hide my IP address** off lets the transfer go ahead over whatever path is available.
+**Hide my IP address** off lets the transfer go ahead over whatever path is available, and lets the
+other person's device see your IP address.
 
 ### Every transfer is capped at 2 GB {#every-transfer-is-capped-at-2-gb}
 
@@ -947,50 +1597,77 @@ Error: transfer blocked: relay connections are capped at 2 GB (selected 2.5 GB).
 it holds even on a network that could have connected directly. Without that setting, the same line
 appears without its last sentence when a connection simply ended up relayed.
 
-Turn **Hide my IP address** off in Settings to send more than 2 GB, or send less at a time. See
-[Hide my IP address](/desktop/settings#hide-my-ip-address).
+On the **Receive** tab the cap shows after `Error: transfer failed: `, in the sender's words. From
+`floe send` or Floe Desktop it reads
+`transfer blocked: relay connections are capped at 2 GB (selected 2.5 GB)`. From a sender in the
+browser it reads "Transfer blocked: relay connections are capped at 2 GB. Ask the sender to send 2
+GB or less, or to try a network that allows a direct connection." The cap is applied on the
+sender's side, so only the sender can change it.
+
+Turn **Hide my IP address** off in Settings to send more than 2 GB, or send 2 GB or less at a time.
+See [Hide my IP address](/desktop/settings#hide-my-ip-address).
 
 ### The Test button says the realtime connection was refused {#the-test-button-says-the-realtime-connection-was-refused}
 
-In Settings, after you click **Test**: "The server refused the realtime connection (check that
-your proxy forwards /ws)". The address is a Floe signaling server, but the WebSocket upgrade at
-`/ws` is not getting through. Nearly always that is a reverse proxy that forwards ordinary requests
-without forwarding the upgrade. The other cause is a proxy that rewrites the `Host` header to its
-upstream address, which fails the server's origin check. The CLI reports the same thing as
-`websocket: bad handshake`.
+In Settings, after you click **Test**. The address is a Floe signaling server, but the
+[WebSocket](/glossary#websocket) upgrade at `/ws` is not getting through. If you only typed an
+address someone gave you, the problem is on the server's side: send this entry to whoever runs it.
+The line says what to check:
 
-Forward `/ws` with its upgrade headers and the original `Host`. See
+| Message | What it means | What to do |
+|---|---|---|
+| `Error: The server refused the realtime connection (check that your proxy forwards /ws)` | The server answered `404`. A reverse proxy does not forward `/ws`, or forwards it with a trailing slash or under a path prefix. | Forward `/ws` itself, with its upgrade headers. |
+| `Error: The server refused the realtime connection (check that your proxy passes the original Host header)` | The server answered `403`: its origin check failed, because a proxy rewrites the `Host` header to its upstream address. | Pass the original `Host` through the proxy. |
+| `Error: The server refused the realtime connection (check that your proxy forwards /ws and passes the original Host header)` | Any other refusal, or no answer. | Check both. |
+
+Floe Desktop 0.3.0 shows the first line for every refusal. The CLI reports the same thing as
+`websocket: bad handshake (HTTP 403)` or `(HTTP 404)`. See
 [Run behind one domain](/self-hosting/reverse-proxy) and
 [Production deployment](/self-hosting/production).
 
 ### The Test button says the API answered with an HTTP error {#the-test-button-says-the-api-answered-with-an-http-error}
 
-In Settings, after you click **Test**: "The API answered HTTP 404 (check that your proxy forwards
-/api/)", with whatever status came back. `/api/` is not reaching the server. Nothing else in Floe
-Desktop reports this failure: connection details fall back to public STUN and the room code fails
-to register without a word, so you get a share link with no code and no error. A `429` in that line is
-different. It is the server's limit on repeated requests, and it clears in a minute.
+In Settings, after you click **Test**, with whatever status came back:
+
+```text Status line
+Error: The API answered HTTP 404 (check that your proxy forwards /api/)
+```
+
+`/api/` is not reaching the server. Nothing else in Floe Desktop reports this failure. Connection
+details fall back to public STUN without a word, and the room code fails to register, so **Send**
+shows a share link with no code.
+
+A `429` is not reported with that line. Test then says "The server is limiting requests from this
+network. Wait a minute and test again", after `Error: `. That is the server's own limit on repeated
+requests, and it clears in a minute.
 
 Forward `/api/` to the signaling server before you rely on the address. See
 [Run behind one domain](/self-hosting/reverse-proxy).
 
 ### The Test button says the server has no TURN relay {#the-test-button-says-the-server-has-no-turn-relay}
 
-In Settings, after you click **Test**: "Connected, but there's no relay for Hide my IP". This is a
-pass, which is why it carries no `Error: ` prefix: the address is a working Floe signaling server.
-Without a relay, [Hide my IP address](/desktop/settings#hide-my-ip-address) cannot work at all, and
-ordinary transfers succeed only where the two devices can reach each other directly.
+In Settings, after you click **Test**: "Connected, but this server has no relay: Hide my IP will
+not work, and some networks will not connect". This is a pass, which is why it carries no
+`Error: ` prefix: the address is a working Floe signaling server. Without a relay,
+[Hide my IP address](/desktop/settings#hide-my-ip-address) cannot work at all, and ordinary
+transfers succeed only where the two devices can reach each other directly.
 
 Leave **Hide my IP address** off on this server, or add a relay to it. See
 [TURN relay](/self-hosting/turn-relay).
 
 ### The Test button says it may be the web app rather than the signaling server {#the-test-button-says-it-may-be-the-web-app-rather-than-the-signaling-server}
 
-In Settings, after you click **Test**: "That address answered HTTP 404 (likely the web app, not the
-server)", with whatever status came back. Something answered at that address, but not with a Floe
-health check. In a default self-hosted setup the web app is on port 3000 and the signaling server
-on 3001, so `http://localhost:3000` produces this. Test never follows redirects, so a captive
-portal or a catch-all rewrite cannot pass itself off as a healthy server.
+In Settings, after you click **Test**, with whatever status came back:
+
+```text Status line
+Error: That address answered HTTP 404 (likely the web app, not the server)
+```
+
+Something answered at that address, but not with a Floe health check. In a default self-hosted setup the web app is on port 3000 and the signaling
+server on 3001, so `http://localhost:3000` produces this.
+
+Test never follows a redirect, so a Wi-Fi sign-in page, or a server that answers every address
+with the same page, cannot pass itself off as a healthy server.
 
 Enter the signaling server's address, which is `http://localhost:3001` in that default setup.
 **Server address** always wants the signaling server.
@@ -1015,74 +1692,104 @@ Send from the Floe window instead. The menu entry is only a shortcut into it.
 ### Floe will not start {#floe-will-not-start}
 
 A dialog titled "Floe" that begins "Floe could not start." When it goes on to name the Microsoft
-WebView2 runtime, that runtime is missing and Floe could not download it, because the PC is
-offline or behind a filtering proxy.
+[WebView2](/glossary#webview2) runtime, the component that draws Floe's window, that runtime is
+missing. Floe could not download it, because the PC is offline or behind a filtering proxy.
 
 Install [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) yourself, then start
 Floe again. See [Install the desktop app](/desktop/installation).
+
+When the dialog names something else, or reads `unknown error`, copy its text and report it: see
+[Still stuck](#still-stuck).
 
 ## Request link messages {#request-links}
 
 These are the request-link messages people meet most. Each side has a complete table of its own:
 [Request links](/desktop/request-links#messages-on-your-pc) lists every message for the person who
-made the link in Floe Desktop, and
-[Sending through a request link](/web-app/request-links#messages) lists every message for the
-person sending through it. `floe send --to` prints several of the same sentences in the terminal,
-and its messages are listed under [floe send](/cli/send#messages-from-floe-send-to).
+made the link in Floe Desktop. [Sending through a request link](/web-app/request-links#messages)
+lists every message for the person sending through it. `floe send --to` prints several of the same
+sentences in the terminal, and its messages are listed under
+[floe send](/cli/send#messages-from-floe-send-to).
+
+A card with no button is final for that page load. Trying again then means reloading the page, and
+a reload empties your file selection.
+
+| Where you see it | Why | What to do |
+|---|---|---|
+| [“Their computer is not connected right now”](#their-computer-is-not-connected-right-now), sender's page or `floe send --to` | The computer that made the link is asleep, offline, or closed Floe. | Click **Try again** once they have Floe open. |
+| [“This link has ended”](#this-link-has-ended), sender's page or `floe send --to` | The link was closed, or reached its end, before anyone used it. | Ask for a new link. |
+| [“This link has already been used”](#this-link-has-already-been-used), sender's page or `floe send --to` | The link took its one drop, or is in use right now. | Ask for a new link. |
+| [“Request links are turned off right now”](#request-links-are-turned-off-right-now), sender's page or `floe send --to` | The server has request links turned off. | Click **Try again** later. |
+| [“Request links are not available on this Floe server.”](#request-links-are-not-available-on-this-floe-server), sender's page or `floe send --to` | The server does not answer request links. | Ask which server their Floe uses. |
+| [“They did not answer in time. Nothing was sent.”](#they-did-not-answer-in-time), sender's page | The person who made the link did not click **Accept** in time. | Ask them to be at their PC, then send again. |
+| [“Request links are off on this server”](#request-links-are-turned-off-on-this-server), Floe Desktop | The server has request links turned off. | Try again later. |
+| [“This network reached today's link limit”](#this-network-made-too-many-request-links-today), Floe Desktop | 20 new links from one network in 24 hours. | Wait, then make the link again. |
+| [“The sender couldn't connect”](#the-sender-could-not-connect), Floe Desktop | Their device and your PC could not finish connecting. | Ask them to try again. |
+| [The link opens a page that is not Floe's](#the-link-opens-a-page-that-is-not-floes-send-page), the sender's browser | **Share link address** is blank on a self-hosted setup. | Set **Share link address**, then make a new link. |
 
 ### "Their computer is not connected right now" {#their-computer-is-not-connected-right-now}
 
-On the sender's page, with a **Try again** button, and from `floe send --to`. Floe cannot reach the
-computer that made the link: the PC is asleep or offline, or Floe there stopped without closing
-the link. A link that never existed reads the same, and so does one that ended more than about a
-day ago. Within that day it reads ["This link has ended"](#this-link-has-ended). After the signaling server restarts, a link that was used or had ended reads this way too, because the server keeps those marks in memory only.
+On the sender's page, with a **Try again** button. `floe send --to` prints "Their computer is not
+connected right now. The person who made this link may have closed Floe." Floe cannot reach the
+computer that made the link: the PC is asleep or offline, or Floe there stopped without closing the
+link.
 
-Click **Try again** once the other person has Floe open. Your files stay selected. If that does
-not work, ask them for a new link.
+A link that never existed reads the same. So does one that ended more than about a day ago, or
+that had been used or had ended before the Floe server restarted. Within that day an ended link
+reads ["This link has ended"](#this-link-has-ended).
 
-If you made the link, senders get this message while your PC is asleep or offline, or while the link's
-card reads "Can't reach the Floe server". Keep Floe Desktop open on a PC that is awake and online, then
-ask them to click **Try again**.
+Click **Try again** once the other person has Floe open. Your files stay selected. From
+`floe send --to`, run the command again. If that does not work, ask them for a new link.
+
+If you made the link, senders get this message while your PC is asleep or offline, or while the
+link's card reads "Can't reach the Floe server". Keep Floe Desktop open on a PC that is awake and
+online, then ask them to try again.
 
 ### "This link has ended" {#this-link-has-ended}
 
-On the sender's page, followed by "Ask them for a new link." The link was closed before anyone used
-it: the person who made it clicked **Close link** or quit Floe, or its end time passed. The page
-says so for about a day afterward, and there is no **Try again**, because the link will not come
-back.
+On the sender's page, followed by "Ask them for a new link." `floe send --to` prints "This link
+has ended. Ask them for a new link." The link was closed before anyone used it: the person who made
+it clicked **Close link** or quit Floe, or its end time passed. The message stays for about a day
+afterward. The card has no **Try again**, because the link will not come back.
 
 Ask the person who made it for a new link.
 
 ### "This link has already been used" {#this-link-has-already-been-used}
 
-On the sender's page, followed by "Ask for a new link." A request link takes one drop, and this one
-has had it, someone else is sending through it right now, or the person who made it declined a
-request and has not clicked **Keep waiting**. A link also reads this way for about a day after the
-person who made it closed it while a request was waiting for their answer, or after a decline
-without clicking **Keep waiting**: someone had connected through it, so the server counts it as
-used, not as ["ended"](#this-link-has-ended). The server also gives this answer for a link that senders have joined more than 6 times in 1 minute, which clears by itself: wait 1 minute, then reload the page or run `floe send --to` again.
+On the sender's page, followed by "Ask for a new link." `floe send --to` prints "This link has
+already been used. Ask the person who made it for a new one." A request link takes one drop. This
+one has had it, someone else is sending through it right now, or the person who made it declined a
+request and has not clicked **Keep waiting**.
 
-Ask the person who made it for a new link.
+A link also reads this way for about a day after its maker closed it while a request was waiting
+for an answer. It does after a decline without **Keep waiting** too. Someone had connected through
+it, so the server counts it as used, not as ["ended"](#this-link-has-ended).
+
+The server gives the same answer for a link that senders have joined more than 6 times in 1 minute.
+That one clears by itself.
+
+If you had just tried several times in a row, wait 1 minute, then reload the page or run
+`floe send --to` again. Otherwise ask the person who made it for a new link.
 
 ### "Request links are turned off right now" {#request-links-are-turned-off-right-now}
 
-On the sender's page. The Floe server the link belongs to has request links turned off, so no
-request link works there until they are turned back on. The server gives this answer before it
-looks at the link, and a link that was waiting for a sender when request links were turned off
-has ended.
+On the sender's page, and from `floe send --to`. The Floe server the link belongs to has request
+links turned off, so no request link works there until they are turned back on. The server gives
+this answer before it looks at the link. A link that was waiting for a sender when request links
+were turned off has ended.
 
-Click **Try again** later: your files stay selected. If the page then reads
-["This link has ended"](#this-link-has-ended), ask for a new link.
+Click **Try again** later: your files stay selected. From `floe send --to`, run the command again
+later. If it then reads ["This link has ended"](#this-link-has-ended), ask for a new link.
 
 ### "Request links are not available on this Floe server." {#request-links-are-not-available-on-this-floe-server}
 
 On the sender's page, and from `floe send --to`. The server did not answer the request to join
-within 10 seconds. That is what a server older than 1.11.0 does: it does not know request links
-and ignores the message.
+within 10 seconds. That is what a server older than 1.11.0 does: it does not know request links and
+ignores the message.
 
-On the page, click **Try again** once: your files stay selected. If the same card comes back, or
-`floe send --to` printed this, ask the person who made the link which server their Floe uses. If
-it is your own server, update it and see [Turn on request links](/self-hosting/request-links).
+On the page, click **Try again** once: your files stay selected. From `floe send --to`, check that
+`--server` or `FLOE_SERVER` names the server the link was made on. If the same card comes back, or
+the server is right, ask the person who made the link which server their Floe uses. If it is your
+own server, update it and see [Turn on request links](/self-hosting/request-links).
 
 ### "They did not answer in time. Nothing was sent." {#they-did-not-answer-in-time}
 
@@ -1094,10 +1801,13 @@ Ask them to be at their PC, then go back to your files and send again.
 
 ### "Request links are off on this server" {#request-links-are-turned-off-on-this-server}
 
-In Floe Desktop, when you make a link or while one is waiting. The server has request links turned
-off. Only request links stop: Send and Receive with a code still work.
+In Floe Desktop, when you make a link, while one is waiting, or when you click **Keep waiting**
+after a decline. The server has request links turned off, so a link that was open has ended. Only
+request links stop: Send and Receive with a code still work.
 
-Try again later. On your own server, request `/health`: unless its `features` lists `request-1`, the policy file is missing or says off, or the server is older than 1.11.0. A log line `policy file not found, request links off` means `POLICY_FILE` names a file the server cannot see, usually because its folder is not mounted. See [Turn on request links](/self-hosting/request-links).
+Try again later, or ask whoever runs the server. If it is your own server, see
+[Turn on request links](/self-hosting/request-links): its `/health` answer lists `request-1` under
+`features` only while request links are on.
 
 ### "This network reached today's link limit" {#this-network-made-too-many-request-links-today}
 
@@ -1112,6 +1822,9 @@ Wait, then make the link again. See [Request links](/desktop/request-links#limit
 In Floe Desktop, on a link that is waiting again. Someone clicked **Send** on your link, but their
 browser or `floe` and your PC could not finish connecting, or connected and then announced no file
 for 30 seconds. The link is still open.
+
+With **Hide my IP address** on, the line can read "The sender couldn't connect: Hide my IP is on
+and no relay is available". The server offered no relay, or its list could not be read.
 
 Ask them to try again. If it keeps happening, a network on one side may be blocking the
 connection: see [The transfer never starts](#the-transfer-never-starts).
@@ -1128,58 +1841,83 @@ Set **Share link address** to the web client's address in Settings, then make a 
 
 ## On a self-hosted instance {#on-a-self-hosted-instance}
 
+These are for whoever runs the server. Most clear once one setting is right and the service is
+restarted.
+
+| Where you see it | Why | What to do |
+|---|---|---|
+| [The badge stays on Offline](#the-browser-cannot-connect-to-my-signaling-server), your own web client | The client dials the wrong server address, or the server refuses its origin. | Set the address, then recreate the container. |
+| [HTTP 403 and a CORS failure](#browser-requests-are-blocked-and-the-server-answers-http-403), browser console and server log | The page's origin is not one the server allows. | Set `CLIENT_URL`, then restart the server. |
+| [`Refused a connection on /ws from Origin`](#the-server-logs-refused-a-connection), server log | A proxy rewrites the `Host` header. | Pass the original `Host` through. |
+| [429, or “Rate limit exceeded”](#429-or-rate-limit-exceeded) | One address reached a per-minute limit. | Wait a minute, then raise the limit if real users keep reaching it. |
+| [503 “Server busy, try again shortly”](#503-server-busy-try-again-shortly), from `POST /api/code` | The server holds its maximum number of live room codes. | Wait for codes to free up. |
+| [The TURN relay is not working](#the-turn-relay-is-not-working) | Its variables are missing or wrong, or Cloudflare cannot be reached. | Fix the variables, then restart. |
+| [coturn logs `Default realm: localdomain`](#coturn-logs-default-realm-localdomain), coturn log | Docker made a folder where the config file should be. | Remove the folder, fetch the config, restart. |
+| [The server logs nothing at all](#the-server-logs-nothing-at-all) | That is normal. | Use `/health` to check it. |
+| [`docker compose ps` shows no client health](#docker-compose-ps-never-shows-the-client-as-healthy) | The client image has no healthcheck. | Open the client in a browser. |
+
 ### The browser cannot connect to my signaling server {#the-browser-cannot-connect-to-my-signaling-server}
 
-On your own web client: the page loads, but the badge at the top of the card stays on **Offline**.
-The page is dialing the wrong address for the signaling server, or one the browser cannot reach.
-The client reads that address at runtime. Compose passes `NEXT_PUBLIC_SOCKET_URL` into the
-container as `SOCKET_URL`, which is the name the running client reads, so outside Compose you set
-`SOCKET_URL` on the client process. Setting `NEXT_PUBLIC_SOCKET_URL` on an already-built client
-does nothing, because Next inlines that name at build time.
+On your own web client: the page loads, but the badge at the top of the card stays on Offline. The
+page is dialing the wrong address for the signaling server, or one the browser cannot reach.
 
-Check what the client is serving:
+<Steps>
+  <Step title="Check what the client is serving">
+    ```bash Terminal
+    curl http://localhost:3000/api/config
+    ```
 
-```bash Terminal
-curl http://localhost:3000/api/config
-```
+    An empty `socketUrl` means the browser uses its own origin, which is correct only when both
+    services sit behind [one reverse proxy](/self-hosting/reverse-proxy). Otherwise the address has
+    to be reachable from your users' browsers: `http://localhost:3001` works only when the browser
+    is on the same machine as the server.
+  </Step>
+  <Step title="Set the address">
+    The client reads it at runtime. With Compose, set `NEXT_PUBLIC_SOCKET_URL` in `.env`: Compose
+    passes it into the container as `SOCKET_URL`, the name the running client reads. Without
+    Compose, set `SOCKET_URL` on the client process. Setting `NEXT_PUBLIC_SOCKET_URL` on an
+    already-built client does nothing, because Next inlines that name at build time.
+  </Step>
+  <Step title="Recreate the container">
+    No rebuild is needed:
 
-An empty `socketUrl` means the browser uses its own origin, which is correct only when both
-services sit behind [one reverse proxy](/self-hosting/reverse-proxy). Otherwise the address has to
-be reachable from your users' browsers: `http://localhost:3001` works only when the browser is on
-the same machine as the server.
+    ```bash Terminal
+    docker compose up -d
+    ```
+  </Step>
+</Steps>
 
-Set the address, then recreate the container. No rebuild is needed:
-
-```bash Terminal
-docker compose up -d
-```
-
-If the address is right and the badge still reads **Offline**, the server may be refusing the
-page's origin instead. Set `CLIENT_URL` to the exact origin the page is served from, port
-included, as described under
+If the address is right and the badge still reads Offline, the server may be refusing the page's
+origin instead. Set `CLIENT_URL` to the exact origin the page is served from, port included, as
+described under
 [Browser requests are blocked, and the server answers HTTP 403](#browser-requests-are-blocked-and-the-server-answers-http-403).
 
 ### Browser requests are blocked, and the server answers HTTP 403 {#browser-requests-are-blocked-and-the-server-answers-http-403}
 
 In the browser's console as a generic CORS failure, and in the server log as
-`Refused a request with 403.` The page's origin is not one the server allows, so the server
-answers `403` with `{"error":"Bad request"}`. The log line does not name the refused origin.
-Server releases v1.10.0 to v1.10.11 answer `500` with `{"error":"Internal server error"}` and log
-a stack trace instead, and earlier ones answer `500` with an HTML error page.
+`Refused a request with 403.` The page's origin, its scheme, hostname and port, is not one the
+server allows. The server answers `403` with `{"error":"Bad request"}`, and the log line does not
+name the refused origin.
 
 Set `CLIENT_URL` to your client's public origin, exactly: with the scheme, with no trailing slash,
 and as one origin only, because a comma-separated list matches nothing. `https://floe.one`,
-`https://www.floe.one`, and `http://localhost:3000` are always allowed in addition.
+`https://www.floe.one`, and `http://localhost:3000` are always allowed in addition. Then restart
+the server, which reads `CLIENT_URL` once at startup: `docker compose up -d`, or a plain restart
+without Docker.
+
+Server releases v1.10.0 to v1.10.11 answer `500` with `{"error":"Internal server error"}` and log
+a stack trace instead, and earlier ones answer `500` with an HTML error page.
 
 ### The server logs `Refused a connection on /ws from Origin` {#the-server-logs-refused-a-connection}
 
 In the server log, at most once for `/ws` and once for `/socket.io` for as long as the server
 runs. A realtime connection arrived with an `Origin` that is not `CLIENT_URL`, a floe.one origin,
 or the server's own host, and was refused. The line quotes the `Origin` and the `Host` it compared.
-On the other end, `floe` prints `websocket: bad handshake` and the **Test** button in Floe Desktop
-says the realtime connection was refused. The usual cause is a reverse proxy that rewrites the
-`Host` header to its upstream address, so the address `floe` and Floe Desktop send as their origin
-no longer matches it.
+
+On the other end, `floe` prints `websocket: bad handshake (HTTP 403)`, and the **Test** button in
+Floe Desktop says the realtime connection was refused. The usual cause is a reverse proxy that
+rewrites the `Host` header to its upstream address. The address `floe` and Floe Desktop send as
+their origin then no longer matches it.
 
 Pass the original `Host` header through the proxy, and set `CLIENT_URL` to the web client's
 origin. See [Production deployment](/self-hosting/production).
@@ -1187,12 +1925,14 @@ origin. See [Production deployment](/self-hosting/production).
 ### 429, or "Rate limit exceeded" {#429-or-rate-limit-exceeded}
 
 From the server: an HTTP request answered `429`, or a realtime connection refused with the reason
-`Rate limit exceeded`. Each limit counts one network address over 60 seconds, and what was refused
-tells you which limit it was:
+`Rate limit exceeded`. Each limit counts one network address over 60 seconds, and every limit clears
+by itself, so wait a minute first. Raise a variable only when real users behind one address keep
+reaching it, and restart the server afterward, because it reads the limits once at startup. What
+was refused tells you which limit it was:
 
 | Message | What it means | What to do |
 |---|---|---|
-| `Rate limit exceeded`, on a Socket.IO or `/ws` connection | Too many new connections from one address. The web app shows ["Too many refreshes. Reconnecting"](#too-many-refreshes-reconnecting). | Raise `MAX_CONNECTIONS_PER_IP`. |
+| `Rate limit exceeded`, on a Socket.IO or `/ws` connection | Too many new connections from one address. The web app shows [“Too many refreshes. Reconnecting”](#too-many-refreshes-reconnecting), and Floe Desktop shows [“The server is limiting connections from this network”](#the-server-is-limiting-connections-from-this-network). | Raise `MAX_CONNECTIONS_PER_IP`. |
 | `429` with `Too many requests`, from `/api/turn-credentials` | Too many requests for connection details from one address. | Raise `MAX_TURN_REQUESTS_PER_IP`. |
 | `429` with `Too many requests`, from `/api/code` | Too many room-code requests from one address, or too many wrong codes in a minute. | Raise `MAX_CODE_REQUESTS_PER_IP`, or `MAX_FAILED_CODE_RESOLVES` for wrong codes. |
 | `429` with `Too many reports`, from `/api/stats/report` | Too many stats reports from one address. | Nothing to set: this limit has no variable. |
@@ -1200,28 +1940,29 @@ tells you which limit it was:
 A refused attempt is not counted, so a client that keeps retrying is let back in as its earlier
 requests pass out of the 60 seconds. When everyone is refused at once behind a reverse proxy, the
 server is usually counting every user under the proxy's address, which `TRUSTED_PROXY_COUNT`
-corrects.
-
-Wait a minute first, because every limit clears by itself. Raise a variable only when real users
-behind one address keep reaching it. See [Configuration](/self-hosting/configuration) for each
-default, for how an IPv6 address is counted, and for `TRUSTED_PROXY_COUNT`.
+corrects. See [Configuration](/self-hosting/configuration) for each default, for how an IPv6 address
+is counted, and for `TRUSTED_PROXY_COUNT`.
 
 ### 503 "Server busy, try again shortly" {#503-server-busy-try-again-shortly}
 
 From `POST /api/code`, the request that makes a room code. `floe send` shows it as
 `Warning: could not generate short code: server returned 503 when registering code` and carries on
-with its link alone, and Floe Desktop shows a share link with no code. The server is already
-holding as many live room codes as `MAX_ACTIVE_CODES` allows, counted across every address, which
-is what bounds the memory the code registry can use. A slot frees as soon as its code is retired,
-so a code that is used straight away does not hold its slot for long.
+with its link alone, and Floe Desktop shows a share link with no code.
+
+The server keeps at most `MAX_ACTIVE_CODES` live room codes at a time, counted across every
+address, to bound the memory they use. It holds that many now. A slot frees as soon as its code is
+retired, so a code that is used straight away does not hold its slot for long.
 
 Wait, because slots free by themselves. Raise `MAX_ACTIVE_CODES` only if you really expect that
 many transfers waiting at once. See [Configuration](/self-hosting/configuration).
 
 ### The TURN relay is not working {#the-turn-relay-is-not-working}
 
-No message of its own: transfers that need the relay fail, and the **Test** button in Floe Desktop
-reports no relay. Ask the server what it hands out:
+No message of its own. Transfers that need the relay fail: the browser shows one of the
+"Connection failed" banners, `floe` prints
+[`timed out establishing a connection`](#timed-out-establishing-a-connection), and Floe Desktop
+says ["Couldn't connect the two devices"](#could-not-connect-the-two-devices). The **Test** button
+in Floe Desktop reports no relay. Ask the server what it hands out:
 
 ```bash Terminal
 curl http://localhost:3001/api/turn-credentials
@@ -1229,18 +1970,23 @@ curl http://localhost:3001/api/turn-credentials
 
 **Managed Cloudflare TURN.** A working setup returns two entries: a
 `stun:stun.cloudflare.com:3478` one with no credentials, and a `turn:`/`turns:` one that carries a
-username and credential. If it returns Google STUN servers instead, one of
-`CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_KEY_API_TOKEN` is missing or the API token is
-invalid. Both variables are read once at startup. Credentials are cached in memory for 5 minutes,
-and a key that breaks later is masked for a while: the server keeps serving the last good copy for
-up to about 23 hours after it was minted before it falls back, and logs
-`Cloudflare TURN mint failed` with a reason word, such as `TimeoutError` or `status 401`, at most
-once every 5 minutes.
+username and credential. Google STUN servers in its place mean that no Cloudflare credentials could
+be made and the coturn pair is not set. One of `CLOUDFLARE_TURN_KEY_ID` and
+`CLOUDFLARE_TURN_KEY_API_TOKEN` is missing or wrong, or the server could not reach Cloudflare's API.
+With `TURN_SECRET` and `TURN_DOMAIN` both set, a failed request falls back to the coturn entries
+instead.
+
+- Both variables are read once at startup.
+- An answer is reused for 5 minutes.
+- If Cloudflare stops answering, the server keeps serving the last good answer for up to about 23
+  hours after it was made.
+- Each failure logs `Cloudflare TURN mint failed` with a reason, such as `TimeoutError` or
+  `status 401`, at most once every 5 minutes.
 
 **Self-hosted coturn.** The bundled service uses host networking, so it needs a Linux host with a
 public IP, a domain, and TLS certificates. `TURN_SECRET` and `TURN_DOMAIN` have to match coturn's
-`static-auth-secret` and `realm`. Setting only one of the pair falls through to STUN with no
-warning.
+`static-auth-secret` and `realm`. With only one of the two set, the server offers no relay and says
+nothing.
 
 Fix the variables, then restart the server so that it reads them: `docker compose up -d`, or a
 plain restart without Docker. See [TURN relay](/self-hosting/turn-relay).
@@ -1253,8 +1999,17 @@ without any error for exactly the peers it exists to serve. This happens when
 **directory** at that path. Copying a file onto that directory succeeds and writes the file inside
 it, so the obvious fix appears to work and does not.
 
-Run `rmdir coturn/turnserver.conf` first, then fetch the example config and restart. See
-[TURN relay](/self-hosting/turn-relay).
+Remove the directory first, then fetch the example config and start coturn again:
+
+```bash Terminal
+rmdir coturn/turnserver.conf
+curl -fsSL --create-dirs -o coturn/turnserver.conf \
+  https://raw.githubusercontent.com/jannskiee/floe/main/coturn/turnserver.conf.example
+docker compose --profile turn up -d
+```
+
+Before you start it, set `static-auth-secret` and `realm` in the file to match `TURN_SECRET` and
+`TURN_DOMAIN`. See [TURN relay](/self-hosting/turn-relay).
 
 ### The server logs nothing at all {#the-server-logs-nothing-at-all}
 
@@ -1263,6 +2018,10 @@ server has no access log and no startup banner, not even a "listening on" line, 
 healthy server is usually empty. A request the server refuses leaves one short line such as
 `Refused a request with 403.`; see
 [Operations](/self-hosting/operations#the-server-logs-very-little).
+
+Two startup lines can appear. A server started with Node directly and without
+`TRUSTED_PROXY_COUNT` writes one line saying which proxy count is in use. A `MAX_*` variable that
+is not a whole number of at least 1 gets one line naming it and the default now in use.
 
 Use `GET /health`, which returns `{"status":"healthy","uptime":<seconds>,"features":[...]}`, to
 confirm the server is alive and to see whether a restart landed.
@@ -1276,8 +2035,16 @@ Open the client in a browser, or request `/api/config` from it, to confirm it is
 
 ## Still stuck {#still-stuck}
 
-Open an issue on [GitHub](https://github.com/jannskiee/floe/issues) with your browser and
-operating system, whether the connection was direct or relayed, and the exact message you saw.
+For a question or an idea rather than a bug, ask in
+[GitHub Discussions](https://github.com/jannskiee/floe/discussions). For a bug, open an issue on
+[GitHub](https://github.com/jannskiee/floe/issues) with these details:
 
-For Floe Desktop, **Settings** has a **Copy** button under About that puts the app version, the
+- The exact message you saw, and which side of the transfer showed it.
+- The app on each side, and its version: `floe version` for the CLI, and the image tag for a
+  self-hosted server.
+- Your operating system, and the browser if one was involved.
+- Whether the connection was direct or relayed. The terminal prints `Connected (direct)` or
+  `Connected (relay)`, and the badge on the web card reads Direct or Relay.
+
+In Floe Desktop, **Settings** has a **Copy** button under About that puts the app version, the
 protocol version, and the server on your clipboard. Those are the details worth including.

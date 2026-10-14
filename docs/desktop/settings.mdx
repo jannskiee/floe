@@ -7,13 +7,21 @@ keywords: ["notifications", "hide my ip", "server address", "right-click menu", 
 
 import StatsOptOut from '/snippets/stats-optout.mdx';
 
-Every setting in Floe Desktop, in the order the Settings screen lists them, followed by what
-**Reset** does and where the settings are stored.
+Every setting in Floe Desktop, in the order the Settings screen lists them, followed by what **Reset** does
+and where the settings are stored.
 
-Open Settings with the gear in the title bar, or press `Ctrl` `,`. Press `Esc` to go back.
-Switches and the save folder save as you change them. The two address fields under
-[Advanced](#advanced) save when you click out of them, when you leave Settings, and before a
-**Test**.
+**Needs:** Floe Desktop on Windows. See [Installation](/desktop/installation).
+
+## The short version {#the-short-version}
+
+Most people never change anything here. **Save received files to** picks another download folder.
+**Hide my IP address** ([Hide my IP](/glossary#hide-my-ip)) keeps your IP address from the other person, at the cost of a
+slower transfer capped at 2 GB.
+**Server address** is only for people who run their own Floe server.
+
+Open Settings with the gear in the title bar, or press `Ctrl` `,`. Press `Esc` to go back. Switches and the
+save folder save as you change them. The two address fields under [Advanced](#advanced) save when you click
+out of them, when you leave Settings, and before a **Test**.
 
 <Frame caption="Settings from the top through Privacy, in the build from GitHub. The Microsoft Store build has no Check for updates switch, and no Windows section further down.">
   <img src="/images/desktop/settings.png" style={{ width: "100%", maxWidth: "480px", borderRadius: "12px" }} alt="Floe Desktop Settings: Save received files to under Transfers; Show notifications, Play sound and an Open button for Windows notification settings under Notifications; Hide my IP address, Contribute to global stats and Check for updates under Privacy" />
@@ -24,21 +32,21 @@ Switches and the save folder save as you change them. The two address fields und
 ### Save received files to
 
 Where everything you receive with a code or a link is written. Leave it blank and Floe uses your
-**Downloads** folder, or your home folder if you do not have one. It never asks per transfer. This
-is the same setting as **Save to** on the Receive tab, and a path you type is read the way
+**Downloads** folder, or your home folder if you do not have one. It never asks per transfer. This is the same
+setting as **Save to** on the Receive tab, and a path you type is read the way
 [Receiving files](/desktop/receiving#choose-where-files-land) describes.
 
-A [request link](/desktop/request-links#make-a-link) has its own **Save to**, which defaults to
-`Downloads\Floe`.
+A [request link](/glossary#request-link) has its own **Save to**, which defaults to `Downloads\Floe`. See
+[Make a link](/desktop/request-links#make-a-link).
 
 An arriving file never replaces one you already have. See
 [Nothing is ever overwritten](/desktop/receiving#nothing-is-ever-overwritten).
 
 ## Notifications {#notifications}
 
-When something finishes or needs you and you are not looking at Floe, Floe shows a Windows
-notification. There are six, and their words are fixed: a notification never carries a file name,
-your label, or anything the sender typed.
+When something finishes or needs you and you are not looking at Floe, Floe shows a Windows notification.
+There are six, and their words are fixed: a notification never carries a file name, your label, or anything
+the sender typed.
 
 | When | Title | Text |
 |---|---|---|
@@ -47,54 +55,54 @@ your label, or anything the sender typed.
 | A send failed | Floe - send failed | The transfer didn't finish |
 | A receive failed, or an accepted request-link drop stopped | Floe - receive failed | The transfer didn't finish |
 | Someone sent a request through your [request link](/desktop/request-links#accept-or-decline) | Floe | Someone wants to send you files |
-| [Auto-accept](/desktop/request-links#auto-accept) started a drop by itself | Floe | Receiving files through your request link |
+| [Auto-accept](/glossary#auto-accept) started a drop by itself | Floe | Receiving files through your request link |
 
-A failure notification does not say why. The reason is on the card in Floe. Canceling a transfer
-yourself does not notify.
+A failure notification does not say why. The reason is on the card in Floe. Canceling a transfer yourself
+does not notify.
 
 ### Show notifications {#show-notifications}
 
 On by default.
 
-Turn it off and Floe shows no Windows notification at all. A request still reaches you another
-way. See [With notifications off](#notifications-off).
+Turn it off and Floe shows no Windows notification at all. A request still reaches you another way. See
+[With notifications off](#notifications-off).
 
-Windows keeps the last word. Do Not Disturb, Focus and the per-app switches in Windows settings
-decide whether a notification Floe sends is shown, whatever this switch says.
+Windows keeps the last word. Do Not Disturb, Focus and the per-app switches in Windows' own notification
+settings decide whether a notification Floe sends is shown, whatever this switch says. The **Open** button
+below takes you to those settings.
 
 ### Play sound {#play-sound}
 
 On by default.
 
-Turn it off and notifications still appear, but silently. The switch is dimmed while **Show
-notifications** is off, and it keeps its setting, so turning notifications back on restores it.
+Turn it off and notifications still appear, but silently. The switch is dimmed while **Show notifications** is
+off, and it keeps its setting, so turning notifications back on restores it.
 
 ### Windows notification settings {#windows-notification-settings}
 
-**Open** takes you to Notifications in Windows Settings. That is where Windows lets you choose how
-Floe's notifications appear: as a banner, in Notification Center, on the lock screen, and with what
-priority. Windows lists the Microsoft Store build there as Floe Desktop, and the other builds as Floe.
+**Open** takes you to Notifications in Windows Settings. That is where Windows lets you choose how Floe's
+notifications appear: as a banner, in Notification Center, on the lock screen, and with what priority. Windows
+lists the Microsoft Store build there as Floe Desktop, and the other builds as Floe.
 
-Windows decides where a banner appears, and Floe cannot move it. There is no setting here for a
-screen or a corner, because a program that sends standard Windows notifications cannot choose one.
-See [Known limitations](/how-it-works/known-limitations#notifications).
+Windows decides where a banner appears, and Floe cannot move it. There is no setting here for a screen or a
+corner, because a program that sends standard Windows notifications cannot choose one. See
+[Known limitations](/how-it-works/known-limitations#notifications).
 
 ### With notifications off {#notifications-off}
 
-A [request](/desktop/request-links#accept-or-decline) still gets to you without a notification.
-The taskbar button flashes, the window title reads `(1) Floe`, and, if you are on another screen
-in Floe, a notice with **Review** appears. These always stay, so turning notifications off never
-leaves a request with no sign at all. Windows can still hide the flash: its Focus feature and its
-taskbar settings both control whether a taskbar button flashes.
+A [request](/desktop/request-links#accept-or-decline) still gets to you without a notification. The taskbar
+button flashes, the window title reads `(1) Floe`, and, if you are on another screen in Floe, a notice with
+**Review** appears. These always stay, so turning notifications off never leaves a request with no sign at
+all. Windows can still hide the flash: its Focus feature and its taskbar settings both control whether a
+taskbar button flashes.
 
 A transfer that finishes or fails shows its result on the card, as it always does.
 
 ### When Floe is in front {#when-floe-is-in-front}
 
-Floe sends no notification while its own window is the one in front and you have used the PC in
-the last 60 seconds, because the request or the result is already in front of you. If Floe is in
-front but you have not touched the PC for 60 seconds, Floe treats you as away and notifies as
-usual.
+Floe sends no notification while its own window is the one in front and you have used the PC in the last 60
+seconds. The request or the result is already in front of you then. If Floe is in front but you have not
+touched the PC for 60 seconds, Floe treats you as away and notifies as usual.
 
 The flash, the `(1) Floe` title and the notice do not depend on this.
 
@@ -104,117 +112,131 @@ The flash, the `(1) Floe` title and the notice do not depend on this.
 
 Off by default.
 
-A normal Floe transfer connects the two devices directly, which is why it is fast and
-unmetered. Connecting directly means each side learns the other's IP address, in the same way
-a video call does.
+A normal Floe transfer connects the two devices directly, which is why it is fast and unmetered. Connecting
+directly means each side learns the other's [IP address](/glossary#ip-address), the number that locates your
+connection on the internet, in the same way a video call does.
 
-Turn this on and Floe stops trying for a direct path. Everything goes through the TURN relay
-instead, so the other person only ever sees the relay's address. The relay's operator still sees
-your IP address: see [What the relay can see](/security-privacy#what-the-relay-can-see). Two
-consequences follow, and both are unavoidable rather than bugs:
+Turn this on and Floe stops trying for a direct path. Everything goes through the
+[relay](/glossary#relay) instead, a server that passes your encrypted data along, so the other person
+only ever sees the relay's address. The relay's operator still sees your IP address: see
+[What the relay can see](/security-privacy#what-the-relay-can-see). Two consequences follow, and both are
+unavoidable rather than bugs:
 
 - **Transfers are slower**, because every byte takes a detour through the relay.
 - **Transfers are capped at 2 GB.** See [File size limits](/how-it-works/2gb-limit).
 
-The setting applies to your side only, and the person on the other end does not need it on.
-Their app shows the connection as **Relay**, which is exactly what it shows whenever a direct
-path is impossible, so it does not single you out. Floe reads the setting when you click **Send**
-or **Receive**, so a change applies to the next transfer.
+The setting applies to your side only, and the person on the other end does not need it on. Their app shows
+the connection as **Relay**, which is exactly what it shows whenever a direct path is impossible, so it does
+not single you out. Floe reads the setting when you click **Send** or **Receive**, so a change applies to the
+next transfer.
 
-It covers [request links](/desktop/request-links#what-each-side-can-see) too. With it on, every drop
-through your link goes through the relay and is capped at 2 GB per drop, and a request over 2 GB
-warns you before you accept. Floe reads the setting when a sender connects, so a change applies to
-the next sender.
+It covers [request links](/desktop/request-links#what-each-side-can-see) too. With it on, every drop through
+your link goes through the relay and is capped at 2 GB per drop, and a request over 2 GB warns you before you
+accept. Floe reads the setting when a sender connects, so a change applies to the next sender.
 
-This is not the web app's **Network relay fallback** checkbox, despite the similar subject. That
-one lets you turn the relay **off**. This one makes the relay the **only** path. The desktop app
-has no direct-only mode, and the web app's send page has no relay-only mode. The browser page a
-[request link](/web-app/request-links) opens does have one, a checkbox labeled
-**Hide my IP (relay only, 2 GB per drop)**. On the command line the same switch is `--relay-only`
-on `floe send` or `floe receive`, and `FLOE_RELAY_ONLY=1` keeps it on. See the
-[CLI flags reference](/cli/flags).
+This is not the web app's [Network relay fallback](/glossary#network-relay-fallback) checkbox, which lets you
+turn the relay **off**. This one makes the relay the **only** path, and Floe Desktop has no direct-only mode.
+The browser page a [request link](/web-app/request-links) opens has a relay-only check of its own, labeled
+**Hide my IP (relay only, 2 GB per drop)**. On the command line the same switch is `--relay-only` on
+`floe send` or `floe receive`, and `FLOE_RELAY_ONLY=1` keeps it on. See the [CLI flags reference](/cli/flags).
 
 <Warning>
-  Hide my IP address needs a relay to exist. Floe's own server offers one. If you point
-  the app at [your own server](#server) that has no TURN relay configured, a relay-only
-  connection has nowhere to go. Floe checks before it starts: the transfer stops immediately with
-  `Error: Hide my IP needs a relay this server doesn't have`, rather than timing out after about
-  30 seconds with a generic connection error, and **Test** reports the same thing about an address
-  before you rely on it. Turn **Hide my IP address** off, or add a relay to your instance. See
-  [TURN relay](/self-hosting/turn-relay). The CLI's `--relay-only` is checked the same way and
-  names the flag instead.
+  Hide my IP address needs a relay to exist. Floe's own server offers one. If you point the app at
+  [your own server](#server) that has no relay, a relay-only connection has nowhere to go. Floe checks before
+  it starts and stops at once with `Error: Hide my IP needs a relay this server doesn't have`, rather than
+  timing out after about 30 seconds with a generic connection error. **Test** reports the same thing about an
+  address before you rely on it. Turn **Hide my IP address** off, or add a relay to your instance: see
+  [TURN relay](/self-hosting/turn-relay).
 </Warning>
 
 When Floe could not read the server's relay list at all, the line is
 `Error: Couldn't read this server's relay details for Hide my IP` instead. See
-[Troubleshooting](/troubleshooting#relay-details-unreadable).
+[Troubleshooting](/troubleshooting#relay-details-unreadable). The [CLI](/glossary#cli)'s `--relay-only` is
+checked the same way and names the flag instead.
 
 ### Contribute to global stats
 
 On by default.
 
-Floe's homepage shows a public, all-time total of bytes transferred by everyone. When a
-transfer finishes, the **receiving** side reports the byte count and nothing else. No file
-names, no contents, no record of who sent what, and no link to you.
+Floe's homepage shows a public, all-time total of bytes transferred by everyone. When a transfer finishes, the
+**receiving** side reports the byte count and nothing else. No file names, no contents, no record of who sent
+what, and no link to you.
 
 <StatsOptOut />
 
-In Floe Desktop the switch is the only control: there is no environment variable for it, and
-`FLOE_NO_STATS` is read by the CLI alone. See
-[Security and privacy](/security-privacy#aggregate-statistics) for how the counter is kept.
+In Floe Desktop the switch is the only control: there is no environment variable for it, and `FLOE_NO_STATS`
+is read by the CLI alone. See [Security and privacy](/security-privacy#aggregate-statistics) for how the
+counter is kept.
 
-The report follows whichever server the app is set to, so pointing Floe at your own instance
-sends your byte counts to that server's counter rather than to floe.one.
+The report follows whichever server the app is set to, so pointing Floe at your own instance sends your byte
+counts to that server's counter rather than to floe.one.
 
-A [request link](/desktop/request-links) drop that stops after it was accepted reports too, once, with
-the bytes of the files it saved, and only with this switch on.
+A [request link](/desktop/request-links) drop that stops after it was accepted reports too, once, with the
+bytes of the files it saved, and only with this switch on.
 
 ### Check for updates
 
 On by default, in the build from GitHub.
 
-When it starts, and at most once a day, the app asks GitHub whether a newer desktop release
-exists, and shows a small dismissible notice when one does. The request carries nothing about you
-beyond what any web request reveals (your IP address and a user agent); nothing about your files
-or transfers is in it. Nothing downloads or installs by itself. See
-[Update](/desktop/installation#update).
+When it starts, and at most once a day, the app asks GitHub whether a newer desktop release exists. The
+request carries nothing about you beyond what any web request reveals (your IP address and a user agent);
+nothing about your files or transfers is in it. Nothing downloads or installs by itself.
 
-Turn it off and no request is made at all. Setting `FLOE_NO_UPDATE_CHECK=1` in your environment
-does the same, matching the CLI's [update check](/cli/version#the-update-check).
+When there is a newer release, a notice appears at the top right of the window: **Update available**, the
+version, a **Get update** button and an `X`. **Get update** opens [floe.one/download](https://www.floe.one/download)
+in your browser. The notice hides while a transfer or a drop runs, and while a dialog is open. Closing it lasts
+until Floe restarts: it comes back on every launch while the app is behind. The
+[Update row in About](#app-version) stays either way.
 
-The Microsoft Store build never checks and does not show this switch: the Store updates the app
-itself. Builds you compile yourself never check either.
+A check that fails says nothing. Offline, GitHub's limit on requests or a proxy all mean no notice, and the
+next launch tries again. Each check waits at most 10 seconds. So no notice does not prove you are up to date:
+the [download page](https://www.floe.one/download) always names the latest release.
+
+Turn it off and no request is made at all. Setting `FLOE_NO_UPDATE_CHECK=1` in your environment does the same,
+matching the CLI's [update check](/cli/version#the-update-check).
+
+The Microsoft Store build never checks and does not show this switch: the Store updates the app itself.
+Builds you compile yourself never check either. See [Update](/desktop/installation#update).
 
 ## Windows
 
-This section is only shown in the build from GitHub. The Microsoft Store build hides it,
-because a packaged app cannot register the entry in a way File Explorer would read. See
+This section is only shown in the build from GitHub. The Microsoft Store build hides it, because a packaged
+app cannot register the entry in a way File Explorer would read. See
 [Installation](/desktop/installation#choose-a-channel).
 
 ### Show in right-click menu
 
-On by default. Floe registers the entry the first time it runs, and remembers if you switch it
-off, so it does not come back on its own.
+On by default in the installer build: Floe registers the entry the first time it runs, and remembers if you
+switch it off, so it does not come back on its own. Off by default in the portable build, which adds nothing
+to File Explorer until you turn this on.
 
-It adds **Send with Floe** to the File Explorer right-click menu. On Windows 11 it sits under
-**Show more options**.
+It adds **Send with Floe** to the File Explorer right-click menu. On Windows 11 it sits under **Show more
+options**.
 
-The entry is written to your own user's part of the registry. It needs no administrator
-approval, changes nothing for anyone else using the machine, and turning it off removes it again.
+The entry is written to your own user's part of the registry. It needs no administrator approval, changes
+nothing for anyone else using the machine, and turning it off removes it again.
 
-Two details worth knowing:
+Details worth knowing:
 
 - The entry applies to **files**, not folders. To send a folder, use **Folder** in the app.
-- It stores the path to the Floe that registered it. If you move the app, Floe repairs the
-  entry the next time it starts. Uninstalling the installer build removes the entry outright.
-  After a reinstall Floe registers it again by itself only if you had never flipped this switch,
-  so check that it is still on. The portable build has no uninstaller: turn the switch off
-  before you delete it, or the entry stays behind.
+- It stores the path to the Floe that registered it. An entry another copy of Floe registered is left alone
+  while that copy exists, and this switch reads off until you turn it on here.
+- If the program an entry runs is gone, for example a portable copy you moved or deleted, the next Floe to
+  start takes the entry over when it would add one. That is when you left this switch on, or when it is the
+  installer build and you never switched it off. Otherwise it removes the entry, so a **Send with Floe** that
+  cannot start does not stay behind.
+- Uninstalling the installer build removes the entry, whichever copy it belongs to. After a reinstall Floe
+  registers it again unless you had switched it off.
+- The portable build has no uninstaller: turn the switch off before you delete it.
 
-If the switch flips back by itself, the registry write was refused, which usually means a
-managed or locked-down machine.
+If the switch flips back by itself, the registry write was refused, which usually means a managed or
+locked-down machine.
 
 ## Advanced
+
+The Advanced section holds one row, **Server**, closed until you open it. The line under it says which server
+Floe uses, for example "Uses Floe's server unless you set your own". It opens by itself while either address
+below is set, and a collapse you make lasts until you leave Settings.
 
 <Frame caption="Advanced, with Server expanded">
   <img src="/images/desktop/settings-server.png" style={{ width: "100%", maxWidth: "480px", borderRadius: "12px" }} alt="The expanded Server section showing the Server address field, a Test button, and the Share link address field" />
@@ -222,58 +244,64 @@ managed or locked-down machine.
 
 ### Server
 
-Floe uses `api.floe.one` unless you tell it otherwise. That server introduces the two devices
-and hands out relay credentials. It never receives your files.
+Floe uses `api.floe.one` unless you tell it otherwise. That server, Floe's
+[signaling server](/glossary#signaling-server), introduces the two devices, which meet in a
+[room](/glossary#room) on it, and hands out relay credentials. It never receives your files.
 
-To use your own instance, put its address in **Server address**. Leave the field blank to go
-back to Floe's server, or use the **Use default server** button that appears once a custom
-address is set.
+To use your own instance, put its address in **Server address**. Spaces around it and slashes at its end are
+removed when it is saved, and saving does not check the address: **Test** does. A new address applies to the next
+transfer. A transfer already running keeps the server it started with.
+
+To go back to Floe's server, empty the field, or click **Use default server**, which appears once a server
+address is set. Its line reads "Removes both addresses and goes back to api.floe.one": it empties the share
+link address too, and saves at once.
 
 <Info>
-  Both people must be on the same server. Servers do not talk to each other, so once you point
-  Floe at your own instance you can no longer transfer with someone on floe.one, and they cannot
-  reach you.
+  Both people must be on the same server. Servers do not talk to each other, so once you point Floe at your
+  own instance you can no longer transfer with someone on floe.one, and they cannot reach you.
 </Info>
 
-While a server address is set, Floe reminds you of that where it matters: the error line of a
-failed send or receive ends with the server's host, as in
+While a server address is set, the **Server** row's line reads, for example, "Uses files.example.com, so
+people on floe.one can't reach you". The error line of a failed send or receive ends with the server's host, as in
 `· Both people must use files.example.com`.
 
-Being on the same server is not enough on its own to reach you: whoever wants to receive still
-needs the room code or link, which only exists while you are sharing.
+Being on the same server is not enough on its own to reach you: whoever wants to receive still needs the
+[room code](/glossary#room-code) or link, which only exists while you are sharing.
 
-Click **Test** to check an address before relying on it. Test saves the address first, so it is
-kept even when the check fails. The check runs three stages, because each one catches a failure
-the others cannot:
+#### Test the address {#test-the-address}
+
+Click **Test** to check the **Server address** before relying on it. It never checks the share link address.
+The button reads **Testing** while the check runs. Test saves the address first, so it is kept even when the
+check fails. The check runs three stages, because each one catches a failure the others cannot:
 
 | Stage | What it proves |
 |---|---|
 | `/health` | Something is there, and it is a Floe signaling server. |
-| `/ws` | The realtime connection gets through, which is what a transfer actually uses. |
+| `/ws` | The realtime connection gets through (a [WebSocket](/glossary#websocket)), which is what a transfer actually uses. |
 | `/api/` | Requests under `/api/` get through, which room codes need too, and the server returns a usable connection list. The result also says whether that list includes a relay. |
 
-The third stage matters more than it looks. A reverse proxy that forwards the first two but
-drops `/api/` produces no visible error at all: relay credentials silently fall back to public
-STUN, and the room code quietly fails to register, so you get a share link with no code and no
-explanation.
+The third stage matters more than it looks. A [reverse proxy](/glossary#reverse-proxy) can forward the first
+two and drop `/api/`, and that produces no visible error at all:
 
-While the check runs, the line under Advanced reads `Checking the server...`. The two HTTP stages
-get 6 seconds each, and the realtime stage is bounded by the WebSocket handshake timeout instead,
-which is longer. A server that answers `/health` and then leaves the `/ws` connection hanging,
-rather than refusing it, can take the better part of a minute to come back. That is slow, not stuck.
+- relay credentials silently fall back to public [STUN](/glossary#stun)
+- the room code quietly fails to register, so you get a [share link](/glossary#share-link) with no code and no
+  explanation
 
-A pass also reports whether the server offers a **relay**. A server without one still passes,
-because it works for any transfer that finds a direct path, and the message names the
-limitation rather than reading as a failure. [Hide my IP address](#hide-my-ip-address) cannot work
-at all without a relay, and ordinary transfers fall back to one whenever the two devices cannot
-reach each other directly.
+While the check runs, the line under Advanced reads `Checking the server...`. The two HTTP stages get 6
+seconds each. The realtime stage can take up to 45 seconds when a server answers `/health` and then leaves the
+`/ws` connection hanging. That is slow, not stuck.
+
+A pass also reports whether the server offers a **relay**. A server without one still passes, because it
+works for any transfer that finds a direct path, and the message names the limitation rather than reading as
+a failure. [Hide my IP address](#hide-my-ip-address) cannot work at all without a relay, and ordinary
+transfers fall back to one whenever the two devices cannot reach each other directly.
 
 The two passes carry no prefix. Every failure starts with `Error: `.
 
 | Message | What it means | What to do |
 |---|---|---|
-| `Connected` | All three stages passed, and the server offers a TURN relay. | Nothing. The server is ready. |
-| `Connected, but there's no relay for Hide my IP` | All three stages passed, but the server offers no relay. [Hide my IP address](#hide-my-ip-address) cannot work, and other transfers succeed only where a direct path exists. | Add a relay to the server. See [TURN relay](/self-hosting/turn-relay). |
+| `Connected` | All three stages passed, and the server offers a [TURN](/glossary#turn) relay. | Nothing. The server is ready. |
+| `Connected, but this server has no relay: Hide my IP will not work, and some networks will not connect` | All three stages passed, but the server offers no relay. [Hide my IP address](#hide-my-ip-address) cannot work, and other transfers succeed only where a direct path exists. | Add a relay to the server. See [TURN relay](/self-hosting/turn-relay). |
 | `Error: Enter a server address` | The field is empty. Test does not check Floe's own server. | Type the address you want to check. |
 | `Error: Include https:// and the host name` | The scheme or the host is missing. | Write the address in full, for example `https://floe.example.com`. |
 | `Error: Start the address with https:// or http://` | The address uses some other scheme, such as `ftp://`. | Change the scheme. |
@@ -283,58 +311,81 @@ The two passes carry no prefix. Every failure starts with `Error: `.
 | `Error: Couldn't verify the server's certificate` | A TLS problem, often a self-signed certificate. | Give the server a certificate this PC trusts. |
 | `Error: That address answered HTTP 404 (likely the web app, not the server)` | Something answered, but not with a health check. The number is the status it sent. Usually it is the web app's address rather than the signaling server's. | Enter the signaling server's address. See [Troubleshooting](/troubleshooting#the-test-button-says-it-may-be-the-web-app-rather-than-the-signaling-server). |
 | `Error: That address isn't a Floe server` | Something else answered on that address. | Check the address and the port. |
-| `Error: The server refused the realtime connection (check that your proxy forwards /ws)` | Stage 2 failed. The usual cause is a proxy that does not forward `/ws`. A proxy that rewrites the `Host` header gives the same result when the address is not your `CLIENT_URL`, because the server's origin check then fails. | Make your proxy forward `/ws` and pass the original `Host` header. See [Troubleshooting](/troubleshooting#the-test-button-says-the-realtime-connection-was-refused). |
-| `Error: The API answered HTTP 404 (check that your proxy forwards /api/)` | Stage 3 answered with an error status. The number is the status it sent. | Make your proxy forward `/api/`. A `429` is the server's own rate limit instead: wait a minute and test again. See [Troubleshooting](/troubleshooting#the-test-button-says-the-api-answered-with-an-http-error). |
+| `Error: The server refused the realtime connection (check that your proxy forwards /ws)` | Stage 2 was answered `404`: a proxy that does not forward `/ws`. | Make your proxy forward `/ws`. See [Troubleshooting](/troubleshooting#the-test-button-says-the-realtime-connection-was-refused). |
+| `Error: The server refused the realtime connection (check that your proxy passes the original Host header)` | Stage 2 was answered `403` by the server's origin check. A proxy that rewrites the `Host` header fails it when the address is not your `CLIENT_URL`. | Make your proxy pass the original `Host` header. See [Troubleshooting](/troubleshooting#the-test-button-says-the-realtime-connection-was-refused). |
+| `Error: The server refused the realtime connection (check that your proxy forwards /ws and passes the original Host header)` | Stage 2 failed some other way, such as a `502` from a proxy with nothing behind it, or no answer at all. | Check both, and that the server is running. |
+| `Error: The API answered HTTP 404 (check that your proxy forwards /api/)` | Stage 3 answered with an error status. The number is the status it sent. | Make your proxy forward `/api/`. See [Troubleshooting](/troubleshooting#the-test-button-says-the-api-answered-with-an-http-error). |
+| `Error: The server is limiting requests from this network. Wait a minute and test again` | Stage 3 was answered `429`, the server's own [rate limit](/glossary#rate-limit): 20 requests a minute from one network on this endpoint by default. Each **Test** spends one. | Wait a minute, then click **Test** again. |
 | `Error: The server didn't return usable connection details` | Stage 3 answered, but not with a list Floe can connect with. | Check that `/api/` reaches the signaling server and not a web page. |
 
-See [Run behind one domain](/self-hosting/reverse-proxy) for a proxy configuration that
-forwards all three.
+Floe Desktop 0.3.0 words three of these differently. It shows the `/ws` line for every refused realtime
+connection, and the `/api/` line with `429` for the server's rate limit. For a server without a relay it says
+"Connected, but there's no relay for Hide my IP".
+
+See [Run behind one domain](/self-hosting/reverse-proxy) for a proxy configuration that forwards all three.
 
 ### Share link address
 
 Leave this blank unless your web app is on a different address from your signaling server.
 
-The recommended way to self-host is one address serving both, in which case Floe works out the
-share link from the server address and this field stays empty. Only a split setup, where the
-API is on `api.example.com` and the web app on `app.example.com`, needs it. Without it the
-share link would point at the API, which serves no web app, and the link would be dead.
+The recommended way to [self-host](/glossary#self-hosted) is one address serving both, in which case Floe
+works out the share link from the server address and this field stays empty. While it is empty, the field
+shows that worked-out address in gray. Only a split setup, where the API is on `api.example.com` and the web
+app on `app.example.com`, needs it. Without it the share link would point at the API, which serves no web
+app, and the link would be dead.
 
-[Request links](/desktop/request-links) are built on the same address. A link that is already
-open keeps the address it was made with.
+**Test** does not check this address, and saving does not either, so a wrong one gives share links that lead
+nowhere with nothing to flag it. Open one of your share links in a browser to check it.
 
-This mirrors the CLI's `--web` flag. See
-[Use a self-hosted server](/cli/self-hosted-server).
+[Request links](/desktop/request-links) are built on the same address. A link that is already open keeps the
+address it was made with.
+
+This mirrors the CLI's `--web` flag. See [Use a self-hosted server](/cli/self-hosted-server).
 
 ## About
 
 ### App version
 
-The release you are running, for example `desktop-v0.3.0`. A build you compiled yourself reads
-`dev`.
+The release you are running, for example `desktop-v0.3.0`. A build you compiled yourself reads `dev`. The
+Microsoft Store build carries a different number in Windows' own lists: see
+[Check the version](/desktop/installation#check-the-version).
 
-When the [update check](#check-for-updates) has found a newer release, an **Update** row appears
-under it, reading for example `0.3.1 available`, with a **Get update** button that opens the
-[download page](https://www.floe.one/download). The row stays as long as the app is behind, even
-after the notice popup is dismissed, and disappears once you are up to date.
+When the [update check](#check-for-updates) has found a newer release, an **Update** row appears under it,
+reading for example `0.3.1 available`, with a **Get update** button that opens the
+[download page](https://www.floe.one/download). The row stays as long as the app is behind, even after the
+notice is dismissed, and disappears once you are up to date.
 
 ### Transfer protocol
 
-The version of the wire format the app speaks. Today the row reads `Version 1`.
+The version of the wire format the app speaks. Today the row reads `Version 1`. Point at the label and it
+reads "If a transfer won't start, update the older app".
 
-You do not need to match versions with the person on the other end. Compatibility is a range
-check, not an exact match, so different releases transfer normally. If a future release ever
-does change the format in a way the two sides cannot bridge, they detect it **before any file
-data moves** and say which side should update, rather than failing halfway or writing a corrupt
-file.
+You do not need to match versions with the person on the other end. Compatibility is a range check, not an
+exact match, so different releases transfer normally. If a future release ever does change the format in a
+way the two sides cannot bridge, they detect it **before any file data moves**. The older side's message
+includes "Cannot transfer: your floe is too old for this peer." and, in Floe Desktop, says to update Floe from
+the Microsoft Store or floe.one/download. The newer side's includes "Cannot transfer: peer's floe is too old."
+and asks the other side to update (the [peer](/glossary#peer) is the app on the other end).
 
 ### Server in use
 
-Which signaling server the app is using. On screen the row is labeled simply **Server**, and it
-is always visible even with Advanced collapsed, so a custom server can never hide behind a closed
-section. A **Share links** row joins it if you set a separate share link address.
+Which signaling server the app is using. On screen the row is labeled simply **Server** and shows the host.
+It is always visible even with Advanced collapsed, so a custom server can never hide behind a closed section.
+A **Share links** row joins it if you set a separate share link address.
 
-**Copy** puts the version, the protocol version, and the server on the clipboard. Those are the
-details to include in a bug report.
+**Copy**, beside "Include these in a bug report", puts these lines on the clipboard and reads **Copied** for
+1.5 seconds:
+
+```text Clipboard
+Floe desktop
+App version: desktop-v0.3.0
+Transfer protocol: 1
+Server: api.floe.one (default)
+```
+
+With your own server, the `Server:` line has its full address, and a `Share links:` line follows when that
+address is set. Those are the details to include in a bug report. They name your server, so check them before
+you post them in public.
 
 ## Reset
 
@@ -350,24 +401,28 @@ details to include in a bug report.
 | **Check for updates** | On |
 | **Server address** and **Share link address** | Blank, which means Floe's own server |
 
-It asks first, in a dialog titled **Reset all settings?**, and names what you would notice: a
-save folder you had set, and global stats turning back on if you had turned it off.
+It asks first, in a dialog titled **Reset all settings?** that reads "Save folder, notifications, privacy and
+server settings go back to defaults". It names what you would notice. A save folder you had set gets
+"Received files go to Downloads again, not" and the folder. Stats you had turned off get "Contribute to
+global stats turns back on". Its last line reads "History, received files and the right-click menu stay as they are". The
+buttons are **Cancel** and **Reset all settings**.
+
+A reset that worked shows no message: the switches change and the dialog closes. If Floe cannot save the
+settings, the dialog shows `Error: could not save settings.` followed by the reason.
 
 It deliberately leaves alone:
 
 - **Your transfer history**, and the files you have already received.
-- **The File Explorer right-click entry**, because that lives in Windows rather than in Floe.
-  Reset would have to either leave it dangling or silently rewrite the registry, and neither is
-  something a Reset button should do. Turn it off in [Windows](#show-in-right-click-menu)
-  instead.
+- **The File Explorer right-click entry**, because that lives in Windows rather than in Floe. Reset would have
+  to either leave it dangling or silently rewrite the registry, and neither is something a Reset button
+  should do. Turn it off in [Windows](#show-in-right-click-menu) instead.
 - **The request link's own Save to folder**, and which tab Floe opens on.
 
 ## Where settings are stored
 
-Settings live in a plain JSON file at `%APPDATA%\floe\desktop.json`. Floe writes it on the first
-launch, before you have touched anything, because that is when it imports the older privacy
-switches and stamps `migrated`. It is rewritten every time the Settings screen closes, changed or
-not. A fresh install looks like this:
+Settings live in a plain JSON file at `%APPDATA%\floe\desktop.json`. To open that folder, paste
+`%APPDATA%\floe` into File Explorer's address bar. Floe creates the file the first time it runs, and rewrites
+it every time the Settings screen closes, changed or not. A fresh install looks like this:
 
 ```json desktop.json
 {
@@ -382,23 +437,31 @@ not. A fresh install looks like this:
 }
 ```
 
-Empty address fields mean "use Floe's defaults", so a fresh install and a cleared field behave
-identically. Three keys are stored the other way around: `noUpdateCheck`, `noToasts` and
-`silentToasts` are **Check for updates**, **Show notifications** and **Play sound** turned off, so
-`false` is the default for all three. The file is written atomically, so an interrupted write
-cannot corrupt it.
+Empty address fields mean "use Floe's defaults", so a fresh install and a cleared field behave identically.
+Three keys are stored the other way around: `noUpdateCheck`, `noToasts` and `silentToasts` are **Check for
+updates**, **Show notifications** and **Play sound** turned off, so `false` is the default for all three. Floe
+replaces the file in one step, so a crash in the middle of a save cannot damage it. While a save runs, a
+`desktop.json.tmp` sits beside it for a moment.
 
-Edit it only while Floe is closed. The app rewrites the whole record whenever any setting
-changes, so an edit made while it is running is overwritten. Leave `migrated` set to `true`:
-without it Floe treats the older privacy switches as never having been set and re-imports them
-from its older storage, discarding what you wrote for `hideIP` and `reportStats`.
+If you edit it by hand:
 
-Both the Microsoft Store build and the GitHub build use this same file, and the `floe` CLI keeps
-its own files in that same `floe` folder, so the two coexist. The file survives an uninstall on
+- Edit it only while Floe is closed. The app rewrites the whole record whenever any setting changes, so an
+  edit made while it is running is overwritten.
+- Leave `migrated` set to `true`. Without it Floe treats the privacy switches as never set, imports them again
+  from its older storage, and discards what you wrote for `hideIP` and `reportStats`.
+- A key Floe does not know, such as a misspelled one, is dropped at the next save.
+- If the file cannot be read (a stray comma, a missing quote), Floe starts with its defaults. It first keeps
+  the unreadable file beside it as `desktop.json.bad`, so you can copy your settings back out of it. Check
+  **Hide my IP address** and **Server address** afterward.
+- If Floe cannot save the file, the line under Advanced reads `Error: could not save settings.` followed by
+  the reason.
+
+The installer build and the portable build from GitHub use this file, and the `floe` CLI keeps its own files in
+that same `floe` folder, so the two coexist. The installer leaves the file behind when you uninstall, on
 purpose, so reinstalling picks up where you left off.
 
-Your save folders and transfer history are not in this file. They live in the interface's own
-storage under `%APPDATA%\floe\webview`, under these keys:
+History and your save folders are not in this file. They are kept in a second folder,
+`%APPDATA%\floe\webview`, the storage of the window Floe draws its screens in, under these keys:
 
 | Key | What it holds |
 |---|---|
@@ -409,6 +472,5 @@ storage under `%APPDATA%\floe\webview`, under these keys:
 | `floe:ctx-menu` | Your own choice for **Show in right-click menu**, once you have flipped it. |
 | `floe:requestLinkOpenUntil` | While a request link is open, its end time and never the link, so the next launch can open on **Request link**. |
 
-That folder survives an uninstall too, which is why a reinstall still knows where you save files
-and what you have already sent. The request link itself is never stored anywhere: it lives in
-memory and on screen only.
+The installer leaves that folder too, which is why a reinstall still knows where you save files and what you
+have already sent. The request link itself is never stored anywhere: it lives in memory and on screen only.

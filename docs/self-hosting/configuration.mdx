@@ -5,17 +5,30 @@ description: "Environment variable reference for a self-hosted Floe instance, co
 keywords: ["environment variables", "CLIENT_URL", "POLICY_FILE", "TRUSTED_PROXY_COUNT", "settings", "env file"]
 ---
 
-Every environment variable you can set on a self-hosted Floe instance, with its default, and the per-address rate limits the signaling server applies.
+Every environment variable you can set on a [self-hosted](/glossary#self-hosted) Floe instance, with its default, and the per-address rate limits the [signaling server](/glossary#signaling-server) applies.
 
-Under Docker Compose, set these in an optional `.env` file next to `docker-compose.yml`, then run `docker compose up -d` to apply the change. Each one has a working default, so you only need the file to change something. The annotated template is `.env.docker.example`. A few of them behave differently outside Compose, and the entries that do say so.
+Under [Docker Compose](/glossary#docker-compose), set these in an optional `.env` file next to `docker-compose.yml`, then run `docker compose up -d` to apply the change. Each one has a working default, so you only need the file to change something. The annotated template is `.env.docker.example`. A few of them behave differently outside Compose, and the entries that do say so.
+
+## The short version {#the-short-version}
+
+Set `CLIENT_URL` to the address people open your web app at, and `NEXT_PUBLIC_SOCKET_URL` to the
+address their browsers reach the signaling server at (empty behind one domain). Behind a reverse
+proxy, set `TRUSTED_PROXY_COUNT` to the number of proxies in front of the server. Everything else
+is optional and has a working default.
 
 ## Variables
 
-Only `CLIENT_URL` is required, and only in production. Every other variable is optional. Each name links to its entry under [Variable reference](#variable-reference).
+`CLIENT_URL` is the one you must set, as soon as anyone opens the web app at an address other than
+`http://localhost:3000` (or the port you set in `CLIENT_PORT`). Every other variable is optional.
+Each name links to its entry under [Variable reference](#variable-reference).
+
+The Service column says who reads each one. `server` and `client (runtime)` take effect when the
+container is recreated with `docker compose up -d`. `client (build)` takes effect only when you
+build the client yourself. `compose` is read by Docker Compose itself.
 
 | Variable | Service | Default |
 |----------|---------|---------|
-| [`NEXT_PUBLIC_SOCKET_URL`](#next-public-socket-url) | client (runtime) | `http://localhost:3001` |
+| [`NEXT_PUBLIC_SOCKET_URL`](#next-public-socket-url) | client (runtime) | `http://localhost:3001`, or the port in `PORT` |
 | [`FLOE_IMAGE_TAG`](#floe-image-tag) | compose | `latest` |
 | [`NEXT_PUBLIC_SITE_URL`](#next-public-site-url) | client (build) | _(none)_ |
 | [`SOURCE_COMMIT`](#source-commit) | client (runtime) | _(none)_ |
@@ -35,21 +48,45 @@ Only `CLIENT_URL` is required, and only in production. Every other variable is o
 | [`CLOUDFLARE_TURN_KEY_API_TOKEN`](#cloudflare-turn-key-api-token) | server | _(none)_ |
 | [`TURN_SECRET`](#turn-secret) | server | _(none)_ |
 | [`TURN_DOMAIN`](#turn-domain) | server | _(none)_ |
+| [`TURN_TLS`](#turn-tls) | server | _(none)_ |
 | [`UPSTASH_REDIS_REST_URL`](#upstash-redis-rest-url) | server | _(none)_ |
 | [`UPSTASH_REDIS_REST_TOKEN`](#upstash-redis-rest-token) | server | _(none)_ |
 | [`MAX_REPORT_BYTES`](#max-report-bytes) | server | `5497558138880` (5 TiB) |
 
-The client also reads `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT`, and `NEXT_PUBLIC_UMAMI_WEBSITE_ID`, for error reporting and analytics. The published image is built with none of them set and Compose passes none, so a self-hosted instance sends no error reports and loads no analytics script unless you add your own. See [Security and privacy](/security-privacy#error-monitoring-and-analytics).
+The client also reads `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT`, and
+`NEXT_PUBLIC_UMAMI_WEBSITE_ID`, for error reporting and analytics. The published image is built
+with none of them set and Compose passes none, so a self-hosted instance sends no error reports and
+loads no analytics script. You cannot add them through `.env`. `NEXT_PUBLIC_SENTRY_DSN` and
+`NEXT_PUBLIC_UMAMI_WEBSITE_ID` are written into the client when it is built, and neither the
+published image nor the build overlay takes them. The way to add them is a client you build with
+Node from the repository, with both in `client/.env.local` before `pnpm build` (see
+[Run without Docker](/self-hosting/without-docker)).
+Only `SENTRY_DSN` is read while the client runs, and only for errors on the client's own server
+side. See [Security and privacy](/security-privacy#error-monitoring-and-analytics).
 
 ### What to know about the limits {#two-things-about-the-limits}
 
-**The five per-address rate limits each count over the last 60 seconds.** They are connections, TURN requests, code requests, failed code lookups, and stats reports. A request that a limit refuses is not counted toward that limit, so a client that keeps retrying is let back in as its earlier requests age out. An address is an IPv4 address in full or an IPv6 `/64`, so everyone inside one `/64` shares each limit, and an IPv4 client that a dual-stack listener reports as `::ffff:203.0.113.5` counts as plain `203.0.113.5`. A port the proxy writes after the address, as in `203.0.113.5:4711`, is dropped first. The counts live in the server's memory, so a restart clears them.
+**Each per-address [rate limit](/glossary#rate-limit) counts one network address over the last 60
+seconds, and a restart clears every count.** There are five: connections, [TURN](/glossary#turn)
+requests, code requests, failed code lookups, and stats reports. A request that a limit refuses is
+not counted toward that limit, so a client that keeps retrying is let back in as its earlier
+requests age out.
 
-**Setting a `MAX_*` variable to `0` does not disable that limit.** Zero is falsy, so the server
-falls back to the built-in default and the limit stays exactly where it was. A value that is not a
-number does the same, and a negative number is taken literally and refuses everything the limit
-guards. To raise a limit, set a bigger number. `TRUSTED_PROXY_COUNT` is the exception and genuinely
-accepts `0`, which is what you want when the server is exposed directly with no proxy in front of it.
+What counts as one address: an IPv4 address in full, or an IPv6 `/64`, so everyone inside one
+`/64` shares each limit. An IPv4 client that a dual-stack listener reports as `::ffff:203.0.113.5`
+counts as plain `203.0.113.5`. A port the proxy writes after the address, as in
+`203.0.113.5:4711`, is dropped first.
+
+**A `MAX_*` variable takes a whole number of at least 1.** Given anything else, such as `0`, a negative
+number, a fraction, a word, or a spelling such as `1e3`, the server keeps the built-in default. It
+logs one line that names the variable, for example
+`MAX_CONNECTIONS_PER_IP is not a whole number of at least 1. Using the default, 30.` So neither `0`
+nor `-1` disables a limit. An empty value means the default and logs nothing. To raise a limit, set
+a bigger number. A server image of version 1.11.0 or earlier logs nothing for such a value, and
+takes a negative number literally, which refuses everything that limit guards.
+
+`TRUSTED_PROXY_COUNT` is not one of them and genuinely accepts `0`, which is what you want when the
+server is exposed directly with no proxy in front of it.
 
 **The stats-report limiter has no environment variable.** It is fixed at 60 reports per address per
 60 seconds, and a report over it gets `429`.
@@ -61,11 +98,19 @@ accepts `0`, which is what you want when the server is exposed directly with no 
 
 ### `NEXT_PUBLIC_SOCKET_URL` {#next-public-socket-url}
 
-URL the **browser** uses to reach the signaling server. Read at runtime, so changing it needs only `docker compose up -d`, no rebuild. Set it **empty** when both services share one origin behind a [reverse proxy](/self-hosting/reverse-proxy); the browser then uses its own. Empty means the line `NEXT_PUBLIC_SOCKET_URL=` with nothing after it: remove the line and the default comes back. Docker Compose passes this into the client container as `SOCKET_URL`, which is the name the container itself reads, so outside Compose set `SOCKET_URL` directly. `SOCKET_URL` has no default of its own: unset, the browser uses the page's origin. See [How the client finds the server](/self-hosting/build-time-url).
+URL the **browser** uses to reach the signaling server. Read at runtime, so changing it needs only `docker compose up -d`, no rebuild. Set it **empty** when both services share one origin behind a [reverse proxy](/glossary#reverse-proxy); the browser then uses its own. Empty means the line `NEXT_PUBLIC_SOCKET_URL=` with nothing after it: remove the line and the default comes back. The client container itself reads the name `SOCKET_URL`, which has no default of its own: unset, the browser uses the page's origin. Which name you set depends on how you run the client:
+
+| Where the client runs | The name to set |
+|---|---|
+| Docker Compose | `NEXT_PUBLIC_SOCKET_URL` in `.env`. Compose passes it to the container as `SOCKET_URL`. |
+| Unraid | The Floe-Client template's **Signaling Server URL** field, which is `SOCKET_URL`. |
+| `docker run`, or a client built with Node and no `NEXT_PUBLIC_SOCKET_URL` | `SOCKET_URL` in the environment of the running client. |
+
+See [How the client finds the server](/self-hosting/build-time-url).
 
 ### `FLOE_IMAGE_TAG` {#floe-image-tag}
 
-Which published image tag both containers run, for example `1.11.0`, `1.11`, `main`, or `sha-fed7ebb`. See [Container images](/self-hosting/images). Not to be confused with `FLOE_VERSION`, which belongs to the CLI installer and carries a leading `v`.
+Which published image tag both containers run, for example `1.11.0`, `1.11`, `main`, or `sha-` followed by the first 7 characters of a commit. See [Container images](/self-hosting/images). Not to be confused with `FLOE_VERSION`, which belongs to the [CLI](/glossary#cli) installer and carries a leading `v`.
 
 ### `NEXT_PUBLIC_SITE_URL` {#next-public-site-url}
 
@@ -77,7 +122,11 @@ Source revision the client reports as `commit` from `GET /api/config`, so anyone
 
 ### `REQUEST_REPORT_EMAIL` {#request-report-email}
 
-Address that **Report this link**, on the page a sender opens from a [request link](/web-app/request-links#report-a-link), starts an email to. Unset or empty, that page shows no **Report this link** at all, so set it when you [turn on request links](/self-hosting/request-links): a report is about a link on your server, and only you can act on it. It takes exactly one address in a plain shape: letters, digits and `.` `_` `+` `-` before the `@`, then a host name with at least one dot, and at most 254 characters in all. Anything else counts as unset, including two addresses, a name in front of the address, and a space before or after it. Read at request time from the client container's environment, so changing it needs only `docker compose up -d`, no rebuild. Compose passes it through from `.env`, which takes a current `docker-compose.yml`: a copy downloaded before this variable existed leaves it out without a word. On Unraid it is the Floe-Client template's advanced **Request Link Report Email** field. It needs a web client newer than version 1.11.0: see [What an older web app shows](/self-hosting/operations#older-web-app-versions). floe.one uses a built-in address and ignores this variable.
+Address that **Report this link**, on the page a sender opens from a [request link](/glossary#request-link), starts an email to. Unset or empty, that page shows no **Report this link** at all. Set it when you [turn on request links](/self-hosting/request-links): a report is about a link on your server, and only you can act on it.
+
+It takes exactly one address in a plain shape. That is letters, digits and `.` `_` `+` `-` before the `@`, then a hostname with at least one dot, at most 254 characters in all. Anything else counts as unset, including two addresses, a name in front of the address, and a space before or after it.
+
+Read at request time from the client container's environment, so changing it needs only `docker compose up -d`, no rebuild. Compose passes it through from `.env`, which takes a current `docker-compose.yml`: a copy downloaded before this variable existed leaves it out without a word. On Unraid it is the Floe-Client template's advanced **Request Link Report Email** field. It needs a web client newer than version 1.11.0: see [What an older web app shows](/self-hosting/operations#older-web-app-versions). floe.one uses a built-in address and ignores this variable. What the sender sees is in [Report a link](/web-app/request-links#report-a-link).
 
 ### `PORT` {#port}
 
@@ -85,7 +134,7 @@ Address that **Report this link**, on the page a sender opens from a [request li
 
 ### `CLIENT_PORT` {#client-port}
 
-**Host** port the web client is published on. Inside the container it always listens on 3000. While `CLIENT_URL` is unset, Compose passes the server `http://localhost:` and this port, so on one machine changing it is all you need; run `docker compose up -d` to apply. A `CLIENT_URL` you set yourself has to carry the new port: it names the origin the server accepts your web client from, so a page served from a port it does not name loads and never connects. Compose-only; it has no effect outside Docker.
+**Host** port the web client is published on. Inside the container it always listens on 3000. While `CLIENT_URL` is unset, Compose passes the server `http://localhost:` and this port, so on one machine changing it is all you need. Run `docker compose up -d` to apply. A `CLIENT_URL` you set yourself has to carry the new port. It names the origin the server accepts your web client from, so a page served from a port it does not name loads and never connects. Compose-only; it has no effect outside Docker.
 
 ### `NODE_ENV` {#node-env}
 
@@ -93,11 +142,44 @@ Standard Node.js runtime flag. The server image sets it to `production`, and Com
 
 ### `CLIENT_URL` {#client-url}
 
-Required in production. Frontend origin allowed by CORS and by the WebSocket origin check. Matched exactly, including the scheme and the port, and with no trailing slash. Use `https://floe.example.com` for a [one-domain deployment](/self-hosting/reverse-proxy), or `https://app.your-domain.com` when the client has its own subdomain. Under Compose it defaults to `http://localhost:` and the value of `CLIENT_PORT`. A value you set has to carry the port itself. Holds **one** origin: a comma-separated list matches nothing at all. It governs browser traffic only: the CLI and Floe Desktop reach your server regardless of it, as long as any proxy in front passes the `Host` header through. That rule, and the origins the server always accepts, are in [Origins the server accepts](/self-hosting/production#cors-note).
+The web app's origin, which the server lets in through its CORS check and its [WebSocket](/glossary#websocket) origin check. Matched exactly, including the scheme and the port, and with no trailing slash. Use `https://floe.example.com` for a [one-domain deployment](/self-hosting/reverse-proxy), or `https://app.your-domain.com` when the client has its own subdomain. Under Compose it defaults to `http://localhost:` and the value of `CLIENT_PORT`. A value you set has to carry the port itself. Holds **one** origin: a comma-separated list matches nothing at all. It governs browser traffic only: the CLI and Floe Desktop reach your server regardless of it, as long as any proxy in front passes the `Host` header through. That rule, and the origins the server always accepts, are in [Origins the server accepts](/self-hosting/production#cors-note).
 
 ### `TRUSTED_PROXY_COUNT` {#trusted-proxy-count}
 
-Number of trusted reverse-proxy hops in front of the server, used for correct `X-Forwarded-For` parsing and per-address rate limiting. Use `1` behind a single reverse proxy, `2` behind a proxy plus a CDN, and `0` when the server is exposed directly with no proxy. Docker Compose passes `0` explicitly, because publishing container ports directly is its default, so raise it when you put a proxy in front of a Compose stack. Setting it above your real hop count lets clients forge `X-Forwarded-For` and bypass the rate limits, so set it to `0` deliberately rather than leaving it unset on a directly exposed host. Setting it below your real hop count makes every visitor arrive as the proxy's address and share one set of limits.
+The number of reverse proxies in front of the server. The server reads each visitor's address from the `X-Forwarded-For` header through that many proxies, and every per-address limit counts that address.
+
+| What stands in front of the server | Set |
+|---|---|
+| Nothing: the server's port is reached directly | `0` |
+| One reverse proxy | `1` |
+| A CDN in front of a reverse proxy | `2` |
+
+What an empty or missing value means depends on how you run the server. Docker Compose and the
+Unraid template pass `0` when you set nothing, because publishing container ports directly is
+their default, so raise it when you put a proxy in front. A server started with Node directly
+uses `1` when the variable is unset or empty. It then logs one line at startup:
+`TRUSTED_PROXY_COUNT is not set, so the default of 1 is in use. Set it to the number of reverse proxies in front of this server, or 0 if there are none.`
+`server/.env.example` sets `0`, so a server started with that file logs nothing. A value that is
+not a number counts as `0`.
+
+Set it too high, and clients can write their own `X-Forwarded-For` and pick the address every
+limit counts them under. Set it too low behind a proxy, and every visitor arrives as the proxy's
+address and shares one set of limits.
+
+The same address decides the [room](/glossary#room) seal, which turns away a device on a third
+network once two devices have connected through a link. With the count too low, every [peer](/glossary#peer) looks
+like the proxy, so the seal never engages for anyone. With it too high, the address is whatever
+the visitor wrote. How the seal works for the people using a link is in
+[How a transfer works](/how-it-works/signaling#a-room-holds-exactly-two-people).
+
+<Warning>
+  Behind a proxy, keep ports 3000 and 3001 from being reached directly. A visitor who calls the
+  server's port directly can send an `X-Forwarded-For` header of their own, and with a count of
+  `1` the server believes it. That lets them step past every limit, the code-guessing budget
+  included. Block the two ports at your firewall, or publish them on the local machine only by
+  changing the two `ports` lines in `docker-compose.yml` to `"127.0.0.1:${PORT:-3001}:3001"` and
+  `"127.0.0.1:${CLIENT_PORT:-3000}:3000"`.
+</Warning>
 
 ### `MAX_CONNECTIONS_PER_IP` {#max-connections-per-ip}
 
@@ -105,15 +187,15 @@ Maximum new connections admitted per address per 60 seconds, counted across Sock
 
 ### `MAX_TURN_REQUESTS_PER_IP` {#max-turn-requests-per-ip}
 
-Maximum `GET /api/turn-credentials` requests per address per 60 seconds. Requests over the cap get `429`, and the client falls back to STUN-only: silently in the browser and Floe Desktop, with a printed warning on the CLI. A transfer that insists on the relay (Floe Desktop with **Hide my IP address** on, `--relay-only` on the CLI) stops instead. Raise this in CI or staging suites that start many transfers from one address.
+Maximum `GET /api/turn-credentials` requests per address per 60 seconds. Requests over the cap get `429`, and the client falls back to [STUN](/glossary#stun) only: silently in the browser and Floe Desktop, with a printed warning on the CLI. A transfer that insists on the [relay](/glossary#relay) stops instead: Floe Desktop with [Hide my IP](/glossary#hide-my-ip) address on, or `--relay-only` on the CLI. Raise this in CI or staging suites that start many transfers from one address.
 
 ### `MAX_CODE_REQUESTS_PER_IP` {#max-code-requests-per-ip}
 
-Maximum requests per address per 60 seconds against the room-code endpoints, counted across `POST /api/code` and `GET /api/code/:code` together. Requests over the cap get `429`. Raise this in CI or staging suites that mint many codes from one address.
+Maximum requests per address per 60 seconds against the [room code](/glossary#room-code) endpoints, counted across `POST /api/code` and `GET /api/code/:code` together. Requests over the cap get `429`. Raise this in CI or staging suites that mint many codes from one address.
 
 ### `MAX_FAILED_CODE_RESOLVES` {#max-failed-code-resolves}
 
-Maximum **failed** lookups on `GET /api/code/:code` per address per 60 seconds. This is the guessing budget; `MAX_CODE_REQUESTS_PER_IP` above is the volume ceiling, and both apply. Only misses count: a lookup that finds a live code costs nothing, so a receiver holding a real code is never turned away by its own retries. The budget is checked before the lookup, so an address that has used it up gets the same `429` whatever it asks about, a working code included, until its misses are more than 60 seconds old. Raise this only if a shared address legitimately mistypes codes more than 10 times a minute.
+Maximum **failed** lookups on `GET /api/code/:code` per address per 60 seconds. This is the guessing budget; `MAX_CODE_REQUESTS_PER_IP` above is the volume ceiling, and both apply. Only misses count: a lookup that finds a live code costs nothing, so a receiver holding a real code is never turned away by its own retries. The budget is checked before the lookup. An address that has used it up therefore gets the same `429` whatever it asks about, a working code included, until its misses are more than 60 seconds old. Raise this only if a shared address legitimately mistypes codes more than 10 times a minute.
 
 ### `MAX_ACTIVE_CODES` {#max-active-codes}
 
@@ -121,7 +203,7 @@ Maximum number of simultaneously live room codes, across all addresses. Once thi
 
 ### `POLICY_FILE` {#policy-file}
 
-Absolute path to the request-link policy file, a small JSON file such as `{"requestLinks": true}` that turns [request links](/desktop/request-links) on. Unset, or naming a file that does not exist, means request links are off; a set path the server cannot find also logs `policy file not found, request links off` once, which is how a volume that was not mounted shows. The path is read once at startup and the file is re-read every 60 seconds, so turning request links on or off needs no restart. The image never contains the file: under Compose, uncomment the `volumes` example in `docker-compose.yml`, which mounts `./policy` at `/app/policy`, and set this to the path inside the container, such as `/app/policy/policy.json`. See [Turn on request links](/self-hosting/request-links).
+Absolute path to the request-link policy file, a small JSON file such as `{"requestLinks": true}` that turns [request links](/desktop/request-links) on. Unset, or naming a file that does not exist, means request links are off. When the path is set and no file is there, the server also logs `policy file not found, request links off` once, which is how a volume that was not mounted shows. The path is read once at startup and the file is re-read every 60 seconds, so turning request links on or off needs no restart. The image never contains the file: under Compose, uncomment the `volumes` example in `docker-compose.yml`, which mounts `./policy` at `/app/policy`, and set this to the path inside the container, such as `/app/policy/policy.json`. The server runs as the user `node`, which has to be able to read the folder and the file. See [Turn on request links](/self-hosting/request-links).
 
 ### `CLOUDFLARE_TURN_KEY_ID` {#cloudflare-turn-key-id}
 
@@ -139,9 +221,13 @@ Shared HMAC secret for self-hosted coturn credentials. Used when the Cloudflare 
 
 Public hostname of your self-hosted TURN server (for example `turn.your-domain.com`). Must match coturn's `realm`.
 
+### `TURN_TLS` {#turn-tls}
+
+Set it to `off` when your self-hosted coturn has no TLS certificate. The server then leaves the `turns:` URL (TLS on port 5349) out of the relay list it gives clients, so they stop trying a relay that cannot answer. `false`, `0` and `no` are read as `off` too, in any letter case. Unset, empty or any other value keeps the URL, which a coturn with a certificate needs: on a network that blocks UDP, `turns:` is the relay. It does not change the Cloudflare list, and a server image of 1.11.0 or earlier ignores it.
+
 ### `UPSTASH_REDIS_REST_URL` {#upstash-redis-rest-url}
 
-REST URL of an [Upstash Redis](https://upstash.com) database, used to durably persist the global transfer counter shown on the homepage. If empty, the counter runs in memory only and resets to 0 on every restart.
+REST URL of an [Upstash Redis](https://upstash.com) database, used to durably persist the global transfer counter shown on the homepage. If empty, the counter runs in memory only and resets to 0 on every restart. The total is kept under the key `floe:bytes_total`, which is where to read it or reset it. Two instances given the same database share one total.
 
 ### `UPSTASH_REDIS_REST_TOKEN` {#upstash-redis-rest-token}
 

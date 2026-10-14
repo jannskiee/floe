@@ -4007,14 +4007,14 @@
         "surface": "desktop",
         "text": "That link is for another Floe server. Set its address as Server address in Settings, then try again",
         "source": "desktop/transfer.go",
-        "anchor": "/desktop/receiving",
+        "anchor": "/troubleshooting#that-link-is-for-another-server-in-floe-desktop",
         "why_no_home": null
     },
     {
         "surface": "desktop",
         "text": "That link is for floe.one, but Floe is set to use another server. Clear Server address in Settings, then try again",
         "source": "desktop/transfer.go",
-        "anchor": "/desktop/receiving",
+        "anchor": "/troubleshooting#that-link-is-for-another-server-in-floe-desktop",
         "why_no_home": null
     },
     {
@@ -4140,7 +4140,7 @@
         "surface": "desktop",
         "text": "The server is limiting connections from this network. Wait a minute and try again",
         "source": "desktop/frontend/src/errors.ts",
-        "anchor": "/troubleshooting#the-connection-dropped-before-the-transfer-finished",
+        "anchor": "/troubleshooting#the-server-is-limiting-connections-from-this-network",
         "why_no_home": null
     },
     {
@@ -4154,7 +4154,7 @@
         "surface": "desktop",
         "text": "The server is limiting requests from this network. Wait a minute and try again",
         "source": "desktop/frontend/src/errors.ts",
-        "anchor": "/troubleshooting#server-returned-429-when-resolving-code",
+        "anchor": "/troubleshooting#the-server-is-limiting-requests-from-this-network",
         "why_no_home": null
     },
     {
@@ -4231,7 +4231,7 @@
         "surface": "desktop",
         "text": "They declined. Nothing was sent",
         "source": "cli/engine/transfer/refusal.go",
-        "anchor": "/troubleshooting#they-stopped-the-transfer-in-floe-desktop",
+        "anchor": "/troubleshooting#their-computer-ran-out-of-space",
         "why_no_home": null
     },
     {
@@ -4525,7 +4525,7 @@
         "surface": "desktop",
         "text": "{n} files now end in .floe-blocked so Windows won't open them on their own",
         "source": "desktop/frontend/src/requestCopy.ts",
-        "anchor": null,
+        "anchor": "/desktop/request-links#renamed-files",
         "why_no_home": null
     },
     {
@@ -4700,7 +4700,7 @@
         "surface": "cli",
         "text": "cannot send {path}: it is a link to a folder, which Floe does not follow",
         "source": "cli/engine/transfer/collect.go",
-        "anchor": "/cli/send",
+        "anchor": "/troubleshooting#cannot-read-a-path",
         "why_no_home": null
     },
     {
@@ -5050,7 +5050,7 @@
         "surface": "cli",
         "text": "Error: could not resolve \"{input}\": code not recognized: a code is words joined by hyphens, like olive-tiger-castle",
         "source": "cli/engine/code/client.go",
-        "anchor": "/troubleshooting",
+        "anchor": "/troubleshooting#code-not-recognized",
         "why_no_home": null
     },
     {
@@ -5806,7 +5806,7 @@
         "surface": "cli",
         "text": "That link is for another Floe server, but this Floe is set to use floe.one. Use --server with that server's address, then try again.",
         "source": "cli/cmd/floe/receive.go",
-        "anchor": "/cli/self-hosted-server",
+        "anchor": "/troubleshooting#that-link-is-for-another-floe-server",
         "why_no_home": null
     },
     {
@@ -5874,9 +5874,23 @@
     },
     {
         "surface": "cli",
+        "text": "the sender left before the transfer was accepted",
+        "source": "cli/engine/transfer/decide.go",
+        "anchor": "/troubleshooting#the-sender-left-before-the-transfer-was-accepted",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
         "text": "the sender stopped the transfer",
         "source": "cli/engine/transfer/receiver.go",
         "anchor": null,
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "The sender stopped.",
+        "source": "cli/engine/transfer/control.go",
+        "anchor": "/troubleshooting#the-sender-stopped",
         "why_no_home": null
     },
     {
@@ -5953,7 +5967,7 @@
         "surface": "cli",
         "text": "They declined. Nothing was sent.",
         "source": "cli/engine/transfer/refusal.go",
-        "anchor": "/cli/send#messages-from-floe-send-to",
+        "anchor": "/troubleshooting#they-declined-nothing-was-sent",
         "why_no_home": null
     },
     {

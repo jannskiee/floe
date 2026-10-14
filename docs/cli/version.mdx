@@ -9,8 +9,8 @@ keywords: ["floe version", "which version", "update available"]
 floe version
 ```
 
-Prints the current version of the `floe` binary, a link to the documentation, and an update
-hint when a newer release is available.
+Prints the current version of the `floe` binary, Floe's [CLI](/glossary#cli), a link to the
+documentation, and an update hint when a newer release is available.
 
 ## Output
 
@@ -22,26 +22,36 @@ Docs: https://www.floe.one/docs
 When a newer release exists, a third line follows:
 
 ```text Output
-Update available: v1.x.x  run `floe update` to upgrade
+Update available: 1.x.x  run `floe update`, or your package manager's upgrade command
 ```
 
-The version on the first line carries no leading `v` (`floe 1.11.0`), while the hint names the
-release by its tag (`v1.11.0`).
+Neither line carries a leading `v`: the first reads like `floe 1.11.0`. In `floe` 1.11.0 and
+earlier the hint named the release by its tag instead, as in
+``Update available: v1.x.x  run `floe update` to upgrade``.
 
 ## The update check
 
 `floe version` is the only command that checks for a newer release on its own. `send` and
-`receive` never do, and `floe update` checks only when you run it. The check asks GitHub for
-the latest release tag (`https://api.github.com/repos/jannskiee/floe/releases/latest`) and
-caches the answer for 24 hours in `floe/update-check.json` inside your user config directory
-(`~/.config` on Linux, `~/Library/Application Support` on macOS, `%AppData%` on Windows).
-Delete that file to force a fresh check. When there is no fresh cached answer, `floe version`
-waits at most 1 second for GitHub and prints no hint if the answer is slower, so it never stalls
-on a slow network.
+`receive` never do, and `floe update` checks only when you run it. The check asks GitHub for the
+latest release tag (`https://api.github.com/repos/jannskiee/floe/releases/latest`) and keeps the
+answer for 24 hours in `floe/update-check.json`, inside your user config folder:
 
-The hint always says `floe update`, also on an install that a package manager owns. There,
-`floe update` itself installs nothing and names the package manager's upgrade command instead:
-see [Update the CLI](/cli/update#package-manager-installs).
+| System | User config folder |
+|---|---|
+| Linux | `$XDG_CONFIG_HOME`, or `~/.config` when that is not set |
+| macOS | `~/Library/Application Support` |
+| Windows | `%AppData%` |
+
+While a kept answer is less than 24 hours old, `floe version` asks GitHub nothing, so the hint can
+appear up to a day after a release comes out. Delete that file to force a fresh check, or run
+`floe update --check`, which always asks GitHub. With no fresh answer kept, `floe version` waits at
+most 1 second for GitHub and prints no hint if the answer is slower, so it never stalls on a slow
+network.
+
+The hint names both ways to update because on an install that a
+[package manager](/glossary#package-manager) owns, `floe update` installs nothing and names the
+package manager's upgrade command instead: see
+[Update the CLI](/cli/update#package-manager-installs).
 
 Set `FLOE_NO_UPDATE_CHECK=1` to skip the check and the hint entirely. Binaries built from
 source report `floe dev` and never check.

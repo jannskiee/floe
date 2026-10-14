@@ -5,17 +5,27 @@ description: "Receive files in Floe Desktop by entering a room code or share lin
 keywords: ["save folder", "where do my files go", "history", "mark of the web"]
 ---
 
-Receive what someone is sending you with a room code or a share link, into a folder you choose on
-this PC. This page is for the person on the receiving end of a transfer, whichever Floe app the
-sender uses.
+Receive what someone is sending you with a [room code](/glossary#room-code) or a
+[share link](/glossary#share-link), into a folder you choose on this PC. This page is for the person on the
+receiving end of a transfer, whichever Floe app the sender uses.
+
+**Needs:** Floe Desktop on Windows, and a code or link from a sender whose Floe is still open. See
+[Installation](/desktop/installation).
+
+## The short version {#the-short-version}
+
+Paste the code or link into **Receive** > **Code**, and click **Receive**. Files go to your Downloads folder
+unless you choose another one, and nothing is ever overwritten. When the card reads **Saved to**, the files
+are complete.
 
 <Frame caption="The Receive tab, on Code">
   <img src="/images/desktop/receive.png" style={{ width: "100%", maxWidth: "476px", borderRadius: "12px" }} alt="The Floe Desktop Receive card: a Code and Request link switch with a Beta tag beside Request link, an empty Code or link field, a Save to field with a Browse button, and the Receive button" />
 </Frame>
 
 <Steps>
-  <Step title="Open the Receive tab">
-    Stay on **Code**, which sits next to **Request link** under the tabs.
+  <Step title="Open the Receive tab and choose Code">
+    **Code** sits next to **Request link** under the tabs. While you have a request link open, Receive opens
+    on **Request link**, so click **Code**.
   </Step>
   <Step title="Paste the code or link">
     Put what the sender gave you into **Code or link**. See
@@ -43,65 +53,121 @@ The **Code or link** field accepts any of these:
 - A share link, for example `https://floe.one/#room=...`.
 - A link from an older Floe release that used `?room=` instead.
 
-So whatever the sender copied, pasting it works, including a link that lost its `https://` or
-arrived wrapped in angle brackets or quotes. Press `Enter` in the field instead of clicking if you
-prefer.
+So whatever the sender copied, pasting it works, including a link that lost its `https://` or arrived
+wrapped in angle brackets or quotes. Press `Enter` in the field instead of clicking if you prefer.
 
 A room code works for one receiver, and for 10 minutes at most. See
 [How a transfer works](/how-it-works/signaling#code-and-link-lifetime).
 
-A [request link](/web-app/request-links), one with `/r/` in it, is the exception: it is for sending
-files to someone, not for receiving. Floe says "Request links open in a web browser" and offers
-**Open in browser** instead.
+A link cut short partway through its room id, the part after `#room=`, reads `Error: That link is incomplete`.
+Copy the whole link again, including everything after the `#`.
+
+A share link names the server that holds its [room](/glossary#room), and Floe checks it against the server it
+is set to use before it connects. A code carries no server, so it is never refused this way:
+
+| The link is for | Floe is set to | Floe says |
+|---|---|---|
+| floe.one | Your own server | `Error: That link is for floe.one, but Floe is set to use another server. Clear Server address in Settings, then try again · Both people must use <host>`, with your server's host in place of `<host>` |
+| Another Floe server | Floe's own server | `Error: That link is for another Floe server. Set its address as Server address in Settings, then try again` |
+
+See [Server](/desktop/settings#server) for where that address is set.
+
+A [request link](/glossary#request-link), one with `/r/` in it, is the exception: it is for sending files to
+someone, not for receiving. Floe says "Request links open in a web browser" and offers **Open in browser**
+instead, also for a link pasted without `https://` or inside quotes or angle brackets.
 
 ## Choose where files land
 
-**Save to** is where everything arrives. Leave it blank and Floe uses your **Downloads** folder, or
-your home folder if you do not have one. Click **Browse** to pick another one, or type a path
-directly. Floe creates the folder if it does not exist.
+**Save to** is where everything arrives. Leave it blank and Floe uses your **Downloads** folder, or your home
+folder if you do not have one. Click **Browse** to pick another one, or type a path directly. Floe creates the
+folder if it does not exist.
 
-A relative path such as `Pictures\Drops` is read from your home folder, so that one is the Drops
-folder in your Pictures folder. Variables such as `%USERPROFILE%` and a leading `~` work, and the
-quotes that File Explorer's **Copy as path** adds are dropped. A path written without its drive is read
-the way earlier versions of Floe read it: `\Floe` on the current drive, usually `C:`, and `D:Floe` on
-`D:`, usually at its top level. A folder Floe cannot create stops the receive before it connects with
-`Error: Can't write to the save folder`.
+A path you type is read like this:
+
+- A relative path such as `Pictures\Drops` is read from your home folder, so that one is the Drops folder in
+  your Pictures folder.
+- Variables such as `%USERPROFILE%` and a leading `~` work.
+- The quotes that File Explorer's **Copy as path** adds are dropped.
+- A path written without its drive is read the way earlier versions of Floe read it: `\Floe` on the current
+  drive, usually `C:`, and `D:Floe` on `D:`, usually at its top level.
+
+A folder Floe cannot create stops the receive before it connects with `Error: Can't write to the save folder`.
 
 Whatever you choose here is remembered for next time. It is the same setting as
-[Save received files to](/desktop/settings#save-received-files-to) in Settings, so you can set it in
-either place.
+[Save received files to](/desktop/settings#save-received-files-to) in Settings, so you can set it in either
+place.
 
 ## The transfer
 
-Click **Receive**. Floe joins the room, connects to the sender, and starts writing files
-straight to disk. For a code or link there is nothing to accept: unlike `floe receive` on the
-command line, the desktop app starts as soon as it connects. Files that come through your own
-[request link](/desktop/request-links#accept-or-decline) are different: each drop waits for you to
-click **Accept**, unless you made the link with [Auto-accept](/desktop/request-links#auto-accept) on.
+Click **Receive**. Floe joins the room, connects to the sender, and starts writing files straight to disk. For
+a code or link there is nothing to accept: unlike `floe receive` in the [CLI](/glossary#cli), Floe's
+command-line tool, the desktop app starts as soon as it connects. Files that come through your own
+[request link](/desktop/request-links#accept-or-decline) are different. Each drop waits for you to click
+**Accept**, unless you made the link with [Auto-accept](/glossary#auto-accept) on.
 
-As soon as the sender announces the transfer, and before the first byte lands, the card shows what
-is incoming: `Incoming: report.pdf · 4.2 MB` for one file, or `Incoming: 12 files · 1.3 GB` for
-several.
+The status line under the card reads `Connecting...` after you click. As soon as the sender announces the
+transfer, and before the first byte lands, the card shows what is incoming: `Incoming: report.pdf · 4.2 MB`
+for one file, or `Incoming: 12 files · 1.3 GB` for several.
 
-The badge at the top right shows **DIRECT** or **RELAY** once the route is known, and a progress
-bar shows the current file with speed and time remaining. **Cancel** stops it. Closing the
-window mid-receive asks first, so one stray click cannot cut a transfer off.
+The [badge](/glossary#badge) at the top right shows **DIRECT** or **RELAY** once the route is known (a
+**RELAY** transfer goes through Floe's encrypted [relay](/glossary#relay), a server that passes the data
+along). A progress bar shows the current file with speed and time remaining. **Cancel** stops it.
 
-When it finishes, the card reads **Saved to** and the folder. The check mark in front of it is
-green if every file's SHA-256 matched, and gray otherwise (see
-[File checks](/how-it-works/file-checks#the-sha-256-check)). With notifications on, a transfer that
-finishes or fails while Floe is in the background also raises a Windows notification, so a failure
-behind a minimized window is not missed. Canceling does not notify. See
-[Notifications](/desktop/settings#notifications). Under the folder, the card offers a way to it:
+Once the sender is there, Floe asks Windows not to sleep until the transfer ends. The screen can still turn
+off.
 
-- For a single file, **Open** launches it in its usual app and **Show in folder** reveals it in
-  File Explorer with the file selected.
+Closing the window mid-receive asks first, in a dialog titled **Close Floe?** that reads "Closing now stops
+the transfer before the files finish". **Keep open** (or `Esc`) goes back, and **Close** stops the transfer
+and quits Floe.
+
+### When it finishes {#when-it-finishes}
+
+The card reads **Saved to** and the folder. The check mark in front of it is green if every file arrived
+exactly as sent, checked by its [SHA-256](/glossary#sha-256) fingerprint, and gray otherwise. See
+[File checks](/how-it-works/file-checks#the-sha-256-check).
+
+Under the folder, the card offers a way to it:
+
+- For a single file, **Open** launches it in its usual app and **Show in folder** reveals it in File Explorer
+  with the file selected.
 - For several files, **Show in folder** opens the folder.
+
+If the file has since been moved, renamed or deleted, **Open** and **Show in folder** open the folder instead.
+
+With notifications on, a transfer that finishes or fails while Floe is in the background also raises a
+Windows notification, so a failure behind a minimized window is not missed. Canceling does not notify. See
+[Notifications](/desktop/settings#notifications).
+
+## History
+
+Click the clock icon at the top right of the card, or press `Ctrl` `H`, for a list of what you have sent and
+received.
+
+<Frame caption="History, with a request link drop opened">
+  <img src="/images/desktop/history.png" style={{ width: "100%", maxWidth: "476px", borderRadius: "12px" }} alt="The Floe Desktop History view with one received drop opened: its label, Received, 8.0 MB and the time, the three file names, a green check mark beside the folder it was saved in, and the Show in folder and Remove actions" />
+</Frame>
+
+Each row shows the file name (or the count, for a batch), the direction, the size, and when it happened.
+Times use a 24-hour clock: `Today, 19:55`, `Yesterday, 09:12` or `Jul 19, 19:55`. A sent folder is listed by
+its own name, and a note as `message.txt`. A drop through a [request link](/desktop/request-links#history)
+adds one row, titled with your label if you gave the link one. An empty list reads "No transfers yet".
+
+Click any row to open it. The panel underneath lists the individual file names and carries **Remove** along
+the bottom. A received transfer also says where it was saved and adds **Show in folder**. A sent transfer has
+no folder to open, so it shows neither. Click the row again to close it.
+
+History holds the last 50 transfers. A send or a receive by code that failed or was canceled leaves no row.
+It is stored on your device only and is never sent anywhere.
+
+Remove one entry with **Remove** inside its open row, or **Clear** in the History header to remove all of
+them. Clear asks first, replacing itself with **Clear all?** and a **Yes** and a **No**, so this one cannot go
+wrong in a single click. Clearing history does not touch the files themselves. It is also a different control
+from the **Clear** on the send card, which empties what you have staged and offers an undo.
 
 ## Nothing is ever overwritten
 
-If a file arrives with a name you already have, Floe does not replace it. It adds a number
-before the extension, the same way browser downloads do:
+If a file arrives with a name you already have, Floe does not replace it. It adds a number before the
+extension, the same way browser downloads do:
 
 ```text Example
 report.pdf
@@ -109,141 +175,122 @@ report (1).pdf
 report (2).pdf
 ```
 
-This is worth knowing, because a file you expected to find under its original name may be
-sitting next to it with a number. The progress line shows the name actually written, and after
-a single-file transfer **Show in folder** selects the file that was really written rather than
-the name you were expecting.
+The number goes before the last dot only, so `archive.tar.gz` arrives as `archive.tar (1).gz`. A name whose
+only dot is its first character, such as `.env`, has no extension, so the number goes at its end: `.env (1)`.
 
-Folders are not renamed, only the files inside them. Receiving the same folder twice merges it
-into the existing one, with the colliding files numbered.
+This is worth knowing, because a file you expected to find under its original name may be sitting next to it
+with a number. The progress line shows the name actually written. After a single-file transfer, **Show in
+folder** selects the file that was really written rather than the name you were expecting.
 
-While a file is still arriving it appears in the folder as `name.ext.part`, and it takes its
-real name only at the moment it is complete. Anything you see without `.part` is whole.
+Folders are not renamed, only the files inside them. Receiving the same folder twice merges it into the
+existing one, with the colliding files numbered.
+
+While a file is still arriving it appears in the folder as `name.ext.part`, and it takes its real name only at
+the moment it is complete. Anything you see without `.part` is whole.
 
 ## If a transfer stops partway {#if-a-transfer-stops-partway}
 
-A transfer that fails or is canceled partway deletes the `.part` file it was writing, so
-nothing half-written is left behind under a finished-looking name. Files that completed before
-the failure are kept, and a retry can use the original name rather than a numbered one. A file
-that fails its check on arrival is deleted the same way. See
-[File checks](/how-it-works/file-checks).
+A transfer that fails or is canceled partway deletes the `.part` file it was writing, so nothing half-written
+is left behind under a finished-looking name. Files that completed before the failure are kept, and a retry
+can use the original name rather than a numbered one. A file that fails its check on arrival is deleted the
+same way. See [File checks](/how-it-works/file-checks).
 
-Closing Floe while a transfer runs behaves the same way. The prompt asks first, and choosing
-**Close** stops the transfer and removes the `.part` file on the way out, so a clean quit
-leaves nothing behind at all. An unclean end leaves one: the machine loses power, the
-process is ended from Task Manager, or closing the file stalls, in which case Floe quits after 5
-seconds without removing it. The unfinished file then sits there as a `.part` file rather
-than under a finished-looking name, and it is safe to delete.
+Closing Floe while a transfer runs behaves the same way. Choosing **Close** stops the transfer and removes the
+`.part` file on the way out, so a clean quit leaves nothing behind. An unclean end can leave one:
+
+- the machine loses power
+- the process is ended from Task Manager
+- closing the file stalls, in which case Floe quits after 5 seconds without removing it
+
+The unfinished file then sits there as a `.part` file rather than under a finished-looking name, and it is
+safe to delete.
 
 One `.part` file is worth keeping. When the card reads
-`Error: A received file couldn't be saved, so it was kept with a .part ending`, that file arrived
-whole and passed its checks, but Floe could not move it to its real name, usually because an
-antivirus scanner or an indexer was holding it. Remove the `.part` ending by hand to get the file.
-See [Troubleshooting](/troubleshooting#a-received-file-could-not-be-saved).
+`Error: A received file couldn't be saved, so it was kept with a .part ending`, that file arrived whole and
+passed its checks. Floe could not move it to its real name, usually because an antivirus scanner or an indexer
+was holding it. Remove the `.part` ending by hand to get the file. See
+[Troubleshooting](/troubleshooting#a-received-file-could-not-be-saved).
 
 ## Names Windows cannot represent are adjusted
 
-Some file names are perfectly ordinary on a Mac or a Linux machine and cannot exist on Windows.
-A timestamp like `backup:2026-08-19.log` is the common case, because Windows gives the colon a
-special meaning. Floe adjusts the name before writing the file, and the progress line and
-**Show in folder** both use the adjusted name.
+Some file names are perfectly ordinary on a Mac or a Linux machine and cannot exist on Windows. A timestamp
+like `backup:2026-08-19.log` is the common case, because Windows gives the colon a special meaning. Floe
+adjusts the name before writing the file, and the progress line and **Show in folder** both use the adjusted
+name:
 
-The characters `< > : " | ? *` become underscores, and so do control characters and
-text-direction marks. Trailing dots and spaces are removed, and a name that is a reserved device
-name (such as `NUL`) gets an underscore in front. One colon is dropped, not replaced: a file or
-top-level folder whose name begins with one letter (A to Z) or one digit and then a colon loses
-those two characters, because a start like that is read as a drive name, so `P:L 2025.xlsx` is
-saved as `L 2025.xlsx`. A backslash, which macOS and Linux allow in a name, is a folder separator
-on Windows: `back\slash.txt` arrives as `slash.txt` in a folder named `back`, and a leading one is
-dropped. If two files end up with the same adjusted name, the second is numbered exactly as above.
+- The characters `< > : " | ? *` become underscores, and so do control characters and text-direction marks.
+- Trailing dots and spaces are removed.
+- A name that is a reserved device name, such as `NUL`, gets an underscore in front.
+- A file or top-level folder whose name starts with one letter (A to Z) or one digit and then a colon loses
+  those two characters, because Windows reads that start as a drive. So `P:L 2025.xlsx` is saved as
+  `L 2025.xlsx`.
+- A backslash, which macOS and Linux allow in a name, is a folder separator on Windows: `back\slash.txt`
+  arrives as `slash.txt` in a folder named `back`, and a leading one is dropped.
+- A name with nothing usable left in it, such as one made only of dots, is saved as `received_file`.
+- If two files end up with the same adjusted name, the second is numbered exactly as above.
 
-The incoming preview shows the name with control characters and text-direction marks replaced,
-and a long name shortened with its extension kept. The progress line and History show the name
-as it was saved, so they match the file in your folder.
+The incoming preview shows the name with control characters and text-direction marks replaced, and a long
+name shortened with its extension kept. The progress line and History show the name as it was saved, so they
+match the file in your folder.
 
-This matters for more than tidiness. Before Floe Desktop 0.2.6, a file called
-`backup:2026-08-19.log` appeared in your folder as an empty file called `backup`, because Windows
-had quietly routed the contents somewhere else, and the transfer still reported success.
+This matters for more than tidiness. Before Floe Desktop 0.2.6, a file called `backup:2026-08-19.log`
+appeared in your folder as an empty file called `backup`, because Windows had quietly routed the contents
+somewhere else, and the transfer still reported success.
 
 ## Paths that are too deep or too long are refused {#paths-too-deep-or-too-long}
 
-Before anything is saved, Floe checks where each file would go. It stops the transfer, and tells
-the sender why, when a file's path inside the transfer is more than 32 levels deep (31 folders and
-the file) or longer than 235 UTF-16 code units (for most names, 235 characters), or starts at a
-drive or a root instead of inside your save folder. The card reads `Error: A file's path is too deep or too long to save in this folder`.
-Files saved before that file are kept. Ask the sender to zip deeply nested folders first.
+Before anything is saved, Floe checks where each file would go. It stops the transfer, and tells the sender
+why, when a file's path inside the transfer:
 
-A file too large for the save drive's file system is refused the same way, which in practice means
-a file of 4 GB or more going to a FAT or FAT32 drive: `Error: A file is larger than the save drive can hold`.
+- is more than 32 levels deep (31 folders and the file)
+- is longer than about 235 characters (most emoji count as 2, because Windows counts them that way)
+- starts at a drive or a root instead of inside your save folder
 
-The desktop app and the `floe` CLI apply the path limits to every receive, on every platform, and
-there is no setting to turn them off. The CLI prints the same refusal in its own words; see
+The card reads `Error: A file's path is too deep or too long to save in this folder`. Files saved before that
+file are kept. Ask the sender to zip deeply nested folders first.
+
+A file too large for the save drive's file system is refused the same way, which in practice means a file of
+4 GB or more going to a FAT or FAT32 drive: `Error: A file is larger than the save drive can hold`.
+
+The desktop app and the `floe` CLI apply the path limits to every receive, on every platform, and there is no
+setting to turn them off. The CLI prints the same refusal in its own words; see
 [Paths that are too deep or too long](/cli/receive#paths-too-deep-or-too-long).
 
-A drop through a [request link](/desktop/request-links#limits) is held to stricter limits on top of
-these. A receive with a code or a link applies none of them.
+A drop through a [request link](/desktop/request-links#limits) is held to stricter limits on top of these. A
+receive with a code or a link applies none of them.
 
 ## Received files are marked as downloads
 
-On Windows, Floe tags each file it writes with the mark of the web, the same tag Windows puts
-on a browser download. SmartScreen and Office Protected View then treat it like anything else
-from the internet: an executable that Windows does not recognize prompts before running, and an
-Office document opens read-only until you choose to enable editing.
+Windows treats files Floe saves like downloads, and may warn you before you open one. Floe tags each file
+it writes with the [mark of the web](/glossary#mark-of-the-web), the same tag Windows puts on a browser
+download. [SmartScreen](/glossary#smartscreen) and Office Protected View then treat it like anything else from
+the internet. An executable that Windows does not recognize prompts before running, and an Office document
+opens read-only until you choose to enable editing.
 
-This is deliberate. Files arrive from another person's device, and Windows should apply its
-normal caution.
+This is deliberate. Files arrive from another person's device, and Windows should apply its normal caution.
 
-A drop through a [request link](/desktop/request-links#renamed-files) goes further: file types that
-File Explorer opens by itself are saved under a name it leaves alone. Floe does not scan any file
-for malware.
+A drop through a [request link](/desktop/request-links#renamed-files) goes further: file types that File
+Explorer opens by itself are saved under a name it leaves alone. Floe does not scan any file for malware.
 
-The mark needs a drive that keeps it, such as NTFS; FAT32 and exFAT drives, like most USB sticks
-and SD cards, and many network shares do not, and a file saved there arrives without it. The file
-itself is saved either way.
-
-## History
-
-Click the clock icon at the top right of the card, or press `Ctrl` `H`, for a list of what you
-have sent and received.
-
-<Frame caption="History, with a request link drop opened">
-  <img src="/images/desktop/history.png" style={{ width: "100%", maxWidth: "476px", borderRadius: "12px" }} alt="The Floe Desktop History view with one received drop opened: its label, Received, 8.0 MB and the time, the three file names, a green check mark beside the folder it was saved in, and the Show in folder and Remove actions" />
-</Frame>
-
-Each row shows the file name (or the count, for a batch), the direction, the size, and when it
-happened. A drop through a [request link](/desktop/request-links#history) adds one row, titled
-with your label if you gave the link one. Click any row to open it. The panel underneath lists the
-individual file names and carries **Remove** along the bottom. A received transfer also says where
-it was saved and adds **Show in folder**; a sent transfer has no folder to open, so it shows
-neither. Click the row again to close it.
-
-History holds the last 50 transfers. A send or a receive by code that failed or was canceled
-leaves no row. It is stored on your device only and is never sent anywhere. Remove one entry with **Remove**
-inside its open row, or **Clear** in the History header to remove all of them. Clear asks first,
-replacing itself with **Clear all?** and a **Yes** and a **No**, so this one cannot go wrong in a
-single click. Clearing history does not touch the files themselves, and it is a different control
-from the **Clear** on the send card, which empties what you have staged and offers an undo.
+On most USB sticks and SD cards the tag cannot be kept. It needs a drive that stores it, such as an NTFS
+drive. FAT32 and exFAT drives, the usual format of USB sticks and SD cards, do not store it, and neither do
+many network shares. A file saved there arrives without the mark. The file itself is saved either way.
 
 ## Contribute to global stats
 
-After a transfer completes, the receiving side reports **only the number of bytes** to the server
-Floe is set to, which adds it to that server's public counter. On Floe's own server that is the
-total on the floe.one homepage. File names and contents are never sent, and the sender never
-reports anything.
+After a transfer completes, Floe reports **only the number of bytes** to the server it is set to, for that
+server's public counter. File names and contents are never sent, and the sender never reports anything. Turn
+it off under [Settings](/desktop/settings#contribute-to-global-stats).
 
-It is on by default, and you can turn it off under
-[Settings](/desktop/settings#contribute-to-global-stats). When it is off, no request is made at
-all.
-
-A drop through a [request link](/desktop/request-links) that stops after it was accepted is reported
-too: once, with the bytes of the files it saved under their final names, and only with the setting on.
+A drop through a [request link](/desktop/request-links) that stops after it was accepted is reported too:
+once, with the bytes of the files it saved under their final names, and only with the setting on.
 
 ## If something goes wrong {#when-it-does-not-work}
 
 - [`Error: That code wasn't recognized`](/troubleshooting#that-code-was-not-recognized): the code
   was mistyped, has already been used or has run out, or belongs to a different server from the
   one Floe is set to.
-- [`Error: this code is no longer active; ask for a new one`](/troubleshooting#this-code-is-no-longer-active-ask-for-a-new-one)
+- [`Error: this code or link is no longer active; ask the sender for a new one`](/troubleshooting#this-code-is-no-longer-active-ask-for-a-new-one)
   or
   [`Error: room is full (someone else may already be receiving)`](/troubleshooting#room-is-full-someone-else-may-already-be-receiving):
   the link you pasted leads to a room the sender has left, or one that already has its receiver.

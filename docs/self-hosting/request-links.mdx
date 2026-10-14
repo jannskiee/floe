@@ -5,20 +5,29 @@ description: "Turn on request links for a self-hosted Floe server with a policy 
 keywords: ["request links", "policy file", "POLICY_FILE", "Share link address", "self-hosting"]
 ---
 
-Request links are off on a self-hosted server until a policy file turns them on. This page is for
-the person who runs the server: by the end, anyone whose Floe Desktop points at your server can make
-a [request link](/desktop/request-links), and you can switch them off again without a restart.
+Request links are off on a [self-hosted](/glossary#self-hosted) server until a policy file turns
+them on. This page is for the person who runs the server. By the end, anyone whose Floe Desktop
+points at your server can make a [request link](/glossary#request-link), and you can switch them
+off again without a restart.
 
 <Info>
-  Request links are in Beta. They need the server and web client images at 1.11.0 or later, and Floe
-  Desktop 0.3.0 or later. Codes and share links work the same whether request links are on or off.
+  Request links are in [Beta](/glossary#beta). They need the server and web client images at 1.11.0
+  or later, and Floe Desktop 0.3.0 or later. Codes and [share links](/glossary#share-link) work the same whether request
+  links are on or off.
 </Info>
+
+## The short version {#the-short-version}
+
+Put `{"requestLinks": true}` in a file, mount its folder into the server container, and name the
+file in `POLICY_FILE`. The server reads the file every 60 seconds, so turning links off again is an
+edit, not a restart. Unless your instance is on one domain, also tell every Floe Desktop that uses
+it where your web app is.
 
 ## Turn request links on {#request-links}
 
-These steps are for the Docker Compose stack. They need the `docker-compose.yml` from v1.11.0 or
-later, which passes `POLICY_FILE` to the server. An older copy leaves it out without a word, and
-`/health` keeps listing no features (see
+These steps are for the [Docker Compose](/glossary#docker-compose) stack. They need the
+`docker-compose.yml` from v1.11.0 or later, which passes `POLICY_FILE` to the server. An older copy
+leaves it out without a word, and `/health` keeps listing no features (see
 [Moving to 1.11.0](/self-hosting/operations#moving-to-1-11-0)). For a server run with Node directly,
 see [Without Docker](#without-docker). On Unraid, the variable and the folder are both template
 fields: see [Unraid](/self-hosting/unraid#request-links).
@@ -31,6 +40,10 @@ fields: see [Unraid](/self-hosting/unraid#request-links).
     mkdir -p policy
     echo '{"requestLinks": true}' > policy/policy.json
     ```
+
+    The server runs as the unprivileged user `node`, not as root, so that user has to be able to
+    read the folder and the file. A file it cannot read counts as unreadable, and request links stay
+    off.
   </Step>
   <Step title="Mount the folder and name the file">
     In `docker-compose.yml`, uncomment the server's `volumes` example:
@@ -46,8 +59,8 @@ fields: see [Unraid](/self-hosting/unraid#request-links).
     POLICY_FILE=/app/policy/policy.json
     ```
 
-    Mount the folder, not the file. An edit puts a new file in place of the old one, and a mount of
-    the single file keeps showing the old one.
+    Mount the folder, not the file. Turning links on or off later puts a new file in place of the
+    old one, and a mount of the single file keeps showing the old one.
   </Step>
   <Step title="Recreate the server and check">
     ```bash Terminal
@@ -60,21 +73,23 @@ fields: see [Unraid](/self-hosting/unraid#request-links).
     folder is not mounted or the path is wrong.
   </Step>
   <Step title="Point Floe Desktop at the web client">
-    Floe Desktop builds each link from its **Share link address** setting, or from **Server
-    address** when that is blank, and the link has to open your web client, which serves the page a
-    sender sees. In Floe Desktop, open Settings and, under **Advanced**, expand **Server**, then set
-    the field for your layout:
+    Floe Desktop builds each link from its **Share link address** setting. When that is blank, it
+    builds the link from **Server address**, where `http://localhost:3001` becomes
+    `http://localhost:3000` and any other address is used as it is. The link has to open your web
+    client, which serves the page a sender sees. In Floe Desktop, open Settings and, under
+    **Advanced**, expand **Server**, then set the field for your layout:
 
     | Your layout | Share link address |
     |---|---|
     | One domain, as in [Run behind one domain](/self-hosting/reverse-proxy) | Leave it blank. |
-    | The default Compose ports, with the client on 3000 and the server on 3001 | The client's address, such as `http://<host>:3000`. |
+    | The default Compose ports, with Floe Desktop on the same machine and **Server address** `http://localhost:3001` | Leave it blank. |
+    | The default Compose ports, reached at any other address | The client's address, such as `http://<host>:3000`. |
     | Two hostnames, as in [Production deployment](/self-hosting/production) | The client's address, such as `https://app.your-domain.com`. |
 
-    On the last two layouts, a link built from the server address opens a page the signaling server
-    does not serve. Every Floe Desktop that uses your server needs this setting, so hand it out
-    together with the server address. A link that is already open keeps the address it was made
-    with.
+    Wherever the table says to fill it in, a link built from the server address opens a page the
+    [signaling server](/glossary#signaling-server) does not serve. Every Floe Desktop that uses
+    your server needs this setting, so hand it out together with the server address. A link that
+    is already open keeps the address it was made with.
 
     To check, choose **Receive**, then **Request link**, click **Make link**, and open the link in
     Chrome or Edge on a computer: the page reads "SEND FILES THROUGH THIS LINK".
@@ -101,9 +116,8 @@ server reads the path at startup, and the file's content every 60 seconds after 
 
 ## Turn request links on or off later {#turn-request-links-on-or-off}
 
-The server re-reads the file every 60 seconds, so no restart is needed. Write the new content to a
-temporary file and rename it over the old one, rather than editing the file in place, so the server
-never reads a half-written file:
+No restart is needed. Write the new content to a temporary file and rename it over the old one,
+rather than editing the file in place, so the server never reads a half-written file:
 
 ```bash Terminal
 echo '{"requestLinks": false}' > policy/policy.json.tmp
@@ -115,23 +129,31 @@ Then wait up to 60 seconds. The log says `request links: off` (or `request links
 
 Turning request links off ends every link that is waiting for a sender. Floe Desktop shows "Request
 links are off on this server" on such a link, and a sender who tries it sees "Request links are
-turned off right now". A drop that is already under way is left to finish.
+turned off right now".
 
-Turning them back on does not bring those links back, so each owner makes a new link. A link that
-was ended this way while its Floe Desktop was connected answers "This link has ended" until 24 hours
-after the turn-off.
+Two kinds of link are left alone: one whose drop is under way, which is left to finish, and one
+whose request is on its owner's screen or was declined. If the owner of a declined link then clicks
+**Keep waiting** while links are off, that link ends too, with the same message. A server image of
+version 1.11.0 or earlier leaves that link waiting with no sender able to reach it, until request
+links are on again or the owner's Floe Desktop reconnects.
+
+Turning them back on does not bring ended links back, so each owner makes a new link. A link that
+was ended this way while its Floe Desktop was connected answers "This link has ended" for 24 hours.
 
 ### How the server reads the file {#how-the-server-reads-the-file}
 
 - Only `true`, the JSON boolean, turns request links on. `"true"` in quotes, any other value, and a
   missing `requestLinks` key all mean off. Other keys are ignored.
-- A file that cannot be read, is not a JSON object, or is larger than 64 KB changes nothing: the
-  server keeps its last good setting and logs `policy file unreadable, keeping previous policy`
-  once, until the file reads cleanly again. A server that has read no good file since it started
-  stays off.
+- The server cannot use a file that it cannot read, that is not a JSON object, or that is larger
+  than 64 KB. A folder or any other thing that is not a plain file at the path counts the same way.
+- Then the server keeps its last good setting and logs `policy file unreadable, keeping previous
+  policy` once, until the file reads cleanly again. A server that has read no good file since it
+  started stays off.
 - A missing file means off, even if request links were on. While a set `POLICY_FILE` stays missing,
   the server logs `policy file not found, request links off` once.
-- UTF-8 works, and so does the UTF-16 that Windows PowerShell writes by default.
+- UTF-8 works, and so does the UTF-16 that Windows PowerShell writes by default (little-endian,
+  with a byte-order mark). Any other encoding, such as UTF-16 big-endian or UTF-16 without a mark,
+  counts as unreadable.
 - The path in `POLICY_FILE` is read once, when the server starts. Pointing it at another file takes
   `docker compose up -d`, or a restart without Docker.
 
@@ -140,21 +162,23 @@ after the turn-off.
 The server keeps three counts, each per network or for the whole server. A network is one IPv4
 address, or one IPv6 /64.
 
-| Limit | Value | What Floe Desktop shows at the limit |
-|---|---|---|
-| New links from one network | 20 in any 24 hours | “This network reached today's link limit” |
-| Links open at once from one network | 10 | “Couldn't make a link” |
-| Links open at once on the whole server | 5,000 | “Couldn't make a link” |
+| Limit | Value |
+|---|---|
+| New links from one network | 20 in any 24 hours |
+| Links open at once from one network | 10 |
+| Links open at once on the whole server | 5,000 |
 
-These limits are fixed in the server and have no setting. A link that ends frees its place among the
-open ones but still counts toward the 20, and a restart clears all three counts. Behind a reverse
-proxy, set `TRUSTED_PROXY_COUNT` to match it (see [Configuration](/self-hosting/configuration)), or
-every user counts as the same network.
+These limits are fixed in the server and have no setting. What Floe Desktop shows at each one is in
+[What Floe Desktop shows](#what-floe-desktop-shows). A link that ends frees its place among the open
+ones but still counts toward the 20, and a restart clears all three counts. Behind a
+[reverse proxy](/glossary#reverse-proxy), set `TRUSTED_PROXY_COUNT` to match it (see
+[Configuration](/self-hosting/configuration#trusted-proxy-count)), or every user counts as the same
+network.
 
 Two more fixed guards protect an open link. One connection can ask to join at most 30 times a
-minute, and one link seats a sender at most 6 times in any minute. A request past the first is
-dropped without an answer, one past the second is answered as if the link were taken, and neither is
-logged.
+minute, and one link lets a sender connect at most 6 times in any minute. A request past the first
+is dropped without an answer, and one past the second is answered as if the link were taken.
+Neither is logged.
 
 The limits a link's owner meets, such as how long a link lasts, are in
 [Request links](/desktop/request-links#limits).
@@ -165,7 +189,7 @@ The page a sender opens comes from the web client, not from the signaling server
 images at the same version. Compose does that by default, because `FLOE_IMAGE_TAG` picks both. An
 older client in front of a newer server lets Floe Desktop make links whose page does not exist.
 
-How the server holds a request link's room is described in
+How the server holds a request link's [room](/glossary#room) is described in
 [Architecture](/reference/architecture#request-rooms).
 
 ## Sending to a link on your server {#sending-to-a-link-on-your-server}
@@ -174,9 +198,10 @@ In a browser, a sender opens the link and nothing else is needed. See
 [Sending through a request link](/web-app/request-links) for what the page does and which browsers
 it supports.
 
-From the CLI, a sender has to name your signaling server as well as the link, with `--server` or
-`FLOE_SERVER`. Without it the send ends with `Couldn't connect to their computer. Nothing was sent.`
-before it contacts any server. See [floe send](/cli/send#send-through-a-request-link).
+From the [CLI](/glossary#cli), a sender has to name your signaling server as well as the link, with
+`--server` or `FLOE_SERVER`. Without it the send ends with
+`Couldn't connect to their computer. Nothing was sent.` before it contacts any server. See
+[floe send](/cli/send#send-through-a-request-link).
 
 The page a sender opens shows **Report this link** only when you give the web client an address for
 reports, in [`REQUEST_REPORT_EMAIL`](/self-hosting/configuration#request-report-email): under
@@ -196,7 +221,7 @@ asks the server nothing until someone clicks **Make link**, which first checks t
 | Message | What it means | What to do |
 |---|---|---|
 | “Request links are off on this server” | `/health` does not list `request-1`: there is no policy file, the file says off, or the server is older than 1.11.0. It also replaces an open link when you turn request links off. | Follow [Turn request links on](#request-links). |
-| “This network reached today's link limit” | 20 links were made from that network in the last 24 hours. | Wait. The limit has no setting: see [Limits](#request-link-limits). |
+| “This network reached today's link limit” | 20 links were made from that network in the last 24 hours. | Wait. The limit has no setting. |
 | “Couldn't make a link” | The server could not be reached, that network already has 10 links open, or the server holds 5,000. | Run **Test** under Settings, then close links that are no longer needed. |
 
 Every other message on a link's own screen is in
@@ -205,7 +230,7 @@ Every other message on a link's own screen is in
 ## If something goes wrong
 
 - A link opens a page that is not Floe's send page: **Share link address** is blank, or names the
-  signaling server, on a layout where the web client has its own address, as in step 4 above. See
+  signaling server, where step 4 says to fill it in. See
   [The link opens a page that is not Floe's send page](/troubleshooting#the-link-opens-a-page-that-is-not-floes-send-page).
 - **Make link** answers "Request links are off on this server": see
   [Request links are off on this server](/troubleshooting#request-links-are-turned-off-on-this-server).

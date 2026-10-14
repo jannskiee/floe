@@ -5,16 +5,23 @@ description: "Every HTTP endpoint the Floe signaling server exposes: health chec
 keywords: ["api", "endpoints", "rest", "health check", "turn credentials", "room code"]
 ---
 
-The signaling server exposes seven HTTP endpoints. They exist so the three Floe clients can find
-each other and fetch relay credentials, and they are documented here for self-hosters checking a
-deployment and for contributors.
+The [signaling server](/glossary#signaling-server) exposes seven HTTP endpoints. They exist so the
+three Floe clients can find each other and fetch [relay](/glossary#relay) credentials, and they are
+documented here for self-hosters checking a deployment and for contributors.
 
 Treat this as a description of the current implementation rather than a stable public contract.
 Floe ships the clients and the server together, so these shapes change when both sides change.
 There is no authentication on any of them, and no endpoint ever touches file data.
 
 The base URL is your signaling server: `https://api.floe.one` by default, or whatever you set as
-`--server` or `FLOE_SERVER` for the CLI, or as **Server address** in Floe Desktop's settings.
+`--server` or `FLOE_SERVER` for the [CLI](/glossary#cli), or as **Server address** in Floe
+Desktop's settings.
+
+## The short version {#the-short-version}
+
+`GET /health` tells a monitor the server is up. `GET /api/turn-credentials` hands every client its
+STUN and TURN servers. `POST /api/code` and `GET /api/code/:code` turn a room into a short code and
+back, and `GET /api/stats` and `POST /api/stats/report` read and feed the public byte counter.
 
 ## Status and health {#status-and-health}
 
@@ -41,7 +48,7 @@ is only reachable when you address the server directly.
 ### GET /health {#get-health}
 
 The endpoint to point a monitor at. It survives every deployment layout, including a
-[one-domain reverse proxy](/self-hosting/reverse-proxy).
+one-domain [reverse proxy](/glossary#reverse-proxy) setup ([Run behind one domain](/self-hosting/reverse-proxy)).
 
 ```json 200 OK
 { "status": "healthy", "uptime": 1893.4, "features": ["request-1"] }
@@ -62,20 +69,26 @@ The endpoint to point a monitor at. It survives every deployment layout, includi
   from 1.11.0 on sends the field; an older one has no `features` field at all.
 </ResponseField>
 
+Neither endpoint is rate limited, but both pass the same origin check as every other route (see
+[CORS](#behavior-shared-by-every-endpoint)). A monitor that sends no `Origin` header is always
+answered.
+
 ## Relay credentials {#relay-credentials}
 
-One endpoint hands every client the STUN and TURN servers to try.
+One endpoint hands every client the [STUN](/glossary#stun) and [TURN](/glossary#turn) servers to
+try.
 
 ### GET /api/turn-credentials {#get-api-turn-credentials}
 
-Returns the ICE server list a client should use. Every Floe client calls it before it builds a
-peer connection. The web app's main page reads it when it loads, and again before a connection
-when no read has succeeded yet or the list is an hour old. Floe Desktop holding a request link calls it
-again for each sender who arrives, from its own address.
+Returns the [ICE](/glossary#ice) server list a client should use. Every Floe client calls it before
+it builds a [peer](/glossary#peer) connection. The web app's main page reads it when it loads, and
+again before a connection when no read has succeeded yet or the list is an hour old. Floe Desktop
+holding a [request link](/glossary#request-link) calls it again for each sender who arrives, from
+its own address.
 
 The response is a **JSON array**, not an object. What is in it depends on how the server is
-configured, and the precedence is fixed: Cloudflare Realtime TURN if both Cloudflare variables
-are set, then coturn if both `TURN_SECRET` and `TURN_DOMAIN` are set, then Google's public STUN
+configured, in a fixed order. Cloudflare Realtime TURN comes first, if both Cloudflare variables
+are set. Then coturn, if both `TURN_SECRET` and `TURN_DOMAIN` are set. Then Google's public STUN
 servers.
 
 <CodeGroup>
@@ -109,6 +122,8 @@ servers.
 ```
 </CodeGroup>
 
+A server with `TURN_TLS=off` leaves the `turns:` entry out of the coturn list.
+
 Note the difference in the `urls` field between the first shape and the other two. Cloudflare
 entries carry an **array** of URLs; coturn and the STUN fallback carry a **string**. Every Floe
 client accepts either, and anything else consuming this endpoint has to as well.
@@ -138,26 +153,22 @@ or virtual-machine adapters.
 
 **Rate limit:** 20 requests per IP per 60 seconds, configurable with `MAX_TURN_REQUESTS_PER_IP`.
 Over the limit returns `429` with `{ "error": "Too many requests" }`, and the client falls back
-to STUN only. The browser and Floe Desktop show nothing; the CLI prints `Warning: signaling
-server returned 429 for TURN credentials. Using STUN only.` A transfer that was told to use the
-relay only has nothing left to connect through, so it stops with a message instead: `floe` with
-`--relay-only`, Floe Desktop with **Hide my IP address** on, and the page a request link opens
-with **Hide my IP (relay only, 2 GB per drop)** checked.
+to STUN only. A transfer that may only use the relay stops instead. What each app shows then is in
+[`MAX_TURN_REQUESTS_PER_IP`](/self-hosting/configuration#max-turn-requests-per-ip).
 
 ## Room codes {#room-codes}
 
-Room codes are three lowercase words joined by hyphens, drawn from a 1,247-word list (the EFF short
-word list without its hyphenated entry and without words that read badly in a shared code) with a
-cryptographically secure random source. On a collision with a live code the server draws again, up
-to 10 times, and only then falls back to a four-word code.
+Room codes are three lowercase words joined by hyphens, with a four-word fallback. How they are
+drawn, and every event that retires one, is in [Room codes](/reference/architecture#room-codes).
 
 ### POST /api/code {#post-api-code}
 
-Registers a room code for a room. Called by `floe send` and by Floe Desktop. The web app never
-calls it.
+Registers a [room code](/glossary#room-code) for a [room](/glossary#room). Called by `floe send`
+and by Floe Desktop. The web app never calls it.
 
 <ParamField body="roomId" type="string" required>
-  The room UUID, in canonical `8-4-4-4-12` form. Any UUID version is accepted, case-insensitively.
+  The room UUID, in canonical `8-4-4-4-12` form. Any UUID version is accepted, in either letter
+  case. The code resolves to the id exactly as it was registered.
 </ParamField>
 
 ```bash Request
@@ -188,9 +199,9 @@ A second `POST` for the same room retires that room's previous code, so a room o
 working code and a retrying sender does not widen its own exposure.
 
 The `503` is a global guard, not a per-IP one. It bounds the memory the code registry can use. A
-slot is freed as soon as its code is retired, which happens when the room pairs, when the room
-empties, when the same room registers again, or at expiry, whichever comes first. A sweeper clears
-whatever is left over once a minute, so the count can briefly include codes that have already
+slot is freed as soon as its code is retired: when the room pairs, when the room empties, or when
+the same room registers again. A code past its 10 minutes frees its slot at the next once-a-minute
+sweep, or when someone looks it up, so the count can briefly include codes that have already
 expired.
 
 ### GET /api/code/:code {#get-api-code-code}
@@ -218,12 +229,11 @@ Resolves a room code back to its room id. Called by `floe receive` and by Floe D
 with `MAX_CODE_REQUESTS_PER_IP`.
 
 **Failed-lookup budget:** 10 misses per IP per 60 seconds, configurable with
-`MAX_FAILED_CODE_RESOLVES`. Only a `404` counts against it; a successful resolve costs nothing, so
-retrying a code that works never spends any of it. The budget is checked before the lookup, so
-once an address has spent it, every lookup from that address answers `429` until misses age out
-of the window, a lookup of a working code included. That makes the two `429`s above
-indistinguishable from each other and from a refusal about a code that does not exist. Neither
-ever carries a room id.
+`MAX_FAILED_CODE_RESOLVES`. Only a `404` counts against it, and the budget is checked before the
+lookup. So once an address has spent it, every lookup from that address answers `429`, a working
+code included. The two `429`s above cannot be told from each other, or from a refusal about a
+code that does not exist. Neither ever carries a room id. Why the budget works this way is in
+[Rate limiting](/reference/architecture#rate-limiting).
 
 A resolve does not retire the code. A receiver that resolves and then fails before it can join,
 with no relay credentials or an output path it cannot write, can retry the same code. When a code
@@ -232,7 +242,8 @@ stops working, as the people sharing it meet it, is in
 
 ## Global byte counter {#global-byte-counter}
 
-Two endpoints read and feed the public total of bytes transferred.
+Two endpoints read and feed the public total of bytes transferred. Who reports, and how the server
+stores the total, is in [Global statistics counter](/reference/architecture#global-statistics-counter).
 
 ### GET /api/stats {#get-api-stats}
 
@@ -248,18 +259,20 @@ the homepage polling it every 10 seconds never reaches Redis.
   file names, no per-transfer records, and no link to any user.
 </ResponseField>
 
-Not rate limited. On a self-hosted instance this counter is local to that server, and without
-Upstash Redis configured it lives in memory only and resets to zero on restart.
+Not rate limited. On a [self-hosted](/glossary#self-hosted) instance this counter is local to that
+server, and without Upstash Redis configured it lives in memory only and resets to zero on
+restart.
 
 ### POST /api/stats/report {#post-api-stats-report}
 
 Adds one transfer's byte count to the counter. Only the **receiving** side of a completed transfer
-calls this, so each transfer is counted once, plus Floe Desktop for a request link drop that
-stopped after it was accepted, with the bytes of the files it saved. Senders never report.
+calls this, plus Floe Desktop for a request link drop that stopped after it was accepted. Senders
+never report.
 
 <ParamField body="bytes" type="integer" required>
   A positive integer, no larger than `MAX_REPORT_BYTES`, which defaults to 5 TiB
-  (5,497,558,138,880). Zero, negatives, fractions, and strings are all rejected.
+  (5,497,558,138,880). Zero, negatives, fractions, and strings are all rejected, so a transfer of
+  only empty files adds nothing.
 </ParamField>
 
 The example posts to a server running locally. A report sent to floe.one is added to the public
@@ -332,31 +345,51 @@ An HTTP request from a rejected origin does not come back as a recognizable CORS
 answers `403` with `{ "error": "Bad request" }` and no `Access-Control-Allow-Origin` header, while
 the browser reports a generic CORS failure. If you see that pairing, check `CLIENT_URL` first.
 
-**WebSocket origins.** Both WebSocket paths check `Origin` against the same list, and also let in
-an `Origin` naming the same host as the request's `Host` header (the port is compared only when
-`Host` still carries one, since some proxies drop it). That second rule is how the CLI and Floe
-Desktop reach a self-hosted server regardless of `CLIENT_URL`: they send the server's own
-address as their origin. A handshake from any other origin is refused before the connection opens:
-`/ws` answers `403`, and Socket.IO answers `400` with the body `Origin not allowed` on its WebSocket
-transport and `403` on polling. The server logs the first refusal on each path, once, with the
-`Origin` it refused and the `Host` it compared against.
+**WebSocket origins.** Both [WebSocket](/glossary#websocket) paths check `Origin` against the same
+list. They also let in an `Origin` naming the same host as the request's `Host` header. The port is
+compared only when `Host` still carries one, since some proxies drop it. That second rule is how
+the CLI and Floe Desktop reach a self-hosted server regardless of `CLIENT_URL`: they send the
+server's own address as their origin.
+
+A WebSocket handshake that is refused gets one of these answers before the connection opens:
+
+| Handshake | Answer |
+|---|---|
+| `/ws` from an origin that is not allowed | `403`, with the plain-text body `Forbidden` |
+| Socket.IO's WebSocket transport from an origin that is not allowed | `400` with the body `Origin not allowed` |
+| Socket.IO's polling transport from an origin that is not allowed | `403` |
+| A WebSocket upgrade on any other path, neither `/ws` nor under `/socket.io/` | `404`, with the plain-text body `Not Found` |
+| A WebSocket upgrade whose request target cannot be read as a path | `400`, with the plain-text body `Bad Request` |
+
+The server logs the first origin refusal on each of the two paths, once, with the `Origin` it
+refused and the `Host` it compared against. The `404` and the `400` are never logged. A server
+image of version 1.11.0 or earlier gives an upgrade on another path no answer at all.
 
 **Errors.** Every endpoint above answers a failure with JSON, each with its own message, and those
 are the bodies you will normally see. An error that is *thrown* rather than returned falls through
-to a final handler that collapses it. Anything under 500 becomes
-`{ "error": "Bad request" }` and writes one fixed line to the server's own output,
-`Refused a request with <status>.`, with no stack trace and none of the request's text: not the
-origin, the path, or the body. Anything at or above it becomes
-`{ "error": "Internal server error" }`, and its stack trace goes to the server's own output. A
-rejected CORS origin takes the first path, which is why it surfaces as a bare `403`. This holds at
-every `NODE_ENV`. Apart from the refused WebSocket handshakes above, the one answer that is not
-JSON is for a path or method the server does not serve: Express answers `404` with a short HTML
-page that reads, for example, `Cannot GET /nope`.
+to a final handler that collapses it:
+
+| Status | Body | What the server writes to its own output |
+|---|---|---|
+| Under 500 | `{ "error": "Bad request" }` | One fixed line, `Refused a request with <status>.`, with no stack trace and none of the request's text |
+| 500 and over | `{ "error": "Internal server error" }` | The stack trace |
+
+A rejected CORS origin takes the first path, which is why it surfaces as a bare `403`. This holds at
+every `NODE_ENV`. Apart from the refused WebSocket handshakes above, one answer is not JSON. For a
+path or method the server does not serve, Express answers `404` with a short HTML page that reads,
+for example, `Cannot GET /nope`.
 
 **Request bodies** are parsed at the default 100 kB limit (102,400 bytes). A larger body gets
 `413` and malformed JSON gets `400`, both with `{ "error": "Bad request" }`.
 
-**Client IP.** Per-IP limits read `X-Forwarded-For` according to `TRUSTED_PROXY_COUNT`. Setting
+**Security headers.** Every answer from these endpoints carries the standard security headers of the Helmet library,
+and no `X-Powered-By` header. Among them, `Strict-Transport-Security` tells
+browsers to use HTTPS for the server's own hostname for one year. A server image of version 1.11.0
+or earlier adds `includeSubDomains`, which extends that to every name under the hostname. Answers
+the CORS check lets through also carry `Access-Control-Allow-Credentials: true` and
+`Vary: Origin`.
+
+**Client IP.** Per-IP [rate limits](/glossary#rate-limit) read `X-Forwarded-For` according to `TRUSTED_PROXY_COUNT`. Setting
 it higher than your real number of proxy hops lets a client forge the header and slip past every
 limit. See [Configuration](/self-hosting/configuration). "Per IP" means one IPv4 address or one
 IPv6 /64, as [Rate limiting](/reference/architecture#rate-limiting) describes.
@@ -365,7 +398,7 @@ IPv6 /64, as [Rate limiting](/reference/architecture#rate-limiting) describes.
 
 <Columns cols={2}>
   <Card title="Transfer protocol" icon="arrow-right-left" href="/reference/transfer-protocol">
-    What happens after the two peers connect, on the data channel itself.
+    What happens after the two peers connect, on the connection between them.
   </Card>
   <Card title="Architecture" icon="layers" href="/reference/architecture">
     The components, the two signaling transports, and how a session fits together.

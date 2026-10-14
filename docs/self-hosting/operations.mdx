@@ -5,8 +5,15 @@ description: "Day-to-day operations for a self-hosted Floe instance: Compose com
 keywords: ["logs", "update containers", "health check", "restart", "upgrade", "1.11.0"]
 ---
 
-Reference for a Floe instance that is already running under Docker Compose: the commands you will
-reach for, what a restart costs, how to update, what the server logs, and which endpoint to monitor.
+Reference for a Floe instance that is already running under [Docker Compose](/glossary#docker-compose):
+the commands you will reach for, what a restart costs, how to update, what the server logs, and
+which endpoint to monitor.
+
+## The short version {#the-short-version}
+
+`docker compose pull` and `docker compose up -d` update the instance. Every restart forgets the
+room codes people are waiting on, so pick a quiet moment. Point a monitor at `/health`, and expect
+the server's log to be nearly empty.
 
 ## Common commands
 
@@ -17,23 +24,30 @@ docker compose down                     # stop and remove the stack
 docker compose restart server           # restart only the signaling server
 ```
 
+Every service in the compose file is set to `restart: unless-stopped`. The server, the client, and
+coturn come back by themselves after a crash, and when the host starts again after a reboot. They
+stay down only after `docker compose stop` or `docker compose down`. Docker does not restart a
+server that is only unhealthy.
+
 <Warning>
-  Restarting the server is not free. Rooms and room codes live in that process's memory, so a
-  restart forgets every room code, and a CLI or Floe Desktop sender still waiting for its receiver
-  stops and has to start again. There is no draining and no warning. Pick a quiet moment.
+  Restarting the server is not free. Every [room](/glossary#room) and [room code](/glossary#room-code)
+  lives in that process's memory, so a restart forgets every room code, and a [CLI](/glossary#cli)
+  or Floe Desktop sender still waiting for its receiver stops and has to start again. There is no
+  draining and no warning. Pick a quiet moment.
 </Warning>
 
-A sender waiting in the web app fares better: it reconnects on its own within a few seconds and
-keeps its link. A transfer that is already running keeps going, because file data never passes
-through the server. A web client older than 1.11.0 is the exception: its transfer stops when the
-server tells the page that the other side has left, as a shutdown can. A transfer that was still
-connecting may need another try.
+What a restart does to each person using the instance:
 
-A [request link](/desktop/request-links) that is waiting for a sender comes back on its own. The
-server forgets it too, but a Floe Desktop that is still open reconnects and makes the same link
-again, so the person it was sent to can still use it. What a restart does lose is the mark on a link
-that was used, or that ended before anyone used it: a later sender sees "Their computer is not
-connected right now" instead of "This link has already been used" or "This link has ended".
+| Who | What a restart does |
+|---|---|
+| A sender in the web app, waiting for the other person | It reconnects on its own within a few seconds and keeps its link. |
+| A sender in the CLI or Floe Desktop, waiting for the other person | It stops, and has to start again with a new code. |
+| Two people whose transfer is already running | Nothing: file data never passes through the server. A transfer that was still connecting may need another try. |
+| The owner of a [request link](/glossary#request-link) that waits for a sender | The link comes back on its own: a Floe Desktop that is still open reconnects and makes the same link again. |
+| A sender who opens a link that was used, or that ended before anyone used it | They see "Their computer is not connected right now" instead of "This link has already been used" or "This link has ended", because the server forgot the mark. |
+
+A web client older than 1.11.0 is the exception to the third row: its transfer stops when the
+server tells the page that the other side has left, as a shutdown can.
 
 The client also waits on the server: Compose starts it only once the server reports healthy. If
 the server never gets there, you do not get a web app that cannot connect, you get no web app at
@@ -48,29 +62,30 @@ docker compose up -d
 
 That pulls the image tag you run, which is `latest` unless `FLOE_IMAGE_TAG` in `.env` names another, and restarts on it. See [Container images](/self-hosting/images) for the tags. Nothing is built locally, so there is no repository to keep in sync. If you pinned a version, change `FLOE_IMAGE_TAG` first, or the pull has nothing new to fetch. An update is a restart, with the cost described above.
 
-If you run the optional coturn relay, add its profile to both commands or Compose skips the service entirely, so a new coturn image is never pulled and a stopped relay is never restarted:
+If you run the optional coturn [relay](/glossary#relay), add its profile to both commands or Compose skips the service entirely, so a stopped relay is never restarted:
 
 ```bash Terminal
 docker compose --profile turn pull
 docker compose --profile turn up -d
 ```
 
-Setting `COMPOSE_PROFILES=turn` in your `.env` applies it to every later `docker compose` command.
+Setting `COMPOSE_PROFILES=turn` in your `.env` applies it to every later `docker compose` command. The compose file pins coturn, Floe's optional [TURN](/glossary#turn) server, to `coturn/coturn:4.15`, so the pull refreshes that version only; see [TURN relay](/self-hosting/turn-relay#if-you-run-coturn).
 
-Changing `NEXT_PUBLIC_SOCKET_URL` needs only `docker compose up -d`; the client reads it at runtime. See [How the client finds the server](/self-hosting/build-time-url). `NEXT_PUBLIC_SITE_URL` is the exception: it is written into the page at build time, so the published image cannot carry it and leaves your domain out of share previews and the sitemap rather than pointing them at somebody else's. See [Container images](/self-hosting/images#share-previews-and-canonical-links) for what the image emits and how to build your own.
+Changing `NEXT_PUBLIC_SOCKET_URL` needs only `docker compose up -d`, because the client reads it at runtime. See [How the client finds the server](/self-hosting/build-time-url). `NEXT_PUBLIC_SITE_URL` is the exception: it is written into the page at build time, so the published image cannot carry it. That image leaves your domain out of share previews and the sitemap rather than pointing them at somebody else's. See [Container images](/self-hosting/images#share-previews-and-canonical-links) for what the image emits and how to build your own.
 
 ### Moving to 1.11.0 {#moving-to-1-11-0}
 
-Version 1.11.0 changed what a self-hosted instance needs. Go through these five points once, when
-you move up from an older version:
+Version 1.11.0 changed what a [self-hosted](/glossary#self-hosted) instance needs. Go through these
+five points once, when you move up from an older version:
 
 - **Pass the `Host` header through your proxy.** This matters only when the CLI or Floe Desktop
-  reaches the server through a reverse proxy on a hostname that is not exactly your `CLIENT_URL`,
-  as on the [two-hostname layout](/self-hosting/production). From 1.11.0 the server checks the
-  origin of every WebSocket, and it lets those two clients in by comparing their `Origin` with the
-  hostname in `Host`. A proxy that rewrites `Host` to its upstream address gets them refused with a
-  `403`. Browsers on your `CLIENT_URL`, a [one-domain deployment](/self-hosting/reverse-proxy), and a
-  server reached without a proxy are not affected.
+  reaches the server through a [reverse proxy](/glossary#reverse-proxy) on a hostname that is not
+  exactly your `CLIENT_URL`, as on the [two-hostname layout](/self-hosting/production). From 1.11.0
+  the server checks the origin of every [WebSocket](/glossary#websocket), and it lets those two
+  clients in by comparing their `Origin` with the hostname in `Host`. A proxy that rewrites `Host`
+  to its upstream address gets them refused with a `403`. Browsers on your `CLIENT_URL`, a
+  [one-domain deployment](/self-hosting/reverse-proxy), and a server reached without a proxy are
+  not affected.
 - **Take the current `docker-compose.yml`.** Pulling images never changes your copy. One from
   before v1.11.0 passes neither `POLICY_FILE` nor `MAX_FAILED_CODE_RESOLVES` to the server, so
   setting them in `.env` does nothing. Download the one on
@@ -92,6 +107,11 @@ you move up from an older version:
   everyone behind one IPv4 address always has. If a whole office or campus sits in one /64, raise
   `MAX_CONNECTIONS_PER_IP` and the other limits to fit.
 
+One change needs nothing from you. From 1.11.0 the server turns a third network away from a room
+once devices on two networks have started connecting through it. An older server lets a device
+from any network into a free place. See
+[A room holds exactly two people](/how-it-works/signaling#a-room-holds-exactly-two-people).
+
 The [Changelog](/changelog) lists everything else that changed in v1.11.0.
 
 ## What an older web app shows {#older-web-app-versions}
@@ -107,34 +127,42 @@ wording of the version they run, and this table lists each place where that diff
 | [Troubleshooting](/troubleshooting#link-invalid): the “Link Invalid” card | The card reads “This link is incomplete, already in use, or locked to the networks that first used it.” | The card reads “This link is either expired, already in use, or does not exist.” The causes are the same. |
 | [Troubleshooting](/troubleshooting#the-sender-is-not-connected): nobody is on the sending side of the link | The second step of the card reads “The sender is not connected”. | Never this line. The page shows “Waiting for the sender to start” for as long as it stays open. |
 | [Troubleshooting](/troubleshooting#a-device-that-changed-networks-is-refused): a sender in the browser came back on a new network | The status line reads “Reconnecting to your link” for about a minute, then a red banner says the link stopped working. | Nothing: the page keeps its last status line, and nobody who opens its link reaches it anymore. |
-| [Troubleshooting](/troubleshooting#too-many-refreshes-reconnecting): “Too many refreshes. Reconnecting” | The page retries by itself, and the banner goes away once a retry gets through. | Version 1.11.0 only: the red banner stays on screen after a retry has worked. There, the badge at the top right turning green is the sign that the page is connected again, and the X closes the banner. Version 1.10.11 or earlier: the page does not retry at all, so wait a minute and then reload it once. |
+| [Troubleshooting](/troubleshooting#too-many-refreshes-reconnecting): “Too many refreshes. Reconnecting” | The page retries by itself, and the banner goes away once a retry gets through. | Version 1.11.0 only: the red banner stays on screen after a retry has worked. Version 1.10.11 or earlier: the page does not retry at all, so wait a minute and then reload it once. |
 | [Troubleshooting](/troubleshooting#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again): the receiving page could not connect | “Connection failed. Ask the sender to try again. If they turned the relay off, ask them to leave it on.” | “Could not connect. Ask the sender to enable "Network Relay" and try again.” It means the same. |
-| [Troubleshooting](/troubleshooting#connection-failed-enable-network-relay-to-connect-across-restrictive-networks): the sending page, with **Network relay fallback** unchecked | “Connection failed. This link was made with Network relay fallback off. Reload the page, add the files again, leave it on, and share the new link.” | “Connection failed. Enable "Network Relay" to connect across restrictive networks.” It means the same checkbox. |
+| [Troubleshooting](/troubleshooting#connection-failed-enable-network-relay-to-connect-across-restrictive-networks): the sending page, with [**Network relay fallback**](/glossary#network-relay-fallback) unchecked | “Connection failed. This link was made with Network relay fallback off. Reload the page, add the files again, leave it on, and share the new link.” | “Connection failed. Enable "Network Relay" to connect across restrictive networks.” It means the same checkbox. |
 | [Troubleshooting](/troubleshooting#this-link-stopped-working): “This link stopped working” on the sending page | About a minute of “Reconnecting to your link”, then a red banner: “This link stopped working. Reload the page, add the files again, and share the new link.” | Neither message. The page keeps its last status line and its link, and nobody who opens that link reaches it. |
-| [Troubleshooting](/troubleshooting#transfer-blocked-relay-limit-exceeded): a relayed transfer over 2 GB | The receiving page is told “Transfer blocked: relay connections are capped at 2 GB. Ask the sender to send 2 GB or less, or to try a network that allows a direct connection.” The sender's own notice says to reload the page. | Versions 1.10.8 to 1.11.0: a sender's page sends “remove files” where this says “send 2 GB or less”, and its own notice says “Remove files to proceed”. |
+| [Troubleshooting](/troubleshooting#transfer-blocked-relay-limit-exceeded): a relayed transfer over 2 GB | The receiving page is told “Transfer blocked: relay connections are capped at 2 GB. Ask the sender to send 2 GB or less, or to try a network that allows a direct connection.” | Versions 1.10.8 to 1.11.0: a sender's page sends “remove files” where this says “send 2 GB or less”, and its own notice says “Remove files to proceed”. |
 | [Troubleshooting](/troubleshooting#the-transfer-ended-before-the-rest-arrived): the transfer ended before every file arrived | An amber line under the file list, such as “Received 1 of 3 files. The transfer ended before the rest arrived.” | Not this line. The page shows a green check and a count such as “1 file received” instead, as if the transfer had finished. |
-| [Troubleshooting](/troubleshooting#connection-error): the connection failed before any file moved | The receiving page says “Connection failed. Reload the page to try again. If it fails again, ask the sender for a new link.” The sending page says “Connection failed. Ask the other device to open the link again. If it fails again, reload the page, add the files again, and share the new link.” | “Connection error:” followed by a technical message. Part of that message can come from the other device, so do not act on what it says. |
+| [Troubleshooting](/troubleshooting#connection-error): the connection failed before any file moved, on the receiving page | “Connection failed. Reload the page to try again. If it fails again, ask the sender for a new link.” | “Connection error:” followed by a technical message. Part of that message can come from the other device, so do not act on what it says. |
+| [Troubleshooting](/troubleshooting#connection-error): the connection failed before any file moved, on the sending page | “Connection failed. Ask the other device to open the link again. If it fails again, reload the page, add the files again, and share the new link.” | “Connection error:” followed by a technical message, as on the receiving page. |
 | [File checks](/how-it-works/file-checks#the-sha-256-check): the SHA-256 check in the browser | The Send page works out each file's SHA-256, and a receiving page checks it and shows “SHA-256 matched” when every file matched. | Version 1.10.11 or earlier: neither page works out or checks a SHA-256, so files are checked by size only and no “SHA-256 matched” line appears. |
 | [Sending files](/web-app/sending#when-it-finishes): the status changes after “All Files Sent!” | The file rows keep their check marks, and the progress row still reads “Sent 3 files”, with your own number. | The last file's check mark turns back into a spinner when the status changes, and the progress row reads “Sending file 3 of 3...” at 100%. Every file was still sent. |
-| [Sending files](/web-app/sending#when-it-finishes): the status becomes “Connection interrupted” after every file was sent | A “SHA-256 matched” line that was showing stays under the status. | The line disappears, although the files it was about were delivered. |
-| [Receiving files](/web-app/receiving#the-sender-has-to-stay-connected): the sender left after at least one file finished | An amber line under the list says how far the transfer got, such as “Received 1 of 3 files. The transfer ended before the rest arrived.” | No such line. The list keeps a green check and a count such as “1 file received”, and a progress row for the file that never finished can stay on screen. There, the count is the only sign that files are missing. |
+| [Sending files](/web-app/sending#when-it-finishes): the status becomes “Connection interrupted” after every file was sent | A “[SHA-256 matched](/glossary#sha-256-matched)” line that was showing stays under the status. | The line disappears, although the files it was about were delivered. |
+| [Receiving files](/web-app/receiving#the-sender-has-to-stay-connected): the sender left after at least one file finished | An amber line under the list says how far the transfer got, such as “Received 1 of 3 files. The transfer ended before the rest arrived.” | No such line. The list keeps a green check and a count such as “1 file received”, and a progress row for the file that never finished can stay on screen. |
 | [Sending through a request link](/web-app/request-links#messages-on-the-senders-page): the link was opened inside another app's built-in browser | “Open in your browser”, with “Open the link in current Chrome or Edge on a computer.” | Version 1.11.0 only: the page says “Open Floe in Chrome or Safari for the best experience.” there instead. |
-| [Sending through a request link](/web-app/request-links#messages-on-the-senders-page): Hide my IP is on and the selection is over 2 GB | “Relayed drops are capped at 2 GB. Turn off Hide my IP, or send 2 GB or less.” | Version 1.11.0 only: the line ends “or remove files.” |
+| [Sending through a request link](/web-app/request-links#messages-on-the-senders-page): [Hide my IP](/glossary#hide-my-ip) is on and the selection is over 2 GB | “Relayed drops are capped at 2 GB. Turn off Hide my IP, or send 2 GB or less.” | Version 1.11.0 only: the line ends “or remove files.” |
 | [Sending through a request link](/web-app/request-links#messages-on-the-senders-page): Hide my IP is on and the page could not read the server's relay list | “Couldn't check for a relay. Try again, or turn off Hide my IP to send directly.” | The page says “This Floe server has no relay right now. Turn off Hide my IP to send directly.” here too. |
 | [Sending through a request link](/web-app/request-links#messages-on-the-senders-page): “Relay limit” | “Relay limit”, then “This connection needs a relay, and relayed drops are capped at 2 GB. Send 2 GB or less, or try another network.” | Version 1.11.0 only: the page says “Remove files” where this says “Send 2 GB or less”. |
 | [Sending through a request link](/web-app/request-links#when-their-floe-stops-the-drop): their Floe stopped a relayed drop past 2 GB | “Relayed drops are capped at 2 GB”, with “Nothing was sent. Send 2 GB or less.” in place of the count when nothing was saved. | The line ends “Send under 2 GB.” |
 | [Sending through a request link](/web-app/request-links#report-a-link): **Report this link** on a server other than floe.one | The link starts an email to the address that server's operator set in [`REQUEST_REPORT_EMAIL`](/self-hosting/configuration#request-report-email). With no address set, the page shows no report link. | The link shows on every server and starts an email to Floe's maintainers, who cannot act on another server's links. The variable is not read. |
 | [floe send](/cli/send#folder-transfers): a receiving browser refuses a file whose description is longer than 1,000 bytes | The page tells the sender why, and `floe send` stops with `Error: A folder path is too long for their computer. Zip deeply nested folders first.` | The page sends no answer, so `floe send` waits 120 seconds and ends with `timed out waiting for ack`. |
+| [Self-hosting overview](/self-hosting/overview#what-the-web-app-on-your-domain-serves): `/docs` on your instance | `/docs` sends the visitor's browser on to the same page under `https://www.floe.one/docs`. | The client container fetches each docs page from `floe.mintlify.site` itself and serves it under your own domain. |
+
+On version 1.11.0, where the “Too many refreshes. Reconnecting” banner stays after a retry has
+worked, the [badge](/glossary#badge) at the top right turning green is the sign that the page is connected again, and
+the X closes the banner. For a relayed transfer over 2 GB, the sending page's own notice now
+says to reload the page.
 
 To see the newer wording, update the client image to a version later than 1.11.0: see
 [Update to the latest code](#update-to-the-latest-code).
 
 ## The server logs very little
 
-Worth knowing before you go looking. The signaling server has no access log, no request log, and
-no startup banner, not even a line saying which port it bound. `docker compose logs server` on a
-healthy instance is usually empty, or holds the one line `request links: on`, and that is expected
-rather than a symptom.
+Worth knowing before you go looking. The [signaling server](/glossary#signaling-server) has no
+access log, no request log, and no startup banner, not even a line saying which port it bound.
+`docker compose logs server` on a healthy instance is usually empty, or holds the one line
+`request links: on`, and that is expected rather than a symptom. A server run with Node directly
+and no `TRUSTED_PROXY_COUNT` writes one line about that at startup; see the table.
 
 It never logs an accepted connection, a room, a code, a rate-limit refusal, or a request-link event,
 and no line is built from a client's address. These are all the lines it can write:
@@ -143,23 +171,34 @@ and no line is built from a client's address. These are all the lines it can wri
 |---|---|---|
 | `request links: on` or `request links: off` | The request-link setting took effect: at startup when the policy file says on, and afterward whenever it changes. A server that starts with request links off writes neither. | Nothing. See [Turn on request links](/self-hosting/request-links). |
 | `policy file not found, request links off` | `POLICY_FILE` is set, but no file is at that path. Written once for as long as the file stays missing. | Check the volume mount and the path. |
-| `policy file unreadable, keeping previous policy` | The policy file is there but cannot be used, so the last good setting stays. Written once, until the file reads cleanly again. | Fix the file. See [how the server reads it](/self-hosting/request-links#how-the-server-reads-the-file). |
-| `Refused a request with 403.` | The error handler refused one HTTP request: `403` for a browser request from an origin the server does not allow, or another status under 500, such as `400` for malformed JSON or `413` for a body over the size limit. The line carries the status and nothing else, never the origin, the path, or any of the request's text. | An occasional one is some page or client sending a bad request, not a fault. If `403` lines show up each time someone uses your own web client, check `CLIENT_URL`. |
+| `policy file unreadable, keeping previous policy` | The policy file is there but cannot be used, so the last good setting stays. Written once, until the file reads cleanly again. | Fix the file, or let the user `node` read it. See [how the server reads it](/self-hosting/request-links#how-the-server-reads-the-file). |
+| `MAX_CONNECTIONS_PER_IP is not a whole number of at least 1. Using the default, 30.` | A `MAX_*` variable holds something other than a whole number of at least 1. The line names the variable and the default now in use, never the value. Written once at startup for each such variable. | Fix the value, or remove it to keep the default. See [Configuration](/self-hosting/configuration#two-things-about-the-limits). |
+| `TRUSTED_PROXY_COUNT is not set, so the default of 1 is in use. Set it to the number of reverse proxies in front of this server, or 0 if there are none.` | The server was started without `TRUSTED_PROXY_COUNT`. Written once at startup. Compose and the Unraid template always pass a value, so it shows only on a server started another way, such as with Node directly, without the variable. | Set the variable. See [Configuration](/self-hosting/configuration#trusted-proxy-count). |
+| `Refused a request with 403.` | The error handler refused one HTTP request with that status: `403` for a browser origin the server does not allow, or another status under 500. | An occasional one is some page or client sending a bad request, not a fault. If `403` lines show up each time someone uses your own web client, check `CLIENT_URL`. |
 | `Refused a connection on /ws from Origin "..." (Host "..."): not CLIENT_URL, a floe.one origin, or this server's own host. Further refusals on /ws are not logged.` | A WebSocket came from an origin the server does not accept. Written once for `/ws` and once for `/socket.io` until the next restart, however many connections are refused. | If the `Origin` is your own server and the `Host` is not, your proxy rewrites `Host`. See [Production deployment](/self-hosting/production#cors-note). |
-| `Cloudflare TURN mint failed (...)` | A request to Cloudflare for relay credentials failed. The parentheses hold the reason: `status` and an HTTP status, `no-ice-servers`, or an error name such as `TimeoutError`. At most one line every 5 minutes. | See [TURN relay](/self-hosting/turn-relay#verify). |
+| `Cloudflare TURN mint failed (...)` | A request to Cloudflare for relay credentials failed. The parentheses hold the reason: `status` and an HTTP status, `no-ice-servers`, an error name such as `TimeoutError`, or the word `error`. At most one line every 5 minutes. | See [TURN relay](/self-hosting/turn-relay#verify). |
 | `HTTP server error:` and a stack trace | The server could not bind its port at startup. It exits. | Free the port, or change `PORT`. |
 | `Unhandled error (uncaughtException), server still serving:` and a stack trace | An exception nothing anticipated reached the process-level backstop. The word in parentheses can also be `unhandledRejection`. The server kept serving rather than exiting, so the transfers in progress survived. | It is worth reporting. |
 | A stack trace on its own | A server-side error (a `5xx`) reached the error handler. | It is worth reporting. |
 
+The `Refused a request with` line carries the status and nothing else, never the origin, the path,
+or any of the request's text. Besides `403`, it shows `400` for malformed JSON and `413` for a body
+over the size limit. A server image of version 1.11.0 or earlier never writes the `MAX_*` and
+`TRUSTED_PROXY_COUNT` lines.
+
 To confirm the server is alive, or that a restart actually landed, use the health endpoint below
 rather than the logs.
 
-`docker compose ps` has a blank of its own: the client image ships no healthcheck, so it never
-reports a health state. Only the server does.
+The client container writes Next.js's own lines when it starts. Once it is listening it also warms
+its picture cache, and writes one line only if that does not finish:
+`Floe: the image warm-up did not finish; pictures are resized on first request instead.` The web
+app works either way. `docker compose ps` has a blank of its own: the client image ships no
+healthcheck, so it never reports a health state. Only the server does.
 
-On `SIGTERM` or `SIGINT` the server closes every `/ws` connection with code `1001` and the reason
-`Server shutting down`, closes its Socket.IO connections, stops accepting new ones, and exits. If
-something is still holding it open 10 seconds later it exits anyway. It logs nothing on the way out.
+When Docker stops the server, the server closes every connection and exits within 10 seconds, and
+logs nothing on the way out. In detail: on `SIGTERM` or `SIGINT` it closes every `/ws` connection
+with code `1001` and the reason `Server shutting down`, closes its Socket.IO connections, and stops
+accepting new ones. If something is still holding it open 10 seconds later, it exits anyway.
 
 ## Health endpoints
 
@@ -174,8 +213,16 @@ Point a monitor at `/health`. It is the only one of the two that survives a
 [one-domain deployment](/self-hosting/reverse-proxy), where `/` belongs to the
 web client and returns a page rather than JSON. `GET /` on the signaling server
 is reachable only when you address the server directly, on `:3001` or on its own
-subdomain. The server image runs the same check on itself every 30 seconds, which is the health
-state `docker compose ps` shows.
+subdomain.
+
+Both endpoints pass the same origin check as every other HTTP route. A monitor that sends no
+`Origin` header, as `curl` and most uptime services do, is answered. One that runs inside a web
+page on another site sends that site's origin, and gets `403` with `{"error":"Bad request"}` while
+the server is healthy.
+
+The server image runs the same check on itself every 30 seconds, which is the health state
+`docker compose ps` shows. Each check gets 3 seconds to answer, and 3 failed checks in a row mark
+the server unhealthy.
 
 `features` is `["request-1"]` while request links are on and `[]` while they are off. See
 [HTTP API](/reference/http-api#get-health).

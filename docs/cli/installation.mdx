@@ -5,16 +5,24 @@ description: "Install the floe CLI in one command on macOS, Windows, or Linux to
 keywords: ["install floe", "brew", "winget", "scoop", "go install", "download cli"]
 ---
 
-This page installs `floe`, Floe's command-line client, on macOS, Windows, or Linux and confirms that it runs. It is for anyone who wants to send or receive from a terminal or a script. `floe` is a single self-contained binary with no runtime dependencies.
+This page installs `floe`, Floe's [CLI](/glossary#cli) (command-line program), on macOS, Windows,
+or Linux and confirms that it runs. It is for anyone who wants to send or receive from a terminal or
+a script. `floe` is a single file that needs nothing else installed to run.
 
 If you would rather have a window than a terminal, [Floe Desktop](/desktop/installation) runs on
 this same transfer engine, so the two interoperate. It is Windows only; on macOS and Linux this
 CLI and the [web app](/web-app/sending) are the options.
 
+## The short version {#the-short-version}
+
+On a Mac with Homebrew, run `brew install --cask jannskiee/tap/floe`. On Windows, run
+`winget install jannskiee.floe`. On Linux, or anywhere without a package manager, use the one-line
+installer below. Then run `floe version` to check that it works.
+
 ## Package managers
 
-The fastest way to install `floe`. A package manager install is also updated with that tool's
-standard upgrade command.
+The fastest way to install `floe`. A [package manager](/glossary#package-manager) install is also
+updated with that tool's standard upgrade command.
 
 <Tabs>
   <Tab title="macOS">
@@ -24,8 +32,8 @@ standard upgrade command.
 
     Update: `brew upgrade floe`
 
-    First run: if macOS blocks the binary (Gatekeeper), right-click the `floe` binary in Finder
-    and choose Open, or run `xattr -dr com.apple.quarantine $(which floe)`.
+    First run: if macOS blocks the binary (Gatekeeper), run
+    `xattr -dr com.apple.quarantine $(which floe)`.
   </Tab>
   <Tab title="Windows (winget)">
     ```powershell Terminal
@@ -49,10 +57,14 @@ standard upgrade command.
   </Tab>
 </Tabs>
 
+Floe publishes no Linux package: there is no `.deb`, `.rpm` or AUR package. On Linux, use the
+one-line installer, a [release archive](#install-from-a-release-archive), or `go install`.
+
 ## One-line installer
 
-Works on macOS, Linux, and Windows without a package manager. Re-running the script
-upgrades an existing install in place.
+Works on macOS, Linux, and Windows without a package manager. The script comes from floe.one.
+Unless you name a version with `FLOE_VERSION`, it asks GitHub's API which release is newest. It then
+downloads that release's archive and its `checksums.txt` from GitHub.
 
 <Tabs>
   <Tab title="macOS / Linux">
@@ -61,16 +73,43 @@ upgrades an existing install in place.
     ```
 
     To install a specific version, using any `vX.Y.Z` tag from the
-    [releases page](https://github.com/jannskiee/floe/releases):
+    [releases page](https://github.com/jannskiee/floe/releases), with or without the `v`:
     ```bash Terminal
     curl -fsSL https://floe.one/install.sh | FLOE_VERSION=vX.Y.Z sh
     ```
 
-    The script detects your OS and architecture (64-bit Intel or ARM), downloads the matching archive, checks its SHA-256 against the release's `checksums.txt`, and installs `floe` to `/usr/local/bin`, creating it when it is missing and asking for your `sudo` password when it is not writable.
-    When `sudo` is missing or cannot be used, it installs to `~/.local/bin` instead, and says so if that directory is not on your `PATH`, with the line to add to the file your login shell reads: `~/.zprofile` for zsh, `~/.bash_profile` for bash when you have one, `~/.profile` otherwise.
-    If an earlier `floe` is still in `/usr/local/bin` then, the script says so, because that one may run first, and gives the command that removes it, `sudo rm /usr/local/bin/floe`.
-    On a processor other than 64-bit Intel or ARM, it stops and points at `go install` or a source build.
-    If the machine has neither `sha256sum` nor `shasum`, or the release lists no checksum for the archive, the script prints a warning and installs without the check.
+    The script:
+
+    - picks the archive for your system and processor (64-bit Intel or ARM), and stops on any other
+      processor with a pointer to `go install` or a source build;
+    - checks the archive's [SHA-256](/glossary#sha-256), a fingerprint of the file, against the
+      release's `checksums.txt`;
+    - installs `floe` to `/usr/local/bin`, creating that folder when it is missing and asking for
+      your `sudo` password when it is not writable.
+
+    When `sudo` is missing or cannot be used, it installs to `~/.local/bin` instead. If that folder
+    is not on your [`PATH`](/glossary#path), it says so and gives the line to add to the file your
+    login shell reads. That file is `~/.zprofile` for zsh, `~/.bash_profile` for bash when you have
+    one, and `~/.profile` otherwise. If an earlier `floe` is still in `/usr/local/bin` then, the
+    script says so, because that one may run first, and gives the command that removes it,
+    `sudo rm /usr/local/bin/floe`.
+
+    If the machine has neither `sha256sum` nor `shasum`, or the release lists no checksum for the
+    archive, the script prints a warning and installs without the check.
+
+    A run that needs `sudo` looks like this:
+
+    ```text Output
+    Fetching latest version... v1.11.0
+    Downloading floe v1.11.0 (linux/amd64)...
+    Checksum verified.
+    Installing to /usr/local/bin (requires sudo)...
+    Installed floe v1.11.0 to /usr/local/bin/floe
+
+    Run 'floe version' to verify the installation.
+    ```
+
+    `Checksum verified.` is the line that says the download matched.
   </Tab>
   <Tab title="Windows (PowerShell)">
     ```powershell Terminal
@@ -78,16 +117,36 @@ upgrades an existing install in place.
     ```
 
     To install a specific version, using any `vX.Y.Z` tag from the
-    [releases page](https://github.com/jannskiee/floe/releases):
+    [releases page](https://github.com/jannskiee/floe/releases), with or without the `v`:
     ```powershell Terminal
     $env:FLOE_VERSION = "vX.Y.Z"; irm https://floe.one/install.ps1 | iex
     ```
 
-    The script downloads the `.zip` for your architecture (x64 or ARM64), checks its SHA-256 against the release's `checksums.txt`, installs `floe.exe` to `%LOCALAPPDATA%\Programs\floe`, and adds that directory to your user `PATH`.
-    It asks for no administrator rights. If the release lists no checksum for the archive, the script prints a warning and installs without the check.
+    The script downloads the `.zip` for your processor (x64 or ARM64), checks its SHA-256 against
+    the release's `checksums.txt`, and installs `floe.exe` to `%LOCALAPPDATA%\Programs\floe`. It
+    adds that folder to your user `PATH` and asks for no administrator rights. If the release lists
+    no checksum for the archive, the script prints a warning and installs without the check.
+
+    ```text Output
+    Fetching latest version...
+    Downloading floe v1.11.0 (windows/amd64)...
+    Verifying checksum...
+    Checksum verified.
+    Extracting...
+    Added C:\Users\you\AppData\Local\Programs\floe to your PATH.
+
+    Installed floe v1.11.0 to C:\Users\you\AppData\Local\Programs\floe\floe.exe
+    Open a new terminal, then run 'floe version' to verify.
+    ```
+
     Open a new terminal after running it.
   </Tab>
 </Tabs>
+
+Running the script again installs the latest release over the copy in its own folder. It does not
+look for a `floe` installed another way, such as with Homebrew, Scoop or winget: it adds a second
+copy, and whichever comes first on your `PATH` runs. With Homebrew on an Intel Mac, it replaces
+Homebrew's `floe` link in `/usr/local/bin` instead.
 
 ## Go install
 
@@ -102,12 +161,52 @@ Go writes the binary to `$(go env GOPATH)/bin` (or `$(go env GOBIN)`), which is 
 package managers and the install script above handle this for you.
 
 <Warning>
-  `go install` does not give you a release build. `cli` is a nested Go module and the
-  repository carries no `cli/vX.Y.Z` tags, so `@latest` resolves to the current tip of `main`
-  as a pseudo-version rather than to the newest release. The version string is stamped in at
-  release time, so a binary built this way reports `floe dev`, and `floe update` stops with `Cannot update a dev build.`
-  Use a package manager or the install script if you want a released build with working self-update.
+  A binary from `go install` calls itself `floe dev` and cannot update itself: on it, `floe update`
+  stops with `Error: Cannot update a dev build.` and status 1. For Go users: `cli` is a nested Go
+  module and the repository carries no `cli/vX.Y.Z` tags, so `@latest` resolves to the current tip of `main` as a
+  pseudo-version, not to the newest release. The version string is stamped in only at release
+  time. Use a package manager or the install script if you want a released build with working
+  self-update.
 </Warning>
+
+## Install from a release archive {#install-from-a-release-archive}
+
+For a machine where the script cannot run, install a release by hand:
+
+<Steps>
+  <Step title="Download the archive">
+    From the [GitHub Releases page](https://github.com/jannskiee/floe/releases), download
+    `floe_<version>_<system>_<processor>.tar.gz`, or the `.zip` for Windows. The system is `linux`,
+    `darwin` (macOS) or `windows`, and the processor `amd64` (64-bit Intel) or `arm64`. The version
+    in the name has no leading `v`. Download `checksums.txt` from the same release.
+  </Step>
+  <Step title="Check it">
+    Compare the archive with `checksums.txt`, as shown in the next section.
+  </Step>
+  <Step title="Put floe on your PATH">
+    Unpack the archive and move `floe` (`floe.exe` on Windows) to a folder on your `PATH`, as in
+    [Build from source](#build-from-source). If macOS blocks it the first time it runs, run
+    `xattr -d com.apple.quarantine` on the file.
+  </Step>
+</Steps>
+
+### Verify the checksum (manual download) {#verify-the-checksum-manual-download}
+
+Each release includes a `checksums.txt` file. To check an archive you downloaded, run this in the
+folder that holds it:
+
+```bash Terminal
+# Download checksums
+curl -LO "https://github.com/jannskiee/floe/releases/download/vX.Y.Z/checksums.txt"
+
+# Verify (macOS)
+shasum -a 256 --check --ignore-missing checksums.txt
+
+# Verify (Linux)
+sha256sum --check --ignore-missing checksums.txt
+```
+
+On Windows, `Get-FileHash <archive> -Algorithm SHA256` in PowerShell prints the hash to compare with the archive's line in `checksums.txt`.
 
 ## Verify the install
 
@@ -125,42 +224,16 @@ Docs: https://www.floe.one/docs
 If the version you installed is not the newest release, a third line follows:
 
 ```text Output
-Update available: v1.x.x  run `floe update` to upgrade
+Update available: 1.x.x  run `floe update`, or your package manager's upgrade command
 ```
 
 Set `FLOE_NO_UPDATE_CHECK=1` to silence it. See [`floe version`](/cli/version) for what that check does.
 A binary from `go install` or built from source prints `floe dev` instead of a version number.
 
-## Verify the checksum (manual download)
-
-If you downloaded an archive directly from the [GitHub Releases page](https://github.com/jannskiee/floe/releases),
-each release includes a `checksums.txt` file. To verify, run this in the directory that holds the archive:
-
-```bash Terminal
-# Download checksums
-curl -LO "https://github.com/jannskiee/floe/releases/download/vX.Y.Z/checksums.txt"
-
-# Verify (macOS)
-shasum -a 256 --check --ignore-missing checksums.txt
-
-# Verify (Linux)
-sha256sum --check --ignore-missing checksums.txt
-```
-
-On Windows, `Get-FileHash <archive> -Algorithm SHA256` in PowerShell prints the hash to compare with the archive's line in `checksums.txt`.
-
 ## Update
 
-For package manager installs, use the standard upgrade command (`brew upgrade floe`,
-`winget upgrade jannskiee.floe`, `scoop update floe`).
-
-For script or manual installs, run:
-
-```bash Terminal
-floe update
-```
-
-See [Update the CLI](/cli/update) for details.
+Use your package manager's upgrade command, shown in its tab above, or `floe update` for a script or
+manual install. See [Update the CLI](/cli/update).
 
 ## Build from source
 
@@ -179,6 +252,37 @@ needs elevation: `sudo mv floe /usr/local/bin/`. A user-owned directory such as
 
 Like a `go install` build, a binary compiled this way reports `floe dev` and cannot update
 itself.
+
+## Uninstall {#uninstall}
+
+Remove `floe` the way it came:
+
+| Installed with | To remove it |
+|---|---|
+| Homebrew | `brew uninstall --cask floe` |
+| winget | `winget uninstall jannskiee.floe` |
+| Scoop | `scoop uninstall floe` |
+| The macOS and Linux script | Delete `/usr/local/bin/floe` (`sudo rm /usr/local/bin/floe`), or `~/.local/bin/floe` if it went there. |
+| The PowerShell script | Delete the folder `%LOCALAPPDATA%\Programs\floe`, then remove it from your user `Path` in **Edit environment variables for your account**. |
+| `go install` | Delete `floe` from `$(go env GOPATH)/bin`. |
+
+The only other thing `floe` leaves is the update check's `floe/update-check.json` in your user
+config folder, which is safe to delete: see [The update check](/cli/version#the-update-check).
+
+## If the install script stops {#if-the-install-script-stops}
+
+The script ends with one of these and installs nothing:
+
+| Message | What it means | What to do |
+|---|---|---|
+| `Unsupported OS:` and a name | The macOS and Linux script runs only on macOS and Linux. Git Bash on Windows counts as another system. | On Windows, use the PowerShell script. On any other system, build from source. |
+| `Unsupported architecture:` and a name | Releases are built for 64-bit Intel and ARM only. A 32-bit PowerShell reports `x86`. | Use `go install` or build from source. On Windows, run the 64-bit PowerShell. |
+| `Could not determine latest version.` | The script could not read the newest release from GitHub: no connection, a proxy, or GitHub's limit on requests made without an account. | Try again later, or set `FLOE_VERSION` to a release tag, as the message shows. |
+| `Checksum verification failed!`, then `Expected:` and `Got:` lines (`Checksum verification failed.` in PowerShell) | The download did not match `checksums.txt`. | Run the script again. |
+
+A `FLOE_VERSION` that names no release stops the script right after its `Downloading` line, with
+the download tool's own error, such as a 404. In PowerShell, a GitHub that cannot be reached ends
+the script with PowerShell's own error.
 
 ## If something goes wrong {#if-something-goes-wrong}
 

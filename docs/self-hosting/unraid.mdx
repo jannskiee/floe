@@ -226,7 +226,7 @@ The default configuration has no [relay](/glossary#relay) and works on many netw
 add a [TURN](/glossary#turn) relay. In the Floe-Server template, turn on **Advanced View** and fill
 in **Cloudflare TURN Key ID** and **Cloudflare TURN API Token** with a Cloudflare Realtime TURN key.
 You can also run coturn separately and fill in **Self-hosted TURN Domain** and **Self-hosted TURN
-Secret** instead. See [TURN relay](/self-hosting/turn-relay).
+Secret** instead. If that coturn has no TLS certificate, set **Self-hosted TURN TLS** to `off`. See [TURN relay](/self-hosting/turn-relay).
 
 ## Request links on Unraid {#request-links}
 

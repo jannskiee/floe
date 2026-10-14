@@ -27,28 +27,43 @@ Run the built-in update command:
 floe update
 ```
 
-This asks GitHub for the latest release, downloads the correct archive for your OS and
-architecture, verifies its SHA-256 against the release's `checksums.txt`, and replaces the running
-binary in place:
+This asks GitHub for the latest release, downloads the correct archive for your system, checks its
+[SHA-256](/glossary#sha-256), a fingerprint of the file, against the release's `checksums.txt`, and
+replaces the running binary in place:
 
 ```text Output
-Current version: 1.10.11
-Checking for updates... v1.11.0
-Update available: 1.10.11 -> v1.11.0
-Downloading v1.11.0...
-Updated to v1.11.0
+Current version: 1.x.x
+Checking for updates... 1.y.y
+Update available: 1.x.x -> 1.y.y
+Downloading 1.y.y...
+Updated to 1.y.y
 ```
 
-When nothing newer exists, it prints `Already up to date (1.11.0)` after the first two lines and
-stops. `floe update` installs nothing when the checksum does not match. Unlike the install
-scripts, it also installs nothing when the release lists no checksum for the archive.
+`floe` 1.11.0 and earlier write the newer version with a leading `v`, as in
+`Update available: 1.10.11 -> v1.11.0`. When nothing newer exists, `floe update` prints
+`Already up to date (1.x.x)` after the first two lines and stops.
 
-On macOS and Linux, if floe lives in a root-owned directory such as `/usr/local/bin` (the
-install script's default), the final swap needs elevation, so floe asks for your sudo password
-once. Everything before that step (download, checksum, extraction) runs as your normal user. If
-sudo is not installed, the update stops and tells you to re-run as root or reinstall with the
-install script. On Windows no elevation is involved: floe renames the running executable aside
-and moves the new one into place.
+`floe update` installs nothing when the checksum does not match. Unlike the install scripts, it also
+installs nothing when the release lists no checksum for the archive. It gives GitHub 10 seconds to
+say which release is newest, 30 seconds for `checksums.txt`, and 5 minutes for the whole archive,
+and an update that runs out of time installs nothing.
+
+On macOS and Linux, if `floe` lives in a folder you cannot write to, such as `/usr/local/bin` (the
+install script's usual place), the final swap needs `sudo`. One more line then comes before
+`Updated to`, followed by a password prompt:
+
+```text Output
+  /usr/local/bin is not writable; requesting sudo to install the update...
+```
+
+Everything before that step (download, checksum, unpacking) runs as your normal user. If `sudo` is
+not installed, the update stops and tells you to run it again as root or to reinstall with the
+install script.
+
+On Windows no administrator rights are needed: `floe` renames the running file aside, to
+`floe.exe.floe-update-old`, and moves the new one into place. That file stays until `floe` next
+starts, which removes it. `floe` 1.11.0 and earlier named it `floe.exe.bak`. `floe update` still
+removes a file of that name before it renames, and nothing else does.
 
 To check for an update without installing:
 
@@ -59,7 +74,13 @@ floe update --check
 It prints the same first lines and, when a newer release exists, ends with
 ``Run `floe update` to install.`` instead of downloading anything.
 
-You can also re-run the original install script at any time to upgrade:
+`floe update` always installs the latest release. To install a particular version, run the install
+script with `FLOE_VERSION`: see [One-line installer](/cli/installation#one-line-installer). A later
+`floe update` then offers to move you to the latest one.
+
+You can also run the install script again at any time to upgrade. It writes the latest release to
+its own folder (`/usr/local/bin` or `~/.local/bin`, or `%LOCALAPPDATA%\Programs\floe` on Windows),
+so it replaces your `floe` only when that is where it lives:
 
 ```bash Terminal
 # macOS / Linux
@@ -71,7 +92,8 @@ irm https://floe.one/install.ps1 | iex
 
 ## Package manager installs
 
-If you installed floe via a package manager, use the standard upgrade command for that tool.
+If you installed `floe` with a [package manager](/glossary#package-manager), use the standard upgrade
+command for that tool.
 
 `floe update` detects a package-managed install from the binary's path and stops before it
 contacts GitHub, rather than replacing the binary behind your package manager's back. It names
@@ -89,33 +111,48 @@ The same guard applies to `floe update --check`.
 | Winget (Windows) | `winget upgrade jannskiee.floe` |
 | Scoop (Windows) | `scoop update floe` |
 
-Detection is a substring match for `homebrew`, `cellar`, `linuxbrew`, `scoop`, or `winget`
-anywhere in the binary's path, in any capitalization, so a script install that happens to live
-under a directory containing one of those words is treated as package-managed too.
+Detection is a match, in any capitalization, for `homebrew`, `cellar`, `caskroom`, `linuxbrew`,
+`scoop` or `winget` anywhere in the path of the command you ran. When that command is a link, the
+path of the file it points to counts too. A script install that happens to live under a folder
+containing one of those words is therefore treated as package-managed as well.
 
-That rule misses Homebrew in its default folder on an Intel Mac, `/usr/local`. Neither path of that
-install contains one of those words: the command is `/usr/local/bin/floe`, and the cask it points
-to sits under `/usr/local/Caskroom`. `floe update` therefore does not recognize the install and
-carries on as for a script install, so use `brew upgrade floe` there. Homebrew's default folders on
-Apple silicon (`/opt/homebrew`) and on Linux (`/home/linuxbrew`) do contain one, so those installs
-are recognized.
+Homebrew in its default folder on an Intel Mac, `/usr/local`, is recognized through the file the
+command points to: the command is `/usr/local/bin/floe`, and the cask behind it sits under
+`/usr/local/Caskroom`. `floe` 1.11.0 and earlier did not recognize that install and carried on as
+for a script install, so on those versions use `brew upgrade floe` there.
 
 A binary built from source is checked before any of this and stops with
-`Cannot update a dev build.` whatever its path, so this section applies only to release builds.
+`Error: Cannot update a dev build.` and status 1, whatever its path, so this section applies only to
+release builds. `floe` 1.11.0 and earlier printed that sentence without `Error:` and exited with
+status 0.
+
+## Messages {#messages}
+
+Each of these ends `floe update` with status 1, and nothing is installed:
+
+| Message | What it means | What to do |
+|---|---|---|
+| `Error: Cannot update a dev build.` | This `floe` was built from source or with `go install`. | Install a release build. See [`Cannot update a dev build.`](/troubleshooting#cannot-update-a-dev-build) |
+| ``Error: installed via homebrew - run `brew upgrade floe` to update`` | A package manager owns this `floe`. The line names `scoop` or `winget` when one of those does. | Run the command it names. See [`installed via homebrew`](/troubleshooting#installed-via-homebrew-run-brew-upgrade-floe-to-update) |
+| `Error: failed to check for updates: GitHub API returned 403` | GitHub turned the request away, for example because of its limit on requests made without an account, which a shared network or a CI runner reaches quickly. | Try again later, or download the release by hand: see [Install from a release archive](/cli/installation#install-from-a-release-archive). |
+| `Error: update failed: checksum mismatch for floe_X.Y.Z_linux_amd64.tar.gz:`, then an `expected` and a `got` line | The download did not match the release's `checksums.txt`. | Run `floe update` again. |
+| `Error: update failed: checksum not found in checksums.txt for floe_X.Y.Z_linux_amd64.tar.gz` | The release lists no checksum for your archive, and `floe update` installs nothing without one. | Install that release another way, such as the install script. |
+| `Error: update failed: download failed:` or `failed to fetch checksums:`, and the cause | The archive or `checksums.txt` could not be downloaded, for example `HTTP 404`. | Check your connection, then try again. |
+| `Error: update failed: /usr/local/bin is not writable and sudo is not available; re-run as root, or reinstall with the install script` | The folder that holds `floe` is not yours to write to, and the machine has no `sudo`. | Do what the line says. |
+| `Error: update failed: cannot rename current binary:` and the cause | On Windows, `floe` could not move its own running file aside. | Try again. If it keeps failing, run the install script instead. |
 
 ## The update hint
 
-When a newer release exists, `floe version` prints an extra line:
+When a newer release exists, `floe version` prints an extra line, which `FLOE_NO_UPDATE_CHECK=1`
+turns off:
 
 ```text Output
-Update available: v1.x.x  run `floe update` to upgrade
+Update available: 1.x.x  run `floe update`, or your package manager's upgrade command
 ```
 
-Only `floe version` runs this check on its own, never `send` or `receive`, and it keeps the
-answer for 24 hours. `floe update` and `floe update --check` are a separate, deliberate check:
-they ask GitHub directly and ignore that cache. Set `FLOE_NO_UPDATE_CHECK=1` to suppress the hint
-entirely; it does not change what `floe update` does. See
-[The update check](/cli/version#the-update-check) for where the cache lives and how to clear it.
+`floe update` and `floe update --check` always ask GitHub themselves. See
+[The update check](/cli/version#the-update-check) for when `floe version` asks and where it keeps
+the answer.
 
 ## Version compatibility
 
@@ -127,5 +164,5 @@ whichever side is older to update. See
 
 Request links are the one exception. They are a newer feature, not a protocol change:
 `floe send --to` needs `floe` 1.11.0 or later (an older `floe` stops with
-`Error: unknown flag: --to`), and the link itself comes from Floe Desktop 0.3.0 or later on a
-server that offers request links.
+`Error: unknown flag: --to`). The link itself comes from Floe Desktop 0.3.0 or later, on a server
+that offers request links.

@@ -7,71 +7,67 @@ keywords: ["shortcuts", "hotkeys", "start over", "undo"]
 
 Every keyboard shortcut in Floe Desktop for Windows, with the places where each one does nothing.
 
+**Needs:** Floe Desktop on Windows. See [Installation](/desktop/installation).
+
 | Shortcut | What it does | Where it does nothing |
 |---|---|---|
-| `Ctrl` `O` | Adds files. Leaves Settings or History, switches to **Send** and its **Files** tab, then opens the file picker. | While the cursor is in a text field, and while a send or a receive is running. |
-| `Ctrl` `Enter` | The current tab's main action: **Send** on the Send tab, **Receive** on the Receive tab's **Code** view. Inside the **Text** box it sends the note, and inside **Code or link** it starts the receive. | In any other text field, in Settings and History, while a send or a receive is running, behind the **Start over?** dialog, with nothing staged or no code typed, and on the Receive tab's **Request link** view. |
-| `Ctrl` `V` | Pastes files copied in File Explorer, or an image from the clipboard, into the send list. | While the cursor is in a text field, where the field takes the paste. Also while a send or a receive is running, and when the clipboard holds neither files nor an image. |
-| `Ctrl` `H` | Shows or hides **History**, leaving Settings if it is open. | While the cursor is in a text field. |
-| `Ctrl` `,` | Opens or closes **Settings**. | Nowhere. It works on every screen, also while you type. |
-| `Ctrl` `R` | Starts over: cancels any transfer and clears the Send and Receive tabs. | While the cursor is in a text field. |
-| `Ctrl` `Z` | Undoes a **Clear**, including after its bar has gone. | Everywhere but the Send tab the clear came from: on the other Send tab, on **Receive**, in **History**, in **Settings** and behind the **Start over?** dialog. Also while the cursor is in a text field. |
+| `Ctrl` `O` | Adds files. Leaves Settings or History, switches to **Send** and its **Files** tab, then opens the file picker. | While the cursor is in a text field, while a send or a receive is running, and behind a dialog. |
+| `Ctrl` `Enter` | The current tab's main action: **Send** on the Send tab, **Receive** on the Receive tab's **Code** view. Inside the **Text** box it sends the note, and inside **Code or link** it starts the receive. | In other text fields, in Settings and History, during a transfer, behind a dialog, with nothing to send or receive, and on **Request link**. |
+| `Ctrl` `V` | Pastes files copied in File Explorer, or an image from the clipboard, into the send list. | While the cursor is in a text field, where the field takes the paste. Also during a transfer, behind a dialog, and when the clipboard holds neither files nor an image. |
+| `Ctrl` `H` | Shows or hides **History**, leaving Settings if it is open. | While the cursor is in a text field, and behind a dialog. |
+| `Ctrl` `,` | Opens or closes **Settings**. | Behind a dialog. Otherwise it works on every screen, also while you type. |
+| `Ctrl` `R` | Starts over: cancels a send or a receive by code and clears the Send and Receive tabs. | While the cursor is in a text field, and behind the **Close Floe?** and **Reset all settings?** dialogs. |
+| `Ctrl` `Z` | Undoes a **Clear**, including after its bar has gone. | Anywhere but the Send tab the clear came from, behind a dialog, and while the cursor is in a text field. |
 | `Esc` | Closes whatever is on top: a dialog first, then Settings. | On the Send, Receive and History screens, where nothing is on top. It does not leave History. |
 | `Enter` | In the **Code or link** field, starts receiving. | In the **Text** box it starts a new line. Use `Ctrl` `Enter` there. |
 
+A dialog, in this table, is one of these three questions: **Start over?**, **Close Floe?** and
+**Reset all settings?**.
+
 ## Behavior worth knowing
 
-**Most shortcuts pause while you type.** `Ctrl` `O`, `Ctrl` `V`, `Ctrl` `H`, `Ctrl` `R` and
-`Ctrl` `Z` do nothing while the cursor is in a text field, so typing a room code or a note is never
-interrupted, a half-typed note is never wiped mid-word, and the text box keeps its own paste and
-undo. `Ctrl` `Enter` pauses too, except in the two fields that have an action of their own: the
-**Text** box and **Code or link**.
+**Most shortcuts pause while you type.** `Ctrl` `O`, `Ctrl` `V`, `Ctrl` `H`, `Ctrl` `R` and `Ctrl` `Z` do
+nothing while the cursor is in a text field. So typing a code or a note is never interrupted, and a
+half-typed note is never wiped mid-word. The text box also keeps its own paste and undo. `Ctrl` `Enter`
+pauses too, except in the two fields that have an action of their own: the **Text** box and **Code or
+link**.
 
-**Some also pause while a transfer runs.** `Ctrl` `O`, `Ctrl` `V` and `Ctrl` `Enter` do nothing
-while a send or a receive by code is running. The **Send** and **Receive** buttons are not
-available then either, so a shortcut never starts something its button would refuse.
+**Some also pause while a transfer runs.** `Ctrl` `O`, `Ctrl` `V` and `Ctrl` `Enter` do nothing while a send
+or a receive by code is running. The **Send** and **Receive** buttons are not available then either, so a
+shortcut never starts something its button would refuse.
 
-**One fires from anywhere.** `Ctrl` `,` opens Settings, the way a preferences shortcut normally
-does.
+**None of them acts behind a dialog.** While **Start over?**, **Close Floe?** or **Reset all settings?** is
+open, `Ctrl` `O`, `Ctrl` `Enter`, `Ctrl` `V`, `Ctrl` `H`, `Ctrl` `,` and `Ctrl` `Z` do nothing. A key cannot
+change the screen behind the question. `Ctrl` `R` waits behind **Close Floe?** and **Reset all settings?**.
+Behind **Start over?** it starts over only once nothing would be lost any more. Answer a dialog with its
+buttons, `Enter` on the button that has focus, or `Esc`.
 
-**Request links have no shortcut.** `Ctrl` `Enter` does nothing on the **Request link** view: no
-shortcut makes a link, accepts a request or declines one. To answer a request from the keyboard,
-move focus to **Accept** or **Decline** and press `Enter` or `Space`. Both buttons ignore every
-key and click for 1 second after the request appears, and for 1 second after the window comes back
-into focus.
+**`Ctrl` `,` works while you type.** It opens Settings from any screen, the way a preferences shortcut
+normally does, except behind a dialog.
 
-**`Ctrl` `Z` is the narrowest of them.** It undoes a **Clear**, and only from the send tab that
-clear came from: on the other send tab, on **Receive**, in **History**, in **Settings**, or with
-the **Start over?** dialog open, it does nothing at all. The undo itself survives all of those, so
-going back to the tab you cleared brings it within reach again. `Ctrl` `Shift` `Z` is deliberately
-not an undo, because it is redo on every platform that has it.
+**Request links have no shortcut.** `Ctrl` `Enter` does nothing on the **Request link** view: no shortcut
+makes a [request link](/glossary#request-link), accepts a request or declines one. To answer a request from
+the keyboard, move focus to **Accept** or **Decline** and press `Enter` or `Space`. Both buttons ignore every
+key and click for 1 second after the request appears, and for 1 second after the window comes back into
+focus.
 
-**`Ctrl` `R` asks first when there is something to lose, and only then.** Three cases prompt: a
-transfer that is actually moving data, a note in the text box that has not been sent, and a note
-you cleared that had never been sent and whose **Undo** is still available, whether or not its bar
-is still on screen. The dialog is titled **Start over?**, and the buttons are **Keep going** and
-**Start over**.
+**`Ctrl` `Z` is the narrowest of them.** It undoes a **Clear**, and only from the Send tab that clear came
+from. The undo itself waits while you look elsewhere, so going back to that tab brings it within reach
+again: see [Clear and Undo](/desktop/sending#clear-and-undo). `Ctrl` `Shift` `Z` is deliberately not an
+undo, because it is redo on every platform that has it.
 
-The dialog says what is at stake. A transfer that is moving reads "Starting over cancels the
-transfer". An unsent note reads "Starting over clears your unsent text", and a cleared one reads
-"Starting over discards the text you can still undo". With a
-[request link](/desktop/request-links) open, a second line reads "Your request link stays open".
-All of them cover either route to Start over, the shortcut and clicking **Floe** at the left of the
-title bar.
+**`Ctrl` `R` asks first when there is something to lose, and only then.** The dialog is titled **Start
+over?**, and its buttons are **Keep going** and **Start over**. Which cases ask, and the sentence each one
+shows, are in [Start over](/desktop/sending#start-over). Staged files never ask, because the originals are
+untouched on disk. The shortcut and a click on **Floe** at the left of the title bar follow the same rules.
 
-A note counts as sent only while the box still holds exactly what went out, so typing a new one
-after a send prompts again, and so does a note you typed and then abandoned in favor of sending
-files. Staged files never prompt, because the originals are untouched on disk. Neither does a send
-or receive that is still connecting, which keeps Start over a one-click escape from a stuck
-connection. A note that send was carrying is cleared with it: click **Cancel** instead to keep it.
+**`Ctrl` `R` never reloads Floe.** In a browser that key reloads the page. Floe switches reload off (its
+window is a web view), so the key cannot drop a transfer that way. It only starts over, and asks first when
+something would be lost.
 
-**`Ctrl` `R` does not reload the app.** Floe's window is a web view, where that key would normally
-reload the page and abandon a transfer in progress. Reload is switched off in Floe, and the key
-starts over instead.
+**Holding a shortcut fires it once.** Key repeat is ignored for `Ctrl` `V`, `Ctrl` `O`, `Ctrl` `Enter`,
+`Ctrl` `,`, `Ctrl` `H` and `Ctrl` `Z`, so holding paste does not flood the list.
 
-**Holding a shortcut fires it once.** Key repeat is ignored for `Ctrl` `V`, `Ctrl` `O`,
-`Ctrl` `Enter`, `Ctrl` `,`, `Ctrl` `H` and `Ctrl` `Z`, so holding paste does not flood the list.
-
-**Four of them appear in the app.** The tooltips on the title bar's **Floe** name, the gear, the
-**Back** arrow in Settings and the History clock show `Ctrl+R`, `Ctrl+,`, `Esc` and `Ctrl+H`. The
-others are not shown anywhere on screen.
+**Four of them appear in the app.** The tooltips on the title bar's **Floe** name, the gear, the **Back**
+arrow in Settings and the History clock show `Ctrl+R`, `Ctrl+,`, `Esc` and `Ctrl+H`. The others are not shown
+anywhere on screen.

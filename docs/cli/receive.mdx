@@ -11,6 +11,13 @@ floe receive <code | link>
 
 Joins a transfer as the receiver, from the sender's room code or link, and saves no file until you have accepted the whole batch.
 
+## The short version {#the-short-version}
+
+Run `floe receive`, part of Floe's [CLI](/glossary#cli), with the [room code](/glossary#room-code)
+or the link the sender gave you. Files are saved in the folder you run it from, or in the one you
+name with `-o`. Check what is coming, then press **Enter** to accept or type `n` to decline. Each
+file takes its own name only once it has arrived whole and passed its checks.
+
 ## Examples
 
 Receive with a room code (for example `olive-tiger-castle`; capitalization does not matter):
@@ -31,13 +38,21 @@ Save to a specific directory:
 floe receive olive-tiger-castle -o ~/Downloads
 ```
 
-Auto-accept without a confirmation prompt:
+Accept without a confirmation prompt:
 
 ```bash Terminal
 floe receive olive-tiger-castle -y
 ```
 
+Paste a link the way you were given it. It also works without `https://`, inside `<...>` or quotes
+as a mail program or chat app may wrap it, and in the older `?room=` form. A code is one to four
+words joined by hyphens.
+
 A room code is good for one receiver and for at most 10 minutes: see [how long a code and a link last](/how-it-works/signaling#code-and-link-lifetime). When a code or a link is turned down, look the message up under [On the command line](/troubleshooting#on-the-command-line).
+
+A code typed with underscores between its words is refused before Floe asks the server, for
+example
+`Error: could not resolve "olive_tiger_castle": code not recognized: a code is words joined by hyphens, like olive-tiger-castle`.
 
 ## Output
 
@@ -63,17 +78,26 @@ Running `floe receive olive-tiger-castle -o ~/Downloads`:
   ─────────────────────────────────────────────────
 ```
 
-With no `-o` flag, files save to the current directory. `Saved to` always prints the full path.
+With no `-o` flag, files save to the current directory, the folder your terminal is in when you run
+the command. `Saved to` always prints the full path.
 
-The `Connected` line names the route: `(direct)` when the two devices talk to each other, `(relay)` when the transfer runs through the TURN relay. It reads `Connected` alone only when the route could not be determined, and the transfer proceeds either way.
+The `Connected` line says which way the files travel: `(direct)` when the two devices reach each
+other, `(relay)` when they go through the [relay](/glossary#relay), a server that passes the
+encrypted data along. It reads `Connected` alone only when the route could not be read, and the
+transfer goes ahead either way.
 
 The `Incoming` row shows the count and total size, or the file's name and size when there is only one file.
 
-The `Verified` row appears only when the sender sent a SHA-256 with every file and each one matched as it was written. See [File checks](/how-it-works/file-checks) for what is checked and when the row is missing.
+The `Verified` row appears only when the sender sent a [SHA-256](/glossary#sha-256), a fingerprint
+of the file's contents, with every file, and each one matched as it was written. See
+[File checks](/how-it-works/file-checks) for what is checked and when the row is missing.
 
-`Time` runs from the sender's first announcement, so it includes however long you took at the prompt, and the average speed is worked out over that whole time.
+`Time` counts from your answer at the prompt, so the time you took to decide is in neither the time
+nor the average speed. In `floe` 1.11.0 and earlier it counted from the sender's first announcement.
 
-When the sender runs a different Floe release from yours, one extra line above the `Incoming` box names it, for example `Peer version: desktop-v0.3.0`. Versions do not need to match.
+When the sender runs a different Floe release from yours, one extra line above the `Incoming` box
+names it, for example `Peer version: desktop-v0.3.0`. A browser sends no version, so the line never
+appears for one. Versions do not need to match.
 
 ## Confirmation prompt
 
@@ -87,11 +111,22 @@ When the sender announces the first file, Floe shows what is incoming and asks o
   Accept? [Y/n]
 ```
 
-- Type `n` or `no`, in any capitalization, to decline. Nothing is saved, the connection closes, and `floe receive` ends with `Error: transfer declined`.
-- Press **Enter** or type anything else to accept and begin receiving. The prompt only looks for a decline, so a typo counts as yes.
-- An empty answer accepts as well, and that is what a closed or piped stdin gives: `echo | floe receive <code>` receives without `-y`. See [In scripts and CI](/cli/flags#in-scripts).
+For two or more files the box shows only their count and total size. Each file's name appears on its
+progress line as it arrives.
 
-The sender waits 120 seconds for your answer. After that its side gives up, and a `floe send` there ends with [`timed out waiting for ack`](/troubleshooting#timed-out-waiting-for-ack).
+- Type `n` or `no`, in any capitalization, to decline. Nothing is saved, the sender is told that you
+  declined, and `floe receive` ends with `Error: transfer declined`. (`floe` 1.11.0 and earlier
+  close the connection without telling the sender why.)
+- Press **Enter** or type anything else to accept and begin receiving. The prompt only looks for a
+  decline, so a typo counts as yes.
+- An empty answer accepts as well, and that is what a closed or piped stdin gives, meaning input a
+  script passes in or no input at all: `echo | floe receive <code>` receives without `-y`. See [In scripts and CI](/cli/flags#in-scripts).
+
+The sender waits 120 seconds for your answer. After that its side gives up, and a `floe send` there
+ends with [`timed out waiting for ack`](/troubleshooting#timed-out-waiting-for-ack). Your prompt
+keeps waiting: when you answer, `floe receive` ends with
+`Error: the sender left before the transfer was accepted` and creates nothing. The same happens when
+the sender stops while you decide.
 
 Pass `-y` to skip this prompt and accept automatically.
 
@@ -101,38 +136,85 @@ Received files land in the output directory. When the sender sent a folder, its 
 
 ### Nothing is overwritten {#nothing-is-overwritten}
 
-If a name is already taken, the incoming file is saved with a number before the extension (`report.pdf`, then `report (1).pdf`), the same way browsers number repeated downloads. The progress line shows the name actually written.
+If a name is already taken, the incoming file is saved with a number before the last dot:
+`report.pdf`, then `report (1).pdf`, and `archive.tar.gz`, then `archive.tar (1).gz`. A name whose
+only dot is its first character, such as `.env`, has no extension, so the number goes at its end:
+`.env (1)`. The progress line shows the name actually written.
+
+If another program takes that name while the file is still arriving, the file is saved under the
+next number instead, and `floe receive` says so on a line such as `  Saved as report (2).pdf`.
 
 ### Files are written as `.part` first {#part-files}
 
-Each file is written under a temporary name ending in `.part` and takes its final name only once it has passed the size check and, when the sender sent a SHA-256, the SHA-256 check (see [File checks](/how-it-works/file-checks)). A file that fails either one is deleted and the transfer stops, so nothing half-written can ever sit under a finished-looking name.
+Each file is written under a temporary name ending in `.part` (a [.part file](/glossary#part-file)).
+It takes its final name only once it has passed the size check and, when the sender sent a SHA-256,
+the SHA-256 check (see [File checks](/how-it-works/file-checks)). A file that fails either
+check is deleted and the transfer stops, so nothing half-written can ever sit under a
+finished-looking name.
 
-A transfer that fails or stalls partway deletes its `.part` file. Files that completed earlier in the batch are kept, and retrying reuses the original name instead of a numbered one. Even if the process is killed outright or the machine loses power, the worst leftover is a `.part` file, which is safe to delete (until you do, a retry saves under a numbered name). On macOS and Linux a crash at the exact instant of completion can additionally leave an empty placeholder at the final name beside the intact `.part`; on Windows the final rename is atomic and no such instant exists.
+A transfer that fails or stalls partway deletes its `.part` file. Files that completed earlier in
+the batch are kept, and a retry reuses the original name instead of a numbered one. If the process
+is killed outright or the machine loses power, the worst leftover is a `.part` file, which is safe
+to delete. Until you delete it, a retry saves under a numbered name.
 
-One `.part` file is worth keeping. When `floe receive` ends with `Error: received a file in full but could not finish saving it; the complete file was kept in the save folder with a .part ending`, that file arrived whole and passed its checks, but it could not be renamed, usually because an antivirus scanner or an indexer was holding it. Remove the `.part` ending by hand to get the file.
+On macOS and Linux, a crash at the exact moment a file is completed can also leave an empty file
+under the final name, beside a whole `.part` file. Delete the empty one, and remove `.part` from the
+other's name. On Windows the final rename is a single step, so this cannot happen.
+
+One `.part` file is worth keeping. `floe receive` can end with this line:
+
+```text Output
+Error: received a file in full but could not finish saving it; the complete file was kept in the save folder with a .part ending
+```
+
+That file arrived whole and passed its checks, but it could not be renamed, usually because an
+antivirus scanner or an indexer was holding it. Remove the `.part` ending by hand to get the file.
 
 ### Names are adjusted to what your system can store {#names-are-adjusted}
 
 A name your system cannot represent is adjusted before the file is written, and the progress line shows the adjusted name.
 
-- **On Windows**, the characters `< > : " | ? *` become underscores, trailing dots and spaces are removed, and a name that is exactly a reserved device name (such as `NUL`) gets an underscore in front. Two names that differed only in one of those characters therefore arrive as a name and its numbered twin. One colon is dropped, not replaced: a file or top-level folder whose name begins with one letter (A to Z) or one digit and then a colon loses those two characters, because a start like that is read as a drive name, so `P:L 2025.xlsx` is saved as `L 2025.xlsx`. A backslash, which macOS and Linux allow in a name, is a folder separator on Windows: `back\slash.txt` arrives as `slash.txt` in a folder named `back`, and a leading one is dropped.
+- **On Windows**, the characters `< > : " | ? *` become underscores, trailing dots and spaces are
+  removed, and a name that is exactly a reserved device name (such as `NUL`) gets an underscore in
+  front. Two names that differed only in one of those characters therefore arrive as a name and its
+  numbered twin.
+- **Also on Windows**, one colon is dropped, not replaced. A file or top-level folder whose name
+  begins with one letter (A to Z) or one digit and then a colon loses those two characters, because
+  that start reads as a drive name. For example, `P:L 2025.xlsx` is saved as `L 2025.xlsx`.
+- **Also on Windows**, a backslash, which macOS and Linux allow in a name, separates folders:
+  `back\slash.txt` arrives as `slash.txt` in a folder named `back`, and a leading one is dropped.
 - **On macOS and Linux**, all of those are valid, and names are left exactly as sent.
-- **On every platform**, control characters and text-direction marks are replaced with underscores, since a file name is not a place for either. A browser receiver strips them instead of replacing them, so the same file can land under slightly different names on the two surfaces.
+- **On every platform**, control characters and text-direction marks are replaced with underscores,
+  since a file name is not a place for either. A browser receiver strips them instead of replacing
+  them, so the same file can land under slightly different names on the two surfaces.
+- **On every platform**, a name with nothing usable left in it (empty, or only `.`, `..` and separators)
+  is saved as `received_file`.
 
 The name shown in the `Incoming` box is cleaned the same way and shortened to 200 characters with its extension kept, so a name cannot rewrite the prompt or disguise its extension before you answer. See [Known limitations](/how-it-works/known-limitations).
 
 ### Windows marks the files as downloads {#windows-marks-the-files-as-downloads}
 
-On Windows, each received file is tagged with the mark of the web (a `Zone.Identifier` stream), so SmartScreen and Office Protected View treat it like a browser download when it is opened. Not every drive can keep the mark: see [where it is and is not kept](/desktop/receiving#received-files-are-marked-as-downloads). On macOS and Linux, `floe receive` adds no download mark of any kind, the macOS quarantine flag included.
+On Windows, Floe treats every received file as a download: Windows may warn before it runs a
+program from one, and Office opens one in Protected View. Floe does this by adding the
+[mark of the web](/glossary#mark-of-the-web) (a hidden note attached to the file, called a
+`Zone.Identifier` stream), which
+[SmartScreen](/glossary#smartscreen) and Office read. Not every drive can keep the mark: see
+[where it is and is not kept](/desktop/receiving#received-files-are-marked-as-downloads). On macOS
+and Linux, `floe receive` adds no download mark of any kind, the macOS quarantine flag included.
 
 Floe does not scan files for malware on any system. A file that passes its checks arrived intact, which does not make it safe to open and says nothing about who sent it. See [Known limitations](/how-it-works/known-limitations#floe-does-not-scan-received-files).
 
 ## Paths that are too deep or too long {#paths-too-deep-or-too-long}
 
-Before anything is written, `floe receive` checks where each file would go, and refuses a file whose
-path inside the transfer is more than 32 levels deep (31 folders and the file) or longer than 235
-UTF-16 code units (for most names, 235 characters), or that starts at a drive or a root instead of
-inside the output directory. It stops with:
+Before anything is written, `floe receive` checks where each file would go. It refuses a file whose
+path inside the transfer:
+
+- is more than 32 levels deep (31 folders and the file);
+- is longer than 235 UTF-16 code units, the unit Windows counts names in, which is 235 characters for most names and fewer when the
+  names use emoji or some other scripts;
+- starts at a drive or a root instead of inside the output directory.
+
+It stops with:
 
 ```text Output
 Error: receive stopped: a file's path is too deep or too long to save in this folder
@@ -141,8 +223,12 @@ Error: receive stopped: a file's path is too deep or too long to save in this fo
 The sender is told why, and files saved before that file are kept. When the first file is the one
 refused, that happens before the `Accept?` prompt, and nothing is saved.
 
-On Windows, a file too large for the output drive's file system (4 GB or more on a FAT or FAT32 drive)
-is refused the same way, with
+A path long enough to make the file's description longer than 1,000 bytes stops one step earlier,
+with `Error: rejected the sender's control message: 1204 bytes, limit 1000` and the real size in
+place of 1204. The fix is the same: zip deeply nested folders before sending.
+
+A USB stick or memory card formatted as FAT32 cannot hold a file of 4 GB or more. On Windows,
+`floe receive` refuses a file too large for the output drive's file system in the same way, with
 `Error: receive stopped: a file is larger than the save drive can hold`. A size that is not a
 possible byte count is refused before anything is written as well.
 
@@ -156,52 +242,58 @@ the request link [Limits](/desktop/request-links#limits). `floe receive` applies
 ## Links that `floe receive` refuses {#links-floe-receive-refuses}
 
 Each of these stops before any network call with one line, which has no `Error:` in front and never
-repeats the link back, and `floe receive` exits with status 1.
+repeats the link back, and `floe` exits with status 1:
 
-A request link, one with `/r/` in it, does not work here: it is for sending files to someone.
-`floe receive` refuses it in any shape it can be pasted (with `%23` for the `#`, or inside a
-mail-safety redirect, included):
+| Message | What it means | What to do |
+|---|---|---|
+| `That is a request link for sending files to someone. Open it in a web browser.` | A [request link](/glossary#request-link), one with `/r/` in it, in any shape it was copied, also when a mail program rewrote it. | Open it in a browser, or send through it with `floe send --to`. |
+| `That link is for floe.one, but this Floe is set to use another server. Unset FLOE_SERVER or use --server https://api.floe.one, then try again.` | A floe.one link while `--server` or `FLOE_SERVER` names another server, which never held the link's [room](/glossary#room). | Do what the line says, for this one command. |
+| `That link is for another Floe server, but this Floe is set to use floe.one. Use --server with that server's address, then try again.` | A link from a [self-hosted](/glossary#self-hosted) server while neither `--server` nor `FLOE_SERVER` names a server. | Pass that server with `--server`. |
+| `This link looks incomplete. Copy the whole link again, including everything after the # sign. Put the link in quotes.` | A room link whose room id was cut short or mistyped, or a room id pasted on its own. | Copy the whole link again and put it in quotes. |
+| `That looks like a link to receive from. To receive, use: floe receive <link>` | A link typed as the command, with `receive` left out. | Run it again with `floe receive` in front. |
 
-```text Output
-  That is a request link for sending files to someone. Open it in a web browser.
-```
+To send through a request link, see
+[Sending through a request link](/web-app/request-links) for a browser, or
+[Send through a request link](/cli/send#send-through-a-request-link) for `floe send --to`.
 
-To send through it, open it in a browser (see
-[Sending through a request link](/web-app/request-links)) or use `floe send --to` (see
-[Send through a request link](/cli/send#send-through-a-request-link)).
-
-A floe.one link while `--server` or `FLOE_SERVER` names another server is refused before any network
-call, so that a floe.one room is not handed to that server. Unset `FLOE_SERVER` or pass
-`--server https://api.floe.one` to receive it:
-
-```text Output
-  That link is for floe.one, but this Floe is set to use another server. Unset FLOE_SERVER or use --server https://api.floe.one, then try again.
-```
-
-A link from a self-hosted server is not checked this way, and `floe receive` never takes the server
-from a link, so name that server yourself. See [Use a self-hosted server](/cli/self-hosted-server).
+`floe receive` never takes the server from a link, and joining hands the link's room to the server
+in effect, so the link and the server have to match. See
+[Use a self-hosted server](/cli/self-hosted-server#links-carry-no-server).
 
 ## Stopping with Ctrl+C {#ctrl-c}
 
 Press `Ctrl+C` to cancel at any time. `floe receive` prints `Canceled.`, removes the `.part` file it
 was writing, and exits with status 130. Files that finished before that stay. If closing the `.part`
-file stalls, `floe` exits after 5 seconds anyway and leaves it, and it is safe to delete.
+file stalls, `floe` exits after 5 seconds anyway and leaves it, and it is safe to delete. A second
+`Ctrl+C` during those seconds does nothing.
 
 Once the two sides are connected, the sender is told you stopped: a `floe send` 1.11.0 or later
 ends with `Error: They stopped the transfer.`
 
+Once the summary box has printed, the receive is done, and `Ctrl+C` has nothing left to cancel.
+`floe receive` then stops waiting for the sender, prints nothing more, exits with status 0, and sends
+its byte count unless you opted out. In `floe` 1.11.0 and earlier, that `Ctrl+C` printed `Canceled.`,
+exited with status 130 and sent no byte count.
+
 ## The byte-count report {#the-byte-count-report}
 
 After a completed transfer, `floe receive` posts the total byte count, and nothing else, to the
-signaling server for the public transfer counter. Pass `--no-report` or set `FLOE_NO_STATS=1`, and
-no report is sent. See [Opting out of the global counter](/cli/flags#opting-out-of-the-global-counter).
+[signaling server](/glossary#signaling-server) for the public transfer counter. A transfer of only
+empty files sends nothing. Pass `--no-report` or set `FLOE_NO_STATS=1`, and no report is sent. See
+[Opting out of the global counter](/cli/flags#opting-out-of-the-global-counter).
 
 ## Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--output <dir>`<br />`-o` | `.` (current directory) | Directory to save received files. Created if it does not exist, before Floe connects, so a receive that then fails can leave an empty directory behind. |
+| `--output <dir>`<br />`-o` | `.` (current directory) | Directory to save received files. Created when the first file is saved, so a receive that cannot start, or that you decline, leaves nothing behind. Floe checks that it can be created before it joins. |
 | `--yes`<br />`-y` | `false` | Accept incoming files without the confirmation prompt. |
 | `--no-report` | `false` | Do not report the transferred byte count to Floe's public global counter. Set `FLOE_NO_STATS=1` to opt out permanently. |
+
+An `-o` that cannot be created, because a file has that name or the folder above it is read-only,
+stops at once with `Error: cannot create output directory` and the reason, while the code still
+works. `floe` 1.11.0 and earlier created the folder before connecting. A folder that exists but
+that you cannot write to passes that check and fails at the first file, after you accepted, with
+`Error: write error: could not finish writing a file, so it was not kept`.
 
 See [CLI flags reference](/cli/flags) for the global flags that matter here (`--server`, `--no-relay`, `--relay-only`, `--iface`).

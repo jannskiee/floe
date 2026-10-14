@@ -5,14 +5,15 @@ description: "Point the floe CLI at your own Floe signaling server, by flag or w
 keywords: ["--server", "FLOE_SERVER", "custom server", "self-hosted cli", "request link"]
 ---
 
-This page points `floe` at your own Floe signaling server instead of floe.one, for one command or
-for every command, and shows which links then work with which server. It is for anyone who runs a
-[self-hosted instance](/self-hosting/overview) or was given the address of one.
+This page points `floe` at your own Floe [signaling server](/glossary#signaling-server) instead of
+floe.one, for one command or for every command, and shows which links then work with which server.
+It is for anyone who runs a [self-hosted](/glossary#self-hosted) instance (see
+[Self-hosting overview](/self-hosting/overview)) or was given the address of one.
 
 ## Usage
 
-The `floe` CLI connects to `https://api.floe.one` by default. Name another Floe signaling server
-with the `--server` flag:
+The `floe` [CLI](/glossary#cli) connects to `https://api.floe.one` by default. Name another Floe
+signaling server with the `--server` flag:
 
 ```bash Terminal
 floe send photo.jpg --server https://floe.example.com
@@ -20,14 +21,20 @@ floe receive olive-tiger-castle --server https://floe.example.com
 ```
 
 <Info>
-  Both sides must use the same server. A room and its code exist on one server only, so someone on
-  your server cannot transfer with someone on floe.one.
+  Both sides must use the same server. A [room](/glossary#room) and its code exist on one server
+  only, so someone on your server cannot transfer with someone on floe.one.
 </Info>
 
 Point `--server` at the origin that serves `/api` and `/ws`. On a
-[one-domain deployment](/self-hosting/reverse-proxy) that is the same address your
-users open in a browser, so this is all you need: the share link that `floe send`
-prints resolves to the same origin and opens the web client correctly.
+[one-domain deployment](/self-hosting/reverse-proxy) that is the same address your users open in a
+browser, so this is all you need: the [share link](/glossary#share-link) that `floe send` prints
+opens the web client at the same address.
+
+Write the address with its `https://`, or `http://` on a private network: a bare hostname fails
+before any transfer starts. `floe` trusts the certificates your system trusts and has no option to
+skip that check. A server with a self-signed certificate therefore fails before any transfer
+starts, with the certificate error at the end of the line. See
+[`--server`](/cli/flags#global-flags).
 
 If you always use the same server, set it once in your environment instead of
 repeating the flag on every command:
@@ -57,14 +64,36 @@ server, which serves no web app.
 ## Links carry no server {#links-carry-no-server}
 
 `floe` never reads the server from a link. The server is always `--server`, then `FLOE_SERVER`,
-then floe.one, so a link or a code works only when it belongs to the server in effect:
+then floe.one, so a link or a code works only when it belongs to the server in effect. A link from
+the wrong server is refused before any network call, so its room is never handed to a server that
+does not hold it:
 
 | You have | Server in effect | What happens |
 |---|---|---|
 | A code or a link from your server | Your server | It works. |
-| A link from your server | floe.one, because neither `--server` nor `FLOE_SERVER` is set | `floe receive` looks for the room on floe.one and ends with `Error: this code is no longer active; ask for a new one`. `floe send --to` stops before any network call with `Couldn't connect to their computer. Nothing was sent.` |
-| A link from floe.one | Your server | Refused before any network call, so that a floe.one room is not handed to your server. `floe receive` prints `That link is for floe.one, but this Floe is set to use another server. Unset FLOE_SERVER or use --server https://api.floe.one, then try again.` and `floe send --to` prints `Couldn't connect to their computer. Nothing was sent.` |
-| A code | A server it was not made on | `floe receive` ends with `Error: could not resolve "olive-tiger-castle": code "olive-tiger-castle" not found or expired (codes expire after 10 minutes)`. |
+| A link from your server | floe.one, because neither `--server` nor `FLOE_SERVER` is set | Refused, with the first line below. |
+| A link from floe.one | Your server | Refused, with the second line below. |
+| A code | A server it was not made on | `floe receive` ends with `Error: could not resolve "olive-tiger-castle": code "olive-tiger-castle" not found: it was already used, the sender left, or it expired (a code lasts 10 minutes at most)`. |
+
+For a link from your server with floe.one in effect, `floe receive` prints:
+
+```text Output
+  That link is for another Floe server, but this Floe is set to use floe.one. Use --server with that server's address, then try again.
+```
+
+For a link from floe.one with your server in effect, `floe receive` prints:
+
+```text Output
+  That link is for floe.one, but this Floe is set to use another server. Unset FLOE_SERVER or use --server https://api.floe.one, then try again.
+```
+
+In both cases `floe send --to` prints `Couldn't connect to their computer. Nothing was sent.` and
+exits with status 1, as `floe receive` does.
+
+`floe receive` in `floe` 1.11.0 and earlier did not refuse a link from your server when no server
+was set: it asked floe.one for that room and ended with
+`Error: this code is no longer active; ask for a new one`. The
+link's room id had then reached floe.one's server, so ask the sender for a new link.
 
 With `FLOE_SERVER` set, use a floe.one link by naming floe.one's own server for that one command.
 The flag wins over the variable:
@@ -76,7 +105,7 @@ floe receive "https://floe.one/#room=6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f" --ser
 
 ## Request links on your server {#request-links-on-your-server}
 
-A [request link](/desktop/request-links) made by a Floe Desktop that uses your server carries your
+A [request link](/glossary#request-link) made by a Floe Desktop that uses your server carries your
 web app's address. To send through it from the terminal, `floe send --to` needs your server named,
 with `--server` or `FLOE_SERVER`:
 
@@ -100,7 +129,7 @@ floe send photo.jpg --server http://localhost:3001
 floe receive olive-tiger-castle --server http://localhost:3001
 ```
 
-The browser link points to `http://localhost:3000` automatically when the server is exactly
+The browser link points to `http://localhost:3000` automatically when the server is
 `http://localhost:3001`.
 
 ## Desktop app
@@ -116,11 +145,10 @@ result means.
 
 ## If something goes wrong {#if-something-goes-wrong}
 
-- A code or a link from your server is `not found or expired`, or `no longer active`: the command
-  ran without `--server` or `FLOE_SERVER`, so it asked floe.one. See
-  [`this code is no longer active`](/troubleshooting#this-code-is-no-longer-active-ask-for-a-new-one).
-- `Warning: could not reach signaling server for TURN credentials. Using STUN only.`: the address
-  after `--server` is wrong, or the server is down. See
+- A code from your server is `not found`: the command ran without `--server` or `FLOE_SERVER`, so it
+  asked floe.one. See
+  [`not found`](/troubleshooting#code-olive-tiger-castle-not-found-or-expired-codes-expire-after-10-minutes).
+- `Warning: could not reach signaling server for TURN credentials. Using STUN only.`, or `could not read TURN credentials`: the address after `--server` is wrong, the server is down, or a proxy in front of it does not pass `/api/` on. See
   [`could not reach signaling server`](/troubleshooting#warning-could-not-reach-signaling-server-for-turn-credentials-using-stun-only).
-- `--relay-only needs a TURN relay`: your server offers no relay. See
+- `--relay-only needs a TURN relay`: your server offers no [relay](/glossary#relay). See
   [`--relay-only needs a TURN relay`](/troubleshooting#relay-only-needs-a-turn-relay).

@@ -5,9 +5,10 @@ description: "Deploy a self-hosted Floe instance on two hostnames, one for the w
 keywords: ["production", "https", "subdomain", "deploy", "two hostnames", "origin"]
 ---
 
-This page deploys Floe on two hostnames: the web client on one and the signaling server on the
-other, each behind a reverse proxy with HTTPS. It is for an instance that people reach from other
-machines and that cannot share one domain.
+This page deploys Floe on two hostnames: the web client on one and the
+[signaling server](/glossary#signaling-server) on the other, each behind a
+[reverse proxy](/glossary#reverse-proxy) with HTTPS. It is for an instance that people reach from
+other machines and that cannot share one domain.
 
 <Info>
   Most instances are simpler behind one domain, with a single certificate and a single address
@@ -23,12 +24,14 @@ machines and that cannot share one domain.
     - `app.your-domain.com` to the client on `:3000`
     - `api.your-domain.com` to the signaling server on `:3001`
 
-    Serve both over HTTPS. Outside a secure context (HTTPS, or `localhost`) a browser withholds the Screen Wake Lock, the clipboard API, and service workers, and the web app runs without them.
+    Serve both over HTTPS. Over plain HTTP at any address other than `localhost`, a browser runs the web app without the screen wake lock, the clipboard API, and service workers, so the screen can sleep during a long transfer.
 
-    The signaling server uses WebSockets. Make sure your proxy forwards the `Upgrade` and `Connection` headers.
+    The signaling server uses [WebSocket](/glossary#websocket) connections. Make sure your proxy forwards the `Upgrade` and `Connection` headers.
+
+    The steps below set values in the `.env` file of a Docker Compose stack. On a managed platform, set the same values as each service's own variables instead: `SOCKET_URL` on the client, and `CLIENT_URL` and `TRUSTED_PROXY_COUNT` on the server.
 
     <Warning>
-      Keep the hostname in the `Host` header as the client sent it. Caddy and Traefik do by default, and nginx does with `proxy_set_header Host $host`. The CLI and the desktop app connect to `api.your-domain.com`, which is not your `CLIENT_URL`, so the server lets them in by matching their `Origin` against the hostname in `Host`. A proxy that rewrites `Host` to the upstream address (`localhost:3001`, the nginx default without that line) gets them refused with a `403`. [Origins the server accepts](#cors-note) shows what each side reports when that happens.
+      Keep the hostname in the `Host` header as the client sent it. Caddy and Traefik do by default, and nginx does with `proxy_set_header Host $host`. The [CLI](/glossary#cli) and the desktop app connect to `api.your-domain.com`, which is not your `CLIENT_URL`, so the server lets them in by matching their `Origin` against the hostname in `Host`. A proxy that rewrites `Host` to the upstream address (`localhost:3001`, the nginx default without that line) gets them refused with a `403`. [Origins the server accepts](#cors-note) shows what each side reports when that happens.
     </Warning>
   </Step>
   <Step title="Set NEXT_PUBLIC_SOCKET_URL">
@@ -56,7 +59,7 @@ machines and that cannot share one domain.
     TRUSTED_PROXY_COUNT=1
     ```
 
-    One reverse proxy is `1`, a CDN in front of that proxy is `2`. The server's own default is `1`; Docker Compose passes `0` explicitly, which is correct only when the container ports are published directly. Left at `0` behind a proxy, every user counts as the proxy's address and shares one set of limits. Setting it higher than your real hop count lets clients forge `X-Forwarded-For` and bypass the limits, so if you expose the server directly with no proxy, set `0` deliberately rather than leaving it unset.
+    One reverse proxy is `1`, a CDN in front of that proxy is `2`. The server's own default is `1`; [Docker Compose](/glossary#docker-compose) passes `0` explicitly, which is correct only when the container ports are published directly. Left at `0` behind a proxy, every user counts as the proxy's address and shares one set of limits, and the [room](/glossary#room) seal that keeps a third network out of a link stops working. Setting it higher than your real hop count lets clients forge `X-Forwarded-For` and bypass the limits. Keep ports 3000 and 3001 from being reached around the proxy as well: see [`TRUSTED_PROXY_COUNT`](/self-hosting/configuration#trusted-proxy-count).
   </Step>
   <Step title="Recreate the containers">
     ```bash Terminal
@@ -72,7 +75,7 @@ machines and that cannot share one domain.
     floe send --server https://api.your-domain.com --web https://app.your-domain.com photo.jpg
     ```
 
-    Without `--web`, the share link points at the signaling API rather than the web app, because a self-hosted server is otherwise assumed to serve both from one origin.
+    Without `--web`, the [share link](/glossary#share-link) points at the signaling API rather than the web app, because a [self-hosted](/glossary#self-hosted) server is otherwise assumed to serve both from one origin.
 
     In the desktop app, open Settings and, under **Advanced**, expand **Server**. Fill in both **Server address** (`https://api.your-domain.com`) and **Share link address** (`https://app.your-domain.com`), then click **Test**. See [Desktop app settings](/desktop/settings#server).
 
@@ -82,20 +85,28 @@ machines and that cannot share one domain.
 
 ## Origins the server accepts {#cors-note}
 
-A browser is accepted only from an origin on the server's allow-list. The list always holds the official `floe.one` origins (`https://floe.one` and `https://www.floe.one`) plus `http://localhost:3000` for local development, and your `CLIENT_URL` is added on top of these, so pages served from your domain and from floe.one are both allowed. If you are running a private fork and want a strict allow-list, remove the hard-coded entries from `server/server.js`.
+A browser is accepted only from an origin on the server's allow-list. The list always holds the official `floe.one` origins (`https://floe.one` and `https://www.floe.one`) plus `http://localhost:3000` for local development. Your `CLIENT_URL` is added on top of these, so pages served from your domain and from floe.one are both allowed. If you are running a private fork and want a strict allow-list, remove the hard-coded entries from `server/server.js`.
 
-Two more cases are accepted. A request with no `Origin` header gets through, which covers the plain HTTP calls the CLI and the desktop app make. A WebSocket whose `Origin` names the same hostname as the request's `Host` header gets through too (with the same port, when `Host` carries one other than the scheme's default), which is how the CLI and the desktop app connect to `api.your-domain.com`. That second rule is why the proxy has to pass `Host` through.
+Two more cases are accepted. A request with no `Origin` header gets through, which covers the plain HTTP calls the CLI and the desktop app make. A WebSocket whose `Origin` names the same hostname as the request's `Host` header gets through too, which is how the CLI and the desktop app connect to `api.your-domain.com`. When `Host` carries a port other than the scheme's default, the port has to match as well. That second rule is why the proxy has to pass `Host` through.
 
-A refused origin looks different on each side:
+A refused origin, or a proxy that does not forward `/ws`, looks different on each side:
 
 | Message | What it means | What to do |
 |---|---|---|
-| `Error: failed to connect to signaling server: cannot connect to signaling server at wss://api.your-domain.com/ws: websocket: bad handshake` | `floe send` or `floe receive`. The server answered the `/ws` handshake with `403`. | Make the proxy pass `Host` through, as in step 1. |
-| “Error: The server refused the realtime connection (check that your proxy forwards /ws)” | **Test** in Floe Desktop. Its `/ws` connection was refused, or never reached the server. | Check that the proxy forwards `/ws`, then that it passes `Host` through. |
-| `Refused a connection on /ws from Origin "https://api.your-domain.com" (Host "localhost:3001"): not CLIENT_URL, a floe.one origin, or this server's own host. Further refusals on /ws are not logged.` | The server's log. It is written once for `/ws` and once for `/socket.io` until the next restart, and it shows the `Origin` and the `Host` the server compared. | An `Origin` that is your own server next to a `Host` that is an upstream address means the proxy rewrites `Host`. |
+| `Error: failed to connect to signaling server: cannot connect to signaling server at wss://api.your-domain.com/ws: websocket: bad handshake (HTTP 403). A reverse proxy in front of the server may be changing the Host header: make it pass Host through unchanged.` | `floe send` or `floe receive`. The server's origin check answered the `/ws` handshake with `403`. | Make the proxy pass `Host` through, as in step 1. |
+| `Error: failed to connect to signaling server: cannot connect to signaling server at wss://api.your-domain.com/ws: websocket: bad handshake (HTTP 404). Check the server address, and that a reverse proxy in front of the server forwards /ws with the WebSocket upgrade.` | `floe send` or `floe receive`. The `/ws` handshake was answered `404`. | Make the proxy forward `/ws` to the server, as exactly `/ws`. |
+| “Error: The server refused the realtime connection (check that your proxy passes the original Host header)” | **Test** in Floe Desktop. The server's origin check answered `/ws` with `403`. | Make the proxy pass `Host` through, as in step 1. |
+| “Error: The server refused the realtime connection (check that your proxy forwards /ws)” | **Test** in Floe Desktop. The `/ws` connection was answered `404`. | Make the proxy forward `/ws` to the server, as exactly `/ws`. |
+| “Error: The server refused the realtime connection (check that your proxy forwards /ws and passes the original Host header)” | **Test** in Floe Desktop. The `/ws` connection was refused with another status, or never reached the server. | Check that the proxy forwards `/ws`, then that it passes `Host` through. |
+| `Refused a connection on /ws from Origin "https://api.your-domain.com" (Host "localhost:3001"): not CLIENT_URL, a floe.one origin, or this server's own host. Further refusals on /ws are not logged.` | The server's log. Written once for `/ws` and once for `/socket.io` until the next restart, with the `Origin` and the `Host` the server compared. | An `Origin` that is your own server next to a `Host` that is an upstream address means the proxy rewrites `Host`. |
 | `Refused a request with 403.` | The server's log, once per request. An HTTP request came from a browser origin that is not on the allow-list. | Set `CLIENT_URL` to the exact origin your users open, then recreate the containers. |
 
-A browser shows no message of its own for a refused origin. The web app's badge stays **Offline**.
+The CLI lines end in a hint from `floe` newer than 1.11.0; `floe` 1.11.0 and earlier stop after
+`websocket: bad handshake`. Floe Desktop 0.3.0 shows the `/ws` line, the second of its three, for
+every refusal.
+
+A browser shows no message of its own for a refused origin. The web app's [badge](/glossary#badge)
+stays **Offline**.
 
 ## If something goes wrong
 

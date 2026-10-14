@@ -9,10 +9,10 @@ Floe publishes two images to GitHub Container Registry. `docker-compose.yml` pul
 
 | Image | Contains |
 |-------|----------|
-| `ghcr.io/jannskiee/floe-server` | The signaling server. Brokers the WebRTC handshake and issues TURN credentials. Never sees file data. |
+| `ghcr.io/jannskiee/floe-server` | The [signaling server](/glossary#signaling-server). Brokers the [WebRTC](/glossary#webrtc) handshake and issues [TURN](/glossary#turn) credentials. Never sees file data. |
 | `ghcr.io/jannskiee/floe-client` | The web app, as a self-contained Next.js server. |
 
-Both are public, so `docker pull` needs no login.
+Both are public, so `docker pull` needs no login. Both run as the unprivileged user `node`, not as root, so a file or folder you mount into a container has to be readable by that user.
 
 ## Tags
 
@@ -21,8 +21,19 @@ Both are public, so `docker pull` needs no login.
 | `latest` | The newest release | **The default.** What you get if you change nothing. |
 | `1.11.0` | One exact release | You want to control when you move between versions. |
 | `1.11` | The newest patch of a minor line | You want patches automatically but not minor bumps. |
-| `main` | The newest build from `main` | You want changes before they are released. `main` only advances by merged pull request, and every image is smoke-tested on real hardware before the tag moves. It moves only when a merge touches `client/`, `server/`, or the image pipeline itself: any other merge, a docs-only one for example, starts no build and leaves the tag where it is. |
-| `sha-<short>` | One exact commit, for example `sha-fed7ebb` | You want a build that can never move under you. |
+| `main` | The newest build from `main` | You want changes before they are released. |
+| `sha-<7 characters>` | One exact commit, named by the first 7 characters of its id | You want a build that can never move under you. |
+
+`latest` is the newest release, which is not what floe.one runs: floe.one serves the web app from
+the newest code on `main`, and the web-app pages of these docs describe that. An instance on
+`latest` can therefore word some things differently until the next release, as
+[What an older web app shows](/self-hosting/operations#older-web-app-versions) lists.
+
+`main` only advances by merged pull request, and every image is smoke-tested on real hardware
+before the tag moves. It moves only when a merge touches `client/`, `server/`, or the image
+pipeline itself, so a docs-only merge starts no build and leaves it where it is. For the same
+reason a `sha-` tag exists only for a commit that was built: the commit of each release, and each
+merge to `main` that touched those folders. A commit that was never built has no image.
 
 Pin a tag with `FLOE_IMAGE_TAG`:
 
@@ -30,25 +41,32 @@ Pin a tag with `FLOE_IMAGE_TAG`:
 FLOE_IMAGE_TAG=1.11.0
 ```
 
-The variable is `FLOE_IMAGE_TAG`, not `FLOE_VERSION`. `FLOE_VERSION` belongs to the CLI's install script (see [Install the CLI](/cli/installation)) and is written with a leading `v`, as in `v1.11.0`. Image tags carry no `v`, so reusing that name would resolve to a tag that does not exist.
+The variable is `FLOE_IMAGE_TAG`, not `FLOE_VERSION`. `FLOE_VERSION` belongs to the [CLI](/glossary#cli)'s install script (see [Install the CLI](/cli/installation)) and is written with a leading `v`, as in `v1.11.0`. Image tags carry no `v`, so reusing that name would resolve to a tag that does not exist.
 
 ## Pinning a digest
 
-A tag can be repointed. A digest cannot, so it is the strongest pin:
+A tag can be repointed. A digest cannot, so it is the strongest pin. Read the digests of one tag
+for both images:
 
 ```bash Terminal
-docker buildx imagetools inspect ghcr.io/jannskiee/floe-server:latest
+docker buildx imagetools inspect ghcr.io/jannskiee/floe-server:1.11.0
+docker buildx imagetools inspect ghcr.io/jannskiee/floe-client:1.11.0
 ```
 
-Take the digest it prints and pin that instead of the tag:
+Take the digest each one prints and pin both services with it, in place of their tags. Take both
+from the same tag, because the client and the server should run the same version:
 
 ```yaml docker-compose.yml
 services:
   server:
-    image: ghcr.io/jannskiee/floe-server@sha256:f7d9ff66...
+    image: ghcr.io/jannskiee/floe-server@sha256:<digest of the server image>
+  client:
+    image: ghcr.io/jannskiee/floe-client@sha256:<digest of the client image>
 ```
 
-The digests a tag is built from are validated before it moves, and every tag is checked again afterward, so a tag and its digest always refer to an image that was actually started and exercised. The second pass is detection rather than prevention: it runs after the tag moved, and its job is to make a bad publish loud instead of silent.
+Every image is started and tested on its own hardware before a tag points at it, and every tag is
+checked again afterward. A tag and its digest therefore always refer to an image that was actually
+started and exercised.
 
 ## Architectures
 
@@ -63,6 +81,12 @@ It lists one entry per platform, so you can confirm your architecture is covered
 Each architecture is built and smoke-tested on its own hardware before any tag points at it, and a tag is only published once every architecture of both images has passed. A partly-built release is never visible.
 
 That matters more than it sounds. The image optimizer fails at load time rather than at build time, and when it fails it does not error: it quietly serves the original file. So a broken ARM image would look perfectly healthy to anything that only checks whether the page loads. The smoke test asserts the optimizer actually returns WebP, on real ARM.
+
+Once it is listening, the client container also asks itself once for every picture its pages use,
+so no picture is cold when a visitor's browser abandons the first request for it. It never delays
+the start. It prints nothing when that works, and one line when it does not:
+`Floe: the image warm-up did not finish; pictures are resized on first request instead.` The
+instance works either way.
 
 32-bit ARM (`linux/arm/v7`, older Raspberry Pi models) is not published. Node dropped support for it and no prebuilt image-processing binaries exist.
 
@@ -80,7 +104,7 @@ The overlay tags its output `floe-server:dev` and `floe-client:dev`, so a local 
 
 ## Share previews and canonical links
 
-These have to be written into the HTML when the app is built, so a shared image cannot know which domain it will be served from. Claiming one would mean every self-hosted instance advertising somebody else's site to crawlers, so the published image emits only what is true without knowing its own origin:
+These have to be written into the HTML when the app is built, so a shared image cannot know which domain it will be served from. Claiming one would mean every [self-hosted](/glossary#self-hosted) instance advertising somebody else's site to crawlers, so the published image emits only what is true without knowing its own origin:
 
 | Tag | In the published image |
 |-----|------------------------|
@@ -98,7 +122,7 @@ NEXT_PUBLIC_SITE_URL=https://files.example.com \
 docker compose -f docker-compose.yml -f docker-compose.build.yml up -d
 ```
 
-This affects only SEO and link previews. Transfers, the signaling connection, and the relay are unaffected, and all of those are configured at runtime.
+This affects only SEO and link previews. Transfers, the signaling connection, and the [relay](/glossary#relay) are unaffected, and all of those are configured at runtime.
 
 ## Updating
 

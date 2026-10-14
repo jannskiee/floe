@@ -9,7 +9,13 @@ Floe never moves your file. It introduces two devices, they build a connection b
 themselves, and the file crosses that connection, not the server. Once both devices are there,
 the server's part takes a few seconds.
 
-That is the entire idea. The rest of this page is what those few seconds consist of.
+## The short version {#the-short-version}
+
+Floe's [signaling server](/glossary#signaling-server), the server that introduces devices, puts
+the two devices in a [room](/glossary#room): a private meeting point for one transfer, with one
+sender and one receiver. It passes their connection details along and then drops out, so no
+file ever goes through it. A [room code](/glossary#room-code) works for 10 minutes at most, and a
+[share link](/glossary#share-link) works while its sender is still connected.
 
 ## Step by step
 
@@ -22,8 +28,8 @@ That is the entire idea. The rest of this page is what those few seconds consist
     The server now has two devices in one room, and tells the first one that someone arrived.
   </Step>
   <Step title="The two devices introduce themselves">
-    They pass an offer, an answer, and a list of network addresses through the server, each
-    trying to find a path to the other.
+    Each device sends the other a description of how to reach it, with a list of its network
+    addresses, and the server passes these along. Each then tries to find a path to the other.
   </Step>
   <Step title="The connection opens and the server drops out">
     Every byte of the file travels over that connection. None of it goes back through the server.
@@ -32,27 +38,29 @@ That is the entire idea. The rest of this page is what those few seconds consist
 
 Steps 1 to 3 all pass through the server. Step 4 does not.
 
-A [request link](/desktop/request-links) runs the same steps with the roles the other way around:
-the Floe Desktop that made the link is in the room first and receives, and the person sending joins
-when they press the send button on the link's page or run `floe send --to`.
+A [request link](/glossary#request-link), a link made in Floe Desktop for someone to send you files,
+runs the same steps with the roles the other way around. The Floe Desktop that made the link is in
+the room first and receives. The person sending joins when they press the send button on the link's
+page or run `floe send --to`.
 
 On most networks the path found in step 3 is direct, device to device. When a firewall or a
-carrier's network makes that impossible, the connection runs through an encrypted relay instead.
-See [Direct connections](/how-it-works/direct-connection) and
+carrier's network makes that impossible, the connection runs through an encrypted
+[relay](/glossary#relay) instead. See [Direct connections](/how-it-works/direct-connection) and
 [Relay fallback](/how-it-works/relay-connection).
 
 ## What the server does
 
-- Puts two devices in a room and assigns roles. For a room code or a share link, the first to join
-  sends and the second receives. A [request link](/desktop/request-links) keeps the receiving seat
-  for the Floe Desktop that made it, and the person sending joins second.
+- Puts two devices in a room and assigns roles. A room has two seats, one for the sender and one
+  for the receiver. For a room code or a share link, the first device to join sends and the second
+  receives. A [request link](/desktop/request-links) keeps the receiving seat for the Floe Desktop
+  that made it, and the person sending joins second.
 - Passes the connection-setup messages between them.
 - Hands out time-limited credentials for the relay, when one is configured.
 - Turns a room id into a three-word room code when `floe send` or Floe Desktop asks for one, and
   back into the room id for a receiver who types it, for 10 minutes at most. See
   [How long a code and a link last](/how-it-works/signaling#code-and-link-lifetime).
 - Adds the size of a finished transfer to one public running total, if the receiving side is
-  willing. That is a single shared number, and every client can switch it off. See
+  willing. That is a single shared number, and every receiving app can switch it off. See
   [Security and privacy](/security-privacy#aggregate-statistics).
 
 ## What the server never does
@@ -60,35 +68,39 @@ See [Direct connections](/how-it-works/direct-connection) and
 - Touch file data. Not in transit, not at rest, not in any form.
 - Store file names, contents, or a record of what you sent or to whom.
 - Keep a room once its session is over. The room is dropped when the last connection to it
-  closes, and its room code is dropped with it. While a code lasts, it maps to nothing but a
-  random room id. What the server holds about the devices themselves, and for how long, is in
-  [Security and privacy](/security-privacy).
+  closes. A room code stops working sooner, as soon as the receiver joins. While a code lasts, it
+  maps to nothing but a random room id. What the server holds about the devices themselves, and
+  for how long, is in [Security and privacy](/security-privacy#what-it-holds).
 - Connect the byte total to you. It is one number with no per-user or per-transfer rows behind it.
 
 A request link is the one room that outlives its connections. The server holds it for the Floe
-Desktop that made it, with a hash of that app's secret token and never the token itself, for about
-10 minutes after the app disconnects, so the app can come back to it. When a link that someone
-connected through is closed, the server remembers for a day that it was used. For any other link
-it remembers the link's room id and end time until a day after it ends, so a late visitor can be
-told it ended. It keeps nothing else about either.
+Desktop that made it until it ends, and remembers for 24 hours afterward that it was used or ended.
+What it keeps, and for how long, is listed under
+[Security and privacy](/security-privacy#what-it-holds).
 
 ## A room holds exactly two people
 
-The room is the transfer. It takes one sender and one receiver, and a third device that tries to
-join is turned away: the web app shows **Link Invalid**, while `floe receive` and Floe Desktop say
-`room is full (someone else may already be receiving)`.
+The room is the transfer. It has two seats, one for the sender and one for the receiver, and a
+third device that tries to join is turned away. The web app shows **Link Invalid**, while
+`floe receive` and Floe Desktop say `room is full (someone else may already be receiving)`.
 
-The seat frees again once that device disconnects and the server notices, which takes up to about
-a minute if the drop was not a clean one. Whether the transfer survives that gap depends on who is
-sending: the web app holds its room open for the receiver to come back from the same network, while
-`floe send` and Floe Desktop end the transfer as soon as the receiving side goes.
+The seat frees again once that device disconnects and the server notices. That takes up to about
+a minute if the drop was not a clean one. Whether the transfer survives that gap depends on who
+is sending:
 
-A freed seat does not let just anyone in. Once devices on two different networks have each sent a
-connection-setup message through a room, as a sender and a receiver do the moment they start
-connecting, a device on a third network is turned away as if the room were full, for as long as
-the room exists. Joining alone does not count, so a sender whose network changes while it waits for
-its receiver is not counted twice. Devices that share one network address (for IPv6, one /64)
-count as one, so two people behind the same router are not told apart.
+- The web app holds its room open for the receiver to come back from the same network.
+- `floe send` and Floe Desktop end the transfer as soon as the receiving side goes.
+
+A freed seat does not let just anyone in. After a sender and a receiver start connecting, the room
+accepts only their two networks. A device on any other network is turned away as if the room were
+full, for as long as the room exists.
+
+A network counts once a device on it has sent a connection-setup message through the room, as a
+sender and a receiver do the moment they start connecting. Joining alone does not count, so a
+sender whose network changes while it waits for its receiver is not counted twice. Devices that
+share one public address, such as two people behind the same router, count as one network and are
+not told apart. [Limits](/reference/limits#codes-links-and-rooms) says exactly what counts as one
+network.
 
 The same rule turns away one of the two people themselves if their network changes after they
 have started connecting, for example from Wi-Fi to mobile data. They need a new link. See
@@ -116,12 +128,12 @@ moment it is made, and the server retires it sooner when any of these happens fi
 | The server restarts | Codes are kept in memory only, so every code is forgotten. |
 
 Looking a code up does not use it up. A receiver whose attempt fails before it takes its seat, for
-example because `--relay-only` found no relay on the server, can try the same code again.
+example because the folder it was told to save in cannot be used, can try the same code again.
 
 Nothing extends the 10 minutes. A sender who is still waiting after that can be reached only
 through the link. A code that has stopped working looks the same whatever retired it: `floe receive`
 prints
-[`code "olive-tiger-castle" not found or expired (codes expire after 10 minutes)`](/troubleshooting#code-olive-tiger-castle-not-found-or-expired-codes-expire-after-10-minutes),
+[`code "olive-tiger-castle" not found: it was already used, the sender left, or it expired (a code lasts 10 minutes at most)`](/troubleshooting#code-olive-tiger-castle-not-found-or-expired-codes-expire-after-10-minutes),
 and Floe Desktop shows
 "[That code wasn't recognized](/troubleshooting#that-code-was-not-recognized)".
 
@@ -130,15 +142,15 @@ sender is still in the room:
 
 - A link from the web app's Send page works while the sender's tab stays open and connected.
 - A link from `floe send` or Floe Desktop works until that send finishes, fails, or is canceled.
-  Neither sets a limit on how long it waits for a receiver.
+  Neither sets a limit on how long it waits for a receiver. Such a link still serves one receiver
+  only: the send ends when its receiver leaves, even a receiver that only opened the link and
+  closed it again.
 
 The server does not use a link up when it is opened. A device that opens it while a receiver is
 connected is turned away because the second seat is taken, not because the link was opened before.
-A link from `floe send` or Floe Desktop still serves one receiver only: that send ends when its
-receiver leaves, even a receiver that only opened the link and closed it again. Once the sender has
-left, the link leads to an empty room: the web app says "The sender is not connected", and
-`floe receive` and Floe Desktop say
-[`this code is no longer active; ask for a new one`](/troubleshooting#this-code-is-no-longer-active-ask-for-a-new-one).
+Once the sender has left, the link leads to an empty room. The web app says "The sender is not
+connected", and `floe receive` and Floe Desktop say
+[`this code or link is no longer active; ask the sender for a new one`](/troubleshooting#this-code-is-no-longer-active-ask-for-a-new-one).
 
 A request link follows its own rules: its end time is chosen when it is made, and one accepted
 drop uses it up. See [how a request link ends](/desktop/request-links#how-a-link-ends).

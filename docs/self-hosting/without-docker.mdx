@@ -5,15 +5,15 @@ description: "Run the Floe signaling server and web client directly with Node.js
 keywords: ["node", "pnpm", "manual install", "no docker"]
 ---
 
-This page runs the signaling server and the web client straight from a clone of the repository, with Node.js and no containers. It is for hosts where Docker is not an option, and it leaves you with two long-lived processes to supervise and a checkout to keep up to date. The variables in [Configuration](/self-hosting/configuration) apply here too, and the rows that behave differently on a direct run say so.
+This page runs the [signaling server](/glossary#signaling-server) and the web client straight from a clone of the repository, with Node.js and no containers. It is for hosts where Docker is not an option, and it leaves you with two long-lived processes to supervise and a checkout to keep up to date. The variables in [Configuration](/self-hosting/configuration) apply here too, and the rows that behave differently on a direct run say so.
 
 ## Prerequisites
 
-- **Node.js 22.13 or later**, for both processes. The client sets that floor: it pins pnpm 11.1.2, which refuses to run on anything older than Node.js 22.13, and Next.js 16 asks for 20.9 or later. The signaling server's runtime dependencies ask only for Node.js 18, and its `package.json` has no `engines` field, so nothing stops you from starting it on something older. The oldest version anything tests is Node.js 20: CI runs the server's tests on Node.js 20 and on Node.js 24. CI builds the client on Node.js 22, and both published images run Node.js 24.
+- **Node.js 22.13 or later**, for both processes. The client sets that floor: it pins pnpm 11.1.2, which refuses to run on anything older. The signaling server has no `engines` field, so nothing stops you from starting it on something older, but the oldest version anything tests is Node.js 20. Both published images run Node.js 24.
 - **pnpm 11**, for the client. `client/package.json` pins `pnpm@11.1.2`. Install that version, for example with `npm install -g pnpm@11.1.2`, which is what the image build does.
 - **Git**, to clone the repository and to update it later.
 
-The optional CLI build below also needs Go. See [Install the CLI](/cli/installation#build-from-source).
+The optional [CLI](/glossary#cli) build below also needs Go. See [Install the CLI](/cli/installation#build-from-source).
 
 ## Running each component
 
@@ -45,9 +45,11 @@ needs its own terminal, or a process supervisor such as pm2 or systemd.
     npm start
     ```
 
-    It listens on port 3001, and the server itself logs nothing when it starts. Check it from another terminal with `curl -s http://localhost:3001/health`.
+    It listens on port 3001, on every network interface. With the example file in place it logs nothing when it starts. Check it from another terminal with `curl -s http://localhost:3001/health`.
   </Step>
   <Step title="Build and start the web client">
+    The server holds the first terminal, so open a second one in the `floe` folder:
+
     ```bash Terminal
     # Web client (Next.js). Stays in the foreground.
     cd client
@@ -56,7 +58,7 @@ needs its own terminal, or a process supervisor such as pm2 or systemd.
     pnpm start
     ```
 
-    Then open [http://localhost:3000](http://localhost:3000).
+    Then open [http://localhost:3000](http://localhost:3000). `CLIENT_PORT` does nothing here. To serve the client on another port, start it with `PORT=8080 pnpm start`, and set `CLIENT_URL` in `server/.env` to the new address.
   </Step>
 </Steps>
 
@@ -80,21 +82,27 @@ Both example files are written for one machine. Before the instance serves anyon
 | File | Variable | Set it to |
 |------|----------|-----------|
 | `server/.env` | `CLIENT_URL` | The exact origin people open the web client at, for example `https://floe.example.com`. |
-| `server/.env` | `TRUSTED_PROXY_COUNT` | The number of reverse proxies in front of the server. The example says `1`. Use `0` when the server is reached directly, or clients can forge the address the rate limits count. |
+| `server/.env` | `TRUSTED_PROXY_COUNT` | The number of reverse proxies in front of the server. The example says `0`, which is right when the server is reached directly. Set `1` behind one reverse proxy, and one more for each further layer. |
 | `client/.env.local` | `NEXT_PUBLIC_SOCKET_URL` | The signaling server's address as browsers reach it, for example `https://api.your-domain.com`. |
 | `client/.env.local` | `NEXT_PUBLIC_SITE_URL` | Your own public address. |
+| `client/.env.local` | `NEXT_TELEMETRY_DISABLED` | `1`, as the example has it, turns off Next.js's own build and usage telemetry, as the Docker image does. |
 
 <Warning>
-  Set `NEXT_PUBLIC_SITE_URL` to your own address before you run `pnpm build`. The example value, `http://localhost:3000`, is written into every canonical link, share preview, and sitemap entry. With the line removed or left empty, a build you run yourself falls back to `https://www.floe.one`, so your instance advertises floe.one as its canonical site. Only a build through the official Dockerfile leaves the address out instead, because a flag set there switches that on. See [Container images](/self-hosting/images#share-previews-and-canonical-links).
+  Set `NEXT_PUBLIC_SITE_URL` to your own address before you run `pnpm build`, or your instance names another site as its home. The example value, `http://localhost:3000`, is written into every canonical link, share preview, and sitemap entry, and a build with the line removed or empty names `https://www.floe.one`. See [Container images](/self-hosting/images#share-previews-and-canonical-links).
 </Warning>
 
 Both client values are inlined when the client is built, so changing either one later means another `pnpm build`.
 
-To change the signaling address without rebuilding, remove `NEXT_PUBLIC_SOCKET_URL` from `client/.env.local` before you build, and set the unprefixed `SOCKET_URL` in the environment of the process that runs `pnpm start` instead; the browser then reads it per request from `/api/config`. See [How the client finds the server](/self-hosting/build-time-url). Leave both empty when the client and the signaling server share one origin behind a reverse proxy.
+To change the signaling address later without rebuilding:
+
+1. Remove `NEXT_PUBLIC_SOCKET_URL` from `client/.env.local`, then run `pnpm build` once more.
+2. Start the client with the unprefixed `SOCKET_URL` in its environment, as in `SOCKET_URL=https://api.your-domain.com pnpm start`.
+
+The browser then reads the address on every page load from `/api/config`. See [How the client finds the server](/self-hosting/build-time-url). Leave both empty when the client and the signaling server share one origin behind a [reverse proxy](/glossary#reverse-proxy).
 
 The server reads `.env` from the folder it is started in, so start it from `server/`, or point your supervisor's working directory there. A variable already set in the process environment wins over the file.
 
-Keep `NODE_ENV=production`, which `server/.env.example` already sets. It is what the published image runs, where Docker sets it for you, so a direct Node run with that line matches the image. Nothing leaks without it: Floe registers its own final error handler, which returns a generic JSON error at every setting.
+Keep `NODE_ENV=production`, which `server/.env.example` already sets: it matches what the published image runs.
 
 [Request links](/desktop/request-links) stay off until `POLICY_FILE` in `server/.env` names a policy file. See [Turn on request links](/self-hosting/request-links#without-docker).
 
@@ -116,7 +124,7 @@ pnpm install --frozen-lockfile
 pnpm build
 ```
 
-Then restart both processes with whatever supervises them (`pm2 restart <name>`, `systemctl restart <unit>`, or your own runner). `pnpm start` serves whatever `pnpm build` last produced, so skipping the client rebuild leaves the old client running with nothing to indicate it is stale. A server restart forgets every room and room code, so pick a quiet moment; see [Operations](/self-hosting/operations#common-commands).
+Then restart both processes with whatever supervises them (`pm2 restart <name>`, `systemctl restart <unit>`, or your own runner). `pnpm start` serves whatever `pnpm build` last produced, so skipping the client rebuild leaves the old client running with nothing to indicate it is stale. A server restart forgets every [room](/glossary#room) and [room code](/glossary#room-code), so pick a quiet moment; see [Operations](/self-hosting/operations#common-commands).
 
 <Warning>
   Reinstall before you restart, and do not skip it. A dependency update that only moves a lockfile changes no source file, so a restart on its own re-executes the same `node_modules` and the update silently does not take effect. The process comes back healthy and the old version is still running.
@@ -131,11 +139,12 @@ curl -s http://localhost:3001/health
 To confirm a specific dependency actually moved, read the installed version rather than trusting the restart:
 
 ```bash Terminal
+cd /path/to/floe
 npm --prefix server ls <package-name>
 ```
 
 ## If something goes wrong
 
-- The server prints nothing after `npm start`: that is expected. See [The server logs nothing at all](/troubleshooting#the-server-logs-nothing-at-all).
-- The page loads and the badge stays on **Offline**: see [The browser cannot connect to my signaling server](/troubleshooting#the-browser-cannot-connect-to-my-signaling-server).
+- The server prints nothing after `npm start`, or only a line about `TRUSTED_PROXY_COUNT`: that is expected. See [The server logs nothing at all](/troubleshooting#the-server-logs-nothing-at-all).
+- The page loads and the [badge](/glossary#badge) stays on **Offline**: see [The browser cannot connect to my signaling server](/troubleshooting#the-browser-cannot-connect-to-my-signaling-server).
 - The server answers `403` to the browser: `CLIENT_URL` does not match the page's origin. See [Browser requests are blocked, and the server answers HTTP 403](/troubleshooting#browser-requests-are-blocked-and-the-server-answers-http-403).
