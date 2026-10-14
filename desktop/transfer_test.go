@@ -113,6 +113,96 @@ func TestRequireRelay(t *testing.T) {
 	}
 }
 
+// TestNotActiveNamesACodeOrALink: a receive that took the first seat of its
+// room says so in words that fit both ways in. In practice the input was a
+// pasted link whose sender had left (a spent code answers not found before any
+// join), so "this code" named something the person never had. The CLI prints
+// the same sentence. errors.ts passes it through by these leading words.
+func TestNotActiveNamesACodeOrALink(t *testing.T) {
+	if got, want := errNotActive.Error(), "this code or link is no longer active; ask the sender for a new one"; got != want {
+		t.Fatalf("errNotActive = %q, want %q", got, want)
+	}
+}
+
+// TestReceiverWaitEndTellsALostServerFromAPeerThatLeft: while a send waits for
+// its receiver, the push that ends the wait is the signaling socket closing
+// far more often than a peer leaving, since no peer has arrived yet. The two
+// are told apart the way the engine's own setup waits tell them (Down closes
+// before the read loop's PeerLeft push), and each gets the sentence the app
+// already has for it: the engine's ErrSignalingLost, which errors.ts shows as
+// "Can't reach the server", and the receiver-left sentence for a peer the
+// server reported gone.
+// TestRoleWaitEndTellsALostServer: the wait for a role ends on PeerLeft only
+// when the signaling socket closes (nobody else is in the room yet), so it says
+// the connection to the server was lost (errors.ts: "Can't reach the server")
+// and not "connection closed", which errors.ts reads as a transfer that dropped.
+func TestRoleWaitEndTellsALostServer(t *testing.T) {
+	sc := &signaling.Client{Down: make(chan struct{})}
+	close(sc.Down)
+	if err := roleWaitEnd(sc); !errors.Is(err, peer.ErrSignalingLost) {
+		t.Fatalf("a lost socket during the role wait: %v, want peer.ErrSignalingLost", err)
+	}
+	sc = &signaling.Client{Down: make(chan struct{})}
+	if err := roleWaitEnd(sc); err == nil || errors.Is(err, peer.ErrSignalingLost) {
+		t.Fatalf("a PeerLeft with the socket open: %v, want the plain close", err)
+	}
+}
+
+func TestReceiverWaitEndTellsALostServerFromAPeerThatLeft(t *testing.T) {
+	t.Run("the sentences", func(t *testing.T) {
+		sc := &signaling.Client{Down: make(chan struct{})}
+		if err := receiverWaitEnd(sc); !errors.Is(err, errReceiverLeft) || err.Error() != "peer disconnected before connecting" {
+			t.Fatalf("a peer the server reported gone: %v", err)
+		}
+		close(sc.Down)
+		if err := receiverWaitEnd(sc); !errors.Is(err, peer.ErrSignalingLost) {
+			t.Fatalf("a lost socket: %v, want peer.ErrSignalingLost", err)
+		}
+		// errors.ts anchors on these words ('lost before the peer connected').
+		if !strings.Contains(peer.ErrSignalingLost.Error(), "lost before the peer connected") {
+			t.Fatalf("the engine sentence %q lost the words errors.ts matches", peer.ErrSignalingLost)
+		}
+	})
+	// Over a real socket: the server reports a peer gone, then goes away itself.
+	t.Run("a socket", func(t *testing.T) {
+		f := newFakeSignalServer(t)
+		sc, err := signaling.Connect(f.url())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(sc.Close)
+		if err := sc.JoinRoom("6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-sc.Role:
+		case <-time.After(10 * time.Second):
+			t.Fatal("no role")
+		}
+		f.mu.Lock()
+		conn := f.conns[0]
+		f.mu.Unlock()
+		conn.send(map[string]string{"type": "peer-disconnected"})
+		select {
+		case <-sc.PeerLeft:
+		case <-time.After(10 * time.Second):
+			t.Fatal("no PeerLeft for peer-disconnected")
+		}
+		if err := receiverWaitEnd(sc); !errors.Is(err, errReceiverLeft) {
+			t.Fatalf("after peer-disconnected: %v, want the receiver-left sentence", err)
+		}
+		f.dropAll()
+		select {
+		case <-sc.PeerLeft:
+		case <-time.After(10 * time.Second):
+			t.Fatal("no PeerLeft for the closed socket")
+		}
+		if err := receiverWaitEnd(sc); !errors.Is(err, peer.ErrSignalingLost) {
+			t.Fatalf("after the server closed the socket: %v, want peer.ErrSignalingLost", err)
+		}
+	})
+}
+
 // requestLinkPasteLinks are the browser-only link shapes a person may paste
 // into Receive > CODE by mistake: request links on floe.one, on the local dev
 // pair and on a self-hosted base path, one without its scheme (X1 of
@@ -1011,6 +1101,60 @@ func statsPostsOf(f *fakeSignalServer) []string {
 	return append([]string(nil), f.statsPosts...)
 }
 
+// TestEndRequestDropRelayCapKeepsWhatWasSaved (ST6): the engine applies the
+// relay cap at each file of a drop and its refusal carries how many it had
+// saved (transfer's refuseRelay; its TestHostRelayCheckRefusesOverCapOnRelay
+// shows the committed first file), so a relay-cap stop can follow saved files.
+// The stopped result then counts them and keeps their folder, which is what
+// the card's count and Show in folder read. With none saved the folder goes.
+func TestEndRequestDropRelayCapKeepsWhatWasSaved(t *testing.T) {
+	setVar(t, &requestVolumeStreamsFn, func(string) (bool, error) { return true, nil })
+	end := func(t *testing.T, saved int) (RequestLinkSnapshot, string) {
+		a := &App{wake: &wakeGuard{onBlock: func() {}, onAllow: func() {}}, notifyFn: func(string, string) {}}
+		a.lane().emitFn = func(string, any) {}
+		forceGen(a, 1)
+		forceState(a, "receiving", 0)
+		folder := filepath.Join(t.TempDir(), "Acme 2026-10-14 0105")
+		if err := os.Mkdir(folder, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// No statsURL: the stop's own report of saved bytes posts nothing.
+		d := &requestDrop{closed: make(chan struct{}), files: 3, folder: folder}
+		d.accepted.Store(true)
+		for i := 0; i < saved; i++ {
+			name := fmt.Sprintf("%d.bin", i+1)
+			if err := os.WriteFile(filepath.Join(folder, name), []byte("abcd"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			d.tally.add(transfer.FileDone{SavedName: name, Bytes: 4, Verified: true})
+		}
+		refused := &transfer.RefusedError{Code: transfer.CodeRelayCap, Saved: saved, Err: transfer.ErrRelayOverLimit}
+		_ = a.endRequestDrop(1, nil, d, refused)
+		return stateOf(a), folder
+	}
+	t.Run("after two saved files", func(t *testing.T) {
+		s, folder := end(t, 2)
+		if s.State != "stopped" || s.Code != "relay-cap" {
+			t.Fatalf("ended %s %q, want stopped relay-cap", s.State, s.Code)
+		}
+		if r := s.Result; r == nil || r.Saved != 2 || r.Files != 3 || r.Bytes != 8 || r.Folder != folder || len(r.Names) != 2 {
+			t.Fatalf("result %+v, want 2 of 3 saved in %s", s.Result, folder)
+		}
+		if !dirExists(folder) {
+			t.Fatal("the folder holding the saved files was removed")
+		}
+	})
+	t.Run("before any file", func(t *testing.T) {
+		s, folder := end(t, 0)
+		if s.State != "stopped" || s.Code != "relay-cap" || s.Result == nil || s.Result.Saved != 0 {
+			t.Fatalf("ended %s %q with %+v, want stopped relay-cap with nothing saved", s.State, s.Code, s.Result)
+		}
+		if dirExists(folder) {
+			t.Fatal("an empty drop folder was left behind")
+		}
+	})
+}
+
 // TestRunRequestDropPromptNeverCarriesFirstName (OD-04): the first file's name
 // is the visitor's words, and no lane event before Accept carries it.
 func TestRunRequestDropPromptNeverCarriesFirstName(t *testing.T) {
@@ -1869,34 +2013,44 @@ func TestRequestPromptFolderAtDriveRoot(t *testing.T) {
 	}
 }
 
-// TestRequestPromptDriveLimitWarnsForFirstFileOnly (D-118, spec 05 8.3): the
-// drive-limit warning asks about the first file, the only one known before
-// Accept; a later file over the limit is refused at its own metadata. A batch
-// of small files larger than 4 GB on a FAT32 drive gets no warning.
-func TestRequestPromptDriveLimitWarnsForFirstFileOnly(t *testing.T) {
-	const fat32Max = 4294967295
-	setVar(t, &requestVolumeMaxFn, func(string) (int64, error) { return fat32Max, nil })
-	p := requestPairing{saveDir: t.TempDir(), label: "x"}
-	warns := func(in transfer.IncomingInfo) bool {
-		for _, w := range requestPromptFor(p, in, "", time.Now()).Warnings {
-			if w == "file-too-large-for-drive" {
-				return true
+// TestRequestPromptWarnsOnlyAboutSpaceAndTheRelay: the prompt's warning codes
+// are low-space and relay-over-cap and nothing else, the two the frontend has
+// a line for (requestCopy.ts warningLine, P4 and P6). There is no drive-limit
+// code: a first file past the save drive's largest file never reaches a prompt,
+// because the engine refuses it before OnIncoming and Decide (the engine's own
+// TestUniversalVolumeMaxRefusesFileTooLargeForFolder pins that order), so the
+// prompt has nothing to warn about and asks the volume nothing of the kind.
+// The relay code follows the route as well as Hide my IP, which is why its
+// line names the relay and not the setting.
+func TestRequestPromptWarnsOnlyAboutSpaceAndTheRelay(t *testing.T) {
+	over := transfer.RelaySizeLimit + 1
+	in := func(files int, total, first int64) transfer.IncomingInfo {
+		return transfer.IncomingInfo{Files: files, TotalBytes: total, FirstSize: first}
+	}
+	for _, tc := range []struct {
+		name   string
+		free   int64
+		hideIP bool
+		route  string
+		in     transfer.IncomingInfo
+		want   string
+	}{
+		{"a 5 GiB first file, roomy drive, direct", 500 * gib, false, "direct", in(1, 5*gib, 5*gib), ""},
+		{"a 5 GiB first file, route unknown", 500 * gib, false, "", in(1, 5*gib, 5*gib), ""},
+		{"too little room", 3 * gib, false, "direct", in(3, 2*gib, 1<<20), "low-space"},
+		{"over the cap on a relay, Hide my IP off", 500 * gib, false, "relay", in(2, over, 1<<20), "relay-over-cap"},
+		{"over the cap with Hide my IP on, route unknown", 500 * gib, true, "", in(2, over, 1<<20), "relay-over-cap"},
+		{"over the cap, direct, Hide my IP off", 500 * gib, false, "direct", in(2, over, 1<<20), ""},
+		{"exactly the cap on a relay", 500 * gib, false, "relay", in(1, transfer.RelaySizeLimit, transfer.RelaySizeLimit), ""},
+		{"too little room and over the cap", 3 * gib, true, "relay", in(1, 5*gib, 5*gib), "low-space,relay-over-cap"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setVar(t, &requestDiskFreeFn, func(string) (int64, error) { return tc.free, nil })
+			p := requestPairing{saveDir: t.TempDir(), label: "x", hideIP: tc.hideIP}
+			if got := strings.Join(requestPromptFor(p, tc.in, tc.route, time.Now()).Warnings, ","); got != tc.want {
+				t.Fatalf("warnings %q, want %q", got, tc.want)
 			}
-		}
-		return false
-	}
-	if warns(transfer.IncomingInfo{Files: 3, TotalBytes: 6 << 30, FirstSize: 1 << 20}) {
-		t.Error("a 6 GB batch whose first file is 1 MB warns about the drive limit")
-	}
-	if !warns(transfer.IncomingInfo{Files: 1, TotalBytes: 5 << 30, FirstSize: 5 << 30}) {
-		t.Error("a 5 GB first file on a FAT32 drive gets no drive-limit warning")
-	}
-	if warns(transfer.IncomingInfo{Files: 1, TotalBytes: fat32Max, FirstSize: fat32Max}) {
-		t.Error("a first file of exactly the drive's maximum warns")
-	}
-	setVar(t, &requestVolumeMaxFn, func(string) (int64, error) { return 0, nil })
-	if warns(transfer.IncomingInfo{Files: 1, TotalBytes: 5 << 30, FirstSize: 5 << 30}) {
-		t.Error("a volume with no known maximum warns")
+		})
 	}
 }
 

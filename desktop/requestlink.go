@@ -112,9 +112,9 @@ type RequestPrompt struct {
 	// Floe\Acme footage 2026-09-14 1405.
 	Folder    string `json:"folder"`
 	FreeBytes int64  `json:"freeBytes"` // free space on the save volume
-	// Warnings are codes, never text: low-space, file-too-large-for-drive,
-	// relay-over-cap, and on a link that accepts automatically the one reason
-	// this drop still asks (auto-floor, auto-no-mark, auto-unknown; D-176).
+	// Warnings are codes, never text: low-space, relay-over-cap, and on a
+	// link that accepts automatically the one reason this drop still asks
+	// (auto-floor, auto-no-mark, auto-unknown; D-176).
 	Warnings []string `json:"warnings"`
 	// FloorBytes is the free space an automatic drop must leave (G13), set
 	// only beside the auto-floor reason, for its line.

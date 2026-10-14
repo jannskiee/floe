@@ -44,11 +44,12 @@ describe('no line ends in a period (D-167)', () => {
             ...['disabled', 'limited', 'unknown', 'no-relay', 'relay-unknown', 'already-open', 'denied'].map(copy.errorLine),
             copy.scopeLine(END, NOW), copy.scopeLine(END + 3 * 86400000, NOW), copy.scopeLine(END, NOW, true), copy.missedLine(END),
             copy.reopenLine({code: 'setup-failed', suggestClose: false}),
+            copy.reopenLine({code: 'no-relay', suggestClose: false}),
             copy.reopenLine({code: '', missedAt: END, suggestClose: false}),
             copy.reopenLine({code: '', suggestClose: true}),
             ...['expired', 'app-closed', 'closed'].map((c) => copy.endedLine(c, END)),
             copy.promptHeading(''), copy.promptHeading('Acme footage'), copy.promptSize(12, 38 * GB),
-            ...['low-space', 'file-too-large-for-drive', 'relay-over-cap'].map((c) =>
+            ...['low-space', 'relay-over-cap'].map((c) =>
                 copy.warningLine(c, {freeBytes: 31 * GB, totalBytes: 38 * GB}, 'D:\\Footage\\Floe')),
             copy.countdown(NOW + 9 * 60000, NOW), copy.receivingHeading(4, 12, 'Acme footage'),
             copy.etaLongLine(86400), copy.etaLongLine(3 * 86400), copy.doneHeading(12, 38 * GB),

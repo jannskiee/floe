@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -89,12 +90,62 @@ func TestProbeServerCatchesMissingAPI(t *testing.T) {
 	if got.OK {
 		t.Fatal("probeServer accepted a server whose /api/ is not reachable")
 	}
-	if !strings.Contains(got.Message, "/api/") {
-		t.Errorf("message = %q, want it to name /api/", got.Message)
+	if want := "The API answered HTTP 404 (check that your proxy forwards /api/)"; got.Message != want {
+		t.Errorf("message = %q, want %q", got.Message, want)
+	}
+}
+
+// statusServer is a healthy Floe server whose /api/turn-credentials answers
+// with status and no usable body.
+func statusServer(status int) *httptest.Server {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"healthy","uptime":42.0}`))
+	})
+	mux.HandleFunc("/api/turn-credentials", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(status)
+	})
+	return httptest.NewServer(mux)
+}
+
+// TestProbeServerNamesTheServersOwnRateLimit: a 429 from /api/ is the server's
+// own limit on requests from one network (20 a minute on this endpoint, which
+// pressing Test spends), answered by a server whose proxy forwards /api/ as
+// it should. It gets its own sentence, with nothing about a proxy in it. Every
+// other status keeps the proxy hint, with the number that came back.
+func TestProbeServerNamesTheServersOwnRateLimit(t *testing.T) {
+	limited := statusServer(http.StatusTooManyRequests)
+	defer limited.Close()
+	got := probeServer(limited.URL, okWS)
+	if got.OK {
+		t.Fatalf("probeServer = %+v, want a failure: the test could not finish", got)
+	}
+	if want := "The server is limiting requests from this network. Wait a minute and test again"; got.Message != want {
+		t.Errorf("message = %q, want %q", got.Message, want)
+	}
+	for _, wrong := range []string{"proxy", "/api/", "429"} {
+		if strings.Contains(got.Message, wrong) {
+			t.Errorf("message = %q, names %q for the server's own limit", got.Message, wrong)
+		}
+	}
+
+	for _, status := range []int{http.StatusNotFound, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusInternalServerError} {
+		srv := statusServer(status)
+		got := probeServer(srv.URL, okWS)
+		srv.Close()
+		want := "The API answered HTTP " + strconv.Itoa(status) + " (check that your proxy forwards /api/)"
+		if got.OK || got.Message != want {
+			t.Errorf("status %d: probeServer = %+v, want the message %q", status, got, want)
+		}
 	}
 }
 
 // TestProbeServerCatchesMissingWebSocket covers the other proxy misconfiguration.
+// The sentence names both things a proxy gets wrong here: not forwarding /ws,
+// and forwarding it with the Host header rewritten, which the server's origin
+// check answers 403. One sentence covers both until the probe reads the
+// handshake status the engine now keeps (signaling.HandshakeError).
 func TestProbeServerCatchesMissingWebSocket(t *testing.T) {
 	srv := floeServer(true, true)
 	defer srv.Close()
@@ -103,8 +154,8 @@ func TestProbeServerCatchesMissingWebSocket(t *testing.T) {
 	if got.OK {
 		t.Fatal("probeServer accepted a server whose /ws is not reachable")
 	}
-	if !strings.Contains(got.Message, "/ws") {
-		t.Errorf("message = %q, want it to name /ws", got.Message)
+	if want := "The server refused the realtime connection (check that your proxy forwards /ws and passes the original Host header)"; got.Message != want {
+		t.Errorf("message = %q, want %q", got.Message, want)
 	}
 }
 
@@ -212,10 +263,12 @@ func TestProbeServerReportsAnAvailableRelay(t *testing.T) {
 // relay used to answer "Connected." and the failure surfaced thirty seconds
 // into the next Hide my IP transfer, as a generic connection timeout.
 //
-// OK stays TRUE on purpose. This is a working Floe signaling server and every
-// transfer that does not force the relay will run on it; calling it an error
-// would send a self-hoster looking for a broken reverse proxy that does not
-// exist. The message is what carries the limitation.
+// OK stays TRUE on purpose. This is a working Floe signaling server, and two
+// devices that can reach each other directly transfer through it; calling it
+// an error would send a self-hoster looking for a broken reverse proxy that
+// does not exist. The message is what carries the limitation, and it names
+// both halves of it: Hide my IP cannot work, and two devices with no direct
+// path between them cannot connect at all.
 func TestProbeServerReportsAMissingRelay(t *testing.T) {
 	srv := floeServerICE(true, true, iceSTUNOnly)
 	defer srv.Close()
@@ -227,8 +280,8 @@ func TestProbeServerReportsAMissingRelay(t *testing.T) {
 	if got.RelayAvailable {
 		t.Error("RelayAvailable = true for a STUN-only server")
 	}
-	if !strings.Contains(got.Message, "Hide my IP") {
-		t.Errorf("Message = %q, want it to name the setting that cannot work", got.Message)
+	if want := "Connected, but this server has no relay: Hide my IP will not work, and some networks will not connect"; got.Message != want {
+		t.Errorf("Message = %q, want %q", got.Message, want)
 	}
 	if !strings.HasPrefix(got.Message, "Connected, but") {
 		t.Errorf("Message = %q, want it to still read as a pass", got.Message)

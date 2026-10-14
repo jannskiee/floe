@@ -366,6 +366,21 @@ describe('the result card', () => {
         expect(document.body.textContent).not.toMatch(/send the rest/);
     });
 
+    it('a relay stop that saved files says how many and shows their folder (ST6)', async () => {
+        // The engine refuses at the file that would cross 2 GB, so the files
+        // before it are saved. The card used to say "Nothing saved" over them
+        // and offer no way to their folder.
+        const user = userEvent.setup();
+        const saved = snap({state: 'stopped', code: 'relay-cap', result: {...result, files: 5, saved: 2, verified: 2, names: ['a.mov', 'b.mov']}});
+        const p = props({phase: 'stopped', snap: saved});
+        render(<RequestLinkView {...p}/>);
+        expect(screen.getByText('Over the 2 GB relay limit · 2 of 5 files saved')).toBeTruthy();
+        expect(document.body.textContent).not.toMatch(/Nothing saved|before any file/);
+        expect(screen.getByRole('list', {name: 'Received files'}).children).toHaveLength(2);
+        await user.click(screen.getByRole('button', {name: 'Show in folder'}));
+        expect(p.onShowInFolder).toHaveBeenCalledWith(result.folder);
+    });
+
     it('a stop reads its count in the web grammar (ST16, D-136)', () => {
         const {rerender} = render(<RequestLinkView {...at('stopped')}/>);
         expect(screen.getByText('The drive ran out of space · 4 of 12 files saved')).toBeTruthy();
@@ -555,6 +570,27 @@ describe('the layout (D-136)', () => {
         expect(into).not.toContain('break-all');
         // The Accept and Decline row carries the id Review scrolls to.
         expect(accept.parentElement!.id).toBe(PROMPT_ACTIONS_ID);
+    });
+
+    it('the prompt: a drop over the relay limit names the relay, whatever Hide my IP is set to (P6)', () => {
+        // Go adds the code for a relay route with the switch off as well, so
+        // the line must not name a setting the owner may never have turned on.
+        const warned = snap({state: 'deciding', prompt: {...prompt, totalBytes: 3 * GB, warnings: ['relay-over-cap']}});
+        for (const hideIP of [false, true]) {
+            const {unmount} = render(<RequestLinkView {...at('deciding', {snap: warned, hideIP})}/>);
+            const line = screen.getByText('This 3.0 GB drop is over the 2 GB relay limit');
+            expect(line.className).toContain('text-amber-300/80');
+            expect(screen.getByRole('heading', {level: 3}).parentElement!.textContent).not.toMatch(/Hide my IP/);
+            unmount();
+        }
+    });
+
+    it('the prompt: the drive-limit code draws no line (P5 is removed)', () => {
+        const stale = snap({state: 'deciding', prompt: {...prompt, warnings: ['file-too-large-for-drive']}});
+        render(<RequestLinkView {...at('deciding', {snap: stale})}/>);
+        // The heading, the size row and the folder row, as with no warning.
+        expect(screen.getByRole('heading', {level: 3}).parentElement!.children).toHaveLength(3);
+        expect(document.body.textContent).not.toMatch(/4 GB/);
     });
 
     it('the notice shows unless the whole Accept and Decline row is in view', () => {

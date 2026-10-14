@@ -172,6 +172,21 @@ function App() {
     // NOT named confirmReset: that one guards Start over, which clears the
     // transfer UI and keeps every preference. This one is the opposite.
     const [confirmDefaults, setConfirmDefaults] = useState(false);
+    // Whether any of the three confirm dialogs above is up: one answer for
+    // everything that waits behind a dialog (the app-level shortcuts, the
+    // primary action, the picker, the undo offer and its bar). Each of those
+    // used to test its own subset, and none of the subsets held closeGuard,
+    // which an open request link raises with nothing busy: Ctrl+Enter then
+    // started a transfer under "Close Floe?", and Ctrl+O, Ctrl+V, Ctrl+H and
+    // Ctrl+, tested nothing, so they moved the screen behind any of the three
+    // and closed "Reset all settings?" by closing Settings under it. The ref
+    // is for the key listeners, which are registered once and see only the
+    // first render's state. Ctrl+R is not among them on purpose: it is the
+    // titlebar lockup's own action, which stays reachable above every scrim,
+    // and startOver documents what it does with a dialog up.
+    const modalOpen = confirmReset || confirmDefaults || closeGuard;
+    const modalOpenRef = useRef(false);
+    modalOpenRef.current = modalOpen;
     // Failure text, rendered inside the open dialog. It cannot borrow testStatus,
     // which lives in the Advanced section: that section is usually collapsed and
     // below the fold, so a failed reset would report itself somewhere hidden,
@@ -703,6 +718,11 @@ function App() {
         // First run defaults it ON; an explicit user OFF (floe:ctx-menu = '0')
         // stays off. The auto-enable never writes the marker, so it records
         // user choice only and the default self-heals if the key vanishes.
+        // So does an explicit ON: the condition is "not switched off", never
+        // "no choice yet". The installer's uninstaller deletes the key and
+        // keeps this profile, so after a reinstall the marker still reads '1'
+        // with no entry behind it, and comparing it with null left that owner
+        // with no entry and a switch that read off.
         //
         // Skipped entirely in a packaged (Microsoft Store) build: the write
         // would land in the package's private registry view, Explorer would
@@ -1015,7 +1035,7 @@ function App() {
     // it survives a tab switch, Settings, History, a send and a cancel, while
     // held in an offer each of those destroyed it silently.
     const canUndo = !!cleared && mode === 'send' && !settingsOpen
-        && !confirmReset && !confirmDefaults && restorable(cleared, sendKind);
+        && !modalOpen && restorable(cleared, sendKind);
     // The bar is that, plus its own short life. The clock only ever lowers the
     // bar; coming back to the view raises it again with a fresh window.
     const barUp = canUndo && offerUp;
@@ -1123,13 +1143,14 @@ function App() {
 
     // Ctrl/Cmd+V pastes files (copied in Explorer) or a screenshot into the send
     // list, mirroring drag-drop. Ignored while typing in a field (so pasting a
-    // code or a text note is untouched), while a transfer is busy, and on OS
-    // key-repeat so holding the key pastes once instead of flooding the list.
+    // code or a text note is untouched), while a transfer is busy, behind a
+    // confirm dialog (modalOpen), and on OS key-repeat so holding the key
+    // pastes once instead of flooding the list.
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if (!((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V'))) return;
             if (e.repeat) return;
-            if (busyRef.current) return;
+            if (busyRef.current || modalOpenRef.current) return;
             const el = document.activeElement as HTMLElement | null;
             if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
             e.preventDefault();
@@ -1145,6 +1166,9 @@ function App() {
     // primaryActionRef / toggleHistoryRef) so this never re-binds. Fields keep
     // their own Enter handlers, so the letter keys and Enter skip while typing
     // (prevents a double-fire); comma is global, like a standard prefs key.
+    // None of them acts behind a confirm dialog (modalOpen): the keystroke is
+    // left alone there, so Enter on a dialog's focused button still answers
+    // the dialog.
     useEffect(() => {
         const openHistory = () => {
             setSettingsOpen(false);
@@ -1152,6 +1176,7 @@ function App() {
         };
         const onKey = (e: KeyboardEvent) => {
             if (!(e.ctrlKey || e.metaKey) || e.repeat) return;
+            if (modalOpenRef.current) return;
             const el = document.activeElement as HTMLElement | null;
             const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
             switch (e.key.toLowerCase()) {
@@ -1660,7 +1685,7 @@ function App() {
     // dismissed. The isNewer re-check is defense in depth (Go already compared)
     // and keeps the card from flashing before GetVersion resolves.
     const updateAvailable = updateVer !== '' && isNewerDesktopVersion(updateVer, appVer);
-    const showUpdate = updateAvailable && !updateDismissed && !busy && !dropMoving && !confirmReset && !confirmDefaults;
+    const showUpdate = updateAvailable && !updateDismissed && !busy && !dropMoving && !modalOpen;
     // The request notice keeps the update notice's manners: never behind a
     // dialog's scrim. It stands on every screen, Settings included, except
     // REQUEST LINK with the prompt in view. A prompt that arrives there already
@@ -1668,7 +1693,7 @@ function App() {
     // report, 8 to 23 ms later (FU-04): a frame or so into a 0.32 s fade-in
     // that starts at opacity 0. Under reduced motion there is no fade, so that
     // frame or two shows the notice at full opacity. Both are left as they are.
-    const showRequestNotice = noticeVisible(reqUI.snap, onRequestView, promptInView) && !closeGuard && !confirmReset && !confirmDefaults;
+    const showRequestNotice = noticeVisible(reqUI.snap, onRequestView, promptInView) && !modalOpen;
     // What Start over would destroy, phrased for its own dialog, so the decision
     // to interrupt and the sentence explaining why can never drift apart. Empty
     // means nothing worth a prompt and the reset runs on the first click or
@@ -1732,7 +1757,7 @@ function App() {
     // came from. An earlier fix retired eagerly at this line, which closed one
     // hole by destroying the thing the hole endangered.
     function openPicker() {
-        if (busy) return;
+        if (busy || modalOpen) return;
         setSettingsOpen(false);
         setMode('send');
         setSendKind('files');
@@ -1746,11 +1771,11 @@ function App() {
     // or behind a modal. That last guard fixes a pre-existing bug rather than
     // anything to do with Clear: without it Ctrl+Enter starts a transfer BEHIND
     // the Start over scrim, which is how an audit reached this dialog's unwired
-    // exit in the first place. showUpdate has guarded on the same two all along.
-    // (confirmDefaults is belt and braces: it implies settingsOpen, which is
-    // already here.)
+    // exit in the first place. It reads modalOpen, all three dialogs: testing
+    // two of them left Close Floe? out, and an open request link raises that
+    // one with nothing busy.
     function primaryAction() {
-        if (busy || settingsOpen || confirmReset || confirmDefaults) return;
+        if (busy || settingsOpen || modalOpen) return;
         // No keyboard path to Accept but a focused native button (spec 06
         // 5.2 item 6), so Ctrl+Enter does nothing on REQUEST LINK at all.
         if (onRequestView) return;
@@ -1908,7 +1933,7 @@ function App() {
                 few seconds while the undo behind it stays good, and it steps
                 aside entirely for a dialog rather than sitting dimmed under the
                 scrim where it cannot be clicked. showUpdate guards on the same
-                two for the same reason. Keyed on what it says so a second offer
+                modalOpen for the same reason. Keyed on what it says so a second offer
                 always replays the entrance, rather than relying on an argument
                 about which renders can be adjacent. */}
             {barUp && cleared && (
@@ -2319,7 +2344,11 @@ function App() {
 
                         <div className="mt-10 space-y-6">
                             {[
-                                {n: '01', title: 'Direct & unlimited', note: 'Device to device with no size cap, 2 GB through a relay'},
+                                // "from Floe", and the browser named: Floe sets no limit on
+                                // a direct transfer, but a browser that receives holds only
+                                // so much. The site says the same (it read "Direct &
+                                // unlimited" and "no size cap").
+                                {n: '01', title: 'Direct, no size limit from Floe', note: 'Device to device. A receiving browser can only hold so much. 2 GB through a relay'},
                                 // DTLS alone: data channels are SCTP over DTLS. SRTP carries
                                 // media, which Floe never sends.
                                 {n: '02', title: 'End-to-end encrypted', note: 'DTLS, the same as a video call'},
@@ -2436,8 +2465,14 @@ function App() {
                                         )}
 
                                         {/* selector: full dropzone when empty, slim add-row once files
-                                            are picked, hidden entirely while a transfer is in flight */}
-                                        {!sending && sendKind === 'files' && (
+                                            are picked, hidden entirely while a transfer is in flight.
+                                            That is busy, a receive included, not only sending: a drop,
+                                            a paste, Ctrl+O and a second launch are all refused while
+                                            either runs, and during a receive this zone's two buttons
+                                            were the one way that still staged files, under its own
+                                            invitation to drag, which was being ignored. What is already
+                                            staged stays, with its list and Clear. */}
+                                        {!busy && sendKind === 'files' && (
                                             <Dropzone expanded={!files.length} onPickFiles={pickFiles} onPickFolder={pickSendFolder}/>
                                         )}
 
@@ -2556,7 +2591,10 @@ function App() {
                                                     : <Check className="order-first size-4 shrink-0 text-zinc-500"/>}
                                             </div>
                                         )}
-                                        <StatusLine text={sendStatus} busy={sending}/>
+                                        {/* The idle hint invites a pick or a drag. While a receive
+                                            runs neither works and the drop zone above is gone, so
+                                            the hint waits with it. */}
+                                        <StatusLine text={receiving && sendStatus === INITIAL_SEND_STATUS ? '' : sendStatus} busy={sending}/>
                                     </div>
 
                                 ) : mode === 'receive' && onRequestView ? (

@@ -63,6 +63,18 @@ describe('waiting, reconnecting and ended lines', () => {
         expect(reopenLine({code: 'setup-failed', suggestClose: false})).toBe("The sender couldn't connect");
     });
 
+    it('names a sender turned away because Hide my IP is on and no relay is available (W14)', () => {
+        // runRequestDrop reopens the link with no-relay when the server's list has
+        // no relay, and relay-unknown when it could not be read or fetched; the
+        // link used to show only Waiting for files (audit row A2-B1).
+        const w14 = "The sender couldn't connect: Hide my IP is on and no relay is available";
+        expect(reopenLine({code: 'no-relay', suggestClose: false})).toBe(w14);
+        expect(reopenLine({code: 'relay-unknown', suggestClose: false})).toBe(w14);
+        expect(reopenLine({code: 'no-relay', missedAt: MISSED, suggestClose: false})).toBe(w14);
+        // E-40's question still outranks it, as it does every reopen reason.
+        expect(reopenLine({code: 'no-relay', suggestClose: true})).toBe('2 requests ended without Accept in 10 minutes. Close this link?');
+    });
+
     it('maps missedAt to fixed copy', () => {
         expect(reopenLine({code: '', missedAt: MISSED, suggestClose: false})).toBe('Missed a request at 2:14 PM');
     });
@@ -127,10 +139,22 @@ describe('the prompt', () => {
 
     it.each([
         ['low-space', 'Only 31.0 GB free on D:, not enough for this drop'],
-        ['file-too-large-for-drive', "This drive can't save files over 4 GB"],
-        ['relay-over-cap', 'This 38.0 GB drop is over the 2 GB Hide my IP limit'],
+        ['relay-over-cap', 'This 38.0 GB drop is over the 2 GB relay limit'],
     ])('maps %s to fixed copy', (code, want) => {
         expect(warningLine(code, {freeBytes: 31 * GB, totalBytes: 38 * GB}, 'D:\\Footage\\Floe requests')).toBe(want);
+    });
+
+    it('the relay line names the relay, not Hide my IP (P6): Go sends its code for a relay route with the switch off too', () => {
+        const line = warningLine('relay-over-cap', {freeBytes: 31 * GB, totalBytes: 3 * GB}, 'D:\\Footage');
+        expect(line).toBe('This 3.0 GB drop is over the 2 GB relay limit');
+        expect(line).not.toMatch(/Hide my IP/);
+    });
+
+    it('has no drive-limit line (P5 is removed): the engine refuses that first file before the prompt', () => {
+        expect(warningLine('file-too-large-for-drive', {freeBytes: 31 * GB, totalBytes: 38 * GB}, 'D:\\Footage')).toBe('');
+        for (const v of Object.values(copy)) {
+            if (typeof v === 'string') expect(v).not.toMatch(/over 4 GB/);
+        }
     });
 
     it('names why a drop on an Auto-accept link still asks (D-176, D-177)', () => {
@@ -215,7 +239,7 @@ describe('stop codes', () => {
         ['hash-mismatch', "A file didn't match what was sent and was deleted · 4 of 12 files saved"],
         ['path-too-long', 'A folder path was too long for Windows · 4 of 12 files saved'],
         ['over-approved', 'More data arrived than you accepted · 4 of 12 files saved'],
-        ['relay-cap', 'Over the 2 GB relay limit · Nothing saved'],
+        ['relay-cap', 'Over the 2 GB relay limit · 4 of 12 files saved'],
         ['file-too-large-for-folder', 'A file is too large for this drive · 4 of 12 files saved'],
         ['write-failed', "Windows couldn't write to the folder · 4 of 12 files saved"],
         ['save-blocked', 'Windows blocked Floe from saving a file · 4 of 12 files saved'],
@@ -236,7 +260,7 @@ describe('stop codes', () => {
     it('keeps the History form of each stop (DH-02)', () => {
         expect(stoppedFull('disk-full', 4, 12)).toBe('Drop stopped: the drive ran out of space · 4 of 12 files saved');
         expect(stoppedFull('hash-mismatch', 4, 12)).toBe("Drop stopped: a file didn't match what was sent and was deleted");
-        expect(stoppedFull('relay-cap', 0, 12)).toBe('Drop stopped before any file: over the 2 GB relay limit');
+        expect(stoppedFull('relay-cap', 2, 5)).toBe('Drop stopped: over the 2 GB relay limit');
         expect(stoppedFull('peer-abort', 4, 12)).toBe('Drop stopped: the sender left · 4 of 12 files arrived');
         expect(stoppedFull('time-limit', 4, 12)).toBe('Drop stopped: it reached the 24-hour limit · 4 of 12 files saved');
         expect(stoppedFull('stopped', 4, 12)).toBe('You stopped this drop · 4 of 12 files saved');
@@ -252,7 +276,22 @@ describe('stop codes', () => {
     it('shows the folder only when a file was saved', () => {
         expect(stoppedShowsFolder('disk-full', 4)).toBe(true);
         expect(stoppedShowsFolder('disk-full', 0)).toBe(false);
-        expect(stoppedShowsFolder('relay-cap', 3)).toBe(false);
+        expect(stoppedShowsFolder('relay-cap', 3)).toBe(true);
+        expect(stoppedShowsFolder('relay-cap', 0)).toBe(false);
+    });
+
+    it('the relay stop counts what was saved, on the card and in History (ST6)', () => {
+        // The engine refuses at the file that would cross the cap, so the
+        // files before it are on disk (refuseRelay carries the saved count).
+        expect(stoppedCard('relay-cap', 2, 5)).toBe('Over the 2 GB relay limit · 2 of 5 files saved');
+        expect(stoppedCard('relay-cap', 1, 1)).toBe('Over the 2 GB relay limit · 1 of 1 file saved');
+        expect(stoppedCard('relay-cap', 0, 5)).toBe('Over the 2 GB relay limit · Nothing saved');
+        // History keeps a stopped drop only when a file was saved, so its
+        // sentence never says "before any file".
+        for (const saved of [0, 1, 4]) {
+            expect(stoppedFull('relay-cap', saved, 12), `${saved} saved`).toBe('Drop stopped: over the 2 GB relay limit');
+            expect(stoppedCard('relay-cap', saved, 12), `${saved} saved`).not.toMatch(/before any file/);
+        }
     });
 
     it('counts saved files in the web grammar: a singular form, and Nothing was saved (ST16, D-136)', () => {
@@ -338,6 +377,12 @@ describe('the whole table', () => {
             expect(s).not.toMatch(/minimum speed/i);
         }
         expect(stoppedCard('too-slow', 4, 12)).toBe('4 of 12 files saved');
+    });
+
+    it('no output keeps the three lines the owner changed on 2026-10-14 (P5, P6, ST6)', () => {
+        for (const s of everyOutput()) {
+            expect(s).not.toMatch(/over 4 GB|Hide my IP limit$|before any file/);
+        }
     });
 
     it('no string contains an en dash or em dash', () => {

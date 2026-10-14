@@ -32,8 +32,10 @@ type ProbeResult struct {
 	Message string `json:"message"`
 	// RelayAvailable reports whether the server's ICE list offers a TURN relay.
 	// Only meaningful when OK: a probe that failed before stage three never
-	// looked, and the zero value says so. Hide my IP is the only thing that
-	// needs a relay, so false here is information rather than a failure.
+	// looked, and the zero value says so. Two things need a relay: Hide my IP,
+	// and any two devices with no direct path between them. A server without
+	// one still carries every transfer that can connect directly, so false
+	// here is information rather than a failure.
 	RelayAvailable bool `json:"relayAvailable"`
 }
 
@@ -86,7 +88,13 @@ func probeServer(raw string, dialWS func(string) error) ProbeResult {
 		return r
 	}
 	if err := dialWS(base); err != nil {
-		return ProbeResult{Message: "The server refused the realtime connection (check that your proxy forwards /ws)"}
+		// Both common causes in one sentence: a proxy that never forwards /ws,
+		// and one that forwards it with Host rewritten, which the server's
+		// origin check refuses with a 403. Naming only /ws sent the second case
+		// to the wrong fix. The engine's handshake error now keeps the HTTP
+		// status (signaling.HandshakeError, #572), so telling the two apart is
+		// a later change; this sentence stays true either way.
+		return ProbeResult{Message: "The server refused the realtime connection (check that your proxy forwards /ws and passes the original Host header)"}
 	}
 	return probeAPI(base)
 }
@@ -175,6 +183,12 @@ func probeAPI(base string) ProbeResult {
 	}
 	defer resp.Body.Close()
 
+	// A 429 is the server's own limit on requests from one network (20 a
+	// minute on this endpoint by default, and each press of Test spends one),
+	// so the request did reach /api/ and the proxy hint below would be wrong.
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return ProbeResult{Message: "The server is limiting requests from this network. Wait a minute and test again"}
+	}
 	if resp.StatusCode != http.StatusOK {
 		return ProbeResult{Message: fmt.Sprintf(
 			"The API answered HTTP %d (check that your proxy forwards /api/)", resp.StatusCode)}
@@ -190,12 +204,14 @@ func probeAPI(base string) ProbeResult {
 	}
 	if !ice.HasRelay(servers) {
 		// A pass, not a failure, and the OK matters: this is a working Floe
-		// signaling server, every transfer that does not force the relay will
-		// run on it, and marking it an error would send a self-hoster looking
-		// for a broken reverse proxy that does not exist. Saying so here is
-		// what replaces a thirty-second timeout later that reads like a
-		// network fault on a network that is fine.
-		return ProbeResult{OK: true, Message: "Connected, but there's no relay for Hide my IP"}
+		// signaling server, two devices that can reach each other directly
+		// transfer through it, and marking it an error would send a
+		// self-hoster looking for a broken reverse proxy that does not exist.
+		// The sentence names both things that will not work, Hide my IP and a
+		// pair of devices with no direct path, because the second is the one
+		// that otherwise shows up later as a thirty-second timeout that reads
+		// like a network fault.
+		return ProbeResult{OK: true, Message: "Connected, but this server has no relay: Hide my IP will not work, and some networks will not connect"}
 	}
 	return ProbeResult{OK: true, RelayAvailable: true, Message: "Connected"}
 }

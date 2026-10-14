@@ -112,6 +112,9 @@ export function missedLine(missedAt: number): string {
     return `Missed a request at ${fmtClock(missedAt)}`; // W10
 }
 export const SETUP_FAILED_LINE = "The sender couldn't connect"; // W11
+// W14: runRequestDrop reopens with no-relay or relay-unknown when Hide my IP is
+// on and the pairing's list has no relay, or could not be read.
+export const HIDE_IP_NO_RELAY_LINE = "The sender couldn't connect: Hide my IP is on and no relay is available";
 export const CONNECTING_LINE = 'Connecting to the sender...'; // W12
 export const SUGGEST_CLOSE_LINE = '2 requests ended without Accept in 10 minutes. Close this link?'; // W13
 // C1, two lines: the news, then the reassurance, quieter.
@@ -126,6 +129,7 @@ export const RETRY_NOW = 'Retry now'; // C2
 export function reopenLine(s: {code: string; missedAt?: number; suggestClose: boolean}): string {
     if (s.suggestClose) return SUGGEST_CLOSE_LINE;
     if (s.code === 'setup-failed') return SETUP_FAILED_LINE;
+    if (s.code === 'no-relay' || s.code === 'relay-unknown') return HIDE_IP_NO_RELAY_LINE;
     if (s.code === 'visitor-left') return '';
     if (s.missedAt) return missedLine(s.missedAt);
     return '';
@@ -168,17 +172,21 @@ export function driveOf(saveDir: string): string {
     return saveDir;
 }
 
-/** warningLine maps a prompt warning code to its line (P4, P5, P6), or '' for a
+/** warningLine maps a prompt warning code to its line (P4, P6), or '' for a
  *  code this build does not know. The laptop-power code is no longer one: P11
- *  is the Receiving view's LAPTOP_LINE (E-94). */
+ *  is the Receiving view's LAPTOP_LINE (E-94). Neither is the drive-limit
+ *  code: P5 is removed (the owner, 2026-10-14), because the engine refuses a
+ *  first file over the save drive's limit before any prompt, so no prompt
+ *  could carry it. */
 export function warningLine(code: string, p: {freeBytes: number; totalBytes: number; floorBytes?: number}, saveDir: string): string {
     switch (code) {
         case 'low-space':
             return `Only ${fmtBytes(p.freeBytes)} free on ${driveOf(saveDir)}, not enough for this drop`; // P4
-        case 'file-too-large-for-drive':
-            return "This drive can't save files over 4 GB"; // P5
+        // Go sends this code for a relay route as well as for Hide my IP, so
+        // the line names the relay and never the setting (the owner,
+        // 2026-10-14; it said "the 2 GB Hide my IP limit").
         case 'relay-over-cap':
-            return `This ${fmtBytes(p.totalBytes)} drop is over the 2 GB Hide my IP limit`; // P6
+            return `This ${fmtBytes(p.totalBytes)} drop is over the 2 GB relay limit`; // P6
         // On a link that accepts automatically, why this drop still asks
         // (D-176, D-177): gray, a reason rather than a warning.
         case 'auto-floor':
@@ -321,15 +329,20 @@ export function savedOf(saved: number, files: number): string {
 // One entry per stop code: the card body under DROP STOPPED, and the full
 // sentence the History row keeps (DH-02). `count` says whether the sentence
 // carries its own count (ST1, ST10 to ST12), takes ST16 on the card (ST3 to
-// ST5, ST7, ST8), takes it only when a file was saved (ST9: its card sits
-// above ST17, the kept file, so "Nothing saved" would contradict it), or
-// has none (ST6, whose card says nothing was saved).
-const STOPS: Record<string, {card: string; full: string; count: 'own' | 'append' | 'kept' | 'none'}> = {
+// ST8), or takes it only when a file was saved (ST9: its card sits above
+// ST17, the kept file, so "Nothing saved" would contradict it).
+//
+// ST6 takes ST16 like its neighbors (the owner, 2026-10-14). Its card was the
+// fixed "Over the 2 GB relay limit · Nothing saved" and its History sentence
+// said "before any file", but the engine applies the cap at each file of a
+// drop and reports how many it had saved (refuseRelay in
+// cli/engine/transfer/relay.go), so both were untrue after a saved file.
+const STOPS: Record<string, {card: string; full: string; count: 'own' | 'append' | 'kept'}> = {
     'disk-full': {card: 'The drive ran out of space', full: 'Drop stopped: the drive ran out of space', count: 'own'}, // ST1
     'hash-mismatch': {card: "A file didn't match what was sent and was deleted", full: "Drop stopped: a file didn't match what was sent and was deleted", count: 'append'}, // ST3
     'path-too-long': {card: 'A folder path was too long for Windows', full: 'Drop stopped: a folder path was too long for Windows', count: 'append'}, // ST4
     'over-approved': {card: 'More data arrived than you accepted', full: 'Drop stopped: more data arrived than you accepted', count: 'append'}, // ST5
-    'relay-cap': {card: 'Over the 2 GB relay limit · Nothing saved', full: 'Drop stopped before any file: over the 2 GB relay limit', count: 'none'}, // ST6
+    'relay-cap': {card: 'Over the 2 GB relay limit', full: 'Drop stopped: over the 2 GB relay limit', count: 'append'}, // ST6
     'file-too-large-for-folder': {card: 'A file is too large for this drive', full: 'Drop stopped: a file is too large for this drive', count: 'append'}, // ST7
     'write-failed': {card: "Windows couldn't write to the folder", full: "Drop stopped: Windows couldn't write to the folder", count: 'append'}, // ST8
     'save-blocked': {card: 'Windows blocked Floe from saving a file', full: 'Drop stopped: Windows blocked a save', count: 'kept'}, // ST9
@@ -344,7 +357,7 @@ const STOPS: Record<string, {card: string; full: string; count: 'own' | 'append'
 export function stoppedCard(code: string, saved: number, files: number): string {
     if (!has(STOPS, code)) return savedOf(saved, files); // ST14
     const s = STOPS[code];
-    return s.count === 'none' || (s.count === 'kept' && saved <= 0) ? s.card : `${s.card} · ${savedOf(saved, files)}`;
+    return s.count === 'kept' && saved <= 0 ? s.card : `${s.card} · ${savedOf(saved, files)}`;
 }
 
 /** stoppedFull is the History form of the same stop (DH-02): the row's own
@@ -358,12 +371,14 @@ export function stoppedFull(code: string, saved: number, files: number): string 
 }
 
 /** stoppedShowsFolder: Show in folder appears when at least one file was
- *  saved (DT-05 draws it for no relay-cap stop), and for save-blocked even with
- *  none saved (D-128, the one exception to DT-05): the engine keeps the file it
- *  could not move into place, complete and verified, as a .part in the drop
- *  folder (E-36), and keptPartLine says so. */
+ *  saved, whatever stopped the drop, and for save-blocked even with none saved
+ *  (D-128, the one exception): the engine keeps the file it could not move
+ *  into place, complete and verified, as a .part in the drop folder (E-36),
+ *  and keptPartLine says so. A relay-cap stop was once shown no folder at all
+ *  (DT-05 drew it with nothing saved); it can follow saved files, and then
+ *  the folder is the only way to them. */
 export function stoppedShowsFolder(code: string, saved: number): boolean {
-    return code !== 'relay-cap' && (saved > 0 || code === 'save-blocked');
+    return saved > 0 || code === 'save-blocked';
 }
 
 /** ST17 (D-136), RX10's second sentence with "save folder" as "folder": the

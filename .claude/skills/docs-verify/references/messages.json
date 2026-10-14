@@ -2577,6 +2577,13 @@
     },
     {
         "surface": "desktop",
+        "text": "Connected, but this server has no relay: Hide my IP will not work, and some networks will not connect",
+        "source": "desktop/serverprobe.go",
+        "anchor": "/troubleshooting#the-test-button-says-the-server-has-no-turn-relay",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
         "text": "Connecting to the sender...",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#accept-or-decline",
@@ -2696,6 +2703,13 @@
     },
     {
         "surface": "desktop",
+        "text": "Device to device. A receiving browser can only hold so much. 2 GB through a relay",
+        "source": "desktop/frontend/src/App.tsx",
+        "anchor": null,
+        "why_no_home": "the rail's decorative tile, read with the rest of the window, not a message"
+    },
+    {
+        "surface": "desktop",
         "text": "Direct",
         "source": "desktop/frontend/src/App.tsx",
         "anchor": "/desktop/sending#while-it-sends",
@@ -2707,6 +2721,13 @@
         "source": "desktop/frontend/src/App.tsx",
         "anchor": null,
         "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Direct, no size limit from Floe",
+        "source": "desktop/frontend/src/App.tsx",
+        "anchor": null,
+        "why_no_home": "the rail's decorative tile, read with the rest of the window, not a message"
     },
     {
         "surface": "desktop",
@@ -2762,6 +2783,13 @@
         "text": "Drop stopped: more data arrived than you accepted",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": null,
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Drop stopped: over the 2 GB relay limit",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#messages-on-your-pc",
         "why_no_home": null
     },
     {
@@ -3308,6 +3336,13 @@
         "text": "or drop anywhere",
         "source": "desktop/frontend/src/components/TransferBits.tsx",
         "anchor": null,
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Over the 2 GB relay limit",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#messages-on-your-pc",
         "why_no_home": null
     },
     {
@@ -3914,6 +3949,13 @@
     },
     {
         "surface": "desktop",
+        "text": "The sender couldn't connect: Hide my IP is on and no relay is available",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#messages-on-your-pc",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
         "text": "The sender never started sending",
         "source": "desktop/frontend/src/errors.ts",
         "anchor": "/troubleshooting#connected-but-the-sender-never-started-sending",
@@ -3942,9 +3984,30 @@
     },
     {
         "surface": "desktop",
+        "text": "The server is limiting requests from this network. Wait a minute and test again",
+        "source": "desktop/serverprobe.go",
+        "anchor": "/troubleshooting#the-test-button-says-the-api-answered-with-an-http-error",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "The server is limiting requests from this network. Wait a minute and try again",
+        "source": "desktop/frontend/src/errors.ts",
+        "anchor": "/troubleshooting#server-returned-429-when-resolving-code",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
         "text": "The server only brokers the handshake",
         "source": "desktop/frontend/src/App.tsx",
         "anchor": null,
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "The server refused the realtime connection (check that your proxy forwards /ws and passes the original Host header)",
+        "source": "desktop/serverprobe.go",
+        "anchor": "/troubleshooting#the-test-button-says-the-realtime-connection-was-refused",
         "why_no_home": null
     },
     {
@@ -4040,6 +4103,13 @@
     },
     {
         "surface": "desktop",
+        "text": "this code or link is no longer active; ask the sender for a new one",
+        "source": "desktop/transfer.go",
+        "anchor": "/troubleshooting#this-code-is-no-longer-active-ask-for-a-new-one",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
         "text": "This drive can't save files over 4 GB",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": null,
@@ -4083,6 +4153,13 @@
     {
         "surface": "desktop",
         "text": "This {size} drop is over the 2 GB Hide my IP limit",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#accept-or-decline",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "This {size} drop is over the 2 GB relay limit",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#accept-or-decline",
         "why_no_home": null
