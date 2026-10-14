@@ -254,12 +254,17 @@ func (h *nameHints) record(base string, i int) {
 // candidatePath returns the i-th de-collision candidate for base: base itself
 // for i == 0, then "stem (i)ext". Shared by claimPart and commitPart so a
 // commit-time re-collision numbers from the base and can never produce
-// "shot (1) (1).png".
+// "shot (1) (1).png". A name whose only dot is its first character (".env")
+// has no extension, so the number goes at its end; filepath.Ext calls the
+// whole name the extension, which numbered it " (1).env" (A4-B18).
 func candidatePath(base string, i int) string {
 	if i == 0 {
 		return base
 	}
 	ext := filepath.Ext(base)
+	if ext == filepath.Base(base) {
+		ext = ""
+	}
 	stem := strings.TrimSuffix(base, ext)
 	return fmt.Sprintf("%s (%d)%s", stem, i, ext)
 }

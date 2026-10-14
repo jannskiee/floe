@@ -232,3 +232,38 @@ func TestClaimPart(t *testing.T) {
 		t.Errorf("existing-file de-collision = %q, want %q", got, "done (1).txt")
 	}
 }
+
+// TestDecollideKeepsADotfileWhole (A4-B18): a name whose only dot is its first
+// character has no extension, so ".env" numbers as ".env (1)", the way a name
+// with no dot does. It used to number before that dot, " (1).env", a name that
+// starts with a space and is no longer hidden. A name with a dot after its
+// first character keeps numbering before its last dot.
+func TestDecollideKeepsADotfileWhole(t *testing.T) {
+	dir := t.TempDir()
+	for _, c := range []struct{ name, want string }{
+		{".env", ".env (1)"},
+		{".gitignore", ".gitignore (1)"},
+		{".env.local", ".env (1).local"},
+		{"report.pdf", "report (1).pdf"},
+		{"a.tar.gz", "a.tar (1).gz"},
+		{"NOTES", "NOTES (1)"},
+	} {
+		if got := filepath.Base(candidatePath(filepath.Join(dir, c.name), 1)); got != c.want {
+			t.Errorf("candidatePath(%q, 1) = %q, want %q", c.name, got, c.want)
+		}
+	}
+
+	// Through the claim, against a .env already on disk.
+	env := filepath.Join(dir, ".env")
+	if err := os.WriteFile(env, []byte("A=1"), 0666); err != nil {
+		t.Fatal(err)
+	}
+	f, dest, err := claimPart(env, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if got := filepath.Base(dest); got != ".env (1)" {
+		t.Fatalf("a second .env was claimed as %q, want %q", got, ".env (1)")
+	}
+}

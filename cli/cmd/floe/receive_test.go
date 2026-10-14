@@ -145,6 +145,13 @@ func TestReceiveOtherResolveErrorsKeepTheirWrapper(t *testing.T) {
 			cause:  `code "olive-tiger-castle" not found: it was already used, the sender left, or it expired (a code lasts 10 minutes at most)`,
 			lookup: "/api/code/olive-tiger-castle",
 		},
+		{
+			// A8b-B4: not shaped like a code, and never looked up.
+			name:   "a mistyped code",
+			input:  "olive_tiger_castle",
+			server: srv.URL,
+			cause:  "code not recognized: a code is words joined by hyphens, like olive-tiger-castle",
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -171,7 +178,89 @@ func TestReceiveOtherResolveErrorsKeepTheirWrapper(t *testing.T) {
 			if c.lookup != "" && (len(got) != 1 || got[0] != c.lookup) {
 				t.Errorf("server lookups %q, want exactly %q", got, c.lookup)
 			}
+			if c.lookup == "" && len(got) != 0 {
+				t.Errorf("server lookups %q, want none", got)
+			}
 		})
+	}
+}
+
+// TestReceiveIncompleteRoomLinkEndsOnTheIncompleteLinkLine (A4-B27): a room
+// link whose #room= value is not a room id (cut short when it was copied)
+// ends before any network call on the request-link send's own line for an
+// incomplete link (TL-09), printed as an outcome: alone on the indent, with
+// neither the link nor its room value. It used to go to the server, whose
+// join answered "server error: Invalid room ID".
+func TestReceiveIncompleteRoomLinkEndsOnTheIncompleteLinkLine(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	const cut = "6f1c2b9e-4a5d-4c3b"
+	for _, input := range []string{srv.URL + "/#room=" + cut, srv.URL + "/?room=" + cut + "-9f7e"} {
+		stdout, stderr, err := receiveThroughCobra(t, input, srv.URL)
+		if err == nil {
+			t.Fatalf("receive of %q succeeded", input)
+		}
+		if stdout != "\n" {
+			t.Errorf("stdout is %q, want the one blank line", stdout)
+		}
+		if want := "  " + lineIncompleteLink + "\n"; stderr != want {
+			t.Errorf("stderr is %q, want %q", stderr, want)
+		}
+		if strings.Contains(stderr, cut) {
+			t.Errorf("the room value was printed: %q", stderr)
+		}
+	}
+	if n := hits.Load(); n != 0 {
+		t.Fatalf("%d requests reached the server, want 0", n)
+	}
+}
+
+// TestReceiveNeverPrintsBackAnInputThatHoldsARoomID (CLI-04): an input that
+// holds a room id, or is a room link, in a shape Resolve cannot use (a room id
+// pasted alone, a room link percent-encoded whole, inside a mail-safety
+// redirector, or behind a host that cannot be read, and a room link cut off
+// at its room=) ends on the incomplete-link line (TL-09), alone on the
+// indent, before any network call. The could-not-resolve wrapper quoted it,
+// room id and all.
+func TestReceiveNeverPrintsBackAnInputThatHoldsARoomID(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	const room = "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"
+	inputs := map[string]string{
+		"a room id alone":                    room,
+		"a room id alone, in capitals":       strings.ToUpper(room),
+		"a room link percent-encoded whole":  "https%3A%2F%2Ffloe.one%2F%23room%3D" + room,
+		"a room link inside a redirector":    "https://safelinks.example/?url=https%3A%2F%2Ffloe.one%2F%23room%3D" + room + "&data=05",
+		"a room link whose host is unusable": "https://[floe.one/#room=" + room,
+		"a room link cut off at room=":       "https://floe.one/#room=",
+	}
+	for name, input := range inputs {
+		t.Run(name, func(t *testing.T) {
+			stdout, stderr, err := receiveThroughCobra(t, input, srv.URL)
+			if err == nil {
+				t.Fatalf("receive of %q succeeded", input)
+			}
+			if stdout != "\n" {
+				t.Errorf("stdout is %q, want the one blank line", stdout)
+			}
+			if want := "  " + lineIncompleteLink + "\n"; stderr != want {
+				t.Errorf("stderr is %q, want %q", stderr, want)
+			}
+			if strings.Contains(strings.ToLower(stderr), room) {
+				t.Errorf("the room id was printed: %q", stderr)
+			}
+		})
+	}
+	if n := hits.Load(); n != 0 {
+		t.Fatalf("%d requests reached the server, want 0", n)
 	}
 }
 
@@ -318,7 +407,7 @@ func TestReceiveFloeLinkWithAnotherServerEndsWithoutANetworkCall(t *testing.T) {
 	}{
 		{"no server chosen", nil, []string{"https://floe.one/#room=" + room}, 1, 0, "failed to fetch ICE credentials: test: no ICE fetch from https://api.floe.one"},
 		{"no server chosen, fullwidth", nil, []string{"https://ｆｌｏｅ.one/#room=" + room}, 1, 0, "failed to fetch ICE credentials: test: no ICE fetch from https://api.floe.one"},
-		{"FLOE_SERVER names api.floe.one", map[string]string{"FLOE_SERVER": "https://API.floe.one.:443/"}, []string{"https://www.floe.one/?room=" + room}, 1, 0, "failed to fetch ICE credentials: test: no ICE fetch from https://API.floe.one.:443"},
+		{"FLOE_SERVER names api.floe.one", map[string]string{"FLOE_SERVER": "https://API.floe.one.:443/"}, []string{"https://www.floe.one/?room=" + room}, 1, 0, "failed to fetch ICE credentials: test: no ICE fetch from https://api.floe.one."},
 		{"--server names api.floe.one", nil, []string{"floe.one/#room=" + room, "--server", "https://api.floe.one"}, 1, 0, "failed to fetch ICE credentials: test: no ICE fetch from https://api.floe.one"},
 		{"a self-hosted link with its server", nil, []string{"https://files.example.com/#room=" + room, "--server", other.URL}, 1, 0, "failed to fetch ICE credentials: test: no ICE fetch from " + other.URL},
 		{"a code with another server", nil, []string{"olive-tiger-castle", "--server", other.URL}, 0, 1, `could not resolve "olive-tiger-castle": code "olive-tiger-castle" not found: it was already used, the sender left, or it expired (a code lasts 10 minutes at most)`},

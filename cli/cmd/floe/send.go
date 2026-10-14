@@ -58,7 +58,12 @@ func runSend(cmd *cobra.Command, args []string) error {
 	// Ctrl+C's stop step (CLI-02): left in place for the rest of the process,
 	// and a no-op until the data channel is open.
 	r := newSendRun()
-	step := r.stop
+	// Never reports its command ended: a plain send's Ctrl+C prints
+	// "Canceled." and exits 130 at every point, as it always has.
+	step := func() bool {
+		r.stop()
+		return false
+	}
 	interruptStop.Store(&step)
 
 	// Validate that all paths exist. The sentence quotes the path, so a
@@ -100,7 +105,7 @@ func runSend(cmd *cobra.Command, args []string) error {
 	// 3. Connect to the signaling server via WebSocket
 	sc, err := signaling.Connect(flagServer)
 	if err != nil {
-		return fmt.Errorf("failed to connect to signaling server: %w", err)
+		return signalingConnectError(err)
 	}
 	defer sc.Close()
 

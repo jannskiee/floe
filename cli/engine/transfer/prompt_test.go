@@ -300,3 +300,84 @@ func TestSummaryTimeCountsFromAccept(t *testing.T) {
 		t.Errorf("the sender's Time row is %ds after a %s wait at the prompt: it counted the wait", got, thinking)
 	}
 }
+
+// closedStdin swaps os.Stdin for a pipe whose writing end is already closed,
+// so the prompt's read returns at once with nothing: a run from a script or a
+// service with no input.
+func closedStdin(t *testing.T) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	_ = w.Close()
+	orig := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() {
+		os.Stdin = orig
+		_ = r.Close()
+	})
+}
+
+// TestPromptLineEndsOnlyWhenNothingWasRead (A4-B25, CLI-06): whatever ends
+// an answer read from a terminal (the Enter, empty or not) is echoed, and that
+// echo is what ends the prompt's line. A read that took nothing (stdin closed,
+// or Ctrl+D at the prompt) echoes nothing, so the prompt and the first
+// progress line used to share a line: "  Accept? [Y/n]   [1/1] ...". The
+// prompt ends its own line then, and only then. Anything read, piped or typed,
+// adds nothing: a console that echoes typed input through a pipe (mintty, an
+// IDE's run console) looks like a pipe, and a line break there would follow
+// the echo as a blank line.
+func TestPromptLineEndsOnlyWhenNothingWasRead(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ICE loopback transfer in -short mode")
+	}
+	for _, c := range []struct {
+		name  string
+		stage func(t *testing.T)
+		ends  bool
+	}{
+		{"stdin closed, nothing read", closedStdin, true},
+		{"an answer read", func(t *testing.T) { swapStdin(t, "y\n") }, false},
+		{"an empty line read", func(t *testing.T) { swapStdin(t, "\n") }, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			p := newOffererPair(t, nil)
+			srcDir := t.TempDir()
+			writeRandom(t, srcDir, "album/cover.txt", 1500)
+			c.stage(t)
+			printed := captureStdout(t)
+
+			outDir := t.TempDir()
+			recvErr := make(chan error, 1)
+			go func() {
+				recvErr <- ReceiveFilesWithOptions(p.host, outDir, false, "test-ver", "", ReceiveOptions{
+					Messages: p.hostMsgs,
+					Closed:   p.hostClosed,
+				})
+			}()
+			sendErr := make(chan error, 1)
+			go func() {
+				sendErr <- SendFilesWithOptions(p.visitor, []string{filepath.Join(srcDir, "album")}, "test-ver", SendOptions{
+					Messages:  p.visitorMsgs,
+					Closed:    p.visitorClosed,
+					NoSummary: true,
+				})
+			}()
+			p.finish(t, sendErr, recvErr, 30*time.Second)
+
+			out := printed()
+			at := strings.Index(out, promptText)
+			if at < 0 {
+				t.Fatalf("the prompt did not run:\n%s", out)
+			}
+			ended := strings.HasPrefix(out[at+len(promptText):], " \n")
+			if c.ends && !ended {
+				t.Fatalf("the prompt's line did not end; it reads %q", strings.SplitN(out[at:], "\n", 2)[0])
+			}
+			if !c.ends && ended {
+				t.Fatal("the prompt added a line break after a read that took input, whose echo ends the line")
+			}
+		})
+	}
+}

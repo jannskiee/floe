@@ -2298,7 +2298,7 @@ func TestSendToOutcomeLines(t *testing.T) {
 		{"closed mid-drop (TL-27)", wrapped(errors.New("connection closed mid-transfer (3 bytes still buffered)")), 12, 5,
 			want{lines: []string{"Connection lost. 4 of 12 files arrived. Ask them for a new link to send the other 8."}}},
 		{"closed before received", transfer.ErrClosedBeforeReceived, 12, 12,
-			want{lines: []string{"Connection lost. 11 of 12 files arrived. Ask them for a new link to send the other 1."}}},
+			want{lines: []string{"Connection lost. 11 of 12 files arrived. Ask them for a new link to send the other one."}}},
 		{"closed, one file", transfer.ErrClosedBeforeReceived, 1, 1,
 			want{lines: []string{"Connection lost. 0 of 1 file arrived. Ask them for a new link to send it."}}},
 	}
@@ -2318,6 +2318,20 @@ func TestSendToOutcomeLines(t *testing.T) {
 	}
 	if got := lostLine(12, 12); got != "Connection lost. 12 of 12 files arrived. Ask them for a new link to send the rest." {
 		t.Fatalf("lostLine with none left = %q", got)
+	}
+	// Owner answer 22: exactly one left of more than one names it in words;
+	// every other count keeps its digits.
+	for _, c := range []struct {
+		arrived, n int
+		want       string
+	}{
+		{1, 2, "Connection lost. 1 of 2 files arrived. Ask them for a new link to send the other one."},
+		{0, 2, "Connection lost. 0 of 2 files arrived. Ask them for a new link to send the other 2."},
+		{10, 12, "Connection lost. 10 of 12 files arrived. Ask them for a new link to send the other 2."},
+	} {
+		if got := lostLine(c.arrived, c.n); got != c.want {
+			t.Fatalf("lostLine(%d, %d) = %q, want %q", c.arrived, c.n, got, c.want)
+		}
 	}
 }
 

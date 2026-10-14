@@ -158,6 +158,29 @@ func TestCompletedDropReportsExactlyOnceFromTheEngine(t *testing.T) {
 	})
 }
 
+// TestCompletedTransferOfEmptyFilesPostsNothing (A5-B9): a transfer of only
+// empty files completes with nothing counted, and the server refuses a count
+// of zero with a 400 after its limiter has already spent one of the 60 a
+// minute, so the receive loop posts nothing, as ReportStats does.
+func TestCompletedTransferOfEmptyFilesPostsNothing(t *testing.T) {
+	stub := newStatsStub(t)
+	h := newHandSenderStats(t, t.TempDir(), stub.url, ReceiveOptions{})
+	h.meta("a.txt", 0, 1, 2, 0)
+	h.text(endWithSHA256(hexSHA256(nil)))
+	h.meta("b.txt", 0, 2, 2, 0)
+	h.text(endWithSHA256(hexSHA256(nil)))
+	res := h.finish()
+	if res.err != nil {
+		t.Fatalf("receive failed: %v", res.err)
+	}
+	if len(res.fileDone) != 2 {
+		t.Fatalf("OnFileDone = %+v, want both empty files saved", res.fileDone)
+	}
+	if got := stub.got(); len(got) != 0 {
+		t.Fatalf("stats posts %q for a transfer of empty files, want nothing", got)
+	}
+}
+
 // TestStoppedDropReportsNothingFromTheEngine: a drop the receiving side stops
 // mid file 2, the way the desktop lane's Cancel drop does (AbortWithCode from
 // another goroutine, then the close), makes the engine post nothing. The

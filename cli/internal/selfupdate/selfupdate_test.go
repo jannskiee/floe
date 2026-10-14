@@ -217,6 +217,58 @@ func TestInstallBinaryReplacesInPlace(t *testing.T) {
 	}
 }
 
+// TestWindowsUpdateBackupIsFloesOwnName (CLI-03): the Windows update moves the
+// running image aside under a name only floe makes, and the start cleanup
+// removes that name and nothing else. A person's own floe.exe.bak survives a
+// start; an update still clears the .bak that earlier versions left, as it
+// always did before its rename. windowsInstall runs on every OS here: it is
+// renames and copies only.
+func TestWindowsUpdateBackupIsFloesOwnName(t *testing.T) {
+	if got, want := updateBackupPath(`C:\Tools\floe.exe`), `C:\Tools\floe.exe.floe-update-old`; got != want {
+		t.Fatalf("updateBackupPath = %q, want %q", got, want)
+	}
+
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "floe.exe")
+	write := func(p, body string) {
+		t.Helper()
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// The start cleanup: its own name goes, a hand-kept .bak stays.
+	write(exe, "NEW BINARY")
+	write(exe+".floe-update-old", "OLD BINARY")
+	write(exe+".bak", "A COPY KEPT BY HAND")
+	removeUpdateBackup(exe)
+	if _, err := os.Stat(exe + ".floe-update-old"); !os.IsNotExist(err) {
+		t.Fatalf("the start cleanup left the update's old image (stat err %v)", err)
+	}
+	if got, err := os.ReadFile(exe + ".bak"); err != nil || string(got) != "A COPY KEPT BY HAND" {
+		t.Fatalf("the start cleanup touched floe.exe.bak: %q, %v", got, err)
+	}
+
+	// The update: a leftover of either name is cleared, the new binary is in
+	// place, and nothing else is left (this process does not run from exe,
+	// so the old image's delete succeeds).
+	write(exe+".floe-update-old", "AN EARLIER OLD BINARY")
+	newBin := filepath.Join(t.TempDir(), "floe-update")
+	write(newBin, "NEWER BINARY")
+	if err := windowsInstall(exe, newBin); err != nil {
+		t.Fatalf("windowsInstall: %v", err)
+	}
+	if got, err := os.ReadFile(exe); err != nil || string(got) != "NEWER BINARY" {
+		t.Fatalf("installed %q, %v", got, err)
+	}
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if e.Name() != "floe.exe" {
+			t.Errorf("unexpected leftover beside floe.exe: %s", e.Name())
+		}
+	}
+}
+
 func TestCopyFileSetsMode(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src")

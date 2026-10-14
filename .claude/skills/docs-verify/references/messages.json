@@ -4838,6 +4838,13 @@
     },
     {
         "surface": "cli",
+        "text": "Connection lost. {a} of {n} files arrived. Ask them for a new link to send the other one.",
+        "source": "cli/cmd/floe/sendto.go",
+        "anchor": "/cli/send#messages-from-floe-send-to",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
         "text": "Connection lost. {a} of {n} files arrived. Ask them for a new link to send the other {k}.",
         "source": "cli/cmd/floe/sendto.go",
         "anchor": "/cli/send#messages-from-floe-send-to",
@@ -5006,6 +5013,13 @@
     },
     {
         "surface": "cli",
+        "text": "Error: could not resolve \"{input}\": code not recognized: a code is words joined by hyphens, like olive-tiger-castle",
+        "source": "cli/engine/code/client.go",
+        "anchor": "/troubleshooting",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
         "text": "Error: could not resolve \"{input}\": invalid response from code API",
         "source": "cli/engine/code/client.go",
         "anchor": null,
@@ -5125,6 +5139,20 @@
     },
     {
         "surface": "cli",
+        "text": "Error: failed to connect to signaling server: cannot connect to signaling server at {wss address}/ws: websocket: bad handshake (HTTP 403). A reverse proxy in front of the server may be changing the Host header: make it pass Host through unchanged.",
+        "source": "cli/cmd/floe/main.go",
+        "anchor": "/troubleshooting#failed-to-connect-to-signaling-server",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "Error: failed to connect to signaling server: cannot connect to signaling server at {wss address}/ws: websocket: bad handshake (HTTP 404). Check the server address, and that a reverse proxy in front of the server forwards /ws with the WebSocket upgrade.",
+        "source": "cli/cmd/floe/main.go",
+        "anchor": "/troubleshooting#failed-to-connect-to-signaling-server",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
         "text": "Error: failed to connect to signaling server: cannot connect to signaling server at {wss address}/ws: {reason}",
         "source": "cli/cmd/floe/send.go",
         "anchor": "/troubleshooting#failed-to-connect-to-signaling-server",
@@ -5136,6 +5164,13 @@
         "source": "cli/cmd/floe/send.go",
         "anchor": null,
         "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "Error: failed to create peer connection: {reason}",
+        "source": "cli/cmd/floe/send.go",
+        "anchor": null,
+        "why_no_home": "the reason is pion's own, for a connection setting it cannot build from (an ICE server list it cannot parse, from a misconfigured server); no page can name every reason"
     },
     {
         "surface": "cli",
@@ -5748,6 +5783,13 @@
     },
     {
         "surface": "cli",
+        "text": "That looks like a link to receive from. To receive, use: floe receive <link>",
+        "source": "cli/cmd/floe/main.go",
+        "anchor": "/cli/receive#links-floe-receive-refuses",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
         "text": "That looks like a request link, not a file. To send to it, use: floe send <files> --to <link>",
         "source": "cli/cmd/floe/send.go",
         "anchor": "/cli/send#a-link-in-the-wrong-place",
@@ -6057,6 +6099,13 @@
     {
         "surface": "cli",
         "text": "Warning: could not reach signaling server for TURN credentials. Using STUN only.",
+        "source": "cli/engine/ice/credentials.go",
+        "anchor": "/troubleshooting#warning-could-not-reach-signaling-server-for-turn-credentials-using-stun-only",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "Warning: could not read TURN credentials from the signaling server. Using STUN only.",
         "source": "cli/engine/ice/credentials.go",
         "anchor": "/troubleshooting#warning-could-not-reach-signaling-server-for-turn-credentials-using-stun-only",
         "why_no_home": null

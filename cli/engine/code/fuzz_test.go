@@ -242,6 +242,8 @@ func FuzzResolve(f *testing.F) {
 	fixed := map[string]bool{
 		ErrRequestLink.Error():                              true,
 		errInvalidURL.Error():                               true,
+		errNotACode.Error():                                 true,
+		ErrIncompleteLink.Error():                           true,
 		"URL does not contain a room id (#room= or ?room=)": true,
 	}
 	f.Fuzz(func(t *testing.T, input string) {

@@ -90,6 +90,13 @@ func runReceive(cmd *cobra.Command, args []string) error {
 		if errors.Is(err, code.ErrRequestLink) || errors.Is(err, code.ErrDropLink) {
 			return outcomeError{err}
 		}
+		// A room link whose room value is not a room id, cut short when it
+		// was copied (A4-B27): the request-link send's line for an incomplete
+		// link (TL-09), whose advice holds for a room link too, as an outcome
+		// and without the wrapper, which would print the link back.
+		if errors.Is(err, code.ErrIncompleteLink) {
+			return outcomeError{errors.New(lineIncompleteLink)}
+		}
 		// A request link in a shape Resolve does not refuse as one (a
 		// percent-encoded #, a bad escape, a mail-safety redirector, the whole
 		// link percent-encoded) still carries its key, and the wrapper below
@@ -98,6 +105,17 @@ func runReceive(cmd *cobra.Command, args []string) error {
 		// (FU-53 review 1 L-3).
 		if looksLikeRequestLink(input) {
 			return outcomeError{code.ErrRequestLink}
+		}
+		// An input that holds a room id, or is a room link, in a shape
+		// Resolve cannot use: a room id pasted alone (a request link's
+		// fragment copied without the link), a room link percent-encoded
+		// whole, inside a mail-safety redirector or behind a host that cannot
+		// be read, or one cut off at its room=. The incomplete-link line
+		// again (TL-09), whose advice fits each, because the wrapper below
+		// would print the room id (CLI-04). Only code-shaped input and links
+		// that carry no room reach the wrapper.
+		if code.HoldsRoomID(input) || looksLikeRoomLink(input) {
+			return outcomeError{errors.New(lineIncompleteLink)}
 		}
 		return fmt.Errorf("could not resolve %q: %w", input, err)
 	}
@@ -146,7 +164,7 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	// 4. Connect to signaling server
 	sc, err := connectSignaling(flagServer)
 	if err != nil {
-		return fmt.Errorf("failed to connect to signaling server: %w", err)
+		return signalingConnectError(err)
 	}
 	defer sc.Close()
 
@@ -210,10 +228,10 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	err = transfer.ReceiveFilesWithOptions(dc, absOutput, flagAutoAccept, version, statsURL, transfer.ReceiveOptions{
 		Messages: early.Msgs,
 		Closed:   early.Closed,
-		// Counts only, for Ctrl+C's stop: the files announced and the files
-		// committed under their final names.
-		OnIncoming: func(in transfer.IncomingInfo) { r.files.Store(int64(in.Files)) },
-		OnFileDone: func(transfer.FileDone) { r.saved.Add(1) },
+		// For Ctrl+C's stop: a count of the files committed under their final
+		// names, and the engine's word that it has finished.
+		OnFileDone:     func(transfer.FileDone) { r.saved.Add(1) },
+		OnReceivedSent: r.receivedSent,
 	})
 	if !r.finish() {
 		return r.park()
@@ -261,44 +279,82 @@ var receiveStopFlush = 750 * time.Millisecond
 // receiveRun is what one receive shares with its Ctrl+C step, which runs on
 // the signal goroutine (interruptStop). Exactly one of the two ends the
 // command: the command with its outcome, or main's handler with "Canceled."
-// and exit 130. The mutex decides which.
+// and exit 130. The mutex decides which; once the receive has finished (the
+// engine has queued its "received") the command keeps its ending (A4-B22).
 type receiveRun struct {
-	files atomic.Int64 // the files the sender announced, 0 before its first metadata
 	saved atomic.Int64 // the files committed under their final names (OnFileDone)
 
 	mu sync.Mutex
 	// over: the receive returned, and the command ends on its own.
 	// interrupted: Ctrl+C took the ending, and the command prints nothing more.
-	over, interrupted bool
-	dc                *webrtc.DataChannel
-	conn              *peer.Connection
+	// finished: the engine queued "received" (OnReceivedSent).
+	over, interrupted, finished bool
+	dc                          *webrtc.DataChannel
+	conn                        *peer.Connection
 }
 
-// stop is the receive's Ctrl+C step, run by main's handler after "Canceled."
-// and before the partial-file cleanup (FU-54). From the signal goroutine, so
-// it works while the receive loop is parked at the Accept prompt or in a
-// stalled write: it tells the sender the transfer was stopped (code stopped,
-// with this side's saved count) and closes the connection, so the cleanup's
+// receivedSent is the receive's OnReceivedSent: from here on the receive has
+// finished, and Ctrl+C ends only its wait for the sender.
+func (r *receiveRun) receivedSent() {
+	r.mu.Lock()
+	r.finished = true
+	r.mu.Unlock()
+}
+
+// stop is the receive's Ctrl+C step, run by main's handler before "Canceled."
+// and the partial-file cleanup (FU-54). From the signal goroutine, so it
+// works while the receive loop is parked at the Accept prompt or in a stalled
+// write: it tells the sender the transfer was stopped (code stopped, with
+// this side's saved count) and closes the connection, so the cleanup's
 // closing of the in-flight .part can no longer make the loop send
 // write-failed (QA-H6 N10). Before the channel opens there is nobody to tell,
-// as before; once every announced file is committed there is nothing to stop.
-func (r *receiveRun) stop() {
+// as before.
+//
+// It reports true, the command keeping its own ending, once the receive has
+// returned and once the engine has queued "received" (A4-B22). The receive
+// has then finished: all that is left is its wait for the sender to read that
+// frame and the byte report. That used to end on "Canceled.", exit 130 and no
+// report. Now endLinger closes the connection, which ends the wait at once,
+// and the receive returns nil and reports as any success does.
+//
+// Finished is the engine's word (OnReceivedSent), never a count compared with
+// the first metadata's total: a sender can raise its total in a later frame,
+// and the loop is held to the latest one, so a Ctrl+C with as many files
+// saved as the first frame announced can still be partway through a file
+// (CLI-01). Before the frame is queued (the files are all committed, the
+// summary box is printing) Ctrl+C is a stop like any other: closing then
+// would cut off the "received" still to come, and a Go sender would report
+// the delivery unconfirmed (CLI-02).
+func (r *receiveRun) stop() bool {
 	r.mu.Lock()
 	if r.over {
 		r.mu.Unlock()
-		return
+		return true
+	}
+	dc, conn := r.dc, r.conn
+	if r.finished && dc != nil && conn != nil {
+		r.mu.Unlock()
+		go endLinger(dc, conn)
+		return true
 	}
 	r.interrupted = true
-	dc, conn := r.dc, r.conn
 	r.mu.Unlock()
 	if dc == nil || conn == nil {
-		return
+		return false
 	}
-	saved := r.saved.Load()
-	if files := r.files.Load(); files > 0 && saved >= files {
-		return
+	tellStopped(dc, conn, int(r.saved.Load()))
+	return false
+}
+
+// endLinger is stop's work once the receive has finished: a wait, bounded by
+// receiveStopFlush, for this side's send buffer to empty, so the "received"
+// frame the engine has already queued is not cut off behind the close, then
+// the close. A var only so a test can stand in one that records.
+var endLinger = func(dc *webrtc.DataChannel, conn *peer.Connection) {
+	for wait := time.Now().Add(receiveStopFlush); dc.BufferedAmount() > 0 && time.Now().Before(wait); {
+		time.Sleep(10 * time.Millisecond)
 	}
-	tellStopped(dc, conn, int(saved))
+	conn.Close()
 }
 
 // tellStopped is stop's work: the refusal frame with code stopped and its

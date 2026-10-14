@@ -89,6 +89,23 @@ describe('friendlyError', () => {
         );
     });
 
+    it('names a room link cut short as incomplete in both places the check has run', () => {
+        // A4-B27: a #room= value that is not a room id. Releases up to 1.11.0
+        // hand it to the server, whose join answers 'Invalid room ID'; the
+        // engine now refuses it in Resolve, and receiveByCode wraps that
+        // sentence in 'could not resolve "<the link>": ...'. The rule sits
+        // above 'could not resolve', whose typo advice is wrong for a link.
+        const incomplete = 'Error: That link is incomplete';
+        expect(friendlyError('server error: Invalid room ID')).toBe(incomplete);
+        expect(
+            friendlyError('could not resolve "https://floe.one/#room=6f1c2b9e-4a5d": the room id in this link is incomplete or mistyped'),
+        ).toBe(incomplete);
+        // A code in the wrong shape is still a code that was not recognized.
+        expect(
+            friendlyError('could not resolve "olive_tiger": code not recognized: a code is words joined by hyphens, like olive-tiger-castle'),
+        ).toBe("Error: That code wasn't recognized");
+    });
+
     it('reads the code-not-found sentence in both wordings the engine has had', () => {
         // Resolve's 404 sentence as receiveByCode wraps it: the one releases up
         // to 1.11.0 print, and the one that names the real causes. The desktop

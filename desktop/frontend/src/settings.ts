@@ -49,12 +49,66 @@ export function advancedSummary(server: string, web: string): string {
 
 /** webPlaceholder shows what the Web address field falls back to when left blank,
  *  so the derivation is visible instead of implied. Mirrors engine/serverurl.Web,
- *  which is what actually builds the link; keep the two in step. */
+ *  which is what actually builds the link: the address read the way Normalize
+ *  reads it (scheme and host in lower case, the default port dropped), and the
+ *  host matched with one trailing dot taken off. It used to compare the raw
+ *  string, so https://API.floe.one showed the API address while the link went to
+ *  floe.one (CLI-05). One table pins both: the WEB-VECTORS rows in
+ *  settings.test.ts, which TestWebMatchesTheDesktopPlaceholder also runs over
+ *  Web. */
 export function webPlaceholder(server: string): string {
-    const s = server.trim().replace(/\/+$/, '');
-    if (s === '' || s === 'https://api.floe.one') return 'https://floe.one';
-    if (s === 'http://localhost:3001') return 'http://localhost:3000';
+    const s = normalizeServer(server);
+    const key = withoutRootDot(s);
+    if (s === '' || key === 'https://api.floe.one') return 'https://floe.one';
+    if (key === 'http://localhost:3001') return 'http://localhost:3000';
     return s;
+}
+
+/** normalizeServer is engine/serverurl.Normalize: whitespace and every trailing
+ *  slash trimmed, and for http or https the scheme and host in lower case and
+ *  the default port (:443 on https, :80 on http) dropped. Userinfo, any other
+ *  port and the path keep their case. */
+function normalizeServer(server: string): string {
+    const s = server.trim().replace(/\/+$/, '');
+    const i = s.indexOf('://');
+    if (i < 0) return s;
+    const scheme = s.slice(0, i).toLowerCase();
+    if (scheme !== 'http' && scheme !== 'https') return s;
+    const rest = s.slice(i + 3);
+    let end = rest.search(/[/?#]/);
+    if (end < 0) end = rest.length;
+    let authority = rest.slice(0, end);
+    const tail = rest.slice(end);
+    let user = '';
+    const at = authority.lastIndexOf('@');
+    if (at >= 0) {
+        user = authority.slice(0, at + 1);
+        authority = authority.slice(at + 1);
+    }
+    let host = authority.toLowerCase();
+    if (scheme === 'https' && host.endsWith(':443')) host = host.slice(0, -':443'.length);
+    else if (scheme === 'http' && host.endsWith(':80')) host = host.slice(0, -':80'.length);
+    return `${scheme}://${user}${host}${tail}`;
+}
+
+/** withoutRootDot is the engine's withoutRootDot: a normalized address with one
+ *  trailing dot taken off its host, for comparison only. */
+function withoutRootDot(s: string): string {
+    const i = s.indexOf('://');
+    if (i < 0) return s;
+    const rest = s.slice(i + 3);
+    let end = rest.search(/[/?#]/);
+    if (end < 0) end = rest.length;
+    let host = rest.slice(0, end);
+    const tail = rest.slice(end);
+    let port = '';
+    const c = host.lastIndexOf(':');
+    if (c >= 0 && !host.slice(c).includes(']')) {
+        port = host.slice(c);
+        host = host.slice(0, c);
+    }
+    if (host.endsWith('.')) host = host.slice(0, -1);
+    return `${s.slice(0, i + 3)}${host}${port}${tail}`;
 }
 
 // Settings > Notifications (D-162). The words are the approved NS1 to NS8 rows,

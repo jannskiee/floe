@@ -78,12 +78,26 @@ var (
 // package accepts out of a link fragment is one the server would accept.
 var uuidShape = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
-// errInvalidURL is Resolve's answer for an input it cannot use: one that does
-// not parse as a URL, or one that is neither a link nor shaped like a code.
-// Fixed text on purpose (D-144.7): url.Error quotes the input, and for a
-// request link that is the room id in its fragment; a paste refused before the
-// code lookup can hold a room id too.
+// errInvalidURL is Resolve's answer for a link it cannot use: one that does
+// not parse as a URL, or one whose host cannot be read. Fixed text on purpose
+// (D-144.7): url.Error quotes the input, and for a request link that is the
+// room id in its fragment.
 var errInvalidURL = errors.New("invalid URL")
+
+// errNotACode is Resolve's answer for an input in the code's place (no
+// scheme, no slash, no hash) that is not shaped like a code: an underscore or
+// a space typed into one, or a room id pasted alone. It used to be
+// errInvalidURL, which sent someone who typed a code to look for a link
+// (A8b-B4). Fixed text for the same reason as errInvalidURL: a paste refused
+// before the code lookup can hold a room id.
+var errNotACode = errors.New("code not recognized: a code is words joined by hyphens, like olive-tiger-castle")
+
+// ErrIncompleteLink is Resolve's answer for a room link whose #room= or
+// ?room= value is not a room id: cut short when it was copied, or mistyped.
+// It is refused before any network call, so the value never reaches a
+// server, whose join answered "Invalid room ID" (A4-B27). A sentinel, so a
+// caller can show its own line for it; its text is fixed and quotes nothing.
+var ErrIncompleteLink = errors.New("the room id in this link is incomplete or mistyped")
 
 // codeShape is a code as a word list can make one, matched after the paste is
 // trimmed, unwrapped and lowercased: one to four words joined by single
@@ -128,6 +142,11 @@ func holdsRoomID(s string) bool {
 	return false
 }
 
+// HoldsRoomID is holdsRoomID for a caller that must never print an input
+// carrying a room id back: floe receive, when Resolve refuses such an input
+// for its shape (CLI-04).
+func HoldsRoomID(s string) bool { return holdsRoomID(s) }
+
 // Resolve converts a code phrase or URL to a room UUID.
 //   - "olive-tiger-castle"              → calls GET /api/code/olive-tiger-castle
 //   - "https://floe.one/#room=uuid"     → extracts the room from the URL fragment
@@ -135,7 +154,9 @@ func holdsRoomID(s string) bool {
 //   - "floe.one/#room=uuid"             → the same, read as https (no code has a / or #)
 //   - "https://floe.one/r/<id>#uuid"    → ErrRequestLink, a browser-only link
 //   - "https://floe.one/d/<id>"         → ErrDropLink, the same for a drop link
-//   - anything else not shaped like a code → the fixed "invalid URL", no request
+//   - "https://floe.one/#room=6f1c2b9e" → ErrIncompleteLink, a room value that is not a room id
+//   - a link that does not parse         → the fixed "invalid URL", no request
+//   - anything else not shaped like a code → the fixed errNotACode, no request
 //
 // A request link is recognized before any network call in every shape it can
 // be pasted in (FT-LINK-ECHO-F2): without its scheme, inside angle brackets or
@@ -199,6 +220,11 @@ func Resolve(serverURL, input string) (string, error) {
 		if roomId == "" {
 			return "", fmt.Errorf("URL does not contain a room id (#room= or ?room=)")
 		}
+		// The server's own shape (uuidShape, in any letter case); the id is
+		// returned as written, since a room id is never folded.
+		if !uuidShape.MatchString(roomId) {
+			return "", ErrIncompleteLink
+		}
 		return roomId, nil
 	}
 
@@ -214,7 +240,7 @@ func Resolve(serverURL, input string) (string, error) {
 	// hyphens (the increment's review, E3).
 	code := strings.ToLower(input)
 	if !codeShape.MatchString(code) || holdsRoomID(code) {
-		return "", errInvalidURL
+		return "", errNotACode
 	}
 	resp, err := client.Get(serverURL + "/api/code/" + url.PathEscape(code))
 	if err != nil {

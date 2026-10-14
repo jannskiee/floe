@@ -185,6 +185,11 @@ func WithInterfaceAllowlist(names []string) Option {
 
 // New creates a pion RTCPeerConnection with the given ICE servers and starts
 // the signal dispatcher. Call SetupAsSender or SetupAsReceiver next.
+//
+// Its error is pion's, unwrapped: every caller that prints it (floe send,
+// floe receive, Floe Desktop's send and receive) adds "failed to create peer
+// connection: " itself, and this used to add the same words, so the line
+// read them twice (A4-B23).
 func New(iceServers []webrtc.ICEServer, sc *signaling.Client, opts ...Option) (*Connection, error) {
 	var cfg settings
 	for _, o := range opts {
@@ -217,7 +222,7 @@ func New(iceServers []webrtc.ICEServer, sc *signaling.Client, opts ...Option) (*
 
 	pc, err := api.NewPeerConnection(config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create peer connection: %w", err)
+		return nil, err
 	}
 
 	conn := &Connection{
