@@ -50,9 +50,10 @@ test.after(() => {
 
 // --- harness ---------------------------------------------------------------
 
-// A port nobody is listening on yet. server.js reads PORT and logs nothing on a
-// healthy start (docs/self-hosting/operations.mdx promises exactly that), so
-// there is no ready line to parse and no reason to add one just for tests.
+// A port nobody is listening on yet. server.js reads PORT and never logs that
+// it is listening (docs/self-hosting/operations.mdx promises no startup
+// banner), so there is no ready line to parse and no reason to add one just
+// for tests.
 function freePort() {
     return new Promise((resolve, reject) => {
         const probe = net.createServer();
@@ -64,10 +65,14 @@ function freePort() {
     });
 }
 
-async function startServer(extraEnv = {}) {
+// cwd is where the child looks for a .env file (dotenv reads the working
+// directory, not the script's). The default is server/, as an operator starts
+// it; a test that needs a variable truly absent passes an empty directory,
+// because an empty value in extraEnv is all that keeps server/.env out.
+async function startServer(extraEnv = {}, { cwd = __dirname } = {}) {
     const port = await freePort();
     const child = spawn(process.execPath, [SERVER], {
-        cwd: __dirname,
+        cwd,
         stdio: ['ignore', 'pipe', 'pipe'],
         env: {
             ...process.env,
@@ -76,6 +81,11 @@ async function startServer(extraEnv = {}) {
             // makes a live Upstash call on every spawn.
             UPSTASH_REDIS_REST_URL: '',
             UPSTASH_REDIS_REST_TOKEN: '',
+            // openAs gives each connection its own address through one
+            // X-Forwarded-For hop, so a copied server/.env (0 in the example)
+            // must not decide it. A test that needs it absent or blank says so
+            // in extraEnv.
+            TRUSTED_PROXY_COUNT: '1',
             ...extraEnv,
         },
     });
@@ -274,9 +284,44 @@ test('a plain /socket.io/ upgrade still reaches Socket.IO', async (t) => {
     // The guard that matters most in this file. Break the pass-through and every
     // browser silently falls back to long-polling: transfers still work, nothing
     // errors, and no other test notices.
-    const { head } = await rawUpgrade(srv, '/socket.io/?EIO=4&transport=websocket');
+    const { head, afterHandshake } = await rawUpgrade(srv, '/socket.io/?EIO=4&transport=websocket');
     assert.match(head, /^HTTP\/1\.1 101 /);
+    // The 101 is engine.io's own and arrives whatever this server's handler
+    // does next, so it cannot see a refusal placed above the pass-through.
+    // The OPEN packet can: with the 404 moved above that return, this is the
+    // assertion that failed, and the 101 still arrived.
+    assert.ok(await afterHandshake(/"sid"/, 3000), '101 but no usable Socket.IO session');
     await assertSurvived(srv, 'a Socket.IO upgrade');
+});
+
+test('an upgrade on a path that is neither /ws nor Socket.IO\'s is answered 404', async (t) => {
+    const srv = await startServer();
+    t.after(() => srv.stop());
+
+    // What a proxy that forwards a prefixed path, or /ws/ with its trailing
+    // slash, sends. Left alone, such a socket gets no status at all: engine.io
+    // ends it empty about a second later, and rawUpgrade rejects with "socket
+    // closed with no reply". /socket.io without the slash is on the list
+    // because engine.io claims "/socket.io/" by prefix and nothing shorter.
+    for (const target of ['/nope', '/', '/ws/', '/WS', '/api/ws', '/floe/ws', '/ws/extra?x=1', '/socket.io', '/socket.iox/?EIO=4&transport=websocket']) {
+        const { head, body } = await rawUpgrade(srv, target);
+        assert.match(head, /^HTTP\/1\.1 404 Not Found\r\n/, `target ${JSON.stringify(target)}`);
+        assert.equal(body, 'Not Found', `target ${JSON.stringify(target)}`);
+    }
+
+    // The two owners still get their sockets on the same server afterwards.
+    const sio = await rawUpgrade(srv, '/socket.io/?EIO=4&transport=websocket');
+    assert.match(sio.head, /^HTTP\/1\.1 101 /);
+    assert.ok(await sio.afterHandshake(/"sid"/, 3000), '101 but no Socket.IO session');
+    const ws = await open(srv);
+    const pong = waitFor(ws, 'pong');
+    ws.send(JSON.stringify({ type: 'ping' }));
+    assert.equal((await pong).type, 'pong');
+
+    await assertSurvived(srv, 'nine upgrades on paths nobody owns');
+    // The status on the wire is the whole answer. No log line: the path is the
+    // caller's text, sent at whatever rate the caller picks.
+    assertLogsCarryNone(srv, ['404', 'Not Found', '/nope', '/floe/ws', '/socket.iox'], 'an upgrade on a path nobody owns');
 });
 
 // --- (b) a JSON scalar as a message ----------------------------------------
@@ -346,22 +391,37 @@ test('a deeply nested signal is dropped and both peers stay usable', async (t) =
 
 // --- (c) a reset inside the upgrade window ---------------------------------
 
-test('a client reset on an unclaimed upgrade path is not fatal', async (t) => {
+test('a client reset while an upgrade is being refused is not fatal', async (t) => {
     const srv = await startServer();
     t.after(() => srv.stop());
 
     // Node removes its own socket 'error' listener before emitting 'upgrade',
-    // and for a path neither /ws nor engine.io's nothing attaches another.
-    for (let i = 0; i < 5; i++) {
-        await new Promise((resolve) => {
-            const socket = track(net.connect(srv.port, '127.0.0.1', () => {
-                socket.write(`GET /nope HTTP/1.1\r\nHost: 127.0.0.1:${srv.port}\r\n${UPGRADE_HEADERS}\r\n`);
-                setTimeout(() => { socket.resetAndDestroy(); resolve(); }, 40);
-            }));
-            socket.on('error', resolve);
-        });
+    // and nothing attaches another to a socket this server refuses: a path
+    // that is neither /ws nor engine.io's (404), an unparseable target (400).
+    // Such a socket is answered at once, so the reset has to land while the
+    // answer is being written, and it is sent the moment the request is
+    // flushed. A reset 40 ms later, which is what this test sent while the
+    // server left those sockets unanswered, now finds the socket already gone
+    // and passed with the listener removed.
+    //
+    // Measured with the listener removed: on Linux (Node 24) every such reset
+    // reached the backstop, on both targets; on Windows (Node 22) about one in
+    // three did on /nope and one in five on //. Forty of each is what makes a
+    // miss on Windows rarer than one run in a million.
+    for (const target of ['/nope', '//']) {
+        for (let i = 0; i < 40; i++) {
+            await new Promise((resolve) => {
+                const socket = track(net.connect(srv.port, '127.0.0.1', () => {
+                    socket.write(`GET ${target} HTTP/1.1\r\nHost: 127.0.0.1:${srv.port}\r\n${UPGRADE_HEADERS}\r\n`, () => {
+                        socket.resetAndDestroy();
+                        resolve();
+                    });
+                }));
+                socket.on('error', resolve);
+            });
+        }
     }
-    await assertSurvived(srv, 'five resets on an unclaimed upgrade path');
+    await assertSurvived(srv, 'eighty resets on upgrades being refused');
 });
 
 // --- (f) a malformed frame on a rate-limited connection --------------------
@@ -1433,4 +1493,182 @@ test('every join aimed at a used link answers room-full on both transports and n
 
     await assertSurvived(srv, 'joins on a used id over both transports');
     assertLogsCarryNone(srv, [token, id, idUpper], 'a used link');
+});
+
+// --- settings read at startup --------------------------------------------------
+//
+// Not kills. They live here because the server reads these settings once, as it
+// loads, so only a fresh process can be handed a different one, and what the
+// process logs is half of what is asserted.
+
+// The documented defaults (docs/self-hosting/configuration.mdx), stated again
+// here on purpose: the fallback line names the default, so a default that moved
+// in code alone shows up as a line this file no longer recognizes.
+const LIMIT_DEFAULTS = {
+    MAX_CONNECTIONS_PER_IP: 30,
+    MAX_CODE_REQUESTS_PER_IP: 60,
+    MAX_FAILED_CODE_RESOLVES: 10,
+    MAX_ACTIVE_CODES: 10000,
+    MAX_TURN_REQUESTS_PER_IP: 20,
+    MAX_REPORT_BYTES: 5 * 1024 ** 4,
+};
+
+function limitLine(name) {
+    return `${name} is not a whole number of at least 1. Using the default, ${LIMIT_DEFAULTS[name]}.`;
+}
+
+// No relay source at all, so GET /api/turn-credentials answers from memory.
+// turn.js would otherwise mint from Cloudflare with whatever key the parent
+// environment or server/.env holds. An empty value is enough: dotenv never
+// overrides a variable that is already there.
+const NO_RELAY = {
+    CLOUDFLARE_TURN_KEY_ID: '',
+    CLOUDFLARE_TURN_KEY_API_TOKEN: '',
+    TURN_SECRET: '',
+    TURN_DOMAIN: '',
+};
+
+async function postJson(srv, path, payload) {
+    const resp = await fetch(`http://127.0.0.1:${srv.port}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    return { status: resp.status, body: await resp.json() };
+}
+
+function logLines(srv) {
+    return (srv.stdout + srv.stderr).split(/\r?\n/);
+}
+
+test('a MAX_* setting that is not a whole number of at least 1 falls back to its default and says so once', async (t) => {
+    // One of each kind: negative, zero, a word, and a spelling parseInt read as 1.
+    const typed = {
+        MAX_CONNECTIONS_PER_IP: '-1',
+        MAX_CODE_REQUESTS_PER_IP: '-60',
+        MAX_FAILED_CODE_RESOLVES: '0',
+        MAX_ACTIVE_CODES: 'unlimited',
+        MAX_TURN_REQUESTS_PER_IP: '-1',
+        MAX_REPORT_BYTES: '1e12',
+    };
+    const srv = await startServer({ ...NO_RELAY, ...typed });
+    t.after(() => srv.stop());
+
+    // Everything the six guard still answers, which is what running on the
+    // defaults means: a connection, a code registered and resolved, a miss, the
+    // relay list, and a report. The report goes to this child alone: startServer
+    // empties both Upstash variables, so its counter is in memory.
+    const ws = await open(srv);
+    assert.equal(await joinsARoom(ws), 'sender');
+    const registered = await postJson(srv, '/api/code', { roomId: randomUUID() });
+    assert.equal(registered.status, 200, JSON.stringify(registered.body));
+    assert.equal((await get(srv, `/api/code/${registered.body.code}`)).status, 200);
+    assert.equal((await get(srv, '/api/code/not-a-live-code')).status, 404);
+    assert.equal((await get(srv, '/api/turn-credentials')).status, 200);
+    const report = await postJson(srv, '/api/stats/report', { bytes: 2048 });
+    assert.equal(report.status, 200, JSON.stringify(report.body));
+
+    await assertSurvived(srv, 'six MAX_* settings that are not whole numbers of at least 1');
+    for (const name of Object.keys(typed)) {
+        const said = logLines(srv).filter((line) => line === limitLine(name));
+        assert.equal(said.length, 1, `${name}: expected the fallback line once\n--- output ---\n${srv.stdout + srv.stderr}`);
+    }
+    // The line names the variable and the default. What was typed never
+    // appears: a value pasted into the wrong field can be a secret.
+    assertLogsCarryNone(srv, ['unlimited', '1e12', '-60'], 'a MAX_* fallback');
+});
+
+test('each MAX_* setting given a whole number is the limit its own name says, and nothing is logged', async (t) => {
+    const srv = await startServer({
+        ...NO_RELAY,
+        MAX_CONNECTIONS_PER_IP: '1',
+        MAX_CODE_REQUESTS_PER_IP: '4',
+        MAX_FAILED_CODE_RESOLVES: '1',
+        MAX_ACTIVE_CODES: '1',
+        MAX_TURN_REQUESTS_PER_IP: '1',
+        MAX_REPORT_BYTES: '1000',
+    });
+    t.after(() => srv.stop());
+
+    // MAX_CONNECTIONS_PER_IP: the second connection completes its handshake
+    // and is closed by the handler.
+    const first = await open(srv);
+    assert.equal(await joinsARoom(first), 'sender');
+    const second = track(new WebSocket(`ws://127.0.0.1:${srv.port}/ws`));
+    const closedWith = await new Promise((resolve, reject) => {
+        second.once('close', (code) => resolve(code));
+        second.once('error', reject);
+    });
+    assert.equal(closedWith, 1008);
+
+    // The three code settings, told apart by which request each one stops.
+    // Four requests are inside MAX_CODE_REQUESTS_PER_IP, so the 503 is
+    // MAX_ACTIVE_CODES and the 429 on the second miss is
+    // MAX_FAILED_CODE_RESOLVES; the fifth is a registration, which the failed
+    // budget never touches, so its 429 is the volume limit.
+    const roomA = randomUUID();
+    assert.equal((await postJson(srv, '/api/code', { roomId: roomA })).status, 200);
+    assert.equal((await postJson(srv, '/api/code', { roomId: randomUUID() })).status, 503);
+    assert.equal((await get(srv, '/api/code/not-a-live-code')).status, 404);
+    assert.equal((await get(srv, '/api/code/not-a-live-code')).status, 429);
+    assert.equal((await postJson(srv, '/api/code', { roomId: roomA })).status, 429);
+
+    assert.equal((await get(srv, '/api/turn-credentials')).status, 200);
+    assert.equal((await get(srv, '/api/turn-credentials')).status, 429);
+
+    // In memory only, as above.
+    assert.equal((await postJson(srv, '/api/stats/report', { bytes: 1000 })).status, 200);
+    assert.equal((await postJson(srv, '/api/stats/report', { bytes: 1001 })).status, 400);
+
+    await assertSurvived(srv, 'six MAX_* settings at whole numbers');
+    assert.deepEqual(logLines(srv).filter((line) => line.includes('is not a whole number')), []);
+});
+
+// Whole, so the test fails on anything added to it: the line states the count
+// in use and what to set, and carries nothing a request sent.
+const PROXY_COUNT_UNSET_LINE =
+    'TRUSTED_PROXY_COUNT is not set, so the default of 1 is in use. ' +
+    'Set it to the number of reverse proxies in front of this server, or 0 if there are none.';
+
+function proxyCountLines(srv) {
+    return logLines(srv).filter((line) => line.includes('TRUSTED_PROXY_COUNT'));
+}
+
+test('a server started without TRUSTED_PROXY_COUNT says once which count is in use', async (t) => {
+    // Absent altogether: left out of the child's environment, and the child
+    // started in an empty directory, so no .env file can supply one either.
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'floe-cg-cwd-'));
+    let absent = null;
+    // The child first, and gone, before its directory: Windows keeps a
+    // process's working directory locked, and kill() returns before the exit.
+    t.after(async () => {
+        if (absent) {
+            absent.stop();
+            if (absent.child.exitCode === null && absent.child.signalCode === null) {
+                await new Promise((resolve) => absent.child.once('exit', resolve));
+            }
+        }
+        fs.rmSync(empty, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    });
+    absent = await startServer({ TRUSTED_PROXY_COUNT: undefined }, { cwd: empty });
+    await assertSurvived(absent, 'a start with no TRUSTED_PROXY_COUNT');
+    assert.deepEqual(proxyCountLines(absent), [PROXY_COUNT_UNSET_LINE]);
+
+    // Empty reads the same to the server, and is what TRUSTED_PROXY_COUNT=
+    // with nothing after it in server/.env gives.
+    const blank = await startServer({ TRUSTED_PROXY_COUNT: '' });
+    t.after(() => blank.stop());
+    await assertSurvived(blank, 'a start with an empty TRUSTED_PROXY_COUNT');
+    assert.deepEqual(proxyCountLines(blank), [PROXY_COUNT_UNSET_LINE]);
+});
+
+test('a server given a TRUSTED_PROXY_COUNT says nothing about it', async (t) => {
+    // 0 is what Compose, the Unraid template and server/.env.example pass; 1
+    // and 2 are a deployment behind one proxy, or behind a proxy and a CDN.
+    for (const count of ['0', '1', '2']) {
+        const srv = await startServer({ TRUSTED_PROXY_COUNT: count });
+        t.after(() => srv.stop());
+        await assertSurvived(srv, `a start with TRUSTED_PROXY_COUNT=${count}`);
+        assert.deepEqual(proxyCountLines(srv), [], `TRUSTED_PROXY_COUNT=${count}`);
+    }
 });

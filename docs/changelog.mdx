@@ -43,7 +43,7 @@ Floe ships on two version lines. `vX.Y.Z` releases the `floe` CLI and the contai
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
-<Update label="Unreleased" tags={["CLI", "Web", "Desktop"]}>
+<Update label="Unreleased" tags={["CLI", "Web", "Desktop", "Self-hosting"]}>
   **The install script prints `Checksum verified.` only after it has compared the checksum**
 
   - `curl -fsSL https://floe.one/install.sh | sh` checks the archive it downloads against the release's `checksums.txt` with `sha256sum` or `shasum`. On a machine with neither tool it printed `Warning: no sha256 tool found, skipping checksum verification.` and then `Checksum verified.` anyway. It now prints `Checksum verified.` only when one of the two tools compared the SHA-256. With neither, the warning stands alone and the install goes on, as before. The script is served from floe.one, so the fix is already live and needs no `floe` update.
@@ -103,6 +103,14 @@ Each entry lists the parts it changed. Filter on the right to see only the ones 
   - A linked file inside a folder you send with `floe send` is sent at the size of the file it points to. A link to a folder, or one that points nowhere, stops the send before it connects, with a line that names it.
   - Floe Desktop: a link pasted into **Receive** is checked against the server in Settings before anything connects. A floe.one link while another server is set, and a link from another Floe server while none is, each stop with a line that says what to change in Settings.
   - Floe Desktop: a linked file inside a folder you send is sent at the size of the file it points to, and a link to a folder, or one that points nowhere, stops the send before it connects.
+  - Self-hosting: a `MAX_*` limit set to a negative number made the server refuse everything that limit guards, with nothing in the log. A value that is not a whole number of at least 1 (a negative number, `0`, a word, or a spelling such as `1e3`) now falls back to the default, and the server logs one line that names the variable.
+  - Self-hosting: a WebSocket request for any path other than `/ws` and `/socket.io/` got no answer and was closed about a second later. It now gets `404 Not Found` at once, so a proxy that forwards `/ws/` or a prefixed path shows up as a status instead of a silence.
+  - Self-hosting: a server started without `TRUSTED_PROXY_COUNT` now logs one line at startup saying that the default of 1 is in use and to set it to the number of reverse proxies in front of the server. `server/.env.example` now ships `0`, the right value for a server reached directly.
+  - Self-hosting: the signaling server's HSTS header covers its own host only. It also carried `includeSubDomains`, which a server on a bare domain would push onto every other subdomain of that domain in each visitor's browser.
+  - Self-hosting: the transfer counter no longer loses a report that arrives in the moment after the server starts, before it has read the stored total.
+  - Self-hosting: with Docker Compose, changing `CLIENT_PORT` or `PORT` on its own now works on one machine. The two addresses built from those ports follow them, where before the page loaded and never connected until you also set `CLIENT_URL` or `NEXT_PUBLIC_SOCKET_URL`. `docker-compose.yml` now needs Docker Compose 2.8.0 or later, and an older Compose stops with an error instead of starting a stack that cannot connect. This applies to the file on `main` at once.
+  - Self-hosting: the Unraid Floe-Client template no longer ships a placeholder in **Signaling Server URL**, which an install that did not notice it ran with. The field is empty and its description says what to put there. If you added the container from the earlier template, clear the field's **Default Value** as well.
+  - Self-hosting: the Unraid Floe-Server template has a **Request Link Policy Folder** field, so turning request links on no longer means adding a Path by hand.
 </Update>
 
 <Update label="desktop-v0.3.0" description="2026-10-09" tags={["Desktop"]}>

@@ -19,6 +19,7 @@
 
 const crypto = require('crypto');
 const { rateKey } = require('./ratekey');
+const { envLimit } = require('./envlimit');
 
 const STUN_FALLBACK = [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -31,7 +32,7 @@ const TURN_RATE_WINDOW = 60000;
 // or Floe Desktop transfer); raise via MAX_TURN_REQUESTS_PER_IP in CI/staging where many
 // CLI runs share one IP - a 429 leaves a client on Google STUN only (a browser
 // says nothing, the CLI prints a warning).
-const TURN_MAX_REQUESTS = parseInt(process.env.MAX_TURN_REQUESTS_PER_IP, 10) || 20;
+const TURN_MAX_REQUESTS = envLimit('MAX_TURN_REQUESTS_PER_IP', 20);
 
 function generateCoturnCredentials() {
     const turnSecret = process.env.TURN_SECRET;

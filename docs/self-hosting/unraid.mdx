@@ -123,10 +123,11 @@ Unraid 6.10.0 and later, which has no field for a template address.
 ## One domain behind a reverse proxy
 
 Put both containers behind a single hostname and there is no signaling address to
-keep in sync at all. Clear Floe-Client **Signaling Server URL**, and the browser
-talks to whatever origin served the page. The field is not blank by default: it
-ships holding the placeholder `http://YOUR-UNRAID-IP:3001`, and leaving that in
-place produces a client that loads perfectly and never connects.
+keep in sync at all. Leave Floe-Client **Signaling Server URL** empty, which is how the template
+ships it, and the browser talks to whatever origin served the page. A Floe-Client added from an
+earlier copy of the template holds the placeholder `http://YOUR-UNRAID-IP:3001` there, as its value
+and as its default, and Unraid puts a default back whenever its field is empty. On such a container
+turn on **Advanced View**, click **Edit** beside the field, and clear **Default Value** as well.
 
 <Steps>
   <Step title="Proxy the domain to Floe-Client">
@@ -148,7 +149,7 @@ place produces a client that loads perfectly and never connects.
     `1` for a single reverse proxy.
   </Step>
   <Step title="Clear Signaling Server URL">
-    Clear Floe-Client **Signaling Server URL**, including the placeholder it ships with.
+    Leave Floe-Client **Signaling Server URL** empty. On a container added from an earlier copy of the template, clear its **Default Value** too.
   </Step>
 </Steps>
 
@@ -220,18 +221,19 @@ self-hosted TURN domain and secret. See [TURN relay](/self-hosting/turn-relay).
 
 ## Request links on Unraid {#request-links}
 
-[Request links](/desktop/request-links) stay off until a policy file turns them on. In the Floe-Server
-template, add a **Path** that maps a folder on the server, such as `/mnt/user/appdata/floe/policy`, to
-`/app/policy` in read-only mode. Put a file named `policy.json` in that folder containing
-`{"requestLinks": true}`, then set the advanced **Request Link Policy File** variable to
-`/app/policy/policy.json`. Map the folder, not the file. A server installed from an older template has no such
-variable: add a Variable with the key `POLICY_FILE` instead. To turn request links off again, and for what the
+[Request links](/desktop/request-links) stay off until a policy file turns them on. In the
+Floe-Server template, open the advanced settings and set **Request Link Policy Folder** to a folder
+on the server, such as `/mnt/user/appdata/floe/policy`. The template mounts it at `/app/policy`,
+read-only. Put a file named `policy.json` in that folder containing `{"requestLinks": true}`, then
+set **Request Link Policy File** to `/app/policy/policy.json`. Map the folder, not the file. A
+server installed from an older template has neither field: add a Path that maps the folder to
+`/app/policy` read-only, and a Variable with the key `POLICY_FILE`. To turn request links off again, and for what the
 server logs, see [Turn on request links](/self-hosting/request-links).
 
 ## Other settings
 
 The Floe-Server template has fields for the client URL, the proxy count, the connection limit, the
-TURN options, the stats database, and the policy file. Any other server variable in
+TURN options, the stats database, and the policy folder and file. Any other server variable in
 [Configuration](/self-hosting/configuration), such as `MAX_TURN_REQUESTS_PER_IP`, has no field: add
 a Variable with that key to Floe-Server.
 
