@@ -164,10 +164,13 @@ export const STDERR_CLASSES = Object.freeze([
     ['stall-mid-file', /transfer stalled: no data for/],
     // send.go runSend
     ['role-race', /expected sender role, got "receiver"/],
-    // cli/engine/code/client.go Resolve
-    ['code-expired', /not found or expired/],
-    // receive.go runReceive
-    ['code-spent', /this code is no longer active/],
+    // cli/engine/code/client.go Resolve. Both wordings: floe 1.11.0 says "not
+    // found or expired", later builds "not found: it was already used, ...",
+    // and the audit runs the release beside HEAD.
+    ['code-expired', /not found or expired|not found: it was already used/],
+    // receive.go runReceive. Both wordings: "this code is" (1.11.0) and
+    // "this code or link is" (later).
+    ['code-spent', /this code (?:or link )?is no longer active/],
     // send.go runSend and receive.go runReceive
     ['room-full', /room is full/],
     // receiver.go ReceiveFilesWithOptions
@@ -187,7 +190,8 @@ export const STDERR_CLASSES = Object.freeze([
     ['signaling-connect-failed', /failed to connect to signaling server/],
     // cli/engine/code/client.go Resolve
     ['code-unreachable', /could not reach signaling server/],
-    // send.go runSend
+    // send.go runSend, floe 1.11.0 and earlier. A later plain send names the
+    // cause instead, which setup-signaling-lost and setup-peer-left read.
     ['peer-left-early', /peer disconnected before connecting/],
     // The three setup stops (ee973fe): cli/cmd/floe/main.go setupFailureLine
     // prints the sentinel's own sentence from cli/engine/peer/setuperror.go

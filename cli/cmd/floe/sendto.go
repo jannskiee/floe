@@ -86,7 +86,10 @@ const (
 	lineVerified        = "Their app reports every file's SHA-256 matched."
 	lineSendTheRest     = "Ask them for a new link to send the rest."
 	lineNothingSent     = "Nothing was sent."
-	lineRelayNothing    = "Nothing was sent. Send under 2 GB."
+	// "2 GB or less", not "under": the relay gate is strictly greater-than, so
+	// a drop of exactly 2 GB is allowed (the owner's amendment, as the /r
+	// page's relayCapNothing in visitorCopy.ts already reads).
+	lineRelayNothing = "Nothing was sent. Send 2 GB or less."
 	// The channel closed before the host accepted. The CLI copy draws no
 	// state for it; this is the /r page's own line for the same moment
 	// (approved-copy-web.md C-112), which the CLI copy mirrors.

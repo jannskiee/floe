@@ -22,7 +22,10 @@ const (
 func DetectPM(exePath string) string {
 	p := filepath.ToSlash(strings.ToLower(exePath))
 	switch {
-	case strings.Contains(p, "homebrew") || strings.Contains(p, "cellar") || strings.Contains(p, "linuxbrew"):
+	// "caskroom" is Homebrew's default folder on an Intel Mac, /usr/local,
+	// where a cask's file sits under /usr/local/Caskroom and no other word
+	// here appears in its path.
+	case strings.Contains(p, "homebrew") || strings.Contains(p, "cellar") || strings.Contains(p, "caskroom") || strings.Contains(p, "linuxbrew"):
 		return "homebrew"
 	case strings.Contains(p, "scoop"):
 		return "scoop"
@@ -39,7 +42,26 @@ func PMPath() string {
 	if err != nil {
 		return ""
 	}
-	return DetectPM(exe)
+	return pmFor(exe, filepath.EvalSymlinks)
+}
+
+// pmFor is DetectPM for the path the process was started from and, when that
+// names no package manager, for the file the path resolves to, which is the
+// file Apply replaces. os.Executable resolves no link on macOS: it reports the
+// command as it was run, and Homebrew on an Intel Mac puts that command at
+// /usr/local/bin/floe, a link into /usr/local/Caskroom, so only the resolved
+// path names Homebrew there. resolve is filepath.EvalSymlinks, a parameter so
+// a test needs no link on disk; a path it cannot resolve is judged by the
+// command's own path alone.
+func pmFor(exe string, resolve func(string) (string, error)) string {
+	if pm := DetectPM(exe); pm != "" {
+		return pm
+	}
+	resolved, err := resolve(exe)
+	if err != nil {
+		return ""
+	}
+	return DetectPM(resolved)
 }
 
 // PMHint returns the upgrade command for the given PM name.
