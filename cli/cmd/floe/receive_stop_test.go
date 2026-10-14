@@ -16,9 +16,9 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
-// resetReceiveStop clears the step a receive left behind: runReceive leaves
-// it in place for the rest of the process, and a test is not the rest of the
-// process.
+// resetReceiveStop clears the step a receive or a plain send left behind:
+// runReceive and runSend leave it in place for the rest of the process, and a
+// test is not the rest of the process.
 func resetReceiveStop() { interruptStop.Store(nil) }
 
 // TestHandleInterruptsStopStepRunsBeforeTheCleanupAndKeepsTheSecondSignalSwallowed

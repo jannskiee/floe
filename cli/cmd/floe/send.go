@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,6 +17,7 @@ import (
 	"github.com/jannskiee/floe/cli/engine/serverurl"
 	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/jannskiee/floe/cli/engine/transfer"
+	"github.com/pion/webrtc/v4"
 	"github.com/spf13/cobra"
 )
 
@@ -52,6 +54,12 @@ func runSend(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("to") {
 		return runSendTo(cmd, args)
 	}
+
+	// Ctrl+C's stop step (CLI-02): left in place for the rest of the process,
+	// and a no-op until the data channel is open.
+	r := newSendRun()
+	step := r.stop
+	interruptStop.Store(&step)
 
 	// Validate that all paths exist. The sentence quotes the path, so a
 	// request link typed as one (--to forgotten) ends on a fixed line instead.
@@ -149,7 +157,15 @@ func runSend(cmd *cobra.Command, args []string) error {
 	select {
 	case peerId = <-sc.PeerConnected:
 	case <-sc.PeerLeft:
-		return fmt.Errorf("peer disconnected before connecting")
+		// Two things push PeerLeft: the server reporting the other side gone,
+		// and the signaling client's read loop on its way out, when this
+		// side's own connection to the server is lost. One line for both
+		// named the peer either way. Each now prints the sentence the setup
+		// below prints for the same cause (setupFailureLine).
+		if signalingDown(sc) {
+			return peer.ErrSignalingLost
+		}
+		return peer.ErrPeerLeft
 	case errMsg := <-sc.Errors:
 		return fmt.Errorf("server error: %s", errMsg)
 	}
@@ -170,6 +186,9 @@ func runSend(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("%s", setupFailureLine(err))
 	}
 
+	if !r.connected(dc, conn) {
+		return r.park()
+	}
 	fmt.Println(connectedLine(conn.ConnectionType()))
 	fmt.Println()
 
@@ -181,10 +200,172 @@ func runSend(cmd *cobra.Command, args []string) error {
 	defer close(quit)
 	closeOnFailed(conn, quit)
 	early := conn.Early()
-	return plainSendEnd(transfer.SendFilesWithOptions(dc, args, version, transfer.SendOptions{
+	err = transfer.SendFilesWithOptions(dc, args, version, transfer.SendOptions{
 		Messages: early.Msgs,
 		Closed:   early.Closed,
-	}))
+		// Closed by Ctrl+C's stop step: the send then queues nothing more, so
+		// the step's abort frame is the last one on the channel.
+		Stop: r.halt,
+	})
+	if !r.finish(err == nil) {
+		return r.park()
+	}
+	return plainSendEnd(err)
+}
+
+// sendStopSettle bounds how long Ctrl+C's stop step waits for the send to
+// stop before it tells the receiver. The send looks at its stop before every
+// write and in every wait (SendOptions.Stop), so it stops within one chunk;
+// the bound is for a disk read that stalls. sendStopFlush bounds the wait
+// after it for the abort frame to leave before the close. The two fit inside
+// the handler's interruptStopBound with room for the close
+// (TestPlainSendStopIsBounded). Vars only so a test can change them.
+var (
+	sendStopSettle = 200 * time.Millisecond
+	sendStopFlush  = 750 * time.Millisecond
+)
+
+// sendRun is what one plain send shares with its Ctrl+C step, which runs on
+// the signal goroutine (interruptStop). Exactly one of the two ends the
+// command: the command with its outcome, or main's handler with "Canceled."
+// and exit 130. The mutex decides which.
+type sendRun struct {
+	mu sync.Mutex
+	// over: the send returned, and the command ends on its own.
+	// interrupted: Ctrl+C took the ending, and the command prints nothing more.
+	// delivered: the send returned in success, so nothing is left to stop.
+	over, interrupted, delivered bool
+	dc                           *webrtc.DataChannel
+	conn                         *peer.Connection
+
+	halt       chan struct{} // SendOptions.Stop, closed by Ctrl+C
+	haltOnce   sync.Once
+	settled    chan struct{} // closed once the send has returned
+	settleOnce sync.Once
+}
+
+func newSendRun() *sendRun {
+	return &sendRun{halt: make(chan struct{}), settled: make(chan struct{})}
+}
+
+// stop is the plain send's Ctrl+C step, run by main's handler before
+// "Canceled." and the partial-file cleanup (CLI-02). Without it the handler's
+// exit told the receiver nothing and closed nothing, so floe receive sat
+// until its stall watchdog and a browser until ICE gave up. From the signal
+// goroutine, so it works while the send is parked in its wait for the ack: it
+// stops the send where it stands, waits for it to return so the abort frame
+// is the last one on the channel (the order SendOptions.Stop asks for), then
+// tells the receiver and closes the connection. Before the channel opens
+// there is nobody to tell: the exit closes the signaling socket, and the
+// server tells a receiver that is still connecting. A send that returned in
+// success has nothing to stop.
+func (r *sendRun) stop() {
+	r.mu.Lock()
+	if r.over {
+		r.mu.Unlock()
+		return
+	}
+	r.interrupted = true
+	dc, conn := r.dc, r.conn
+	r.mu.Unlock()
+	r.haltOnce.Do(func() { close(r.halt) })
+	if dc == nil || conn == nil {
+		return
+	}
+	select {
+	case <-r.settled:
+	case <-time.After(sendStopSettle):
+	}
+	r.mu.Lock()
+	delivered := r.delivered
+	r.mu.Unlock()
+	if delivered {
+		return
+	}
+	tellCanceled(dc, conn)
+}
+
+// tellCanceled is stop's work: the sender's abort frame and its flush,
+// bounded by sendStopFlush, then the close, the shape of the receive's
+// tellStopped. The reason is the one sentence a Floe sender gives for its own
+// cancel, the request-link send's and the /r page's too
+// (transfer.VisitorCancelReason): a receiver shows it in place of a lost
+// connection. When the frame cannot leave in time behind what the send had
+// already queued, the receiver still hears the close. AbortSend's own flush
+// gives up after a fixed 2 s (controlFlushTimeout), so the wait for the
+// channel's buffer to drain continues here, and sendStopFlush alone bounds
+// it. A var only so a test can stand in one that records.
+var tellCanceled = func(dc *webrtc.DataChannel, conn *peer.Connection) {
+	sent := make(chan struct{})
+	quit := make(chan struct{})
+	go func() {
+		defer close(sent)
+		transfer.AbortSend(dc, version, transfer.VisitorCancelReason)
+		for dc.BufferedAmount() > 0 {
+			select {
+			case <-quit:
+				return
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
+	}()
+	select {
+	case <-sent:
+	case <-time.After(sendStopFlush):
+	}
+	close(quit)
+	conn.Close()
+}
+
+// connected records the open channel for Ctrl+C. It reports false when a
+// Ctrl+C during setup already took the ending.
+func (r *sendRun) connected(dc *webrtc.DataChannel, conn *peer.Connection) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.interrupted {
+		return false
+	}
+	r.dc, r.conn = dc, conn
+	return true
+}
+
+// finish records that the send returned, in success (delivered) or not, which
+// ends stop's wait, and decides who ends the command. It reports false when
+// Ctrl+C has the ending.
+func (r *sendRun) finish(delivered bool) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.delivered = delivered
+	r.settleOnce.Do(func() { close(r.settled) })
+	if r.interrupted {
+		return false
+	}
+	r.over = true
+	return true
+}
+
+// park ends the command once Ctrl+C has its ending, as the receive's does: in
+// the binary never (parkUntilExit), so main's os.Exit(1) cannot race the
+// handler's exit 130 or print "Error: the send was stopped" after
+// "Canceled.". A test that lets it return gets the error execute prints
+// nothing for.
+func (r *sendRun) park() error {
+	parkUntilExit()
+	return errSendToEnded
+}
+
+// signalingDown reports whether sc's socket to the signaling server is gone.
+// The client closes Down before the PeerLeft push it sends on the way out of
+// its read loop, so a reader woken by PeerLeft can tell a lost server from a
+// peer the server reported gone; peer.Connection reads it the same way during
+// setup. A client built without Connect has a nil Down, which reads as open.
+func signalingDown(sc *signaling.Client) bool {
+	select {
+	case <-sc.Down:
+		return true
+	default:
+		return false
+	}
 }
 
 // errTheyStopped is the plain send's line when the receiver ended the

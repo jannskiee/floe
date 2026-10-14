@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -633,21 +634,32 @@ func startCLIEnv(t *testing.T, env map[string]string, args ...string) *cliRun {
 			t.Errorf("the CLI was still running 60 s after the test")
 		}
 		// A request-link send leaves its Ctrl+C hook in place for the rest
-		// of the process (runSendTo); a test is not the rest of the process.
+		// of the process (runSendTo), and a plain send its stop step
+		// (runSend); a test is not the rest of the process.
 		interruptHook.Store(nil)
+		resetReceiveStop()
 	})
 	return r
 }
 
-// wait returns once the command has returned, or fails at bound.
+// wait returns once the command has returned, or fails at bound with every
+// goroutine's stack: the command runs in this process, so a hang that shows
+// only on a CI runner says where it was parked (cliwait_test.go).
 func (r *cliRun) wait(t *testing.T, bound time.Duration) *cliRun {
 	t.Helper()
 	select {
 	case <-r.done:
 	case <-time.After(bound):
-		t.Fatalf("the command did not return within %v", bound)
+		t.Fatalf("the command did not return within %v\n%s", bound, allStacks())
 	}
 	return r
+}
+
+// allStacks is the stack of every goroutine in the test process, cut at 4 MiB
+// (a run with a few hundred goroutines is well under 1).
+func allStacks() []byte {
+	buf := make([]byte, 4<<20)
+	return buf[:runtime.Stack(buf, true)]
 }
 
 // read fills the run's stdout and stderr from o, once every printer is done.
@@ -1738,7 +1750,7 @@ var approvedRefusal = []struct {
 	{"disk-full", []string{"Their computer ran out of space.", "Nothing was sent."}},
 	{"write-failed", []string{"Their computer could not save a file.", "Nothing was sent."}},
 	{"hash-mismatch", []string{"A file changed or was damaged on the way, so their Floe deleted it.", "Nothing was sent.", "Ask them for a new link to send the rest."}},
-	{"relay-cap", []string{"Relayed drops are capped at 2 GB.", "Nothing was sent. Send under 2 GB."}},
+	{"relay-cap", []string{"Relayed drops are capped at 2 GB.", "Nothing was sent. Send 2 GB or less."}},
 	{"path-too-long", []string{"A folder path is too long for their computer. Zip deeply nested folders first.", "Nothing was sent."}},
 	{"file-too-large-for-folder", []string{"A file is too large for the drive they save to.", "Nothing was sent."}},
 	{"save-blocked", []string{"A file arrived but their computer blocked saving it.", "Nothing was sent."}},

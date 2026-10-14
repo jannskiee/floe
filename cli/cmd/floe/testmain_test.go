@@ -15,11 +15,12 @@ var testConfigHome string
 // TestMain points the OS user directories and the temp directory at a
 // temporary folder before any test runs, the same guard as the desktop and
 // selfupdate packages' (review A R5). These tests drive the real command tree
-// through rootCmd.Execute, only with `help` today, but the tree holds
-// `version`, whose selfupdate.CheckAvailable writes the update-check cache
-// under os.UserConfigDir, and `update`, which stages a download in the temp
-// directory: one changed argument in a test, or a test under a mutation, would
-// reach them.
+// through rootCmd.Execute, and the tree holds `version`, whose
+// selfupdate.CheckAvailable writes the update-check cache under
+// os.UserConfigDir, and `update`, which stages a download in the temp
+// directory. update_test.go runs both with selfupdate stood in, but one
+// changed argument in a test, or a test under a mutation, would reach the
+// real calls.
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "floe-cmd-test-home-")
 	if err != nil {

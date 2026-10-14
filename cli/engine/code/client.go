@@ -216,7 +216,7 @@ func Resolve(serverURL, input string) (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return "", fmt.Errorf("code %q not found or expired (codes expire after 10 minutes)", input)
+		return "", fmt.Errorf("code %q not found: it was already used, the sender left, or it expired (a code lasts 10 minutes at most)", input)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("server returned %d when resolving code", resp.StatusCode)

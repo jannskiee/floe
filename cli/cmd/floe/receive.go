@@ -8,6 +8,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
@@ -106,8 +107,14 @@ func runReceive(cmd *cobra.Command, args []string) error {
 		return outcomeError{errFloeLinkOtherServer}
 	}
 
-	// 2. Ensure output directory exists
-	if err := os.MkdirAll(flagOutput, 0755); err != nil {
+	// 2. Check that the output directory exists or can be made, and leave it
+	//    unmade: the receive makes it when it saves its first file (the
+	//    engine's claim), so a start that fails, a decline and a sender that
+	//    never sends leave no empty folder behind. Here, before the join,
+	//    because the sender's code is spent once this side takes its seat: an
+	//    -o that cannot be made must end the command while the same code can
+	//    still be tried again.
+	if err := checkOutputDir(flagOutput); err != nil {
 		return fmt.Errorf("cannot create output directory %s: %w", flagOutput, err)
 	}
 	absOutput, _ := filepath.Abs(flagOutput)
@@ -146,9 +153,10 @@ func runReceive(cmd *cobra.Command, args []string) error {
 		if role != "receiver" {
 			// The server only ever returns "sender" or "receiver"; a receiver
 			// getting "sender" means it joined an empty room, so nobody is sharing
-			// with this code (codes are single-use: the transfer already finished,
-			// or the sender left).
-			return fmt.Errorf("this code is no longer active; ask for a new one")
+			// from it (the transfer already finished, or the sender left). The
+			// input was a code or a pasted link, and a link has no code in it,
+			// so the line names both.
+			return fmt.Errorf("this code or link is no longer active; ask the sender for a new one")
 		}
 	case <-sc.RoomFull:
 		return fmt.Errorf("room is full (someone else may already be receiving)")
@@ -199,6 +207,38 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	})
 	if !r.finish() {
 		return r.park()
+	}
+	return err
+}
+
+// checkOutputDir reports whether dir exists or can be made, and leaves the
+// disk as it found it. It asks by making dir, the one answer that holds on
+// every file system (a missing permission, a read-only volume and a name the
+// system refuses all show only then), and then removes each folder that was
+// not there before, innermost first. Lstat keeps a link that points nowhere
+// from being read as missing. os.Remove would also delete a file, so each
+// path is looked at again just before it goes, and only a plain folder is
+// removed: a file or a link that appeared there in between is left alone, and
+// a folder something was put into fails to go because it is not empty.
+func checkOutputDir(dir string) error {
+	var missing []string
+	p := filepath.Clean(dir)
+	for {
+		if _, err := os.Lstat(p); !errors.Is(err, fs.ErrNotExist) {
+			break
+		}
+		missing = append(missing, p)
+		parent := filepath.Dir(p)
+		if parent == p {
+			break
+		}
+		p = parent
+	}
+	err := os.MkdirAll(dir, 0755)
+	for _, p := range missing {
+		if fi, lerr := os.Lstat(p); lerr == nil && fi.Mode().IsDir() {
+			_ = os.Remove(p)
+		}
 	}
 	return err
 }

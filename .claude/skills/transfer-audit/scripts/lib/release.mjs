@@ -4,7 +4,7 @@
 // against checksums.txt (CLI, written by GoReleaser) or SHA256SUMS.txt
 // (desktop, LF with CR stripped just in case), then extracted with the
 // zip reader in lib/fixtures.mjs. The CLI path must never contain
-// scoop|winget|homebrew|cellar: cli/internal/selfupdate refuses to update
+// scoop|winget|homebrew|cellar|caskroom|linuxbrew: cli/internal/selfupdate refuses to update
 // a managed install by looking at those substrings, and a side-loaded
 // binary under such a path would misreport itself.
 import { createHash } from 'node:crypto';
@@ -27,7 +27,9 @@ import {
     makeGh,
 } from './versions.mjs';
 
-export const MANAGED_PATH_RE = /scoop|winget|homebrew|cellar/i;
+// The words selfupdate.DetectPM looks for (cli/internal/selfupdate).
+export const MANAGED_PATH_RE =
+    /scoop|winget|homebrew|cellar|caskroom|linuxbrew/i;
 const WIN = process.platform === 'win32';
 
 export function cliZipName(version) {
@@ -48,7 +50,7 @@ export function versionOfTag(tag) {
 export function assertSafeCliPath(p) {
     if (MANAGED_PATH_RE.test(String(p)))
         throw new Error(
-            `refusing CLI path ${p}: it contains scoop|winget|homebrew|cellar (selfupdate treats it as a managed install)`
+            `refusing CLI path ${p}: it contains scoop|winget|homebrew|cellar|caskroom|linuxbrew (selfupdate treats it as a managed install)`
         );
     return p;
 }

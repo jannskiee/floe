@@ -94,7 +94,7 @@ func TestExecuteEscapesTheErrorItPrints(t *testing.T) {
 // TestExecutePrintsAPlainErrorAsCobraDid: an error with nothing to escape
 // prints byte for byte as cobra printed it before execute took over.
 func TestExecutePrintsAPlainErrorAsCobraDid(t *testing.T) {
-	const msg = `code "olive-tiger-castle" not found or expired (codes expire after 10 minutes)`
+	const msg = `code "olive-tiger-castle" not found: it was already used, the sender left, or it expired (a code lasts 10 minutes at most)`
 	if got := runFailing(t, errors.New(msg)); got != "Error: "+msg+"\n" {
 		t.Fatalf("execute printed %q, want %q", got, "Error: "+msg+"\n")
 	}

@@ -42,15 +42,16 @@ func abortReason(dc *webrtc.DataChannel, localVer, reason string, toReceiver boo
 	sendIncompatible(dc, incompatibleFrame(localVer, "", reason, -1), toReceiver)
 }
 
-// VisitorCancelReason is the one reason a request-link visitor sends when the
-// person sending stops the drop: VISITOR_CANCEL_REASON in
-// client/lib/request/constants.ts, which the /r page's Cancel sends. The host
-// maps any abort to fixed copy of its own and never shows it.
-// TestVisitorCancelReasonMatchesTheWebPage pins the two together.
+// VisitorCancelReason is the one reason a Floe sender gives when the person
+// sending stops on purpose: VISITOR_CANCEL_REASON in
+// client/lib/request/constants.ts, which the /r page's Cancel sends, and
+// what Ctrl+C in floe send sends, on a request link and on a plain send. A
+// request-link host maps any abort to fixed copy of its own and never shows
+// it. TestVisitorCancelReasonMatchesTheWebPage pins the two together.
 const VisitorCancelReason = "The sender stopped."
 
 // AbortSend is abortReason for a sender that stops on purpose from outside
-// SendFilesWithOptions (the request-link send's Ctrl+C, TL-29): one text
+// SendFilesWithOptions (Ctrl+C in floe send, TL-29 and CLI-02): one text
 // incompatible frame with an overlapping range and reason, then the bounded
 // flush. Safe while that send is still running on dc, because pion serializes
 // writes to the channel's stream, and best effort like abortReason.
