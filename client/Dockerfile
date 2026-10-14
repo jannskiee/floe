@@ -81,8 +81,12 @@ WORKDIR /app
 COPY --from=builder --chown=node:node /app/public ./public
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
+# The entry point: the standalone server.js above, then one warm-up of the
+# image cache, so no picture is ever left cold for a request a browser
+# abandons (docker/warm-images.mjs). Never delays or fails the start.
+COPY --from=builder --chown=node:node /app/docker/start.mjs /app/docker/warm-images.mjs ./
 
 USER node
 EXPOSE 3000
 
-CMD ["node", "server.js"]
+CMD ["node", "start.mjs"]

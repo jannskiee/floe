@@ -137,6 +137,7 @@ export const SURFACES = [
     'client/.env.example',
     'client/public/install.sh',
     'client/public/install.ps1',
+    'client/docker',
     'cli',
     'desktop',
     'server/server.js',

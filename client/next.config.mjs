@@ -1,4 +1,5 @@
 import { withSentryConfig } from '@sentry/nextjs';
+import { docsRedirects, docsRewrites } from './lib/docsRoutes.mjs';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -142,16 +143,12 @@ const nextConfig = {
         ];
     },
 
-    // Documentation lives on Mintlify and is served at floe.one/docs (a subpath
-    // of the primary domain, for SEO) via a reverse proxy: every /docs request
-    // is rewritten to the Mintlify deployment, which is configured with base
-    // path /docs so its own links and assets resolve under /docs too. The single
-    // /docs/:path* rule also covers Mintlify's re-rooted assets.
+    // Documentation lives on Mintlify and is served at floe.one/docs through
+    // a reverse proxy on floe.one only; every other build redirects /docs to
+    // floe.one (lib/docsRoutes.mjs). The single /docs/:path* rule also covers
+    // Mintlify's re-rooted assets.
     async rewrites() {
-        return [
-            { source: '/docs', destination: 'https://floe.mintlify.site/docs' },
-            { source: '/docs/:path*', destination: 'https://floe.mintlify.site/docs/:path*' },
-        ];
+        return docsRewrites(process.env);
     },
 
     // The docs used to live at docs.floe.one; they permanently moved onto the
@@ -167,6 +164,7 @@ const nextConfig = {
                 destination: 'https://www.floe.one/docs/:path*',
                 statusCode: 301,
             },
+            ...docsRedirects(process.env),
         ];
     },
 };
