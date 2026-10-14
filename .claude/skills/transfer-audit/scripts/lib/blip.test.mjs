@@ -137,6 +137,25 @@ test('a cut closes live sockets, refuses new ones for the window, then resumes',
     }
 });
 
+test('a cut is over when its wait is, even if the clock still reads a millisecond short', async () => {
+    // A Windows runner fired the timer before Date.now() reached cutAt + ms,
+    // so `cutting` still read true after cut() resolved (Skill test suites,
+    // PR 589). The fake clock stands still to make that moment certain.
+    const echo = await echoServer();
+    let clock = 1000;
+    const blip = await startBlip({ upstream: echo.url, now: () => clock });
+    try {
+        const r = await blip.cut(150, { wait: async () => (clock += 149) });
+        assert.equal(blip.cutting, false, 'the window ends with the wait');
+        assert.equal(r.resumedAt, 1149);
+        const after = await roundTrip(blip.port, 'ok');
+        assert.equal(after.echoed, 'ok', 'a socket right after the cut is accepted');
+    } finally {
+        await blip.stop();
+        await echo.close();
+    }
+});
+
 test('a cut uses its own clock window when nothing ends it early', async () => {
     const echo = await echoServer();
     const blip = await startBlip({ upstream: echo.url });

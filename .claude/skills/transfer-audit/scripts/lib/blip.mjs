@@ -109,6 +109,11 @@ export class BlipProxy {
         }
         this.stats.destroyed += destroyed;
         await wait(ms);
+        // A timer can fire before the clock reads cutAt + ms (seen on a
+        // Windows runner), so the window ends when the wait does. A later cut
+        // that moved cutUntil keeps its own window.
+        if (this.cutUntil === cutAt + ms)
+            this.cutUntil = Math.min(this.cutUntil, this.now());
         return { cutAt, resumedAt: this.now(), destroyed };
     }
 
