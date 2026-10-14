@@ -84,7 +84,7 @@ describe('warmImageCache', () => {
         const s = standIn();
         await warmImageCache({ origin: ORIGIN, fetch: s.fetchFn as typeof fetch, pages: ['/'], retryDelayMs: 1 });
         for (const a of s.asked) expect(a.url.startsWith(`${ORIGIN}/`)).toBe(true);
-        expect(s.asked.some((a) => a.url.includes('example.com'))).toBe(false);
+        expect(s.asked.every((a) => new URL(a.url).host === new URL(ORIGIN).host)).toBe(true);
     });
 
     it('never abandons a request: abandoning one is what leaves an image unanswerable', async () => {
