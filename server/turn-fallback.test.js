@@ -160,7 +160,11 @@ describe('generateCoturnCredentials', () => {
     // coturn config ships its certificate lines commented out, and a turns:
     // URL on a port that cannot finish a TLS handshake is one more relay every
     // client tries and never gets.
-    it('TURN_TLS=off leaves the turns: entry out and keeps the other two as they were', () => {
+    it('TURN_TLS=off leaves the turns: entry out and keeps the other two as they were', (t) => {
+        // One clock for both calls, so both make the same username and the
+        // turn: entries can be compared whole (the HMAC itself is pinned by
+        // the credential test above).
+        t.mock.method(Date, 'now', () => 1_700_000_000_000);
         process.env.TURN_SECRET = 'test-secret';
         process.env.TURN_DOMAIN = 'relay.example.org';
         const withTls = generateCoturnCredentials();
@@ -170,10 +174,8 @@ describe('generateCoturnCredentials', () => {
             withoutTls.map((entry) => entry.urls),
             ['stun:relay.example.org:3478', 'turn:relay.example.org:3478']
         );
-        // The turn: entry still carries a working credential pair.
-        const expected = crypto.createHmac('sha1', 'test-secret').update(withoutTls[1].username).digest('base64');
-        assert.equal(withoutTls[1].credential, expected);
-        assert.deepEqual(Object.keys(withoutTls[1]), Object.keys(withTls[1]));
+        assert.deepEqual(withoutTls[0], withTls[0]);
+        assert.deepEqual(withoutTls[1], withTls[1], 'the turn: entry and its credential pair are unchanged');
     });
 
     it('TURN_TLS reads off, false, 0 and no as off, in any letter case', () => {
