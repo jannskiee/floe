@@ -111,6 +111,7 @@ Each entry lists the parts it changed. Filter on the right to see only the ones 
   - Self-hosting: with Docker Compose, changing `CLIENT_PORT` or `PORT` on its own now works on one machine. The two addresses built from those ports follow them, where before the page loaded and never connected until you also set `CLIENT_URL` or `NEXT_PUBLIC_SOCKET_URL`. `docker-compose.yml` now needs Docker Compose 2.8.0 or later, and an older Compose stops with an error instead of starting a stack that cannot connect. This applies to the file on `main` at once.
   - Self-hosting: the Unraid Floe-Client template no longer ships a placeholder in **Signaling Server URL**, which an install that did not notice it ran with. The field is empty and its description says what to put there. If you added the container from the earlier template, clear the field's **Default Value** as well.
   - Self-hosting: the Unraid Floe-Server template has a **Request Link Policy Folder** field, so turning request links on no longer means adding a Path by hand.
+  - Self-hosting: a self-hosted web app sends `/docs` to floe.one/docs instead of serving it through a proxy, the client image warms its own picture cache when it starts, and `client/.env.example` turns off Next.js telemetry.
 </Update>
 
 <Update label="desktop-v0.3.0" description="2026-10-09" tags={["Desktop"]}>

@@ -72,6 +72,31 @@ floe-client)
 
     img_url='http://localhost:3000/_next/image?url=%2Fgithub-mark-white.png&w=32&q=75'
 
+    # The image warms its own picture cache once it is up (client/docker/start.mjs),
+    # so no picture is left cold for a request a browser abandons. Proved without
+    # asking the optimizer for anything first: its cache directory fills with no
+    # request from here, then the first request this script makes for a picture
+    # the pages use is already a HIT. On success the warm-up prints nothing.
+    entries=0
+    last=-1
+    steady=0
+    for _ in $(seq 1 90); do
+        entries="$(docker exec smoke-client sh -c 'ls /app/.next/cache/images 2>/dev/null | wc -l' | tr -d ' ')"
+        if [ "$entries" -gt 0 ] && [ "$entries" = "$last" ]; then steady=$((steady + 1)); else steady=0; fi
+        [ "$steady" -ge 3 ] && break
+        last="$entries"
+        sleep 1
+    done
+    [ "$entries" -gt 0 ] || fail "the image warm-up wrote no cache entries"
+    first="$(curl --fail --silent -H 'Accept: image/webp' -o /dev/null -D - "$img_url" \
+        | tr -d '\r' | awk 'tolower($1) == "x-nextjs-cache:" { print $2 }')"
+    [ "$first" = "HIT" ] \
+        || fail "the first /_next/image request reported cache '$first', expected HIT (the warm-up did not run)"
+    if docker logs smoke-client 2>&1 | grep -q 'image warm-up'; then
+        fail "the warm-up printed its failure line"
+    fi
+    echo "OK  pictures are warm before the first request ($entries cache entries, nothing logged)"
+
     # A broken sharp does NOT 500. Next silently falls back to serving the
     # original PNG, so status alone proves nothing: the content type is the only
     # signal. This is the guard for the recorded ERR_DLOPEN_FAILED failure mode
