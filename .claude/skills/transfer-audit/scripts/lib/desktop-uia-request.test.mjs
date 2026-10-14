@@ -442,13 +442,67 @@ test('requestStateFromItems names every view from its buttons and fixed copy', (
         const withLine = requestStateFromItems([B('Accept'), B('Decline'), T('3 files, 64.0 MB'), T(line)]);
         assert.deepEqual(withLine.prompt.warnings, ['laptop-power'], line);
     }
-    const cap = requestStateFromItems([B('Accept'), B('Decline'), T('1 file, 3.0 GB'), T('This 3.0 GB drop is over the 2 GB Hide my IP limit')]);
-    assert.deepEqual(cap.prompt.warnings, ['relay-over-cap']);
     const stopped = requestStateFromItems([B('Make another link'), T('DROP STOPPED'), T('The sender stopped this drop · 1 of 2 files saved')]);
     assert.deepEqual([stopped.code, stopped.result.saved, stopped.result.files], ['peer-abort', 1, 2]);
     assert.equal(desktopFmtBytes(64 * MiB), '64.0 MB');
     assert.equal(desktopFmtBytes(4 * MiB), '4.0 MB');
     assert.equal(desktopFmtBytes(512), '512 B');
+});
+
+// Three request link lines changed after desktop-v0.3.0 (the owner,
+// 2026-10-14): P6 names the relay where it named Hide my IP, ST6 counts what
+// was saved where it always said Nothing saved, and P5 is gone. One audit
+// reads the released Store app and a build of HEAD, so the reader takes both.
+test('requestStateFromItems reads the relay prompt line and the relay stop card as desktop-v0.3.0 and as a later build word them', () => {
+    const B = (name) => ({ type: 'Button', name });
+    const T = (name) => ({ type: 'Text', name });
+    const prompt = (line) => requestStateFromItems([B('Accept'), B('Decline'), T('1 file, 3.0 GB'), T(line)]).prompt;
+    for (const line of [
+        'This 3.0 GB drop is over the 2 GB Hide my IP limit', // desktop-v0.3.0
+        'This 3.0 GB drop is over the 2 GB relay limit',
+    ])
+        assert.deepEqual(prompt(line).warnings, ['relay-over-cap'], line);
+    // Neither wording is read out of a longer sentence.
+    assert.deepEqual(prompt('This 3.0 GB drop is over the 2 GB relay limit today').warnings, []);
+    assert.deepEqual(prompt('This 3.0 GB drop is over the 2 GB limit').warnings, []);
+    // P5: desktop-v0.3.0 has the line and no path in it draws it; a later
+    // build has no such line. A build that drew it would show in the evidence.
+    assert.deepEqual(prompt("This drive can't save files over 4 GB").warnings, ['file-too-large-for-drive']);
+
+    const stop = (card) => {
+        const s = requestStateFromItems([B('Make another link'), T('DROP STOPPED'), T(card)]);
+        return [s.state, s.code, s.result.saved, s.result.files];
+    };
+    // desktop-v0.3.0: the fixed card, whatever was saved.
+    assert.deepEqual(stop('Over the 2 GB relay limit · Nothing saved'), ['stopped', 'relay-cap', 0, null]);
+    // A later build: the same card when nothing was saved, the count otherwise.
+    assert.deepEqual(stop('Over the 2 GB relay limit · 2 of 5 files saved'), ['stopped', 'relay-cap', 2, 5]);
+    assert.deepEqual(stop('Over the 2 GB relay limit · 1 of 1 file saved'), ['stopped', 'relay-cap', 1, 1]);
+    // The count alone is still the unknown stop (ST14), never the relay one.
+    assert.deepEqual(stop('2 of 5 files saved'), ['stopped', 'unknown', 2, 5]);
+});
+
+test('the request link lines the reader keys on are the ones requestCopy.ts draws today', () => {
+    const copy = readFileSync(
+        new URL('../../../../../desktop/frontend/src/requestCopy.ts', import.meta.url),
+        'utf8'
+    );
+    const B = (name) => ({ type: 'Button', name });
+    const T = (name) => ({ type: 'Text', name });
+    // P6, with fmtBytes' rendering in the size slot.
+    const p6 = /return `This \$\{fmtBytes\(p\.totalBytes\)\} (drop is over the 2 GB [^`]+)`; \/\/ P6/.exec(copy);
+    assert.ok(p6, 'requestCopy.ts no longer has the P6 line in the form this test reads');
+    assert.deepEqual(
+        requestStateFromItems([B('Accept'), B('Decline'), T('1 file, 3.0 GB'), T(`This 3.0 GB ${p6[1]}`)]).prompt.warnings,
+        ['relay-over-cap']
+    );
+    // ST6: the card sentence, which the app follows with " · " and the count.
+    const st6 = /'relay-cap': \{card: '([^']+)',/.exec(copy);
+    assert.ok(st6, 'requestCopy.ts no longer has the ST6 card in the form this test reads');
+    const s = requestStateFromItems([B('Make another link'), T('DROP STOPPED'), T(`${st6[1]} · 2 of 5 files saved`)]);
+    assert.deepEqual([s.code, s.result.saved, s.result.files], ['relay-cap', 2, 5]);
+    // P5 left the app: no line for the code, so its reader is for released builds only.
+    assert.ok(!copy.includes("case 'file-too-large-for-drive'"));
 });
 
 // The Auto-accept twins: the one delivery a built exe can prove, since nothing

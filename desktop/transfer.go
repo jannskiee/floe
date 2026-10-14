@@ -53,6 +53,49 @@ var (
 	errRelayUnknown = errors.New("Couldn't read this server's relay details for Hide my IP")
 )
 
+// Two more sentences the frontend prints as they stand or maps by their words
+// (errors.ts PASSTHROUGH and RULES), kept here so a test can pin them.
+var (
+	// errNotActive: a receive that took the first seat of its room, so nobody
+	// is sharing there. "Code or link", because in practice the input was a
+	// pasted link whose sender had left: a spent code answers not found at the
+	// lookup and never gets this far. floe receive prints the same words.
+	errNotActive = errors.New("this code or link is no longer active; ask the sender for a new one")
+	// errReceiverLeft: the server reported a peer gone while a send waited
+	// for its receiver (errors.ts: "The receiver left before it started").
+	errReceiverLeft = errors.New("peer disconnected before connecting")
+	// errRoleWaitClosed: a PeerLeft during the wait for a role with the socket
+	// still open, which the server does not send today.
+	errRoleWaitClosed = errors.New("connection closed")
+)
+
+// receiverWaitEnd names why runSend's wait for a receiver ended on a PeerLeft
+// push. Nobody else is in the room yet, so the push is nearly always the
+// signaling socket closing (the client's read loop pushes PeerLeft on its way
+// out), and calling that a peer disconnecting blamed a person who never
+// arrived for this PC's lost connection to the server. Down closes before
+// that push, which is how the engine's own setup waits tell the two apart, so
+// a lost socket gets the engine's sentence for it (errors.ts shows "Can't
+// reach the server"). A push with Down open is the server's peer-disconnected:
+// a receiver that joined and left before this wait read its user-connected.
+func receiverWaitEnd(sc *signaling.Client) error {
+	if channelClosed(sc.Down) {
+		return peer.ErrSignalingLost
+	}
+	return errReceiverLeft
+}
+
+// roleWaitEnd is the same question for the wait for a role, in runSend and
+// receiveByCode. Nobody else is in the room before a role is given, so a
+// PeerLeft there is the signaling socket closing, and "connection closed"
+// read as a transfer that dropped (errors.ts) before anything had started.
+func roleWaitEnd(sc *signaling.Client) error {
+	if channelClosed(sc.Down) {
+		return peer.ErrSignalingLost
+	}
+	return errRoleWaitClosed
+}
+
 // requireRelay is the transfer-time half of the Settings probe's relay check.
 //
 // It runs here as well as there because ice.Fetch falls back to public STUN
@@ -208,7 +251,7 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 		fail(fmt.Errorf("server error: %s", errMsg))
 		return
 	case <-sc.PeerLeft:
-		fail(fmt.Errorf("connection closed"))
+		fail(roleWaitEnd(sc))
 		return
 	case <-time.After(20 * time.Second):
 		fail(fmt.Errorf("timed out waiting for the server to assign a role"))
@@ -224,11 +267,12 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 	emit("send:code", map[string]string{"code": codePhrase, "link": link})
 
 	// Wait for a receiver to join. This wait is intentionally unbounded (you may
-	// share a link and wait) — CancelTransfer closes sc to abort it via PeerLeft.
+	// share a link and wait). CancelTransfer closes sc to abort it via PeerLeft,
+	// and fail then stays silent; any other PeerLeft is named by receiverWaitEnd.
 	select {
 	case <-sc.PeerConnected:
 	case <-sc.PeerLeft:
-		fail(fmt.Errorf("peer disconnected before connecting"))
+		fail(receiverWaitEnd(sc))
 		return
 	case errMsg := <-sc.Errors:
 		fail(fmt.Errorf("server error: %s", errMsg))
@@ -417,14 +461,14 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 			// getting "sender" means it joined an empty room, so nobody is sharing
 			// with this code (codes are single-use: the transfer already finished,
 			// or the sender left).
-			return "", fmt.Errorf("this code is no longer active; ask for a new one")
+			return "", errNotActive
 		}
 	case <-sc.RoomFull:
 		return "", fmt.Errorf("room is full (someone else may already be receiving)")
 	case errMsg := <-sc.Errors:
 		return "", fmt.Errorf("server error: %s", errMsg)
 	case <-sc.PeerLeft:
-		return "", fmt.Errorf("connection closed")
+		return "", roleWaitEnd(sc)
 	case <-time.After(20 * time.Second):
 		return "", fmt.Errorf("timed out waiting for the server to assign a role")
 	}
@@ -664,9 +708,6 @@ var (
 	iceFetchFn = ice.FetchDetail
 	// requestOpenChannelExpired runs when the E-35 timer fires; tests count it.
 	requestOpenChannelExpired = func() {}
-	// requestVolumeMaxFn is the save volume's largest file, for the prompt's
-	// drive-limit warning; a test stands in a FAT32 volume.
-	requestVolumeMaxFn = transfer.VolumeMaxFileSize
 	// requestDiskFreeFn is the save volume's free space, for the prompt's
 	// low-space warning and the automatic Accept's floor (G5, G13); a test
 	// stands in any volume, so the runner's own free space never decides one.
@@ -1109,6 +1150,14 @@ func promptBase(saveDir string) string {
 // requestPromptFor builds the Accept prompt from numbers and host values only
 // (OD-04, Q-C7): the visitor's counts, this PC's folder, clock and free space,
 // and warning codes. in.FirstName is never read.
+//
+// The codes are low-space and relay-over-cap. There is none for a first file
+// past the save drive's largest file (FAT32's 4 GiB): the engine refuses that
+// file before OnIncoming and Decide (layer 1's checkAnnouncedSize, with the
+// same volume question through the same folder), so no prompt for it is ever
+// built, and a warning here was a line no drop could show. A later file over
+// the limit is refused at its own metadata. Do not add the code back without
+// moving the engine's check behind Decide.
 func requestPromptFor(p requestPairing, in transfer.IncomingInfo, route string, now time.Time) RequestPrompt {
 	pr := RequestPrompt{
 		Files:      in.Files,
@@ -1125,12 +1174,10 @@ func requestPromptFor(p requestPairing, in transfer.IncomingInfo, route string, 
 				pr.Warnings = append(pr.Warnings, "low-space")
 			}
 		}
-		// The first file only, the one known before Accept (spec 05 8.3,
-		// D-118); a later file over the limit is refused at its own metadata.
-		if limit, err := requestVolumeMaxFn(dir); err == nil && limit > 0 && in.FirstSize > limit {
-			pr.Warnings = append(pr.Warnings, "file-too-large-for-drive")
-		}
 	}
+	// A relay route counts whatever chose it, Hide my IP or a network with no
+	// direct path, so the frontend's line for this code (P6) names the relay
+	// limit and never the setting.
 	if (route == "relay" || p.hideIP) && in.TotalBytes > transfer.RelaySizeLimit {
 		pr.Warnings = append(pr.Warnings, "relay-over-cap")
 	}

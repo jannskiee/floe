@@ -86,7 +86,7 @@ export const SIGNATURES = Object.freeze([
     // matched on its own.
     [
         'rate-limited',
-        /Too many refreshes|Rate limit exceeded|Too many requests|Too many reports|server returned 429\b|HTTP 429\b/i,
+        /Too many refreshes|Rate limit exceeded|Too many requests|Too many reports|server returned 429\b|HTTP 429\b|The server is limiting requests/i,
         true,
         'rate-limit',
     ],

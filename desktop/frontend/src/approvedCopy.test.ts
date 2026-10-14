@@ -18,7 +18,9 @@
  * parenthetical in a row describes its drawn form (card body, drawn size, the
  * no-label fallback) and is read as such. Every row that is not cut is either
  * checked here or listed in NOT_RENDERED_HERE with the reason, and no cut row's
- * string can come out of requestCopy.ts.
+ * string can come out of requestCopy.ts. A row is cut when its Status starts
+ * with CUT (drawn nowhere before it shipped) or REMOVED (taken out of a
+ * shipped build); either way it stays in the table so the cut is visible.
  */
 import {describe, expect, it} from 'vitest';
 import * as settings from './settings';
@@ -62,11 +64,14 @@ function parseRows(md: string): Map<string, Row> {
 const rows = present ? parseRows(fs.readFileSync(path, 'utf8')) : new Map<string, Row>();
 const checked = new Set<string>();
 
+/** A row nothing may render: CUT or REMOVED, with whatever names the decision after it. */
+const isCut = (r: Row) => /^(CUT|REMOVED)\b/.test(r.status);
+
 /** The approved string of a row, which must exist and must not be cut. */
 function approved(id: string): string {
     const r = rows.get(id);
     if (!r) throw new Error(`no approved row ${id}`);
-    if (r.status.startsWith('CUT')) throw new Error(`row ${id} is cut (${r.status}); nothing may render it`);
+    if (isCut(r)) throw new Error(`row ${id} is cut (${r.status}); nothing may render it`);
     checked.add(id);
     return r.string;
 }
@@ -171,6 +176,7 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(c.errorLine('no-relay')).toBe(approved('E5'));
         expect(c.errorLine('relay-unknown')).toBe(approved('E6'));
         expect(c.errorLine('already-open')).toBe(approved('E7'));
+        expect(c.errorLine('save-folder')).toBe(approved('E9'));
         expect(c.errorLine('disabled')).toBe(approved('X6'));
     });
 
@@ -183,11 +189,16 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(c.CLOSE_LINK).toBe(approved('W4'));
         expect(c.scopeLine(END, NOW)).toBe(approved('W5'));
         expect(c.scopeLine(END, NOW, true)).toBe(approved('W5a'));
+        // W5b is drawn at 9:31 PM on drive C:.
+        expect(c.scopeLine(new Date(2026, 8, 14, 21, 31).getTime(), NOW, true, 'low-space', 'C:\\Users\\x\\Downloads\\Floe')).toBe(approved('W5b'));
         expect(c.WAITING_LINE).toBe(approved('W8'));
         expect(c.missedLine(MISSED)).toBe(approved('W10'));
         expect(c.SETUP_FAILED_LINE).toBe(approved('W11'));
         expect(c.CONNECTING_LINE).toBe(approved('W12'));
         expect(c.SUGGEST_CLOSE_LINE).toBe(approved('W13'));
+        expect(c.HIDE_IP_NO_RELAY_LINE).toBe(approved('W14'));
+        expect(c.reopenLine({code: 'no-relay', suggestClose: false})).toBe(approved('W14'));
+        expect(c.reopenLine({code: 'relay-unknown', suggestClose: false})).toBe(approved('W14'));
         // C1 is drawn on two lines: "line 1 / line 2" in the table.
         expect(`${c.RECONNECTING_LINE} / ${c.RECONNECTING_NOTE}`).toBe(bare('C1'));
         expect(`${c.RETRY_NOW} / ${c.CLOSE_LINK}`).toBe(bare('C2'));
@@ -207,7 +218,9 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(`${c.INTO} Floe\\${SUB}`).toBe(approved('P3'));
         const p = {freeBytes: 31 * GB, totalBytes: 38 * GB};
         expect(c.warningLine('low-space', p, SAVE)).toBe(sized(approved('P4'), 31));
-        expect(c.warningLine('file-too-large-for-drive', p, SAVE)).toBe(approved('P5'));
+        // P5 is removed (2026-10-14): its code draws nothing, checked with the
+        // cut rows below.
+        expect(c.warningLine('file-too-large-for-drive', p, SAVE)).toBe('');
         expect(c.warningLine('relay-over-cap', p, SAVE)).toBe(sized(bare('P6'), 38));
         expect(note('P6')).toBe(`drawn ${fmtBytes(38 * GB)}`);
         // P8 is cut (D-169): the answer window is Accept's countdown, P12, at
@@ -216,6 +229,10 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(`${c.ACCEPT} / ${c.DECLINE}`).toBe(approved('P9'));
         // P10 is cut (D-161): the Receiving view's laptop line is P11 now.
         expect(c.LAPTOP_LINE).toBe(approved('P11'));
+        // P13a to P13c are drawn on drives C:, G: and D:, P13a at a 48 GB floor.
+        expect(c.warningLine('auto-floor', {...p, floorBytes: 48 * GB}, 'C:\\Floe')).toBe(approved('P13a'));
+        expect(c.warningLine('auto-no-mark', p, 'G:\\Floe')).toBe(approved('P13b'));
+        expect(c.warningLine('auto-unknown', p, 'D:\\Floe')).toBe(approved('P13c'));
         expect(c.DECLINED_LINE).toBe(approved('D1'));
         expect(c.DECLINED_QUESTION).toBe(approved('D2'));
         expect(`${c.KEEP_WAITING} / ${c.CLOSE_LINK}`).toBe(bare('D3'));
@@ -279,9 +296,8 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
             } else if (n.startsWith('card body: ')) {
                 card = n.slice('card body: '.length);
             } else throw new Error(`${id}: unreadable note ${n}`);
-            const saved = code === 'relay-cap' ? 0 : 4;
-            expect(c.stoppedCard(code, saved, 12), id).toBe(card);
-            expect(c.stoppedFull(code, saved, 12), id).toBe(full);
+            expect(c.stoppedCard(code, 4, 12), id).toBe(card);
+            expect(c.stoppedFull(code, 4, 12), id).toBe(full);
         }
         // ST16 at the mock values, and the forms its note lists (D-136).
         expect(c.savedOf(4, 12)).toBe(st16);
@@ -335,16 +351,19 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
 
     it('no approved row that is not cut is left unchecked', () => {
         const missing = [...rows.values()]
-            .filter((r) => !r.status.startsWith('CUT') && !checked.has(r.id) && !(r.id in NOT_RENDERED_HERE))
+            .filter((r) => !isCut(r) && !checked.has(r.id) && !(r.id in NOT_RENDERED_HERE))
             .map((r) => r.id);
         expect(missing).toEqual([]);
     });
 
     it('no cut row can come out of requestCopy.ts', () => {
-        const cut = [...rows.values()].filter((r) => r.status.startsWith('CUT'));
+        const cut = [...rows.values()].filter(isCut);
         expect(cut.map((r) => r.id).sort()).toEqual([
-            'C3', 'DN10', 'DN2', 'E3', 'E8', 'H1', 'H3', 'P10', 'P7', 'P8', 'Q1', 'R18', 'R19', 'R28', 'R4', 'R5', 'S1', 'S2', 'S3', 'S4', 'S5', 'ST15', 'ST2', 'V7', 'V8', 'W6', 'W7', 'W9', 'X4', 'X5',
+            'C3', 'DN10', 'DN2', 'E3', 'E8', 'H1', 'H3', 'P10', 'P5', 'P7', 'P8', 'Q1', 'R18', 'R19', 'R28', 'R4', 'R5', 'S1', 'S2', 'S3', 'S4', 'S5', 'ST15', 'ST2', 'V7', 'V8', 'W6', 'W7', 'W9', 'X4', 'X5',
         ]);
+        // P5 is the one row taken out of a shipped build (desktop-v0.3.0 has
+        // its string, and no path there can show it).
+        expect(rows.get('P5')?.status).toMatch(/^REMOVED /);
         const out: string[] = [];
         for (const v of Object.values(c) as unknown[]) if (typeof v === 'string') out.push(v);
         // The Settings copy too: the Beta section is gone, and its words must
@@ -353,9 +372,9 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         // A cut row whose words a live row also owns is exempt: nothing can
         // tell the two apart (the cut S1 "Beta" is the live R2 chip).
         const live = new Set(
-            [...rows.values()].filter((r) => !r.status.startsWith('CUT')).map((r) => r.string.replace(/ \([^()]*\)$/, '')),
+            [...rows.values()].filter((r) => !isCut(r)).map((r) => r.string.replace(/ \([^()]*\)$/, '')),
         );
-        for (const code of ['denied', 'too-slow', 'network', 'server-restart', 'battery-standby', 'pending-rename', 'web-address']) {
+        for (const code of ['denied', 'too-slow', 'network', 'server-restart', 'battery-standby', 'pending-rename', 'web-address', 'file-too-large-for-drive']) {
             out.push(c.errorLine(code), c.endedLine(code, END), c.stoppedCard(code, 4, 12), c.stoppedFull(code, 4, 12),
                 c.warningLine(code, {freeBytes: 1, totalBytes: 1}, SAVE));
         }

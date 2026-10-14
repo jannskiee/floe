@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {calm, friendlyError} from './errors';
+import {PASSTHROUGH, calm, friendlyError} from './errors';
 
 describe('friendlyError', () => {
     it('always starts with the Error prefix StatusLine keys its styling off', () => {
@@ -51,6 +51,66 @@ describe('friendlyError', () => {
         expect(friendlyError('could not resolve "olive-tiger": could not reach signaling server: dial tcp: refused')).toBe(
             "Error: Can't reach the server",
         );
+    });
+
+    it('names any other failed code lookup as an unreachable server, not as a wrong code', () => {
+        // Resolve answers every status but 200, 404 and 429 with the same
+        // sentence (a 502 or 503 from a proxy in front of a stopped server,
+        // a 500). None of them says anything about the code.
+        for (const status of [500, 502, 503]) {
+            expect(friendlyError('could not resolve "olive-tiger-castle": server returned ' + status + ' when resolving code')).toBe(
+                "Error: Can't reach the server",
+            );
+        }
+        // The 404 is still a code the server does not know.
+        expect(friendlyError('could not resolve "olive-tiger-castle": code "olive-tiger-castle" not found or expired (codes expire after 10 minutes)')).toBe(
+            "Error: That code wasn't recognized",
+        );
+    });
+
+    it('names a rate-limited code lookup as the server limiting requests, not as a wrong code', () => {
+        // The engine's sentence for any status but 200 and 404 (Resolve in
+        // cli/engine/code/client.go: "server returned %d when resolving code"),
+        // as receiveByCode wraps it. A 429 is the server's limit on lookups
+        // from one network, which a correct code meets too, so "That code
+        // wasn't recognized" sent a person back to recheck a code that was
+        // right. The rule sits above 'could not resolve', whose words open
+        // the same string.
+        const limited = 'The server is limiting requests from this network. Wait a minute and try again';
+        expect(friendlyError('could not resolve "olive-tiger-castle": server returned 429 when resolving code')).toBe(
+            'Error: ' + limited,
+        );
+        expect(friendlyError('Error: could not resolve "olive-tiger-castle": server returned 429 when resolving code')).toBe(
+            'Error: ' + limited,
+        );
+        // The pasted input is not echoed, and a 404 keeps its own sentence.
+        expect(friendlyError('could not resolve "429-server-returned": code "429-server-returned" not found or expired (codes expire after 10 minutes)')).toBe(
+            "Error: That code wasn't recognized",
+        );
+    });
+
+    it('reads the code-not-found sentence in both wordings the engine has had', () => {
+        // Resolve's 404 sentence as receiveByCode wraps it: the one releases up
+        // to 1.11.0 print, and the one that names the real causes. The desktop
+        // ships its own engine, so only one of them reaches a given build, and
+        // both must read the same here whichever lands first.
+        const recognized = "Error: That code wasn't recognized";
+        expect(
+            friendlyError('could not resolve "olive-tiger-castle": code "olive-tiger-castle" not found or expired (codes expire after 10 minutes)'),
+        ).toBe(recognized);
+        expect(
+            friendlyError('could not resolve "olive-tiger-castle": code "olive-tiger-castle" not found: it was already used, the sender left, or it expired (a code lasts 10 minutes at most)'),
+        ).toBe(recognized);
+    });
+
+    it('tells a lost server connection from a receiver that left, while a send waits', () => {
+        // desktop/transfer.go receiverWaitEnd: the engine's ErrSignalingLost
+        // when this PC's socket to the server closed, and the receiver-left
+        // sentence only when the server reported a peer gone.
+        expect(friendlyError('the connection to the server was lost before the peer connected')).toBe(
+            "Error: Can't reach the server",
+        );
+        expect(friendlyError('peer disconnected before connecting')).toBe('Error: The receiver left before it started');
     });
 
     it('maps a malformed room id in a pasted link to the incomplete-link sentence', () => {
@@ -203,8 +263,14 @@ describe('friendlyError', () => {
     it('passes hand-written actionable messages through verbatim', () => {
         const relay = 'transfer blocked: relay connections are capped at 2 GB (selected relay). Turn off Hide my IP to send larger files';
         expect(friendlyError(relay)).toBe('Error: ' + relay);
+        // desktop/transfer.go errNotActive, in today's words and in the words
+        // builds up to desktop-v0.3.0 used: both pass through whole.
+        const active = 'this code or link is no longer active; ask the sender for a new one';
+        expect(friendlyError(active)).toBe('Error: ' + active);
         const code = 'this code is no longer active; ask for a new one';
         expect(friendlyError(code)).toBe('Error: ' + code);
+        expect(PASSTHROUGH.filter((p) => active.includes(p))).toEqual(['this code or link is no longer active']);
+        expect(PASSTHROUGH.filter((p) => code.includes(p))).toEqual(['this code is no longer active']);
         // Both Hide my IP relay guards (desktop/transfer.go errNoRelay and
         // errRelayUnknown). They already name what to turn off, so a bucket
         // would replace advice with worse advice. This is the test that

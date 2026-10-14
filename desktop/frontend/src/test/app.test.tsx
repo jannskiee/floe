@@ -1674,3 +1674,202 @@ describe('the SEND and RECEIVE tabs (D-172)', () => {
         expect(send.className.split(' ')).toContain('border-b-transparent');
     });
 });
+
+describe('the rail', () => {
+    it('says no size limit from Floe, and names what a receiving browser can hold', async () => {
+        mount();
+        await settled();
+        // A browser that receives from Floe Desktop is limited by what it can
+        // hold, so the rail no longer says "unlimited" or "no size cap".
+        const title = screen.getByText('Direct, no size limit from Floe');
+        expect(title.nextElementSibling!.textContent).toBe('Device to device. A receiving browser can only hold so much. 2 GB through a relay');
+        expect(document.body.textContent).not.toMatch(/unlimited|no size cap/i);
+    });
+});
+
+/**
+ * The app-level shortcuts wait while one of the app's confirm dialogs is up.
+ * Each used to test its own subset of the three: none tested Close Floe?,
+ * which an open request link raises with nothing busy, and four tested none.
+ */
+describe('shortcuts behind a dialog', () => {
+    const LINK = 'http://localhost:3000/r/Xk3p9Q0aB1c#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f';
+    const waiting = {
+        state: 'waiting', code: '', gen: 1, promptGen: 0, link: LINK, label: '', saveDir: 'D:\\x',
+        expiresAt: Date.now() + 3600_000, route: '', suggestClose: false,
+    };
+    type User = ReturnType<typeof userEvent.setup>;
+    // The keys go to the window, not to a button: a dialog's focused button
+    // takes Enter itself, which is the dialog answering and not a shortcut.
+    const press = async (user: User, keys: string) => {
+        act(() => { (document.activeElement as HTMLElement | null)?.blur(); });
+        await user.keyboard(keys);
+    };
+    const TITLES = ['Close Floe?', 'Start over?', 'Reset all settings?'] as const;
+    async function raise(user: User, title: (typeof TITLES)[number]) {
+        if (title === 'Close Floe?') {
+            act(() => { wails.emit('close:blocked'); });
+        } else if (title === 'Start over?') {
+            await user.click(screen.getByRole('button', {name: 'Text'}));
+            await user.type(screen.getByPlaceholderText('Type or paste text to send'), 'an unsent note');
+            await press(user, '{Control>}r{/Control}');
+        } else {
+            await user.click(screen.getByRole('button', {name: 'Settings'}));
+            await user.click(await screen.findByRole('button', {name: 'Reset'}));
+        }
+        const dialog = await screen.findByRole('dialog');
+        expect(within(dialog).getByText(title)).toBeTruthy();
+        return dialog;
+    }
+
+    it('Ctrl+Enter starts no receive behind Close Floe?, which an open link raises with nothing busy', async () => {
+        wails.go.ReceiveByCode.mockImplementation(() => new Promise<string>(() => {}));
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        act(() => { wails.emit('request:state', waiting); });
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
+        await user.click(await screen.findByRole('button', {name: 'Code'}));
+        await user.type(screen.getByPlaceholderText('amber-otter-cloud'), 'amber-otter-cloud');
+        const dialog = await raise(user, 'Close Floe?');
+        expect(within(dialog).getByText('Your request link stops working')).toBeTruthy();
+
+        await press(user, '{Control>}{Enter}{/Control}');
+        expect(wails.go.ReceiveByCode).not.toHaveBeenCalled();
+        expect(screen.getByRole('dialog')).toBe(dialog);
+
+        // The dialog answered, the shortcut is back.
+        await user.click(within(dialog).getByRole('button', {name: 'Keep open'}));
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        await press(user, '{Control>}{Enter}{/Control}');
+        await waitFor(() => expect(wails.go.ReceiveByCode).toHaveBeenCalledTimes(1));
+    });
+
+    it('Ctrl+Enter starts no send behind Close Floe?', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        act(() => { wails.emit('request:state', waiting); });
+        act(() => { wails.emit('files:open', ['C:\\Users\\test\\a.txt']); });
+        expect(await screen.findByRole('button', {name: 'Send 1 item'})).toBeTruthy();
+        await raise(user, 'Close Floe?');
+        await press(user, '{Control>}{Enter}{/Control}');
+        expect(wails.go.StartSend).not.toHaveBeenCalled();
+        expect(screen.getByRole('dialog')).toBeTruthy();
+    });
+
+    it.each(TITLES)('Ctrl+O, Ctrl+V, Ctrl+H and Ctrl+, do nothing behind %s, and never close it', async (title) => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        const dialog = await raise(user, title);
+        const onSettings = () => screen.queryByLabelText('Server address') !== null;
+        const onHistory = () => screen.queryByText('No transfers yet') !== null;
+        const before = [onSettings(), onHistory()];
+        for (const keys of ['{Control>}o{/Control}', '{Control>}v{/Control}', '{Control>}h{/Control}', '{Control>},{/Control}']) {
+            await press(user, keys);
+        }
+        await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+        expect(wails.go.SelectFiles).not.toHaveBeenCalled();
+        expect(wails.go.PasteFiles).not.toHaveBeenCalled();
+        // The same dialog over the same screen: nothing moved behind it, and
+        // closing Settings did not take "Reset all settings?" down with it.
+        expect(screen.getByRole('dialog')).toBe(dialog);
+        expect([onSettings(), onHistory()]).toEqual(before);
+    });
+
+    it('the update notice steps aside for Close Floe? too, never dimmed under its scrim', async () => {
+        wails.go.GetVersion.mockImplementation(async () => 'desktop-v0.3.0');
+        wails.go.CheckForUpdate.mockImplementation(async () => ({version: 'desktop-v0.3.1'}));
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        expect(await screen.findByRole('group', {name: 'Update available'})).toBeTruthy();
+        const dialog = await raise(user, 'Close Floe?');
+        expect(screen.queryByRole('group', {name: 'Update available'})).toBeNull();
+        await user.click(within(dialog).getByRole('button', {name: 'Keep open'}));
+        expect(await screen.findByRole('group', {name: 'Update available'})).toBeTruthy();
+    });
+
+    it('Ctrl+Z spends no undo behind Close Floe?, and the offer is still good after it', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        act(() => { wails.emit('files:open', ['C:\\Users\\test\\a.txt']); });
+        await user.click(await screen.findByRole('button', {name: 'Clear 1 item'}));
+        expect(await screen.findByRole('button', {name: 'Undo clearing 1 item'})).toBeTruthy();
+        const dialog = await raise(user, 'Close Floe?');
+        // The bar steps aside for the dialog, as it does for the other two,
+        // instead of sitting under the scrim where it cannot be clicked.
+        expect(screen.queryByRole('button', {name: 'Undo clearing 1 item'})).toBeNull();
+
+        await press(user, '{Control>}z{/Control}');
+        expect(screen.queryByRole('button', {name: 'Send 1 item'})).toBeNull();
+
+        await user.click(within(dialog).getByRole('button', {name: 'Keep open'}));
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        await press(user, '{Control>}z{/Control}');
+        expect(await screen.findByRole('button', {name: 'Send 1 item'})).toBeTruthy();
+    });
+});
+
+/**
+ * While a send or a receive runs, nothing new is staged: a drop, a paste,
+ * Ctrl+O and a second launch are all refused. The Files and Folder buttons
+ * were the one way that still worked during a receive, on a drop zone whose
+ * own invitation to drag was being ignored.
+ */
+describe('the Send tab while a receive runs', () => {
+    it('offers no way to add files until the receive ends', async () => {
+        let finish: (dir: string) => void = () => {};
+        wails.go.ReceiveByCode.mockImplementation(() => new Promise<string>((resolve) => { finish = resolve; }));
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        expect(screen.getByText('Select files to send')).toBeTruthy();
+        expect(screen.getByText('Select or drag files, then click Send')).toBeTruthy();
+
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
+        await user.type(await screen.findByPlaceholderText('amber-otter-cloud'), 'amber-otter-cloud');
+        await user.click(screen.getAllByRole('button', {name: 'Receive'}).find((b) => b.className.includes('w-full'))!);
+        await waitFor(() => expect(wails.go.ReceiveByCode).toHaveBeenCalledTimes(1));
+
+        await user.click(screen.getByRole('button', {name: 'Send'}));
+        // The Files and Text choice stays; the drop zone and its two buttons go,
+        // and so does the line that invites a drag.
+        expect(screen.getByRole('button', {name: 'Text'})).toBeTruthy();
+        expect(screen.queryByText('Select files to send')).toBeNull();
+        expect(screen.queryByRole('button', {name: 'Folder'})).toBeNull();
+        expect(screen.queryByText('Select or drag files, then click Send')).toBeNull();
+        expect(wails.go.SelectFiles).not.toHaveBeenCalled();
+        // A drop is refused, as it always was.
+        act(() => { wails.drop?.(0, 0, ['C:\\Users\\test\\a.txt']); });
+        expect(screen.queryByRole('button', {name: 'Send 1 item'})).toBeNull();
+
+        // The receive ends and the drop zone is back.
+        await act(async () => { finish('C:\\Users\\test\\Downloads'); });
+        expect(await screen.findByText('Select files to send')).toBeTruthy();
+        expect(screen.getByRole('button', {name: 'Folder'})).toBeTruthy();
+    });
+
+    it('keeps what was staged before the receive, with Clear and the list still usable', async () => {
+        wails.go.ReceiveByCode.mockImplementation(() => new Promise<string>(() => {}));
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        act(() => { wails.emit('files:open', ['C:\\Users\\test\\a.txt', 'C:\\Users\\test\\b.txt']); });
+        expect(await screen.findByRole('button', {name: 'Send 2 items'})).toBeTruthy();
+
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
+        await user.type(await screen.findByPlaceholderText('amber-otter-cloud'), 'amber-otter-cloud');
+        await user.click(screen.getAllByRole('button', {name: 'Receive'}).find((b) => b.className.includes('w-full'))!);
+        await waitFor(() => expect(wails.go.ReceiveByCode).toHaveBeenCalledTimes(1));
+
+        await user.click(screen.getByRole('button', {name: 'Send'}));
+        expect((screen.getByRole('button', {name: 'Send 2 items'}) as HTMLButtonElement).disabled).toBe(true);
+        expect(screen.queryByRole('button', {name: 'Folder'})).toBeNull();
+        await user.click(screen.getByRole('button', {name: 'Remove a.txt'}));
+        expect(screen.getByRole('button', {name: 'Send 1 item'})).toBeTruthy();
+        expect(screen.getByRole('button', {name: 'Clear 1 item'})).toBeTruthy();
+    });
+});

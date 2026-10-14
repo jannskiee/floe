@@ -78,7 +78,7 @@ function installWails() {
         SetToastSound: vi.fn(async () => {}),
         StartSend: vi.fn(async () => {}),
         StartSendText: vi.fn(async () => {}),
-        TestServer: vi.fn(async () => ({ok: true, message: 'Connected.', relayAvailable: true})),
+        TestServer: vi.fn(async () => ({ok: true, message: 'Connected', relayAvailable: true})),
         // The Request link bindings, mocked the way the Go stubs answer
         // (requestlink.go): nothing is available and nothing can succeed, so a
         // test that wants a live link or a probe that lists request-1 has to

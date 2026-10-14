@@ -8,10 +8,9 @@ package main
 // and never reaches the server or the visitor.
 //
 // What the automatic path still asks about (D-137 D11, unchanged by D-173):
-//   - G4: any warning the prompt would carry (low-space,
-//     file-too-large-for-drive, relay-over-cap, or a code this build does not
-//     know), and a route this side could not read, since relay-over-cap is
-//     computed only for a known relay;
+//   - G4: any warning the prompt would carry (low-space, relay-over-cap, or a
+//     code this build does not know), and a route this side could not read,
+//     since relay-over-cap is computed only for a known relay;
 //   - G5: free space this side could not read (an error, or -1 off Windows);
 //   - G6: a volume that cannot carry the downloaded-file mark (FAT, FAT32,
 //     exFAT, many network shares), or one that could not say within the

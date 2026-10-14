@@ -13,13 +13,19 @@
 
 // Messages that are already hand-written for humans (and may carry an
 // actionable hint, like the relay cap's Hide my IP note) pass through as-is.
-const PASSTHROUGH = [
+export const PASSTHROUGH = [
     'relay connections are capped',
     // Anchored on the leading words of transfer.go's errNoRelay and
     // errRelayUnknown (D-167), so rewording the rest cannot break the match.
     // Grouped with the relay cap: both are Hide my IP messages.
     'Hide my IP needs a relay',
     "relay details for Hide my IP",
+    // transfer.go's errNotActive, in today's words ("this code or link is no
+    // longer active; ask the sender for a new one") and in the words it had
+    // through desktop-v0.3.0 ("this code is no longer active; ask for a new
+    // one"). floe receive prints the same sentence from its own source, so
+    // both anchors stay and neither depends on the other change.
+    'this code or link is no longer active',
     'this code is no longer active',
     'room is full',
 ];
@@ -43,6 +49,22 @@ export const RULES: Array<[pattern: string, friendly: string]> = [
     // ('could not resolve %q: could not reach signaling server: ...'), and a
     // dead server must not read as a typo in the code.
     ['could not reach signaling server', "Can't reach the server"],
+    // Also before 'could not resolve', for the same reason: the lookup's 429
+    // arrives behind that wrapper ('could not resolve %q: server returned 429
+    // when resolving code', Resolve in cli/engine/code/client.go). It is the
+    // server's limit on lookups from one network, spent by wrong guesses and
+    // then met by a correct code too, so "wasn't recognized" sent a person
+    // back to recheck a code that was right. The words are Settings Test's
+    // own for a 429 (serverprobe.go), with "try" for "test".
+    ['server returned 429 when resolving code', 'The server is limiting requests from this network. Wait a minute and try again'],
+    // Every other status the lookup can get (Resolve's 'server returned %d
+    // when resolving code': a 502 or 503 from a proxy in front of a stopped
+    // server, a 500) says nothing about the code, so it is not read as a typo.
+    ['when resolving code', "Can't reach the server"],
+    // The 404 behind the same wrapper lands here however the engine words it
+    // ("not found or expired (codes expire after 10 minutes)", or "not found:
+    // it was already used, the sender left, or it expired ..."): the match is
+    // on the wrapper, never on the sentence inside it.
     ['could not resolve', "That code wasn't recognized"],
     ['Invalid room ID', 'That link is incomplete'],
     ['connection closed before any file', 'The sender canceled before it started'],

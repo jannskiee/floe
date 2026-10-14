@@ -118,8 +118,8 @@ var to4 = [2]string{"Floe", "Receiving files through your request link"}
 var autoIncoming = transfer.IncomingInfo{Files: 3, TotalBytes: 4 * gib, FirstName: "a.bin", FirstSize: 1 << 20}
 
 // autoVolume stands in the save volume for the Decide path: its free bytes
-// and DiskFree's error, its size and the size query's error, whether it keeps
-// named streams and that query's error, and its largest file (0: no limit).
+// and DiskFree's error, its size and the size query's error, and whether it
+// keeps named streams and that query's error.
 type autoVolume struct {
 	free       int64
 	freeErr    error
@@ -127,7 +127,6 @@ type autoVolume struct {
 	sizeErr    error
 	streams    bool
 	streamsErr error
-	maxFile    int64
 }
 
 // roomyVolume is a 1 TiB NTFS drive with 500 GiB free.
@@ -142,7 +141,6 @@ func (v autoVolume) install(t *testing.T) {
 	setVar(t, &requestDiskFreeFn, func(string) (int64, error) { return v.free, v.freeErr })
 	setVar(t, &requestVolumeSizeFn, func(string) (int64, error) { return v.capacity, v.sizeErr })
 	setVar(t, &requestVolumeStreamsFn, func(string) (bool, error) { return v.streams, v.streamsErr })
-	setVar(t, &requestVolumeMaxFn, func(string) (int64, error) { return v.maxFile, nil })
 }
 
 // autoDecide is one pairing's Decide on a bare App at lane generation 1, in
@@ -296,7 +294,6 @@ func TestAutoAcceptFallsBackToThePrompt(t *testing.T) {
 	}{
 		{"an Auto-accept off link", false, "direct", nil, autoIncoming},
 		{"low-space", true, "direct", func(v *autoVolume) { v.free = 3 * gib }, in(3, 2*gib, 1<<20)},
-		{"file-too-large-for-drive", true, "direct", func(v *autoVolume) { v.maxFile = 4*gib - 1 }, in(1, 5*gib, 5*gib)},
 		{"relay-over-cap", true, "relay", nil, in(2, overCap, 1<<20)},
 		{"route unknown", true, "", nil, in(2, overCap, 1<<20)},
 		{"DiskFree error", true, "direct", func(v *autoVolume) { v.freeErr = errors.New("the volume did not answer") }, autoIncoming},
@@ -883,7 +880,6 @@ func TestAutoEligible(t *testing.T) {
 		{"direct, roomy", pr(4 * gib), "direct", roomy, true},
 		{"relay, roomy", pr(1 * gib), "relay", roomy, true},
 		{"low-space", pr(4*gib, "low-space"), "direct", roomy, false},
-		{"file-too-large-for-drive", pr(4*gib, "file-too-large-for-drive"), "direct", roomy, false},
 		{"relay-over-cap", pr(4*gib, "relay-over-cap"), "relay", roomy, false},
 		{"an unknown warning", pr(4*gib, "something-new"), "direct", roomy, false},
 		{"route unknown", pr(4 * gib), "", roomy, false},

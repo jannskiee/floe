@@ -254,6 +254,17 @@ describe('request rows', () => {
         expect(screen.queryByText(/SHA-256/)).toBeNull();
     });
 
+    it('a relay stop row never says the drop stopped before any file (ST6)', async () => {
+        // History keeps a stopped drop only when a file was saved, so a row
+        // exists exactly when "before any file" would be untrue.
+        mount([request({stopped: 'relay-cap', count: 2, offered: 5, verified: 2})]);
+        await openRow();
+        expect(screen.getByText('Drop stopped: over the 2 GB relay limit')).toBeTruthy();
+        expect(document.body.textContent).not.toMatch(/before any file/);
+        await userEvent.click(screen.getByRole('button', {name: 'Show in folder'}));
+        expect(wails.go.OpenFolder).toHaveBeenCalledWith(FOLDER);
+    });
+
     it("says Accepted automatically, in the row's gray, only on a drop the link took by itself (HA1, D-173)", async () => {
         const {container, unmount} = mount([request({auto: true})]);
         await openRow();

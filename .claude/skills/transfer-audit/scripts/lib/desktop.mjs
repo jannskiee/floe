@@ -370,13 +370,18 @@ export const REQUEST_COPY = Object.freeze({
         'relay-unknown': "Couldn't read this server's relay details for Hide my IP",
         'already-open': 'Close your open link to make a new one',
     }),
-    // ST1 to ST12: the card sentence each stop code starts with.
+    // ST1 to ST12: the card sentence each stop code starts with. ST6 is the
+    // sentence alone, with no tail: desktop-v0.3.0 follows it with
+    // " · Nothing saved" on every relay stop, whatever was saved, and a later
+    // build with the ST16 count like every other stop. The counts are read
+    // from the tail below either way, so a 0 read off a desktop-v0.3.0 relay
+    // card is that build's fixed word, not a count of the folder.
     stops: Object.freeze({
         'disk-full': 'The drive ran out of space',
         'hash-mismatch': "A file didn't match what was sent and was deleted",
         'path-too-long': 'A folder path was too long for Windows',
         'over-approved': 'More data arrived than you accepted',
-        'relay-cap': 'Over the 2 GB relay limit · Nothing saved',
+        'relay-cap': 'Over the 2 GB relay limit',
         'file-too-large-for-folder': 'A file is too large for this drive',
         'write-failed': "Windows couldn't write to the folder",
         'save-blocked': 'Windows blocked Floe from saving a file',
@@ -403,10 +408,16 @@ export const REQUEST_COPY = Object.freeze({
     // with a battery, so its absence on a prompt is never a finding. Either
     // wording is still read here, so a prompt that draws the line (the HP
     // build, or a regression) shows laptop-power in the attempt's evidence.
+    //
+    // P6 is read in two wordings: "the 2 GB Hide my IP limit" in
+    // desktop-v0.3.0 and "the 2 GB relay limit" after it. P5 is a line of
+    // released builds only: desktop-v0.3.0 has the words and no path in it
+    // draws them, and a later build has no such line, so on any prompt it is
+    // a line that should not be there, read for the evidence like P11.
     warnings: Object.freeze([
         ['low-space', /^Only .+ free on .+, not enough for this drop$/i],
         ['file-too-large-for-drive', /^This drive can't save files over 4 GB$/i],
-        ['relay-over-cap', /^This .+ drop is over the 2 GB Hide my IP limit$/i],
+        ['relay-over-cap', /^This .+ drop is over the 2 GB (?:relay|Hide my IP) limit$/i],
         ['laptop-power', /^(?:On a laptop, plug in and keep the lid open|Keep this laptop plugged in and open)\.?$/i],
     ]),
 });
