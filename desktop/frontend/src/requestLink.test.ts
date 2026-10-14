@@ -15,6 +15,7 @@ import {
     linkOpen,
     noticeVisible,
     normalizeSnapshot,
+    parsePastedLink,
     phase,
     reduce,
     requestLinkKind,
@@ -41,6 +42,43 @@ describe('requestLinkKind', () => {
         expect(requestLinkKind('https://floe.one/d/aBcD1234#k=s3cr3t')).toBe('drop');
         expect(requestLinkKind('https://floe.one/drop/aBcD1234')).toBe('drop');
         expect(requestLinkKind('https://files.example.com/floe/drop/aBcD1234/')).toBe('drop');
+    });
+
+    // A3-B7: the engine reads a paste trimmed, out of one pair of angle
+    // brackets or quotes, and as https when it has a slash or a hash and no
+    // scheme (unwrapPaste and LinkHost in cli/engine/code/client.go). Read any
+    // other way, the same link lost its Open in browser button here and went
+    // on to ReceiveByCode, which claims a transfer and answers with a status
+    // line instead.
+    it('parsePastedLink reads a paste the way the engine does: no scheme, brackets, quotes', () => {
+        const href = `https://floe.one/r/Xk3p9Q0aB1c#${room}`;
+        for (const paste of [
+            `floe.one/r/Xk3p9Q0aB1c#${room}`,
+            `<https://floe.one/r/Xk3p9Q0aB1c#${room}>`,
+            `"https://floe.one/r/Xk3p9Q0aB1c#${room}"`,
+            `'https://floe.one/r/Xk3p9Q0aB1c#${room}'`,
+            `  " floe.one/r/Xk3p9Q0aB1c#${room} "  `,
+            `<floe.one/r/Xk3p9Q0aB1c#${room}>`,
+            `https:/floe.one/r/Xk3p9Q0aB1c#${room}`,
+            `//floe.one/r/Xk3p9Q0aB1c#${room}`,
+        ]) {
+            expect(parsePastedLink(paste), paste).toEqual({kind: 'request', href});
+        }
+        // A link's own scheme is kept, so a local or self-hosted http link
+        // opens where it points.
+        expect(parsePastedLink(`"http://localhost:3000/r/Xk3p9Q0aB1c#${room}"`)).toEqual({
+            kind: 'request',
+            href: `http://localhost:3000/r/Xk3p9Q0aB1c#${room}`,
+        });
+        expect(parsePastedLink('<floe.one/d/aBcD1234>')).toEqual({kind: 'drop', href: 'https://floe.one/d/aBcD1234'});
+        // One pair only, and only a matching pair.
+        expect(parsePastedLink(`<"https://floe.one/r/Xk3p9Q0aB1c#${room}">`)).toBeNull();
+        expect(parsePastedLink(`"https://floe.one/r/Xk3p9Q0aB1c#${room}>`)).toBeNull();
+        // Still nothing for a code, a room link or a scheme that is not http.
+        expect(parsePastedLink('"amber-otter-cloud"')).toBeNull();
+        expect(parsePastedLink(`floe.one/#room=${room}`)).toBeNull();
+        expect(parsePastedLink('<file:///C:/r/Xk3p9Q0aB1c>')).toBeNull();
+        expect(parsePastedLink('"javascript:alert(1)//r/Xk3p9Q0aB1c"')).toBeNull();
     });
 
     it('requestLinkKind rejects a 10-character id, a #room= link and non-http schemes', () => {

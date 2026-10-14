@@ -83,10 +83,12 @@ export const SIGNATURES = Object.freeze([
     // code client ("server returned 429 when registering|resolving code")
     // and an HTTP status line. A bare 429 also appears in byte counts
     // ("429 of 12582912 bytes") and speeds ("429.3 KB/s"), so it is never
-    // matched on its own.
+    // matched on its own. Floe Desktop's two limiter lines are here too:
+    // "limiting requests" for a lookup, and "limiting connections" for a
+    // connection the server closed with 1008 (after desktop-v0.3.0).
     [
         'rate-limited',
-        /Too many refreshes|Rate limit exceeded|Too many requests|Too many reports|server returned 429\b|HTTP 429\b|The server is limiting requests/i,
+        /Too many refreshes|Rate limit exceeded|Too many requests|Too many reports|server returned 429\b|HTTP 429\b|The server is limiting (?:requests|connections)/i,
         true,
         'rate-limit',
     ],

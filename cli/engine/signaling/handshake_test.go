@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -81,5 +82,59 @@ func TestConnectFailureWithoutAResponseIsNotAHandshakeError(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "(HTTP ") {
 		t.Fatalf("the error names a status nobody sent: %q", err)
+	}
+}
+
+// TestCloseCodeKeepsOnlyTheServersCode: a Floe server closes a connection past
+// its per-network limit right after the upgrade, with 1008 and a reason of
+// its own. CloseCode reports the 1008 once Down is closed, so a caller can say
+// "turned away" instead of "lost"; a socket that ends without a close frame
+// reports 0, and so does one whose Down is still open.
+func TestCloseCodeKeepsOnlyTheServersCode(t *testing.T) {
+	up := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	serve := func(withFrame bool) string {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			c, err := up.Upgrade(w, r, nil)
+			if err != nil {
+				return
+			}
+			if withFrame {
+				_ = c.WriteControl(websocket.CloseMessage,
+					websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "Rate limit exceeded"),
+					time.Now().Add(time.Second))
+			}
+			_ = c.Close()
+		}))
+		t.Cleanup(srv.Close)
+		return srv.URL
+	}
+	for _, tc := range []struct {
+		name      string
+		withFrame bool
+		want      int
+	}{
+		{"a 1008 close frame", true, websocket.ClosePolicyViolation},
+		{"no close frame", false, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, err := Connect(serve(tc.withFrame))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c.Close()
+			select {
+			case <-c.Down:
+			case <-time.After(5 * time.Second):
+				t.Fatal("Down never closed")
+			}
+			if got := c.CloseCode(); got != tc.want {
+				t.Fatalf("CloseCode = %d, want %d", got, tc.want)
+			}
+		})
+	}
+
+	open := &Client{Down: make(chan struct{}), closeCode: websocket.ClosePolicyViolation}
+	if got := open.CloseCode(); got != 0 {
+		t.Fatalf("CloseCode with Down open = %d, want 0", got)
 	}
 }

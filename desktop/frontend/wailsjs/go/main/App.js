@@ -30,6 +30,10 @@ export function ContextMenuEnabled() {
   return window['go']['main']['App']['ContextMenuEnabled']();
 }
 
+export function ContextMenuState() {
+  return window['go']['main']['App']['ContextMenuState']();
+}
+
 export function DisableContextMenu() {
   return window['go']['main']['App']['DisableContextMenu']();
 }
@@ -56,6 +60,10 @@ export function GetSettings() {
 
 export function GetVersion() {
   return window['go']['main']['App']['GetVersion']();
+}
+
+export function IsInstalled() {
+  return window['go']['main']['App']['IsInstalled']();
 }
 
 export function IsPackaged() {

@@ -3,6 +3,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"golang.org/x/sys/windows/registry"
@@ -40,5 +42,55 @@ func TestContextMenuRoundTrip(t *testing.T) {
 	}
 	if err := unregisterContextMenu(base); err != nil {
 		t.Errorf("second unregister should be a no-op, got %v", err)
+	}
+}
+
+// TestContextMenuStateReadsTheRegistry (DSK-04): the entry as registerContextMenu
+// writes it reads back as missing before it exists, then as this copy's, as
+// another live copy's, and as dead once that copy's program is gone
+// (DESKTOP-01). The same inert key as the round trip above, never the one
+// Explorer reads.
+func TestContextMenuStateReadsTheRegistry(t *testing.T) {
+	const base = `Software\FloeTest\shell\State`
+	t.Cleanup(func() {
+		_ = unregisterContextMenu(base)
+		_ = registry.DeleteKey(registry.CURRENT_USER, `Software\FloeTest\shell`)
+		_ = registry.DeleteKey(registry.CURRENT_USER, `Software\FloeTest`)
+	})
+	dir := t.TempDir()
+	self := filepath.Join(dir, "a", "floe-desktop.exe")
+	other := filepath.Join(dir, "b", "floe-desktop.exe")
+	for _, p := range []string{self, other} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("app"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state := func() string {
+		cmd, ok := contextMenuCommand(base)
+		return contextMenuStateOf(self, cmd, ok)
+	}
+	if got := state(); got != ctxMenuMissing {
+		t.Fatalf("no entry: %q", got)
+	}
+	if err := registerContextMenu(base, self); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(); got != ctxMenuSelf {
+		t.Fatalf("this copy's entry: %q", got)
+	}
+	if err := registerContextMenu(base, other); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(); got != ctxMenuOther {
+		t.Fatalf("another copy's entry: %q", got)
+	}
+	if err := os.RemoveAll(filepath.Dir(other)); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(); got != ctxMenuDead {
+		t.Fatalf("an entry whose program was deleted: %q", got)
 	}
 }

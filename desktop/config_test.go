@@ -76,6 +76,65 @@ func TestLoadConfigFallsBackToDefaults(t *testing.T) {
 	}
 }
 
+// TestLoadConfigKeepsAnUnreadableFile (A3-B3): a desktop.json that does not
+// parse falls back to the defaults, and the frontend's first save writes those
+// defaults over it on the same launch, so a custom server and Hide my IP were
+// gone with no copy left. The unreadable bytes are kept beside it as
+// desktop.json.bad first. A missing or empty file has nothing to keep.
+func TestLoadConfigKeepsAnUnreadableFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "desktop.json")
+	bad := path + ".bad"
+
+	broken := `{"server":"https://floe.example.com","hideIP":true,` // cut short by a hand edit
+	if err := os.WriteFile(path, []byte(broken), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadConfigFrom(path); got != (appConfig{}) {
+		t.Fatalf("loadConfigFrom = %+v, want the zero value", got)
+	}
+	kept, err := os.ReadFile(bad)
+	if err != nil {
+		t.Fatalf("the unreadable file was not kept beside it: %v", err)
+	}
+	if string(kept) != broken {
+		t.Fatalf("desktop.json.bad = %q, want the unreadable bytes %q", kept, broken)
+	}
+	// The defaults the frontend saves next leave the kept copy alone.
+	if err := saveConfigTo(path, appConfig{Migrated: true, ReportStats: true}); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := os.ReadFile(bad); string(again) != broken {
+		t.Fatalf("saving the defaults changed desktop.json.bad to %q", again)
+	}
+
+	// A file of the wrong shape is unreadable too.
+	shape := filepath.Join(dir, "shape.json")
+	if err := os.WriteFile(shape, []byte(`["a","b"]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loadConfigFrom(shape)
+	if kept, err := os.ReadFile(shape + ".bad"); err != nil || string(kept) != `["a","b"]` {
+		t.Fatalf("a wrong-shape file was not kept: %q, %v", kept, err)
+	}
+
+	// Nothing to keep: a missing file, an empty one, and one that parses.
+	empty := filepath.Join(dir, "empty.json")
+	if err := os.WriteFile(empty, []byte(" \n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	good := filepath.Join(dir, "good.json")
+	if err := saveConfigTo(good, appConfig{Server: "https://floe.example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{filepath.Join(dir, "absent.json"), empty, good} {
+		loadConfigFrom(p)
+		if _, err := os.Stat(p + ".bad"); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s: a .bad copy was written (%v)", filepath.Base(p), err)
+		}
+	}
+}
+
 // TestSaveConfigIsAtomic asserts the temp file is gone afterwards, so a crash
 // between write and rename can never leave a half-written settings file behind.
 func TestSaveConfigIsAtomic(t *testing.T) {

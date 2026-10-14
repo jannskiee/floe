@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 	"github.com/jannskiee/floe/cli/engine/code"
 	"github.com/jannskiee/floe/cli/engine/ice"
 	"github.com/jannskiee/floe/cli/engine/peer"
@@ -67,7 +68,73 @@ var (
 	// errRoleWaitClosed: a PeerLeft during the wait for a role with the socket
 	// still open, which the server does not send today.
 	errRoleWaitClosed = errors.New("connection closed")
+	// errTurnedAway: the server accepted the upgrade and then closed the
+	// socket with 1008, its answer to a connection past its per-network limit
+	// (A8b-B1; errors.ts: "The server is limiting connections from this
+	// network. Wait a minute and try again").
+	errTurnedAway = errors.New("the server turned this connection away: too many connections from this network")
+	// errServerFrame: an error frame on the join whose words this build does
+	// not know (A8b-B2). Fixed, so none of the server's text reaches the
+	// status line; errors.ts passes it through as it stands.
+	errServerFrame = errors.New("the server answered with an error this version of Floe does not know")
 )
+
+// serverErrorFrame is the error for an error frame the server answered the
+// join with. The frame's message is the signaling server's own text,
+// unbounded, and on a self-hosted server whatever that server sends, so it is
+// kept only when it is the one text a Floe server sends here, for a room id
+// that is not a UUID (server.js isValidRoomId), whose words errors.ts reads as
+// an incomplete link. Every other frame becomes errServerFrame.
+func serverErrorFrame(msg string) error {
+	if msg == "Invalid room ID" {
+		return fmt.Errorf("server error: %s", msg)
+	}
+	return errServerFrame
+}
+
+// sendEnd is how runSend words a send that returned an error. The relay cap
+// is a policy block, not a failure: no "transfer failed" wrapper, and when
+// Hide my IP forced the relay, the toggle that lifts the cap is named. A
+// receiver's coded stop (transfer.PeerStoppedError) is its own fixed sentence
+// about the other side and goes out bare too (A8b-B3): behind the wrapper it
+// read as this side's failure, and errors.ts gives the request-link wording
+// of code stopped the ordinary send's line. Anything else is wrapped.
+func sendEnd(err error, hideIP bool) error {
+	if errors.Is(err, transfer.ErrRelayOverLimit) {
+		if hideIP {
+			return fmt.Errorf("%w. Turn off Hide my IP to send larger files", err)
+		}
+		return err
+	}
+	var stopped *transfer.PeerStoppedError
+	if errors.As(err, &stopped) {
+		return err
+	}
+	return fmt.Errorf("transfer failed: %w", err)
+}
+
+// turnedAway reports whether sc's socket was closed by the server's
+// per-network connection limit: a 1008 close frame (signaling.CloseCode),
+// which a Floe server sends only for that.
+func turnedAway(sc *signaling.Client) bool {
+	return sc.CloseCode() == websocket.ClosePolicyViolation
+}
+
+// joinFailed names a join-room frame that could not be written. A server that
+// turns the connection away closes it right after the upgrade, so the write
+// can lose the race to the close frame ("websocket: close sent") a moment
+// before the read loop records why the socket closed; the wait gives it that
+// moment, and is bounded so a broken socket of any other kind still fails.
+func joinFailed(sc *signaling.Client, err error) error {
+	select {
+	case <-sc.Down:
+	case <-time.After(time.Second):
+	}
+	if turnedAway(sc) {
+		return errTurnedAway
+	}
+	return fmt.Errorf("failed to join room: %w", err)
+}
 
 // receiverWaitEnd names why runSend's wait for a receiver ended on a PeerLeft
 // push. Nobody else is in the room yet, so the push is nearly always the
@@ -89,8 +156,12 @@ func receiverWaitEnd(sc *signaling.Client) error {
 // receiveByCode. Nobody else is in the room before a role is given, so a
 // PeerLeft there is the signaling socket closing, and "connection closed"
 // read as a transfer that dropped (errors.ts) before anything had started.
+// A socket the server closed by its connection limit says so (errTurnedAway).
 func roleWaitEnd(sc *signaling.Client) error {
 	if channelClosed(sc.Down) {
+		if turnedAway(sc) {
+			return errTurnedAway
+		}
 		return peer.ErrSignalingLost
 	}
 	return errRoleWaitClosed
@@ -188,10 +259,34 @@ func writeTextTemp(text string) (string, func(), error) {
 	return path, func() { os.RemoveAll(dir) }, nil
 }
 
+// sweepTextTemps removes every floe-text-* staging folder (A3-B6). The send
+// goroutine's cleanup removes its own when the send ends, but Close Floe? does
+// not wait for that goroutine, so a quit during a text send left the note in
+// plain text in the temp folder. Run by the shutdown hook, where any such
+// folder belongs to a send that is ending with the process, and at startup
+// (sweepStagingTemps), where the single-instance lock means none is in use.
+func sweepTextTemps() {
+	matches, err := filepath.Glob(filepath.Join(os.TempDir(), "floe-text-*"))
+	if err != nil {
+		return
+	}
+	for _, m := range matches {
+		_ = os.RemoveAll(m)
+	}
+}
+
+// sweepStagingTemps is the startup sweep of both staging kinds a previous run
+// can leave: pasted images (sweepPasteTemps) and text notes (sweepTextTemps).
+func sweepStagingTemps() {
+	sweepPasteTemps()
+	sweepTextTemps()
+}
+
 // StartSendText sends a text note as a message.txt file through the normal send
 // flow. Zero protocol change, so any Floe peer (browser, CLI, desktop) can
 // receive it. The temp file is removed when the transfer goroutine ends,
-// whether it completed, failed, or was cancelled.
+// whether it completed, failed, or was cancelled, and by sweepTextTemps when
+// a quit ends the process first.
 func (a *App) StartSendText(text string, hideIP bool) error {
 	if strings.TrimSpace(text) == "" {
 		return fmt.Errorf("nothing to send")
@@ -265,7 +360,7 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 	}
 
 	if err := sc.JoinRoom(roomID); err != nil {
-		fail(fmt.Errorf("failed to join room: %w", err))
+		fail(joinFailed(sc, err))
 		return
 	}
 
@@ -279,7 +374,7 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 		fail(fmt.Errorf("room is full"))
 		return
 	case errMsg := <-sc.Errors:
-		fail(fmt.Errorf("server error: %s", errMsg))
+		fail(serverErrorFrame(errMsg))
 		return
 	case <-sc.PeerLeft:
 		fail(roleWaitEnd(sc))
@@ -306,7 +401,7 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 		fail(receiverWaitEnd(sc))
 		return
 	case errMsg := <-sc.Errors:
-		fail(fmt.Errorf("server error: %s", errMsg))
+		fail(serverErrorFrame(errMsg))
 		return
 	}
 	emit("send:status", "Sending...")
@@ -365,17 +460,7 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 		Messages:    sendEarly.Msgs,
 		Closed:      sendEarly.Closed,
 	}); err != nil {
-		// The relay cap is a policy block, not a failure: skip the "transfer
-		// failed" wrapper, and when Hide my IP forced the relay, name the
-		// toggle that lifts the cap.
-		if errors.Is(err, transfer.ErrRelayOverLimit) {
-			if hideIP {
-				err = fmt.Errorf("%w. Turn off Hide my IP to send larger files", err)
-			}
-			fail(err)
-			return
-		}
-		fail(fmt.Errorf("transfer failed: %w", err))
+		fail(sendEnd(err, hideIP))
 		return
 	}
 	emit("send:done", "Files sent")
@@ -489,7 +574,7 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 	}
 
 	if err := sc.JoinRoom(roomID); err != nil {
-		return "", fmt.Errorf("failed to join room: %w", err)
+		return "", joinFailed(sc, err)
 	}
 
 	select {
@@ -504,7 +589,7 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 	case <-sc.RoomFull:
 		return "", fmt.Errorf("room is full (someone else may already be receiving)")
 	case errMsg := <-sc.Errors:
-		return "", fmt.Errorf("server error: %s", errMsg)
+		return "", serverErrorFrame(errMsg)
 	case <-sc.PeerLeft:
 		return "", roleWaitEnd(sc)
 	case <-time.After(20 * time.Second):

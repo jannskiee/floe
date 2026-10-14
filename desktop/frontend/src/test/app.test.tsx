@@ -826,6 +826,14 @@ describe('a request link pasted into CODE', () => {
         expect(open).toHaveBeenCalledWith(link);
     });
 
+    it('a link pasted without its scheme, or in quotes, keeps Open in browser and opens over https (A3-B7)', async () => {
+        const user = await paste(`"floe.one/r/Xk3p9Q0aB1c#${room}"`);
+        await user.click(await screen.findByRole('button', {name: 'Open in browser'}));
+        const open = (window as unknown as {runtime: {BrowserOpenURL: ReturnType<typeof vi.fn>}}).runtime.BrowserOpenURL;
+        expect(open).toHaveBeenCalledWith(`https://floe.one/r/Xk3p9Q0aB1c#${room}`);
+        expect(wails.go.ReceiveByCode).not.toHaveBeenCalled();
+    });
+
     it('a normal #room= link still calls ReceiveByCode', async () => {
         await paste(`http://localhost:3000/?s=abc#room=${room}`);
         await waitFor(() => expect(wails.go.ReceiveByCode).toHaveBeenCalledTimes(1));
@@ -1791,6 +1799,60 @@ describe('shortcuts behind a dialog', () => {
         expect(await screen.findByRole('group', {name: 'Update available'})).toBeTruthy();
     });
 
+    // A drop on the window and a second launch (the Explorer entry, or files
+    // dragged onto the exe) staged files and moved the screen behind any of
+    // the three, the way the shortcuts above used to: behind Reset all
+    // settings? they closed Settings under it. They wait now, as they do
+    // while a transfer runs.
+    it.each(TITLES)('a file drop and a second launch stage nothing behind %s, and never close it', async (title) => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        const dialog = await raise(user, title);
+        const onSettings = () => screen.queryByLabelText('Server address') !== null;
+        const before = onSettings();
+        act(() => { wails.drop?.(0, 0, ['C:\\Users\\test\\dropped.txt']); });
+        act(() => { wails.emit('files:open', ['C:\\Users\\test\\launched.txt']); });
+        await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+        expect(screen.getByRole('dialog')).toBe(dialog);
+        expect(onSettings()).toBe(before);
+        expect(screen.queryByText('dropped.txt')).toBeNull();
+        expect(screen.queryByText('launched.txt')).toBeNull();
+    });
+
+    it('a drop after Close Floe? is answered stages as before', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        const dialog = await raise(user, 'Close Floe?');
+        await user.click(within(dialog).getByRole('button', {name: 'Keep open'}));
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        act(() => { wails.drop?.(0, 0, ['C:\\Users\\test\\dropped.txt']); });
+        expect(await screen.findByRole('button', {name: 'Send 1 item'})).toBeTruthy();
+    });
+
+    // Ctrl+R and the titlebar lockup are Start over, and Start over? is their
+    // own dialog: pressed again there they re-enter it (startOver's fourth
+    // exit). Behind the other two they reset the screen under the dialog: a
+    // send's files, Settings under Reset all settings?, and a transfer
+    // canceled under Close Floe?. They wait there now.
+    it.each(['Close Floe?', 'Reset all settings?'] as const)('Ctrl+R and the lockup start nothing over behind %s', async (title) => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        act(() => { wails.emit('files:open', ['C:\\Users\\test\\a.txt']); });
+        expect(await screen.findByRole('button', {name: 'Send 1 item'})).toBeTruthy();
+        const dialog = await raise(user, title);
+        const onSettings = () => screen.queryByLabelText('Server address') !== null;
+        const before = onSettings();
+        await press(user, '{Control>}r{/Control}');
+        await user.click(document.getElementById('floe-lockup')!);
+        await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+        expect(wails.go.CancelTransfer).not.toHaveBeenCalled();
+        expect(screen.getAllByRole('dialog')).toEqual([dialog]);
+        expect(onSettings()).toBe(before);
+    });
+
     it('Ctrl+Z spends no undo behind Close Floe?, and the offer is still good after it', async () => {
         const user = userEvent.setup();
         mount();
@@ -1810,6 +1872,58 @@ describe('shortcuts behind a dialog', () => {
         await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
         await press(user, '{Control>}z{/Control}');
         expect(await screen.findByRole('button', {name: 'Send 1 item'})).toBeTruthy();
+    });
+});
+
+/**
+ * Start over while a note is still waiting to go out. doReset empties the box,
+ * and a note that has not gone out is written to no file and no storage key,
+ * so Start over asks first even while the send that carries it is waiting for
+ * its receiver. With nothing to lose it still resets on the first press.
+ */
+describe('Start over while a note waits to be sent', () => {
+    const NOTE = 'a note nobody has received yet';
+    async function waitingTextSend(user: ReturnType<typeof userEvent.setup>) {
+        await user.click(screen.getByRole('button', {name: 'Text'}));
+        await user.type(screen.getByPlaceholderText('Type or paste text to send'), NOTE);
+        await user.click(screen.getByRole('button', {name: 'Send text'}));
+        await waitFor(() => expect(wails.go.StartSendText).toHaveBeenCalledTimes(1));
+        act(() => { wails.emit('send:code', {code: 'amber-otter-cloud', link: 'http://localhost:3000/#room=x'}); });
+        expect(await screen.findByText('Waiting for the receiver')).toBeTruthy();
+    }
+
+    it('asks before clearing the note of a send that is waiting for its receiver', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await waitingTextSend(user);
+        act(() => { (document.activeElement as HTMLElement | null)?.blur(); });
+        await user.keyboard('{Control>}r{/Control}');
+        const dialog = await screen.findByRole('dialog');
+        expect(within(dialog).getByText('Starting over clears your unsent text')).toBeTruthy();
+        expect(wails.go.CancelTransfer).not.toHaveBeenCalled();
+
+        // Keep going keeps the waiting send, and the note with it: once that
+        // send ends, the box shows the note again.
+        await user.click(within(dialog).getByRole('button', {name: 'Keep going'}));
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        expect(screen.getByText('Waiting for the receiver')).toBeTruthy();
+        expect(wails.go.CancelTransfer).not.toHaveBeenCalled();
+        act(() => { wails.emit('send:error', 'peer disconnected before connecting'); });
+        expect((await screen.findByPlaceholderText('Type or paste text to send') as HTMLTextAreaElement).value).toBe(NOTE);
+    });
+
+    it('still resets a waiting send on the first press when nothing would be lost', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        act(() => { wails.emit('files:open', ['C:\\Users\\test\\a.txt']); });
+        await user.click(await screen.findByRole('button', {name: 'Send 1 item'}));
+        await waitFor(() => expect(wails.go.StartSend).toHaveBeenCalledTimes(1));
+        act(() => { (document.activeElement as HTMLElement | null)?.blur(); });
+        await user.keyboard('{Control>}r{/Control}');
+        await waitFor(() => expect(wails.go.CancelTransfer).toHaveBeenCalled());
+        expect(screen.queryByRole('dialog')).toBeNull();
     });
 });
 
@@ -1871,5 +1985,124 @@ describe('the Send tab while a receive runs', () => {
         await user.click(screen.getByRole('button', {name: 'Remove a.txt'}));
         expect(screen.getByRole('button', {name: 'Send 1 item'})).toBeTruthy();
         expect(screen.getByRole('button', {name: 'Clear 1 item'})).toBeTruthy();
+    });
+});
+
+/**
+ * The File Explorer entry at launch (DSK-04; owner answer 26, "Off by default
+ * on portable"). Go says whose the entry is (ContextMenuState): "self" turns
+ * the switch on; "other" leaves another copy's entry alone and the switch
+ * off; "missing" (no entry, or one whose program is gone) registers when the
+ * owner last left the switch on ('floe:ctx-menu' is '1'), and with no choice
+ * on record only on an installed copy (IsInstalled: uninstall.exe beside the
+ * app), so an unzipped copy adds nothing to Explorer until asked; '0' never.
+ * The installer's uninstaller removes the registry key and keeps the profile
+ * that holds the marker, so after a reinstall a '1' brings the entry back.
+ */
+describe('the File Explorer entry at launch', () => {
+    const switchOn = async (user: ReturnType<typeof userEvent.setup>) => {
+        await user.click(screen.getByRole('button', {name: 'Settings'}));
+        return (await screen.findByRole('checkbox', {name: /^Show in right-click menu/}) as HTMLInputElement).checked;
+    };
+    // ContextMenuEnabled answers false in every case, as the Go method does
+    // for an entry that is missing or another copy's.
+    const launch = async (state: string, marker: string | null, installed: boolean) => {
+        wails.go.ContextMenuEnabled.mockImplementation(async () => false);
+        wails.go.ContextMenuState.mockImplementation(async () => state);
+        wails.go.IsInstalled.mockImplementation(async () => installed);
+        if (marker !== null) localStorage.setItem('floe:ctx-menu', marker);
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await waitFor(() => expect(wails.go.ContextMenuState).toHaveBeenCalled());
+        await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+        return user;
+    };
+
+    it('registers a missing entry again when the switch was last left on, on any copy', async () => {
+        const user = await launch('missing', '1', false);
+        await waitFor(() => expect(wails.go.EnableContextMenu).toHaveBeenCalled());
+        // The owner's choice is not rewritten by the launch.
+        expect(localStorage.getItem('floe:ctx-menu')).toBe('1');
+        expect(await switchOn(user)).toBe(true);
+    });
+
+    it('registers it on the first run of an installed copy, and never writes the marker itself', async () => {
+        const user = await launch('missing', null, true);
+        await waitFor(() => expect(wails.go.EnableContextMenu).toHaveBeenCalled());
+        expect(localStorage.getItem('floe:ctx-menu')).toBeNull();
+        expect(await switchOn(user)).toBe(true);
+    });
+
+    it('registers nothing on the first run of a portable copy, and the switch reads off', async () => {
+        const user = await launch('missing', null, false);
+        expect(wails.go.EnableContextMenu).not.toHaveBeenCalled();
+        expect(localStorage.getItem('floe:ctx-menu')).toBeNull();
+        expect(await switchOn(user)).toBe(false);
+    });
+
+    it('leaves it off when the owner switched it off, installed or not', async () => {
+        await launch('missing', '0', true);
+        expect(wails.go.EnableContextMenu).not.toHaveBeenCalled();
+    });
+
+    // DESKTOP-01: an entry whose program is gone. Only a copy of Floe with the
+    // switch on could have written it, and Floe Desktop 0.3.0 wrote one on the
+    // first run of every copy without recording a choice, so a 0.3.0 portable
+    // folder that was deleted or replaced leaves one behind with the marker
+    // unset. This copy registers over it when it would register an entry at
+    // all, and otherwise removes it, so Explorer never keeps a broken "Send
+    // with Floe" behind a switch that reads off.
+    it('registers over a dead entry when this copy would register one', async () => {
+        for (const [marker, installed] of [['1', false], [null, true]] as const) {
+            const user = await launch('dead', marker, installed);
+            await waitFor(() => expect(wails.go.EnableContextMenu).toHaveBeenCalled());
+            expect(wails.go.DisableContextMenu).not.toHaveBeenCalled();
+            expect(localStorage.getItem('floe:ctx-menu')).toBe(marker);
+            expect(await switchOn(user)).toBe(true);
+            cleanup();
+            localStorage.clear();
+            vi.clearAllMocks();
+        }
+    });
+
+    it('removes a dead entry this copy would not register, and the switch reads off', async () => {
+        for (const [marker, installed] of [[null, false], ['0', true], ['0', false]] as const) {
+            const user = await launch('dead', marker, installed);
+            await waitFor(() => expect(wails.go.DisableContextMenu).toHaveBeenCalled());
+            expect(wails.go.EnableContextMenu).not.toHaveBeenCalled();
+            expect(localStorage.getItem('floe:ctx-menu')).toBe(marker);
+            expect(await switchOn(user)).toBe(false);
+            cleanup();
+            localStorage.clear();
+            vi.clearAllMocks();
+        }
+    });
+
+    it("never re-points another copy's entry, and the switch reads off", async () => {
+        for (const marker of [null, '1']) {
+            const user = await launch('other', marker, true);
+            expect(wails.go.EnableContextMenu).not.toHaveBeenCalled();
+            expect(wails.go.DisableContextMenu).not.toHaveBeenCalled();
+            expect(await switchOn(user)).toBe(false);
+            cleanup();
+            localStorage.clear();
+        }
+    });
+
+    it("turns the switch on for this copy's own entry and writes nothing", async () => {
+        const user = await launch('self', null, false);
+        expect(wails.go.EnableContextMenu).not.toHaveBeenCalled();
+        expect(await switchOn(user)).toBe(true);
+    });
+
+    it('asks nothing and writes nothing in a Store build', async () => {
+        wails.go.IsPackaged.mockImplementation(async () => true);
+        localStorage.setItem('floe:ctx-menu', '1');
+        mount();
+        await settled();
+        await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+        expect(wails.go.ContextMenuState).not.toHaveBeenCalled();
+        expect(wails.go.EnableContextMenu).not.toHaveBeenCalled();
     });
 });

@@ -46,6 +46,10 @@ function installWails() {
         CheckForUpdate: vi.fn(async () => ({version: ''})),
         ConfirmClose: vi.fn(async () => {}),
         ContextMenuEnabled: vi.fn(async () => true),
+        // The entry already runs this copy, and this copy is the installed one:
+        // the common case, in which a launch writes nothing (initCtxMenu).
+        ContextMenuState: vi.fn(async () => 'self'),
+        IsInstalled: vi.fn(async () => true),
         DisableContextMenu: vi.fn(async () => {}),
         EnableContextMenu: vi.fn(async () => {}),
         EngineProtocolVersion: vi.fn(async () => 1),

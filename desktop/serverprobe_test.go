@@ -142,10 +142,10 @@ func TestProbeServerNamesTheServersOwnRateLimit(t *testing.T) {
 }
 
 // TestProbeServerCatchesMissingWebSocket covers the other proxy misconfiguration.
-// The sentence names both things a proxy gets wrong here: not forwarding /ws,
-// and forwarding it with the Host header rewritten, which the server's origin
-// check answers 403. One sentence covers both until the probe reads the
-// handshake status the engine now keeps (signaling.HandshakeError).
+// A dial that failed without an HTTP status names both things a proxy gets
+// wrong here: not forwarding /ws, and forwarding it with the Host header
+// rewritten, which the server's origin check answers 403. A 403 and a 404 get
+// a sentence each (TestProbeServerNamesTheRealtimeRefusalByItsStatus).
 func TestProbeServerCatchesMissingWebSocket(t *testing.T) {
 	srv := floeServer(true, true)
 	defer srv.Close()
@@ -156,6 +156,55 @@ func TestProbeServerCatchesMissingWebSocket(t *testing.T) {
 	}
 	if want := "The server refused the realtime connection (check that your proxy forwards /ws and passes the original Host header)"; got.Message != want {
 		t.Errorf("message = %q, want %q", got.Message, want)
+	}
+}
+
+// TestProbeServerNamesTheRealtimeRefusalByItsStatus (H-1): the engine keeps
+// the status of a refused /ws upgrade (signaling.HandshakeError, #572), and
+// the two common answers have different fixes. 403 is the server's Origin
+// check, which is what a proxy that rewrites the Host header produces; 404 is
+// a proxy that does not forward /ws (since #581 the server itself answers 404
+// only for an upgrade on some other path). Any other refusal keeps the
+// sentence that names both.
+func TestProbeServerNamesTheRealtimeRefusalByItsStatus(t *testing.T) {
+	const (
+		hostLine = "The server refused the realtime connection (check that your proxy passes the original Host header)"
+		wsLine   = "The server refused the realtime connection (check that your proxy forwards /ws)"
+		bothLine = "The server refused the realtime connection (check that your proxy forwards /ws and passes the original Host header)"
+	)
+	serve := func(status int) string {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"status":"healthy"}`))
+		})
+		mux.HandleFunc("/api/turn-credentials", func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(iceWithTURN))
+		})
+		mux.HandleFunc("/ws", func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "refused", status)
+		})
+		srv := httptest.NewServer(mux)
+		t.Cleanup(srv.Close)
+		return srv.URL
+	}
+	// Through the engine's own dial, as Test runs it.
+	for _, tc := range []struct {
+		status int
+		want   string
+	}{
+		{http.StatusForbidden, hostLine},
+		{http.StatusNotFound, wsLine},
+		{http.StatusBadGateway, bothLine},
+		{http.StatusServiceUnavailable, bothLine},
+	} {
+		got := probeServer(serve(tc.status), dialSignaling)
+		if got.OK || got.Message != tc.want {
+			t.Errorf("/ws answered %d: %+v, want %q", tc.status, got, tc.want)
+		}
+	}
+	// A dial that failed with no HTTP answer at all says what it always did.
+	if got := probeServer(serve(http.StatusOK), func(string) error { return errors.New("upgrade refused") }); got.Message != bothLine {
+		t.Errorf("no status: %q, want %q", got.Message, bothLine)
 	}
 }
 

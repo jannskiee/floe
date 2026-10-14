@@ -89,6 +89,11 @@ type Client struct {
 	// (Down already closed) from a peer the server reported gone.
 	Down chan struct{}
 
+	// closeCode is the close code of the frame the server ended the socket
+	// with, 0 when it ended without one. readLoop writes it before it closes
+	// Down, and CloseCode reads it only after, so no lock is needed.
+	closeCode int
+
 	// cfg is what the Options passed to Connect set; the zero value is a
 	// plain client with no ping and no read deadline.
 	cfg config
@@ -550,6 +555,13 @@ func (c *Client) readLoop() {
 		}
 		_, raw, err := c.conn.ReadMessage()
 		if err != nil {
+			// gorilla reports a socket that ended with no close frame as a
+			// CloseError of 1006, a code no endpoint may send (RFC 6455
+			// 7.4.1), so it is not kept as one the server sent.
+			var ce *websocket.CloseError
+			if errors.As(err, &ce) && ce.Code != websocket.CloseAbnormalClosure {
+				c.closeCode = ce.Code
+			}
 			// The socket is gone. Down first, then the PeerLeft push old
 			// callers wait on, so a reader woken by PeerLeft already sees Down
 			// closed. This is the loop's only exit, so Down closes once.
@@ -561,6 +573,21 @@ func (c *Client) readLoop() {
 			return
 		}
 		c.dispatch(raw)
+	}
+}
+
+// CloseCode is the WebSocket close code the server ended the socket with, or
+// 0 while Down is still open and when the socket ended without a close frame
+// (a lost network, the read deadline). A Floe server closes a connection past
+// its per-network limit with 1008 right after the upgrade (checkRateLimit in
+// server/server.js), so a caller can tell that from a lost server. The code
+// is the only part of the frame kept: its reason text is the server's.
+func (c *Client) CloseCode() int {
+	select {
+	case <-c.Down:
+		return c.closeCode
+	default:
+		return 0
 	}
 }
 

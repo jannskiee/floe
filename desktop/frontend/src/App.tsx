@@ -6,7 +6,7 @@ import {
     CloseRequestLink,
     ConfirmClose,
     CheckForUpdate,
-    ContextMenuEnabled,
+    ContextMenuState,
     DisableContextMenu,
     EnableContextMenu,
     EngineProtocolVersion,
@@ -14,6 +14,7 @@ import {
     GetRequestLink,
     GetSettings,
     GetVersion,
+    IsInstalled,
     IsPackaged,
     MakeRequestLink,
     OpenFile,
@@ -181,9 +182,11 @@ function App() {
     // Ctrl+, tested nothing, so they moved the screen behind any of the three
     // and closed "Reset all settings?" by closing Settings under it. The ref
     // is for the key listeners, which are registered once and see only the
-    // first render's state. Ctrl+R is not among them on purpose: it is the
-    // titlebar lockup's own action, which stays reachable above every scrim,
-    // and startOver documents what it does with a dialog up.
+    // first render's state, and for addFiles, which a drop and a second
+    // launch call from once-registered listeners. Ctrl+R is not among them:
+    // it is the titlebar lockup's own action, the lockup stays reachable
+    // above every scrim, and startOver itself waits behind the two dialogs
+    // that are not its own.
     const modalOpen = confirmReset || confirmDefaults || closeGuard;
     const modalOpenRef = useRef(false);
     modalOpenRef.current = modalOpen;
@@ -394,8 +397,12 @@ function App() {
     // addFiles merges incoming paths into the send selection. Shared by OS
     // drops, second-instance launches, and cold-start args; safe to call from
     // once-registered closures (functional updates + stable setters only).
+    // Refused while a transfer runs and behind a confirm dialog (modalOpen),
+    // where a drop or a second launch staged files and moved the screen under
+    // the dialog, closing Settings under Reset all settings?. Refused, not
+    // queued, as a drop during a transfer always was.
     function addFiles(paths: string[]) {
-        if (!paths || !paths.length || busyRef.current) return;
+        if (!paths || !paths.length || busyRef.current || modalOpenRef.current) return;
         supersede('files');
         setSettingsOpen(false);
         setMode('send');
@@ -714,31 +721,42 @@ function App() {
         EventsOn('close:blocked', () => setCloseGuard(true));
         // Files passed on the command line before the frontend mounted.
         GetPendingFiles().then((paths) => { if (paths && paths.length) addFiles(paths); }).catch(() => {});
-        // Whether the Explorer entry is registered (and points at this exe).
-        // First run defaults it ON; an explicit user OFF (floe:ctx-menu = '0')
-        // stays off. The auto-enable never writes the marker, so it records
-        // user choice only and the default self-heals if the key vanishes.
-        // So does an explicit ON: the condition is "not switched off", never
-        // "no choice yet". The installer's uninstaller deletes the key and
-        // keeps this profile, so after a reinstall the marker still reads '1'
-        // with no entry behind it, and comparing it with null left that owner
-        // with no entry and a switch that read off.
+        // The Explorer entry at launch (DSK-04), by whose it is
+        // (ContextMenuState). "self" runs this exe: the switch reads on.
+        // "other" runs another copy that still exists: left alone, and the
+        // switch reads off; only the owner's switch moves it here. "missing"
+        // (no entry) registers when the owner last left the switch on
+        // (floe:ctx-menu = '1'), and with no choice on record only on an
+        // installed copy (IsInstalled), never '0'. An unzipped copy adds
+        // nothing unasked (owner answer 26, off by default on portable):
+        // deleting its folder left a dead entry no uninstaller removes.
+        // "dead" (an entry whose program is gone) is registered over by that
+        // same rule, and otherwise removed (DESKTOP-01): Floe Desktop 0.3.0
+        // registered on the first run of every copy without a marker, so a
+        // deleted 0.3.0 portable folder leaves one that this rule would
+        // never repair, broken in Explorer behind a switch that reads off.
+        // A launch never writes the marker, so it records the owner's choice
+        // only. The installer's uninstaller deletes the key and keeps this
+        // profile, so after a reinstall a '1' brings it back.
         //
         // Skipped entirely in a packaged (Microsoft Store) build: the write
         // would land in the package's private registry view, Explorer would
-        // never show the entry, and ContextMenuEnabled could then read the
-        // private copy back as "on" while the menu shows nothing. A failed
-        // IsPackaged probe falls through to the unpackaged flow, matching the
-        // Go side's fail-open default.
+        // never show the entry, and a read could see the private copy while
+        // the menu shows nothing. A failed IsPackaged probe falls through to
+        // the unpackaged flow, matching the Go side's fail-open default.
         if (isWindows) {
             const initCtxMenu = () => {
-                ContextMenuEnabled().then((on) => {
-                    if (on) {
+                ContextMenuState().then(async (state) => {
+                    if (state === 'self') {
                         setCtxMenu(true);
                         return;
                     }
-                    if (localStorage.getItem('floe:ctx-menu') === null) {
+                    if (state !== 'missing' && state !== 'dead') return;
+                    const marker = localStorage.getItem('floe:ctx-menu');
+                    if (marker === '1' || (marker === null && await IsInstalled())) {
                         EnableContextMenu().then(() => setCtxMenu(true)).catch(() => {});
+                    } else if (state === 'dead') {
+                        DisableContextMenu().catch(() => {});
                     }
                 }).catch(() => {});
             };
@@ -1603,6 +1621,12 @@ function App() {
     // state stays instant. resetWarning in reset.ts owns that decision and
     // supplies the sentence, so do not restate its rules here.
     function startOver() {
+        // Start over? is this action's own dialog, and pressing it again there
+        // is the dialog's fourth exit (below). Behind the other two it would
+        // reset the screen under the question: cancel the transfer Close
+        // Floe? is asking about, or close Settings under Reset all settings?.
+        // It waits there, like the shortcuts behind modalOpen.
+        if (closeGuard || confirmDefaults) return;
         if (resetLoss) {
             // Frozen at the moment it is shown. resetLoss is derived from live
             // state, and state moves while the dialog is up: a send completing,
@@ -1700,7 +1724,6 @@ function App() {
     // keypress, exactly as it did before.
     const resetLoss = resetWarning({
         transferring: !!(sendProg || recvProg),
-        busy,
         text: sendText,
         sentText,
         // A cleared note lives in the undo offer and nowhere else, and Start

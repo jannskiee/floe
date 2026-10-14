@@ -88,15 +88,28 @@ func probeServer(raw string, dialWS func(string) error) ProbeResult {
 		return r
 	}
 	if err := dialWS(base); err != nil {
-		// Both common causes in one sentence: a proxy that never forwards /ws,
-		// and one that forwards it with Host rewritten, which the server's
-		// origin check refuses with a 403. Naming only /ws sent the second case
-		// to the wrong fix. The engine's handshake error now keeps the HTTP
-		// status (signaling.HandshakeError, #572), so telling the two apart is
-		// a later change; this sentence stays true either way.
-		return ProbeResult{Message: "The server refused the realtime connection (check that your proxy forwards /ws and passes the original Host header)"}
+		return ProbeResult{Message: realtimeRefusal(err)}
 	}
 	return probeAPI(base)
+}
+
+// realtimeRefusal words a /ws dial that failed, by the HTTP status the engine
+// kept (signaling.HandshakeError, #572; H-1). The two common causes have
+// different fixes: 403 is the server's origin check, which a proxy that
+// rewrites the Host header fails; 404 is a proxy that does not forward /ws
+// (the server answers 404 itself only for an upgrade on another path, #581).
+// Any other answer, or none, names both, which is true either way.
+func realtimeRefusal(err error) string {
+	var hs *signaling.HandshakeError
+	if errors.As(err, &hs) {
+		switch hs.Status {
+		case http.StatusForbidden:
+			return "The server refused the realtime connection (check that your proxy passes the original Host header)"
+		case http.StatusNotFound:
+			return "The server refused the realtime connection (check that your proxy forwards /ws)"
+		}
+	}
+	return "The server refused the realtime connection (check that your proxy forwards /ws and passes the original Host header)"
 }
 
 // probeHealth is stage one: reachable, and answering as a Floe server. It also

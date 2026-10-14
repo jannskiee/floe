@@ -99,6 +99,12 @@ export const RULES: Array<[pattern: string, friendly: string]> = [
     // file it sent arrived incomplete, in the wrong voice.
     ['receiver discarded a file', "They didn't get a file whole, so it was discarded"],
     ['receiver stopped the transfer', 'They stopped the transfer'],
+    // A current receiver's coded stop (PeerStoppedError.Error() for code
+    // stopped, and its fallback), which refusal.go words for a request link.
+    // A desktop sender is only ever on an ordinary send, so it reads as the
+    // plain send's line, the one the wire reason above already gets (A8b-B3).
+    ['They stopped this drop', 'They stopped the transfer'],
+    ['The drop stopped on their computer', 'They stopped the transfer'],
     ['incomplete file', "A file arrived incomplete and wasn't kept"],
     // The sender caught its own source file changing between the size it
     // announced and the bytes it read, so nothing was delivered. The engine
@@ -111,6 +117,12 @@ export const RULES: Array<[pattern: string, friendly: string]> = [
     // connect. The closed one never shows in practice: transfer.go suppresses
     // the failure of a canceled transfer.
     ['left before the connection was established', 'They left before the connection was made'],
+    // transfer.go's errTurnedAway: the server closed the socket with 1008
+    // right after the upgrade, its answer to a connection past its
+    // per-network limit (A8b-B1). The server was reached, so not "Can't
+    // reach the server"; nothing had started, so not a dropped transfer. The
+    // words follow the lookup's 429 line above.
+    ['the server turned this connection away', 'The server is limiting connections from this network. Wait a minute and try again'],
     ['lost before the peer connected', "Can't reach the server"],
     ['closed before the connection was established', 'Canceled'],
     ['timed out waiting for the peer', 'Both people need Floe open at the same time'],
@@ -120,9 +132,16 @@ export const RULES: Array<[pattern: string, friendly: string]> = [
     ['failed to connect to signaling server', "Can't reach the server"],
     ['failed to fetch ICE credentials', "Can't reach the server"],
     ['timed out waiting for the server', "Can't reach the server"],
-    // 'server error:' means the server WAS reached and rejected the request
-    // (e.g. rate limiting), so connectivity advice would mislead.
-    ['server error:', 'The server is busy, try again in a minute'],
+    // There is no 'server error:' rule (A8b-B2). A Floe server sends an error
+    // frame on these paths only for a malformed room id ('Invalid room ID'
+    // above), and its limits close the socket (errTurnedAway) or answer HTTP
+    // 429; the rule that read every other frame as "The server is busy" could
+    // never fire. transfer.go's serverErrorFrame keeps any other frame's
+    // words off this line.
+    // transfer.ErrNoFiles: StartSend's walk found no file in the selection,
+    // before any code was made (A3-B4); the send returns it too, wrapped, if
+    // the folders emptied after the click.
+    ['no files to send', 'The folders you chose have no files to send'],
     ['timed out waiting for delivery', 'The connection dropped before the transfer finished'],
     ['peer disconnected before connecting', 'The receiver left before it started'],
     // A receive this side stopped on purpose, or could not finish saving

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jannskiee/floe/cli/engine/serverurl"
 )
@@ -162,9 +163,24 @@ func loadConfigFrom(path string) appConfig {
 	}
 	var c appConfig
 	if err := json.Unmarshal(raw, &c); err != nil {
+		keepUnreadableConfig(path, raw)
 		return appConfig{}
 	}
 	return normalizeConfig(c)
+}
+
+// keepUnreadableConfig copies a settings file that does not parse to
+// <path>.bad before anything replaces it (A3-B3). The defaults above are not
+// just read: the frontend saves them on the same launch (an unparsed file
+// reads as not migrated), which used to overwrite a hand-edited server or Hide
+// my IP with no copy left anywhere. The newest unreadable file wins; an empty
+// file has nothing in it to keep. Best effort: a failed copy costs only the
+// copy.
+func keepUnreadableConfig(path string, raw []byte) {
+	if len(strings.TrimSpace(string(raw))) == 0 {
+		return
+	}
+	_ = os.WriteFile(path+".bad", raw, 0o600)
 }
 
 // saveConfig writes the settings file atomically. A crash or a second instance

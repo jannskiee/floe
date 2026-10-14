@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {PASSTHROUGH, calm, friendlyError} from './errors';
+import {PASSTHROUGH, RULES, calm, friendlyError} from './errors';
 
 describe('friendlyError', () => {
     it('always starts with the Error prefix StatusLine keys its styling off', () => {
@@ -136,10 +136,39 @@ describe('friendlyError', () => {
         );
     });
 
-    it('treats a server rejection as a rejection, not a connectivity problem', () => {
-        expect(friendlyError('server error: too many requests')).toBe(
-            'Error: The server is busy, try again in a minute',
-        );
+    it('has no rule for an error frame a Floe server never sends (A8b-B2)', () => {
+        // A Floe server sends an error frame on these paths only for a
+        // malformed room id, mapped just above, and its limits close the
+        // socket or answer HTTP 429 instead. The rule that read every other
+        // frame as "The server is busy, try again in a minute" could never
+        // fire, and was wrong for anything it caught. desktop/transfer.go now
+        // keeps an unknown frame's words out of the error (serverErrorFrame),
+        // so what reaches this line is its own fixed sentence, passed through.
+        const unknown = 'the server answered with an error this version of Floe does not know';
+        expect(friendlyError(unknown)).toBe('Error: ' + unknown);
+        expect(RULES.some(([p]) => p === 'server error:')).toBe(false);
+        expect(RULES.some(([, f]) => f === 'The server is busy, try again in a minute')).toBe(false);
+    });
+
+    it('names a connection the server turned away by its limit, not a lost server or a dropped transfer (A8b-B1)', () => {
+        // desktop/transfer.go errTurnedAway: the server closed the socket with
+        // 1008 right after the upgrade, its answer to a connection past its
+        // per-network limit. Nothing had started, and a minute's wait clears it.
+        const limited = 'Error: The server is limiting connections from this network. Wait a minute and try again';
+        expect(friendlyError('the server turned this connection away: too many connections from this network')).toBe(limited);
+        expect(friendlyError('Error: the server turned this connection away: too many connections from this network')).toBe(limited);
+    });
+
+    it('names a selection with no file in it at the click (A3-B4)', () => {
+        // transfer.ErrNoFiles, which StartSend's walk (transfer.Summarize)
+        // returns for a selection of empty folders before any code is made,
+        // and which the send itself returns, wrapped, if the folders emptied
+        // between the click and the walk.
+        const none = 'Error: The folders you chose have no files to send';
+        expect(friendlyError('no files to send')).toBe(none);
+        expect(friendlyError('transfer failed: no files to send')).toBe(none);
+        // An empty selection keeps its own words.
+        expect(friendlyError('no files selected')).toBe('Error: no files selected');
     });
 
     it('maps stall, timeout, server, and write-error buckets', () => {
@@ -242,11 +271,13 @@ describe('friendlyError', () => {
     });
 
     it('never maps a peer-stopped sentence to a wrong cause', () => {
-        // Eleven of the twelve fixed sentences from PeerStoppedError.Error()
-        // in cli/engine/transfer/refusal.go, plus its unreachable fallback,
-        // quoted because Go cannot be imported here. The twelfth,
-        // hash-mismatch, is deliberately absent: it has its own rule above.
-        // These eleven have no rule and must pass through whole.
+        // Nine of the twelve fixed sentences from PeerStoppedError.Error() in
+        // cli/engine/transfer/refusal.go, quoted because Go cannot be imported
+        // here. hash-mismatch has its own rule above, and stopped and the
+        // fallback have theirs below. These nine have no rule and must pass
+        // through whole: since A8b-B3 desktop/transfer.go hands a peer's stop
+        // to the status line bare, without the "transfer failed: " wrapper,
+        // and a released build's wrapped form passes through as it did.
         // PASSTHROUGH is deliberately not extended for them: for these
         // inputs it would return the identical string to the default branch,
         // so it would be dead code. This guard is what actually holds, and it
@@ -260,13 +291,25 @@ describe('friendlyError', () => {
             'A folder path is too long for their computer. Zip deeply nested folders first.',
             'Relayed drops are capped at 2 GB.',
             'A file arrived but their computer blocked saving it.',
-            'They stopped this drop.',
             'This drop reached the 24-hour limit, so their Floe stopped it.',
             'Their computer could not save a file.',
-            'The drop stopped on their computer.',
         ];
         for (const s of sentences) {
+            expect(friendlyError(s)).toBe('Error: ' + calm(s));
             expect(friendlyError('transfer failed: ' + s)).toBe('Error: transfer failed: ' + calm(s));
+        }
+    });
+
+    it("gives a receiver's stop on an ordinary send the ordinary send's sentence (A8b-B3)", () => {
+        // PeerStoppedError words code stopped, and its fallback, for a request
+        // link ("this drop"). A desktop sender is only ever on an ordinary
+        // send, where the receiver stopping it reads as the plain send's line
+        // (the CLI's errTheyStopped, D-159), the sentence this file already
+        // gives the wire reason 'receiver stopped the transfer'.
+        const stopped = 'Error: They stopped the transfer';
+        for (const s of ['They stopped this drop.', 'The drop stopped on their computer.']) {
+            expect(friendlyError(s), s).toBe(stopped);
+            expect(friendlyError('transfer failed: ' + s), s).toBe(stopped);
         }
     });
 

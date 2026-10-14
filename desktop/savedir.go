@@ -22,7 +22,8 @@ var errNotFullPath = errors.New("not a full folder path")
 // Floe writes to. filepath.Abs alone resolved a relative value against the
 // process working directory, which for the installed build is the install
 // folder: a drop sent to "Downloads\Floe" (the field's own placeholder) landed
-// where the uninstaller deletes it. A relative path now means relative to the
+// where the uninstaller deleted it, folder and all (it now deletes only what
+// it installed, A3-B2). A relative path now means relative to the
 // home folder, as the placeholder reads; %NAME% and ~ are expanded; the quotes
 // Explorer's Copy as path adds are dropped. A path rooted without a drive, or
 // relative to a drive's current directory, is refused (errNotFullPath). An

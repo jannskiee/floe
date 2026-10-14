@@ -88,9 +88,10 @@ func writeImageTemp(png []byte) (string, error) {
 }
 
 // sweepPasteTemps removes leftover pasted-image staging directories from prior
-// runs. Called once at startup: the single-instance lock means no transfer is in
-// flight yet, so every floe-paste-* directory is an orphan safe to delete. The
-// text-send staging (floe-text-*) is left untouched.
+// runs. Called once at startup (sweepStagingTemps): the single-instance lock
+// means no transfer is in flight yet, so every floe-paste-* directory is an
+// orphan safe to delete. The text-send staging (floe-text-*) has its own
+// sweep, sweepTextTemps, which the shutdown hook runs too.
 func sweepPasteTemps() {
 	matches, err := filepath.Glob(filepath.Join(os.TempDir(), "floe-paste-*"))
 	if err != nil {

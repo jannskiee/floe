@@ -179,7 +179,8 @@ func missingDrive() string {
 }
 
 // The installed build runs with the install folder as its working directory,
-// which the uninstaller deletes: a typed relative Save to must never land there.
+// which is the app's, not the owner's: a typed relative Save to must never land
+// there.
 func TestMakeRequestLinkResolvesARelativeSaveDirUnderHome(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	t.Setenv("USERPROFILE", home)

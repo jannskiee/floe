@@ -132,15 +132,28 @@ Section "uninstall"
     # template's RMDir of $AppData\<exe> was a no-op anyway (admin shell context
     # resolved it to ProgramData, where no profile ever exists).
 
-    RMDir /r $INSTDIR
+    # Only what the installer wrote, by name, never RMDir /r $INSTDIR. The
+    # folder is whatever was typed on the directory page: NSIS appends the
+    # product folder name to a folder picked with Browse, never to one typed
+    # into the box, so $INSTDIR can be Desktop or Documents itself, and a
+    # recursive delete took everything in it. wails.files (wails_tools.nsh)
+    # writes one file, ${PRODUCT_EXECUTABLE}; uninstall.exe goes last, below.
+    # installer_test.go fails when the two lists drift apart.
+    Delete "$INSTDIR\${PRODUCT_EXECUTABLE}"
 
     Delete "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk"
     Delete "$DESKTOP\${INFO_PRODUCTNAME}.lnk"
 
     # The Explorer "Send with Floe" verb points into $INSTDIR; without this a
     # dead menu entry survives the app (DeleteRegKey is recursive, so the
-    # command subkey goes too). The app re-creates it on next launch if the
-    # user reinstalls.
+    # command subkey goes too). After a reinstall the app registers it again
+    # on its next launch unless the user had switched it off: the switch's
+    # marker ("floe:ctx-menu") lives in the webview profile kept above, and an
+    # installed copy re-creates a missing entry when that marker is "1" or
+    # was never set, never when it is "0" (initCtxMenu in frontend/src/App.tsx,
+    # which reads uninstall.exe beside the app as installed). A portable copy
+    # registers on its own only when the marker is "1", and no launch
+    # re-points an entry that runs another copy that still exists.
     DeleteRegKey HKCU "Software\Classes\*\shell\Floe"
 
     !insertmacro wails.unassociateFiles
@@ -148,6 +161,9 @@ Section "uninstall"
 
     # Inline per-user counterpart of wails.deleteUninstaller (HKLM there).
     Delete "$INSTDIR\uninstall.exe"
+    # Without /r: the folder goes only when nothing else is left in it, so a
+    # file the person keeps there survives, and so does the folder holding it.
+    RMDir $INSTDIR
     SetRegView 64
     DeleteRegKey HKCU "${UNINST_KEY}"
 SectionEnd

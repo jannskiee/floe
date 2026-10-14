@@ -80,6 +80,20 @@ const CALM_DESKTOP_ERRORS = [
         'incomplete-file',
         'incomplete-file',
     ],
+    // The two limiter lines: a lookup the server limits (since #580), and a
+    // connection it turns away by its per-network limit (A8b-B1, after
+    // desktop-v0.3.0, which showed "The connection dropped before the
+    // transfer finished" for it). Both are the limiter, paced and retried.
+    [
+        'The server is limiting requests from this network. Wait a minute and try again',
+        'rate-limited',
+        'rate-limit',
+    ],
+    [
+        'The server is limiting connections from this network. Wait a minute and try again',
+        'rate-limited',
+        'rate-limit',
+    ],
 ];
 
 test('the calm desktop error lines of errors.ts classify to the keys their old sentences had', () => {

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"os"
-	goruntime "runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -135,8 +134,9 @@ func (a *App) startup(ctx context.Context) {
 	// AppUserModelID on Windows). Errors are non-fatal.
 	_ = runtime.InitializeNotifications(ctx)
 
-	// Reclaim any pasted-image staging dirs left by a previous run.
-	sweepPasteTemps()
+	// Reclaim any pasted-image and text-note staging dirs left by a previous
+	// run.
+	sweepStagingTemps()
 
 	// Files passed on the command line go through the same stage-or-emit seam
 	// as second-instance forwards. Staging must MERGE, not assign: a second
@@ -147,17 +147,12 @@ func (a *App) startup(ctx context.Context) {
 		runtime.EventsEmit(ctx, "files:open", files)
 	}
 
-	// Best-effort self-heal: if the user enabled the context menu and the exe
-	// has moved since, rewrite the entry to point here. Skipped when packaged:
-	// an MSIX process's HKCU write lands in a private view Explorer never
-	// reads, so the rewrite could only produce a lie (see packaged_windows.go).
-	if goruntime.GOOS == "windows" && !isPackaged() {
-		if exe, err := os.Executable(); err == nil {
-			if cmd, ok := contextMenuCommand(contextMenuBase); ok && cmd != expectedCommand(exe) {
-				_ = registerContextMenu(contextMenuBase, exe)
-			}
-		}
-	}
+	// No Explorer entry is touched here (DSK-04). This used to re-point any
+	// entry that ran another executable at this one, so a portable copy run
+	// once took over the installed copy's entry and left it dead when its
+	// folder was deleted. The frontend's launch rule (initCtxMenu, through
+	// ContextMenuState) registers a missing or dead entry when it may, and
+	// never re-points a live copy's.
 }
 
 // shutdown runs when the app is quitting. A transfer goroutine may still hold
@@ -170,6 +165,10 @@ func (a *App) startup(ctx context.Context) {
 func (a *App) shutdown(ctx context.Context) {
 	a.shuttingDown.Store(true) // ends the quit retry (closequit.go)
 	transfer.AbandonPartialsWithin(5 * time.Second)
+	// A text send's note, for the same reason: its goroutine's cleanup may
+	// not run before the process ends (A3-B6). A folder still open here is
+	// left to the next launch's sweep.
+	sweepTextTemps()
 	// A quit that did not come through ConfirmClose (no link was live when it
 	// started) still ends the lane; idempotent after ConfirmClose.
 	a.lane().closeForQuit()

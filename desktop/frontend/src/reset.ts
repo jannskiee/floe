@@ -43,10 +43,13 @@
  * It is optional because callers that predate the Clear control mean "nothing
  * is pending" by omitting it.
  *
- * busy is the one gate that keeps the prompt off a path where it would be
- * noise, because a send that is connecting or waiting for a peer still holds
- * its text and file list, and a dialog in front of the escape hatch that exists
- * FOR stuck states would defeat it.
+ * There is no busy gate. One used to keep the prompt off a send that was
+ * connecting or waiting for a peer, on the reasoning that such a send still
+ * holds its text. It does not survive Start over: doReset cancels the send and
+ * empties the box, so the gate cleared a note nobody had received with no
+ * prompt (A3-B1). Start over stays the one-press way out of a stuck state
+ * whenever nothing would be lost, because an empty box and an empty undo
+ * offer still return '' here.
  *
  * Two omissions that are decisions rather than oversights, written down so
  * nobody has to guess.
@@ -62,13 +65,11 @@
  */
 export function resetWarning(s: {
     transferring: boolean;
-    busy: boolean;
     text: string;
     sentText: string;
     clearedText?: string;
 }): string {
     if (s.transferring) return 'Starting over cancels the transfer';
-    if (s.busy) return '';
     // Trimmed on both sides, like the emptiness test it shares a line with: a
     // note that differs from the one that went out by trailing whitespace is
     // not lost work.

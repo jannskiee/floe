@@ -4054,6 +4054,13 @@
     },
     {
         "surface": "desktop",
+        "text": "The folders you chose have no files to send",
+        "source": "desktop/frontend/src/errors.ts",
+        "anchor": "/troubleshooting#no-files-to-send",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
         "text": "The receiver left before it started",
         "source": "desktop/frontend/src/errors.ts",
         "anchor": null,
@@ -4103,6 +4110,13 @@
     },
     {
         "surface": "desktop",
+        "text": "the server answered with an error this version of Floe does not know",
+        "source": "desktop/transfer.go",
+        "anchor": null,
+        "why_no_home": "a Floe server answers a join with no error but Invalid room ID, so only a server that is not Floe's, or a later version, brings this line; it stands in for that server's own words, which are never shown"
+    },
+    {
+        "surface": "desktop",
         "text": "The server didn't return usable connection details",
         "source": "desktop/serverprobe.go",
         "anchor": "/desktop/settings#server",
@@ -4113,6 +4127,13 @@
         "text": "The server is busy, try again in a minute",
         "source": "desktop/frontend/src/errors.ts",
         "anchor": null,
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "The server is limiting connections from this network. Wait a minute and try again",
+        "source": "desktop/frontend/src/errors.ts",
+        "anchor": "/troubleshooting#the-connection-dropped-before-the-transfer-finished",
         "why_no_home": null
     },
     {
@@ -4146,6 +4167,13 @@
     {
         "surface": "desktop",
         "text": "The server refused the realtime connection (check that your proxy forwards /ws)",
+        "source": "desktop/serverprobe.go",
+        "anchor": "/troubleshooting#the-test-button-says-the-realtime-connection-was-refused",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "The server refused the realtime connection (check that your proxy passes the original Host header)",
         "source": "desktop/serverprobe.go",
         "anchor": "/troubleshooting#the-test-button-says-the-realtime-connection-was-refused",
         "why_no_home": null

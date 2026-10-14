@@ -6,6 +6,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -25,6 +26,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/gorilla/websocket"
 	"github.com/jannskiee/floe/cli/engine/peer"
 	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/jannskiee/floe/cli/engine/transfer"
@@ -55,6 +57,41 @@ func TestWriteTextTemp(t *testing.T) {
 	cleanup()
 	if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
 		t.Errorf("cleanup did not remove the temp dir")
+	}
+}
+
+// TestQuitSweepsTextStaging (A3-B6): a text note's staging folder holds the
+// note in plain text, and only the send goroutine's deferred cleanup removed
+// it. Close Floe? does not wait for that goroutine, so a quit during a text
+// send left floe-text-* in %TEMP%, and the startup sweep took floe-paste-*
+// only. The shutdown hook now removes it, and so does the next launch.
+func TestQuitSweepsTextStaging(t *testing.T) {
+	path, _, err := writeTextTemp("a note that must not outlive Floe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pasteDir, err := os.MkdirTemp("", "floe-paste-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(pasteDir) })
+
+	(&App{wake: &wakeGuard{}, notifyFn: func(string, string) {}}).shutdown(context.Background())
+	if _, err := os.Stat(filepath.Dir(path)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the text staging folder outlived the quit: %v", err)
+	}
+
+	// The launch after a quit that could not remove it.
+	left, err := os.MkdirTemp("", "floe-text-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sweepStagingTemps()
+	if _, err := os.Stat(left); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the startup sweep left a text staging folder: %v", err)
+	}
+	if _, err := os.Stat(pasteDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the startup sweep left a paste staging folder: %v", err)
 	}
 }
 
@@ -203,6 +240,131 @@ func TestReceiverWaitEndTellsALostServerFromAPeerThatLeft(t *testing.T) {
 	})
 }
 
+// scriptedSignalServer answers /api/turn-credentials with the loopback STUN
+// list and hands every /ws socket to handle, which plays the server's part.
+func scriptedSignalServer(t *testing.T, handle func(c *websocket.Conn)) string {
+	t.Helper()
+	up := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/turn-credentials", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(localTurnBody))
+	})
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		c, err := up.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		handle(c)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+// limitedSignalServer closes every /ws socket with 1008 and the server's own
+// reason, which is what a Floe server does to a connection past its
+// per-network limit (server.js checkRateLimit, 30 a minute by default). A
+// real server closes at once, so the join-room write races the close; with
+// afterJoin the close waits for the join, so the wait for a role sees it.
+func limitedSignalServer(t *testing.T, afterJoin bool) string {
+	return scriptedSignalServer(t, func(c *websocket.Conn) {
+		if afterJoin {
+			_, _, _ = c.ReadMessage()
+		}
+		_ = c.WriteControl(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "Rate limit exceeded"),
+			time.Now().Add(time.Second))
+		time.Sleep(200 * time.Millisecond)
+	})
+}
+
+// receiveByLinkAt runs a code receive of a room link on server, which no
+// test server here ever seats, and returns its error.
+func receiveByLinkAt(t *testing.T, server string) error {
+	t.Helper()
+	a := &App{wake: &wakeGuard{}, notifyFn: func(string, string) {}, cfg: appConfig{Server: server}}
+	_, err := a.ReceiveByCode(server+"/#room=6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f", t.TempDir(), false, false)
+	if err == nil {
+		t.Fatal("ReceiveByCode succeeded")
+	}
+	return err
+}
+
+// TestTurnedAwayConnectionHasItsOwnSentence (A8b-B1): a connection the server
+// turns away right after the upgrade reads as that, not as a lost server or
+// a dropped transfer. Nothing had started, and waiting a minute is the fix.
+func TestTurnedAwayConnectionHasItsOwnSentence(t *testing.T) {
+	for _, afterJoin := range []bool{false, true} {
+		err := receiveByLinkAt(t, limitedSignalServer(t, afterJoin))
+		if !strings.Contains(err.Error(), "the server turned this connection away") {
+			t.Fatalf("afterJoin=%v: error = %q, want the turned-away sentence", afterJoin, err.Error())
+		}
+	}
+}
+
+// TestServerErrorFrameKeepsTheServersWordsOut (A8b-B2): an error frame on the
+// join is the signaling server's text, unbounded, and on a self-hosted server
+// whatever that server sends. errors.ts used to hide all of it behind one
+// rule, "The server is busy, try again in a minute", which no Floe server
+// could trigger: it sends an error frame here only for a malformed room id.
+// That one keeps its words, which errors.ts reads as an incomplete link; any
+// other frame becomes one fixed sentence with none of the server's words.
+func TestServerErrorFrameKeepsTheServersWordsOut(t *testing.T) {
+	answer := func(msg string) string {
+		return scriptedSignalServer(t, func(c *websocket.Conn) {
+			_, _, _ = c.ReadMessage()
+			_ = c.WriteJSON(map[string]string{"type": "error", "message": msg})
+			time.Sleep(200 * time.Millisecond)
+		})
+	}
+	hostile := "<b>busy</b> visit example.invalid " + strings.Repeat("x", 4096)
+	err := receiveByLinkAt(t, answer(hostile))
+	if strings.Contains(err.Error(), "example.invalid") || strings.Contains(err.Error(), "busy") || len(err.Error()) > 200 {
+		t.Fatalf("the server's words reached the error: %q", cutForLog(err.Error()))
+	}
+	if err.Error() != "the server answered with an error this version of Floe does not know" {
+		t.Fatalf("error = %q, want the fixed sentence", cutForLog(err.Error()))
+	}
+	if err := receiveByLinkAt(t, answer("Invalid room ID")); err.Error() != "server error: Invalid room ID" {
+		t.Fatalf("a malformed room id: %q, want the words errors.ts maps", err.Error())
+	}
+}
+
+// TestSendEndHandsAPeerStopOverBare (A8b-B3): a receiver's coded stop reaches
+// the status line as the engine's fixed sentence about the other side, not
+// behind "transfer failed: ", which read as this side's own failure; the
+// relay cap keeps its two forms and every other error keeps the wrapper.
+func TestSendEndHandsAPeerStopOverBare(t *testing.T) {
+	for _, code := range transfer.RefusalCodes {
+		stop := &transfer.PeerStoppedError{Code: code}
+		if got := sendEnd(stop, false); got.Error() != stop.Error() {
+			t.Errorf("%s: %q, want the bare %q", code, got.Error(), stop.Error())
+		}
+	}
+	if got := sendEnd(&transfer.PeerStoppedError{Code: transfer.CodeStopped}, true).Error(); got != "They stopped this drop." {
+		t.Errorf("code stopped with Hide my IP on: %q", got)
+	}
+	if got := sendEnd(errors.New("connection closed mid-transfer"), false).Error(); got != "transfer failed: connection closed mid-transfer" {
+		t.Errorf("any other error: %q, want it wrapped", got)
+	}
+	capped := fmt.Errorf("transfer blocked: %w", transfer.ErrRelayOverLimit)
+	if got := sendEnd(capped, false); got != capped {
+		t.Errorf("the relay cap with Hide my IP off: %q, want it unchanged", got)
+	}
+	if got := sendEnd(capped, true).Error(); !strings.HasSuffix(got, ". Turn off Hide my IP to send larger files") || strings.HasPrefix(got, "transfer failed") {
+		t.Errorf("the relay cap with Hide my IP on: %q", got)
+	}
+}
+
+// cutForLog keeps a failure message short when it would quote a long string.
+func cutForLog(s string) string {
+	if len(s) > 120 {
+		return s[:120] + "..."
+	}
+	return s
+}
+
 // requestLinkPasteLinks are the browser-only link shapes a person may paste
 // into Receive > CODE by mistake: request links on floe.one, on the local dev
 // pair and on a self-hosted base path, one without its scheme (X1 of
@@ -295,7 +457,7 @@ func TestReceiveByCodeKeepsTheFolderForms0212Took(t *testing.T) {
 
 // W3 R2-11, the code-receive half of 3045b89: a relative folder lands under
 // the home folder, never under the working directory (the install folder of
-// the installed build, which the uninstaller deletes).
+// the installed build, the app's own folder).
 func TestReceiveByCodeResolvesARelativeFolderUnderHome(t *testing.T) {
 	server, _ := codeAPIStub(t)
 	home, cwd := t.TempDir(), t.TempDir()

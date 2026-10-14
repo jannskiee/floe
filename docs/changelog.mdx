@@ -142,6 +142,18 @@ Each entry lists the parts it changed. Filter on the right to see only the ones 
   - Floe Desktop: a second received file named like `.env` is saved as `.env (1)`, not ` (1).env`.
   - Floe Desktop: a pasted room link whose room id was cut short shows "That link is incomplete" without contacting the server.
   - Floe Desktop: a **Server address** typed with capitals, with `:443` or with a dot at the end of the host name gives share links at floe.one when it names floe.one's server, and the empty **Share link address** field in Settings shows that address.
+  - Floe Desktop: **Start over** now asks first when a send that is still connecting or waiting for its receiver carries a note that has not been delivered ("Starting over clears your unsent text"). With nothing to lose it still starts over at once.
+  - Floe Desktop: the installer build's uninstaller removes only the files it installed, and the install folder only when nothing else is left in it, so other files in a folder you chose for Floe are kept.
+  - Floe Desktop: a `desktop.json` that cannot be read is kept beside it as `desktop.json.bad` before Floe writes its defaults, so settings from a broken hand edit can be copied back.
+  - Floe Desktop: a connection the server turns away by its limit on new connections from one network now says "The server is limiting connections from this network. Wait a minute and try again".
+  - Floe Desktop: clicking **Send** with only empty folders chosen now says "The folders you chose have no files to send".
+  - Floe Desktop: a request link pasted into **Receive** without `https://`, or inside quotes or angle brackets, keeps its **Open in browser** button.
+  - Floe Desktop: when the receiver stops an ordinary send, the line reads "They stopped the transfer" where it said "transfer failed: They stopped this drop", and the receiver's other reasons show without "transfer failed:" in front.
+  - Floe Desktop: an error from the server that this version does not know shows one fixed line instead of the server's own words.
+  - Floe Desktop: the temporary copy of a text note is removed when Floe quits during its send, and one left by an earlier run is removed at the next start.
+  - Floe Desktop: a file dropped on the window and files sent from File Explorer are ignored while **Start over?**, **Close Floe?** or **Reset all settings?** is open, as they are during a transfer, and `Ctrl+R` and the **Floe** button at the left of the title bar wait behind **Close Floe?** and **Reset all settings?**.
+  - Floe Desktop: **Test** in Settings now tells the two proxy faults apart when the realtime connection is refused: an answer of 403 reads "(check that your proxy passes the original Host header)", a 404 reads "(check that your proxy forwards /ws)", and any other refusal keeps the line that names both.
+  - Floe Desktop: the portable build no longer adds **Send with Floe** to File Explorer on its first run (turn on **Show in right-click menu** in Settings), and no copy of Floe takes over another copy's entry. The installer build still adds it on its first run, and again after a reinstall unless you switched it off. An entry left by a copy whose folder is gone is taken over by a copy that would add one and removed otherwise, so File Explorer keeps no **Send with Floe** that cannot start.
 </Update>
 
 <Update label="desktop-v0.3.0" description="2026-10-09" tags={["Desktop"]}>

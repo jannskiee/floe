@@ -16,6 +16,8 @@ export function ConfirmClose():Promise<void>;
 
 export function ContextMenuEnabled():Promise<boolean>;
 
+export function ContextMenuState():Promise<string>;
+
 export function DisableContextMenu():Promise<void>;
 
 export function EnableContextMenu():Promise<void>;
@@ -29,6 +31,8 @@ export function GetRequestLink():Promise<main.RequestLinkSnapshot>;
 export function GetSettings():Promise<main.appConfig>;
 
 export function GetVersion():Promise<string>;
+
+export function IsInstalled():Promise<boolean>;
 
 export function IsPackaged():Promise<boolean>;
 

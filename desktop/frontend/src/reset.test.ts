@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest';
 import {resetWarning} from './reset';
 
-const base = {transferring: false, busy: false, text: '', sentText: ''};
+const base = {transferring: false, text: '', sentText: ''};
 
 describe('resetWarning', () => {
     it('says nothing when there is nothing to lose', () => {
@@ -32,11 +32,14 @@ describe('resetWarning', () => {
         expect(s).not.toContain('unsent text');
     });
 
-    // The regression guard that matters most. Start over is the escape hatch for
-    // a send that is connecting or waiting for a peer, and that state still holds
-    // the text. A dialog in front of the escape hatch defeats the escape hatch.
-    it('stays silent while busy, so the stuck-state escape hatch is one click', () => {
-        expect(resetWarning({...base, busy: true, text: 'draft'})).toBe('');
+    // Start over is the escape hatch for a send that is connecting or waiting
+    // for a peer, and it stays one press whenever nothing would be lost. It
+    // takes no busy input any more: a busy gate here used to clear the note of
+    // a waiting send with no prompt (A3-B1), because doReset empties the box
+    // whatever the send is doing. The App test "Start over while a note waits
+    // to be sent" covers the waiting send itself.
+    it('stays silent for a stuck state with nothing in the box, so the escape hatch is one press', () => {
+        expect(resetWarning({...base, text: '', clearedText: ''})).toBe('');
     });
 
     // send:done clears neither the text nor the file list, so without this gate
