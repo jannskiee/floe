@@ -4,6 +4,11 @@ Status tracker and plan for the Floe desktop app, the third surface alongside th
 browser web app and the CLI. All three share one WebRTC wire protocol, so they
 interoperate automatically (browser <-> CLI <-> desktop).
 
+This file is the plan, the release record and the Store runbook; the Phases and
+Release history sections are mostly history. To build and run the app, see
+[desktop/README.md](desktop/README.md) or [Dev commands](#dev-commands) at the end
+of this file.
+
 ## Vision
 
 A small, fast, native desktop app for sending and receiving files peer to peer,
@@ -47,7 +52,7 @@ cli/
     signaling/         WebSocket signaling client; hosttoken.go makes a request link's token and ids
     ice/               STUN/TURN credential fetch
     code/              short room-code register and resolve
-    serverurl/         normalizes user-supplied server URLs
+    serverurl/         normalizes server URLs, and maps a server to the web app its links use
     verify/            short authentication string from DTLS fingerprints (retained, unwired)
   internal/
     selfupdate/        CLI-only self updater (stays private)
@@ -104,7 +109,7 @@ go.work                joins cli + desktop into one workspace, active for every 
 - [x] Live progress bar (percent + bytes) via an engine progress callback (`SendOptions.OnProgress`/`ReceiveOptions.OnProgress`) plus throttled `send:progress`/`recv:progress` Wails events
 - [x] Speed and ETA readout on the progress bar
 - [x] Drag and drop files onto the window to send
-- [x] Polished UI matching the web app's design: Tailwind v4 (`@tailwindcss/vite`, Vite 3->6 bump)
+- [x] Polished UI matching the web app's design: Tailwind v4 (`@tailwindcss/vite`, with Vite bumped from 3 to 6 at the time; 7 today)
       + Geist fonts + lucide-react; dark zinc theme, elevated card, segmented tabs, custom toggle,
       dashed drop zone, mono room code + copy-link, polished progress/status (the verify
       row was later removed, see 3a), and a
@@ -250,17 +255,19 @@ verify the connection independently of the server.
       sits BELOW the Incoming box, the accept prompt, `OnIncoming` and `OnProgress`, so the
       claim in its doc comment that it protected the terminal was structurally false: every
       one of those sinks carried the raw peer string (a bidi override read `photo\u202egnp.exe`
-      as an image at the prompt, and a bare ESC could scrub the prompt itself). Fixed by
-      `displayText`, which shares one `sanitizeRune` with the on-disk sanitizer so the two
-      can never drift, and now guards every print, callback payload and error string in the
-      engine (file name, peer `ver`, incompatible `reason`); the desktop inherits it through
-      `FirstName` and `Progress.FileName` with no TS-side sanitizer. In the same pass:
-      `parseMetadata` rejects negative, fractional or past-2^53 sizes and zero positions
-      (`fileSize:-1` reached `formatBytes` as MinInt64 and panicked on `units[i]`, and with
-      no `recover` on the transfer goroutine that ended the whole desktop process before the
-      preview appeared), and the 1000-byte control-message cap applies to strings too, where
-      the old binary-only gate left a `SendText` metadata bounded by nothing but pion's
-      default. `hostile_test.go` pins each of these over a real pion pair.
+      as an image at the prompt, and a bare ESC could scrub the prompt itself). Fixed in one
+      pass, in four parts:
+      - `displayText`, which shares one `sanitizeRune` with the on-disk sanitizer so the two
+        can never drift, and now guards every print, callback payload and error string in
+        the engine (file name, peer `ver`, incompatible `reason`); the desktop inherits it
+        through `FirstName` and `Progress.FileName` with no TS-side sanitizer.
+      - `parseMetadata` rejects negative, fractional or past-2^53 sizes and zero positions
+        (`fileSize:-1` reached `formatBytes` as MinInt64 and panicked on `units[i]`, and
+        with no `recover` on the transfer goroutine that ended the whole desktop process
+        before the preview appeared).
+      - The 1000-byte control-message cap applies to strings too, where the old binary-only
+        gate left a `SendText` metadata bounded by nothing but pion's default.
+      - `hostile_test.go` pins each of these over a real pion pair.
 - [x] Client CVEs: overrides live in `client/pnpm-workspace.yaml`; `corepack pnpm audit`
       (prod + full) reports "No known vulnerabilities found."
 
@@ -383,27 +390,29 @@ binary.
 - [x] e. floe.one /download leads with the Store badge (aeed0b4)
 - [ ] f. Each release after: false-positive form + VirusTotal link for the
       GitHub exe, never UPX-pack
-- [ ] g. Each release after: write the changelog entry BEFORE tagging. Add it
-      under `Unreleased` in `docs/changelog.mdx`, merge, then relabel it to
-      `desktop-vX.Y.Z` with the date at tag time, the way the CLI already does
-      (see commit d7e432f, #296). The generated GitHub release body is
-      boilerplate and carries no account of what changed, and /download's
-      "Release notes" link points at the docs changelog, so skipping this
-      leaves that link empty.
-      Tag the entry `["Desktop"]`; the full contract for labels, dates and tag
-      values is the MDX comment at the top of `docs/changelog.mdx`.
-      Then submit with `.claude/skills/store-submit/SKILL.md`, which renders the
-      entry into Partner Center's plain-text "What's new in this version" field
-      (1,500 characters, no markdown, no links to other channels) and drives the
-      submission. After the Store build lands, run
-      `.claude/skills/transfer-audit/SKILL.md`: it drives real transfers across
-      web, CLI and the installed desktop, direct and relayed, and reports which
-      surface is behind. A release with
-      nothing a user can see gets no entry, which is the point of writing it by
-      hand. Judge that by what reaches a user, not by whether code changed:
-      `desktop-v0.2.1` did move the Store tile color, so it earned the short
-      entry it now has, whereas a release that is only CI or build plumbing
-      earns nothing. The runbook is `.claude/skills/floe-release/SKILL.md`.
+- [ ] g. Each release after, in this order (the runbook is
+      `.claude/skills/floe-release/SKILL.md`):
+      1. Write the changelog entry BEFORE tagging. Add it under `Unreleased` in
+         `docs/changelog.mdx`, merge, then relabel it to `desktop-vX.Y.Z` with the
+         date at tag time, the way the CLI already does (see commit d7e432f, #296).
+         Tag the entry `["Desktop"]`; the full contract for labels, dates and tag
+         values is the MDX comment at the top of `docs/changelog.mdx`.
+      2. Submit with `.claude/skills/store-submit/SKILL.md`, which renders the entry
+         into Partner Center's plain-text "What's new in this version" field (1,500
+         characters, no markdown, no links to other channels) and drives the
+         submission.
+      3. After the Store build lands, run `.claude/skills/transfer-audit/SKILL.md`:
+         it drives real transfers across web, CLI and the installed desktop, direct
+         and relayed, and reports which surface is behind.
+
+      Why the entry comes first: the generated GitHub release body is boilerplate
+      and carries no account of what changed, and /download's "Release notes" link
+      points at the docs changelog, so skipping it leaves that link empty. A release
+      with nothing a user can see gets no entry, which is the point of writing it
+      by hand. Judge that by what reaches a user, not by whether code changed:
+      `desktop-v0.2.1` did move the Store tile color, so it earned the short entry
+      it now has, whereas a release that is only CI or build plumbing earns
+      nothing.
 - [ ] h. Each release after: once the GitHub release is published, launch the
       PREVIOUS build and confirm the update notice fires and names the new
       version (the notice shipped in 0.2.3). Use an installer or portable build:

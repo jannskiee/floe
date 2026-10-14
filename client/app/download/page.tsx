@@ -47,8 +47,8 @@ const OTHER_WAYS: {
             <>
                 For machines without Store access: the installer and a portable zip (unzip and
                 run <span className="font-mono text-[13px] text-zinc-400">floe-desktop.exe</span>).
-                These builds are unsigned, so SmartScreen warns on first run: choose &quot;More
-                info&quot;, then &quot;Run anyway&quot;.
+                These builds are not signed, so the first time you run one, Windows SmartScreen
+                shows a warning: choose &quot;More info&quot;, then &quot;Run anyway&quot;.
             </>
         ),
         actions: [
@@ -74,7 +74,7 @@ const OTHER_WAYS: {
     },
     {
         label: 'Command line',
-        desc: 'A single static binary for servers, scripts, and headless machines.',
+        desc: 'One file with nothing else to install, for servers, scripts, and machines with no screen.',
         actions: [
             {
                 name: 'Install the CLI',
@@ -177,10 +177,17 @@ export default function Download() {
                             manifest declares (MinVersion 10.0.19041), while the GitHub
                             installer only asks for Windows 10. Both are built for x64 alone
                             (ProcessorArchitecture="x64" in the manifest, amd64 in the
-                            installer), so the line says x64 rather than 64-bit: an ARM64 PC
-                            is 64-bit too, and the installer refuses to run on one. */}
+                            installer), so the line names Intel and AMD rather than 64-bit
+                            alone: an ARM64 PC is 64-bit too, and the installer refuses to run
+                            on one. "Built for", not "Requires": the portable zip has no check,
+                            and on an ARM64 PC with Windows 11 it runs under emulation, which
+                            docs/desktop/installation.mdx (Requirements) spells out. */}
                         <p>From the Microsoft Store it installs with no warnings, and updates arrive automatically.</p>
-                        <p>Requires x64 Windows 10 or later with Microsoft WebView2; the Store build needs version 2004 (build 19041) or later.</p>
+                        <p>Built for Windows 10 or later on 64-bit Intel and AMD processors (x64).</p>
+                        <p>
+                            It needs Microsoft WebView2, which most PCs already have; the Store build needs
+                            Windows 10 version 2004 or later.
+                        </p>
                     </div>
                 </div>
 

@@ -51,8 +51,13 @@ export default function NotFound() {
                 <h1 className="mt-9 text-2xl font-semibold tracking-tight text-zinc-200 sm:text-[2rem]">
                     Page not found
                 </h1>
+                {/* "a Floe link", not "a share link": a share link's path is always
+                    "/" with the room after the #, so a cut-short one opens the home
+                    page or the Link Invalid card, never this page. A request link
+                    cut off at /r/, or one with more path after its id, is the
+                    Floe link that lands here (app/r has only [linkId]). */}
                 <p className="mt-4 max-w-md text-base leading-relaxed text-balance text-zinc-400">
-                    That link points at nothing here. If you were sent a share link, check that
+                    That link points at nothing here. If you were sent a Floe link, check that
                     you copied the whole thing.
                 </p>
                 <div className="mt-9 flex flex-wrap items-center justify-center gap-x-6 gap-y-2">

@@ -31,21 +31,23 @@ installs that same version and fails when its pin and `go.mod` drift apart.
 
 A build you run from here talks to Floe's live server, `api.floe.one`, until
 you set **Server address** under Settings, **Advanced** (`http://localhost:3001`
-for a server started from `server/`). While it is on the live server, turn off
-**Contribute to global stats** under Settings, **Privacy** before you receive a
-test transfer: the bytes it reports are added to the public counter for good.
-`CONTRIBUTING.md` at the repository root has the whole story, and the steps
-for turning request links on locally.
+for a server started from `server/`). While it is on the live server, a test
+transfer it receives adds its bytes to the public counter for good: turn the
+report off first, as
+[Test transfers and the public counter](../CONTRIBUTING.md#test-transfers-and-the-public-counter)
+shows. `CONTRIBUTING.md` at the repository root also has the steps for turning
+request links on locally.
 
 ## Where things are documented
 
-User-facing behavior lives in the six-page desktop docs group
-(`docs/desktop/`): installation, sending, receiving, request-links, settings,
-and keyboard-shortcuts. The pre-launch list of facts that had to reach those
-pages shipped with them, including the relay cap and Hide my IP (sending,
-settings), save-folder name collisions (receiving), who reports global stats
-(receiving), the right-click Explorer entry and what Reset covers (settings),
-and self-hosted server reachability (settings).
+User-facing behavior lives in the six-page desktop docs group (`docs/desktop/`):
+
+- [Installation](https://www.floe.one/docs/desktop/installation)
+- [Sending files](https://www.floe.one/docs/desktop/sending)
+- [Receiving files](https://www.floe.one/docs/desktop/receiving)
+- [Request links](https://www.floe.one/docs/desktop/request-links)
+- [Settings](https://www.floe.one/docs/desktop/settings)
+- [Keyboard shortcuts](https://www.floe.one/docs/desktop/keyboard-shortcuts)
 
 Release status, the Store plan, and the roadmap live in `DESKTOP.md` at the
 repository root. The Microsoft Store packaging pipeline lives in `build/msix/`

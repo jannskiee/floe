@@ -7,7 +7,10 @@ const steps: { index: string; title: string; body: ReactNode }[] = [
     {
         index: '01',
         title: 'Drop your files',
-        body: 'You get a share link and a QR code. The room id rides the URL fragment, which never appears in page requests, server logs, or analytics.',
+        // The link appears after a click on "Create secure link (N files)"
+        // (P2PTransfer.tsx), and the QR code after a further click on Show QR
+        // (ShareLinkPanel.tsx), so dropping files alone gives neither.
+        body: "Click Create secure link for a share link, with a QR code one click away. The link's secret part, after the #, never appears in page requests, server logs, or analytics.",
     },
     {
         index: '02',
@@ -28,7 +31,7 @@ export function HowItWorksSection() {
             <SectionHeader
                 eyebrow="How it works"
                 headline="Your files never make a stop."
-                lede="Two devices open an encrypted WebRTC channel and stream bytes to each other. The signaling server brokers the handshake, then steps out of the way."
+                lede="Two devices open an encrypted WebRTC channel and stream bytes to each other. A small server introduces them, then steps out of the way."
             />
             {/* md, not sm: 640-767px would give ~155px text columns (a ~22ch measure)
                 while PrivacySection next door is still single-column; every landing

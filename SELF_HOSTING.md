@@ -32,7 +32,7 @@ fetch the annotated example next to the compose file:
 curl -fsSL https://raw.githubusercontent.com/jannskiee/floe/main/.env.docker.example -o .env
 ```
 
-To build from source instead, add the overlay:
+To build from source instead, clone the repository and add the overlay from its root:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
@@ -68,7 +68,8 @@ docker compose up -d
 tags, and the sitemap, which Next renders into the page at build time, so a shared
 image cannot carry it. The published client leaves its own address out of them (a
 relative canonical link, no share-preview image, an empty sitemap) rather than
-advertising a domain that is not yours. To set your own, build the client:
+advertising a domain that is not yours. To set your own, build the client from a
+clone of the repository, in its root:
 
 ```bash
 NEXT_PUBLIC_SITE_URL=https://files.example.com \
@@ -82,9 +83,11 @@ all configured at runtime.
 ## One domain (recommended for production)
 
 You do not need two hostnames. Put the client and the signaling server behind a
-single reverse proxy, route `/socket.io/`, `/ws`, `/api/` (except `/api/config`,
-which belongs to the client), and `/health` to the server and everything else to
-the client, and the whole instance lives at one address. That means one certificate and one URL to configure.
+single reverse proxy, and the whole instance lives at one address. That means one
+certificate and one URL to configure. The proxy routes:
+
+- To the server: `/socket.io/`, `/ws`, `/health`, and `/api/` except `/api/config`.
+- To the client: `/api/config`, which belongs to the client, and everything else.
 
 In `.env`, leave `NEXT_PUBLIC_SOCKET_URL` empty so the browser uses the address it
 was loaded from, and tell the server its public address and that one proxy sits in
@@ -106,11 +109,13 @@ Copy-pasteable Caddy and nginx configuration is in
 ### Pass the `Host` header through
 
 Since 1.11.0 the server checks the `Origin` of every WebSocket, on Socket.IO and on
-`/ws`. It lets in a connection with no `Origin`, an `Origin` on its allow-list
-(your `CLIENT_URL`, plus `https://floe.one`, `https://www.floe.one` and
-`http://localhost:3000`, which are built in), and an `Origin` whose hostname is
-the one in the request's `Host` header (with the same port too, when `Host`
-carries one other than the scheme's default).
+`/ws`. It lets in a connection with:
+
+- no `Origin` at all,
+- an `Origin` on its allow-list: your `CLIENT_URL`, plus `https://floe.one`,
+  `https://www.floe.one` and `http://localhost:3000`, which are built in,
+- or an `Origin` whose hostname is the one in the request's `Host` header (with the
+  same port too, when `Host` carries one other than the scheme's default).
 
 The last rule is the one the CLI and Floe Desktop rely on. They connect on `/ws`
 and send the server address you gave them as their `Origin`. On one domain that
@@ -178,7 +183,7 @@ The full steps, the limits, and the rule about matching versions are in
 
   `TURN_SECRET` must match `static-auth-secret` in `coturn/turnserver.conf`. Skip
   that download and Docker creates a **directory** at the path; coturn then starts
-  anyway and reports healthy on built-in defaults with no auth secret, so relaying
+  anyway and shows as running, on built-in defaults with no auth secret, so relaying
   silently fails. The giveaway is `Default realm: localdomain` in its logs, and
   recovery needs `rmdir coturn/turnserver.conf` first, because copying onto a
   directory succeeds and writes the file inside it.

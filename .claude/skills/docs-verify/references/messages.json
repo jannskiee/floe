@@ -2087,7 +2087,7 @@
     },
     {
         "surface": "site",
-        "text": "For machines without Store access: the installer and a portable zip (unzip and run floe-desktop.exe). These builds are unsigned, so SmartScreen warns on first run: choose \"More info\", then \"Run anyway\".",
+        "text": "For machines without Store access: the installer and a portable zip (unzip and run floe-desktop.exe). These builds are not signed, so the first time you run one, Windows SmartScreen shows a warning: choose \"More info\", then \"Run anyway\".",
         "source": "client/app/download/page.tsx",
         "anchor": "/desktop/installation#choose-a-channel",
         "why_no_home": null
@@ -2178,7 +2178,14 @@
     },
     {
         "surface": "site",
-        "text": "Requires x64 Windows 10 or later with Microsoft WebView2; the Store build needs version 2004 (build 19041) or later.",
+        "text": "Built for Windows 10 or later on 64-bit Intel and AMD processors (x64).",
+        "source": "client/app/download/page.tsx",
+        "anchor": "/desktop/installation#requirements",
+        "why_no_home": null
+    },
+    {
+        "surface": "site",
+        "text": "It needs Microsoft WebView2, which most PCs already have; the Store build needs Windows 10 version 2004 or later.",
         "source": "client/app/download/page.tsx",
         "anchor": "/desktop/installation#requirements",
         "why_no_home": null
@@ -2227,7 +2234,7 @@
     },
     {
         "surface": "site",
-        "text": "That link points at nothing here. If you were sent a share link, check that you copied the whole thing.",
+        "text": "That link points at nothing here. If you were sent a Floe link, check that you copied the whole thing.",
         "source": "client/app/not-found.tsx",
         "anchor": null,
         "why_no_home": null

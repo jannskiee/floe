@@ -37,12 +37,15 @@ const items: {
     {
         icon: Activity,
         title: 'Honest progress',
-        body: 'Per-file bars with live speed and ETA, in the browser and in the terminal.',
+        // The terminal draws a bar per file (format.go newProgressBar); the
+        // browser draws one bar that restarts for each file
+        // (TransferProgressBar.tsx), so "per-file bars" was true of one side.
+        body: 'Progress for each file with live speed and time left, in the browser and in the terminal.',
     },
     {
         icon: FileCheck,
         title: 'Checked on arrival',
-        body: 'Each file is checked against its announced size and, when the sender sends one, its SHA-256. A mismatched file is discarded. CLI and Floe Desktop receivers confirm delivery.',
+        body: 'Each file is checked against its announced size and, when the sender sends one, a fingerprint of its contents (SHA-256). A mismatched file is discarded. CLI and Floe Desktop receivers confirm delivery.',
         href: 'https://www.floe.one/docs/how-it-works/file-checks',
     },
     {

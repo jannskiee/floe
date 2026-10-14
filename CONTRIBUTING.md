@@ -16,12 +16,17 @@ Thank you for your interest in contributing! All contributions are welcome. This
 
 Floe has four parts: a **Next.js client**, a **Node.js signaling server**, a **Go CLI**, and a **Wails desktop app**. The CLI and the desktop app share the Go transfer engine in `cli/engine/`, joined by the `go.work` workspace at the repository root.
 
-For most contributions (UI, pages, components), you only need to run the client. It can use the live signaling server at `api.floe.one`, so you do not need to run a server locally. Before you receive a test transfer through the live server, read [Test transfers and the public counter](#test-transfers-and-the-public-counter).
+For UI work (pages, components) that never receives a file, you only need to run the client, and it can use the live signaling server at `api.floe.one`. For anything that receives a test transfer, run the server locally too, as in [Client + Server](#client--server-for-server-changes-and-for-test-transfers) below, and read [Test transfers and the public counter](#test-transfers-and-the-public-counter) first.
 
 ### Prerequisites
 
-- **Node.js 22.13 or newer.** The client needs it: pnpm 11 requires at least Node.js 22.13, and CI builds and tests the client on Node 22. CI tests the signaling server on Node 20 and on Node 24, and the published container images run both services on Node 24. No `package.json` in the repository declares an `engines` range, so an older Node is not refused up front. It fails later, when something needs a newer one.
-- **pnpm 11** for the client. The repo pins `pnpm@11.1.2` through the `packageManager` field: install it directly with `npm install -g pnpm@11`, or run `corepack enable` once (Corepack ships with Node 22 through 24 and picks up the pinned version automatically; Node 25 dropped it, so run `npm install -g corepack` first there; on Windows run it from an elevated terminal).
+- **Node.js 22.13 or newer.**
+  - The client needs it: pnpm 11 requires at least Node.js 22.13, and CI builds and tests the client on Node 22.
+  - CI tests the signaling server on Node 20 and on Node 24, and the published container images run both services on Node 24.
+  - No `package.json` in the repository declares an `engines` range, so an older Node is not refused up front. It fails later, when something needs a newer one.
+- **pnpm 11** for the client. The repo pins `pnpm@11.1.2` through the `packageManager` field. Install it in one of two ways:
+  - Directly, with `npm install -g pnpm@11`.
+  - Through Corepack: run `corepack enable` once, and Corepack picks up the pinned version automatically. Node 22 through 24 ship Corepack. Node 25 dropped it, so run `npm install -g corepack` first there. On Windows, run these from an elevated terminal.
 - **Go 1.26 or newer** for the CLI and the desktop app.
 - **Docker** (optional) for the full-stack Compose setup below.
 
@@ -39,7 +44,9 @@ That matters whenever a development build talks to `api.floe.one`. Before you re
 
 Better still, keep test transfers off the live server: run `server/` locally, as in [Client + Server](#client--server-for-server-changes-and-for-test-transfers) below. A server started from the unedited `server/.env.example` has no Upstash credentials, so its counter lives in memory and resets when it restarts. Never put the production Upstash credentials in a development `server/.env`.
 
-### Client Only (Recommended for most contributors)
+<a id="client-only-recommended-for-most-contributors"></a>
+
+### Client Only (for UI work that never receives a file)
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/floe.git
@@ -55,7 +62,7 @@ Open [http://localhost:3000](http://localhost:3000). With `NEXT_PUBLIC_SOCKET_UR
 
 > **Warning:** In this setup a transfer you receive adds its bytes to the public counter on floe.one, permanently. Untick **Contribute to global stats** on the receiving page before any test transfer, or run the server locally instead. See [Test transfers and the public counter](#test-transfers-and-the-public-counter).
 
-`pnpm dev` prints a warning that custom Cache-Control headers were detected for `/_next/static/:path*`. That is expected. `next.config.mjs` sets `Cache-Control: no-store` on dev assets, because `next dev` serves the whole app's CSS from a filename that does not change when its contents do, and browsers were reusing a stale copy on a soft reload; a page could animate with CSS you had already edited away. The header is guarded by `NODE_ENV === 'development'` and never reaches a build.
+`pnpm dev` prints a warning that custom Cache-Control headers were detected for `/_next/static/:path*`. That is expected and applies to development only: `next.config.mjs` sets `Cache-Control: no-store` on those assets when `NODE_ENV === 'development'`, so the header never reaches a build. Why it does is in the comment beside it.
 
 <a id="client--server-only-needed-if-youre-changing-server-code"></a>
 
@@ -110,7 +117,7 @@ go test ./...
 
 For a live-reload development window, install the [Wails CLI](https://wails.io/docs/gettingstarted/installation) at the version `desktop/go.mod` links against (currently v2.12.0) and run `wails dev` from `desktop/`.
 
-A development build talks to `api.floe.one` until you set **Server address** under Settings, **Advanced** (`http://localhost:3001` for a local server). The stats switch is **Contribute to global stats** under Settings, **Privacy**.
+A development build talks to `api.floe.one` until you set **Server address** under Settings, **Advanced** (`http://localhost:3001` for a local server). Before it receives a test transfer through the live server, turn its stats report off, as [Test transfers and the public counter](#test-transfers-and-the-public-counter) shows.
 
 ### Request links (local development)
 
@@ -142,9 +149,15 @@ Before you open a docs PR, run the pre-flight from the repository root:
 node .claude/skills/docs-verify/scripts/docs-check.mjs
 ```
 
-It checks links and anchors, the navigation, frontmatter, link labels, table shape, the environment-variable tables, and em and en dashes, in `docs/` and in the root Markdown files. It exits 1 on a defect it can decide and prints everything else as `NOTE` lines for you to read. CI runs the same command on every pull request, in the `Repo guardrails` job, so a defect it can decide blocks the merge.
+It checks links and anchors, the navigation, frontmatter, headings MDX cannot compile, link labels, table shape, the environment-variable tables, and em and en dashes. Five more checks (readability, the page standard, glossary first use, the message index and the screenshot manifests) only print notes for now. It reads `docs/` and the root Markdown files, and also the code and configuration that link to the docs or repeat their facts: the web app, CLI and desktop source, `.github/`, the server's settings, both env examples, `docker-compose.yml`, `unraid/` and `.goreleaser.yml`. It exits 1 on a defect it can decide and prints everything else as `NOTE` lines for you to read. CI runs the same command on every pull request, in the `Repo guardrails` job, so a defect it can decide blocks the merge.
 
-`docs/changelog.mdx` is written by hand. When your change is one a user can see, it needs a line there: add a bullet to the `Unreleased` entry at the top of the timeline (start one if the newest entry already carries a release tag), following the authoring contract in the comment at the top of that file, or say in the PR that it needs one. A change nobody outside the repository can notice needs no entry.
+`docs/changelog.mdx` is written by hand. When your change is one a user can see:
+
+1. Add a bullet to the `Unreleased` entry at the top of the timeline. Start one if the newest entry already carries a release tag.
+2. Follow the authoring contract in the comment at the top of that file.
+3. If you would rather not write it, say in the PR that it needs one.
+
+A change nobody outside the repository can notice needs no entry.
 
 ### Full stack with Docker (no local toolchain needed)
 
@@ -168,8 +181,8 @@ Even with the overlay this is a production build with no hot reload, so use it t
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `NEXT_PUBLIC_SOCKET_URL` | No | Signaling server URL the browser connects to. `pnpm dev` already defaults to `http://localhost:3001`; for UI-only work set it to `https://api.floe.one` to use the live server without running one locally (read [Test transfers and the public counter](#test-transfers-and-the-public-counter) first). Inlined at build time when set. Self-hosted Docker instances leave it unset and resolve the address at runtime instead. |
-| `NEXT_PUBLIC_SITE_URL` | No | Public base URL for canonical links, Open Graph tags, and the sitemap. Defaults to `https://www.floe.one`. Set to your own domain when self-hosting. |
+| `NEXT_PUBLIC_SOCKET_URL` | No | Signaling server URL the browser connects to. When to set it is under this table. |
+| `NEXT_PUBLIC_SITE_URL` | No | Public base URL for canonical links, Open Graph tags, and the sitemap. Defaults to `https://www.floe.one`, but `client/.env.example` sets `http://localhost:3000`, so a copied file uses that until you change or remove the line. Set to your own domain when self-hosting. |
 | `REQUEST_REPORT_EMAIL` | No | Where "Report this link" on a request link's page (`/r/...`) sends its email. floe.one uses a built-in address and ignores this. On any other origin, `localhost` included, the page shows the link only when this holds exactly one plain address, so set one to see the link while you work on that page. Read on every request and never inlined at build time. |
 | `NEXT_PUBLIC_SENTRY_DSN` | No | Your Sentry DSN for error tracking in the browser. Leave empty to disable. |
 | `SENTRY_DSN` | No | Your Sentry DSN for error tracking on the client's own server side (the Next.js server and edge runtimes, not the signaling server). Leave empty to disable. |
@@ -177,7 +190,19 @@ Even with the overlay this is a production build with no hot reload, so use it t
 | `SENTRY_PROJECT` | No | Your Sentry project slug. |
 | `NEXT_PUBLIC_UMAMI_WEBSITE_ID` | No | Your Umami analytics website ID. Leave empty to disable. |
 
-Two more client variables are left out of this table and of `client/.env.example` on purpose, because a development setup never sets them: `SOCKET_URL`, which a running client reads on every request to tell the browser where the signaling server is (the Docker images use it), and `SOURCE_COMMIT`, which a self-hosted client can set to report the commit it was built from. Both are in the [Configuration reference](https://www.floe.one/docs/self-hosting/configuration).
+`NEXT_PUBLIC_SOCKET_URL` in more detail:
+
+- `pnpm dev` already defaults to `http://localhost:3001`, so a local server needs nothing set.
+- For UI-only work, set it to `https://api.floe.one` to use the live server without running one locally. Read [Test transfers and the public counter](#test-transfers-and-the-public-counter) first.
+- When it is set, it is inlined at build time.
+- Self-hosted Docker instances leave it unset and resolve the address at runtime instead.
+
+Two more client variables are left out of this table and of `client/.env.example` on purpose, because a development setup never sets them:
+
+- `SOCKET_URL`, which a running client reads on every request to tell the browser where the signaling server is (the Docker images use it).
+- `SOURCE_COMMIT`, which a self-hosted client can set to report the commit it was built from.
+
+Both are in the [Configuration reference](https://www.floe.one/docs/self-hosting/configuration).
 
 ### Server (`server/.env`)
 
@@ -189,7 +214,7 @@ Two more client variables are left out of this table and of `client/.env.example
 | `TRUSTED_PROXY_COUNT` | No | Trusted reverse-proxy hop count for correct client-IP parsing and rate limiting (default: `1`). Set to `0` for direct exposure with no proxy. Docker Compose passes `0` unless you set it. |
 | `MAX_CONNECTIONS_PER_IP` | No | Connection rate limit ceiling per IP per 60 seconds (default: `30`). Raise in staging or test environments. |
 | `MAX_CODE_REQUESTS_PER_IP` | No | Rate limit for the `/api/code` endpoints per IP per 60 seconds (default: `60`), shared across registering and resolving codes. Raise in CI or staging. |
-| `MAX_FAILED_CODE_RESOLVES` | No | Failed lookups on `GET /api/code/:code` allowed per IP per 60 seconds (default: `10`). Only misses count, so a receiver retrying a code that works spends none of it. Once an address has used it up, every lookup from that address answers `429` until the misses age out, a working code included. |
+| `MAX_FAILED_CODE_RESOLVES` | No | Failed lookups on `GET /api/code/:code` allowed per IP per 60 seconds (default: `10`). How it counts is under this table. |
 | `MAX_ACTIVE_CODES` | No | Maximum number of simultaneously-live room codes (default: `10000`). `POST /api/code` returns `503` when the cap is reached. |
 | `POLICY_FILE` | No | Absolute path to the request-link policy file, a JSON object such as `{"requestLinks": true}`. Unset means request links are off. The path is read at startup; the content is re-read every 60 seconds, so turning the feature on or off needs no restart. |
 | `MAX_TURN_REQUESTS_PER_IP` | No | Rate limit for `GET /api/turn-credentials` per IP per 60 seconds (default: `20`). Raise in CI or staging. |
@@ -203,7 +228,11 @@ Two more client variables are left out of this table and of `client/.env.example
 
 > **Note:** TURN is optional. Without it, only direct connections work. This is fine for local development and most home networks.
 
-Two things about the limits in this table. "Per IP" means per IPv4 address, or per /64 for an IPv6 client. And setting a `MAX_*` variable to `0` restores its default; it does not switch the limit off.
+About the limits in this table:
+
+- "Per IP" means per IPv4 address, or per /64 for an IPv6 client (a /64 is usually one home or office network).
+- Setting a `MAX_*` variable to `0` restores its default; it does not switch the limit off.
+- `MAX_FAILED_CODE_RESOLVES` counts only misses, so a receiver retrying a code that works spends none of it. Once an address has used it up, every lookup from that address answers `429` until the misses age out, a working code included.
 
 ---
 
@@ -242,7 +271,10 @@ A run starts the signaling server on `:3001` and the client on `:3000` (with `ne
 - The connection, room-code and TURN rate limits are raised to 1,000 a minute.
 - The Upstash variables are overridden with a dummy local address and token, so no test byte can reach a real counter.
 
-> **Warning:** A run refuses to start when something already answers on `:3001` or `:3000`. Playwright stops before any test and says the address "is already used". Stop your own server and your own client, then run again, and do not follow the hint in that message to set `reuseExistingServer:true`. A server you started yourself has none of the setup above: request links are off unless you turned them on, the default rate limits apply, and test bytes go to whatever counter its `server/.env` configures. A client you started yourself keeps whatever `NEXT_PUBLIC_SOCKET_URL` it was started with. If that is `https://api.floe.one` (the Client Only setup above), the browser side of the suite would run through the live server, and its test receives would add their bytes to the public counter.
+> **Warning:** Stop your own server and client, anything on `:3001` and `:3000`, before a run. A run refuses to start when something already answers there: Playwright stops before any test and says the address "is already used". Do not follow the hint in that message to set `reuseExistingServer:true`, because a server or client you started yourself has none of the setup above:
+>
+> - A server you started yourself has request links off unless you turned them on, applies the default rate limits, and sends test bytes to whatever counter its `server/.env` configures.
+> - A client you started yourself keeps whatever `NEXT_PUBLIC_SOCKET_URL` it was started with. If that is `https://api.floe.one` (the Client Only setup above), the browser side of the suite would run through the live server, and its test receives would add their bytes to the public counter.
 >
 > On Windows, stopping `next dev` or `next start` can leave a `next-server` process holding `:3000`. Find it with `Get-NetTCPConnection -LocalPort 3000 -State Listen` in PowerShell and stop the process it names.
 >
@@ -255,9 +287,15 @@ Some tests skip themselves unless you set a variable:
 | Variable | What it turns on |
 |----------|------------------|
 | `FLOE_E2E_HEAVY=1` | The heavy request-link cells in `e2e/request-heavy.spec.ts`: a folder of 1,000 files, and one file of 4 GiB plus 1 byte. Never run in CI. |
-| `FLOE_E2E_LOCAL_TURN=1` | The one request-link test that sends through a relay with Hide my IP on. It needs a coturn relay running locally, with its TURN variables set in the shell that starts the suite. Run it with `--retries=0` and without `--trace`, because a trace would record the relay credentials. Never run in CI. |
+| `FLOE_E2E_LOCAL_TURN=1` | The one request-link test that sends through a relay with Hide my IP on. Never run in CI. What it needs is under this table. |
 | `E2E_EXPECT_UMAMI=1` | Extra assertions in `e2e/request-privacy.spec.ts` that only hold for a client built with an Umami website ID. |
 | `FLOE_RELEASED_CLI=<path>` | `e2e/back-compat.spec.ts`, which pairs a released `floe` binary at that path with your working tree. Without it the whole file is skipped. |
+
+`FLOE_E2E_LOCAL_TURN=1` needs:
+
+- A coturn relay running locally.
+- Its TURN variables set in the shell that starts the suite.
+- A run with `--retries=0` and without `--trace`, because a trace would record the relay credentials.
 
 ### Go tests
 
@@ -299,21 +337,35 @@ Run `go vet ./...` and `go test ./...` in `cli/`, and in `desktop/` once the fro
 
 ### What CI runs, and how to run it locally
 
-A first job, `Detect changed paths`, decides which of the jobs below run, and `CI green` passes only when every one that ran has passed. "Code changed" means the PR touches at least one file outside `docs/` and `.claude/skills/`. A PR that changes only `docs/` runs `Repo guardrails` and `Skill test suites` and skips the rest. Commands are for a bash shell.
+A first job, `Detect changed paths`, decides which of the jobs below run, and `CI green` passes only when every one that ran has passed. "Code changed" means the PR touches at least one file outside `docs/` and `.claude/skills/`. A PR that changes only `docs/` runs `Repo guardrails` and `Skill test suites` and skips the rest.
 
-| CI job | Runs when | What it checks | Local command |
-|--------|-----------|----------------|---------------|
-| `Repo guardrails` | Every PR | That every file reading a value the other peer chose is listed in the peer-data consumer map, and the docs pre-flight: links and anchors, tables, headings MDX cannot compile, documented server defaults, and em and en dashes | From the repository root: `node .claude/skills/untrusted-peer-data/scripts/check-consumers.mjs` and `node .claude/skills/docs-verify/scripts/docs-check.mjs all` |
-| `Build & Lint` | Code changed | Client lint, unit tests, production build and page titles, plus a check that the desktop release named in `client/lib/desktopRelease.ts` has its assets on GitHub | In `client/`: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm test`, `pnpm build`, `node scripts/check-titles.mjs` |
-| `Server (Node.js 20)`, `Server (Node.js 24)` | Code changed | Server tests, once on each Node version | In `server/`: `npm ci`, `npm test` |
-| `CLI (Go, <os>)` | Code changed | Vet, tests and build, on Linux, Windows and macOS | In `cli/`: `go vet ./...`, `go test -count=1 ./...`, `go build ./cmd/floe` |
-| `Go formatting` | Code changed | `gofmt -l` over every tracked `.go` file | From the repository root: `git ls-files -z '*.go' \| xargs -0 gofmt -l` must print nothing (see Code Style for a CRLF checkout) |
-| `Desktop (Wails, windows-latest)` | Code changed | Frontend tests and build, Go vet and tests, then a packaging smoke that builds the NSIS installer and packs the MSIX | In `desktop/frontend/`: `npm ci`, `npm test`, `npm run build`. In `desktop/`: `go vet ./...`, `go test -count=1 ./...`. The packaging smoke needs Windows with the Wails CLI, NSIS and the Windows SDK: `wails build -s -nsis` in `desktop/`, then `desktop/build/msix/pack.ps1 -Version <X.Y.Z>` |
-| `E2E (browser + CLI interop, <os>)` | Code changed | The Playwright suite, on Linux, Windows and macOS | In `client/`: `pnpm test:e2e` (see [End-to-end tests](#end-to-end-tests)) |
-| `Back-compat (HEAD vs latest release)` | Code changed | The latest released CLI against your branch, in every pairing with the browser and the new CLI | In `client/`: `FLOE_RELEASED_CLI=/path/to/released/floe pnpm exec playwright test e2e/back-compat.spec.ts` |
-| `Docker (self-hosting stack)` | Code changed | The compose files are valid, both images build from source and pass their smoke test, and the stack starts with no `.env` | From the repository root: `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build --wait`, then `curl --fail http://localhost:3001/health` |
-| `Lint workflows` | `.github/workflows/` or `.github/scripts/` changed | actionlint over the workflows and shellcheck over the scripts | From the repository root: `actionlint -color` and `shellcheck .github/scripts/*.sh` |
-| `Skill test suites` | Every PR | The test files of the skills under `.claude/skills/`, on Windows. Some of them read product files, which is why a PR that touches no skill runs them too. | From the repository root: `node --test ".claude/skills/**/*.test.mjs"` |
+| CI job | Runs when | What it checks |
+|--------|-----------|----------------|
+| `Repo guardrails` | Every PR | That every file reading a value the other peer chose is listed in the peer-data consumer map, and the docs pre-flight: links and anchors, tables, headings MDX cannot compile, documented server defaults, and em and en dashes |
+| `Build & Lint` | Code changed | Client lint, unit tests, production build and page titles, plus a check that the desktop release named in `client/lib/desktopRelease.ts` has its assets on GitHub |
+| `Server (Node.js 20)`, `Server (Node.js 24)` | Code changed | Server tests, once on each Node version |
+| `CLI (Go, <os>)` | Code changed | Vet, tests and build, on Linux, Windows and macOS |
+| `Go formatting` | Code changed | `gofmt -l` over every tracked `.go` file |
+| `Desktop (Wails, windows-latest)` | Code changed | Frontend tests and build, Go vet and tests, then a packaging smoke that builds the NSIS installer and packs the MSIX |
+| `E2E (browser + CLI interop, <os>)` | Code changed | The Playwright suite, on Linux, Windows and macOS |
+| `Back-compat (HEAD vs latest release)` | Code changed | The latest released CLI against your branch, in every pairing with the browser and the new CLI |
+| `Docker (self-hosting stack)` | Code changed | The compose files are valid, both images build from source and pass their smoke test, and the stack starts with no `.env` |
+| `Lint workflows` | `.github/workflows/` or `.github/scripts/` changed | actionlint over the workflows and shellcheck over the scripts |
+| `Skill test suites` | Every PR | The test files of the skills under `.claude/skills/`, on Windows. Some of them read product files, which is why a PR that touches no skill runs them too. |
+
+To run a job locally (commands are for a bash shell):
+
+- **`Repo guardrails`**, from the repository root: `node .claude/skills/untrusted-peer-data/scripts/check-consumers.mjs` and `node .claude/skills/docs-verify/scripts/docs-check.mjs all`.
+- **`Build & Lint`**, in `client/`: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm test`, `pnpm build`, `node scripts/check-titles.mjs`.
+- **`Server`**, in `server/`: `npm ci`, `npm test`.
+- **`CLI`**, in `cli/`: `go vet ./...`, `go test -count=1 ./...`, `go build ./cmd/floe`.
+- **`Go formatting`**, from the repository root: `git ls-files -z '*.go' | xargs -0 gofmt -l` must print nothing (see Code Style for a CRLF checkout).
+- **`Desktop`**, in `desktop/frontend/`: `npm ci`, `npm test`, `npm run build`. Then in `desktop/`: `go vet ./...`, `go test -count=1 ./...`. The packaging smoke needs Windows with the Wails CLI, NSIS and the Windows SDK: `wails build -s -nsis` in `desktop/`, then `desktop/build/msix/pack.ps1 -Version <X.Y.Z>`.
+- **`E2E`**, in `client/`: `pnpm test:e2e` (see [End-to-end tests](#end-to-end-tests)).
+- **`Back-compat`**, in `client/`: `FLOE_RELEASED_CLI=/path/to/released/floe pnpm exec playwright test e2e/back-compat.spec.ts`.
+- **`Docker`**, from the repository root: `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build --wait`, then `curl --fail http://localhost:3001/health`.
+- **`Lint workflows`**, from the repository root: `actionlint -color` and `shellcheck .github/scripts/*.sh`.
+- **`Skill test suites`**, from the repository root: `node --test ".claude/skills/**/*.test.mjs"`.
 
 ---
 
@@ -321,9 +373,9 @@ A first job, `Detect changed paths`, decides which of the jobs below run, and `C
 
 - TypeScript for all new client code
 - Match the formatting of the surrounding code, and lint before pushing: `pnpm lint` (in `client/`)
-- There is a root `.prettierrc`, but no CI job runs it and almost nothing in the repo is formatted to it. Measured on 2026-09-05: of 320 tracked files Prettier will parse, 315 are unformatted, and the 5 it accepts are lockfiles and generated JSON. The config leaves `printWidth` at the default 80 against a codebase written to about 120, so `npm run format` would reflow essentially every file in the repository. Do not run it. Formatting a file you are already editing is fine; reformatting one you are not is a diff nobody can review.
+- Do not run `npm run format`. There is a root `.prettierrc`, but no CI job runs it and almost nothing in the repo is formatted to it: the config leaves `printWidth` at the default 80 against a codebase written to about 120, so it would reflow essentially every file in the repository. Formatting a file you are already editing is fine; reformatting one you are not is a diff nobody can review. (Measured on 2026-09-05: of 320 tracked files Prettier will parse, 315 are unformatted, and the 5 it accepts are lockfiles and generated JSON.)
 - Go code is formatted with `gofmt`, and CI fails a pull request that leaves any tracked `.go` file unformatted. Run `gofmt -w` on the Go files you changed, or let your editor format on save. On a Windows checkout with CRLF line endings, `gofmt -l` flags every file it reads, formatted or not, so it is not a usable check there.
-- Docs and Markdown are written in American English, with no em dashes and no en dashes. Inside `docs/`, a Vale check on Mintlify's side enforces both (`docs/.vale.ini` and the two rules in `docs/styles/Floe/`). Everywhere else it is a convention, and it covers the text a user can see in the product as well.
+- Docs and Markdown are written in American English, with no em dashes and no en dashes. Inside `docs/`, a Vale check on Mintlify's side enforces both (`docs/.vale.ini` and the two rules in `docs/styles/Floe/`). Everywhere else it is a convention, and it covers the text a user can see in the product as well, with one check: the docs pre-flight above fails on an em or en dash in the root Markdown files, the Markdown under `.github/` and `unraid/`, `desktop/README.md`, `desktop/build/README.md` and `.goreleaser.yml`.
 - Keep components focused and readable
 
 ---

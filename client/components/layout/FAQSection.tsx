@@ -47,7 +47,7 @@ export const FAQSection = () => {
             <div className="mt-10 max-w-3xl border-t border-white/[0.06]">
                 <FAQItem
                     question="What is Floe?"
-                    answer="Floe is a free file-sharing tool that lets you send files directly to another person, with no sign-up and no files stored on any server. There is nothing to install: it runs right in your browser, with an optional desktop app and CLI if you want them. Think of it like handing a USB drive to someone, but over the internet. Floe sets no size limit on a direct connection, though a receiving browser can only hold so much; relay connections are capped at 2&nbsp;GB per session."
+                    answer="Floe is a free file-sharing tool that lets you send files directly to another person, with no sign-up and no files stored on any server. There is nothing to install: it runs right in your browser, with an optional desktop app and CLI if you want them. Think of it like handing a USB drive to someone, but over the internet. Floe sets no size limit on a direct connection, though a receiving browser can only hold so much; a transfer that has to pass through a relay server is capped at 2&nbsp;GB per session."
                 />
                 <FAQItem
                     question="What does 'Peer-to-Peer' (P2P) mean?"
@@ -139,7 +139,27 @@ export const FAQSection = () => {
                 />
                 <FAQItem
                     question="Where are my files stored?"
-                    answer="Your files are never stored on any server. In direct connections, data flows straight between devices. In relay connections, encrypted data passes through a TURN relay in transit (on floe.one, Cloudflare's network), which only forwards it and cannot decrypt it. The relay's operator can see both IP addresses and when and how much data passes, never the contents. What you receive stays on your own device: a browser holds it, ready to save, until you close the tab, and Floe Desktop and the CLI write it straight to a folder on your disk. Floe Desktop also keeps a history of your last 50 transfers on your PC (file names, sizes, and times, never the files), which you can clear."
+                    answer={
+                        <div className="space-y-3">
+                            <p>
+                                Your files are never stored on any server. In direct connections, data
+                                flows straight between devices.
+                            </p>
+                            <p>
+                                In relay connections, the encrypted data passes through a relay server on
+                                its way (on floe.one, Cloudflare&apos;s network), which only forwards it
+                                and cannot decrypt it. The relay&apos;s operator can see both IP
+                                addresses and when and how much data passes, never the contents.
+                            </p>
+                            <p>
+                                What you receive stays on your own device: a browser holds it, ready to
+                                save, until you close the tab, and Floe Desktop and the CLI write it
+                                straight to a folder on your disk. Floe Desktop also keeps a history of
+                                your last 50 transfers on your PC (file names, sizes, and times, never
+                                the files), which you can clear.
+                            </p>
+                        </div>
+                    }
                 />
                 <FAQItem
                     question="Is there a file size limit?"
@@ -178,14 +198,14 @@ export const FAQSection = () => {
                     question="Is this secure?"
                     answer={
                         <p>
-                            Yes. All transfers use DTLS encryption built into WebRTC, with keys that
-                            exist only on the two devices. Whether your connection is direct or
-                            relayed, everything in between, the relay included, handles only encrypted
-                            packets and cannot read your files. Two limits are worth knowing. The
-                            certificate fingerprints the two devices use to agree on those keys pass
-                            through Floe&apos;s signaling server, so that server is trusted to
-                            introduce you honestly, and no Floe app shows a verification code to check
-                            it today. And the link or code is all that protects a transfer: whoever
+                            Yes. Only the two devices can read your files: every transfer is
+                            encrypted with DTLS, built into WebRTC, with keys that exist only on
+                            those two devices. Whether your connection is direct or relayed,
+                            everything in between, the relay included, handles only encrypted
+                            packets. Two limits are worth knowing. The codes the two devices use to recognize each other (their certificate
+                            fingerprints) pass through Floe&apos;s signaling server, so you are
+                            trusting that server not to swap them, and no Floe app shows a
+                            verification code to check it today. And the link or code is all that protects a transfer: whoever
                             uses it first, while the sender is waiting, receives the files, so send it
                             over a channel you trust. The full list of what Floe does not protect against is in{' '}
                             <a
@@ -205,15 +225,18 @@ export const FAQSection = () => {
                     answer={
                         <p>
                             Floe checks every file for you. Each one must match the size the sender
-                            announced, and when the sender provides a SHA-256 of the file, the receiver
-                            also compares that with what actually arrived. A floe CLI older than
-                            1.11.0 or a Floe Desktop older than 0.3.0 provides none, and a browser can
-                            run out of time before it has one. A file that does not match is discarded instead
-                            of saved. When every file matched, the browser and
-                            the CLI show &quot;SHA-256 matched&quot; and Floe Desktop shows a green
-                            check mark; without that, at least one file was checked by size only. The
-                            sender sees the same once a CLI or Floe Desktop receiver confirms that
-                            everything was saved. A match means the file arrived intact, not that it
+                            announced, and when the sender provides a SHA-256 of the file (a
+                            fingerprint of its contents), the receiver also compares that with what
+                            actually arrived. A floe CLI older than 1.11.0 or a Floe Desktop older
+                            than 0.3.0 provides none, and a browser sending a very large file can
+                            finish sending it before its SHA-256 is ready, and then ends that file
+                            without one. A file that does not match is discarded instead of saved. When
+                            every file matched, the browser and the CLI show
+                            &quot;SHA-256 matched&quot; and Floe Desktop shows a green check mark.
+                            Without it, at least one file was checked by size only, or the transfer stopped
+                            partway. The sender sees the mark only when a CLI or Floe Desktop
+                            receiver reports that every file matched; a browser that receives never
+                            reports back. A match means the file arrived intact, not that it
                             is safe to open: Floe does not scan files for malware. What the check
                             proves is in{' '}
                             <a

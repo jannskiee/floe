@@ -3,12 +3,13 @@ import { ArrowUpRight } from 'lucide-react';
 import { SectionHeader, sectionClass } from './SectionHeader';
 
 // Every row was rechecked against the code on 2026-10-11 (server/server.js,
-// server/turn.js, server/stats.js, server/ratekey.js). When one of them
-// changes, this list changes with it: the lede calls it complete.
+// server/turn.js, server/stats.js, server/ratekey.js). The Origin row and the
+// two request-link rows were checked on 2026-10-15 at a1d5bd6. When one of
+// them changes, this list changes with it: the lede calls it complete.
 const handled: ReactNode[] = [
     // handleSignal walks each signal for its size and shape (signalFits) and
-    // relays it; nothing is kept or logged.
-    'WebRTC offers, answers, and ICE candidates',
+    // relays it; nothing is kept or logged. Candidates carry network addresses.
+    'The messages two devices trade to connect (WebRTC offers, answers, and ICE candidates), which carry their network addresses',
     // rooms and roomMeta, both deleted in destroyRoom. The room id is the secret
     // half of a share link, and no console call ever prints it.
     'The room id that pairs two devices, which is the secret part of a share link, held in memory while the room is open and written to no log',
@@ -24,11 +25,15 @@ const handled: ReactNode[] = [
     // hold a rate key for a 60 s window plus a 60 s sweep; the peer object holds
     // it for as long as its socket is open (createSocketIOPeer, createWSPeer).
     'Your IP address, in memory while your device is connected and, to rate-limit abuse, for up to about two minutes after its last request',
+    // isAllowedOrigin reads the Origin and Host headers of every Socket.IO
+    // and /ws connection; warnRejectedOrigin logs both, quoted, for the first
+    // refusal on each of the two paths and never again until a restart.
+    'The web address each connection says it comes from (its Origin), checked against an allow-list and logged only for the first one refused on each connection path',
     // The room seal (roomMeta.keys, sealDigest): an HMAC-SHA256 of the rate key
     // (an IPv4 address in full, an IPv6 /64) of every peer that has routed a
     // signal in an ordinary room, under a secret drawn once per process. Deleted
     // with the room in destroyRoom. Not kept for a request room (handleSignal).
-    "While a room is open, a keyed hash of each device's network address, never the address itself, so that a third network cannot take a seat",
+    "While a room is open, a one-way code made from each device's network address (a keyed hash), never the address itself, so that a third network cannot take a seat",
     // Request links (server.js request rooms, D-130, D-176): the reservation
     // keeps SHA-256(hostToken), never the token, with its own times (createdAt,
     // seatedAt, hostAbsentSince, endsAt); a sealed close leaves a used
@@ -40,7 +45,8 @@ const handled: ReactNode[] = [
     // 10-open budgets. The grace sweep makes "about 10 minutes" 10 to 11. All in
     // memory. No denylist exists (E-25). "Room id" here is the UUID after the #
     // of a request link; the link id before it never reaches this server.
-    'For a request link, a hash of its secret token and its timestamps (made, joined, left, due to end) while the link is open, then its room id with a mark that it was used or ended, until a day after it closes or ends',
+    'While a request link is open, a hash of its secret token, never the token, and its times: made, joined, left, and due to end',
+    'For a day after a request link closes or ends, its room id and a mark saying it was used or ended',
     'The times each network made a request link, kept for 24 hours under a keyed hash of its address',
     'How many request links each network has open, under the same keyed hash',
 ];

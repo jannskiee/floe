@@ -17,7 +17,7 @@ export function CliSection() {
             <SectionHeader
                 eyebrow="Command line"
                 headline="The same transfer, without the browser."
-                lede="floe is a single static binary that talks to the same signaling infrastructure as the web app. Browser to terminal works in every direction, and a folder arrives with its structure intact in the CLI and Floe Desktop, or inside &quot;Download ZIP&quot; in a browser."
+                lede="floe is one file with nothing else to install, and it uses the same server as the web app. Browser to terminal works in every direction, and a folder arrives with its structure intact in the CLI and Floe Desktop, or inside &quot;Download ZIP&quot; in a browser."
             />
             <div className="mt-12 grid gap-10 lg:grid-cols-12 lg:gap-12">
                 <div className="min-w-0 lg:col-span-5">
@@ -38,7 +38,8 @@ export function CliSection() {
                     <p className="mt-6 text-[13px] leading-relaxed text-zinc-500">
                         Also available via Scoop, a PowerShell one-liner, and{' '}
                         <code className="whitespace-nowrap font-mono text-[12px]">go install</code>, which gives a dev
-                        build that cannot update itself.{' '}
+                        build that cannot update itself. On a Mac without Homebrew, the Linux
+                        command works too.{' '}
                         <a
                             href="https://www.floe.one/docs/cli/installation"
                             target="_blank"

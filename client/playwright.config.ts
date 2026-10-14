@@ -66,7 +66,7 @@ export default defineConfig({
             // server gets none of the env below, so request links are off and,
             // with live Upstash credentials in its server/.env, the suite's
             // receives are added to the public counter for good. Stop whatever
-            // holds the port instead (CONTRIBUTING.md, Running the e2e suite).
+            // holds the port instead (CONTRIBUTING.md, End-to-end tests).
             reuseExistingServer: false,
             timeout: 30_000,
             env: {

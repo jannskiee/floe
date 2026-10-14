@@ -5,7 +5,7 @@
 #   docker compose up -d
 #   open http://localhost:3000
 #
-# A .env file is optional; every value below has a working default. To customise,
+# A .env file is optional; every value below has a working default. To customize,
 # fetch the annotated example alongside this file:
 #   curl -fsSL https://raw.githubusercontent.com/jannskiee/floe/main/.env.docker.example -o .env
 #
@@ -15,8 +15,9 @@
 # format" at the client's SOCKET_URL line instead of starting a stack that loads
 # and never connects.
 #
-# Images are prebuilt and published to ghcr.io. To build from source instead, add
-# the overlay: docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+# Images are prebuilt and published to ghcr.io. To build from source instead, clone
+# the repository and add the overlay from its root:
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 #
 # The `client` and `server` services run out of the box (STUN-only, which works on
 # most home and mobile networks). For a production deployment behind one domain,
@@ -120,8 +121,8 @@ services:
       #     https://raw.githubusercontent.com/jannskiee/floe/main/coturn/turnserver.conf.example
       #
       # Skip that and Docker creates a DIRECTORY at this path. coturn then starts
-      # anyway and reports healthy, running on built-in defaults with no auth
-      # secret, so relaying silently fails for the CGNAT peers it exists to serve.
+      # anyway and shows as running, on built-in defaults with no auth secret, so
+      # relaying silently fails for the CGNAT peers it exists to serve.
       # The giveaway is "Default realm: localdomain" in its logs. Recovery needs
       # `rmdir coturn/turnserver.conf` FIRST: copying onto a directory succeeds and
       # writes the file inside it.

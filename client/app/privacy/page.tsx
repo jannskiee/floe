@@ -113,14 +113,19 @@ export default function PrivacyPolicy() {
                     </p>
                     <p>
                         <strong>We do not store, view, or process your files.</strong> In direct
-                        connections, files never touch our servers. In relay connections, encrypted
-                        file data passes through a TURN relay in transit (on floe.one, Cloudflare&apos;s
-                        network), which only forwards it and cannot decrypt or inspect it. The only
-                        lasting tally our own
-                        servers keep is one anonymous number: the running total of bytes transferred
-                        across all users, shown by the counter on our homepage, and you can opt out
-                        of contributing to it. The cookieless, anonymous analytics and the error
-                        monitoring the website uses are described below.
+                        connections, files never touch our servers. In relay connections, the
+                        encrypted file data passes through a relay, a server that only forwards it
+                        (a TURN relay; on floe.one, Cloudflare&apos;s network), and it cannot decrypt
+                        or inspect the files.
+                    </p>
+                    <p>
+                        The only lasting tally our own servers keep is one anonymous number: the
+                        running total of bytes transferred across all users, shown by the counter on
+                        our homepage. You can opt out of contributing to it.
+                    </p>
+                    <p>
+                        The website also uses cookieless, anonymous analytics and error monitoring,
+                        described below.
                     </p>
                     <p>
                         This policy describes floe.one and the servers we run for it. Floe is open
@@ -142,10 +147,10 @@ export default function PrivacyPolicy() {
                 </p>
                 <p>
                     The encryption is WebRTC&apos;s own (DTLS), with keys that exist only on the two
-                    devices for that one transfer. The certificate fingerprints the two devices use to
-                    agree on those keys pass through our signaling server, so that server is trusted
-                    to introduce you honestly, and no Floe client shows a verification code to check
-                    it today. This is true of every WebRTC application; the full list of what Floe
+                    devices for that one transfer. The codes the two devices use to recognize each
+                    other (their certificate fingerprints) pass through our signaling server, so you
+                    are trusting that server not to swap them, and no Floe app shows a verification
+                    code to check it today. This is true of every WebRTC application; the full list of what Floe
                     does not protect against is in{' '}
                     <LegalLink href="https://www.floe.one/docs/how-it-works/known-limitations">
                         Known limitations
@@ -157,12 +162,12 @@ export default function PrivacyPolicy() {
                     connection each learns the other&apos;s IP address, in the same way a video call
                     does. A receiver page joins the room as soon as the link opens, with no click, and
                     your browser begins exchanging its network addresses with the sender at that
-                    point. If you would rather not reveal your address to the other person, Floe
-                    Desktop&apos;s &quot;Hide my IP address&quot; setting and the CLI&apos;s{' '}
+                    point. If you would rather not reveal your address to the other person, turn on
+                    &quot;Hide my IP address&quot; in Floe Desktop, or use the CLI&apos;s{' '}
                     <InlineCode>--relay-only</InlineCode> flag (or{' '}
-                    <InlineCode>FLOE_RELAY_ONLY=1</InlineCode>) route your side through the relay
-                    instead, so the other person sees the relay&apos;s address; relayed transfers are
-                    slower and capped at 2 GB. The web app has no equivalent: its &quot;Network relay
+                    <InlineCode>FLOE_RELAY_ONLY=1</InlineCode>). Your side then goes through the
+                    relay, and the other person sees the relay&apos;s address instead of yours. The
+                    cost: relayed transfers are slower and capped at 2 GB. The web app has no equivalent: its &quot;Network relay
                     fallback&quot; checkbox does the opposite, turning the relay off so only a direct
                     connection is attempted.
                 </p>
@@ -270,12 +275,12 @@ export default function PrivacyPolicy() {
                                     </p>
                                     <p>
                                         While a room made by a share link or a code
-                                        is open, the server also keeps a keyed hash of the network address
-                                        (an IPv4 address in full, an IPv6 address by its /64 prefix) of
-                                        each device that has sent connection messages through that room,
-                                        never the address itself and in memory only, so that a device on a
-                                        third network cannot take a seat in it; the hashes are deleted with
-                                        the room.
+                                        is open, the server also keeps a scrambled marker for each network
+                                        in it, never the address itself, so that a device on a third
+                                        network cannot take a seat. The marker is a keyed hash of the
+                                        network address (an IPv4 address in full, an IPv6 address by its
+                                        /64 prefix) of each device that has sent connection messages
+                                        through that room, kept in memory only and deleted with the room.
                                     </p>
                                     <p>
                                         To hold each network to 20 new request links a day, the
@@ -298,18 +303,20 @@ export default function PrivacyPolicy() {
                     The web app is hosted on Vercel and the signaling server runs on Microsoft Azure.
                     Connection setup uses Cloudflare on every transfer, direct or relayed, and relayed
                     file data passes through Cloudflare&apos;s TURN network; Relay server below says
-                    exactly what it sees. If your app cannot get relay credentials from our signaling
-                    server, because the server is unreachable, has rate limited you, or has none to
-                    hand out at that moment, it falls back to Google&apos;s public STUN servers (
-                    <InlineCode>stun.l.google.com</InlineCode>) to learn its own public address.
-                    Google then sees your IP address and nothing about the transfer; STUN carries no
+                    exactly what it sees. Your app may not get relay credentials from our signaling
+                    server: the server can be unreachable, can have rate limited you, or can have
+                    none to hand out at that moment. It then falls back to Google&apos;s public STUN
+                    servers (<InlineCode>stun.l.google.com</InlineCode> and{' '}
+                    <InlineCode>stun1.l.google.com</InlineCode>; STUN is a service that tells a
+                    device its own public address) to learn its own public address. Google then sees your IP address and nothing about the transfer; STUN carries no
                     file data.
                 </p>
                 <p>
                     The running total behind the homepage counter is stored in a hosted Redis database
                     (Upstash); the only thing ever written there is that single number, by our server,
                     never by your device. Floe Desktop and the CLI contact GitHub only to check for or
-                    download updates: Floe Desktop&apos;s GitHub build once a day unless you turn the
+                    download updates: Floe Desktop&apos;s GitHub build at most once a day after a check
+                    succeeds (a failed check is tried again at the next start) unless you turn the
                     check off (Microsoft Store builds never check), and the CLI only when you run{' '}
                     <InlineCode>floe version</InlineCode>, <InlineCode>floe update</InlineCode>, or{' '}
                     <InlineCode>floe update --check</InlineCode>. Both are described in their own
@@ -377,17 +384,18 @@ export default function PrivacyPolicy() {
                     needed. To find a working path, your app asks Cloudflare&apos;s STUN server (
                     <InlineCode>stun.cloudflare.com</InlineCode>) for its own public address and,
                     unless you turned relay fallback off in the browser or passed{' '}
-                    <InlineCode>--no-relay</InlineCode> to the CLI, opens a standby relay allocation
-                    on <InlineCode>turn.cloudflare.com</InlineCode>. That happens on every transfer,
+                    <InlineCode>--no-relay</InlineCode> to the CLI, reserves a spot on the relay at{' '}
+                    <InlineCode>turn.cloudflare.com</InlineCode> in case the direct path fails (a
+                    standby relay allocation). That happens on every transfer,
                     whichever route wins, so Cloudflare sees your IP address and the timing of the
                     connection attempt on every transfer. File data crosses Cloudflare only when the
                     relay is the route that wins.
                 </p>
                 <p>
-                    Before connecting, your app fetches relay credentials from our signaling server.
-                    On floe.one the server mints a new credential set from Cloudflare every few
-                    minutes, each valid for 24 hours, and hands the same set to every client that asks
-                    until the next one is minted. They are not tied to you, your device, or an
+                    Before connecting, your app fetches relay credentials, a password for the relay,
+                    from our signaling server. On floe.one the server gets a new set from Cloudflare
+                    every few minutes, each valid for 24 hours, and gives the same set to everyone
+                    who asks until it gets the next one. They are not tied to you, your device, or an
                     account.
                 </p>
                 <p>
@@ -444,7 +452,8 @@ export default function PrivacyPolicy() {
                     items={[
                         'Transfer outcomes: for a completed transfer, the number of files, the total size in bytes, whether you were sending or receiving, and whether the connection was direct or relayed; for a failure, your role, one of eight fixed labels (for example "ice-failed" or "out-of-memory"), and, when you were sending, the file count and total size',
                         "Which download button you clicked on the download page, the homepage, or the navigation bar, and, when Floe opens inside another app's built-in browser (such as Facebook or Instagram), the name of that app and whether it was Android or iOS",
-                        'Standard page view data: the page path, referring site, browser, operating system, device type, screen size, language, and approximate location (country, region, and city), derived from your IP address by Umami, which does not store the address',
+                        'Standard page view data: the page path, referring site, browser, operating system, device type, screen size, and language',
+                        'Your approximate location (country, region, and city), derived from your IP address by Umami, which does not store the address',
                     ]}
                 />
                 <p>
@@ -492,12 +501,19 @@ export default function PrivacyPolicy() {
                 <p>
                     Floe Desktop runs the same peer-to-peer engine as the CLI and speaks the same
                     protocol as the web app, as a Windows application. It talks to the same servers
-                    the web app does: it contacts our signaling server to pair you with your peer (and
-                    to register the three-word code it shows, or, only when you click Make link, to
-                    check that the server offers request links and to hold the link&apos;s room
-                    while the link is open), fetches relay credentials, and then streams file data
-                    directly between devices, or through the relay described above when no direct path
-                    exists or when &quot;Hide my IP address&quot; is on. One more
+                    the web app does. It contacts our signaling server:
+                </p>
+                <LegalList
+                    items={[
+                        'to pair you with your peer, and to register the three-word code it shows;',
+                        "only when you click Make link, to check that the server offers request links and to hold the link's room while the link is open;",
+                        'to fetch relay credentials.',
+                    ]}
+                />
+                <p>
+                    It then streams file data directly between devices, or through the relay
+                    described above when no direct path exists or when &quot;Hide my IP address&quot;
+                    is on. One more
                     request happens only when you ask for it: the Test button in Settings contacts
                     only the server address you typed. If the Microsoft WebView2 runtime that draws
                     the interface is missing, the installer from GitHub downloads it from Microsoft
@@ -508,7 +524,9 @@ export default function PrivacyPolicy() {
                 <p>
                     It makes two optional requests, each with its own off switch: the same anonymous
                     byte total described above, which you can turn off with &quot;Contribute to global
-                    stats&quot; in Settings, and a once-a-day update check. The update check (GitHub
+                    stats&quot; in Settings, and an update check, at most once a day once a check has
+                    succeeded (a check that fails is not kept, and the app asks again the next time it
+                    starts). The update check (GitHub
                     builds 0.2.3 and later) asks GitHub whether a newer release exists; it carries
                     nothing about you beyond what any web request reveals (your IP address and a user
                     agent), nothing about your files or transfers is in it, and nothing downloads or
@@ -604,12 +622,25 @@ export default function PrivacyPolicy() {
                                     A notification never shows a file name, your label, or anything
                                     the sender chose. &quot;Notifications&quot; in Settings turns
                                     them off or makes them silent; a request then still flashes the
-                                    taskbar button and shows in the window title.
+                                    taskbar button and shows in the window title. On the GitHub
+                                    build, Windows needs a per-user registry entry (under{' '}
+                                    <InlineCode>HKCU\Software\Classes\AppUserModelId</InlineCode>)
+                                    and a small icon file in your temp folder to show Floe&apos;s name
+                                    on its notifications; the app writes them, and uninstalling
+                                    leaves them.
                                 </p>
                             ),
                         },
                     ]}
                 />
+                <p>
+                    Everything the app keeps on your PC, with where it is and how long it stays, its
+                    update check&apos;s last answer and its temporary folders included, is listed in{' '}
+                    <LegalLink href="https://www.floe.one/docs/security-privacy#on-your-device-desktop">
+                        the security and privacy docs
+                    </LegalLink>
+                    .
+                </p>
                 <p>
                     When installed from the Microsoft Store, installation and automatic updates are
                     handled by Microsoft; see{' '}
@@ -653,9 +684,11 @@ export default function PrivacyPolicy() {
                             body: (
                                 <p>
                                     <InlineCode>floe version</InlineCode> asks GitHub whether a newer
-                                    release exists when you run it, at most once a day (the answer is
-                                    kept for 24 hours in a small file in your user configuration
-                                    folder). The request carries nothing about you beyond what any web
+                                    release exists when you run it. An answer is kept for 24 hours in
+                                    a small file in your user configuration folder, so once a check
+                                    has succeeded it asks at most once a day. A check that fails is
+                                    not kept, and the next <InlineCode>floe version</InlineCode> asks
+                                    again. The request carries nothing about you beyond what any web
                                     request reveals (your IP address and a generic user agent); nothing
                                     about your files or transfers is in it, and nothing downloads or
                                     installs by itself. Set <InlineCode>FLOE_NO_UPDATE_CHECK=1</InlineCode>{' '}
@@ -672,11 +705,16 @@ export default function PrivacyPolicy() {
                     latest release, its checksum file, and the archive for your platform from GitHub,
                     verifies the SHA-256 checksum, and replaces the binary. On an install managed by
                     Homebrew, Scoop, or Winget it stops before any request and points you at your
-                    package manager instead. Received files go to the folder you pass with{' '}
-                    <InlineCode>-o</InlineCode> (the folder you ran the command in, by default), and{' '}
+                    package manager instead.
+                </p>
+                <p>
+                    Received files go to the folder you pass with <InlineCode>-o</InlineCode> (the
+                    folder you ran the command in, by default).
+                </p>
+                <p>
                     <InlineCode>--relay-only</InlineCode> (or{' '}
-                    <InlineCode>FLOE_RELAY_ONLY=1</InlineCode>) routes your side through the relay so
-                    the other device sees the relay&apos;s address instead of yours.
+                    <InlineCode>FLOE_RELAY_ONLY=1</InlineCode>) routes your side through the relay,
+                    so the other device sees the relay&apos;s address instead of yours.
                 </p>
             </LegalSection>
 

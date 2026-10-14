@@ -88,7 +88,9 @@ export default function TermsOfUse() {
                     Since Floe is a peer-to-peer service, you are solely responsible for the content
                     you send. We do not (and cannot) moderate file contents, and Floe does not scan
                     files for malware. You agree to indemnify the
-                    developers of Floe against any legal claims arising from your use of the service.
+                    developers of Floe against any legal claims arising from your use of the service,
+                    that is, to cover the cost if your use of Floe leads to a legal claim against
+                    them.
                 </p>
                 <p>
                     If you make a request link, you are responsible for who you send it to and for

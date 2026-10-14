@@ -70,7 +70,8 @@ changelog:
 
 # Homebrew Cask (macOS), published into the shared jannskiee/homebrew-tap.
 # This tap is reused across projects; floe is one cask inside it.
-# Requires: create jannskiee/homebrew-tap repo and add TAP_GITHUB_TOKEN secret.
+# Publishes into that repository with the TAP_GITHUB_TOKEN secret, a token that
+# can write to it.
 # Install: brew install --cask jannskiee/tap/floe
 # Update:  brew upgrade floe
 homebrew_casks:
@@ -86,7 +87,7 @@ homebrew_casks:
 
 # Scoop (Windows), published into the shared jannskiee/scoop-bucket.
 # This bucket is reused across projects; floe is one manifest inside it.
-# Requires: create jannskiee/scoop-bucket repo (same TAP_GITHUB_TOKEN).
+# Publishes into that repository with the same TAP_GITHUB_TOKEN.
 # Install: scoop bucket add jannskiee https://github.com/jannskiee/scoop-bucket && scoop install floe
 # Update:  scoop update floe
 scoops:
@@ -100,8 +101,10 @@ scoops:
     license: MIT
 
 # Winget (Windows): the winget-pkgs community repository, not the Microsoft Store.
-# Requires: fork microsoft/winget-pkgs to jannskiee/winget-pkgs (same PAT).
-# PRs are auto-validated and typically merged within a few hours.
+# Pushes a branch to jannskiee/winget-pkgs, the fork of microsoft/winget-pkgs,
+# and opens a pull request against microsoft/winget-pkgs, with the same
+# TAP_GITHUB_TOKEN. Those PRs are auto-validated and typically merged within a
+# few hours.
 # Install: winget install jannskiee.floe
 # Update:  winget upgrade jannskiee.floe
 winget:

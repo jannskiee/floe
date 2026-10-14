@@ -13,8 +13,14 @@ Please include as much of the following as possible:
 
 - A description of the vulnerability and its impact
 - Steps to reproduce it
-- The affected component: the web client or its request-link page, the signaling server, the CLI, Floe Desktop (and whether it came from the Microsoft Store or from a GitHub release), a container image, or an install script
-- The version you tested: the output of `floe version` for the CLI, **App version** under Settings > About for Floe Desktop, or the image tag for a self-hosted server
+- The affected component, one of:
+  - the web client or its request-link page
+  - the signaling server
+  - the CLI
+  - Floe Desktop, and whether it came from the Microsoft Store or from a GitHub release
+  - a container image
+  - an install script
+- The version you tested: the output of `floe --version` for the CLI, **App version** under Settings > About for Floe Desktop, or the image tag for a self-hosted server
 - Any relevant logs, screenshots, or proof of concept
 
 ## What to Expect
@@ -34,7 +40,7 @@ This policy covers everything that ships from this repository:
 - The container images for self-hosting, `ghcr.io/jannskiee/floe-server` and `ghcr.io/jannskiee/floe-client`.
 - The CLI install scripts, `install.sh` and `install.ps1`, which the web client serves at floe.one.
 
-The signaling server sets up connections and never carries file data. File data travels peer-to-peer over end-to-end encrypted WebRTC data channels, directly when possible or through an encrypted TURN relay that cannot read it, and is never stored or inspected by Floe infrastructure.
+The signaling server sets up connections and never carries file data. Files go straight between the two devices, encrypted end to end (WebRTC data channels). When a direct path is blocked, a relay (a TURN server) passes the encrypted data along and cannot read it. Floe infrastructure never stores or inspects file data.
 
 ## Supported Versions
 
@@ -49,3 +55,4 @@ Floe has two release lines, and each component gets a fix through one of them:
 | Floe Desktop, installer and portable builds | The next `desktop-v*` tag, published on GitHub as a pre-release. These builds do not update themselves; they show a notice when a newer release exists. |
 | Floe Desktop, Microsoft Store build | Packed from the same `desktop-v*` tag and delivered by the Microsoft Store, which updates it automatically once the submission has passed Microsoft's certification. It can trail the GitHub release for that reason. |
 | Web client at floe.one, including the request-link page and the install scripts | Always runs the newest `main`. |
+| Floe's own signaling server at api.floe.one | The maintainer deploys `main` there before the `v*` tag that carries a server fix. There is nothing to update on your side. |

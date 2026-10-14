@@ -15,7 +15,9 @@ import { sharedOpenGraph, sharedTwitter } from '@/lib/socialMetadata';
 // cli/engine/transfer/relay.go on 2026-09-07; the code in that list was read
 // again on 2026-10-11, at v1.11.0 and desktop-v0.3.0, together with
 // client/lib/transfer/receiver.ts and docs/how-it-works/known-limitations.mdx
-// for what a browser receiver can hold).
+// for what a browser receiver can hold). Three sentences were reworded for
+// readers who do not know the terms on 2026-10-15 at a1d5bd6 (the signaling
+// beat, the relay beat, the encryption line); none changed a claim.
 //
 // A Server Component with no client island: the figure's motion is CSS that
 // plays once on paint (see the .hiw-* rules in globals.css), so
@@ -120,8 +122,8 @@ export default function HowItWorks() {
                         </h2>
                         <p className="mt-2 text-sm leading-relaxed text-zinc-400">
                             It puts your two devices in a room and passes the offer, the answer, and each
-                            side&apos;s network addresses between them. Once the connection opens, no file
-                            data goes back through it.
+                            side&apos;s network addresses between them. None of your file data ever
+                            passes through it.
                         </p>
                     </section>
                     <section id="direct" className="max-w-lg scroll-mt-[calc(7rem_+_env(safe-area-inset-top))]">
@@ -148,8 +150,8 @@ export default function HowItWorks() {
                             <span className="sr-only">Relay. </span>The detour, when the way is blocked.
                         </h2>
                         <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-                            A TURN relay both devices can reach forwards encrypted packets it cannot read;
-                            on floe.one that relay is Cloudflare&apos;s. The badge shows {BADGE_RELAY} with
+                            A relay, a server both devices can reach, passes the encrypted data along
+                            without being able to read it; on floe.one that relay is Cloudflare&apos;s. The badge shows {BADGE_RELAY} with
                             an amber dot.
                         </p>
                         <p id="size-limit" className="mt-3 scroll-mt-[calc(7rem_+_env(safe-area-inset-top))] text-sm leading-relaxed text-zinc-400">
@@ -167,8 +169,9 @@ export default function HowItWorks() {
                 <div className="mt-14 max-w-lg">
                     <p className={LABEL}>On every route</p>
                     <p className="mt-3 text-base leading-relaxed text-pretty text-zinc-300">
-                        Every transfer is encrypted end to end with WebRTC&apos;s DTLS. The keys exist only
-                        on the two devices, and no file is stored on any server. The browser, Floe Desktop
+                        Every transfer is encrypted end to end, so only the two devices can read it. The
+                        encryption is WebRTC&apos;s DTLS, with keys that exist only on those two devices,
+                        and no file is stored on any server. The browser, Floe Desktop
                         for Windows, and the CLI all speak the same protocol.
                     </p>
                 </div>
