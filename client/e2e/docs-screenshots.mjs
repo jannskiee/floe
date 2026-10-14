@@ -57,6 +57,33 @@ const fixtures = [
 const manifest = [];
 let statsAttempts = 0;
 
+// What can be read in each shot, and the files that type it. docs-check's
+// captures check holds every string to its sources, so a reworded line marks
+// the picture as stale. Keep a shot's list to the words that would date it,
+// not the file names or sizes the fixtures put there.
+const READS = {
+    '01-send-staged.png': {
+        strings: ['Add more files', 'Network relay fallback', 'most transfers stay direct', 'Create secure link'],
+        sources: ['client/components/P2PTransfer.tsx', 'client/components/RelayFallbackToggle.tsx'],
+    },
+    '02-send-share-panel.png': {
+        strings: ['Share link', 'Show QR', 'Waiting for peer'],
+        sources: ['client/components/ShareLinkPanel.tsx', 'client/components/P2PTransfer.tsx'],
+    },
+    '04-receive-waiting.png': {
+        strings: ['Secure room joined', 'Waiting for the sender to start', 'Files stream in below', 'Contribute to global stats'],
+        sources: ['client/components/ReceiverPanel.tsx', 'client/components/StatsContributionToggle.tsx'],
+    },
+    '05-receive-downloads.png': {
+        strings: ['Download All', 'Download ZIP', 'SHA-256 matched', 'Keep this tab open. Closing it interrupts the download.'],
+        sources: ['client/components/ReceiverPanel.tsx', 'client/lib/receiveSummary.ts'],
+    },
+    '06-in-app-browser.png': {
+        strings: ['Open in your browser', 'How to open in your browser', 'Copy link to paste in browser', 'Continue anyway (some features may not work)'],
+        sources: ['client/components/InAppBrowserGuard.tsx'],
+    },
+};
+
 /** Abort any byte-count report before it leaves the browser. */
 async function guardStats(ctx) {
     await ctx.route('**/api/stats/report', (route) => {
@@ -114,6 +141,7 @@ function record(name, note, cssW, cssH) {
         pixels: [pxW, pxH],
         scale: +(pxW / cssW).toFixed(3),
         bytes,
+        ...READS[name],
     });
     console.log(
         `  ${name}  ${pxW}x${pxH} (${(pxW / cssW).toFixed(2)}x)  ${Math.round(bytes / 1024)} KB`
