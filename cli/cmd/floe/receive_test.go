@@ -239,7 +239,7 @@ const lineFloeLinkOtherServer = "That link is for floe.one, but this Floe is set
 // the receiver's seat and the files. It now ends on one fixed line before
 // any network call (no ICE fetch, no signaling connect, no request of any
 // kind to the server) and never prints the link. The F5-4 host rule of the
-// request-link send decides (isFloeOneServer): api.floe.one in any spelling
+// request-link send decides (code.IsFloeOneServer): api.floe.one in any spelling
 // that reaches it goes through, and so do a link on another host (the
 // self-hosted case) and a code.
 func TestReceiveFloeLinkWithAnotherServerEndsWithoutANetworkCall(t *testing.T) {

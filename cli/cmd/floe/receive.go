@@ -100,10 +100,10 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	// or --server), join-room would hand that room's id to a server that
 	// never held the room, and whoever runs it could take the receiver's
 	// seat, and the files, on api.floe.one (FU-53, FU-46 review 1 L5). The
-	// request-link send's host rule decides (linkServerMismatch, FU-32 F5-4),
+	// request-link send's host rule decides (code.LinkServerMismatch, FU-32 F5-4),
 	// before any network call: Resolve reads a link without one, and only a
 	// code, which has no host, goes to the server.
-	if isFloeOneLinkHost(code.LinkHost(input)) && !isFloeOneServer(flagServer) {
+	if code.IsFloeOneLinkHost(code.LinkHost(input)) && !code.IsFloeOneServer(flagServer) {
 		return outcomeError{errFloeLinkOtherServer}
 	}
 
