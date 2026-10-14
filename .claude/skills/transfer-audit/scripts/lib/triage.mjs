@@ -153,7 +153,7 @@ export const SIGNATURES = Object.freeze([
     ],
     [
         'code-expired',
-        /not found or expired|was not recognized|wasn't recognized/i,
+        /not found or expired|not found: it was already used|was not recognized|wasn't recognized/i,
         false,
         'code-expired',
     ],

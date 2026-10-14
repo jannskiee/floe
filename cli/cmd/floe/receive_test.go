@@ -142,7 +142,7 @@ func TestReceiveOtherResolveErrorsKeepTheirWrapper(t *testing.T) {
 			name:   "plain code the server does not know",
 			input:  "olive-tiger-castle",
 			server: srv.URL,
-			cause:  `code "olive-tiger-castle" not found or expired (codes expire after 10 minutes)`,
+			cause:  `code "olive-tiger-castle" not found: it was already used, the sender left, or it expired (a code lasts 10 minutes at most)`,
 			lookup: "/api/code/olive-tiger-castle",
 		},
 	}
@@ -321,7 +321,7 @@ func TestReceiveFloeLinkWithAnotherServerEndsWithoutANetworkCall(t *testing.T) {
 		{"FLOE_SERVER names api.floe.one", map[string]string{"FLOE_SERVER": "https://API.floe.one.:443/"}, []string{"https://www.floe.one/?room=" + room}, 1, 0, "failed to fetch ICE credentials: test: no ICE fetch from https://API.floe.one.:443"},
 		{"--server names api.floe.one", nil, []string{"floe.one/#room=" + room, "--server", "https://api.floe.one"}, 1, 0, "failed to fetch ICE credentials: test: no ICE fetch from https://api.floe.one"},
 		{"a self-hosted link with its server", nil, []string{"https://files.example.com/#room=" + room, "--server", other.URL}, 1, 0, "failed to fetch ICE credentials: test: no ICE fetch from " + other.URL},
-		{"a code with another server", nil, []string{"olive-tiger-castle", "--server", other.URL}, 0, 1, `could not resolve "olive-tiger-castle": code "olive-tiger-castle" not found or expired (codes expire after 10 minutes)`},
+		{"a code with another server", nil, []string{"olive-tiger-castle", "--server", other.URL}, 0, 1, `could not resolve "olive-tiger-castle": code "olive-tiger-castle" not found: it was already used, the sender left, or it expired (a code lasts 10 minutes at most)`},
 	} {
 		t.Run("goes through: "+c.name, func(t *testing.T) {
 			hits.Store(0)
@@ -387,6 +387,13 @@ func TestReceiveRequestLinkInAnyShapeIsNeverPrintedBack(t *testing.T) {
 // shared and receive flags go back to their defaults afterwards.
 func receiveWith(t *testing.T, env map[string]string, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
+	return receiveInto(t, env, t.TempDir(), args...)
+}
+
+// receiveInto is receiveWith with the output folder (--output) named by the
+// test, which may be one that does not exist yet.
+func receiveInto(t *testing.T, env map[string]string, out string, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
 	resetSharedFlags(t)
 	t.Setenv("FLOE_NO_STATS", "1")
 	for k, v := range env {
@@ -397,7 +404,7 @@ func receiveWith(t *testing.T, env map[string]string, args ...string) (stdout, s
 			_ = f.Value.Set(f.DefValue)
 			f.Changed = false
 		}
-		for _, name := range []string{"output", "no-report"} {
+		for _, name := range []string{"output", "yes", "no-report"} {
 			if f := receiveCmd.Flags().Lookup(name); f != nil {
 				_ = f.Value.Set(f.DefValue)
 				f.Changed = false
@@ -407,11 +414,11 @@ func receiveWith(t *testing.T, env map[string]string, args ...string) (stdout, s
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
 	})
-	var out, errOut strings.Builder
-	rootCmd.SetOut(&out)
+	var stdoutW, errOut strings.Builder
+	rootCmd.SetOut(&stdoutW)
 	rootCmd.SetErr(&errOut)
 	argv := append([]string{"receive"}, args...)
-	argv = append(argv, "--no-report", "--output", t.TempDir())
+	argv = append(argv, "--no-report", "--output", out)
 	stdout = captureStdout(t, func() { err = execute(argv) })
-	return stdout + out.String(), errOut.String(), err
+	return stdout + stdoutW.String(), errOut.String(), err
 }

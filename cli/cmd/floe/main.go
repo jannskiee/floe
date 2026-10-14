@@ -221,13 +221,16 @@ func setupFailureLine(err error) string {
 // every command prints "Canceled." as it always has.
 var interruptHook atomic.Pointer[func() (line string, stop func())]
 
-// interruptStop, when set, is a step the handler runs after the line and the
-// hook's stop and before the partial-file cleanup: floe receive sets one
+// interruptStop, when set, is a step the handler runs after the hook's stop
+// and before its line and the partial-file cleanup: floe receive sets one
 // (receive.go, FU-54), which tells the sender why the transfer ended and
 // closes the connection, so the cleanup that follows cannot make the receive
-// loop report a write failure. Unlike interruptHook it is never consulted for
-// the second signal: a command that sets only this keeps its second Ctrl+C
-// swallowed while the cleanup runs (review re-check LA2-5, FU-54 review 1 M1).
+// loop report a write failure. A plain floe send sets one too (send.go,
+// CLI-02), which stops the send, tells the receiver the sender stopped and
+// closes the connection, so the receiver does not wait out its own timeouts.
+// Unlike interruptHook it is never consulted for the second signal: a command
+// that sets only this keeps its second Ctrl+C swallowed while the cleanup
+// runs (review re-check LA2-5, FU-54 review 1 M1).
 var interruptStop atomic.Pointer[func()]
 
 // interruptCleanupBound is the one deadline the step and the partial-file
@@ -277,7 +280,8 @@ func handleInterrupts(sigCh <-chan os.Signal, exit func(int)) {
 	// receive's stop step the line waits for it (at most interruptStopBound,
 	// about 0.2 s measured): until the step closes the connection the receive
 	// loop keeps drawing its progress bar, which redrew below "Canceled." in 8
-	// of 8 runs (FU-54 review 2 M1).
+	// of 8 runs (FU-54 review 2 M1). The plain send's step is held to the
+	// same bound, and its send has stopped drawing by the time it returns.
 	step := interruptStop.Load()
 	deadline := time.Now().Add(interruptCleanupBound)
 	if step == nil {

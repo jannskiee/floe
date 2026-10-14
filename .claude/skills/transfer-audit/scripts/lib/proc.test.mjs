@@ -8,7 +8,13 @@
  * Run: node --test .claude/skills/transfer-audit/scripts/lib/proc.test.mjs
  */
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import {
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+    statSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -406,8 +412,7 @@ test('classifyExit: the exit map and every stderr class', () => {
             'Error: the other side left before the connection was established\n',
         'setup-signaling-lost':
             'Error: the connection to the server was lost before the peer connected\n',
-        'setup-closed':
-            'Error: closed before the connection was established\n',
+        'setup-closed': 'Error: closed before the connection was established\n',
     };
     for (const [name] of STDERR_CLASSES) {
         assert.ok(name in samples, `no sample for ${name}`);
@@ -430,6 +435,39 @@ test('classifyExit: the exit map and every stderr class', () => {
     assert.equal(classifyExit(1, 'Error: something new').class, null);
 });
 
+test('classifyExit: the code lines in the wording of floe 1.11.0 and of later builds', () => {
+    // The audit compares HEAD with the latest release, so each class reads
+    // both wordings (cli/engine/code/client.go Resolve, receive.go runReceive).
+    const lines = [
+        [
+            'code-expired',
+            'Error: could not resolve "x-y-z": code "x-y-z" not found or expired (codes expire after 10 minutes)\n',
+        ],
+        [
+            'code-expired',
+            'Error: could not resolve "x-y-z": code "x-y-z" not found: it was already used, the sender left, or it expired (a code lasts 10 minutes at most)\n',
+        ],
+        [
+            'code-spent',
+            'Error: this code is no longer active; ask for a new one\n',
+        ],
+        [
+            'code-spent',
+            'Error: this code or link is no longer active; ask the sender for a new one\n',
+        ],
+        [
+            'setup-signaling-lost',
+            'Error: the connection to the server was lost before the peer connected\n',
+        ],
+        [
+            'setup-peer-left',
+            'Error: the other side left before the connection was established\n',
+        ],
+    ];
+    for (const [want, line] of lines)
+        assert.equal(classifyExit(1, line).class, want, line);
+});
+
 test('classifyExit: the three setup stops the CLI prints instead of a connect timeout', () => {
     // cli/cmd/floe/main.go setupFailureLine prints the sentinel's own
     // sentence (cli/engine/peer/setuperror.go) with no "WebRTC setup
@@ -439,8 +477,7 @@ test('classifyExit: the three setup stops the CLI prints instead of a connect ti
             'Error: the other side left before the connection was established\n',
         'setup-signaling-lost':
             'Error: the connection to the server was lost before the peer connected\n',
-        'setup-closed':
-            'Error: closed before the connection was established\n',
+        'setup-closed': 'Error: closed before the connection was established\n',
     };
     for (const [name, line] of Object.entries(lines)) {
         const c = classifyExit(1, line);

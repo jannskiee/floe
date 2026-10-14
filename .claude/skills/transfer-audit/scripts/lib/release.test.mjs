@@ -18,6 +18,7 @@ import { after, test } from 'node:test';
 import zlib from 'node:zlib';
 
 import {
+    MANAGED_PATH_RE,
     assertSafeCliPath,
     buildHeadCli,
     cliZipName,
@@ -141,10 +142,12 @@ test('assertSafeCliPath refuses managed-install substrings', () => {
         '/opt/homebrew/Cellar/floe',
         'C:\\winget\\x',
         '/usr/local/Cellar/x',
+        '/usr/local/Caskroom/floe/1.11.0',
+        '/home/linuxbrew/.linuxbrew/bin',
     ])
         assert.throws(
             () => assertSafeCliPath(bad),
-            /scoop\|winget\|homebrew\|cellar/
+            /scoop\|winget\|homebrew\|cellar\|caskroom\|linuxbrew/
         );
     assert.equal(assertSafeCliPath('C:\\tmp\\lta\\bin'), 'C:\\tmp\\lta\\bin');
 });
@@ -182,7 +185,7 @@ test('sideloadCli downloads by tag, verifies checksums.txt and extracts', () => 
     assert.equal(r.sha256, sha(Buffer.from('fake floe 3.4.5')));
     assert.equal(gh.calls[0][2], 'v3.4.5');
     assert.ok(gh.calls[0].includes('--pattern'));
-    assert.ok(!/scoop|winget|homebrew|cellar/i.test(r.path));
+    assert.ok(!MANAGED_PATH_RE.test(r.path));
     const again = sideloadCli({
         tag: 'v3.4.5',
         dest: path.join(dir, 'bin'),

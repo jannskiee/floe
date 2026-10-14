@@ -64,6 +64,9 @@ func TestDetectPM(t *testing.T) {
 	}{
 		{"/opt/homebrew/Cellar/floe/1.0.0/bin/floe", "homebrew"},
 		{"/usr/local/Cellar/floe/1.0.0/bin/floe", "homebrew"},
+		// Homebrew's default folder on an Intel Mac, where the cask's file sits
+		// under a path with neither "homebrew" nor "cellar" in it.
+		{"/usr/local/Caskroom/floe/1.11.0/floe", "homebrew"},
 		{"/home/linuxbrew/.linuxbrew/bin/floe", "homebrew"},
 		{"C:/Users/user/scoop/apps/floe/current/floe.exe", "scoop"},
 		{"C:/Users/user/AppData/Local/Microsoft/WinGet/Packages/jannskiee.floe/floe.exe", "winget"},
@@ -76,6 +79,75 @@ func TestDetectPM(t *testing.T) {
 		if got := DetectPM(tt.path); got != tt.want {
 			t.Errorf("DetectPM(%q) = %q, want %q", tt.path, got, tt.want)
 		}
+	}
+}
+
+// TestPMForReadsTheFileTheCommandLinksTo: the package manager is read from
+// the path the process was started from and from the file that path resolves
+// to. On macOS os.Executable reports the command as it was run, links
+// unresolved, and Homebrew on an Intel Mac puts that command at
+// /usr/local/bin/floe, a link into /usr/local/Caskroom, so only the resolved
+// path names Homebrew. A command that is no link, and one whose link cannot be
+// read, are judged by their own path alone.
+func TestPMForReadsTheFileTheCommandLinksTo(t *testing.T) {
+	links := map[string]string{
+		"/usr/local/bin/floe":      "/usr/local/Caskroom/floe/1.11.0/floe",
+		"/home/user/.local/bin/f":  "/home/user/.local/bin/f",
+		"/opt/homebrew/bin/floe":   "/nowhere/floe",
+		"/usr/local/bin/floe-self": "/usr/local/lib/floe/floe",
+	}
+	resolve := func(p string) (string, error) {
+		if to, ok := links[p]; ok {
+			return to, nil
+		}
+		return "", os.ErrNotExist
+	}
+	tests := []struct {
+		exe  string
+		want string
+	}{
+		{"/usr/local/bin/floe", "homebrew"},
+		{"/home/user/.local/bin/f", ""},
+		// Named by the command's own path: the link is never needed.
+		{"/opt/homebrew/bin/floe", "homebrew"},
+		{"/usr/local/bin/floe-self", ""},
+		{"/usr/local/bin/unreadable-link", ""},
+	}
+	for _, tt := range tests {
+		if got := pmFor(tt.exe, resolve); got != tt.want {
+			t.Errorf("pmFor(%q) = %q, want %q", tt.exe, got, tt.want)
+		}
+	}
+}
+
+// TestPMForFollowsARealLink is the same rule through filepath.EvalSymlinks,
+// the resolver PMPath passes, on a link made on disk in the shape of an Intel
+// Mac's Homebrew. Skipped where this account may not make a link (Windows
+// without Developer Mode) and where the temp folder's own path already reads
+// as package-managed.
+func TestPMForFollowsARealLink(t *testing.T) {
+	root := t.TempDir()
+	if pm := DetectPM(root); pm != "" {
+		t.Skipf("the temp folder %q reads as %s on its own", root, pm)
+	}
+	target := filepath.Join(root, "usr", "local", "Caskroom", "floe", "1.11.0", "floe")
+	link := filepath.Join(root, "usr", "local", "bin", "floe")
+	for _, p := range []string{target, link} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(target, []byte("floe"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("cannot make a link here: %v", err)
+	}
+	if got := pmFor(link, filepath.EvalSymlinks); got != "homebrew" {
+		t.Errorf("pmFor(%q) = %q, want homebrew: the file it links to is under Caskroom", link, got)
+	}
+	if got := pmFor(target, filepath.EvalSymlinks); got != "homebrew" {
+		t.Errorf("pmFor(%q) = %q, want homebrew", target, got)
 	}
 }
 
