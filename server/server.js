@@ -615,7 +615,8 @@ function destroyRoom(roomId) {
 // and its host must be able to re-create it. An unsealed close leaves an
 // ended link behind, outside roomMeta (endedLinks, D-176), and so do a lapse
 // (lapseReservation: from the end the host named, at once past the age
-// ceiling) and the kill switch (applyPolicyChange). A request-close lost with
+// ceiling) and the kill switch (applyPolicyChange, and a request-reopen of a
+// sealed room while it is off, both through endRequestRoomOff). A request-close lost with
 // its socket therefore reads host-absent until the link's end, and for good
 // from a desktop that names no end (OD-28).
 //
@@ -1125,6 +1126,15 @@ function handleRequestControl(peer, type, roomId, now = Date.now()) {
         return;
     }
     if (type === 'request-reopen') {
+        // A sealed room outlives the switch going off (applyPolicyChange
+        // leaves it to finish), and reopening it then would wait on a room
+        // no request-join can reach. End it the way the switch ends an
+        // unsealed one: the host hears refused disabled, which every released
+        // Floe Desktop already handles on an open link.
+        if (!policyStore.requestLinks()) {
+            endRequestRoomOff(id, meta, now);
+            return;
+        }
         if (visitor) {
             room.splice(room.indexOf(visitor), 1);
             visitor.roomId = null;
@@ -1267,26 +1277,36 @@ function applyPolicyChange(prev, next, now = Date.now()) {
     if (!(prev && prev.requestLinks === true) || (next && next.requestLinks === true)) return;
     for (const [roomId, meta] of roomMeta) {
         if (meta.kind !== 'request' || meta.sealed) continue;
-        let hostTold = false;
-        for (const p of rooms.get(roomId) || []) {
-            p.roomId = null;
-            try {
-                if (p.id === meta.hostPeerId) {
-                    p.send('refused', { code: 'disabled' });
-                    hostTold = true;
-                } else {
-                    p.send('disabled', {});
-                }
-            } catch {
-                // Undeliverable; the peer times out on its own.
-            }
-        }
-        rooms.delete(roomId);
-        const endsAt = meta.endsAt;
-        forgetReservation(roomId);
-        if (hostTold) noteEndedLink(roomId, now);
-        else if (typeof endsAt === 'number') noteEndedLink(roomId, endsAt);
+        endRequestRoomOff(roomId, meta, now);
     }
+}
+
+// endRequestRoomOff ends one request room because request links are off: the
+// seated host is sent refused {code:'disabled'}, a seated visitor disabled,
+// the reservation is forgotten, and the id answers link-ended for 24 hours
+// (from now when the host was told, else from the end its host named). The
+// switch going off (applyPolicyChange) and a reopen while off
+// (handleRequestControl) both end a room this one way.
+function endRequestRoomOff(roomId, meta, now) {
+    let hostTold = false;
+    for (const p of rooms.get(roomId) || []) {
+        p.roomId = null;
+        try {
+            if (p.id === meta.hostPeerId) {
+                p.send('refused', { code: 'disabled' });
+                hostTold = true;
+            } else {
+                p.send('disabled', {});
+            }
+        } catch {
+            // Undeliverable; the peer times out on its own.
+        }
+    }
+    rooms.delete(roomId);
+    const endsAt = meta.endsAt;
+    forgetReservation(roomId);
+    if (hostTold) noteEndedLink(roomId, now);
+    else if (typeof endsAt === 'number') noteEndedLink(roomId, endsAt);
 }
 
 function createSocketIOPeer(socket, key) {

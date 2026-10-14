@@ -124,6 +124,7 @@ Each entry lists the parts it changed. Filter on the right to see only the ones 
   - Web app: on a request link's page, the Arrived line names the route only when the page could read it, for example "1.2 GB in 3m 10s."; "Request links are turned off right now" and "Request links are not available on this Floe server." now have a Try again button that keeps your files; and one file left of several reads "send the other one".
   - Website: the privacy policy now lists the short trail Sentry error reports carry, and says the GitHub installer of Floe Desktop downloads WebView2 during setup.
   - CLI: the macOS and Linux install script creates `/usr/local/bin` when it is missing, installs to `~/.local/bin` when `sudo` cannot be used, and on an unsupported processor points at `go install` or a source build. When `~/.local/bin` is not on your `PATH`, its note names the file your login shell reads (`~/.zprofile` for zsh, `~/.bash_profile` for bash when you have one, `~/.profile` otherwise), where it always said `~/.profile`, which zsh never reads. And when it installs to `~/.local/bin` while an earlier `floe` is still in `/usr/local/bin`, it says so and gives the command that removes the old one.
+  - Self-hosting: with request links turned off, **Keep waiting** on a declined request link now ends the link with "Request links are off on this server" instead of leaving it on "Waiting for files", where no sender could reach it.
 </Update>
 
 <Update label="desktop-v0.3.0" description="2026-10-09" tags={["Desktop"]}>
