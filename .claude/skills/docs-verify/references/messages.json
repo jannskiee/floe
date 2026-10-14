@@ -2080,6 +2080,13 @@
     },
     {
         "surface": "site",
+        "text": "Floe: the image warm-up did not finish; pictures are resized on first request instead.",
+        "source": "client/docker/start.mjs",
+        "anchor": null,
+        "why_no_home": "A log line of the client container, printed once when its own picture warm-up fails; nothing for a visitor to do. The images page names it at the v1.11.1 tag."
+    },
+    {
+        "surface": "site",
         "text": "For machines without Store access: the installer and a portable zip (unzip and run floe-desktop.exe). These builds are unsigned, so SmartScreen warns on first run: choose \"More info\", then \"Run anyway\".",
         "source": "client/app/download/page.tsx",
         "anchor": "/desktop/installation#choose-a-channel",
