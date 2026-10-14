@@ -34,9 +34,17 @@ const TURN_RATE_WINDOW = 60000;
 // says nothing, the CLI prints a warning).
 const TURN_MAX_REQUESTS = envLimit('MAX_TURN_REQUESTS_PER_IP', 20);
 
+// What TURN_TLS has to say to leave the turns: URL out of the coturn list: the
+// spellings an operator is likely to type for off, in any letter case. Every
+// other value keeps the URL, unset and empty included, and that default must
+// not move: a relay that has a certificate is reached through turns: by
+// clients on networks that block UDP, and its operator has set nothing.
+const TURN_TLS_OFF = /^(off|false|0|no)$/i;
+
 function generateCoturnCredentials() {
     const turnSecret = process.env.TURN_SECRET;
     const turnDomain = process.env.TURN_DOMAIN;
+    const turnTls = process.env.TURN_TLS;
     if (!turnSecret || !turnDomain) return null;
 
     // 24h, matching CF_TURN_TTL below. Do not shorten: every sender fetches ICE
@@ -58,11 +66,18 @@ function generateCoturnCredentials() {
     // The rationale lives here now so it travels with the code.
     const password = crypto.createHmac('sha1', turnSecret).update(username).digest('base64');
 
-    return [
+    const servers = [
         { urls: `stun:${turnDomain}:3478` },
         { urls: `turn:${turnDomain}:3478`, username, credential: password },
-        { urls: `turns:${turnDomain}:5349`, username, credential: password },
     ];
+    // The opt-out is for a coturn with no TLS listener, which is how the example
+    // config ships (cert and pkey commented out). Its port 5349 cannot finish a
+    // handshake, and clients gather candidates per URL, so the dead URL costs
+    // every client an allocation attempt that can only time out.
+    if (!(turnTls && TURN_TLS_OFF.test(turnTls.trim()))) {
+        servers.push({ urls: `turns:${turnDomain}:5349`, username, credential: password });
+    }
+    return servers;
 }
 
 // ---------------------------------------------------------------------------
