@@ -52,6 +52,13 @@ export const metadata: Metadata = {
 // relayEnabled context, the eight Umami reason labels (lib/peerErrors.ts,
 // lib/transfer/receiver.ts ReceiveFailure, P2PTransfer.tsx 'peer-reason') and
 // the request link save folder (desktop/requestlink.go requestDefaultDirFn).
+// Rechecked on 2026-10-14: the browser's Sentry reports carry breadcrumbs
+// (the SDK's default clicks, navigations, fetch and XHR addresses and console
+// lines), each scrubbed of the room link by beforeBreadcrumb
+// (lib/scrubUrl.ts scrubBreadcrumb), so the Error monitoring list names them.
+// The same day: the desktop paragraph's WebView2 sentence matches the GitHub
+// installer, which downloads the runtime during setup, and the app's own
+// check at start (desktop/main.go webview2Hint).
 // Rechecked on 2026-10-12: Sentry is sent no session data, from the browser
 // (sentry.client.config.ts `integrations`) or from the server
 // (sentry.server.config.ts `integrations`; see lib/sentryIntegrations.ts), so
@@ -407,6 +414,7 @@ export default function PrivacyPolicy() {
                     items={[
                         'Error stack traces and browser metadata (browser version, OS, device type, approximate device memory, language, and time zone)',
                         'Connection type (direct or relay), whether relay fallback was on, transfer progress, file count, and total size, sent with an error report or with a page performance trace that falls in the 10% sample',
+                        'A short trail of what happened just before: clicks, page changes, the addresses of network requests, and console lines, with the room link removed from each',
                     ]}
                 />
                 <p>
@@ -489,11 +497,12 @@ export default function PrivacyPolicy() {
                     check that the server offers request links and to hold the link&apos;s room
                     while the link is open), fetches relay credentials, and then streams file data
                     directly between devices, or through the relay described above when no direct path
-                    exists or when &quot;Hide my IP address&quot; is on. Two more
-                    requests happen only when you ask for them: the Test button in Settings contacts
-                    only the server address you typed, and if the Microsoft WebView2 runtime that
-                    draws the interface is missing, the app offers to download it from Microsoft
-                    before it starts. It contains{' '}
+                    exists or when &quot;Hide my IP address&quot; is on. One more
+                    request happens only when you ask for it: the Test button in Settings contacts
+                    only the server address you typed. If the Microsoft WebView2 runtime that draws
+                    the interface is missing, the installer from GitHub downloads it from Microsoft
+                    during setup, and the app offers to download it from Microsoft before it starts.
+                    It contains{' '}
                     <strong>no analytics, no error monitoring, and no telemetry</strong>.
                 </p>
                 <p>

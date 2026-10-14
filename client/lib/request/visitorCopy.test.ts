@@ -162,10 +162,17 @@ describe('visitor copy: server answers and the attempt states', () => {
             action: null,
         });
         expect(announcement(model('V5d'), CTX)).toBe('This link has ended');
-        expect(statusCopy(model('V5b'), CTX)).toMatchObject({ title: 'Request links are turned off right now', lines: [] });
+        // Both say something that can change while the page is open, so
+        // both offer Try again (owner answer 18); the words are unchanged.
+        expect(statusCopy(model('V5b'), CTX)).toMatchObject({
+            title: 'Request links are turned off right now',
+            lines: [],
+            action: 'try-again',
+        });
         expect(statusCopy(model('V5c'), CTX)).toMatchObject({
             title: 'Request links are not available on this Floe server.',
             lines: [],
+            action: 'try-again',
         });
         expect(statusCopy(model('V6a'), CTX)).toMatchObject({
             title: "Couldn't connect to their computer. Nothing was sent.",
@@ -328,6 +335,12 @@ describe('visitor copy: a drop of one file says file (D-123)', () => {
             '0 of 2 files arrived. Ask them for a new link to send the other 2.',
         ]);
         expect(announcement(lostTwo, CTX)).toBe('Connection lost. 0 of 2 files arrived.');
+        // Exactly one left of more than one: "the other one", never
+        // "the other 1" (owner answer 22).
+        const lastLeft = model('V12', { total: 12, ackIndex: 12, lost: 'closed' });
+        expect(statusCopy(lastLeft, CTX)?.lines).toEqual([
+            '11 of 12 files arrived. Ask them for a new link to send the other one.',
+        ]);
         // The one file acked but the delivery never confirmed: nothing is left
         // to send, so C-111's flow R6 tail, with the singular noun.
         const acked = one('V12', { ackIndex: 2, lost: 'closed' });
@@ -571,5 +584,29 @@ describe('visitor copy: Ready and Sending strings', () => {
         for (const s of all) {
             expect(s, s).not.toMatch(new RegExp('[' + String.fromCharCode(0x2013, 0x2014) + ']'));
         }
+    });
+});
+
+describe('visitor copy: the Arrived line names a route only when one was read (owner answer 27)', () => {
+    const LINE = "Their app reports every file's SHA-256 matched.";
+    const delivered = (patch: Partial<VisitorModel>) =>
+        model('V13', { acceptedAt: 0, deliveredAt: 190_000, verifiedCount: 12, ...patch });
+
+    it('keeps the route the badge or the probe read', () => {
+        expect(statusCopy(delivered({ route: null }), { ...CTX, route: 'relay' })?.lines).toEqual([
+            `1000 Bytes in 3m 10s, relay. ${LINE}`,
+        ]);
+        expect(statusCopy(delivered({ route: 'direct' }), { ...CTX, route: null })?.lines).toEqual([
+            `1000 Bytes in 3m 10s, direct. ${LINE}`,
+        ]);
+    });
+
+    it('says size and time alone when neither read one', () => {
+        expect(statusCopy(delivered({ route: null }), { ...CTX, route: null })?.lines).toEqual([
+            `1000 Bytes in 3m 10s. ${LINE}`,
+        ]);
+        expect(statusCopy(delivered({ route: null, verifiedCount: null }), { ...CTX, route: null })?.lines).toEqual([
+            '1000 Bytes in 3m 10s.',
+        ]);
     });
 });

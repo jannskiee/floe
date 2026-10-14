@@ -115,7 +115,9 @@ export const Navbar = () => {
                 className="pointer-events-auto flex min-w-0 max-w-[calc(100%-1.5rem)] items-center gap-1 max-[359px]:gap-0.5 overflow-x-auto overscroll-x-contain scroll-p-1.5 whitespace-nowrap rounded-full border border-white/10 bg-zinc-900/70 p-1.5 max-[359px]:p-1 shadow-2xl backdrop-blur-xl [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0"
             >
                 {isHome ? (
-                    /* Button with hard-nav: forces full reload, clearing all peer/transfer state */
+                    /* Button with hard-nav: forces full reload, clearing all peer/transfer state.
+                       While a transfer or received files depend on the tab, P2PTransfer
+                       holds the browser's leave prompt, and this reload goes through it. */
                     <button
                         onClick={() => { window.location.href = '/'; }}
                         // Without this the button's accessible name is computed from the

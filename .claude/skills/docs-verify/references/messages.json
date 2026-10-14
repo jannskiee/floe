@@ -197,6 +197,13 @@
     },
     {
         "surface": "web",
+        "text": "Couldn’t copy. Press and hold the link above to copy it.",
+        "source": "client/components/InAppBrowserGuard.tsx",
+        "anchor": "/web-app/receiving#if-floe-says-open-in-your-browser",
+        "why_no_home": null
+    },
+    {
+        "surface": "web",
         "text": "Create secure link",
         "source": "client/components/P2PTransfer.tsx",
         "anchor": "/web-app/sending#create-the-link",
@@ -298,6 +305,13 @@
         "text": "Files stream in below",
         "source": "client/components/ReceiverPanel.tsx",
         "anchor": null,
+        "why_no_home": null
+    },
+    {
+        "surface": "web",
+        "text": "Folders cannot be sent from this page. Add the files inside it, or zip it first.",
+        "source": "client/lib/pageGuards.ts",
+        "anchor": "/web-app/sending#add-your-files",
         "why_no_home": null
     },
     {
@@ -820,6 +834,13 @@
     },
     {
         "surface": "web",
+        "text": "The sender has Network relay fallback off, and this connection needs the relay. Ask them to reload, leave it on, and share a new link.",
+        "source": "client/lib/senderSelfStop.ts",
+        "anchor": "/troubleshooting#the-sender-ended-the-transfer",
+        "why_no_home": null
+    },
+    {
+        "surface": "web",
         "text": "The sender is not connected",
         "source": "client/components/ReceiverPanel.tsx",
         "anchor": "/troubleshooting#the-sender-is-not-connected",
@@ -848,8 +869,29 @@
     },
     {
         "surface": "web",
+        "text": "The sender stopped after waiting 2 minutes for this device to answer. Ask them to send again.",
+        "source": "client/lib/senderSelfStop.ts",
+        "anchor": "/troubleshooting#the-sender-ended-the-transfer",
+        "why_no_home": null
+    },
+    {
+        "surface": "web",
+        "text": "The sender stopped because of an error on their side. Ask them to send again.",
+        "source": "client/lib/senderSelfStop.ts",
+        "anchor": "/troubleshooting#the-sender-ended-the-transfer",
+        "why_no_home": null
+    },
+    {
+        "surface": "web",
         "text": "The sender stopped the transfer.",
         "source": "client/lib/transfer/receiver.ts",
+        "anchor": "/troubleshooting#the-sender-ended-the-transfer",
+        "why_no_home": null
+    },
+    {
+        "surface": "web",
+        "text": "The sender stopped: a file could not be read on their device. Ask them to check it and send again.",
+        "source": "client/lib/senderSelfStop.ts",
         "anchor": "/troubleshooting#the-sender-ended-the-transfer",
         "why_no_home": null
     },
@@ -1278,6 +1320,13 @@
         "text": "Couldn't connect to their computer. Nothing was sent.",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#messages-on-the-senders-page",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "Couldn’t copy. Press and hold the link above to copy it.",
+        "source": "client/components/InAppBrowserGuard.tsx",
+        "anchor": "/troubleshooting#open-in-your-browser",
         "why_no_home": null
     },
     {
@@ -1891,9 +1940,23 @@
     },
     {
         "surface": "web-request",
+        "text": "{a} of {n} files arrived. Ask them for a new link to send the other one.",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/web-app/request-links#keep-the-page-open",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
         "text": "{a} of {n} files arrived. Ask them for a new link to send the other {k}.",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#keep-the-page-open",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "{size} in {duration}.",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/web-app/request-links#when-the-files-arrive",
         "why_no_home": null
     },
     {
@@ -1915,6 +1978,13 @@
         "text": "::error::images.yml publishes from a manual dispatch only on main; rerun a failed tag run in place instead",
         "source": ".github/workflows/images.yml",
         "anchor": null,
+        "why_no_home": null
+    },
+    {
+        "surface": "site",
+        "text": "A short trail of what happened just before: clicks, page changes, the addresses of network requests, and console lines, with the room link removed from each",
+        "source": "client/app/privacy/page.tsx",
+        "anchor": "/security-privacy#error-monitoring-and-analytics",
         "why_no_home": null
     },
     {
@@ -2045,9 +2115,23 @@
     },
     {
         "surface": "site",
+        "text": "If the Microsoft WebView2 runtime that draws the interface is missing, the installer from GitHub downloads it from Microsoft during setup, and the app offers to download it from Microsoft before it starts.",
+        "source": "client/app/privacy/page.tsx",
+        "anchor": "/desktop/installation#requirements",
+        "why_no_home": null
+    },
+    {
+        "surface": "site",
         "text": "Not connected",
         "source": "client/components/layout/Navbar.tsx",
         "anchor": null,
+        "why_no_home": null
+    },
+    {
+        "surface": "site",
+        "text": "One more request happens only when you ask for it: the Test button in Settings contacts only the server address you typed.",
+        "source": "client/app/privacy/page.tsx",
+        "anchor": "/security-privacy#error-monitoring-and-analytics",
         "why_no_home": null
     },
     {
@@ -2063,6 +2147,20 @@
         "source": "client/components/layout/Navbar.tsx",
         "anchor": null,
         "why_no_home": null
+    },
+    {
+        "surface": "site",
+        "text": "Reload page",
+        "source": "client/app/global-error.tsx",
+        "anchor": null,
+        "why_no_home": "The button of the site's own full-page error screen; it reloads the page and needs no explaining."
+    },
+    {
+        "surface": "site",
+        "text": "Reload the page to try again.",
+        "source": "client/app/global-error.tsx",
+        "anchor": null,
+        "why_no_home": "The site's own full-page error screen, drawn only when a page fails to render. It names no Floe condition, and its Reload page button is the whole remedy."
     },
     {
         "surface": "site",
@@ -2112,6 +2210,20 @@
         "source": "client/app/r/[linkId]/page.tsx",
         "anchor": null,
         "why_no_home": null
+    },
+    {
+        "surface": "site",
+        "text": "Something went wrong",
+        "source": "client/app/global-error.tsx",
+        "anchor": null,
+        "why_no_home": "The site's own full-page error screen, drawn only when a page fails to render. It names no Floe condition, and its Reload page button is the whole remedy."
+    },
+    {
+        "surface": "site",
+        "text": "Something Went Wrong - Floe",
+        "source": "client/app/global-error.tsx",
+        "anchor": null,
+        "why_no_home": "The tab title of the site's own full-page error screen."
     },
     {
         "surface": "site",
@@ -4754,6 +4866,13 @@
     },
     {
         "surface": "cli",
+        "text": "Could not install with sudo, so installing to {LOCAL_BIN} instead.",
+        "source": "client/public/install.sh",
+        "anchor": "/cli/installation#one-line-installer",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
         "text": "could not register code: {network reason}",
         "source": "cli/engine/code/client.go",
         "anchor": null,
@@ -4797,6 +4916,13 @@
     {
         "surface": "cli",
         "text": "echo 'export PATH=\"{HOME}/.local/bin:{PATH}\"' >> ~/.profile",
+        "source": "client/public/install.sh",
+        "anchor": "/troubleshooting#floe-is-not-found-after-installing",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "echo 'export PATH=\"{HOME}/.local/bin:{PATH}\"' >> ~/{PROFILE_FILE}",
         "source": "client/public/install.sh",
         "anchor": "/troubleshooting#floe-is-not-found-after-installing",
         "why_no_home": null
@@ -5258,6 +5384,20 @@
     },
     {
         "surface": "cli",
+        "text": "Floe releases are built for 64-bit Intel and ARM only. With Go 1.26 or later, build it yourself:",
+        "source": "client/public/install.sh",
+        "anchor": "/cli/installation#go-install",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "go install github.com/jannskiee/floe/cli/cmd/floe@latest",
+        "source": "client/public/install.sh",
+        "anchor": "/cli/installation#go-install",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
         "text": "incomplete file \"{name}\": received {n} of {m} bytes",
         "source": "cli/engine/transfer/receiver.go",
         "anchor": null,
@@ -5307,6 +5447,13 @@
     },
     {
         "surface": "cli",
+        "text": "Note: an earlier floe is still at {INSTALL_DIR}/{BINARY} and may run instead of this one. Remove it with: sudo rm {INSTALL_DIR}/{BINARY}",
+        "source": "client/public/install.sh",
+        "anchor": "/cli/installation#one-line-installer",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
         "text": "Nothing was sent.",
         "source": "cli/cmd/floe/sendto.go",
         "anchor": "/cli/send#messages-from-floe-send-to",
@@ -5331,6 +5478,13 @@
         "text": "Open a new terminal, then run 'floe version' to verify.",
         "source": "client/public/install.ps1",
         "anchor": "/cli/installation#one-line-installer",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "Or build from source: https://www.floe.one/docs/cli/installation#build-from-source",
+        "source": "client/public/install.sh",
+        "anchor": "/cli/installation#build-from-source",
         "why_no_home": null
     },
     {

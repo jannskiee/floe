@@ -206,6 +206,10 @@ export function createReceiver(
     // Files handed to onFileComplete in the current transfer: the `saved` a
     // hash refusal reports, the twin of filesReceived in the Go receiver.
     let filesHanded = 0;
+    // Set when the file the sender announced as its last one is handed over,
+    // and cleared by the next metadata. A sender stop after that point stops
+    // nothing, so it is not reported as a failure (see the incompatible branch).
+    let batchComplete = false;
 
     // While a SHA-256 check is pending, string frames wait here and are handled
     // in order once it settles. Binary frames are dropped instead: no file is
@@ -315,6 +319,7 @@ export function createReceiver(
             cb.onAllComplete?.(sessionBytes, filesHanded);
             sessionBytes = 0; // reset for a possible subsequent transfer
             filesHanded = 0;
+            batchComplete = true;
         }
         currentMetadata = null;
         expectedSize = null;
@@ -649,6 +654,7 @@ export function createReceiver(
                     partialDownloads.delete(currentMetadata.id);
                 }
                 currentMetadata = msg;
+                batchComplete = false;
                 senderSentVersion = typeof msg.ver === 'string' && msg.ver !== '';
                 // classifyControl casts the metadata JSON straight to its
                 // interface, so fileSize is whatever the peer chose to send.
@@ -696,6 +702,10 @@ export function createReceiver(
                 currentMetadata = null;
                 expectedSize = null;
                 clearProgress();
+                // Every announced file is already here, so the stop ended
+                // nothing: the latch above still drops whatever follows, and
+                // the close that comes next reports the finished receive.
+                if (batchComplete) return;
                 const incompat = msg as Incompatible;
                 const reason = sanitizeDisplayText(incompat.reason ?? '', 300);
                 cb.onError?.(

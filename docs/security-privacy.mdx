@@ -168,7 +168,9 @@ On the floe.one website:
   configured to attach no cookies and no IP address; each report carries the page address, the
   browser's user agent, language and time zone, and the referring page. An error report, or a
   performance trace that falls in the 10% sample, may add the connection type, whether relay
-  fallback was on, the transfer's progress, the file count, and the total size. A report of a
+  fallback was on, the transfer's progress, the file count, and the total size. An error report
+  also carries a short trail of what happened just before it: clicks, page changes, the addresses
+  of network requests, and console lines, with the room link removed from each. A report of a
   failed receive may also add the device's approximate memory. Sentry's servers see the IP address
   a report arrives from, as any server does. Each report
   is sent with an empty location field, which keeps Sentry from working out a

@@ -1,0 +1,26 @@
+[
+  {
+    "name": "unreadable",
+    "frame": "{\"type\":\"incompatible\",\"reason\":\"The sender stopped: a file could not be read on their device. Ask them to check it and send again.\",\"pv\":1,\"pvMin\":1}",
+    "browser": "The sender stopped: a file could not be read on their device. Ask them to check it and send again.",
+    "go": "The sender stopped: a file could not be read on their device. Ask them to check it and send again."
+  },
+  {
+    "name": "ack-timeout",
+    "frame": "{\"type\":\"incompatible\",\"reason\":\"The sender stopped after waiting 2 minutes for this device to answer. Ask them to send again.\",\"pv\":1,\"pvMin\":1}",
+    "browser": "The sender stopped after waiting 2 minutes for this device to answer. Ask them to send again.",
+    "go": "The sender stopped after waiting 2 minutes for this device to answer. Ask them to send again."
+  },
+  {
+    "name": "internal",
+    "frame": "{\"type\":\"incompatible\",\"reason\":\"The sender stopped because of an error on their side. Ask them to send again.\",\"pv\":1,\"pvMin\":1}",
+    "browser": "The sender stopped because of an error on their side. Ask them to send again.",
+    "go": "The sender stopped because of an error on their side. Ask them to send again."
+  },
+  {
+    "name": "relay-off",
+    "frame": "{\"type\":\"incompatible\",\"reason\":\"The sender has Network relay fallback off, and this connection needs the relay. Ask them to reload, leave it on, and share a new link.\",\"pv\":1,\"pvMin\":1}",
+    "browser": "The sender has Network relay fallback off, and this connection needs the relay. Ask them to reload, leave it on, and share a new link.",
+    "go": "The sender has Network relay fallback off, and this connection needs the relay. Ask them to reload, leave it on, and share a new link."
+  }
+]

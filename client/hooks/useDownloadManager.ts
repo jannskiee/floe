@@ -28,10 +28,16 @@ export interface ReceivedFile {
  * `receivedFiles` is read-only here (the receiver connection logic owns it) and
  * `setError` is shared with the component (it also reports connection errors),
  * so both are passed in rather than owned by this hook.
+ *
+ * `onSaved` hears the ids of the files each button has handed to the browser
+ * to save, so the page's leave prompt can let go once nothing is left unsaved
+ * (lib/pageGuards.ts). Handed over is all the page can know: a cancelled Save
+ * As dialog or a blocked second download reports nothing back.
  */
 export function useDownloadManager(
     receivedFiles: ReceivedFile[],
-    setError: (message: string) => void
+    setError: (message: string) => void,
+    onSaved?: (ids: readonly string[]) => void
 ) {
     const [isZipping, setIsZipping] = useState(false);
     const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0, label: '' });
@@ -55,6 +61,7 @@ export function useDownloadManager(
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+            onSaved?.([file.id]);
 
             await new Promise(resolve => setTimeout(resolve, 300));
         }
@@ -72,6 +79,10 @@ export function useDownloadManager(
 
         try {
             const collected: { fileName: string; bytes: Uint8Array }[] = [];
+            // The ids of the files in `collected`: buildZipEntries keeps every
+            // one (it renames a duplicate, it never drops one), so these are
+            // the archive's contents. A file that could not be read is not.
+            const zipped: string[] = [];
             let failedCount = 0;
 
             for (let i = 0; i < receivedFiles.length; i++) {
@@ -89,6 +100,7 @@ export function useDownloadManager(
                     const arrayBuffer = await blob.arrayBuffer();
 
                     collected.push({ fileName: file.fileName, bytes: new Uint8Array(arrayBuffer) });
+                    zipped.push(file.id);
                 } catch {
                     failedCount++;
                 }
@@ -123,6 +135,7 @@ export function useDownloadManager(
                 link.click();
                 document.body.removeChild(link);
                 URL.revokeObjectURL(url);
+                onSaved?.(zipped);
                 setIsZipping(false);
                 setDownloadProgress({ current: 0, total: 0, label: '' });
                 if (failedCount > 0) {

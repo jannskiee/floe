@@ -39,7 +39,9 @@ the transfer view opens in it directly.
 </Frame>
 
 Follow the two steps, or tap **Copy link to paste in browser** and open it yourself in Chrome,
-Safari, Edge, or Firefox. **Continue anyway (some features may not work)** proceeds regardless.
+Safari, Edge, or Firefox. The card also shows the link itself; if the app blocks copying, the card
+says "Couldn’t copy. Press and hold the link above to copy it." **Continue anyway (some features
+may not work)** proceeds regardless.
 
 Until you tap **Continue anyway**, the page has not joined the room. That is deliberate: a room
 takes exactly one recipient, so an in-app browser cannot silently take that seat and lock the real
@@ -129,7 +131,8 @@ Files stream from the sender's device, so if they close their tab, quit Floe Des
 CLI before the transfer finishes, the connection drops and nothing resumes it.
 
 If **your** connection to Floe's server blips while the two devices are still connecting, the page
-rejoins the room by itself. Whether that rescues the transfer depends on the sender. A browser
+rejoins the room by itself. If the server still counts the page's old connection, the page keeps
+trying for about a minute instead of showing "Link Invalid". Whether that rescues the transfer depends on the sender. A browser
 sender builds a fresh connection. `floe send` and Floe Desktop treat it as you leaving and end the
 transfer, and a device that comes back on a different network can be refused. See
 [How a transfer works](/how-it-works/signaling#a-room-holds-exactly-two-people). Once the two
@@ -141,7 +144,7 @@ What you see when the sender leaves depends on how far things had got:
 | When the sender left | What the page shows |
 |----------------------|---------------------|
 | Before the two devices connected | The second step of the card changes to "The sender is not connected". If a sender in the browser comes back, the transfer starts by itself. See [Troubleshooting](/troubleshooting#the-sender-is-not-connected). |
-| After they connected, before any file finished | A red banner, usually "The sender ended the transfer before it finished." or "The sender ended the transfer. Ask them to start it again." See [Troubleshooting](/troubleshooting#the-sender-ended-the-transfer). |
+| After they connected, before any file finished | A red banner, usually "The sender ended the transfer before it finished." or "The sender ended the transfer. Ask them to start it again.", or the sender's own reason when a sender in the browser stopped by itself or refused a relayed path. See [Troubleshooting](/troubleshooting#the-sender-ended-the-transfer). |
 | After at least one file finished, with more still to come | The badge goes back to **Offline**, the progress row goes away, and an amber line under the list says how far the transfer got, such as "Received 1 of 3 files. The transfer ended before the rest arrived." The files that arrived stay listed. See [Troubleshooting](/troubleshooting#the-transfer-ended-before-the-rest-arrived). |
 
 In that last case, save what arrived and ask the sender to send the rest in a new transfer: Floe
@@ -156,8 +159,11 @@ Waiting for the rest" between files. The green check and a count such as "3 file
 appear only once every file the sender announced has arrived.
 
 Files that already arrived stay in the list and can still be saved for as long as the page stays
-open. To try again in the first two cases, reload the page: that works while a browser sender still
-has their page open.
+open. While a receive is under way, or a file that arrived has not been saved yet, your browser
+asks before the tab is closed or reloaded, and before the Floe button or one of the page's own
+links takes you away. A file counts as saved once its own download button, **Download All** or
+**Download ZIP** has handed it to your browser. To try again in the first two cases, reload the
+page: that works while a browser sender still has their page open.
 
 ## Receiving in the terminal or the desktop app instead
 

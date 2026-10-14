@@ -277,6 +277,53 @@ test('sender flow stays inside the viewport at 320 and 390 wide', async ({ page 
     }
 });
 
+// The share panel's status line used to stop at 200 px with an ellipsis, and
+// two of its fixed sentences are wider than that in 12 px Geist at every phone
+// width from 320 to 430 (measured 212 and 241 px, 2026-10-14), so a phone
+// showed them cut while the docs quote them whole. Each sentence the sending
+// page can put there is written into the line in turn and must show whole.
+const SHARE_STATUSES = [
+    'Waiting for peer',
+    'Peer joined. Starting transfer',
+    'All Files Sent!',
+    'Transfer failed',
+    'Connection interrupted',
+    'Connection failed',
+    'Transfer blocked. Relay limit exceeded.',
+    'Peer disconnected. Waiting for reconnection',
+    'Reconnecting to your link',
+    'Link stopped working',
+    'Transfer complete',
+];
+
+test('the share panel shows every status sentence whole at phone widths', async ({ page }) => {
+    mkdirSync(FIXTURE_DIR, { recursive: true });
+    const fixturePath = join(FIXTURE_DIR, 'fixture-status.bin');
+    writeFileSync(fixturePath, randomBytes(64));
+
+    for (const width of [320, 360, 390, 430]) {
+        await page.setViewportSize({ width, height: 800 });
+        await page.goto('/');
+        await page.locator('input[type="file"]').setInputFiles(fixturePath);
+        await page.locator('button', { hasText: /create secure link/i }).click();
+        await expect(page.locator('code').filter({ hasText: '#room=' })).toBeVisible({ timeout: 10_000 });
+
+        // The status line is the one under the link that says what the send
+        // is doing; right after Create that is the waiting sentence.
+        const line = await page.getByText('Waiting for peer', { exact: true }).elementHandle();
+        expect(line, 'the share panel status line').not.toBeNull();
+        for (const status of SHARE_STATUSES) {
+            const cut = await line!.evaluate((el, text) => {
+                el.textContent = text;
+                const box = el.getBoundingClientRect();
+                const card = el.closest('main')!.getBoundingClientRect();
+                return el.scrollWidth > el.clientWidth || el.scrollHeight > el.clientHeight + 1 || box.right > card.right;
+            }, status);
+            expect(cut, `"${status}" at ${width} px`).toBe(false);
+        }
+    }
+});
+
 // ---------------------------------------------------------------------------
 // Request link visitor page (/r). Ready opens no socket until Send, so a
 // made-up link draws it with no host. Past the page-level check, nothing inside

@@ -154,6 +154,58 @@ describe('receiver: a peer that stops on purpose says why', () => {
         expect(h.completed).toEqual([]);
     });
 
+    // A sender's stop that lands once every announced file is here (a Go
+    // sender stopped right after its last end frame, say) has nothing left to
+    // stop. Reported, it turned a complete receive into "The sender stopped."
+    // over the files the person was holding.
+    it('keeps a finished receive finished when the sender stops after the last file', () => {
+        const h = receiver();
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 2, 6));
+        h.rx.handleMessage(enc.encode('abc'));
+        h.rx.handleMessage(endMessage());
+        h.rx.handleMessage(metadataMessage('b', 'b.bin', 3, 2, 2, 6));
+        h.rx.handleMessage(enc.encode('def'));
+        h.rx.handleMessage(endMessage());
+        h.rx.handleMessage(incompatibleMessage('The sender stopped.'));
+        expect(h.completed).toEqual(['a.bin', 'b.bin']);
+        expect(h.errors).toEqual([]);
+    });
+
+    it('keeps it finished when the stop waited out the last file\'s SHA-256 check', async () => {
+        const errors: string[] = [];
+        const completed: string[] = [];
+        const digest = 'a'.repeat(64);
+        let finishHash: (d: string) => void = () => {};
+        const hashed = new Promise<string>((resolve) => { finishHash = resolve; });
+        const rx = createReceiver(
+            {
+                send: () => {},
+                onFileComplete: (f) => completed.push(f.fileName),
+                onError: (m) => errors.push(m),
+            },
+            { hashBlob: () => hashed }
+        );
+        rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 1, 3));
+        rx.handleMessage(enc.encode('abc'));
+        rx.handleMessage(endMessage(digest));
+        // Held behind the check, then handled once it settles.
+        rx.handleMessage(incompatibleMessage('The sender stopped.'));
+        finishHash(digest);
+        await rx.settled();
+        expect(completed).toEqual(['a.bin']);
+        expect(errors).toEqual([]);
+    });
+
+    it('still reports a stop that lands before the last file is complete', () => {
+        const h = receiver();
+        h.rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 2, 6));
+        h.rx.handleMessage(enc.encode('abc'));
+        h.rx.handleMessage(endMessage());
+        h.rx.handleMessage(incompatibleMessage('The sender stopped.'));
+        expect(h.completed).toEqual(['a.bin']);
+        expect(h.errors).toEqual(['The sender stopped.']);
+    });
+
     it('does not print a version-mismatch frame as if it were a reason', () => {
         // A non-overlapping range means the frame IS about versions, and its
         // reason is written from the sender's point of view. Saying it back to

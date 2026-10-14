@@ -5,6 +5,7 @@ import { MAX_REQUEST_FILES } from '@/lib/request/constants';
 import { visitorCopy } from '@/lib/request/visitorCopy';
 import { mergeSelection, type RequestFile } from '@/lib/request/mergeSelection';
 import { createPickTracker } from '@/lib/request/pickTracker';
+import { useStrayDropGuard } from '@/hooks/usePageGuards';
 
 /**
  * The visitor's file selection.
@@ -63,23 +64,8 @@ export function useRequestFiles(events: RequestFileEvents = {}) {
 
     // A file let go anywhere but the dropzone. Chrome's default is to open it
     // in this tab, which dropped the selection without a word in Ready (no
-    // leave-page prompt there) and raised the leave prompt mid-drop. The zone's
-    // own handlers run first (React listens on the document, this on the
-    // window), so a drop the zone took is already defaultPrevented and passes;
-    // anything else carrying files is refused, with the no-drop cursor.
-    useEffect(() => {
-        const refuse = (e: globalThis.DragEvent) => {
-            if (e.defaultPrevented || !Array.from(e.dataTransfer?.types ?? []).includes('Files')) return;
-            e.preventDefault();
-            if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
-        };
-        window.addEventListener('dragover', refuse);
-        window.addEventListener('drop', refuse);
-        return () => {
-            window.removeEventListener('dragover', refuse);
-            window.removeEventListener('drop', refuse);
-        };
-    }, []);
+    // leave-page prompt there) and raised the leave prompt mid-drop.
+    useStrayDropGuard();
 
     const totalBytes = files.reduce((sum, f) => sum + f.file.size, 0);
 

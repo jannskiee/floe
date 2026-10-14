@@ -19,8 +19,8 @@ one file or many, of any type.
   <img src="/images/web/01-send-staged.png" style={{ width: "100%", maxWidth: "520px", borderRadius: "12px" }} alt="The Floe send card with report.pdf, photo.jpg and notes.txt staged, a Network relay fallback checkbox, and a Create secure link (3 files) button" />
 </Frame>
 
-Drop them on the card itself. Dropping a file anywhere else on the page makes your browser open
-that file and navigate away from Floe.
+Drop them on the card itself. A file dropped anywhere else on the page is refused, so your browser
+never opens it in place of Floe.
 
 Once something is queued, the large drop area shrinks to an **Add more files** strip above the
 list, and each row gets an X to remove it. Both disappear the moment you create the link, so
@@ -31,9 +31,9 @@ Floe sets no size limit on a direct connection. See
 receiving end can hold.
 
 <Warning>
-This page cannot send a folder. It has no folder picker, and a folder dropped on it is not sent:
-depending on the browser, the drop may add an entry that fails when the transfer starts. Zip the
-folder first, or send it from [Floe Desktop](/desktop/sending) or the [CLI](/cli/send), both of
+This page cannot send a folder. It has no folder picker, and a folder dropped on it is refused at
+the drop with "Folders cannot be sent from this page. Add the files inside it, or zip it first.",
+and nothing from that drop is added. Zip the folder first, or send it from [Floe Desktop](/desktop/sending) or the [CLI](/cli/send), both of
 which walk the folder for you and rebuild it on the other side.
 </Warning>
 
@@ -153,7 +153,9 @@ does not acknowledge a file within 2 minutes, the transfer gives up with
 
 <Warning>
 Keep the tab open and in the foreground. Closing it or navigating away ends the session
-immediately and the recipient loses the connection.
+immediately and the recipient loses the connection. From **Create secure link** until the send
+ends, your browser asks before the tab is closed or reloaded, and before the Floe button or one of
+the page's own links takes you away. It does not ask once the page itself has told you to reload.
 </Warning>
 
 On mobile, a backgrounded tab may be throttled, which slows the transfer down.
