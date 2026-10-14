@@ -5,18 +5,30 @@ description: "How a self-hosted Floe web client resolves its signaling server ad
 keywords: ["SOCKET_URL", "NEXT_PUBLIC_SOCKET_URL", "api/config", "server discovery"]
 ---
 
-The browser needs to know where your signaling server is. It works that out when the
-page loads, so changing the address takes effect on a restart with no image rebuild.
+The browser needs to know where your [signaling server](/glossary#signaling-server) is. It works
+that out when the page loads, so changing the address takes effect on a restart with no image
+rebuild.
+
+## What to set
+
+| How you run the client | What you set | When it takes effect |
+|---|---|---|
+| [Docker Compose](/glossary#docker-compose) | `NEXT_PUBLIC_SOCKET_URL` in `.env` | On `docker compose up -d` |
+| Unraid | **Signaling Server URL** in the Floe-Client template | When you apply the changed template |
+| `docker run`, or a client built with Node and no `NEXT_PUBLIC_SOCKET_URL` | `SOCKET_URL` in the running client's environment | When the client is started again with the new value |
+
+Behind one domain, leave it empty on every one of them: the browser then uses the address it
+loaded the page from.
 
 ## Resolution order
 
-The first match wins.
+For the curious, this is the order the browser follows. The first match wins.
 
 | Order | Source | When it applies |
 |-------|--------|-----------------|
 | 1 | `NEXT_PUBLIC_SOCKET_URL` baked in at build time | Only if you deliberately built the client with a URL compiled in. Empty in the published image. This is not the `.env` line of the same name: Compose turns that one into `SOCKET_URL`, which is step 3. |
 | 2 | `http://localhost:3001` | Development builds only (`pnpm dev`). |
-| 3 | `SOCKET_URL` on the running client container, served from `GET /api/config` | The normal path for a self-hosted instance. |
+| 3 | `SOCKET_URL` on the running client container, served from `GET /api/config` | The normal path for a [self-hosted](/glossary#self-hosted) instance. |
 | 4 | The page's own origin | When `SOCKET_URL` is empty, which is what you want [behind one domain](/self-hosting/reverse-proxy), and whenever `/api/config` cannot be read. |
 
 A trailing slash on the address is ignored, and the browser asks `/api/config` at most once per page load.
@@ -27,13 +39,11 @@ and exists so the version a running instance serves can be checked; see the
 [HTTP API](/reference/http-api) reference.
 
 <Warning>
-  `GET /api/config` is served by the **client**, not the signaling server. If
-  both sit behind one reverse proxy, do not route all of `/api/` to the server,
-  or step 3 always returns 404 and any `SOCKET_URL` you set is silently
-  discarded in favor of step 4. With an empty `SOCKET_URL` step 4 is the answer
-  you wanted anyway, so the mistake stays invisible until the day you set one.
-  See [Run behind one domain](/self-hosting/reverse-proxy) for the
-  exact-path rule that keeps `/api/config` on the client.
+  `GET /api/config` is served by the **client**, not the signaling server. If both sit behind one
+  [reverse proxy](/glossary#reverse-proxy), do not route all of `/api/` to the server, or step 3
+  always returns 404 and any `SOCKET_URL` you set is silently discarded in favor of step 4. See
+  [Run behind one domain](/self-hosting/reverse-proxy) for the exact-path rule that keeps
+  `/api/config` on the client, and for a check that shows where it went.
 </Warning>
 
 ## Changing the address
@@ -53,7 +63,8 @@ Leave the value **empty** when the client and the signaling server share one
 origin behind a reverse proxy. The browser then talks to whatever host it was
 loaded from, so there is nothing to configure and nothing to keep in sync. Under
 Compose, empty means the line `NEXT_PUBLIC_SOCKET_URL=` with nothing after it:
-with the line removed, Compose falls back to `http://localhost:3001`.
+with the line removed, Compose falls back to `http://localhost:` and the port in `PORT` (3001
+unless you changed it).
 
 ## The address is used by the browser, not the server
 
@@ -84,6 +95,6 @@ NEXT_PUBLIC_SITE_URL=https://files.example.com \
 docker compose -f docker-compose.yml -f docker-compose.build.yml up -d
 ```
 
-This affects only SEO and link previews. Transfers, signaling, and the relay are
-unaffected, and all of those are configured at runtime. See
+This affects only SEO and link previews. Transfers, signaling, and the [relay](/glossary#relay)
+are unaffected, and all of those are configured at runtime. See
 [Container images](/self-hosting/images).

@@ -6,7 +6,10 @@ keywords: ["encryption", "end to end", "dtls", "is floe secure", "can floe read 
 ---
 
 Your files are encrypted on your device and decrypted on the other person's. Nothing in between
-can read them, and that includes Floe's own servers.
+can read them, and that includes Floe's own servers. This is what
+[encrypted end to end](/glossary#encrypted-end-to-end) means. It rests on one piece of trust: Floe's
+server has to introduce the two devices honestly, as
+[What it does not protect against](#what-it-does-not-protect-against) explains.
 
 There is nothing to switch on. It is not a mode, an upgrade, or a setting. Every transfer works
 this way, direct or relayed, on floe.one or on an instance you run yourself.
@@ -15,13 +18,14 @@ this way, direct or relayed, on floe.one or on an instance you run yourself.
 
 **The keys exist only on the two devices.** They are generated fresh for each transfer, live in
 the two browsers or apps involved, and are thrown away when the connection closes. There is no
-key server, no escrow, and no recovery: once a transfer is over, that transfer's keys are gone
-and cannot be reconstructed by anyone, Floe included.
+key server, no spare copy of the keys held anywhere, and no recovery: once a transfer is over,
+that transfer's keys are gone and cannot be reconstructed by anyone, Floe included.
 
-**The servers handle the introduction, not the content.** The signaling server passes connection
-details between the two devices for a few seconds and then plays no further part. It is not on the
-path the file takes. When a relay is involved it is on the path, but only ever carrying encrypted
-packets it has no way to open.
+**The servers handle the introduction, not the content.** The
+[signaling server](/glossary#signaling-server) passes connection details between the two devices
+for a few seconds and then plays no further part. It is not on the path the file takes. When a
+[relay](/glossary#relay) is involved it is on the path, but only ever carrying encrypted packets it
+has no way to open.
 
 **Self-hosting does not change any of this.** The encryption is a property of the connection
 between the two devices, not of who runs the server. If you run your own instance you get the same
@@ -33,11 +37,13 @@ next section explains.
 Encryption answers "can anyone in the middle read this". It does not answer every question, and
 the honest limits are worth knowing rather than discovering.
 
-The one that matters most: the two devices agree on keys by exchanging certificate fingerprints,
-and those fingerprints travel through the signaling server. A server that wanted to could hand
-each side a fingerprint it controls, sit in the middle, and read everything. This is true of every
-application built on WebRTC, and the usual defense is a short verification code the two people
-compare out of band.
+The one that matters most is the introduction. Each device sends the other a short ID for its
+encryption key, and those IDs pass through the signaling server. A server that wanted to could
+hand each side an ID of its own instead, sit in the middle, and read everything.
+
+This is true of every application built on [WebRTC](/glossary#webrtc), the technology Floe
+connects devices with. The usual defense is a short verification code that the two people compare
+over another channel, such as a phone call.
 
 <Warning>
   Floe has no such code today. No client computes or shows one, so nothing inside Floe can detect
@@ -51,21 +57,25 @@ alongside it.
 
 ## How the encryption works {#how-the-encryption-works}
 
-Floe uses WebRTC data channels, which run SCTP over **DTLS**. DTLS is TLS adapted for datagrams:
-the same cipher suites and the same handshake, over a transport that does not guarantee ordering.
-This is distinct from DTLS-SRTP, which is what WebRTC uses for audio and video.
+This section is the technical detail, and you can skip it: nothing in it changes what the sections
+above say.
 
-Each peer generates a certificate and key pair for the session. The fingerprints of those
-certificates are carried in the SDP offer and answer during setup, and the DTLS handshake
-verifies the certificate it receives against the fingerprint it was promised. An attacker
-sitting on the network path cannot substitute a certificate, because they cannot also change the
-fingerprint that arrived through the signaling channel. An attacker who controls the signaling
-channel itself can, which is the limitation described above.
+Floe uses WebRTC data channels, which run SCTP, the protocol that carries the data, over
+[**DTLS**](/glossary#dtls). DTLS is TLS adapted for separate packets (datagrams): the same cipher
+suites and the same handshake, over a transport that does not guarantee ordering. This is distinct
+from DTLS-SRTP, which is what WebRTC uses for audio and video.
 
-Keys are ephemeral and per-session. They are created when the connection is created and
+Each [peer](/glossary#peer) generates a certificate and key pair for the session. The short ID
+from the previous section is the certificate fingerprint, a short checksum of that certificate.
+The fingerprints are carried in the connection-setup messages, the SDP offer and answer, and the
+DTLS handshake verifies the certificate it receives against the fingerprint it was promised. An attacker sitting on the network path cannot substitute a
+certificate, because they cannot also change the fingerprint that arrived through the signaling
+channel. An attacker who controls the signaling channel itself can.
+
+Keys are short-lived and per-session. They are created when the connection is created and
 discarded when it closes.
 
 Floe adds no encryption layer of its own on top of this. Integrity in transit comes from DTLS.
 On top of that, the receiving app checks each finished file against the size the sender
-announced and, when the sender provides one, against the sender's SHA-256 of the file. See
-[File checks](/how-it-works/file-checks).
+announced and, when the sender provides one, against the sender's [SHA-256](/glossary#sha-256) of
+the file. See [File checks](/how-it-works/file-checks).

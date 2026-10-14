@@ -10,8 +10,8 @@ boost: 3
 connection: no account, no upload, and nothing kept on a server.
 
 <Info>
-Did someone send you a request link, a link with `/r/` in it? You are the one sending. See
-[Sending through a request link](/web-app/request-links).
+Did someone send you a [request link](/glossary#request-link), a link with `/r/` in it? You are the
+one sending. See [Sending through a request link](/web-app/request-links).
 </Info>
 
 ## Start here
@@ -21,7 +21,7 @@ Did someone send you a request link, a link with `/r/` in it? You are the one se
     About a minute, in a browser.
   </Card>
   <Card title="Run my own instance" icon="server" href="/self-hosting/quickstart">
-    Two commands with Docker Compose.
+    Two commands with Docker.
   </Card>
   <Card title="See how it is encrypted" icon="shield" href="/how-it-works/encryption">
     What is protected, and by what.
@@ -30,8 +30,9 @@ Did someone send you a request link, a link with `/r/` in it? You are the one se
 
 ## Pick a Floe
 
-All three send to each other in any direction, so this is a question of convenience rather than
-compatibility.
+There are three: the web app, Floe Desktop and the `floe` [CLI](/glossary#cli), a command you type in
+a terminal. All three send to each other in any direction, so this is a question of convenience
+rather than compatibility.
 
 <Columns cols={3}>
   <Card title="Web app" icon="globe" href="/web-app/sending">
@@ -41,7 +42,7 @@ compatibility.
     Windows, in Beta. Sends folders, pastes screenshots, saves where you choose.
   </Card>
   <Card title="CLI" icon="terminal" href="/cli/installation">
-    macOS, Windows, Linux. One binary for servers and scripts.
+    macOS, Windows, Linux. One program file for servers and scripts.
   </Card>
 </Columns>
 
@@ -49,24 +50,30 @@ Not sure which? See [Which Floe to use](/choosing-floe).
 
 ## What you should know
 
-**Encrypted end to end.** Every transfer runs over an encrypted WebRTC data channel, so nobody
-in between can read it, Floe's own servers included. See
+**Encrypted [end to end](/glossary#encrypted-end-to-end).** Your files are encrypted on your device
+and decrypted only on the other one, so nobody in between can read them, Floe's own servers
+included. That rests on one piece of trust, explained under
+[The signaling server is trusted to introduce you honestly](/how-it-works/known-limitations#the-signaling-server-is-trusted-to-introduce-you-honestly).
+The connection is a [WebRTC](/glossary#webrtc) [data channel](/glossary#data-channel). See
 [Security and privacy](/security-privacy), and
 [what Floe does not protect against](/how-it-works/known-limitations) for the honest other half.
 
-**No accounts, no uploads.** The signaling server introduces the two devices and then steps out
+**No accounts, no uploads.** Floe's server, the
+[signaling server](/glossary#signaling-server), only introduces the two devices and then steps out
 of the way. File data never reaches it. See [How a transfer works](/how-it-works/signaling).
 
-**No size limit from Floe on a direct connection.** Most transfers connect directly. One that has
-to fall back to a relay is capped at 2 GB, and a browser on the receiving end can only take what
-that browser can hold. See [File size limits](/how-it-works/2gb-limit).
+**No size limit from Floe on a direct connection.** Most transfers connect
+[directly](/glossary#direct-connection). One that has to fall back to a [relay](/glossary#relay) is
+capped at 2 GB, and a browser on the receiving end can only take what that browser can hold. See
+[File size limits](/how-it-works/2gb-limit).
 
 **Every file is checked on arrival.** The receiving side compares each file with the size the
-sender announced, and with its SHA-256 when the sender provides one, and discards a file that does
-not match. See [File checks](/how-it-works/file-checks).
+sender announced. When the sender provides one, it also compares a fingerprint of the contents, its
+[SHA-256](/glossary#sha-256). A file that does not match is discarded. See
+[File checks](/how-it-works/file-checks).
 
-**Request links, in Beta.** Floe Desktop can make a link that works the other way around: whoever
-opens it sends files to your PC from their browser, with nothing to install. See
+**Request links, in [Beta](/glossary#beta).** Floe Desktop can make a link that works the other way
+around: whoever opens it sends files to your PC from their browser, with nothing to install. See
 [Request links](/desktop/request-links).
 
 ## Next steps {#going-further}

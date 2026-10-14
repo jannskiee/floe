@@ -301,6 +301,24 @@ It also removes the one dependency that encryption alone cannot cover, described
 
 See [Self-hosting overview](/self-hosting/overview) to run one.
 
+## Reporting abuse {#reporting-abuse}
+
+Floe cannot see, store or remove the files people send each other. Its server keeps no record of
+who joined which room once the room has closed. Relay credentials are shared by everyone who asks
+within the same few minutes, so Floe cannot identify a sender afterward or cut off one person's
+relay access.
+
+If someone sent you something harmful:
+
+- Do not open more links or codes from that sender. A transfer starts only when you open one, and
+  `floe receive` asks before it accepts files.
+- Report it on Floe's public [issue tracker](https://github.com/jannskiee/floe/issues). When the
+  report includes personal details about anyone, or the content itself, send it privately instead,
+  through the channels under [Reporting a vulnerability](#reporting-a-vulnerability).
+- For a request link, use **Report this link** on its page: see
+  [Report a link](/web-app/request-links#report-a-link). Never post a whole request link in
+  public, because the part after the `#` lets anyone use it.
+
 ## Reporting a vulnerability
 
 Report security issues privately through

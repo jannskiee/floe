@@ -5,9 +5,9 @@ description: "Compare the Floe web app, Floe Desktop for Windows, and the floe C
 keywords: ["web vs desktop", "web vs cli", "compare", "which version", "difference"]
 ---
 
-Use the browser unless you need folders, a place on disk, or a script. There are three Floes, the
-web app, Floe Desktop and the `floe` CLI, and any of them sends to any other, so the choice is
-about convenience rather than compatibility.
+Use the browser unless you need folders, a place on disk, or a script. There are three Floes: the
+web app, Floe Desktop and the `floe` [CLI](/glossary#cli), a command you type in a terminal. Any of
+them sends to any other, so the choice is about convenience rather than compatibility.
 
 <Columns cols={3}>
   <Card title="Web app" icon="globe" href="/web-app/sending">
@@ -18,7 +18,7 @@ about convenience rather than compatibility.
     Windows only, in Beta. Best for folders, large files, and sending the same way every day.
   </Card>
   <Card title="CLI" icon="terminal" href="/cli/installation">
-    macOS, Windows, Linux. Best for servers, scripts, and anything headless.
+    macOS, Windows, Linux. Best for servers, scripts, and computers with no screen.
   </Card>
 </Columns>
 
@@ -29,23 +29,25 @@ link, they open it, and the transfer starts on its own. They install nothing and
 exchange needs explaining.
 
 **Getting files from someone who does not have Floe.** There are two ways, and neither asks them
-to install anything. They can open floe.one, drop the files, and send you the link, which you open
-in any Floe. Or you can make a [request link](/desktop/request-links) (Beta) in Floe Desktop and
-send it to them: they open it in a browser, pick their files, and once you accept, the files land
-in a folder on your PC.
+to install anything:
+
+1. They open floe.one, drop the files, and send you the link. You open it in any Floe.
+2. You make a [request link](/glossary#request-link) in Floe Desktop and send it to them. They open
+   it in a browser and pick their files. Once you accept, the files land in a folder on your PC. See
+   [Request links](/desktop/request-links).
 
 **Sending a folder.** Use Floe Desktop or the CLI. Both walk the folder for you and rebuild the
-same structure on the other side. The Send page at floe.one has no folder picker, and a folder
-dropped on it is not sent. The one browser page that takes folders is the page a request link
-opens.
+same structure on the other side. The Send page at floe.one has no folder picker, and it refuses a
+folder dropped on it. The one browser page that takes folders is the page a request link opens.
 
 **Receiving something very large.** Use Floe Desktop or the CLI. Both write straight to disk as
 the bytes arrive. A browser receiver keeps each file inside the browser until you save it, and how
 much it can hold depends on the browser: see
 [Known limitations](/how-it-works/known-limitations#a-browser-receiver-is-limited-by-what-the-browser-can-hold).
 
-**Transferring from a machine with no screen.** Use the CLI. It is one self-contained binary with
-no runtime dependencies, released for macOS, Linux and Windows on Intel and ARM. For a script or a CI job, see [In scripts and CI](/cli/flags#in-scripts).
+**Transferring from a machine with no screen.** Use the CLI. It is a single program file that needs
+nothing else installed, released for macOS, Linux and Windows on Intel and ARM. For a script or a
+CI job, see [In scripts and CI](/cli/flags#in-scripts).
 
 **Sending regularly from Windows.** Use Floe Desktop. It keeps a local history of the last 50
 transfers, remembers where you save things, and, on the build from GitHub, can put
@@ -53,41 +55,55 @@ transfers, remembers where you save things, and, on the build from GitHub, can p
 
 ## Feature by feature
 
+Floe Desktop is in [Beta](/glossary#beta), and so are request links.
+
+### Sending and receiving {#sending-and-receiving}
+
 | | Web app | Floe Desktop | CLI |
 |---|---|---|---|
-| Platforms | Any modern browser | Windows 10 or later, x64, Beta | macOS, Windows, Linux, on Intel and ARM |
-| Install | None | Microsoft Store or a download | Package manager, one-line script, or `go install` |
+| Platforms | Any modern browser | Windows 10 or later, 64-bit Intel or AMD (x64), as most PCs are: [how to check](/desktop/installation#requirements) | macOS, Windows, Linux, on Intel and ARM |
+| Install | None | Microsoft Store or a download | A [package manager](/glossary#package-manager), the one-line script, or `go install` |
 | Send files | Yes | Yes | Yes |
 | Send a folder | Only through a request link | Yes | Yes |
-| Send a typed note | No | Yes, as `message.txt` | No |
-| Paste files or a screenshot | No | Yes, with `Ctrl` `V` | No |
 | Share a link | Yes | Yes | Yes |
-| Share a room code | No | Yes | Yes |
+| Share a [room code](/glossary#room-code) | No | Yes | Yes |
 | Show a QR code | Yes | Yes | No |
 | Join with a link | Yes | Yes | Yes |
 | Join with a room code | No | Yes | Yes |
-| Make a [request link](/desktop/request-links), so someone can send to you | No | Yes, in Beta | No |
-| Send [through someone's request link](/web-app/request-links) | Yes, in current Chrome and Edge on a computer | No, it opens the link in your browser | Yes, `floe send --to` |
 | Where received files go | Your browser's downloads, after the whole file has arrived in the browser | Straight to disk, in a folder you choose | Straight to disk, in `-o` or the current directory |
 | Folder structure on arrival | Flattened when saved one at a time, rebuilt inside **Download ZIP** | Rebuilt | Rebuilt |
-| Confirm before receiving | No, it starts on its own | No for a code or a link; yes for a request link, unless you turn on Auto-accept for it | Yes, unless you pass `-y` |
-| Refuse the relay | Yes when sending, the **Network relay fallback** checkbox | No | Yes, `--no-relay` |
-| Force the relay to hide your IP | Only when sending through a request link | Yes, **Hide my IP address** | Yes, `--relay-only` |
+| Confirm before receiving | No, it starts on its own | Only for a request link, unless you turn on [Auto-accept](/glossary#auto-accept) for it | Yes, unless you pass `-y` |
+
+### Request links and extras {#request-links-and-extras}
+
+| | Web app | Floe Desktop | CLI |
+|---|---|---|---|
+| Make a request link, so someone can send to you | No | Yes | No |
+| Send [through someone's request link](/web-app/request-links) | Yes, supported in current Chrome and Edge on a computer | No. It offers an **Open in browser** button for the link | Yes, `floe send --to` |
+| Refuse the [relay](/glossary#relay) | Yes when sending, the [Network relay fallback](/glossary#network-relay-fallback) checkbox | No | Yes, `--no-relay` |
+| Force the relay to hide your [IP address](/glossary#ip-address) | Only when sending through a request link | Yes, **Hide my IP address** | Yes, `--relay-only` |
+| Send a typed note | No | Yes, as `message.txt` | No |
+| Paste files or a screenshot | No | Yes, with `Ctrl` `V` | No |
 | Transfer history | No | The last 50, stored on your device | No |
 | File Explorer right-click entry | No | Yes, on the build from GitHub | No |
-| Point at a self-hosted server | Automatic, it is served by that instance | **Settings**, then **Server address** | `--server` or `FLOE_SERVER` |
+| Point at a [self-hosted](/glossary#self-hosted) server | Automatic, it is served by that instance | **Settings**, then **Server address** | `--server` or `FLOE_SERVER` |
+
+The setting that forces the relay is **Hide my IP** on a request link's page and **Hide my IP
+address** in Floe Desktop. See [Hide my IP](/glossary#hide-my-ip).
 
 ## What is the same everywhere
 
 These are properties of the transfer itself, so they do not change with the client you pick.
 
-- **Encryption.** Every transfer runs over an encrypted WebRTC data channel. See
+- **Encryption.** Every transfer is [encrypted end to end](/glossary#encrypted-end-to-end) over a
+  [WebRTC](/glossary#webrtc) [data channel](/glossary#data-channel). See
   [Encryption](/how-it-works/encryption).
-- **No size limit from Floe on a direct connection**, and a 2 GB cap when the connection is
-  relayed. See [File size limits](/how-it-works/2gb-limit).
+- **No size limit from Floe on a [direct connection](/glossary#direct-connection)**, and a 2 GB cap
+  when the connection is relayed. See [File size limits](/how-it-works/2gb-limit).
 - **Every file is checked on arrival.** The receiver compares each file with the size the sender
-  announced, and with its SHA-256 when the sender provides one, and discards a file that does not
-  match. See [File checks](/how-it-works/file-checks).
+  announced. When the sender provides one, it also compares the file's
+  [SHA-256](/glossary#sha-256), a fingerprint of its contents. A file that does not match is
+  discarded. See [File checks](/how-it-works/file-checks).
 - **One receiver per transfer.** While one recipient is connected, a second one is turned away. See
   [How a transfer works](/how-it-works/signaling#a-room-holds-exactly-two-people).
 - **The sender stays connected** for the whole transfer. Closing the tab, quitting the app, or
@@ -100,9 +116,9 @@ These are properties of the transfer itself, so they do not change with the clie
 
 ## Mixing them
 
-Every combination works, and neither side needs to know what the other is using. The browser
-speaks to the signaling server over Socket.IO while the desktop app and the CLI use a WebSocket,
-but both land in the same room and the server routes between them.
+Every combination works, and neither side needs to know what the other is using. Whatever each
+side runs, both join the same [room](/glossary#room) on
+Floe's [server](/glossary#signaling-server), which introduces them.
 
 The one asymmetry worth remembering: **a browser recipient needs the link.** There is no place
 to type a room code in the web app, and a browser sender never makes one. Room codes are a desktop

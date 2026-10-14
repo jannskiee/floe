@@ -5,26 +5,31 @@ description: "Install the Floe web client and signaling server as two coordinate
 keywords: ["unraid", "docker template", "add container"]
 ---
 
-This page installs Floe on an Unraid server from two templates, Floe-Server and
+This page installs a [self-hosted](/glossary#self-hosted) Floe on an Unraid server from two templates, Floe-Server and
 Floe-Client, and covers the three ways to reach them: direct LAN ports, one domain, or
-two hostnames. Floe is published as two containers because the web client and signaling
-server have separate network and security settings. Install both templates for a working
-instance.
+two hostnames. Floe is published as two containers because the web client and the
+[signaling server](/glossary#signaling-server) have separate network and security
+settings. Install both templates for a working instance.
 
-Both templates pull the same images the Docker Compose stack uses, so nothing is
-built on your server. See [Container images](/self-hosting/images).
+Both templates pull the same images the [Docker Compose](/glossary#docker-compose) stack
+uses, so nothing is built on your server. See [Container images](/self-hosting/images).
+
+## The short version {#the-short-version}
+
+Download the two templates into Unraid's user templates folder, then add Floe-Server and
+Floe-Client from **Add Container**. Start with direct LAN access: it needs no proxy, and each
+template then holds the other's address. Move to a domain later, once the LAN install works.
 
 ## Before you start
 
-Choose how browsers will open Floe:
+Start with direct LAN access. It needs nothing but the two containers, and you can move to a
+domain later. The three layouts:
 
-- **Direct LAN access:** two host ports on your Unraid IP, for example
-  `http://192.168.1.10:3000` for the client and `http://192.168.1.10:3001` for the
-  signaling server.
-- **One domain behind a reverse proxy:** everything on `https://floe.example.com`.
-  This is the recommended layout for anything reachable outside your LAN.
-- **Two hostnames behind a reverse proxy:** `https://floe.example.com` for the
-  client and `https://floe-api.example.com` for the signaling server.
+| Layout | Browsers open | Needs |
+|---|---|---|
+| **Direct LAN access** | Two host ports on your Unraid IP, for example `http://192.168.1.10:3000` for the client and `http://192.168.1.10:3001` for the signaling server | Nothing else |
+| **One domain behind a reverse proxy** | Everything on `https://floe.example.com` | A [reverse proxy](/glossary#reverse-proxy) with path rules. The recommended layout for anything reachable outside your LAN |
+| **Two hostnames behind a reverse proxy** | `https://floe.example.com` for the client, `https://floe-api.example.com` for the signaling server | A reverse proxy with one entry per hostname, and no path rules |
 
 The exact client origin matters in all three, because it is the origin the
 signaling server accepts browser connections from.
@@ -106,9 +111,10 @@ Unraid 6.10.0 and later, which has no field for a template address.
 
   </Step>
   <Step title="Open and test Floe">
-    Open the Floe-Client Web UI. Confirm that the badge at the top right of the card
-    reads **Ready**, not **Offline**, then create a link and open it in a second
-    browser or device.
+    Open the Floe-Client Web UI in its own browser tab. Floe refuses to be shown inside
+    another page, so a dashboard that embeds apps in a frame shows a blank frame for it.
+    Confirm that the [badge](/glossary#badge) at the top right of the card reads **Ready**,
+    not **Offline**, then create a link and open it in a second browser or device.
   </Step>
 </Steps>
 
@@ -128,6 +134,9 @@ ships it, and the browser talks to whatever origin served the page. A Floe-Clien
 earlier copy of the template holds the placeholder `http://YOUR-UNRAID-IP:3001` there, as its value
 and as its default, and Unraid puts a default back whenever its field is empty. On such a container
 turn on **Advanced View**, click **Edit** beside the field, and clear **Default Value** as well.
+
+This layout needs path rules in your proxy, written by hand. If your proxy makes that hard, the
+two-hostname layout below needs none.
 
 <Steps>
   <Step title="Proxy the domain to Floe-Client">
@@ -153,21 +162,14 @@ turn on **Advanced View**, click **Edit** beside the field, and clear **Default 
   </Step>
 </Steps>
 
-Step 3 is the one people miss. `GET /api/config` is served by the **client**,
-not the signaling server. Route all of `/api/` to the server and that request
-returns 404, so any **Signaling Server URL** you set is silently discarded and
-the browser falls back to its own origin. On this layout that fallback is the
-answer you wanted anyway, so the mistake stays invisible until the day you set
-a value and it does nothing.
-
-Copy-pasteable Caddy and nginx configurations for exactly this routing, including
-the exact-path rule that keeps `/api/config` on the client, are in
-[Run behind one domain](/self-hosting/reverse-proxy).
+Step 3 is the one people miss, because nothing shows when it goes wrong. Copy-pasteable Caddy and
+nginx configurations for exactly this routing, and a check that shows where `/api/config` went,
+are in [Run behind one domain](/self-hosting/reverse-proxy).
 
 ## Two hostnames behind a reverse proxy
 
 Use HTTPS for anything reachable outside your trusted LAN. Proxy the
-client and server separately, and enable WebSocket forwarding for the server.
+client and server separately, and enable [WebSocket](/glossary#websocket) forwarding for the server.
 
 <Steps>
   <Step title="Proxy the client hostname">
@@ -188,10 +190,10 @@ client and server separately, and enable WebSocket forwarding for the server.
   </Step>
   <Step title="Keep the hostname in the Host header">
     Keep the hostname in the `Host` header when proxying the signaling hostname.
-    Nginx Proxy Manager and SWAG do by default. The CLI and Floe Desktop connect to
-    the signaling hostname, which is not your Client URL, so the server matches
-    their `Origin` against `Host`, and a proxy that rewrites `Host` to the
-    container address gets them refused with a `403`.
+    The [CLI](/glossary#cli) and Floe Desktop connect to the signaling hostname, which
+    is not your Client URL. The server lets them in by matching their `Origin`
+    against `Host`, so a proxy that rewrites `Host` to the container address gets
+    them refused with a `403`.
   </Step>
 </Steps>
 
@@ -205,35 +207,60 @@ Trusted Proxy Count: 1
 
 ## The CLI and Floe Desktop
 
-Both connect to the signaling server, so give them the Floe-Server address: `--server` on
-the CLI, **Server address** in Floe Desktop. On the direct LAN and two-hostname layouts the
-web client lives at a different address, and the links both apps hand out have to carry it:
-add `--web` on the CLI and fill in **Share link address** in Floe Desktop, each with the
-Floe-Client address. On one domain neither is needed. See
-[Use a self-hosted server](/cli/self-hosted-server).
+Both connect to the signaling server, so give them the Floe-Server address. On the direct LAN and
+two-hostname layouts the web client lives at a different address, and the [share
+links](/glossary#share-link) both apps hand out have to carry it:
+
+| Layout | The CLI | Floe Desktop |
+|---|---|---|
+| Direct LAN | `--server` with the Floe-Server address, and `--web` with the Floe-Client address | **Server address** and **Share link address**, with the same two addresses |
+| One domain | `--server` with the domain | **Server address** with the domain, **Share link address** blank |
+| Two hostnames | `--server` with the signaling hostname, and `--web` with the client hostname | **Server address** and **Share link address**, with the same two hostnames |
+
+See [Use a self-hosted server](/cli/self-hosted-server).
 
 ## TURN relay
 
-The default STUN-only configuration works on many networks. To support peers
-behind strict NAT or CGNAT, expand the advanced Floe-Server settings and add a
-Cloudflare Realtime TURN key. You can also run coturn separately and fill in the
-self-hosted TURN domain and secret. See [TURN relay](/self-hosting/turn-relay).
+The default configuration has no [relay](/glossary#relay) and works on many networks: it hands clients public
+[STUN](/glossary#stun) servers only. To support peers behind strict [NAT](/glossary#nat) or CGNAT,
+add a [TURN](/glossary#turn) relay. In the Floe-Server template, turn on **Advanced View** and fill
+in **Cloudflare TURN Key ID** and **Cloudflare TURN API Token** with a Cloudflare Realtime TURN key.
+You can also run coturn separately and fill in **Self-hosted TURN Domain** and **Self-hosted TURN
+Secret** instead. See [TURN relay](/self-hosting/turn-relay).
 
 ## Request links on Unraid {#request-links}
 
-[Request links](/desktop/request-links) stay off until a policy file turns them on. In the
-Floe-Server template, open the advanced settings and set **Request Link Policy Folder** to a folder
-on the server, such as `/mnt/user/appdata/floe/policy`. The template mounts it at `/app/policy`,
-read-only. Put a file named `policy.json` in that folder containing `{"requestLinks": true}`, then
-set **Request Link Policy File** to `/app/policy/policy.json`. Map the folder, not the file. A
-server installed from an older template has neither field: add a Path that maps the folder to
-`/app/policy` read-only, and a Variable with the key `POLICY_FILE`. To turn request links off again, and for what the
-server logs, see [Turn on request links](/self-hosting/request-links).
+A [request link](/glossary#request-link) lets someone send files to a Floe Desktop that waits for
+them. Request links stay off until a policy file turns them on.
+
+<Steps>
+  <Step title="Set the policy folder">
+    In the Floe-Server template, turn on **Advanced View** and set **Request Link Policy Folder**
+    to a folder on the server, such as `/mnt/user/appdata/floe/policy`. The template mounts it at
+    `/app/policy`, read-only. Map the folder, not the file: an edit puts a new file in place of
+    the old one, and a mount of the file alone keeps showing the old one.
+  </Step>
+  <Step title="Create the policy file">
+    Put a file named `policy.json` in that folder containing `{"requestLinks": true}`. The server
+    runs as the unprivileged user `node`, not as root, so that user has to be able to read the
+    folder and the file. A folder and a file that every user can read work. A file it cannot read
+    is logged as `policy file unreadable, keeping previous policy`, and request links stay off.
+  </Step>
+  <Step title="Name the file">
+    Set **Request Link Policy File** to `/app/policy/policy.json`, then click **Apply**.
+  </Step>
+</Steps>
+
+A server installed from an older template has neither field: add a Path that maps the folder to
+`/app/policy` read-only, and a Variable with the key `POLICY_FILE`. To turn request links off
+again, and for what the server logs, see [Turn on request links](/self-hosting/request-links).
 
 ## Other settings
 
-The Floe-Server template has fields for the client URL, the proxy count, the connection limit, the
-TURN options, the stats database, and the policy folder and file. Any other server variable in
+The Floe-Server template has fields for the client URL, the proxy count, and the connection limit
+(**Maximum Connections Per IP**). It also has the TURN options, the stats database (**Upstash Redis
+REST URL** and **Upstash Redis REST Token**), and the policy folder and file. Every field but the first two
+and **Signaling Port** shows only in **Advanced View**. Any other server variable in
 [Configuration](/self-hosting/configuration), such as `MAX_TURN_REQUESTS_PER_IP`, has no field: add
 a Variable with that key to Floe-Server.
 
@@ -243,8 +270,12 @@ Both templates follow the `latest` image tag, which changes only when Floe
 publishes a version tag. Use Unraid's normal container update flow to pull a new
 release. The containers store no files or application settings in volumes, so
 there is no appdata directory to migrate. The one thing to keep is the policy
-folder, if you added one for request links. To pin a specific version or a digest
-instead, see [Container images](/self-hosting/images).
+folder, if you added one for request links.
+
+To pin a version, change the tag at the end of each template's **Repository** field, for example
+`ghcr.io/jannskiee/floe-server:latest` to `ghcr.io/jannskiee/floe-server:1.11.0`. Change both
+templates to the same version, because the client and the server should match. The tags you can
+use are in [Container images](/self-hosting/images#tags).
 
 ## If something goes wrong
 

@@ -8,6 +8,14 @@ keywords: ["glossary", "definitions", "what does it mean", "terms", "jargon", "w
 This page explains the words you meet in Floe and in these docs, in one or two plain sentences
 each. Every entry ends with a link to the page that covers the subject properly.
 
+## The short version {#the-short-version}
+
+Most of Floe comes down to six of these words. A [share link](#share-link) or a
+[room code](#room-code) brings the other person into a [room](#room) on Floe's
+[signaling server](#signaling-server). The two devices then connect, by a
+[direct connection](#direct-connection) or through a [relay](#relay), and the files never pass
+through the signaling server.
+
 ## Words you see in Floe {#words-you-see-in-floe}
 
 Labels on screen, and the names Floe gives to what it shows you.
@@ -16,8 +24,8 @@ Labels on screen, and the names Floe gives to what it shows you.
 
 A file from a request link that Floe Desktop saved with `.floe-blocked` added to its name, so File
 Explorer leaves it alone. Floe does this to the few file types that File Explorer opens by itself,
-such as `.lnk` and `.url`. Rename a file back only if you trust it. See
-[Request links](/desktop/request-links#renamed-files).
+such as shortcuts (`.lnk` and `.url`). Delete it if you did not expect it, and rename it back only
+if you did and you trust the sender. See [Request links](/desktop/request-links#renamed-files).
 
 ### .part file {#part-file}
 
@@ -45,7 +53,8 @@ and request links carry it. See [Which Floe to use](/choosing-floe#feature-by-fe
 ### drop {#drop}
 
 One sending through a request link: everything one person sends in one go. A request link takes
-one drop and is then used up. See [Request links](/desktop/request-links#what-a-request-link-is).
+one drop and is then used up. See [Request links](/desktop/request-links#what-a-request-link-is),
+or [Sending through a request link](/web-app/request-links) if you are the one sending.
 
 ### Hide my IP {#hide-my-ip}
 
@@ -57,8 +66,8 @@ a request link's page **Hide my IP (relay only, 2 GB per drop)**, and the CLI `-
 ### Network relay fallback {#network-relay-fallback}
 
 The checkbox on the web app's sending page that lets Floe use the [relay](#relay) when a direct
-connection is not possible. It is checked by default. These docs also call it relay fallback, and
-the CLI's `--no-relay` is the same as unchecking it. See
+connection is not possible. It is checked by default, and shows only until you create the link.
+These docs also call it relay fallback, and the CLI's `--no-relay` is its nearest equivalent. See
 [Sending files](/web-app/sending#decide-whether-the-relay-is-allowed).
 
 ### peer {#peer}
@@ -140,11 +149,12 @@ relay, relay fallback, **Network relay fallback**, **Hide my IP** and `--relay-o
 this one server: some name it, and some are the settings that allow or require it. See
 [Relay fallback](/how-it-works/relay-connection).
 
-### room {#room}
+### room / room id {#room}
 
 The private meeting point on Floe's server for one transfer. It holds two devices, one sender and
-one receiver, and turns a third away. A share link carries the room's id after the `#`. See
-[How a transfer works](/how-it-works/signaling#a-room-holds-exactly-two-people).
+one receiver, and turns a third away. Its room id is a long random code, and a share link carries
+it after the `#`. Whoever has the room id can join while the room has a free place, so it is the
+part of the link to keep private. See [How a transfer works](/how-it-works/signaling#a-room-holds-exactly-two-people).
 
 ### self-hosted {#self-hosted}
 
@@ -200,6 +210,8 @@ keep it. See [Receiving files](/desktop/receiving#received-files-are-marked-as-d
 
 The way a router lets many devices share one public address. Because of it, two devices usually
 cannot reach each other without help, which is what [STUN](#stun) and the [relay](#relay) are for.
+Carrier-grade NAT is the same done by a provider for many customers at once, as some mobile
+carriers do, and it can force the relay.
 See
 [Direct connections](/how-it-works/direct-connection#how-two-devices-on-different-networks-find-each-other).
 

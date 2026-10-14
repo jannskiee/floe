@@ -12,97 +12,126 @@ do, written plainly, so you can decide whether it fits what you are sending.
 Nothing here is a bug report. Each item is a design consequence, and each one says what you can
 do about it.
 
-## The signaling server is trusted to introduce you honestly
+## The short version {#the-short-version}
 
-Two devices agree on encryption keys by exchanging certificate fingerprints, and those
-fingerprints travel through the signaling server during setup. The server cannot read your files
-and never sees one. But a server that wanted to could hand each side a fingerprint it controls
-instead of the other peer's, sit in the middle, and decrypt everything.
+Most people meet three of these. Anyone who has your link or room code can receive your files, so
+send it only to the person it is for. On a direct connection the other person's device learns
+your IP address, unless you turn on Hide my IP. A browser that receives can hold only so much, so
+receive very large transfers with Floe Desktop or the CLI, or in smaller batches on a phone.
 
-This is true of every WebRTC application, not just Floe. It is the reason the next item matters.
+## Security and privacy {#security-and-privacy}
+
+### The signaling server is trusted to introduce you honestly {#the-signaling-server-is-trusted-to-introduce-you-honestly}
+
+Floe's [signaling server](/glossary#signaling-server) passes along the short IDs the two devices
+use to agree on encryption keys. It cannot read your files and never sees one. But a server that
+wanted to could swap in IDs of its own, sit between the two [peers](/glossary#peer), and decrypt
+everything.
+
+This is true of every [WebRTC](/glossary#webrtc) application, not just Floe.
+[Encryption](/how-it-works/encryption#what-it-does-not-protect-against) explains how it works.
 
 **What you can do:** [run your own instance](/self-hosting/overview). A server you operate is a
 server you do not have to trust in this sense. On `api.floe.one` you are trusting the same
 operator who publishes the client, which is the ordinary situation for any hosted service.
 
-## There is no verification code to compare
+### There is no verification code to compare {#there-is-no-verification-code-to-compare}
 
-The usual defense against the previous item is a short verification code, derived from both
-certificate fingerprints, that the two people read to each other over a channel an attacker does
-not control. If the codes match, nobody is in the middle.
+The usual defense against the previous item is a short verification code, worked out from both
+devices' keys. The two people read it to each other over a channel an attacker does not control,
+such as a phone call. If the codes match, nobody is in the middle.
 
-No client computes or displays that code today. Floe's source still carries the function that
-derives it, but nothing calls it. It has been added and removed more than once, and it is not in
-the web app, Floe Desktop, or the CLI as they ship now. Until one of them shows it, there is no
-way to detect the attack described above from inside Floe.
+No client computes or displays that code today, in the web app, Floe Desktop or the
+[CLI](/glossary#cli). Until one of them shows it, there is no way to detect the attack described
+above from inside Floe.
 
-**What you can do:** for anything where that attack is part of your threat model, self-host, or
-encrypt the file yourself before you send it.
+**What you can do:** if you need protection against that attack, run your own server or encrypt
+the file yourself before you send it.
 
-## Anyone with the link or code can receive {#anyone-with-the-link-or-code-can-receive}
+### Anyone with the link or code can receive {#anyone-with-the-link-or-code-can-receive}
 
-A share link or a room code is the only thing that protects a transfer. Floe has no accounts and
-no password step, so whoever opens the link or enters the code first, while the sender is still
-waiting, takes the receiving seat and gets the files. The sending app does not ask the sender to
-approve them.
+A [share link](/glossary#share-link) or a [room code](/glossary#room-code) is the only thing that
+protects a transfer. Floe has no accounts and no password step. Whoever opens the link or enters
+the code first, while the sender is still waiting, takes the receiving seat and gets the files.
+The sending app does not ask the sender to approve them.
 
 A room code is three words from a list of 1,247, so it can be guessed. The server allows each
-network address 10 wrong codes a minute (a self-hosted server can set
-[its own number](/self-hosting/configuration#max-failed-code-resolves)), and a code stops working
-when a receiver joins, when the sender leaves, or after 10 minutes: see
+network address 10 wrong codes a minute, and a [self-hosted](/glossary#self-hosted) server can set
+[its own number](/self-hosting/configuration#max-failed-code-resolves). A code stops working when a
+receiver joins, when the sender leaves, or after 10 minutes: see
 [How long a code and a link last](/how-it-works/signaling#code-and-link-lifetime). A link carries a
 long random room id instead of words, which is far harder to guess, and it works for as long as
 its sender is still waiting.
 
 Once a sender and a receiver on two different networks have started connecting, a device on a
-third network is turned away for as long as the room exists, so a link that leaks later cannot be
-used from somewhere else to take the receiver's place. Devices that share one network address
-count as one, so a sender and a receiver on the same network are not covered. See
-[A room holds exactly two people](/how-it-works/signaling#a-room-holds-exactly-two-people).
+third network is turned away for as long as the [room](/glossary#room) exists. So a link that
+leaks later cannot be used from somewhere else to take the receiver's place. Devices that share
+one network address count as one, so a sender and a receiver on the same network are not covered.
+See [A room holds exactly two people](/how-it-works/signaling#a-room-holds-exactly-two-people).
+
+The link is only as private as the channel you send it through: a mail security service that
+rewrites links may see all of it. See
+[The room secret stays out of every server log](/security-privacy#the-room-secret-stays-out-of-every-server-log).
 
 **What you can do:** send a link or a code only over a channel you trust, to the one person it is
 for. If either may have reached someone else before your receiver joined, stop the send and start
 a new one, which gets a new link and a new code.
 
-## The other person learns your IP address
+### The other person learns your IP address {#the-other-person-learns-your-ip-address}
 
-A direct connection is two devices talking to each other, which means each one knows where the
-other is. That is not a leak; it is how any peer-to-peer connection works, and a video call
-does the same thing.
+A [direct connection](/glossary#direct-connection) is two devices talking to each other, which
+means each one knows where the other is. That is not a leak; it is how any
+[peer-to-peer](/glossary#peer-to-peer) connection works, and a video call does the same thing.
 
-With a [request link](/desktop/request-links), that happens as soon as the sender starts the send
+With a [request link](/glossary#request-link), that happens as soon as the sender starts the send
 and the two devices connect, before the person who made the link accepts or declines. Declining
 does not take it back.
 
 **What you can do:** Floe Desktop has a [Hide my IP address](/desktop/settings#hide-my-ip-address)
-switch that forces every transfer through the relay, so the other side sees the relay's address
-instead of yours, and the CLI's `--relay-only` flag does the same. The web app's Send page has no
-equivalent, but the page a sender opens from a request link has its own
-**Hide my IP (relay only, 2 GB per drop)** checkbox. The trade is speed and the 2 GB session cap.
+switch that forces every transfer through the [relay](/glossary#relay), so the other side sees the
+relay's [IP address](/glossary#ip-address) instead of yours. The CLI's `--relay-only` flag does the
+same. The web app's Send page has no equivalent, but the page a sender opens from a request link
+has its own [**Hide my IP**](/glossary#hide-my-ip) checkbox. The trade is speed and the 2 GB
+session cap.
 
-## The relay sees more than the signaling server does
+### The relay sees more than the signaling server does {#the-relay-sees-more-than-the-signaling-server-does}
 
-When a direct path is impossible, traffic goes through a TURN relay. The relay cannot read
-anything: the data is encrypted before it arrives and decrypted only on the recipient's device.
+When a direct path is impossible, traffic goes through a [TURN](/glossary#turn) relay. The relay
+cannot read anything: the data is encrypted before it arrives and decrypted only on the
+recipient's device.
 
-But the relay is an endpoint that both peers connect to, so it observes both IP addresses and
+But the relay is an endpoint that both devices connect to, so it observes both IP addresses and
 the timing and size of what it forwards. On `floe.one` that relay is Cloudflare's Realtime TURN
-network, which is infrastructure Floe does not own, and its operator may log that metadata for
-its own security purposes.
+network, which is infrastructure Floe does not own, and its operator may log those facts about the
+transfer for its own security purposes. Cloudflare also sees each device's IP address while a connection is
+being set up, on every transfer: see [What the relay can see](/security-privacy#what-the-relay-can-see).
 
 **What you can do:** stay on a direct connection where you can, or self-host with
 [your own coturn relay](/self-hosting/turn-relay).
 
-## A browser receiver is limited by what the browser can hold
+### The public counter is a vanity metric {#the-public-counter-is-a-vanity-metric}
+
+The total on the homepage is fed by receivers reporting a byte count after a transfer. It is
+protected by a per-address [rate limit](/glossary#rate-limit) and a per-report size cap, and
+nothing else. Anyone can post a plausible number to it.
+
+It is an honest best-effort figure, not an audited one, and it is deliberately built that way:
+adding real integrity would mean identifying the reporter, which is exactly what the counter
+avoids. It carries no file names, no per-transfer records, and no link to anyone. See
+[Aggregate statistics](/security-privacy#aggregate-statistics).
+
+## Sending and receiving {#sending-and-receiving}
+
+### A browser receiver is limited by what the browser can hold {#a-browser-receiver-is-limited-by-what-the-browser-can-hold}
 
 The web app keeps every file it receives inside the browser until you leave the page, so that you
 can still save it. What counts is therefore the size of the whole transfer, not of its largest
 file, and how much fits depends on the browser.
 
-- **Chrome, Edge, and other Chromium browsers, in a normal window:** the tab holds no more than
-  about 16 MB of a file at a time. The browser keeps some of what has arrived in memory (about 2 GB
-  on a computer) and moves the rest into temporary files of its own on disk, up to a limit it sets
-  from the size of the disk. Past that limit the transfer stops and says
+- **Chrome, Edge, and other browsers built on Chromium, Chrome's engine, in a normal window:**
+  the tab holds no more than about 16 MB of a file at a time. The browser keeps some of what has arrived in memory, about
+  2 GB on a computer. It moves the rest into temporary files of its own on disk, up to a limit it
+  sets from the size of the disk. Past that limit the transfer stops and says
   [the browser ran out of memory](/troubleshooting#this-browser-ran-out-of-memory).
 - **A private or Incognito window in those browsers:** nothing goes to disk, so everything received
   in private windows shares the memory part alone, about 2 GB on a computer and much less on a
@@ -117,16 +146,36 @@ be saved.
 Zipping compounds it in every browser: **Download ZIP** reads every file back into the tab at once
 before it writes the archive.
 
+**On a phone**, the browser holds less than on a computer. How much depends on the phone, its free
+memory and its browser, and Floe cannot tell beforehand whether a large transfer will fit. The
+figures above were measured on computers, so on a phone the only way to know is to try. A 3 GB
+video, for example, may arrive whole or may stop partway with the out-of-memory message. If the
+connection is relayed, a transfer over 2 GB is refused before anything moves: see
+[File size limits](/how-it-works/2gb-limit). While it runs, keep the Floe page open and in front
+on the phone until the file is saved: a phone that locks, or a switch to another app, can pause
+the page and [end the transfer](#a-device-that-sleeps).
+
 **What you can do:** receive multi-gigabyte transfers with [Floe Desktop](/desktop/receiving) or
 the [CLI](/cli/receive), which write straight to disk and have no such ceiling. In the browser,
 use a normal Chrome or Edge window, and save files one at a time rather than zipping when the
 total is large.
 
-## A transfer that stops cannot be resumed {#no-resume}
+When the receiver is a phone, Floe Desktop and the CLI do not run there, so the phone's browser
+has to hold the files:
 
-Floe has no resume. When a transfer stops partway, because a connection dropped or one side closed
-its app, the files that had finished are kept and everything else has to be sent again in a new
-transfer, including the file that was moving.
+- Send several large files as separate transfers, a few at a time. The receiver saves each batch,
+  then opens the next link, which starts the page empty.
+- A single file too large for the phone has to go to a computer instead, through Floe Desktop or
+  the CLI, and be copied to the phone from there with a cable or the phone's own file app. Or make
+  it smaller first, for example by exporting the video at a lower quality.
+- Put both devices on the same Wi-Fi network. The connection is then usually direct, so the 2 GB
+  relay cap does not apply.
+
+### A transfer that stops cannot be resumed {#no-resume}
+
+Floe has no resume. A transfer can stop partway because a connection dropped or one side closed
+its app. The files that had finished are then kept, and everything else has to be sent again in a
+new transfer, including the file that was moving.
 
 What is kept depends on the receiver. Floe Desktop and `floe receive` leave the finished files in
 the save folder and discard the file that was arriving: see
@@ -136,33 +185,84 @@ the finished files in its list until you leave the page, so save them before you
 **What you can do:** keep both devices awake and online until the transfer ends. After a stop, ask
 which files arrived and send only the rest.
 
-## The SHA-256 check covers the transfer, not your disk afterward
+### A device that sleeps ends the transfer {#a-device-that-sleeps}
+
+Closing a laptop's lid usually puts it to sleep, and a sleeping device ends the transfer as surely
+as closing the app. The browser page asks to keep the screen on, and Floe Desktop asks Windows to
+stay awake, but closing the lid or choosing **Sleep** still wins.
+
+What each side of a browser transfer sees once the sleeping device wakes:
+
+| Who | What they see |
+| --- | --- |
+| The sender | The status “Connection interrupted”, usually with the red banner “The connection closed before the transfer finished.” See [Troubleshooting](/troubleshooting#the-connection-closed-before-the-transfer-finished). |
+| The receiver, when a file had finished | “Received 1 of 3 files. The transfer ended before the rest arrived.”, with its own numbers. The finished files stay in the list. |
+| The receiver, when no file had finished | “Connection failed. Ask the sender to try again.” See [Troubleshooting](/troubleshooting#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again). |
+
+Floe Desktop usually reads "The connection dropped before the transfer finished" on either side.
+
+Do not count on the old link: after a sleep it can stop working without a message on the sender's
+page. Start a new transfer instead:
+
+<Steps>
+  <Step title="Save what arrived">
+    The receiver saves every file that arrived. In a browser, do it before leaving the page.
+  </Step>
+  <Step title="Send the rest in a new transfer">
+    The sender reloads the page, adds only the files that did not arrive, and shares the new link.
+    In Floe Desktop or the CLI, send those files again.
+  </Step>
+  <Step title="Keep both devices awake">
+    Keep both devices awake and online until it ends. On a laptop, keep the lid open and plug it in.
+  </Step>
+</Steps>
+
+### There are no accounts {#no-accounts}
+
+Floe has no accounts and no sign-in, so three things do not exist:
+
+- a list of what you sent that follows you between devices
+- a way to take a file back once it has arrived
+- a way to watch or stop a transfer from another device
+
+Floe Desktop keeps a [History](/desktop/receiving#history) of its last 50 transfers on that PC
+only. The web app and the CLI keep none.
+
+**What you can do:** treat a file as out of your hands once the other side has it, and keep your
+own note of what you sent if you need one.
+
+## Saving received files {#saving-received-files}
+
+### The SHA-256 check covers the transfer, not your disk afterward {#the-sha-256-check-covers-the-transfer-not-your-disk-afterward}
 
 Floe checks every file it receives against the size the sender announced and, when the sender
-provides one, against the sender's SHA-256 of the file, and it deletes a file that fails either.
-[File checks](/how-it-works/file-checks) has the whole account.
+provides one, against the sender's [SHA-256](/glossary#sha-256) of the file. It deletes a file that
+fails either. [File checks](/how-it-works/file-checks) has the whole account.
 
-Two things the check does not do. It covers the file as it arrived, so it cannot notice damage
-that happens on your disk afterward: Floe Desktop and `floe receive` take the SHA-256 while they
-write the file and never read it back, and the web app checks the copy it holds, before your
-browser saves it. And a file that comes without a SHA-256, or whose check did not finish
-[in the time allowed](/how-it-works/file-checks#when-a-browser-runs-out-of-time), is checked against its
-size and nothing more. That file is kept, and no green check mark or `SHA-256 matched` line appears.
+Two things the check does not do:
+
+- It covers the file as it arrived, so it cannot notice damage that happens on your disk
+  afterward. Floe Desktop and `floe receive` take the SHA-256 while they write the file and never
+  read it back. The web app checks the copy it holds, before your browser saves it.
+- A file that comes without a SHA-256, or whose check did not finish
+  [in the time allowed](/how-it-works/file-checks#when-a-browser-runs-out-of-time), is checked
+  against its size and nothing more. That file is kept, and no green check mark or
+  `SHA-256 matched` line appears.
 
 **What you can do:** compare hashes yourself when you need proof about the file as it sits on
 disk. `sha256sum` on Linux,
 `shasum -a 256` on macOS, `Get-FileHash` on Windows.
 
-## Windows cannot keep two names that differ only by a reserved character
+### Windows cannot keep two names that differ only by a reserved character {#windows-cannot-keep-two-names-that-differ-only-by-a-reserved-character}
 
 Windows refuses `< > : " | ? *` in a file name, so Floe Desktop and `floe receive` on Windows
 replace each of them with `_` before writing. One colon is dropped instead, the one in a name that
 starts like a drive name: see
 [Names Windows cannot represent are adjusted](/desktop/receiving#names-windows-cannot-represent-are-adjusted).
-Names that were distinct on the sending machine can then land on the same name. A Linux folder holding `report:v1.pdf` and `report?v1.pdf`
-arrives as `report_v1.pdf` and `report_v1 (1).pdf`, and nothing on disk says which was
-which. The numbered suffix follows the order the files arrived in, which is the order they
-were sent.
+Names that were distinct on the sending machine can then land on the same name. A Linux folder
+holding `report:v1.pdf` and `report?v1.pdf` arrives as `report_v1.pdf` and `report_v1 (1).pdf`,
+and nothing on disk says which was which. The numbered suffix follows the order the files arrived
+in, which is the order they were sent.
 
 Nothing is overwritten and nothing is lost. The receiver never replaces an existing file, so
 the second one is saved beside the first rather than on top of it. `floe receive` on macOS and
@@ -174,7 +274,7 @@ Windows.
 `floe receive` on macOS or Linux. The progress line of `floe receive` and the History in Floe
 Desktop both show the name that was actually written, so you can always tell what landed where.
 
-## Very deep or very long paths are refused
+### Very deep or very long paths are refused {#very-deep-or-very-long-paths-are-refused}
 
 Before they write a file, Floe Desktop and `floe receive` refuse one whose path inside the
 transfer is too deep or too long, or that starts at a drive or a root. The receive stops there and
@@ -185,31 +285,22 @@ The numbers are in [Limits](/reference/limits#files-and-paths).
 [what the desktop app shows](/desktop/receiving#paths-too-deep-or-too-long) and
 [what `floe receive` prints](/cli/receive#paths-too-deep-or-too-long).
 
-## Floe does not scan received files
+### Floe does not scan received files {#floe-does-not-scan-received-files}
 
-Floe does not scan received files for malware. On Windows, Floe Desktop and `floe receive` mark each
-file as downloaded, the way a browser does, so SmartScreen and Office Protected View treat it like any
-download. The mark needs a drive that can keep it, and not every drive does. See
+Floe does not scan received files for malware. On Windows, Floe Desktop and `floe receive` mark
+each file as downloaded, the way a browser does, so [SmartScreen](/glossary#smartscreen) and
+Office's Protected View, which opens a downloaded document read-only, treat it like any download. The mark needs a drive that can keep it, and not
+every drive does. See
 [Received files are marked as downloads](/desktop/receiving#received-files-are-marked-as-downloads).
 
 **What you can do:** open files you did not expect with the same care as any download, and save
-to an NTFS drive when the mark matters. A drop through a request link also renames file types that
-File Explorer opens by itself; see [Renamed files](/desktop/request-links#renamed-files).
+to an NTFS drive, the format of a Windows PC's own drive, when the mark matters. A drop through a
+request link also renames file types that File Explorer opens by itself, such as shortcuts; see
+[Renamed files](/desktop/request-links#renamed-files).
 
-## Windows decides where a notification appears {#notifications}
+## Request links and Floe Desktop {#request-links-and-floe-desktop}
 
-Floe Desktop sends standard Windows notifications, and Windows decides how they show: on which screen,
-in which corner, for how long, and whether Focus or Do Not Disturb hides them. Floe cannot pick a screen
-or a corner. A notification also stays in Notification Center after the request it announced has ended, or
-after you have answered it, until you clear it. Clicking a notification is not a way back to the request yet: switch to Floe to answer it.
-
-**What you can do:** open Windows' notification settings, where Floe has its own entry (Floe Desktop for the Microsoft Store build), with **Open** under
-[Windows notification settings](/desktop/settings#windows-notification-settings) in Settings. Turn
-notifications off there, or in Floe, if you would rather not have them. A request still flashes the taskbar button, the window title
-reads `(1) Floe`, and a notice appears inside Floe. See
-[With notifications off](/desktop/settings#notifications-off).
-
-## A request link works only while your PC is on
+### A request link works only while your PC is on {#a-request-link-works-only-while-your-pc-is-on}
 
 A request link is a live transfer, not a mailbox. Files move only while Floe Desktop is open on
 your PC and the PC is awake and online, and only while the sender's page, or their `floe send --to`,
@@ -221,42 +312,33 @@ updates outside your active hours.
 active hours to cover it. A sender in a browser keeps the tab in front, and pins it for a long
 drop. See [Request links](/desktop/request-links).
 
-## There are no accounts {#no-accounts}
+### Windows decides where a notification appears {#notifications}
 
-Floe has no accounts and no sign-in, so three things do not exist: a list of what you sent that
-follows you between devices, a way to take a file back once it has arrived, and a way to watch or
-stop a transfer from another device. Floe Desktop keeps a [History](/desktop/receiving#history) of
-its last 50 transfers on that PC only. The web app and the CLI keep none.
+Floe Desktop sends standard Windows notifications, and Windows decides how they show: on which
+screen, in which corner, for how long, and whether Focus or Do Not Disturb hides them. Floe cannot
+pick a screen or a corner. A notification also stays in Notification Center after the request it
+announced has ended, or after you have answered it, until you clear it. Clicking a notification is
+not a way back to the request yet: switch to Floe to answer it.
 
-**What you can do:** treat a file as out of your hands once the other side has it, and keep your
-own note of what you sent if you need one.
+**What you can do:** change how they show in Windows. In Floe's **Settings**, click **Open** under
+[Windows notification settings](/desktop/settings#windows-notification-settings), then find Floe in
+the list (Floe Desktop for the Microsoft Store build). Turn notifications off there, or in Floe, if
+you would rather not have them. A request still flashes the taskbar button, the window title reads
+`(1) Floe`, and a notice appears inside Floe. See
+[With notifications off](/desktop/settings#notifications-off).
 
-## The public counter is a vanity metric
+## Running your own server {#running-your-own-server}
 
-The total on the homepage is fed by receivers reporting a byte count after a transfer. It is
-protected by a per-address rate limit and a per-report size cap, and nothing else. Anyone can post
-a plausible number to it.
-
-It is an honest best-effort figure, not an audited one, and it is deliberately built that way:
-adding real integrity would mean identifying the reporter, which is exactly what the counter
-avoids. It carries no file names, no per-transfer records, and no link to anyone. See
-[Aggregate statistics](/security-privacy#aggregate-statistics).
-
-## A self-hosted server runs as a single process
+### A self-hosted server runs as a single process {#a-self-hosted-server-runs-as-a-single-process}
 
 Rooms, room codes, request-link reservations, and the rate limiters all live in one process's
-memory. Running two replicas
-behind a load balancer does not scale Floe out; it silently breaks pairing, because the two
-peers can land on different replicas and never see each other.
-
-**What you can do:** run one instance. A single small server handles a lot, since file data
-never passes through it. If you need redundancy, use a failover pair rather than a load-balanced
-set, and accept that the switch loses every room and room code the old instance held, as a
-[restart](/self-hosting/operations#common-commands) does.
+memory, so two replicas behind a load balancer break pairing instead of scaling Floe out. Run one
+instance: see [Run one instance, not several](/self-hosting/overview#run-one-instance-not-several).
 
 ## Reporting something that is not on this list
 
 If you find a security issue in Floe, report it privately through
 [GitHub Security Advisories](https://github.com/jannskiee/floe/security/advisories/new) or the
 contact in [SECURITY.md](https://github.com/jannskiee/floe/blob/main/SECURITY.md). Please do not
-open a public issue before there is a fix.
+open a public issue before there is a fix. To report someone who sent you something harmful, see
+[Reporting abuse](/security-privacy#reporting-abuse).

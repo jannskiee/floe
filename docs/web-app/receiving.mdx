@@ -12,85 +12,115 @@ Someone sent you a Floe link, or a QR code. Open it in any modern browser and th
 their own. There is nothing to install, no account, and nothing to click to start.
 
 <Info>
-A link with `/r/` in it is a request link. It is for sending files to the person who made it, not
-for receiving: see [Sending through a request link](/web-app/request-links).
+A link with `/r/` in it is a [request link](/glossary#request-link). It is for sending files to the
+person who made it, not for receiving: see [Sending through a request link](/web-app/request-links).
 </Info>
+
+## The short version {#the-short-version}
+
+Open the link and keep the tab open. The files arrive by themselves, each with its own download
+button. Your browser holds them until you save them, so save every file before you close the tab.
+With two or more files, **Download ZIP** saves them all in one archive, folders included.
 
 ## Open the link
 
-Click the link, or point your phone's camera at the QR code. The page joins the sender's room by
-itself and starts negotiating the connection. A link made in the web app works for as long as the
-sender keeps their page open: see
-[How a transfer works](/how-it-works/signaling#code-and-link-lifetime).
+Click the link, or point your phone's camera at the QR code. The page joins the sender's
+[room](/glossary#room), the meeting point for this one transfer, and connects to the sender by
+itself. A link made in the web app works while the sender's page stays open and connected to
+Floe's [server](/glossary#signaling-server), which introduces the two devices. See
+[How long a code and a link last](/how-it-works/signaling#code-and-link-lifetime).
+
+An older Floe link that carries `?room=` in place of `#room=` still opens the same way.
 
 ### If Floe says "Open in your browser" {#if-floe-says-open-in-your-browser}
 
 Apps like Facebook, Messenger, Instagram, TikTok, Snapchat, LINE, X, and WeChat open links in
-their own built-in browser rather than in Chrome or Safari. Those built-in browsers handle file
-transfers poorly, so Floe recognizes them and shows this instead of the transfer view.
+their own [in-app browser](/glossary#in-app-browser) rather than in Chrome or Safari. Those built-in
+browsers handle file transfers poorly, so Floe recognizes them and shows this screen instead of the
+transfer view. It does the same when floe.one itself is opened in one of those apps to send.
 
-Those eight are recognized by name, and the screen names the app (it calls X "Twitter"). One more
-case is caught by a general check: an Android web view that reports no Chrome version gets the
-same screen, worded "This in-app browser". Any other app's built-in browser is not recognized, and
-the transfer view opens in it directly.
+The screen names the app (it calls X "Twitter"), or says "This in-app browser" for some other
+Android apps. Any other app's built-in browser is not recognized, and the transfer view opens in it
+directly.
 
 <Frame caption="What Floe shows when a link is opened inside another app's browser">
   <img src="/images/web/06-in-app-browser.png" style={{ width: "100%", maxWidth: "320px", borderRadius: "12px" }} alt="A full-screen Floe prompt reading Open in your browser, with two numbered steps for reaching Safari, a Copy link to paste in browser button, and a Continue anyway link" />
 </Frame>
 
-Follow the two steps, or tap **Copy link to paste in browser** and open it yourself in Chrome,
-Safari, Edge, or Firefox. The card also shows the link itself; if the app blocks copying, the card
-says "Couldn’t copy. Press and hold the link above to copy it." **Continue anyway (some features
-may not work)** proceeds regardless.
+Follow the two steps on the screen:
 
-Until you tap **Continue anyway**, the page has not joined the room. That is deliberate: a room
-takes exactly one recipient, so an in-app browser cannot silently take that seat and lock the real
-browser out.
+- **On Android:** tap the ⋮ menu at the top right, then "Open in browser" or "Open in Chrome".
+- **On an iPhone, an iPad or anything else:** tap the icon of an arrow leaving a box, or the ···
+  menu, then "Open in Safari" or "Open in Browser".
+
+Or tap **Copy link to paste in browser** and open the link yourself in Chrome, Safari, Edge, or
+Firefox. The button reads "Link copied" for 2 seconds when the copy worked. The screen also shows
+the link itself. If the app blocks copying, the screen says "Couldn’t copy. Press and hold the link
+above to copy it." **Continue anyway (some features may not work)** opens the transfer view there
+regardless.
+
+Until you tap **Continue anyway**, the page has not joined the transfer. Opening the link inside the
+app therefore does not use it up, and you can still open it in your own browser.
 
 ## While you wait
 
-The card walks through three steps as it gets ready, and offers one choice.
+The card walks through three steps as it gets ready: "Secure room joined", "Waiting for the sender
+to start" and "Files stream in below". It also offers one choice.
 
 <Frame caption="The receiving card before the first file arrives">
   <img src="/images/web/04-receive-waiting.png" style={{ width: "100%", maxWidth: "520px", borderRadius: "12px" }} alt="The Floe receive card with a green Ready badge, a completed Secure room joined step, an active Waiting for the sender to start step, and a checked Contribute to global stats box" />
 </Frame>
 
-The badge at the top right means the same thing it does on the sending side: **Offline** (red) is
-no signaling connection, **Ready** (green) is signaling up but the route not yet decided,
-**Direct** (green) is device to device, and **Relay** (amber) is through the encrypted relay. It
-tracks your own connection, so a green **Ready** does not mean the sender is ready. On this page
-it also turns **Offline** once the connection to the sender has closed, which is how a finished
-transfer from `floe send` or Floe Desktop ends. The ping readout next to it is shown to senders
-only.
+The [badge](/glossary#badge) at the top right means what it does on the sending side: see
+[Watch the connection](/web-app/sending#watch-the-connection). Two things differ on this page.
+There is no ping beside it. And it turns **Offline** once the connection to the sender has closed,
+which is how a finished transfer from `floe send` or Floe Desktop ends.
 
 The transfer starts by itself, usually a couple of seconds after the connection is established.
-If it never starts, the sender's side may have stopped it: a browser sender checks the route before
-any bytes move and refuses a relayed connection when they turned relay fallback off or queued more
-than 2 GB. See [Sending files](/web-app/sending#while-it-transfers).
+A sender in the browser checks the route first. When it goes through a [relay](/glossary#relay) and
+they turned relay fallback off or queued more than 2 GB, their page stops before any file moves.
+Your page then shows a red banner with their reason. Ask them to do what it says, then open the new link they send.
 
 ### Contribute to global stats
 
-Floe's homepage carries a public, all-time count of bytes moved by everyone. When the last file
-of a transfer lands, the receiving side adds this transfer's size to that total, and nothing else.
-No file names, no contents, nothing identifying, and the report never slows or blocks the
-transfer. A transfer that stops before its last file reports nothing.
+Floe's homepage carries a public, all-time count of bytes moved by everyone, shown under the card
+as an amount "transferred globally". When the last file of a transfer lands, the receiving side
+adds this transfer's size to that total, and nothing else. No file names, no contents, nothing
+identifying, and the report never slows or blocks the transfer. A transfer that stops before its
+last file reports nothing, and neither does one made only of empty files.
 
-It is on by default. The checkbox disappears once the first file lands, so decide while you are
-waiting.
+It is on by default. The checkbox shows from the moment the page opens and disappears once the first
+file lands, so decide while you are waiting. Your choice is kept in this browser, so unchecking it
+once covers your later transfers too.
 
 <StatsOptOut />
 
-The total is only ever shown on the homepage. See
+The total is only ever shown on the homepage. It is read from the server every 10 seconds, and
+your own transfer is added to it at once. See
 [Security and privacy](/security-privacy#aggregate-statistics) for the full data-handling note.
 
 ## Saving what arrives
 
 Every file gets its own download button the moment it lands, so you can start saving while the
-rest are still coming.
+rest are still coming. A saved file goes where your browser puts every download, usually the
+Downloads folder. On an iPhone or iPad, Safari puts downloads in the Files app.
 
 <Frame caption="A finished transfer, with per-file buttons and the two bulk options">
   <img src="/images/web/05-receive-downloads.png" style={{ width: "100%", maxWidth: "520px", borderRadius: "12px" }} alt="The Floe receive card showing Download All and Download ZIP buttons above three completed files, each with its own download button, and the line 3 files received with SHA-256 matched under it" />
 </Frame>
+
+While a file arrives, a progress row reads, for example, "Receiving file 2 of 3", then the speed,
+the time left and a percentage. The percentage is for the current file only, so it starts again at
+0 for each file. Once a file's bytes are all in, the row reads "Verifying file 2 of 3" while Floe
+checks it.
+
+Between files, the line under the list reads "Received 1 of 3 files. Waiting for the rest". The
+green check and a count such as "3 files received" appear only once every file the sender
+announced has arrived. A smaller line under the list, such as "3 files (8.02 MB)", counts what has
+arrived so far.
+
+The list becomes a scroll box once it holds more than four files, and it scrolls to the newest file
+by itself. Hover over a name to see it in full.
 
 On a transfer of two or more files, **Download All** and **Download ZIP** appear as soon as the
 second file lands. They hide again while the next file is arriving or being checked and come back
@@ -100,84 +130,121 @@ stay put.
 - **Download All** saves each file separately, about one every 300 ms. Your browser may ask you to
   allow multiple downloads.
 - **Download ZIP** bundles everything into one archive named `floe_transfer_<timestamp>.zip`. The
-  timestamp is milliseconds since the epoch, stamped when the archive finishes building rather
-  than when you clicked, so on a large transfer the two differ.
+  number in the name is the time the archive was finished, in milliseconds, not the time you
+  clicked.
 
-The two differ in more than convenience. A ZIP keeps any folder structure the sender used and
-numbers duplicate names inside the archive. Saving files one at a time flattens the structure and
-leaves duplicate names to your browser.
+While either one runs, both buttons are grayed out, and the one you clicked reads "Downloading..."
+or "Zipping...". A small card shows each step, such as "Processing: report.pdf" and then "Creating
+ZIP archive...", with a count and a percentage. A large ZIP is built inside the tab and can sit on
+"Creating ZIP archive..." for a while. It cannot be canceled.
 
-A single-file transfer shows only that file's own button, and no bulk options.
+The two buttons differ in more than convenience. A ZIP keeps any folder structure the sender used
+and numbers duplicate names inside the archive. Saving files one at a time flattens the structure
+and leaves duplicate names to your browser.
+
+A single-file transfer shows only that file's own button, and no bulk options. That also means a
+folder that held one file arrives without its folder.
 
 **On iOS, use Download ZIP** when there is more than one file. Saving them individually behaves
 inconsistently in Safari and in iOS web views. The exception is a very large transfer: zipping
 holds every file in memory at once, so if that fails, save them from their own rows instead.
 
+The names in the list are made safe to save, so they can differ from what the sender sees:
+
+- Only the file's own name shows, without its folders. Two files of the same name from different
+  folders look the same in the list.
+- Characters that Windows does not allow in a name, such as `:` and `?`, become `_`.
+- A name with nothing usable in it is saved as `received_file`.
+
 A file that fails a check never reaches the list. Floe discards a file whose size does not match
-what the sender announced, or whose SHA-256 does not match when the sender provides one, and the
-rest of the transfer stops with it. When every file arrived and every SHA-256 matched, the line
-"SHA-256 matched" appears under the list. See [File checks](/how-it-works/file-checks).
+what the sender announced, or whose [SHA-256](/glossary#sha-256), a fingerprint of its contents,
+does not match when the sender provides one. The rest of the transfer stops with it. When every
+file arrived and every SHA-256 matched, the line
+"[SHA-256 matched](/glossary#sha-256-matched)" appears under the list. See
+[File checks](/how-it-works/file-checks).
 
 Floe does not scan files for malware. A file that passes its checks arrived intact, which does not
 make it safe to open and says nothing about who sent it. See
 [Known limitations](/how-it-works/known-limitations#floe-does-not-scan-received-files).
 
-Files stay with the browser until you save them, so closing or reloading the tab discards
-anything you have not saved.
+<Warning>
+Files stay with the browser until you save them, so closing or reloading the tab discards anything
+you have not saved. Opening a different Floe link in the same tab reloads it too.
+</Warning>
+
+While a receive is under way, or a file that arrived has not been saved yet, your browser asks
+before the tab is closed or reloaded. It also asks before the Floe button or one of the page's own
+links takes you away. A file counts as saved once its own download button, **Download All** or
+**Download ZIP** has handed it to your browser. While a transfer is on its way, and while files are
+listed, the line at the foot of the card reads "Keep this tab open. Closing it interrupts the
+download."
+
+While the two devices are connected, the page asks your browser to keep the screen on, where the
+browser supports it. Browsers let go of that whenever the tab is hidden, and the page asks again
+when you come back.
 
 ## The sender has to stay connected
 
 Files stream from the sender's device, so if they close their tab, quit Floe Desktop, or stop the
-CLI before the transfer finishes, the connection drops and nothing resumes it.
-
-If **your** connection to Floe's server blips while the two devices are still connecting, the page
-rejoins the room by itself. If the server still counts the page's old connection, the page keeps
-trying for about a minute instead of showing "Link Invalid". Whether that rescues the transfer depends on the sender. A browser
-sender builds a fresh connection. `floe send` and Floe Desktop treat it as you leaving and end the
-transfer, and a device that comes back on a different network can be refused. See
-[How a transfer works](/how-it-works/signaling#a-room-holds-exactly-two-people). Once the two
-devices are connected, a blip in the server connection no longer matters, and the page no longer
-rejoins.
+[CLI](/glossary#cli) before the transfer finishes, the connection drops and nothing resumes it.
 
 What you see when the sender leaves depends on how far things had got:
 
-| When the sender left | What the page shows |
-|----------------------|---------------------|
-| Before the two devices connected | The second step of the card changes to "The sender is not connected". If a sender in the browser comes back, the transfer starts by itself. See [Troubleshooting](/troubleshooting#the-sender-is-not-connected). |
-| After they connected, before any file finished | A red banner, usually "The sender ended the transfer before it finished." or "The sender ended the transfer. Ask them to start it again.", or the sender's own reason when a sender in the browser stopped by itself or refused a relayed path. See [Troubleshooting](/troubleshooting#the-sender-ended-the-transfer). |
-| After at least one file finished, with more still to come | The badge goes back to **Offline**, the progress row goes away, and an amber line under the list says how far the transfer got, such as "Received 1 of 3 files. The transfer ended before the rest arrived." The files that arrived stay listed. See [Troubleshooting](/troubleshooting#the-transfer-ended-before-the-rest-arrived). |
+| When the sender left | What the page shows | What to do |
+|----------------------|---------------------|------------|
+| Before the two devices connected | The second step of the card changes to "The sender is not connected". | Keep the page open if they are coming back. A sender in the browser who returns starts the transfer by itself. |
+| After they connected, before any file finished | A red banner, usually "The sender ended the transfer before it finished." Other wordings are under the table. | Reload the page to try again, or ask the sender for a new link. |
+| After at least one file finished, with more still to come | An amber line under the list, such as "Received 1 of 3 files. The transfer ended before the rest arrived." | Save what arrived, and ask the sender to send the rest. |
 
-In that last case, save what arrived and ask the sender to send the rest in a new transfer: Floe
-[cannot resume](/how-it-works/known-limitations#no-resume) one that stopped.
+In the second case the banner can also read "The sender ended the transfer. Ask them to start it
+again." When the sender's side stopped with a reason, the banner shows that reason instead. A
+sender in the browser gives one when it stops by itself or refuses a relayed path. See
+[Troubleshooting](/troubleshooting#the-sender-ended-the-transfer).
+
+In the third case the badge goes back to **Offline**, the progress row goes away, and the files
+that arrived stay listed. See
+[Troubleshooting](/troubleshooting#the-transfer-ended-before-the-rest-arrived). The rest needs a new
+transfer: Floe [cannot resume](/how-it-works/known-limitations#no-resume) one that stopped.
+
+A reload works while a sender in the browser still has their page open. Files that already arrived
+stay in the list, and can still be saved, for as long as the page stays open.
 
 This is what the web app at floe.one shows. A web app that someone hosts themselves can run an
 older version, where a few of these lines read differently: see
 [What an older web app shows](/self-hosting/operations#older-web-app-versions).
 
-While a transfer of several files is still running, the same place reads "Received 1 of 3 files.
-Waiting for the rest" between files. The green check and a count such as "3 files received"
-appear only once every file the sender announced has arrived.
+Your own connection to Floe's server can drop for a moment while the two devices are still
+connecting. The page then joins again by itself. If the server still counts the page's old
+connection, the page keeps trying for about a minute before it shows "Link Invalid". Whether that
+saves the transfer depends on the sender:
 
-Files that already arrived stay in the list and can still be saved for as long as the page stays
-open. While a receive is under way, or a file that arrived has not been saved yet, your browser
-asks before the tab is closed or reloaded, and before the Floe button or one of the page's own
-links takes you away. A file counts as saved once its own download button, **Download All** or
-**Download ZIP** has handed it to your browser. To try again in the first two cases, reload the
-page: that works while a browser sender still has their page open.
+| The sender is using | What happens |
+|---------------------|--------------|
+| A browser | Their page builds a fresh connection, and the transfer starts. |
+| `floe send` or Floe Desktop | They treat it as you leaving, and their transfer ends. |
+
+A device that comes back on a different network can be refused either way. See
+[How a transfer works](/how-it-works/signaling#a-room-holds-exactly-two-people). Once the two
+devices are connected, a drop in the server connection no longer matters, and the page does not
+join again.
 
 ## Receiving in the terminal or the desktop app instead
 
 Both write straight to disk as the bytes arrive and rebuild folder structure, which makes them the
-better choice for anything multi-gigabyte. A browser can only take what that browser can hold: see
+better choice for anything multi-gigabyte. A browser can only take what that browser can hold, and
+a phone holds less than a computer. Neither app runs on a phone: for a large transfer to one, see
 [Known limitations](/how-it-works/known-limitations#a-browser-receiver-is-limited-by-what-the-browser-can-hold).
+
+A [share link](/glossary#share-link) works in `floe receive` and in the Floe Desktop **Receive** tab.
+A link from a [self-hosted](/glossary#self-hosted) Floe also needs that server's address: see
+[Use a self-hosted server](/cli/self-hosted-server).
 
 ```bash Terminal
 floe receive "https://www.floe.one/?s=8262e1b4#room=3f2b9c1e-7a4d-4c2e-9b1f-8e6d5c4b3a21"
 ```
 
-Links made in the browser and in Floe Desktop carry the `?s=` value and links printed by
-`floe send` do not. `floe receive` accepts both, and so does the Floe Desktop **Receive** tab. If
-the sender gave you a room code instead, pass that. The browser has no field for one.
+If the sender gave you a [room code](/glossary#room-code) instead, three words, pass that. The
+browser has no field for one.
 
 ```bash Terminal
 floe receive olive-tiger-castle
@@ -187,13 +254,9 @@ See [floe receive](/cli/receive) and [Receive files in the desktop app](/desktop
 
 ## If something goes wrong {#if-the-link-does-not-work}
 
-- "Link Invalid": the link is incomplete, someone else is already connected on it, or it has
-  already started connecting from a network other than the one you are on now, which includes
-  your own device after it switched networks. See [Troubleshooting](/troubleshooting#link-invalid).
-- "The sender is not connected", or the card stays on "Waiting for the sender to start": nobody
-  is on the sending side right now, or the two devices are still looking for a path. See
-  [Troubleshooting](/troubleshooting#the-transfer-never-starts).
-- `Connection failed. Ask the sender to try again. If they turned the relay off, ask them to leave it on.`:
-  usually a network that blocks direct paths with no relay on offer, but a sender whose device
-  went to sleep or lost its network produces it too. See
+- "Link Invalid": the link is incomplete, in use, or locked to other networks. See
+  [Troubleshooting](/troubleshooting#link-invalid).
+- "The sender is not connected", or the card stays on "Waiting for the sender to start": see
+  [The transfer never starts](/troubleshooting#the-transfer-never-starts).
+- "Connection failed. Ask the sender to try again.": see
   [Troubleshooting](/troubleshooting#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again).

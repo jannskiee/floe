@@ -5,15 +5,20 @@ description: "When a direct connection is impossible, Floe routes the transfer t
 keywords: ["relay", "turn", "cgnat", "firewall", "why is my transfer slow", "amber"]
 ---
 
-When two devices cannot reach each other directly, Floe routes the transfer through a **relay**: a
-server both devices can reach, which forwards packets between them and cannot read them. A relayed
-transfer takes a detour, so it is usually slower, and it is capped at 2 GB per session.
+When two devices cannot reach each other directly, Floe routes the transfer through a
+[relay](/glossary#relay): a server both devices can reach, which forwards packets between them and
+cannot read them. A relayed transfer takes a detour, so it is usually slower, and it is capped at
+2 GB per session.
 
 Think of a courier carrying a locked box. It gets the box where it needs to go and cannot open it.
 
 Some networks make a direct path impossible. Strict corporate and university firewalls do it
-deliberately, and carrier-grade NAT, where a mobile provider puts many customers behind one shared
-address, does it as a side effect.
+deliberately. Some mobile carriers can do it as a side effect of carrier-grade [NAT](/glossary#nat),
+which puts many customers behind one shared address. Most mobile data still connects directly.
+
+Should you worry when the [badge](/glossary#badge) says Relay? No, unless your files total more
+than 2 GB. The relay cannot read your files. The transfer is usually slower, and the rest of what
+it costs is under [What it costs you](#what-it-costs-you).
 
 ## Direct and relayed, side by side
 
@@ -23,8 +28,8 @@ address, does it as a side effect.
 | Size limit | None from Floe | 2 GB per session |
 | Who pays for the bandwidth | Nobody | Floe, or you, if you self-host |
 | Encryption | End to end | End to end, unchanged |
-| Typical networks | Home Wi-Fi, hotspots, most mobile | Corporate, university, carrier-grade NAT |
-| Badge | **Direct**, green; `Connected (direct)` in the CLI | **Relay**, amber; `Connected (relay)` in the CLI |
+| Typical networks | Home Wi-Fi, hotspots, most mobile | Corporate, university, some mobile carriers (carrier-grade NAT) |
+| Badge | **Direct**, green; `Connected (direct)` in the [CLI](/glossary#cli) | **Relay**, amber; `Connected (relay)` in the CLI |
 
 The encryption row is the important one. Relaying changes the route, not the protection. Your
 files are encrypted before they reach the relay and decrypted only on the other device, so the
@@ -38,67 +43,83 @@ across.
 **Size**, because relay bandwidth costs real money. Relayed transfers are capped at 2 GB per
 session. See [File size limits](/how-it-works/2gb-limit).
 
-**A little more metadata exposure.** The relay is an endpoint both devices connect to, so it sees
-both IP addresses and the timing and size of what it forwards. It cannot see contents. On
-floe.one the relay is Cloudflare's Realtime TURN network, which means a relayed transfer does
-cross infrastructure Floe does not own. See
-[Known limitations](/how-it-works/known-limitations).
+**A little more metadata exposure.** Metadata here means facts about the transfer rather than the
+files themselves. The relay is an endpoint both devices connect to, so it sees the
+[IP address](/glossary#ip-address) of each device and the timing and size of what it forwards. It
+cannot see contents. On floe.one the relay is Cloudflare's Realtime [TURN](/glossary#turn) network, which
+means a relayed transfer does cross infrastructure Floe does not own. See
+[Known limitations](/how-it-works/known-limitations#the-relay-sees-more-than-the-signaling-server-does).
 
 ## Turning it off, and the opposite
 
-**In the browser**, the **Network relay fallback** checkbox appears on the sending side once you
-have picked files. It is on by default. Off means only direct connections are attempted, and the
-transfer fails if none is possible. A browser recipient has no such control, so if you are
-receiving and a transfer will not start, this is the sender's setting to check.
+Each app has its own switches for the relay. Turning the relay off means only direct connections
+are attempted, and the transfer fails if none is possible. Using only the relay hides your IP
+address from the other person, and caps every transfer at 2 GB while it is on.
 
-**In the CLI**, `--no-relay` does the same thing, on either `floe send` or `floe receive`.
+| Where | Turn the relay off | Use only the relay |
+| --- | --- | --- |
+| The web app's Send page | Uncheck [**Network relay fallback**](/glossary#network-relay-fallback), which is checked by default | Not offered |
+| The web app's receiving page | Not offered | Not offered |
+| The page a [request link](/glossary#request-link) opens | Not offered | Check **Hide my IP (relay only, 2 GB per drop)**, which does it for that drop |
+| The CLI | `--no-relay`, on `floe send` or `floe receive` | `--relay-only`, or set `FLOE_RELAY_ONLY=1` to keep it on |
+| Floe Desktop | Not offered: the relay is always available | Turn on [Hide my IP address](/desktop/settings#hide-my-ip-address) in Settings |
+
+**In the browser**, the **Network relay fallback** checkbox appears on the Send page once you have
+picked files, and goes away when you click **Create secure link**, so set it before you click. The
+receiving page has no such control. If you are receiving and a transfer will not start, this is
+the sender's setting to check.
+
+**In the CLI**, `--no-relay` stops your side offering the relay. The other side can still offer
+one, as [How the route is chosen](#how-the-route-is-chosen-and-how-floe-knows-which-it-got)
+explains.
 
 ```bash Terminal
 floe send photo.jpg --no-relay
 ```
 
-The CLI also has the opposite switch. `--relay-only` makes the relay the **only** path, so the
-other person sees the relay's address rather than yours, and every transfer is capped at 2 GB while
-it is on. Set `FLOE_RELAY_ONLY=1` to keep it on. The two flags cannot be combined.
+`--relay-only` makes the relay the **only** path, so the other person sees the relay's address
+rather than yours. The two flags cannot be combined, and a typed `--no-relay` wins over
+`FLOE_RELAY_ONLY=1` for that one transfer.
 
 ```bash Terminal
 floe receive olive-tiger-castle --relay-only
 ```
 
 **Floe Desktop has no relay-fallback switch at all**, so the relay is always available there. Its
-[Hide my IP address](/desktop/settings#hide-my-ip-address) setting is the same control as
-`--relay-only`: it makes the relay the **only** path, so the other person sees the relay's address
-rather than yours. That means every transfer is relayed and every transfer is capped at 2 GB while
-it is on.
-
-Nothing in Floe offers a direct-only mode in the desktop app, and the web app's Send page has no
-relay-only mode. The one relay-only switch in a browser is on the page a sender opens from a
-[request link](/web-app/request-links): **Hide my IP (relay only, 2 GB per drop)**, which does the
-same for that drop.
+[Hide my IP](/glossary#hide-my-ip) setting, labeled **Hide my IP address**, is the same control as
+`--relay-only`.
 
 ## How the route is chosen, and how Floe knows which it got {#how-the-route-is-chosen-and-how-floe-knows-which-it-got}
 
-ICE tries the candidate pairs it gathered and nominates one that works. Traffic is relayed when
-the nominated pair has a `relay` candidate on either side. Host and reflexive candidates are
-still gathered and offered in that case; they simply lost.
+This section is the technical detail behind the badge, and you can skip it. In short, the badge
+reads Relay only when the path the two devices settled on runs through the relay.
+
+[ICE](/glossary#ice), the step in which the two devices try the network paths between them, tries
+the candidate pairs it gathered and nominates, that is picks, one that works. A candidate pair is
+one address from each device, as [Direct connections](/how-it-works/direct-connection#how-floe-decides-a-connection-counts-as-direct)
+explains. Traffic is relayed when the nominated pair has a `relay` candidate on either side. Host
+and reflexive candidates are still gathered and offered in that case; they simply lost.
 
 Turning the relay off removes the relay entries from the address list that side uses, so it has
 nothing relayed to offer. It does not stop the other side from offering one, and if that path
-wins, the two surfaces behave differently. The **browser** notices and blocks the transfer
-before any file data moves, with a message that begins
-[`Connection failed. This link was made with Network relay fallback off.`](/troubleshooting#connection-failed-enable-network-relay-to-connect-across-restrictive-networks)
-The **CLI does not**: `--no-relay` is ICE filtering and nothing more, so a `floe send --no-relay`
-whose peer supplied the winning relay candidate goes ahead over it. Treat the flag as "do not
-offer a relay" rather than as a guarantee.
+wins, the two surfaces behave differently:
 
-The browser re-reads the connection statistics every 5 seconds and flips the badge to amber
-when the nominated pair is relayed. Floe Desktop and the CLI each read it once, when the
-connection is established, so their indicators are a snapshot rather than a live reading: the
-desktop badge, and the CLI's `Connected (direct)` or `Connected (relay)` line. When the CLI
-cannot read the route it prints `Connected` alone and carries on. The sender consults the route
-a second time only to decide whether the size cap applies.
+- The **browser** notices and blocks the transfer before any file data moves. Its message begins
+  [`Connection failed. This link was made with Network relay fallback off.`](/troubleshooting#connection-failed-enable-network-relay-to-connect-across-restrictive-networks)
+- The **CLI does not**: `--no-relay` is ICE filtering and nothing more. A `floe send --no-relay`
+  whose [peer](/glossary#peer) supplied the winning relay candidate goes ahead over it. Treat the
+  flag as "do not offer a relay" rather than as a guarantee.
 
-On floe.one the signaling server hands out three endpoints and no more: a STUN URL, a TURN URL
-over UDP, and a TURN URL over TLS on port 443, which looks like ordinary HTTPS to a network that
-blocks everything else. Cloudflare offers more variants, but every extra URL multiplies the
-connectivity checks each client runs during setup, so the list is trimmed before it is served.
+The browser re-reads the connection statistics every 5 seconds and flips the
+[badge](/glossary#badge) to amber when the nominated pair is relayed. Floe Desktop and the CLI
+each read it once, when the connection is established, so their indicators are a snapshot
+rather than a live reading: the desktop badge, and the CLI's `Connected (direct)` or
+`Connected (relay)` line. When the CLI cannot read the route it prints `Connected` alone and
+carries on. The sender consults the route a second time only to decide whether the size cap
+applies.
+
+On floe.one the [signaling server](/glossary#signaling-server) hands out three endpoints and no
+more: a [STUN](/glossary#stun) URL, a TURN URL over UDP, and a TURN URL over TLS on port 443. The
+last looks like ordinary HTTPS to a network that blocks everything else. Cloudflare offers more
+variants, but every extra URL multiplies the connectivity checks each client runs during setup, so
+the list is trimmed before it is served.

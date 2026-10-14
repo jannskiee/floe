@@ -5,15 +5,24 @@ description: "Spin up a local Floe instance with Docker Compose in a few minutes
 keywords: ["docker compose", "try self hosting", "get started"]
 ---
 
-Two commands give you a complete Floe instance on one machine: the web app on port 3000 and the signaling server on port 3001, both from published images. This page is for trying self-hosting locally before you put an instance behind a domain.
+Two commands give you a complete Floe instance on one machine: the web app on port 3000 and the [signaling server](/glossary#signaling-server) on port 3001, both from published images. This page is for trying [self-hosting](/glossary#self-hosted) locally before you put an instance behind a domain.
 
 ## Prerequisites
 
-- [Docker](https://docs.docker.com/get-started/get-docker/) and Docker Compose 2.8.0 or later (`docker compose`, bundled with Docker Desktop and modern Docker Engine; check with `docker compose version`). An older Compose stops with `invalid interpolation format` when it reads `docker-compose.yml`.
+- [Docker](https://docs.docker.com/get-started/get-docker/) and [Docker Compose](/glossary#docker-compose) 2.8.0 or later (`docker compose`, bundled with Docker Desktop and modern Docker Engine; check with `docker compose version`). An older Compose stops with `invalid interpolation format` when it reads `docker-compose.yml`.
+- Ports 3000 and 3001 free on this machine. If another program already uses one, pick other ports as [Change the ports](#change-the-ports) shows.
 
 ## Steps
 
 <Steps>
+  <Step title="Make a folder for Floe">
+    ```bash Terminal
+    mkdir floe
+    cd floe
+    ```
+    Run every later command from this folder. The compose file goes here, and so does the `.env`
+    file, or the `policy` and `coturn` folders, if you add them later.
+  </Step>
   <Step title="Download the compose file">
     ```bash Terminal
     curl -fsSLO https://raw.githubusercontent.com/jannskiee/floe/main/docker-compose.yml
@@ -26,14 +35,14 @@ Two commands give you a complete Floe instance on one machine: the web app on po
     ```bash Terminal
     docker compose up -d
     ```
-    Docker pulls the [prebuilt images](/self-hosting/images) and starts the server, then the client once the server reports healthy. Nothing is compiled locally.
+    Docker pulls the [prebuilt images](/self-hosting/images) and starts the server, then the client once the server reports healthy. Nothing is compiled locally. The server's health check runs every 30 seconds, so the command can wait on the client for a while before it returns.
   </Step>
   <Step title="Open the app">
-    Open [http://localhost:3000](http://localhost:3000) in your browser. The badge at the top right of the card reads **Ready** once the page has reached the signaling server. Pick a file and click **Create secure link**, then paste that link into a second tab to join as the receiver. **Show QR** renders the same link as a scannable code, which is how you receive on a phone once the app is reachable from one (see [Open it from another device](#open-it-from-another-device)).
+    Open [http://localhost:3000](http://localhost:3000) in your browser. The [badge](/glossary#badge) at the top right of the card reads **Ready** once the page has reached the signaling server. Pick a file and click **Create secure link (1 file)** (the button counts the files you picked), then paste that link into a second tab to join as the receiver. **Show QR** renders the same link as a scannable code, which is how you receive on a phone once the app is reachable from one (see [Open it from another device](#open-it-from-another-device)).
   </Step>
 </Steps>
 
-A `.env` file is optional. Every setting has a working default, so the two commands above are genuinely all you need to try it. To change something, fetch the annotated example alongside the compose file:
+A `.env` file is optional. Every setting has a working default, so the commands above are genuinely all you need to try it. To change something, fetch the annotated example into the same folder:
 
 ```bash Terminal
 curl -fsSL https://raw.githubusercontent.com/jannskiee/floe/main/.env.docker.example -o .env
@@ -43,17 +52,17 @@ In Windows PowerShell this one is `curl.exe` too. Compose reads `.env` when it c
 
 ## What this runs
 
-This starts the stack in **STUN-only** mode: with no relay configured, the server hands every client two public Google STUN servers and nothing else. Floe uses direct peer-to-peer connections, which work on most home and mobile networks. No files pass through the server.
+This stack has no [relay](/glossary#relay). Two devices connect straight to each other, which works on most home and mobile networks, and two devices whose networks block that cannot connect at all. The server hands every client two public Google [STUN](/glossary#stun) servers and nothing else. No files pass through the server.
 
-To support peers behind strict firewalls, symmetric NAT, or CGNAT, add a [TURN relay](/self-hosting/turn-relay).
+To connect devices behind strict firewalls, symmetric [NAT](/glossary#nat), or carrier-grade NAT (CGNAT), add a [TURN](/glossary#turn) relay: see [TURN relay](/self-hosting/turn-relay).
 
 [Request links](/desktop/request-links) are off in this stack until a policy file turns them on. See [Turn on request links](/self-hosting/request-links).
 
-The CLI and Floe Desktop work with this instance too. They connect to the signaling server, so give them `http://localhost:3001`, not the web app's port. See [Use a self-hosted server](/cli/self-hosted-server).
+The [CLI](/glossary#cli) and Floe Desktop work with this instance too. They connect to the signaling server, so give them `http://localhost:3001`, not the web app's port. See [Use a self-hosted server](/cli/self-hosted-server).
 
 ## Open it from another device
 
-The defaults assume the browser and the server are on the same machine. To reach the app from another device on your network, set **both** of these in `.env` to your machine's LAN IP:
+The defaults assume the browser and the server are on the same machine. To reach the app from another device on your network, set **both** of these in `.env` to your machine's address on your network (its LAN IP). `ipconfig` on Windows and `ip addr` on Linux print it. In the example, `192.168.1.x` stands for that address. If you have no `.env` yet, fetch the example as shown above, or create the file with just these two lines:
 
 ```dotenv .env
 NEXT_PUBLIC_SOCKET_URL=http://192.168.1.x:3001
@@ -64,11 +73,13 @@ CLIENT_URL=http://192.168.1.x:3000
 docker compose up -d
 ```
 
-Then open the app at `http://192.168.1.x:3000` on the sending machine too, not `localhost:3000`. The share link and its QR code carry whichever address the page was loaded from, so a sender sitting on `localhost` hands the phone an address that only resolves back to the phone.
+Then open the app at `http://192.168.1.x:3000` on the sending machine too, not `localhost:3000`. The [share link](/glossary#share-link) and its QR code carry whichever address the page was loaded from, so a sender sitting on `localhost` hands the phone an address that only resolves back to the phone.
 
-No rebuild: the client reads its server address at runtime. `CLIENT_URL` matters as much as the socket URL, because it is the origin the server's CORS check and its WebSocket origin check allow, and without it the browser is blocked even though the page loads.
+No rebuild: the client reads its server address at runtime. `CLIENT_URL` matters as much as the socket URL, because it tells the server which web address may connect to it. Without it the page loads and never connects.
 
-The CLI and Floe Desktop on another device take the server's address on port 3001. For the links they hand out to open the web app, also give them its address on port 3000, as `--web` or **Share link address**: only `localhost` pairs the two ports for them automatically.
+A page opened at a plain `http://` address other than `localhost` runs without the screen wake lock, the clipboard API, and service workers, so the screen may sleep during a long transfer. That is fine for a test. For anything more, serve the app over HTTPS: see [Production deployment](/self-hosting/production).
+
+The CLI and Floe Desktop on another device take the server's address on port 3001. They turn exactly `http://localhost:3001` into `http://localhost:3000` for the links they hand out, and no other address. For any other address, give them the web app's address as well, as `--web` or **Share link address**, or their links open the signaling server instead of the web app.
 
 ## Change the ports
 
@@ -88,10 +99,10 @@ CLIENT_PORT=8080
 docker compose up -d
 ```
 
-No rebuild is needed for either one.
+No rebuild is needed for either one. The CLI and Floe Desktop then need `--web` or **Share link address** even on this machine, because only `http://localhost:3001` is paired with the web app for them.
 
 <Warning>
-  A `CLIENT_URL` set in `.env` does not follow `CLIENT_PORT`. Change the port with an old `CLIENT_URL` still in place and the page loads but never connects: the badge stays on **Offline**. Remove the line, or give it the new port. The same holds for `NEXT_PUBLIC_SOCKET_URL` and `PORT`. A `docker-compose.yml` downloaded before October 2026 has fixed defaults, so with it both addresses always have to be set.
+  A `docker-compose.yml` that does not contain the text `NEEDS_DOCKER_COMPOSE_2_8_OR_LATER` is an older copy whose two addresses do not follow the ports. With it, change a port and the page loads but never connects: the badge stays on **Offline**. Download the file again, or set both addresses yourself.
 </Warning>
 
 ## If something goes wrong
