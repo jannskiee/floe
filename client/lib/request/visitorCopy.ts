@@ -360,7 +360,8 @@ export function displayPath(path: string, max = 56): string {
 
 /** C-111. The flow form ("to send the rest.") when nothing is left or the
  *  count is unknown. Singular when N is 1 (D-123), where the one file left
- *  is "it". */
+ *  is "it"; one left of more than one is "the other one" (owner answer 22,
+ *  with the CLI's sendto.go). */
 function lostLine(arrived: number, total: number): string {
     const left = total - arrived;
     if (total === 1) {
@@ -368,9 +369,9 @@ function lostLine(arrived: number, total: number): string {
             ? `${arrived} of 1 file arrived. Ask them for a new link to send it.`
             : `${arrived} of 1 file arrived. ${visitorCopy.askForTheRest}`;
     }
-    return left > 0
-        ? `${arrived} of ${total} files arrived. Ask them for a new link to send the other ${left}.`
-        : `${arrived} of ${total} files arrived. ${visitorCopy.askForTheRest}`;
+    if (left <= 0) return `${arrived} of ${total} files arrived. ${visitorCopy.askForTheRest}`;
+    const other = left === 1 ? 'the other one' : `the other ${left}`;
+    return `${arrived} of ${total} files arrived. Ask them for a new link to send ${other}.`;
 }
 
 /** C-130's first line, with the visitor's own path, never a name the host
@@ -426,12 +427,15 @@ export function statusCopy(model: VisitorModel, ctx: StatusContext): StatusCopy 
             return card('ended', visitorCopy.hostAbsentTitle, [visitorCopy.hostAbsentBody], 'try-again');
         case 'V5a':
             return card('ended', visitorCopy.usedTitle, [visitorCopy.usedBody]);
+        // V5b and V5c can change while the page is open (the operator turns
+        // request links back on, a busy server answers next time), so both
+        // ask again with the selection kept (owner answer 18).
         case 'V5b':
-            return card('ended', visitorCopy.turnedOff);
+            return card('ended', visitorCopy.turnedOff, [], 'try-again');
         case 'V5d':
             return card('ended', visitorCopy.endedTitle, [visitorCopy.endedBody]);
         case 'V5c':
-            return card('ended', visitorCopy.notAvailable, [], null, { one: true });
+            return card('ended', visitorCopy.notAvailable, [], 'try-again', { one: true });
         case 'V6':
             return card('active', visitorCopy.connecting, [], 'cancel');
         case 'V6c':
@@ -481,8 +485,13 @@ export function statusCopy(model: VisitorModel, ctx: StatusContext): StatusCopy 
                 model.acceptedAt !== null && model.deliveredAt !== null
                     ? Math.max(0, (model.deliveredAt - model.acceptedAt) / 1000)
                     : 0;
-            const route = ctx.route ?? model.route ?? 'direct';
-            let line = `${formatBytes(model.size)} in ${formatETA(seconds)}, ${route}.`;
+            // C-121. The route only when the badge or the probe read one: a
+            // probe that could not tell used to read as "direct" (owner
+            // answer 27, A2-B2).
+            const route = ctx.route ?? model.route;
+            let line = route
+                ? `${formatBytes(model.size)} in ${formatETA(seconds)}, ${route}.`
+                : `${formatBytes(model.size)} in ${formatETA(seconds)}.`;
             const v = model.verifiedCount;
             if (typeof v === 'number' && Number.isInteger(v) && total > 0 && v === total) {
                 line += ` ${visitorCopy.shaMatched}`;

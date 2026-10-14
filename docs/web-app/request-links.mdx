@@ -105,8 +105,8 @@ page cannot list which files arrived.
 ## When the files arrive {#when-the-files-arrive}
 
 Each file is listed under **ARRIVED** once their Floe has saved it under its final name. When every file
-has arrived, the page says so, for example **ALL 12 FILES ARRIVED**, with the size, the time taken and the
-route, direct or relay.
+has arrived, the page says so, for example **ALL 12 FILES ARRIVED**, with the size, the time taken and,
+when the page could read it, the route, direct or relay ("1.2 GB in 3m 10s." when it could not).
 
 "Their app reports every file's SHA-256 matched." appears only when their Floe checked every file against
 the SHA-256 your browser computed. See [File checks](/how-it-works/file-checks) for when that line is
@@ -144,8 +144,8 @@ self-hosted server it goes to the address the person who runs that server
 | Connecting | “Connecting to their computer” | Wait. **Cancel** returns to your files. |
 | Waiting | “Waiting for them to accept”, the minutes they have left, and a **DIRECT** or **RELAY** badge | Keep the page open. **Cancel** returns to your files. |
 | Sending | For example "SENDING 2 OF 12", the file's path, its progress, the speed and the time left, and the **ARRIVED** list | Keep the tab in front. **Cancel** asks first, then stops the drop. |
-| Arrived | “ALL 12 FILES ARRIVED”, or “1 FILE ARRIVED”, then the size, the time taken and the route | Nothing more. The link is used up. |
-| Stopped | One of the [messages](#messages) below. "Their computer is not connected right now", "Couldn't connect to their computer. Nothing was sent." and "Connection lost. Nothing was sent." offer **Try again**; a decline, a missed answer and "Relay limit" offer **Back to files**. | Follow the message. A card with no button stays until you reload the page, and after a reload you pick your files again. Ask for a new link only when the message says the link has ended or was already used. |
+| Arrived | “ALL 12 FILES ARRIVED”, or “1 FILE ARRIVED”, then the size, the time taken and, when known, the route | Nothing more. The link is used up. |
+| Stopped | One of the [messages](#messages) below. "Their computer is not connected right now", "Request links are turned off right now", "Request links are not available on this Floe server.", "Couldn't connect to their computer. Nothing was sent." and "Connection lost. Nothing was sent." offer **Try again**; a decline, a missed answer and "Relay limit" offer **Back to files**. | Follow the message. A card with no button stays until you reload the page, and after a reload you pick your files again. Ask for a new link only when the message says the link has ended or was already used. |
 
 While the tab is hidden, its title shows the state instead, such as "Waiting for them to accept - Floe" or
 "42% sent, 5 of 12 files - Floe".
@@ -179,8 +179,8 @@ version, where a few of them read differently: see
 | “Their computer is not connected right now”, then “They may have closed Floe. Your files stay selected.” | Floe cannot reach the computer that made the link: it is asleep or offline, or Floe there stopped without closing the link. It also covers a link that never existed, or that ended more than about a day ago. | Click **Try again** once they have Floe open, or ask for a new link. |
 | “This link has ended”, then “Ask them for a new link.” | The link was closed, or reached its end time, before anyone used it. There is no **Try again**. | Ask them for a new link. |
 | “This link has already been used”, then “Ask for a new link.” | The link took its one drop, someone else is connected through it now, the person who made it declined a request and has not reopened the link, or they closed the link while a request was waiting for their answer or after a decline without reopening it. The server also gives this answer for a link that senders have joined more than 6 times in 1 minute. | Ask the person who made it for a new link. If you had just tried several times in a row, wait 1 minute and reload the page first. |
-| “Request links are turned off right now” | The server has turned request links off. A link that was waiting for a sender when that happened has ended. | Try again later. If the page then says "This link has ended", ask for a new link. |
-| “Request links are not available on this Floe server.” | The server did not answer the page within 10 seconds, as a server older than request links does not. | Ask the person who made the link. |
+| “Request links are turned off right now” | The server has turned request links off. A link that was waiting for a sender when that happened has ended. | Click **Try again** later: your files stay selected. If the page then says "This link has ended", ask for a new link. |
+| “Request links are not available on this Floe server.” | The server did not answer the page within 10 seconds, as a server older than request links does not. | Click **Try again**: your files stay selected. If it says the same, ask the person who made the link. |
 | “Couldn't connect to their computer. Nothing was sent.” | Your browser and their PC could not finish connecting. | Click **Try again**. If it keeps happening, a network on one side may be blocking the connection. |
 | “This Floe server has no relay right now. Turn off Hide my IP to send directly.” | Hide my IP needs a relay, and the server's list has none. | Turn off Hide my IP to send directly. |
 | “Couldn't check for a relay. Try again, or turn off Hide my IP to send directly.” | Hide my IP needs a relay, and the page could not read the server's relay list: the request failed, or the server was limiting requests from your network. | Click **Send** again: your files stay selected, and the page asks the server again on every try. If the message comes back, wait 1 minute and try once more, or turn off Hide my IP to send directly. |

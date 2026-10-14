@@ -66,8 +66,10 @@ upgrades an existing install in place.
     curl -fsSL https://floe.one/install.sh | FLOE_VERSION=vX.Y.Z sh
     ```
 
-    The script detects your OS and architecture (64-bit Intel or ARM), downloads the matching archive, checks its SHA-256 against the release's `checksums.txt`, and installs `floe` to `/usr/local/bin`, asking for your `sudo` password when that directory is not writable.
-    Without `sudo` it installs to `~/.local/bin` instead, and says so if that directory is not on your `PATH`.
+    The script detects your OS and architecture (64-bit Intel or ARM), downloads the matching archive, checks its SHA-256 against the release's `checksums.txt`, and installs `floe` to `/usr/local/bin`, creating it when it is missing and asking for your `sudo` password when it is not writable.
+    When `sudo` is missing or cannot be used, it installs to `~/.local/bin` instead, and says so if that directory is not on your `PATH`, with the line to add to the file your login shell reads: `~/.zprofile` for zsh, `~/.bash_profile` for bash when you have one, `~/.profile` otherwise.
+    If an earlier `floe` is still in `/usr/local/bin` then, the script says so, because that one may run first, and gives the command that removes it, `sudo rm /usr/local/bin/floe`.
+    On a processor other than 64-bit Intel or ARM, it stops and points at `go install` or a source build.
     If the machine has neither `sha256sum` nor `shasum`, or the release lists no checksum for the archive, the script prints a warning and installs without the check.
   </Tab>
   <Tab title="Windows (PowerShell)">

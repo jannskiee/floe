@@ -27,8 +27,12 @@ case "${ARCH}" in
   x86_64|amd64)  GOARCH="amd64" ;;
   arm64|aarch64) GOARCH="arm64" ;;
   *)
+    # Releases are built for these two only (.goreleaser.yml), so there is
+    # nothing to download for any other processor: point at a build instead.
     echo "Unsupported architecture: ${ARCH}" >&2
-    echo "Download manually from https://github.com/${REPO}/releases" >&2
+    echo "Floe releases are built for 64-bit Intel and ARM only. With Go 1.26 or later, build it yourself:" >&2
+    echo "  go install github.com/jannskiee/floe/cli/cmd/floe@latest" >&2
+    echo "Or build from source: https://www.floe.one/docs/cli/installation#build-from-source" >&2
     exit 1
     ;;
 esac
@@ -104,27 +108,59 @@ fi
 
 chmod +x "${TMP_DIR}/${BINARY}"
 
-# Determine install directory
+# Determine install directory. /usr/local/bin first, created when it is
+# missing (some fresh macOS installs have none), with sudo when this user
+# cannot write there. A sudo that cannot be used (this user is not allowed, or
+# there is no terminal to ask for the password on) falls back to ~/.local/bin
+# instead of stopping with nothing installed. Inside an if, a failed command
+# does not end the script under set -e.
 INSTALL_DIR="/usr/local/bin"
-if [ -w "${INSTALL_DIR}" ]; then
+LOCAL_BIN="${HOME}/.local/bin"
+INSTALLED=""
+if { [ -d "${INSTALL_DIR}" ] || mkdir -p "${INSTALL_DIR}" 2>/dev/null; } && [ -w "${INSTALL_DIR}" ]; then
   mv "${TMP_DIR}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
-  echo "Installed floe ${FLOE_VERSION} to ${INSTALL_DIR}/${BINARY}"
+  INSTALLED=1
 elif command -v sudo >/dev/null 2>&1; then
   echo "Installing to ${INSTALL_DIR} (requires sudo)..."
-  sudo mv "${TMP_DIR}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
+  if sudo mkdir -p "${INSTALL_DIR}" && sudo mv "${TMP_DIR}/${BINARY}" "${INSTALL_DIR}/${BINARY}"; then
+    INSTALLED=1
+  else
+    echo "Could not install with sudo, so installing to ${LOCAL_BIN} instead." >&2
+  fi
+fi
+
+if [ -n "${INSTALLED}" ]; then
   echo "Installed floe ${FLOE_VERSION} to ${INSTALL_DIR}/${BINARY}"
 else
   # Fall back to user-local bin
-  LOCAL_BIN="${HOME}/.local/bin"
   mkdir -p "${LOCAL_BIN}"
   mv "${TMP_DIR}/${BINARY}" "${LOCAL_BIN}/${BINARY}"
   echo "Installed floe ${FLOE_VERSION} to ${LOCAL_BIN}/${BINARY}"
+  # An earlier install the sudo above could not replace stays where it was,
+  # and may come first on PATH. Said, never removed: deleting it needs the
+  # same rights this run did not have.
+  if [ -e "${INSTALL_DIR}/${BINARY}" ]; then
+    echo "Note: an earlier floe is still at ${INSTALL_DIR}/${BINARY} and may run instead of this one. Remove it with: sudo rm ${INSTALL_DIR}/${BINARY}"
+  fi
   case ":${PATH}:" in
     *":${LOCAL_BIN}:"*) ;;
     *)
+      # The file the user's login shell reads. zsh, the macOS default, never
+      # reads ~/.profile, and login bash skips it when ~/.bash_profile exists.
+      case "${SHELL##*/}" in
+        zsh) PROFILE_FILE=".zprofile" ;;
+        bash)
+          if [ -f "${HOME}/.bash_profile" ]; then
+            PROFILE_FILE=".bash_profile"
+          else
+            PROFILE_FILE=".profile"
+          fi
+          ;;
+        *) PROFILE_FILE=".profile" ;;
+      esac
       echo ""
       echo "Note: ${LOCAL_BIN} is not in your PATH. Add it by running:"
-      echo "  echo 'export PATH=\"\${HOME}/.local/bin:\${PATH}\"' >> ~/.profile"
+      echo "  echo 'export PATH=\"\${HOME}/.local/bin:\${PATH}\"' >> ~/${PROFILE_FILE}"
       echo "Then reload your shell or open a new terminal."
       ;;
   esac

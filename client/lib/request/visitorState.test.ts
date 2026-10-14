@@ -243,6 +243,16 @@ describe('visitor state: Connecting rows', () => {
     it('V6 + E11 disabled goes to V5b', () => {
         expect(step(modelIn('V6'), { type: 'JOIN_ANSWER', answer: 'disabled' }).model.state).toBe('V5b');
     });
+    it('Try again from V5b and V5c asks the server again with the same selection (owner answer 18)', () => {
+        for (const s of ['V5b', 'V5c'] as VisitorState[]) {
+            const r = step(modelIn(s), TRY);
+            expect(r.model.state).toBe('V6');
+            expect(r.model.attempt).toBe(2);
+            expect(r.model.total).toBe(3);
+            expect(r.model.roomId).toBe(ROOM);
+            expect(r.effects).toEqual(['startAttempt']);
+        }
+    });
     it('V6 + E12 goes to V5c', () => {
         expect(step(modelIn('V6'), { type: 'JOIN_NO_ANSWER' }).model.state).toBe('V5c');
     });
@@ -713,7 +723,7 @@ describe("visitor state: a discarded tab's reload (FT-R-DISCARD)", () => {
         expect(statusCopy(lost, CTX)).toMatchObject({
             marker: 'ended',
             title: 'Connection lost',
-            lines: ['1 of 2 files arrived. Ask them for a new link to send the other 1.'],
+            lines: ['1 of 2 files arrived. Ask them for a new link to send the other one.'],
             action: null,
         });
         expect(announcement(lost, CTX)).toBe('Connection lost. 1 of 2 files arrived.');
@@ -973,5 +983,20 @@ describe('visitor state: helpers', () => {
         expect(hidden.iceServers).toEqual(servers);
         expect(hidden.iceServers).not.toBe(servers);
         expect(peerConfigFor(servers, false).iceTransportPolicy).toBe('all');
+    });
+});
+
+describe('visitor state: a route the probe could not read (owner answer 27)', () => {
+    const open = () => modelIn('V6', { joinEmitted: true, joined: true, channelOpen: true });
+
+    it('stays unknown, so the Arrived line names none', () => {
+        const r = step(open(), { type: 'RELAY_VERDICT', action: 'proceed', isRelay: false, routeKnown: false });
+        expect(r.model.route).toBeNull();
+        expect(r.model.sendStarted).toBe(true);
+    });
+
+    it('keeps a route the probe read', () => {
+        expect(step(open(), { type: 'RELAY_VERDICT', action: 'proceed', isRelay: false, routeKnown: true }).model.route).toBe('direct');
+        expect(step(open(), { type: 'RELAY_VERDICT', action: 'proceed', isRelay: true, routeKnown: true }).model.route).toBe('relay');
     });
 });

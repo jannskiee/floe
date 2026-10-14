@@ -114,8 +114,12 @@ export function ShareLinkPanel({
                 ) : hasEnded ? null : (
                     <Loader2 className="h-3 w-3 shrink-0 animate-spin text-zinc-500" />
                 )}
+                {/* Wraps instead of cutting at 200 px: two of the fixed
+                    sentences are wider than that on every phone (measured
+                    212 and 241 px in 12 px Geist, 320 to 430 wide). Two lines
+                    at most, so a long name in "Sending: <name>" still stops. */}
                 <span
-                    className={`truncate max-w-[200px] sm:max-w-[280px] ${isComplete ? 'text-green-400 font-medium' : 'text-zinc-500'}`}
+                    className={`min-w-0 line-clamp-2 break-words text-balance text-center ${isComplete ? 'text-green-400 font-medium' : 'text-zinc-500'}`}
                 >
                     {status}
                 </span>

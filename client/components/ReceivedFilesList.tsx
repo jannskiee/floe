@@ -9,6 +9,9 @@ import type { ReceivedFile } from '@/hooks/useDownloadManager';
 interface ReceivedFilesListProps {
     receivedFiles: ReceivedFile[];
     listRef: RefObject<HTMLDivElement | null>;
+    // Hears a click on a file's own download link, which hands the file to
+    // the browser to save (the page's leave prompt, lib/pageGuards.ts).
+    onSaved: (ids: readonly string[]) => void;
 }
 
 /**
@@ -16,7 +19,7 @@ interface ReceivedFilesListProps {
  * download link. Purely presentational; the received-files state and the scroll
  * ref live in P2PTransfer.
  */
-export function ReceivedFilesList({ receivedFiles, listRef }: ReceivedFilesListProps) {
+export function ReceivedFilesList({ receivedFiles, listRef, onSaved }: ReceivedFilesListProps) {
     // A scroll box only once the rows no longer fit: see lib/fileListScroll.ts.
     const listClass = fileListScrolls(receivedFiles.length)
         ? 'space-y-3 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar'
@@ -66,6 +69,7 @@ export function ReceivedFilesList({ receivedFiles, listRef }: ReceivedFilesListP
                         <a
                             href={file.downloadUrl}
                             download={safeName}
+                            onClick={() => onSaved([file.id])}
                         >
                             <Download className="h-4 w-4" />
                         </a>

@@ -34,12 +34,14 @@ import {useDownloadManager, type ReceivedFile} from '@/hooks/useDownloadManager'
 import {useSignaling} from '@/hooks/useSignaling';
 import {useConnectionType} from '@/hooks/useConnectionType';
 import {useTransferAnalytics} from '@/hooks/useTransferAnalytics';
+import {useFullLoadLinks, useLeavePrompt, useStrayDropGuard} from '@/hooks/usePageGuards';
 import {useRelayConfiguration} from '@/hooks/useRelayConfiguration';
 import {RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, probeIsRelay} from '@/lib/relay';
 import {buildShareLink, getRoomFromUrl, isValidRoomId} from '@/lib/roomLink';
 import {classifyPeerError, peerErrorBanner, peerErrorCodeOf, peerErrorReport, senderErrorBlamesRelay} from '@/lib/peerErrors';
 import {decideReceiverClose} from '@/lib/receiverClose';
 import {SEND_INTERNAL_ERROR, describeSenderStop, senderCloseInterrupted} from '@/lib/senderStop';
+import {RELAY_OFF_REASON, SELF_STOP_REASONS, selfStopOf, type SelfStop} from '@/lib/senderSelfStop';
 import {verifiedLine, VERIFIED_LINE} from '@/lib/verifiedLine';
 import {receiveSummary, receiverTabMatters} from '@/lib/receiveSummary';
 import type {SendEnd} from '@/lib/sendSummary';
@@ -48,6 +50,8 @@ import {REJOIN_FAILED_STATUS, REJOINING_STATUS, rejoinAllowed, rejoinDelay, stat
 import {peerDisconnectAction, teardownClaimsClose} from '@/lib/peerDisconnect';
 import {LINK_INVALID, afterReconnect, isLinkInvalid, peerBanner, withRefusalBanner, withoutRefusalBanner} from '@/lib/refusalBanner';
 import {copyText} from '@/lib/clipboard';
+import {mainPageHoldsTab, receiveUnderWay, unsavedCount} from '@/lib/pageGuards';
+import {createIceList, freshenWithin} from '@/lib/iceList';
 import {resolveSocketUrl} from '@/lib/socketUrl';
 
 import {
@@ -109,6 +113,24 @@ export function P2PTransfer() {
     // A receiver page only: the server's messages say nobody is on the
     // sending side of this link right now. See lib/roomSeat.ts.
     const [senderAbsent, setSenderAbsent] = useState(false);
+    // A receiver page only: the file the sender announced as its last one has
+    // arrived (the receiver engine's onAllComplete), so no receive is under
+    // way until another file is announced. Read only by the leave prompt.
+    const [allArrived, setAllArrived] = useState(false);
+    // A receiver page only: the received files this page has handed to the
+    // browser to save (a file's own link, Download All, Download ZIP). The
+    // leave prompt lets go once every received file is in here.
+    const [savedIds, setSavedIds] = useState<ReadonlySet<string>>(() => new Set());
+    const markSaved = (ids: readonly string[]) =>
+        setSavedIds((prev) => {
+            const next = new Set(prev);
+            for (const id of ids) next.add(id);
+            return next;
+        });
+    // A sender page only: the page has told the person to reload (the four
+    // branches that say so), so that reload must not raise the leave prompt.
+    // Down again when a recipient arrives or a connection comes up after all.
+    const [deadEnd, setDeadEnd] = useState(false);
     const [copied, setCopied] = useState(false);
     const [error, setError] = useState('');
     const [transferSpeed, setTransferSpeed] = useState('');
@@ -118,6 +140,7 @@ export function P2PTransfer() {
     const {
         files,
         isDragging,
+        dropNotice,
         totalBytes,
         handleFileSelection,
         handleDeleteFile,
@@ -132,7 +155,7 @@ export function P2PTransfer() {
         downloadProgress,
         handleDownloadAll,
         handleDownloadZip,
-    } = useDownloadManager(receivedFiles, setError);
+    } = useDownloadManager(receivedFiles, setError, markSaved);
 
     const {
         connectionType,
@@ -155,6 +178,36 @@ export function P2PTransfer() {
     const isRelayOverLimit = connectionType === 'relay' && totalBytes > RELAY_SIZE_LIMIT;
     const showRelayLimitNotice = isRelayOverLimit || relayBlocked;
 
+    // Whether closing this receiving tab would cost something, for the
+    // footer's keep-open line.
+    const linkInvalid = isLinkInvalid(error);
+    const receiverTabHeld = receiverTabMatters({
+        linkInvalid,
+        senderAbsent,
+        ended: receiveEnded,
+        received: receivedFiles.length,
+    });
+    // The browser's own "Leave site?" prompt while leaving would cost
+    // something, in-app links loaded in full so they reach it, and a stray
+    // drop refused anywhere on the page (lib/pageGuards.ts). The Floe wordmark
+    // reloads through window.location, so it asks too.
+    const holdsTab = mainPageHoldsTab({
+        isSender,
+        linkOut: filesLocked,
+        sendEnd,
+        deadEnd,
+        receiveUnderWay: receiveUnderWay({
+            linkInvalid,
+            senderAbsent,
+            ended: receiveEnded,
+            allArrived,
+        }),
+        unsaved: unsavedCount(receivedFiles, savedIds),
+    });
+    useLeavePrompt(holdsTab);
+    useFullLoadLinks(holdsTab);
+    useStrayDropGuard();
+
     const peerRef = useRef<PeerInstance | null>(null);
     // A reason that arrived on the wire wins over whatever the transport
     // says next. peer.destroy() raises "User-Initiated Abort" on the far
@@ -168,6 +221,9 @@ export function P2PTransfer() {
     // flight at that moment, which is exactly the reconnect path.
     const closedByUsRef = useRef<PeerInstance | null>(null);
     const hasJoinedRef = useRef(false);
+    // How many times this page has joined its room as a receiver. Only the
+    // first refusal is final at once (see joinRoomAsReceiver's room-full).
+    const receiverJoinsRef = useRef(0);
     // The room this page instance is handling as a receiver. Used to detect a
     // fragment-only navigation (scanning a second QR code into the same tab).
     const joinedRoomRef = useRef<string | null>(null);
@@ -197,10 +253,22 @@ export function P2PTransfer() {
     // Timers the unmount cleanup has to reach.
     const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const iceProbeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const iceServersRef = useRef<RTCIceServer[]>([
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-    ]);
+    // The relay list, read at load and again before a connection when no read
+    // has succeeded yet or it is an hour old (lib/iceList.ts).
+    const [iceList] = useState(() =>
+        createIceList({
+            read: async () => {
+                const base = await resolveSocketUrl();
+                const response = await fetch(`${base}/api/turn-credentials`);
+                if (!response.ok) throw new Error(`relay list: ${response.status}`);
+                return response.json();
+            },
+        })
+    );
+    // Bumped by every new sending session and by unmount, so a session that
+    // waited for the relay list builds nothing once it has been replaced.
+    const senderSessionRef = useRef(0);
+    const unmountedRef = useRef(false);
 
     // What to say when a receive ends. transferCompleteRef is set after EVERY
     // file, not after the last one, so a receiver that got 1 of 3 and then lost
@@ -389,7 +457,7 @@ export function P2PTransfer() {
                 closedByUsRef.current = peerRef.current;
                 peerRef.current?.destroy();
                 hasJoinedRef.current = false;
-                joinRoomAsReceiver(joinedRoomRef.current);
+                rejoinAsReceiver(joinedRoomRef.current);
             } else if (createdRoomRef.current) {
                 // Sender: re-enter the room only. Peer creation stays driven by
                 // user-connected, whose handler (handleCreateLink) replaces any
@@ -399,17 +467,15 @@ export function P2PTransfer() {
         },
     });
 
-    const fetchIceServers = async () => {
-        try {
-            const base = await resolveSocketUrl();
-            const response = await fetch(`${base}/api/turn-credentials`);
-            const iceServers = await response.json();
-            if (Array.isArray(iceServers) && iceServers.length > 0) {
-                iceServersRef.current = iceServers;
-            }
-        } catch {
-
-        }
+    // A receiver rebuilding its peer (its socket came back, or it gives the
+    // first seat back) reads a stale relay list again first. Fresh, the wait
+    // is a microtask; the join itself is guarded by hasJoinedRef, so another
+    // path that joins in the meantime makes this one a no-op.
+    const rejoinAsReceiver = (roomId: string) => {
+        void freshenWithin(iceList).then(() => {
+            if (unmountedRef.current) return;
+            joinRoomAsReceiver(roomId);
+        });
     };
 
     useEffect(() => {
@@ -467,6 +533,10 @@ export function P2PTransfer() {
         if (hasJoinedRef.current) return;
         hasJoinedRef.current = true;
         joinedRoomRef.current = roomId;
+        // Every join after the page's first is a re-join: after its own socket
+        // came back, or to give the first seat back.
+        receiverJoinsRef.current += 1;
+        const rejoin = receiverJoinsRef.current > 1;
 
         setStatus('Connecting');
         // A rebuilt peer starts a receive that has not ended.
@@ -483,6 +553,28 @@ export function P2PTransfer() {
                 setStatus('Transfer complete');
                 return;
             }
+            // A re-join refused because this page's own dead socket may still
+            // hold the receiving seat, for up to about 45 s: the sender's
+            // schedule and limits (lib/rejoinRetry.ts) before the final card.
+            // Measured with a half-open socket (e2e/reconnect.spec.ts): the
+            // card used to go up at once over a link that worked again
+            // within the minute.
+            if (rejoinTimerRef.current) return;
+            const mayRetry =
+                rejoin &&
+                rejoinAllowed({
+                    peerConnected: peerRef.current?.connected === true,
+                    transferComplete: transferCompleteRef.current,
+                });
+            const delay = mayRetry ? rejoinDelay(rejoinAttemptRef.current) : null;
+            if (delay !== null) {
+                rejoinAttemptRef.current += 1;
+                rejoinTimerRef.current = setTimeout(() => {
+                    rejoinTimerRef.current = null;
+                    joinRoom(roomId);
+                }, delay);
+                return;
+            }
             setError(LINK_INVALID);
             setStatus('Access Denied');
         });
@@ -492,6 +584,9 @@ export function P2PTransfer() {
         // holds. Registered before the join, so the answer cannot be missed.
         // A server that sent no role would leave this page as it was before.
         onRoomJoined((data) => {
+            // Seated: a retry still pending would join a second time.
+            clearRejoin();
+            rejoinAttemptRef.current = 0;
             applySeat({ type: 'joined', role: typeof data?.role === 'string' ? data.role : '' });
         });
 
@@ -518,7 +613,7 @@ export function P2PTransfer() {
             closedByUsRef.current = peerRef.current;
             peerRef.current?.destroy();
             hasJoinedRef.current = false;
-            joinRoomAsReceiver(joinedRoomRef.current);
+            rejoinAsReceiver(joinedRoomRef.current);
         });
 
         joinRoom(roomId);
@@ -537,7 +632,7 @@ export function P2PTransfer() {
             // to super(opts) and never sets objectMode itself.
             readableObjectMode: true,
             config: {
-                iceServers: iceServersRef.current,
+                iceServers: iceList.current(),
             },
         });
 
@@ -676,6 +771,7 @@ export function P2PTransfer() {
             onFileStart: (index, total) => {
                 expectedFilesRef.current = total;
                 setExpectedFiles(total);
+                setAllArrived(false);
                 setTransferSpeed('');
                 setEstimatedTime('');
                 setStatus(`Receiving file ${index} of ${total}`);
@@ -719,6 +815,10 @@ export function P2PTransfer() {
                 transferCompleteRef.current = true;
             },
             onAllComplete: (totalBytes, fileCount) => {
+                // No value read: it fires when the file the sender announced
+                // as its last is handed over. Lets go only of the leave
+                // prompt's under-way half; an unsaved file still holds it.
+                setAllArrived(true);
                 track('transfer-received', {
                     files: fileCount,
                     bytes: totalBytes,
@@ -800,6 +900,10 @@ export function P2PTransfer() {
 
     useEffect(() => {
         let cancelled = false;
+        // The cleanup below sets it; a second mount (Strict Mode's double run,
+        // were it ever on) must not leave every later receiver rebuild a
+        // no-op (rejoinAsReceiver).
+        unmountedRef.current = false;
         const roomFromUrl = getRoomFromUrl(window.location.hash, window.location.search);
 
         if (roomFromUrl) {
@@ -820,16 +924,18 @@ export function P2PTransfer() {
             // onRoomFull, emit join-room and assign peerRef, with no cleanup
             // left to tear any of it down. useSignaling already does exactly
             // this one file away.
-            fetchIceServers().then(() => {
+            iceList.read().then(() => {
                 if (cancelled) return;
                 joinRoomAsReceiver(roomFromUrl);
             });
         } else {
-            fetchIceServers();
+            void iceList.read();
         }
 
         return () => {
             cancelled = true;
+            unmountedRef.current = true;
+            senderSessionRef.current += 1;
             stopConnectionTypePolling();
             releaseWakeLock();
             closedByUsRef.current = peerRef.current;
@@ -941,6 +1047,7 @@ export function P2PTransfer() {
             if (delay === null) {
                 setError('This link stopped working. Reload the page, add the files again, and share the new link.');
                 setStatus(REJOIN_FAILED_STATUS);
+                setDeadEnd(true);
                 return;
             }
             rejoinAttemptRef.current += 1;
@@ -954,7 +1061,10 @@ export function P2PTransfer() {
         joinRoom(newRoomId);
         setStatus('Waiting for peer');
 
-        onUserConnected((userId: string) => {
+        onUserConnected(async (userId: string) => {
+            // This session, so the wait for the relay list below can tell
+            // whether a newer receiver, or unmount, replaced it meanwhile.
+            const session = ++senderSessionRef.current;
             if (peerRef.current && !peerRef.current.destroyed) {
                 closedByUsRef.current = peerRef.current;
                 peerRef.current.destroy();
@@ -990,6 +1100,7 @@ export function P2PTransfer() {
             // last send's marks, and its last row spun at 100% for the two
             // seconds before the first file starts.
             setSendEnd('open');
+            setDeadEnd(false);
             setCurrentFileIndex(0);
             setProgress(0);
             // So do its speed and its banner. A banner about the send that is
@@ -1003,7 +1114,12 @@ export function P2PTransfer() {
             setStatus('Peer joined. Starting transfer');
             requestWakeLock();
 
-            const iceConfig = filterIceServers(iceServersRef.current, relayEnabled);
+            // A page left open past the list's hour, or one whose read at load
+            // failed, reads it again before it offers (lib/iceList.ts).
+            await freshenWithin(iceList);
+            if (session !== senderSessionRef.current) return;
+
+            const iceConfig = filterIceServers(iceList.current(), relayEnabled);
 
             const peer = new SimplePeer({
                 initiator: true,
@@ -1034,6 +1150,8 @@ export function P2PTransfer() {
                 clearRejoin();
                 rejoinAttemptRef.current = 0;
                 setStatus((s) => (s === REJOINING_STATUS || s === REJOIN_FAILED_STATUS ? 'Peer joined. Starting transfer' : s));
+                // A link that stopped working reached its recipient after all.
+                setDeadEnd(false);
 
                 Sentry.addBreadcrumb({
                     category: 'webrtc',
@@ -1067,12 +1185,23 @@ export function P2PTransfer() {
                         // brings it back, checked, when files are added again.
                         setError('Connection failed. This link was made with Network relay fallback off. Reload the page, add the files again, leave it on, and share the new link.');
                         setStatus('Connection failed');
+                        if (peerRef.current === peer) setDeadEnd(true);
                         Sentry.addBreadcrumb({
                             category: 'transfer',
                             message: 'Transfer blocked: relay detected but relay fallback disabled by user',
                             level: 'warning',
                             data: { isRelay, relayEnabled },
                         });
+                        // Tell the receiver why, as the over-limit branch
+                        // below does. A bare close read on the other side as
+                        // "the sender ended the transfer, ask them to start it
+                        // again", and a restart fails the same way.
+                        await sendAbortReason(
+                            (d) => peer.send(d),
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            (peer as any)._channel as RTCDataChannel | undefined,
+                            RELAY_OFF_REASON
+                        );
                         peer.destroy();
                         return;
                     }
@@ -1080,6 +1209,8 @@ export function P2PTransfer() {
                     if (verdict.action === 'block-over-limit') {
                         setStatus('Transfer blocked. Relay limit exceeded.');
                         setRelayBlocked(true);
+                        // Its notice says to reload: no prompt on the way.
+                        if (peerRef.current === peer) setDeadEnd(true);
                         Sentry.addBreadcrumb({
                             category: 'transfer',
                             message: 'Transfer blocked: relay size limit exceeded',
@@ -1124,6 +1255,7 @@ export function P2PTransfer() {
                             setError((prev) => prev || SEND_INTERNAL_ERROR);
                             setStatus('Transfer failed');
                             setSendEnd((end) => (end === 'open' ? 'failed' : end));
+                            void tellAndClose(peer, SELF_STOP_REASONS.internal);
                         }
                         throw cause;
                     });
@@ -1182,12 +1314,15 @@ export function P2PTransfer() {
                         data: { relayEnabled, reason, errorCode: peerErrorCodeOf(err) },
                     });
                     // The relay sentence only when the relay could be the
-                    // cause: see senderErrorBlamesRelay.
+                    // cause: see senderErrorBlamesRelay. It says to reload, so
+                    // that reload asks nothing.
+                    const blamesRelay = senderErrorBlamesRelay(err.message, relayEnabled, peerErrorCodeOf(err));
                     setError(
-                        senderErrorBlamesRelay(err.message, relayEnabled, peerErrorCodeOf(err))
+                        blamesRelay
                             ? 'Connection failed. This link was made with Network relay fallback off. Reload the page, add the files again, leave it on, and share the new link.'
                             : 'Connection lost. The other device may have closed the tab.'
                     );
+                    if (blamesRelay && peerRef.current === peer) setDeadEnd(true);
                 } else {
                     // By its code, never the error object or its message
                     // (the receiver's handler above says why).
@@ -1221,6 +1356,22 @@ export function P2PTransfer() {
         });
     };
 
+    // Tells the receiver why this side stopped, waits for the frame to reach
+    // the wire, then closes. A send that stopped here used to leave the
+    // connection open with nothing said, so the receiving page sat on its
+    // last status line for as long as this tab stayed open.
+    const tellAndClose = async (peer: PeerInstance, reason: string) => {
+        if (peer.destroyed) return;
+        await sendAbortReason(
+            (d) => peer.send(d),
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (peer as any)._channel as RTCDataChannel | undefined,
+            reason
+        );
+        closedByUsRef.current = peer;
+        peer.destroy();
+    };
+
     const sendAllFiles = async (peer: PeerInstance, fileList: FileWithId[]) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const channel = (peer as any)._channel as RTCDataChannel | undefined;
@@ -1228,6 +1379,11 @@ export function P2PTransfer() {
         const pc = (peer as any)._pc as RTCPeerConnection | undefined;
 
         if (!channel) return;
+
+        // Written by onFailed: a stop on this side that the receiver has not
+        // been told about. A holder, so the read after the await is not
+        // narrowed to the initial null.
+        const failed: { stop: SelfStop | null } = { stop: null };
 
         await sendFilesEngine(
             {
@@ -1272,6 +1428,12 @@ export function P2PTransfer() {
                     setError(peerBanner(msg, 'The other side rejected the transfer.'));
                     setStatus('Transfer failed');
                     setSendEnd('failed');
+                },
+                // An unreadable file or the ack wait: the engine has stopped
+                // and said so on this page only. A closed channel has no one
+                // left to tell (selfStopOf).
+                onFailed: ({ kind }) => {
+                    failed.stop = selfStopOf(kind);
                 },
                 onAllSent: () => {
                     setStatus('All Files Sent!');
@@ -1320,6 +1482,13 @@ export function P2PTransfer() {
                 },
             }
         );
+
+        if (failed.stop) {
+            // Latched like the internal-error path: this page's banner is the
+            // account, and a later disconnect notice must not overwrite it.
+            if (peerRef.current === peer) wireReasonRef.current = true;
+            await tellAndClose(peer, SELF_STOP_REASONS[failed.stop]);
+        }
     };
 
     if (isSender === null) {
@@ -1489,6 +1658,12 @@ export function P2PTransfer() {
                                 </div>
                             )}
 
+                            {isSender && !filesLocked && dropNotice && (
+                                <p role="status" className="text-center text-xs leading-relaxed text-amber-300">
+                                    {dropNotice}
+                                </p>
+                            )}
+
                             {isSender &&
                                 (files.length > 0 || generatedLink) && (
                                     <div className="mt-4">
@@ -1576,6 +1751,7 @@ export function P2PTransfer() {
                                     downloadProgress={downloadProgress}
                                     onDownloadAll={handleDownloadAll}
                                     onDownloadZip={handleDownloadZip}
+                                    onSaved={markSaved}
                                     listRef={fileListRef}
                                     verifiedLine={verifiedLine(receivedFiles, expectedFiles)}
                                     summary={receiveSummary({
@@ -1597,14 +1773,7 @@ export function P2PTransfer() {
                         a person the card had just told to leave that closing
                         the tab would interrupt a download. The receiver's half
                         is receiverTabMatters. */}
-                    {(isSender && !generatedLink) ||
-                    (!isSender &&
-                        !receiverTabMatters({
-                            linkInvalid: isLinkInvalid(error),
-                            senderAbsent,
-                            ended: receiveEnded,
-                            received: receivedFiles.length,
-                        })) ? (
+                    {(isSender && !generatedLink) || (!isSender && !receiverTabHeld) ? (
                         <p className="text-balance text-[10px] uppercase tracking-wide text-zinc-500 text-center leading-relaxed">
                             End-to-end encrypted. Files are never stored on a server.
                         </p>

@@ -39,8 +39,9 @@ such as the one in Facebook, Instagram, or TikTok, and those handle file transfe
 leave it or continue, the page has not joined the room, so nothing is lost by switching.
 
 Follow the two steps on screen, or tap **Copy link to paste in browser** and open the link in
-Chrome, Safari, Edge, or Firefox. **Continue anyway (some features may not work)** carries on where
-you are. See [Receiving files](/web-app/receiving#if-floe-says-open-in-your-browser). If the link is a request link, one with `/r/` in it, the card says to open it in current Chrome or Edge on a computer, which is where request links are supported: see [Sending through a request link](/web-app/request-links).
+Chrome, Safari, Edge, or Firefox. The link is also shown on the card: if the copy fails, the card
+says "Couldn’t copy. Press and hold the link above to copy it." **Continue anyway (some features
+may not work)** carries on where you are. See [Receiving files](/web-app/receiving#if-floe-says-open-in-your-browser). If the link is a request link, one with `/r/` in it, the card says to open it in current Chrome or Edge on a computer, which is where request links are supported: see [Sending through a request link](/web-app/request-links).
 
 ### The transfer never starts {#the-transfer-never-starts}
 
@@ -74,6 +75,10 @@ in use, or locked to the networks that first used it." and has a **Back to Home*
   room turns away a device from any other network, which catches a phone that moved from Wi-Fi to
   mobile data. See
   [A device that changed networks is refused](#a-device-that-changed-networks-is-refused).
+
+When the page's own connection to the server dropped and came back, it first tries again for about
+a minute, because its old connection can still hold its place in the room; the card appears only
+if the room still refuses it.
 
 Close the other tab and reload if you opened the link twice, or copy the whole link again if it
 was cut. Otherwise ask the sender to start a new transfer.
@@ -230,14 +235,21 @@ On the receiving page, when the connection to the sender closed before any file 
 second wording, "The sender ended the transfer. Ask them to start it again.", appears when the
 browser reports that the sender's side aborted the connection. Either way the sender's side closed
 the connection: they closed or reloaded the tab, canceled or quit in Floe Desktop, or their
-`floe send` stopped with an error. A sender in the browser also closes it on purpose when they
-had unchecked **Network relay fallback** and only a relayed connection was possible. A sender who pressed `Ctrl+C` in `floe send`, or whose device went to sleep or lost its network, closes
+`floe send` stopped with an error. A sender in the browser that had unchecked **Network relay
+fallback**, where only a relayed connection was possible, says so instead: the banner reads "The
+sender has Network relay fallback off, and this connection needs the relay. Ask them to reload,
+leave it on, and share a new link." A sender who pressed `Ctrl+C` in `floe send`, or whose device went to sleep or lost its network, closes
 nothing, and that reads as
 ["Connection failed. Ask the sender to try again."](#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again)
 instead.
 
 A sender that stops on purpose says why, and the banner then carries its reason, or "The sender
-stopped the transfer." when it gave none. When some files had already arrived and the connection
+stopped the transfer." when it gave none. A sender in the browser that stops on its own says why
+too: "The sender stopped: a file could not be read on their device. Ask them to check it and send
+again.", "The sender stopped after waiting 2 minutes for this device to answer. Ask them to send
+again." or "The sender stopped because of an error on their side. Ask them to send again." Files
+that arrived before it stay in the list. A stop that comes after every file has arrived changes
+nothing: the page still reads as complete. When some files had already arrived and the connection
 simply ended, with no stop message from the sender's app, there is no red banner: the page shows
 [how far the transfer got](#the-transfer-ended-before-the-rest-arrived) instead.
 
@@ -274,8 +286,9 @@ Ask the recipient what arrived, then start a new transfer for the rest. Nothing 
 On the sending page, with the file's name in place of `<name>`. The browser could not read a file
 you picked when its turn came: it was moved, renamed or deleted after you picked it, its drive was
 disconnected, or it is a cloud file whose local copy is gone. On Windows, Chrome and Edge also
-cannot read a file whose full path is over 260 characters. The files before it arrived, and nothing
-after it was sent.
+cannot read a file whose full path is over 260 characters. The files before it arrived and nothing
+after it was sent. The receiving side is told why ("The sender stopped: a file could not be read on
+their device.") and the connection closes.
 
 Put the file back, move it to a folder with a shorter path, or zip it, then send it in a new
 transfer.
@@ -710,7 +723,9 @@ In your terminal, right after an install: the shell does not know a command name
 install put `floe` in a folder that the terminal you have open does not search yet. The PowerShell
 script adds its install folder, under `%LOCALAPPDATA%`, to your user `PATH`, and only a terminal
 opened afterward reads the change. The macOS and Linux script installs to `/usr/local/bin`, or to
-`~/.local/bin` on a machine without `sudo`, and prints a note when that folder is not on your `PATH`.
+`~/.local/bin` when `sudo` is missing or cannot be used, and prints a note when that folder is not
+on your `PATH`, with the line to add to the file your login shell reads: `~/.zprofile` for zsh,
+`~/.bash_profile` for bash when you have one, `~/.profile` otherwise.
 
 Open a new terminal and run `floe version`. If the command is still not found, add the install folder
 to your `PATH`. See [Install the CLI](/cli/installation).
@@ -1056,8 +1071,8 @@ request link works there until they are turned back on. The server gives this an
 looks at the link, and a link that was waiting for a sender when request links were turned off
 has ended.
 
-Try again later. If the page then reads ["This link has ended"](#this-link-has-ended), ask for a
-new link.
+Click **Try again** later: your files stay selected. If the page then reads
+["This link has ended"](#this-link-has-ended), ask for a new link.
 
 ### "Request links are not available on this Floe server." {#request-links-are-not-available-on-this-floe-server}
 
@@ -1065,8 +1080,9 @@ On the sender's page, and from `floe send --to`. The server did not answer the r
 within 10 seconds. That is what a server older than 1.11.0 does: it does not know request links
 and ignores the message.
 
-Ask the person who made the link which server their Floe uses. If it is your own server, update it
-and see [Turn on request links](/self-hosting/request-links).
+On the page, click **Try again** once: your files stay selected. If the same card comes back, or
+`floe send --to` printed this, ask the person who made the link which server their Floe uses. If
+it is your own server, update it and see [Turn on request links](/self-hosting/request-links).
 
 ### "They did not answer in time. Nothing was sent." {#they-did-not-answer-in-time}
 

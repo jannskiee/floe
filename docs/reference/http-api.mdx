@@ -69,8 +69,9 @@ One endpoint hands every client the STUN and TURN servers to try.
 ### GET /api/turn-credentials {#get-api-turn-credentials}
 
 Returns the ICE server list a client should use. Every Floe client calls it before it builds a
-peer connection. Floe Desktop holding a request link calls it again for each sender who arrives,
-from its own address.
+peer connection. The web app's main page reads it when it loads, and again before a connection
+when no read has succeeded yet or the list is an hour old. Floe Desktop holding a request link calls it
+again for each sender who arrives, from its own address.
 
 The response is a **JSON array**, not an object. What is in it depends on how the server is
 configured, and the precedence is fixed: Cloudflare Realtime TURN if both Cloudflare variables

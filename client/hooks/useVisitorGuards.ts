@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { guardsFor } from '@/lib/request/guards';
+import { useLeavePrompt } from '@/hooks/usePageGuards';
 import { visitorTitle, VISIBLE_TITLE, type TitleProgress } from '@/lib/request/titleProgress';
 import { sleptWhileHidden } from '@/lib/request/sleepCheck';
 import type { VisitorState } from '@/lib/request/visitorState';
@@ -43,16 +44,7 @@ export function useVisitorGuards(input: {
         latest.current = { state, progress };
     });
 
-    useEffect(() => {
-        if (!guards.beforeUnload) return;
-        const hold = (e: BeforeUnloadEvent) => {
-            e.preventDefault();
-            // Chrome and Edge still need returnValue set to show the prompt.
-            e.returnValue = '';
-        };
-        window.addEventListener('beforeunload', hold);
-        return () => window.removeEventListener('beforeunload', hold);
-    }, [guards.beforeUnload]);
+    useLeavePrompt(guards.beforeUnload);
 
     useEffect(() => {
         if (!guards.wakeLock) releaseWakeLock();

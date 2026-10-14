@@ -33,6 +33,9 @@ export function InAppBrowserGuard({
     }>({ detectedApp: null, android: false, currentUrl: '', ready: false });
     const [dismissed, setDismissed] = useState(false);
     const [copied, setCopied] = useState(false);
+    // The last Copy did not reach the clipboard: said once under the button,
+    // until the next try.
+    const [copyFailed, setCopyFailed] = useState(false);
     const headingId = useId();
     const heading = useRef<HTMLHeadingElement>(null);
 
@@ -62,9 +65,15 @@ export function InAppBrowserGuard({
     // This component only ever renders inside a Facebook, Instagram, TikTok
     // or WeChat webview, which is the environment most likely to block the
     // async clipboard API, so it was the worst place to claim "Link copied"
-    // unconditionally. The URL stays on screen for a manual copy either way.
+    // unconditionally. The link is on the card as selectable text for a manual
+    // copy, and a copy that failed says so: it used to change nothing, and the
+    // link the comment here promised was never drawn (A8a-B1).
     const handleCopy = async () => {
-        if (!(await copyText(currentUrl))) return;
+        if (!(await copyText(currentUrl))) {
+            setCopyFailed(true);
+            return;
+        }
+        setCopyFailed(false);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
@@ -179,6 +188,12 @@ export function InAppBrowserGuard({
                             )}
                         </div>
 
+                        {/* The link itself, whole and selectable: what a manual
+                            copy works from when the button cannot copy. */}
+                        <p className="mb-3 select-all break-all rounded-lg border border-white/[0.06] bg-black/30 px-3 py-2 font-mono text-xs leading-relaxed text-zinc-300">
+                            {currentUrl}
+                        </p>
+
                         {/* Copy link button */}
                         <button
                             onClick={handleCopy}
@@ -196,6 +211,12 @@ export function InAppBrowserGuard({
                                 </>
                             )}
                         </button>
+
+                        {copyFailed && (
+                            <p role="status" className="mb-3 text-center text-xs leading-relaxed text-amber-300">
+                                Couldn’t copy. Press and hold the link above to copy it.
+                            </p>
+                        )}
 
                         {/* Continue anyway */}
                         <button

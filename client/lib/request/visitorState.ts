@@ -90,7 +90,10 @@ export type VisitorEvent =
     | { type: 'SETUP_TIMEOUT' } // E13
     | { type: 'PEER_ERROR' } // E14
     | { type: 'CHANNEL_OPEN' } // E15
-    | { type: 'RELAY_VERDICT'; action: RelayGateVerdict['action']; isRelay: boolean } // E16
+    // E16. routeKnown is false when the probe could not read the route
+    // (getStats threw, or ICE had nominated nothing yet): the gate still
+    // fails open on isRelay false, and the route stays unknown.
+    | { type: 'RELAY_VERDICT'; action: RelayGateVerdict['action']; isRelay: boolean; routeKnown?: boolean }
     | { type: 'FIRST_METADATA_SENT'; now: number } // E17
     | { type: 'ACK'; index: number; now: number } // E18: the sender's own 1-based index
     | { type: 'INCOMPATIBLE'; refusal: RefusalCode | null; savedCount: number; rangeOverlaps: boolean } // E19
@@ -222,7 +225,7 @@ export const ATTEMPT_ENDING_STATES: readonly VisitorState[] = [
 /** States that render the Ready view and accept picks and Send. */
 const READY_LIKE: readonly VisitorState[] = ['V3', 'V3c', 'V6b', 'V6d', 'V6e'];
 /** States from which Try again (or Send) starts a new attempt (4.12.4). */
-const RETRY_FROM: readonly VisitorState[] = ['V4', 'V8a', 'V8b', 'V9', 'V6a', 'V6d', 'V12a'];
+const RETRY_FROM: readonly VisitorState[] = ['V4', 'V5b', 'V5c', 'V8a', 'V8b', 'V9', 'V6a', 'V6d', 'V12a'];
 /** The states with an attempt live. A changed fragment reloads the page in
  *  every OTHER state (E29): the card lists V1 to V5, V8 and V9, and the review
  *  (WP-W1 F4) found that the idle states it leaves out (V6a, V6b, V6d, V6e, V12a,
@@ -412,7 +415,7 @@ export function reduce(model: VisitorModel, event: VisitorEvent): Step {
     if (s === 'V7') return waiting(model, event);
     if (s === 'V10') return sending(model, event);
 
-    // V1, V2, V5a to V5d, V11, V11a, V11b, V12, V13: terminal for this page.
+    // V1, V2, V5a, V5d, V11, V11a, V11b, V12, V13: terminal for this page.
     return stay(model);
 }
 
@@ -506,7 +509,7 @@ function connecting(model: VisitorModel, event: VisitorEvent): Step {
             return to(model, 'V6', { channelOpen: true }, ['clearSetupTimer', 'startBadgePoll', 'armProbe']);
         case 'RELAY_VERDICT': {
             if (!open || model.sendStarted) return stay(model);
-            const route = event.isRelay ? 'relay' : 'direct';
+            const route = event.isRelay ? 'relay' : event.routeKnown === false ? null : 'direct';
             if (event.action === 'proceed') return to(model, 'V6', { sendStarted: true, route }, ['sendFiles']);
             // The fixed relay reason went out before this event (the probe
             // awaits it, then destroys the peer); what is left is the teardown.

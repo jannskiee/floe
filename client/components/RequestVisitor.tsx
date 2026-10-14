@@ -21,7 +21,7 @@ import { useConnectionType } from '@/hooks/useConnectionType';
 import { useRequestFiles } from '@/hooks/useRequestFiles';
 import { useVisitorGuards } from '@/hooks/useVisitorGuards';
 import { resolveSocketUrl } from '@/lib/socketUrl';
-import { evaluateRelayGate, probeIsRelay, RELAY_SIZE_LIMIT } from '@/lib/relay';
+import { evaluateRelayGate, probeIsRelay, readConnectionType, RELAY_SIZE_LIMIT } from '@/lib/relay';
 import { sendFiles, sendAbortReason, CONTROL_FLUSH_MS } from '@/lib/transfer/sender';
 import { createReconnectBackoff } from '@/lib/reconnectBackoff';
 import { parseRequestLink } from '@/lib/request/requestLink';
@@ -409,9 +409,15 @@ function createVisitorController(deps: ControllerDeps) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const pc = (p as any)._pc as RTCPeerConnection | undefined;
         let isRelay = false;
+        // Whether ICE had settled on a pair the probe could read. When it had
+        // not, or getStats threw, the Arrived line names no route rather than
+        // calling it direct (owner answer 27).
+        let routeKnown = false;
         if (pc) {
             try {
-                isRelay = probeIsRelay(await pc.getStats());
+                const stats = await pc.getStats();
+                isRelay = probeIsRelay(stats);
+                routeKnown = readConnectionType(stats) !== null;
             } catch {
                 // Fail open: a probe hiccup never blocks a drop.
             }
@@ -443,10 +449,10 @@ function createVisitorController(deps: ControllerDeps) {
             );
             closedByUs = p;
             p.destroy();
-            dispatchFor(a, { type: 'RELAY_VERDICT', action: verdict.action, isRelay });
+            dispatchFor(a, { type: 'RELAY_VERDICT', action: verdict.action, isRelay, routeKnown });
             return;
         }
-        dispatch({ type: 'RELAY_VERDICT', action: verdict.action, isRelay });
+        dispatch({ type: 'RELAY_VERDICT', action: verdict.action, isRelay, routeKnown });
     }
 
     /** Step 4's proceed: the send, with the first-ack clock and success only

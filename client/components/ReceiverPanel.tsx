@@ -25,6 +25,8 @@ interface ReceiverPanelProps {
     downloadProgress: { current: number; total: number; label: string };
     onDownloadAll: () => void;
     onDownloadZip: () => void;
+    // A file's own download link was clicked: the leave prompt counts it saved.
+    onSaved: (ids: readonly string[]) => void;
     listRef: RefObject<HTMLDivElement | null>;
     // 'SHA-256 matched' once every announced file arrived and every one of them
     // verified, else null. Never a digest value (D-101).
@@ -58,6 +60,7 @@ export function ReceiverPanel({
     downloadProgress,
     onDownloadAll,
     onDownloadZip,
+    onSaved,
     listRef,
     verifiedLine,
     summary,
@@ -170,7 +173,7 @@ export function ReceiverPanel({
                     </div>
                 </div>
             )}
-            <ReceivedFilesList receivedFiles={receivedFiles} listRef={listRef} />
+            <ReceivedFilesList receivedFiles={receivedFiles} listRef={listRef} onSaved={onSaved} />
 
             {receivedFiles.length > 0 && (
                 <div className="pt-1 pb-0.5 px-0.5">
