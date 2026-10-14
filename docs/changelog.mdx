@@ -99,6 +99,10 @@ Each entry lists the parts it changed. Filter on the right to see only the ones 
   - Floe Desktop: keyboard shortcuts wait while a dialog is open. `Ctrl+Enter` could start a transfer behind **Close Floe?**, and `Ctrl+O`, `Ctrl+V`, `Ctrl+H` and `Ctrl+,` could change the screen behind a dialog or close **Reset all settings?** unanswered. `Ctrl+Z` no longer spends an undo behind **Close Floe?**.
   - Floe Desktop: while a receive runs, the **Send** tab hides its drop area and its **Files** and **Folder** buttons, as it does during a send. The buttons used to add files while a drop or a paste onto the same area was ignored. Files you added before the receive stay.
   - Floe Desktop: the left rail reads "Direct, no size limit from Floe" and says a receiving browser can only hold so much. It read "Direct & unlimited" with "no size cap".
+  - `floe receive` now checks a pasted room link against the server it is set to use in both directions. A link from another Floe server, with no `--server` or `FLOE_SERVER` set, stops before any network call with `That link is for another Floe server, but this Floe is set to use floe.one. Use --server with that server's address, then try again.`
+  - A linked file inside a folder you send with `floe send` is sent at the size of the file it points to. A link to a folder, or one that points nowhere, stops the send before it connects, with a line that names it.
+  - Floe Desktop: a link pasted into **Receive** is checked against the server in Settings before anything connects. A floe.one link while another server is set, and a link from another Floe server while none is, each stop with a line that says what to change in Settings.
+  - Floe Desktop: a linked file inside a folder you send is sent at the size of the file it points to, and a link to a folder, or one that points nowhere, stops the send before it connects.
 </Update>
 
 <Update label="desktop-v0.3.0" description="2026-10-09" tags={["Desktop"]}>

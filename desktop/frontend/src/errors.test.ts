@@ -282,6 +282,12 @@ describe('friendlyError', () => {
         const unknownRelay =
             "Couldn't read this server's relay details for Hide my IP";
         expect(friendlyError(unknownRelay)).toBe('Error: ' + unknownRelay);
+        // transfer.go's two lines for a link from another server.
+        for (const line of [
+            'That link is for floe.one, but Floe is set to use another server. Clear Server address in Settings, then try again',
+            'That link is for another Floe server. Set its address as Server address in Settings, then try again',
+        ])
+            expect(friendlyError(line)).toBe('Error: ' + line);
     });
 
     it('passes unknown errors through unchanged for bug reports', () => {

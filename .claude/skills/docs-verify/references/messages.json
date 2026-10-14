@@ -3879,6 +3879,20 @@
     },
     {
         "surface": "desktop",
+        "text": "That link is for another Floe server. Set its address as Server address in Settings, then try again",
+        "source": "desktop/transfer.go",
+        "anchor": "/desktop/receiving",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "That link is for floe.one, but Floe is set to use another server. Clear Server address in Settings, then try again",
+        "source": "desktop/transfer.go",
+        "anchor": "/desktop/receiving",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
         "text": "That link is incomplete",
         "source": "desktop/frontend/src/errors.ts",
         "anchor": "/troubleshooting#that-link-is-incomplete",
@@ -4526,6 +4540,13 @@
         "text": "cannot resolve executable path",
         "source": "cli/internal/selfupdate/selfupdate.go",
         "anchor": null,
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "cannot send {path}: it is a link to a folder, which Floe does not follow",
+        "source": "cli/engine/transfer/collect.go",
+        "anchor": "/cli/send",
         "why_no_home": null
     },
     {
@@ -5548,6 +5569,13 @@
         "text": "That is a request link for sending files to someone. Open it in a web browser.",
         "source": "cli/engine/code/client.go",
         "anchor": "/desktop/request-links#a-request-link-pasted-into-receive",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "That link is for another Floe server, but this Floe is set to use floe.one. Use --server with that server's address, then try again.",
+        "source": "cli/cmd/floe/receive.go",
+        "anchor": "/cli/self-hosted-server",
         "why_no_home": null
     },
     {

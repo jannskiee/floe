@@ -181,6 +181,13 @@ func Resolve(serverURL, input string) (string, error) {
 		if uuidShape.MatchString(u.Fragment) {
 			return "", ErrRequestLink
 		}
+		// A link whose host LinkHost cannot read (a label typed in front of it, a
+		// file: URL, a "://" inside a query) would pass the host check
+		// (CheckLinkServer) as if it were a code, and its room id would go to
+		// whichever server is chosen. Refuse it before the room id is taken.
+		if LinkHost(input) == "" {
+			return "", errInvalidURL
+		}
 		// Newer links keep the room id in the fragment (#room=uuid) so it never
 		// leaks to servers or analytics; older links use the ?room= query param.
 		roomId := u.Query().Get("room")

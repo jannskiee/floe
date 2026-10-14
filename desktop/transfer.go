@@ -96,6 +96,29 @@ func roleWaitEnd(sc *signaling.Client) error {
 	return errRoleWaitClosed
 }
 
+// The two lines for a pasted link whose server is not the one Floe uses,
+// approved by the owner as written (round 6 of the docs final run).
+var (
+	errLinkFloeOneOtherServer = errors.New("That link is for floe.one, but Floe is set to use another server. Clear Server address in Settings, then try again")
+	errLinkOtherFloeServer    = errors.New("That link is for another Floe server. Set its address as Server address in Settings, then try again")
+)
+
+// linkServerRefusal is the host rule (code.CheckLinkServer) for a code or link
+// pasted into Receive, the rule floe receive and the request-link send use. A
+// room link names the server that holds its room, and the join hands the room
+// id to the server Floe uses, so the two must agree before any network call.
+// Floe Desktop has chosen a server when Settings names one that is not
+// api.floe.one. A code has no host and is never refused here.
+func linkServerRefusal(input, server string) error {
+	switch code.CheckLinkServer(input, !code.IsFloeOneServer(server), server) {
+	case code.LinkFloeOneOtherServer:
+		return errLinkFloeOneOtherServer
+	case code.LinkOtherNoServer:
+		return errLinkOtherFloeServer
+	}
+	return nil
+}
+
 // requireRelay is the transfer-time half of the Settings probe's relay check.
 //
 // It runs here as well as there because ice.Fetch falls back to public STUN
@@ -133,6 +156,14 @@ func (a *App) StartSend(paths []string, hideIP bool) error {
 		if _, err := os.Stat(p); err != nil {
 			return fmt.Errorf("cannot read %s: %w", p, err)
 		}
+	}
+	// Walk the folders now, as floe send does before it connects: a file the
+	// walk cannot send (a link to a folder, a link that points nowhere) or a
+	// selection with no file in it is refused at the click, before a code is
+	// registered, instead of after a receiver has joined (the send walks them
+	// again when it starts, from the same paths).
+	if _, err := transfer.Summarize(paths); err != nil {
+		return err
 	}
 	// Claim the generation synchronously so a cancel arriving right after the
 	// click targets this attempt, not the previous one.
@@ -369,9 +400,10 @@ func (a *App) ReceiveByCode(codeOrLink string, outputDir string, hideIP bool, re
 	g := a.beginTransfer()
 	dir, err := a.receiveByCode(g, codeOrLink, outputDir, hideIP, reportStats)
 	if err != nil {
-		// A pasted request or drop link is a mix-up the status line explains
-		// (CP2), not a failed transfer, so it gets no failure toast.
-		if isRequestLinkPaste(err) {
+		// A pasted request or drop link, or a link for another server, is a
+		// mix-up the status line explains (CP2), not a failed transfer, so it
+		// gets no failure toast.
+		if isRequestLinkPaste(err) || errors.Is(err, errLinkFloeOneOtherServer) || errors.Is(err, errLinkOtherFloeServer) {
 			return "", err
 		}
 		// Receive failures used to be completely silent behind a minimized
@@ -429,6 +461,12 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 			return "", err
 		}
 		return "", fmt.Errorf("could not resolve %q: %w", codeOrLink, err)
+	}
+	// After Resolve, so a request link pasted here keeps its own sentence,
+	// and before the first network call for a link (Resolve reads a link
+	// locally; only a code, which has no host, went to the server).
+	if err := linkServerRefusal(codeOrLink, server); err != nil {
+		return "", err
 	}
 
 	iceServers, degraded, err := ice.FetchDetail(server)

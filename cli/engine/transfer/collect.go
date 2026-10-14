@@ -35,13 +35,40 @@ func collectFiles(paths []string) ([]fileEntry, error) {
 			continue
 		}
 
-		// Walk the directory
-		base := filepath.Dir(p)
-		walkErr := filepath.Walk(p, func(path string, fi os.FileInfo, err error) error {
+		// Walk the directory. A path that is itself a link to a folder (or a
+		// Windows junction) is the folder the person meant: Walk does not descend
+		// into a link at its root, so it walks the resolved folder, and the files
+		// are named from the path the person gave.
+		root := p
+		if resolved, err := filepath.EvalSymlinks(p); err == nil {
+			root = resolved
+		}
+		walkErr := filepath.Walk(root, func(path string, fi os.FileInfo, err error) error {
 			if err != nil || fi.IsDir() {
 				return err
 			}
-			rel, _ := filepath.Rel(base, path)
+			// Walk reports a link by Lstat, whose size is the link's own,
+			// while the send opens the link and reads its target. Size it by
+			// the target. A link to a folder is not followed (Walk would not
+			// walk it, and reading it as a file fails after the receiver has
+			// accepted), and a link that points nowhere cannot be read, so
+			// both end the send here, before it connects. Go reports a Windows
+			// junction or mount point as ModeIrregular rather than ModeSymlink,
+			// so both bits mean a link here.
+			if fi.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+				target, err := os.Stat(path)
+				if err != nil {
+					return fmt.Errorf("cannot read %s: %w", path, err)
+				}
+				if target.IsDir() {
+					return fmt.Errorf("cannot send %s: it is a link to a folder, which Floe does not follow", path)
+				}
+				fi = target
+			}
+			// Named as before, from the path the person gave: the file's place
+			// under root, seen from the folder that holds p.
+			under, _ := filepath.Rel(root, path)
+			rel, _ := filepath.Rel(filepath.Dir(p), filepath.Join(p, under))
 			entries = append(entries, fileEntry{
 				absPath:     path,
 				displayName: filepath.ToSlash(rel), // use forward slashes in metadata

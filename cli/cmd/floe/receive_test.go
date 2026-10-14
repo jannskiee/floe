@@ -340,6 +340,44 @@ func TestReceiveFloeLinkWithAnotherServerEndsWithoutANetworkCall(t *testing.T) {
 	}
 }
 
+// lineOtherLinkFloeServer is the owner-approved line (round 6 of the docs
+// final run) for the other direction: a room link on another host with no
+// server chosen, whose room id would otherwise go to api.floe.one.
+const lineOtherLinkFloeServer = "That link is for another Floe server, but this Floe is set to use floe.one. Use --server with that server's address, then try again."
+
+// TestReceiveOtherServerLinkWithNoServerEndsWithoutANetworkCall: the second
+// direction of the host rule (code.CheckLinkServer). A room link made on
+// another server, received with no server chosen, ends before any network
+// call with a line that names the fix, and never prints the room id.
+func TestReceiveOtherServerLinkWithNoServerEndsWithoutANetworkCall(t *testing.T) {
+	room := uuid.New().String()
+	for name, link := range map[string]string{
+		"fragment":       "https://files.example.com/#room=" + room,
+		"query":          "https://files.example.com/?room=" + room,
+		"localhost":      "http://localhost:3000/#room=" + room,
+		"no scheme":      "files.example.com/#room=" + room,
+		"angle brackets": "<https://files.example.com/#room=" + room + ">",
+	} {
+		t.Run(name, func(t *testing.T) {
+			calls := stubNetwork(t, "")
+			stdout, stderr, err := receiveWith(t, nil, link)
+			if n, c := calls.ice.Load(), calls.connect.Load(); n != 0 || c != 0 {
+				t.Fatalf("network calls made: ICE %d, connect %d; want none\nstderr:\n%s", n, c, stderr)
+			}
+			var outcome outcomeError
+			if !errors.As(err, &outcome) {
+				t.Fatalf("execute returned %v, want an outcome (main exits 1 on it)", err)
+			}
+			if stdout != "\n" || stderr != "  "+lineOtherLinkFloeServer+"\n" {
+				t.Fatalf("want the blank line and %q\nstdout:\n%q\nstderr:\n%q", lineOtherLinkFloeServer, stdout, stderr)
+			}
+			if strings.Contains(strings.ToLower(stdout+stderr), room[1:]) {
+				t.Fatalf("the room id was printed:\n%s", stderr)
+			}
+		})
+	}
+}
+
 // TestReceiveRequestLinkInAnyShapeIsNeverPrintedBack (FU-53 review 1 L-3):
 // a request link in a shape Resolve does not refuse as ErrRequestLink (a
 // percent-encoded #, a bad escape, a mail-safety redirector, a whole link

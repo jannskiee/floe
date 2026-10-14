@@ -91,3 +91,66 @@ func TestLinkServerMismatch(t *testing.T) {
 		}
 	}
 }
+
+// TestCheckLinkServer is the receive side of the rule: which way a pasted
+// link and the chosen server disagree, if they do. A code has no host and is
+// never refused here.
+func TestCheckLinkServer(t *testing.T) {
+	const (
+		floeServer = "https://api.floe.one"
+		selfHosted = "https://files.example.com"
+		room       = "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"
+	)
+	floe := "https://floe.one/#room=" + room
+	other := "https://files.example.com/#room=" + room
+	for _, c := range []struct {
+		input  string
+		chosen bool
+		server string
+		want   LinkServer
+	}{
+		{"olive-tiger-castle", false, floeServer, LinkServerOK},
+		{"olive-tiger-castle", true, selfHosted, LinkServerOK},
+		{floe, false, floeServer, LinkServerOK},
+		{floe, true, " https://API.floe.one:443/ ", LinkServerOK},
+		{floe, true, selfHosted, LinkFloeOneOtherServer},
+		{"https://www.ｆｌｏｅ.one/#room=" + room, true, selfHosted, LinkFloeOneOtherServer},
+		{"https:///floe.one/#room=" + room, true, selfHosted, LinkFloeOneOtherServer},
+		{other, true, selfHosted, LinkServerOK},
+		{other, false, floeServer, LinkOtherNoServer},
+		{"http://localhost:3000/#room=" + room, false, floeServer, LinkOtherNoServer},
+		{"<" + other + ">", false, floeServer, LinkOtherNoServer},
+	} {
+		if got := CheckLinkServer(c.input, c.chosen, c.server); got != c.want {
+			t.Errorf("CheckLinkServer(%q, %v, %q) = %v, want %v", c.input, c.chosen, c.server, got, c.want)
+		}
+	}
+}
+
+// TestResolveRefusesALinkWhoseHostCannotBeRead: Resolve takes a room id out of
+// any input with "://" in it, and a link whose host LinkHost cannot read would
+// pass CheckLinkServer as if it were a code, so its room id would go to
+// whichever server is chosen. Such a link is refused before the room id is
+// taken, with no network call (the server URL here is never dialed).
+func TestResolveRefusesALinkWhoseHostCannotBeRead(t *testing.T) {
+	const room = "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"
+	for _, in := range []string{
+		"Link: https://floe.one/#room=" + room,
+		"file:///floe.one/#room=" + room,
+		"floe.one/?r=https://x#room=" + room,
+	} {
+		if id, err := Resolve("http://127.0.0.1:9", in); err == nil || id != "" {
+			t.Errorf("Resolve(%q) = %q, %v; want no room id and an error", in, id, err)
+		}
+	}
+	// Links whose host it can read still resolve, slash-mangled ones included.
+	for _, in := range []string{
+		"https://floe.one/#room=" + room,
+		"https:///floe.one/#room=" + room,
+		"files.example.com/?room=" + room,
+	} {
+		if id, err := Resolve("http://127.0.0.1:9", in); err != nil || id != room {
+			t.Errorf("Resolve(%q) = %q, %v; want %q", in, id, err, room)
+		}
+	}
+}

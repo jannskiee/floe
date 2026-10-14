@@ -28,6 +28,10 @@ export const PASSTHROUGH = [
     'this code or link is no longer active',
     'this code is no longer active',
     'room is full',
+    // transfer.go's two lines for a pasted link whose server is not the one
+    // Floe uses (linkServerRefusal). Each already names the fix.
+    'That link is for floe.one',
+    'That link is for another Floe server',
 ];
 
 // RX10 (D-123): a receive that got a file in full, verified, and could not

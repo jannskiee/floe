@@ -35,6 +35,12 @@ var (
 // owner as written (D-156, approved-copy-cli.txt), byte for byte.
 var errFloeLinkOtherServer = errors.New("That link is for floe.one, but this Floe is set to use another server. Unset FLOE_SERVER or use --server https://api.floe.one, then try again.")
 
+// errOtherLinkFloeServer ends a receive of a room link made on another server
+// while no server is chosen, so its room id would go to api.floe.one, which
+// never held the room. Approved by the owner as written (round 6 of the docs
+// final run, approved-copy-cli.txt).
+var errOtherLinkFloeServer = errors.New("That link is for another Floe server, but this Floe is set to use floe.one. Use --server with that server's address, then try again.")
+
 var receiveCmd = &cobra.Command{
 	Use:   "receive <code | link>",
 	Short: "Receive files from a peer",
@@ -95,16 +101,20 @@ func runReceive(cmd *cobra.Command, args []string) error {
 		}
 		return fmt.Errorf("could not resolve %q: %w", input, err)
 	}
-	// A room link made on floe.one has its room on api.floe.one alone. With
-	// another server chosen (FLOE_SERVER, a self-hoster's standing setting,
-	// or --server), join-room would hand that room's id to a server that
-	// never held the room, and whoever runs it could take the receiver's
-	// seat, and the files, on api.floe.one (FU-53, FU-46 review 1 L5). The
-	// request-link send's host rule decides (code.LinkServerMismatch, FU-32 F5-4),
-	// before any network call: Resolve reads a link without one, and only a
-	// code, which has no host, goes to the server.
-	if code.IsFloeOneLinkHost(code.LinkHost(input)) && !code.IsFloeOneServer(flagServer) {
+	// A room link names the server that holds its room, and join-room hands
+	// the room id to whichever server is chosen, so the two must agree before
+	// any network call: Resolve reads a link without one, and only a code,
+	// which has no host, goes to the server. A floe.one link with another
+	// server chosen (FLOE_SERVER, a self-hoster's standing setting, or
+	// --server), and a link on another host with none chosen, both end here,
+	// each with the line that names its fix. code.CheckLinkServer is the
+	// request-link send's host rule (code.LinkServerMismatch, FU-32 F5-4) for
+	// an input that may be a code (FU-53, FU-46 review 1 L5).
+	switch code.CheckLinkServer(input, serverChosen(cmd, os.Getenv), flagServer) {
+	case code.LinkFloeOneOtherServer:
 		return outcomeError{errFloeLinkOtherServer}
+	case code.LinkOtherNoServer:
+		return outcomeError{errOtherLinkFloeServer}
 	}
 
 	// 2. Check that the output directory exists or can be made, and leave it

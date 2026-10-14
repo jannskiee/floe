@@ -2217,3 +2217,88 @@ func TestRunRequestDropAutoAcceptAbandonedQuietsTO4(t *testing.T) {
 	v.leave()
 	waitState(t, a, 15*time.Second, "stopped")
 }
+
+// TestLinkServerRefusalNamesTheFixForEachDirection: the host rule
+// (code.CheckLinkServer) for a code or link pasted into Receive. Floe Desktop
+// chooses a server when Settings names one that is not api.floe.one, so a
+// link from another server is refused while Floe uses floe.one, and a
+// floe.one link while it uses another server. A code is never refused here.
+func TestLinkServerRefusalNamesTheFixForEachDirection(t *testing.T) {
+	const room = "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"
+	floe := "https://floe.one/#room=" + room
+	other := "https://files.example.com/#room=" + room
+	for _, c := range []struct {
+		input, server string
+		want          error
+	}{
+		{"olive-tiger-castle", defaultServer, nil},
+		{"olive-tiger-castle", "https://files.example.com", nil},
+		{floe, defaultServer, nil},
+		{floe, "https://API.floe.one:443/", nil},
+		{other, "https://files.example.com", nil},
+		{floe, "https://files.example.com", errLinkFloeOneOtherServer},
+		{other, defaultServer, errLinkOtherFloeServer},
+		{other, "https://api.floe.one", errLinkOtherFloeServer},
+	} {
+		if got := linkServerRefusal(c.input, c.server); got != c.want {
+			t.Errorf("linkServerRefusal(%q, %q) = %v, want %v", c.input, c.server, got, c.want)
+		}
+	}
+	// The approved lines (round 6 of the docs final run), no closing period
+	// like every line the desktop shows.
+	if errLinkFloeOneOtherServer.Error() != "That link is for floe.one, but Floe is set to use another server. Clear Server address in Settings, then try again" ||
+		errLinkOtherFloeServer.Error() != "That link is for another Floe server. Set its address as Server address in Settings, then try again" {
+		t.Fatalf("the approved lines changed: %q, %q", errLinkFloeOneOtherServer, errLinkOtherFloeServer)
+	}
+}
+
+// TestStartSendWalksTheFolderBeforeAnythingStarts: the folder is walked when
+// Send is clicked, as floe send walks it before it connects. A link inside it
+// that cannot be sent (one that points nowhere) is refused right there, so no
+// code is registered and no receiver is left with an unexplained close.
+func TestStartSendWalksTheFolderBeforeAnythingStarts(t *testing.T) {
+	folder := filepath.Join(t.TempDir(), "album")
+	if err := os.Mkdir(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(t.TempDir(), "gone"), filepath.Join(folder, "link")); err != nil {
+		t.Skipf("cannot make a symbolic link here: %v", err)
+	}
+	a := &App{}
+	err := a.StartSend([]string{folder}, false)
+	if err == nil || !strings.Contains(err.Error(), "cannot read") {
+		t.Fatalf("StartSend = %v, want the walk's refusal before the send starts", err)
+	}
+	if a.gen != 0 {
+		t.Fatal("a transfer was started")
+	}
+}
+
+// TestReceiveByCodeChecksTheLinkServerInOrder pins the wiring the helper test
+// cannot see: in receiveByCode the host rule runs after code.Resolve (so a
+// request link keeps its own sentence) and before the first network call for
+// a link, and ReceiveByCode treats its two refusals as a paste mix-up, with
+// no failure toast. Read from the source, as server.test.js pins the order of
+// the upgrade handler.
+func TestReceiveByCodeChecksTheLinkServerInOrder(t *testing.T) {
+	src, err := os.ReadFile("transfer.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(src)
+	start := strings.Index(s, "func (a *App) receiveByCode(")
+	if start < 0 {
+		t.Fatal("receiveByCode not found")
+	}
+	body := s[start:]
+	resolve := strings.Index(body, "code.Resolve(server, codeOrLink)")
+	check := strings.Index(body, "linkServerRefusal(codeOrLink, server)")
+	fetch := strings.Index(body, "ice.FetchDetail(server)")
+	if resolve < 0 || check < 0 || fetch < 0 || !(resolve < check && check < fetch) {
+		t.Fatalf("want code.Resolve, then linkServerRefusal, then ice.FetchDetail; offsets %d, %d, %d", resolve, check, fetch)
+	}
+	wrapper := s[strings.Index(s, "func (a *App) ReceiveByCode("):start]
+	if !strings.Contains(wrapper, "errors.Is(err, errLinkFloeOneOtherServer) || errors.Is(err, errLinkOtherFloeServer)") {
+		t.Fatal("ReceiveByCode no longer keeps the failure toast off a link for another server")
+	}
+}
