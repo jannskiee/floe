@@ -2,16 +2,16 @@
   "product": "Floe Desktop, Microsoft Store 9NBQ8ZQ1065L",
   "locale": "en-US",
   "saved": {
-    "submission": 15,
-    "date": "2026-10-09",
-    "package": "1.3.0.0",
-    "tag": "desktop-v0.3.0"
+    "submission": 16,
+    "date": "2026-10-15",
+    "package": "1.3.1.0",
+    "tag": "desktop-v0.3.1"
   },
   "fields": {
     "description": {
       "file": "description.txt",
-      "len": 3296,
-      "djb2": "5e78a360"
+      "len": 3404,
+      "djb2": "f7173704"
     },
     "features": {
       "file": "features.txt",
@@ -36,29 +36,29 @@
       "file": "screenshots/01-send-share.png",
       "width": 1366,
       "height": 768,
-      "bytes": 92281,
-      "sha256": "9a3498118c26cbb985f7fa0a2502c6eb83ea823a72a8737006123724484d5a8b"
+      "bytes": 95149,
+      "sha256": "9e1561f2dc295878a6a3897df4c64b796a8af4d354c1e94e513aa4e8d7fb0f65"
     },
     {
       "file": "screenshots/02-receive-code.png",
       "width": 1366,
       "height": 768,
-      "bytes": 85053,
-      "sha256": "89c0c217fe0d71c7111514dbe4b5b366e2632463d64ef3dfb664e91ea77884ff"
+      "bytes": 86665,
+      "sha256": "70b750cb8bf8f340998c7fddba3c75b034064fb749427014dd579957e30d9559"
     },
     {
       "file": "screenshots/03-request-link-waiting.png",
       "width": 1366,
       "height": 768,
-      "bytes": 85820,
-      "sha256": "9b3051529c149c64fe9095c6ccf837fc4167c34d8b00f3b533c35b6b89f10aeb"
+      "bytes": 88618,
+      "sha256": "19adb931eea53144d91394739e2cc99e4915f9ecab3a68ae442877ddf20da4ab"
     },
     {
       "file": "screenshots/04-request-accept.png",
       "width": 1366,
       "height": 768,
-      "bytes": 93643,
-      "sha256": "e8be821f682877362db2b3e3fc02ab5d889324fec4e39549ebf1700b81c9ac36"
+      "bytes": 97597,
+      "sha256": "5c74c52d4fd687bd92848395e0dc36718e144638cb2fe8bcccb8dc00878b6f2b"
     }
   ]
 }

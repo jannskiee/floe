@@ -1,6 +1,6 @@
 # The Store listing, en-US
 
-What the Microsoft Store listing of Floe Desktop (Store ID 9NBQ8ZQ1065L) says and shows, as Submission 15 saved it on 2026-10-09 with package 1.3.0.0. Before this folder existed the words lived only in Partner Center and in the owner's planning notes, and the repository held their lengths and fingerprints alone.
+What the Microsoft Store listing of Floe Desktop (Store ID 9NBQ8ZQ1065L) says and shows, as Submission 16 saved it on 2026-10-15 with package 1.3.1.0. Before this folder existed the words lived only in Partner Center and in the owner's planning notes, and the repository held their lengths and fingerprints alone.
 
 | File | Listing field | Form |
 | --- | --- | --- |
@@ -24,14 +24,13 @@ Not in this folder, because a routine update never pastes them: the short descri
 
 ## How the four screenshots were made
 
-They show the build tagged `desktop-v0.3.0`, captured on 2026-10-09 with nobody at the PC (driving the app through UI Automation activates its window).
+They show the `desktop-v0.3.1` release, captured on 2026-10-15 while the owner was at the PC: nothing drove the app's window, so nothing took the foreground. The 0.3.0 set (2026-10-09) was taken from the `wails build` exe through UI Automation, with nobody at the PC, because every UIA call activates the window.
 
-1. The `wails build` exe of the tagged commit, not `wails dev` (the listing shows the shipped window) and not the Store package (it cannot be pointed at a local server without the same steps).
-2. `APPDATA` and `LOCALAPPDATA` redirected to a fresh scratch folder before launch, so History is empty and no real path or setting shows. Never the owner's `%APPDATA%\floe`.
-3. A local stack from the floe-run skill with request links on and the stats counter neutralized, and the app's server address set to it in the scratch `desktop.json`.
-4. Settings, Advanced, Share link address set to `https://floe.one`, so the link fields read like production. The room ids existed only in that local server's memory and ended with it.
-5. The window on the second monitor, moved with `SWP_NOACTIVATE`, sized so the capture is 1366 x 768 (the Store's minimum for desktop), captured with `PrintWindow` and `PW_RENDERFULLCONTENT`, which is already cropped to the window.
-6. Fixture data only: the label "Acme footage", files with neutral names, Hide my IP off.
+1. `wails dev` of the release tree (`desktop/` and `cli/engine` identical to the tag; the version injected with `-ldflags "-X main.version=desktop-v0.3.1"`). The window is frameless and its title bar is part of the page, so the page at 1366 x 768 is the shipped window, pixel for pixel.
+2. `APPDATA`, `LOCALAPPDATA` and `USERPROFILE` redirected to a fresh scratch folder before launch (the Go caches pointed back at the real ones), so History is empty, no real path or setting shows, and a drop lands in the scratch home's `Downloads\Floe`. Never the owner's `%APPDATA%\floe`.
+3. A local stack from the floe-run skill with request links on and the stats counter neutralized, and the app's server address set to it in the scratch `desktop.json`, with Share link address `https://floe.one` so the link fields read like production. The room ids existed only in that local server's memory and ended with it.
+4. The app driven only through the dev page at `http://localhost:34115` in headless Chromium (viewport 1366 x 768, scale 1), files staged through the `files:open` event, captured with the page's own screenshot. `navigator.share` is stubbed in the page, because WebView2 on Windows has the Web Share API and the shipped app therefore shows **Share** beside **Show QR**. The native window was moved to the second monitor with `SWP_NOACTIVATE` and never touched.
+5. Fixture data only: the label "Acme footage", files with neutral names, Hide my IP off.
 
 The shots, in order: Send with two files staged and the share panel showing; Receive with CODE selected and the field empty; REQUEST LINK waiting for files; the Accept prompt after a local test visitor (`cli/internal/rlvisitor`, which refuses any server that is not local) sent a dozen fixture files, captured once Accept was enabled, then declined so nothing was written.
 

@@ -1,4 +1,4 @@
-Floe Desktop sends files directly between two devices. No account, no server storage, no size limit on direct connections.
+Floe Desktop sends files directly between two devices. No account, no server storage, and no size limit from Floe on direct connections. A browser that receives is limited by what that browser can hold.
 
 Pick your files, share the short code or link, and the other side receives: in this app, at floe.one in any browser, or with the Floe command-line tool. The two devices connect to each other and the encrypted bytes flow directly between them, or through a relay when a direct connection can't be made. Floe's servers only introduce the two peers; file contents never reach them and are never stored anywhere.
 
@@ -19,7 +19,7 @@ Request links are in Receive, next to Code, marked Beta. Their limits:
 
 PRIVACY
 
-No analytics, no telemetry, no account. The only optional report is one byte count per received transfer, request link drops included, which feeds the public counter on floe.one. It carries no file names, and you can turn it off in Settings. Full policy: https://www.floe.one/privacy
+No analytics, no telemetry, no account. The only report Floe Desktop sends is one byte count per received transfer, request link drops included, which feeds the public counter on floe.one. It is on by default, carries no file names, and you can turn it off in Settings. Full policy: https://www.floe.one/privacy
 
 OPEN SOURCE
 

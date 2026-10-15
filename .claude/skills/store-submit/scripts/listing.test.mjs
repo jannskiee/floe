@@ -122,7 +122,7 @@ test('a changed word, a changed image and a stale manifest are each named', () =
         join(edited, 'description.txt'),
         readFileSync(join(edited, 'description.txt'), 'utf8').replace('Floe Desktop', 'Floe  Desktop')
     );
-    assert.match(findings(edited).join('\n'), /description\.txt is 3,?297 characters .* manifest\.json says 3,?296/);
+    assert.match(findings(edited).join('\n'), /description\.txt is 3,?405 characters .* manifest\.json says 3,?404/);
 
     const repainted = copy();
     const shot = join(repainted, 'screenshots', readdirSync(join(repainted, 'screenshots'))[0]);
@@ -187,8 +187,8 @@ test('pngSize reads the header and refuses what is not a PNG', () => {
 test('the command prints the fingerprints and exits 0, 1 on a defect, 2 on bad usage', () => {
     const ok = spawnSync(process.execPath, [SCRIPT], { encoding: 'utf8' });
     assert.equal(ok.status, 0, ok.stdout + ok.stderr);
-    assert.match(ok.stdout, /^description: 3296 characters, djb2 5e78a360, /m);
-    assert.match(ok.stdout, /^listing: matches manifest\.json \(submission 15, 2026-10-09\)$/m);
+    assert.match(ok.stdout, /^description: 3404 characters, djb2 f7173704, /m);
+    assert.match(ok.stdout, /^listing: matches manifest\.json \(submission 16, 2026-10-15\)$/m);
 
     const dir = copy();
     writeFileSync(join(dir, 'captions.txt'), 'only one\n');
