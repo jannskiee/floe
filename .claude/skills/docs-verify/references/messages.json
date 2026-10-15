@@ -1093,6 +1093,20 @@
     },
     {
         "surface": "web-request",
+        "text": "1 file arrived.",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/web-app/request-links#when-the-files-arrive",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "1 FILE, {size}",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/web-app/request-links#what-the-page-shows",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
         "text": "A file changed or was damaged on the way, so their Floe deleted it",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#when-their-floe-stops-the-drop",
@@ -1145,6 +1159,20 @@
         "text": "All {n} files arrived - Floe",
         "source": "client/lib/request/titleProgress.ts",
         "anchor": null,
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "ALL {total} FILES ARRIVED",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/web-app/request-links#when-the-files-arrive",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "All {total} files arrived.",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/web-app/request-links#when-the-files-arrive",
         "why_no_home": null
     },
     {
@@ -1228,7 +1256,7 @@
         "surface": "web-request",
         "text": "Connecting to their computer.",
         "source": "client/lib/request/visitorCopy.ts",
-        "anchor": null,
+        "anchor": "/web-app/request-links#send-and-wait",
         "why_no_home": null
     },
     {
@@ -1241,6 +1269,13 @@
     {
         "surface": "web-request",
         "text": "Connection lost. Nothing was sent.",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/web-app/request-links#messages-on-the-senders-page",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "Connection lost. {arrived} of 1 file arrived.",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#messages-on-the-senders-page",
         "why_no_home": null
@@ -1508,7 +1543,7 @@
         "surface": "web-request",
         "text": "Relay limit. This connection needs a relay, and relayed drops are capped at 2 GB.",
         "source": "client/lib/request/visitorCopy.ts",
-        "anchor": null,
+        "anchor": "/web-app/request-links#messages-on-the-senders-page",
         "why_no_home": null
     },
     {
@@ -1597,6 +1632,20 @@
     },
     {
         "surface": "web-request",
+        "text": "Send {count} files",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/web-app/request-links#sending-through-a-request-link",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "SENDING {index} OF {total}",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/web-app/request-links#what-the-page-shows",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
         "text": "Some files in this folder could not be read. Nothing was added.",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#messages-on-the-senders-page",
@@ -1636,6 +1685,13 @@
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#when-their-floe-stops-the-drop",
         "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "the other one",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": null,
+        "why_no_home": "A fragment that fills {other} in the Connection lost line \"{a} of {n} files arrived. Ask them for a new link to send {other}.\" when one file is left, and that line has its own row."
     },
     {
         "surface": "web-request",
@@ -1684,6 +1740,20 @@
         "text": "Their Floe needs an update.",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#messages-on-the-senders-page",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "They accepted. Sending 1 file.",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/web-app/request-links#what-the-page-shows",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "They accepted. Sending {count} files.",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/web-app/request-links#what-the-page-shows",
         "why_no_home": null
     },
     {
@@ -1865,7 +1935,7 @@
         "surface": "web-request",
         "text": "Waiting for them to accept.",
         "source": "client/lib/request/visitorCopy.ts",
-        "anchor": null,
+        "anchor": "/web-app/request-links#send-and-wait",
         "why_no_home": null
     },
     {
@@ -1919,6 +1989,20 @@
     },
     {
         "surface": "web-request",
+        "text": "{arrived} of 1 file arrived. {new link line}",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": null,
+        "why_no_home": "The Connection lost line for a one-file drop whose file already arrived, a branch the page never reaches because the Lost card always has at least one file left to send."
+    },
+    {
+        "surface": "web-request",
+        "text": "{arrived} of {total} files arrived. {new link line}",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": null,
+        "why_no_home": "The Connection lost line for a drop with no file left to send, a branch the page never reaches because the Lost card always has at least one file left."
+    },
+    {
+        "surface": "web-request",
         "text": "{a} of 1 file arrived. Ask them for a new link to send it.",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": null,
@@ -1933,6 +2017,34 @@
     },
     {
         "surface": "web-request",
+        "text": "{count} FILES, {size}",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/web-app/request-links#what-the-page-shows",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "{saved} of {total} files were saved.",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/web-app/request-links#when-their-floe-stops-the-drop",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "{sent} of {size}",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/web-app/request-links#what-the-page-shows",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "{size} in {duration}, {route}.",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/web-app/request-links#when-the-files-arrive",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
         "text": "{size} in {duration}.",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#when-the-files-arrive",
@@ -1943,6 +2055,13 @@
         "text": "{s} of 1 file was saved.",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#when-their-floe-stops-the-drop",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "{time} left",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/web-app/request-links#what-the-page-shows",
         "why_no_home": null
     },
     {
@@ -2248,6 +2367,13 @@
     },
     {
         "surface": "desktop",
+        "text": "+ {n} more",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#when-it-finishes",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
         "text": "1 file now ends in .floe-blocked so Windows won't open it on its own",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#renamed-files",
@@ -2367,6 +2493,13 @@
     },
     {
         "surface": "desktop",
+        "text": "About {n} {day or days} at this speed, past the 24-hour limit",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#while-files-arrive",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
         "text": "Accept",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#accept-or-decline",
@@ -2382,6 +2515,13 @@
     {
         "surface": "desktop",
         "text": "Accepted automatically",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#auto-accept",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Accepts automatically",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#auto-accept",
         "why_no_home": null
@@ -2437,6 +2577,13 @@
     },
     {
         "surface": "desktop",
+        "text": "Apr",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": null,
+        "why_no_home": "A month abbreviation that fmtEnds puts in a later day's date on a link's end line, as in \"Ends Apr 9, 2:05 PM\", not a message on its own."
+    },
+    {
+        "surface": "desktop",
         "text": "Asks because Floe couldn't check {drive}",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#auto-accept",
@@ -2455,6 +2602,13 @@
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#auto-accept",
         "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Aug",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": null,
+        "why_no_home": "A month abbreviation that fmtEnds puts in a later day's date on a link's end line, as in \"Ends Aug 9, 2:05 PM\", not a message on its own."
     },
     {
         "surface": "desktop",
@@ -2542,6 +2696,13 @@
     },
     {
         "surface": "desktop",
+        "text": "Cancel",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#renamed-files",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
         "text": "Cancel drop",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#while-files-arrive",
@@ -2607,6 +2768,13 @@
         "surface": "desktop",
         "text": "Close",
         "source": "desktop/frontend/src/App.tsx",
+        "anchor": "/desktop/request-links#how-a-link-ends",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Close",
+        "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#how-a-link-ends",
         "why_no_home": null
     },
@@ -2794,6 +2962,13 @@
     },
     {
         "surface": "desktop",
+        "text": "Dec",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": null,
+        "why_no_home": "A month abbreviation that fmtEnds puts in a later day's date on a link's end line, as in \"Ends Dec 9, 2:05 PM\", not a message on its own."
+    },
+    {
+        "surface": "desktop",
         "text": "Decline",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#accept-or-decline",
@@ -2829,6 +3004,13 @@
     },
     {
         "surface": "desktop",
+        "text": "Downloads\\Floe",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#make-a-link",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
         "text": "DROP STOPPED",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#if-a-drop-stops",
@@ -2843,6 +3025,13 @@
     },
     {
         "surface": "desktop",
+        "text": "Drop stopped · {saved line}",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#history",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
         "text": "DROP STOPPED. The drive ran out of space · {n} of {n} files saved",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#messages-on-your-pc",
@@ -2852,56 +3041,70 @@
         "surface": "desktop",
         "text": "Drop stopped: a file didn't match what was sent and was deleted",
         "source": "desktop/frontend/src/requestCopy.ts",
-        "anchor": null,
+        "anchor": "/desktop/request-links#history",
         "why_no_home": null
     },
     {
         "surface": "desktop",
         "text": "Drop stopped: a file is too large for this drive",
         "source": "desktop/frontend/src/requestCopy.ts",
-        "anchor": null,
+        "anchor": "/desktop/request-links#history",
         "why_no_home": null
     },
     {
         "surface": "desktop",
         "text": "Drop stopped: a folder path was too long for Windows",
         "source": "desktop/frontend/src/requestCopy.ts",
-        "anchor": null,
+        "anchor": "/desktop/request-links#history",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Drop stopped: it reached the 24-hour limit",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#history",
         "why_no_home": null
     },
     {
         "surface": "desktop",
         "text": "Drop stopped: more data arrived than you accepted",
         "source": "desktop/frontend/src/requestCopy.ts",
-        "anchor": null,
+        "anchor": "/desktop/request-links#history",
         "why_no_home": null
     },
     {
         "surface": "desktop",
         "text": "Drop stopped: over the 2 GB relay limit",
         "source": "desktop/frontend/src/requestCopy.ts",
-        "anchor": "/desktop/request-links#messages-on-your-pc",
+        "anchor": "/desktop/request-links#history",
         "why_no_home": null
     },
     {
         "surface": "desktop",
         "text": "Drop stopped: the drive ran out of space · {n} of {n} files saved",
         "source": "desktop/frontend/src/requestCopy.ts",
-        "anchor": "/desktop/request-links#messages-on-your-pc",
+        "anchor": "/desktop/request-links#history",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Drop stopped: the sender left",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#history",
         "why_no_home": null
     },
     {
         "surface": "desktop",
         "text": "Drop stopped: Windows blocked a save",
         "source": "desktop/frontend/src/requestCopy.ts",
-        "anchor": null,
+        "anchor": "/desktop/request-links#history",
         "why_no_home": null
     },
     {
         "surface": "desktop",
         "text": "Drop stopped: Windows couldn't write to the folder",
         "source": "desktop/frontend/src/requestCopy.ts",
-        "anchor": null,
+        "anchor": "/desktop/request-links#history",
         "why_no_home": null
     },
     {
@@ -2973,6 +3176,13 @@
         "source": "desktop/transfer.go",
         "anchor": null,
         "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Feb",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": null,
+        "why_no_home": "A month abbreviation that fmtEnds puts in a later day's date on a link's end line, as in \"Ends Feb 9, 2:05 PM\", not a message on its own."
     },
     {
         "surface": "desktop",
@@ -3064,6 +3274,13 @@
         "source": "desktop/frontend/src/settings.ts",
         "anchor": "/desktop/settings#show-notifications",
         "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "FROM {LABEL}",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": null,
+        "why_no_home": "The tail the Receiving heading takes when the link has a label, as in \"RECEIVING 2 OF 12 FROM ACME FOOTAGE\", and that whole heading has its own row."
     },
     {
         "surface": "desktop",
@@ -3214,6 +3431,34 @@
     },
     {
         "surface": "desktop",
+        "text": "Into",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#accept-or-decline",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Jan",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": null,
+        "why_no_home": "A month abbreviation that fmtEnds puts in a later day's date on a link's end line, as in \"Ends Jan 9, 2:05 PM\", not a message on its own."
+    },
+    {
+        "surface": "desktop",
+        "text": "Jul",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": null,
+        "why_no_home": "A month abbreviation that fmtEnds puts in a later day's date on a link's end line, as in \"Ends Jul 9, 2:05 PM\", not a message on its own."
+    },
+    {
+        "surface": "desktop",
+        "text": "Jun",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": null,
+        "why_no_home": "A month abbreviation that fmtEnds puts in a later day's date on a link's end line, as in \"Ends Jun 9, 2:05 PM\", not a message on its own."
+    },
+    {
+        "surface": "desktop",
         "text": "Keep going",
         "source": "desktop/frontend/src/App.tsx",
         "anchor": "/desktop/keyboard-shortcuts#behavior-worth-knowing",
@@ -3270,6 +3515,13 @@
     },
     {
         "surface": "desktop",
+        "text": "Link ended at {time}",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#how-a-link-ends",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
         "text": "Link ends",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#make-a-link",
@@ -3298,6 +3550,13 @@
     },
     {
         "surface": "desktop",
+        "text": "Mar",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": null,
+        "why_no_home": "A month abbreviation that fmtEnds puts in a later day's date on a link's end line, as in \"Ends Mar 9, 2:05 PM\", not a message on its own."
+    },
+    {
+        "surface": "desktop",
         "text": "Maximize",
         "source": "desktop/frontend/src/components/TitleBar.tsx",
         "anchor": null,
@@ -3305,9 +3564,23 @@
     },
     {
         "surface": "desktop",
+        "text": "May",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": null,
+        "why_no_home": "A month abbreviation that fmtEnds puts in a later day's date on a link's end line, as in \"Ends May 9, 2:05 PM\", not a message on its own."
+    },
+    {
+        "surface": "desktop",
         "text": "Minimize",
         "source": "desktop/frontend/src/components/TitleBar.tsx",
         "anchor": null,
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Missed a request at {time}",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#messages-on-your-pc",
         "why_no_home": null
     },
     {
@@ -3368,6 +3641,20 @@
     },
     {
         "surface": "desktop",
+        "text": "Nov",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": null,
+        "why_no_home": "A month abbreviation that fmtEnds puts in a later day's date on a link's end line, as in \"Ends Nov 9, 2:05 PM\", not a message on its own."
+    },
+    {
+        "surface": "desktop",
+        "text": "Oct",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": null,
+        "why_no_home": "A month abbreviation that fmtEnds puts in a later day's date on a link's end line, as in \"Ends Oct 9, 2:05 PM\", not a message on its own."
+    },
+    {
+        "surface": "desktop",
         "text": "Only needed if your web app has its own address",
         "source": "desktop/frontend/src/App.tsx",
         "anchor": "/desktop/settings#share-link-address",
@@ -3414,6 +3701,13 @@
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#renamed-files",
         "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Optional",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": null,
+        "why_no_home": "The gray placeholder of the empty Label field on the Request link form, a hint inside a field rather than a message."
     },
     {
         "surface": "desktop",
@@ -3508,9 +3802,23 @@
     },
     {
         "surface": "desktop",
+        "text": "RECEIVED {FILE COUNT}, {SIZE}",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#when-it-finishes",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
         "text": "Receiving files through your request link",
         "source": "desktop/requestlink.go",
         "anchor": "/desktop/request-links#auto-accept",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "RECEIVING {index} OF {count}{from label}",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#while-files-arrive",
         "why_no_home": null
     },
     {
@@ -3655,6 +3963,13 @@
     },
     {
         "surface": "desktop",
+        "text": "Review",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#accept-or-decline",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
         "text": "Room code",
         "source": "desktop/frontend/src/components/SharePanel.tsx",
         "anchor": "/desktop/sending#share-the-code-or-link",
@@ -3764,6 +4079,13 @@
         "source": "desktop/frontend/src/components/HistoryView.tsx",
         "anchor": "/desktop/receiving#history",
         "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Sep",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": null,
+        "why_no_home": "A month abbreviation that fmtEnds puts in a later day's date on a link's end line, as in \"Ends Sep 9, 2:05 PM\", not a message on its own."
     },
     {
         "surface": "desktop",
@@ -4460,9 +4782,44 @@
     },
     {
         "surface": "desktop",
+        "text": "{received} of {total}",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#while-files-arrive",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "{saved} of 1 file saved",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#messages-on-your-pc",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "{stop sentence} · {saved} of {total} {file or files} arrived",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#history",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "{time} left",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#while-files-arrive",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
         "text": "· Both people must use {host}",
         "source": "desktop/frontend/src/App.tsx",
         "anchor": "/desktop/settings#server",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "1 file arrived",
+        "source": "cli/cmd/floe/sendto.go",
+        "anchor": "/cli/send#send-through-a-request-link",
         "why_no_home": null
     },
     {
@@ -4544,6 +4901,13 @@
     },
     {
         "surface": "cli",
+        "text": "All {count} files arrived",
+        "source": "cli/cmd/floe/sendto.go",
+        "anchor": "/cli/send#send-through-a-request-link",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
         "text": "Already up to date",
         "source": "cli/cmd/floe/update.go",
         "anchor": "/cli/update#script-and-manual-installs",
@@ -4603,6 +4967,13 @@
         "text": "cannot locate current executable",
         "source": "cli/internal/selfupdate/selfupdate.go",
         "anchor": null,
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "cannot read {path}: {reason}",
+        "source": "cli/cmd/floe/sendto.go",
+        "anchor": "/cli/send#when-your-side-stops-it",
         "why_no_home": null
     },
     {
@@ -4796,6 +5167,13 @@
     },
     {
         "surface": "cli",
+        "text": "Connection lost. {arrived} of 1 file arrived. Ask them for a new link to send it.",
+        "source": "cli/cmd/floe/sendto.go",
+        "anchor": "/cli/send#messages-from-floe-send-to",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
         "text": "Connection lost. {a} of {n} files arrived. Ask them for a new link to send the other one.",
         "source": "cli/cmd/floe/sendto.go",
         "anchor": "/cli/send#messages-from-floe-send-to",
@@ -4806,13 +5184,6 @@
         "text": "Connection lost. {a} of {n} files arrived. Ask them for a new link to send the other {k}.",
         "source": "cli/cmd/floe/sendto.go",
         "anchor": "/cli/send#messages-from-floe-send-to",
-        "why_no_home": null
-    },
-    {
-        "surface": "cli",
-        "text": "Connection lost. {n} of {n} file arrived. Ask them for a new link to send it.",
-        "source": "cli/cmd/floe/sendto.go",
-        "anchor": null,
         "why_no_home": null
     },
     {
@@ -5664,6 +6035,13 @@
     },
     {
         "surface": "cli",
+        "text": "Sending",
+        "source": "cli/cmd/floe/sendto.go",
+        "anchor": "/cli/send#send-through-a-request-link",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
         "text": "server returned {n} when registering code",
         "source": "cli/engine/code/client.go",
         "anchor": "/troubleshooting#warning-could-not-generate-short-code",
@@ -5766,6 +6144,13 @@
         "source": "cli/engine/peer/setuperror.go",
         "anchor": "/troubleshooting#the-other-side-left-before-the-connection-was-established",
         "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "the request-link send ended; its outcome is printed above",
+        "source": "cli/cmd/floe/sendto.go",
+        "anchor": null,
+        "why_no_home": "The internal error floe send --to returns once it has printed its outcome lines, which main never prints and only turns into exit status 1."
     },
     {
         "surface": "cli",
@@ -6126,9 +6511,23 @@
     },
     {
         "surface": "cli",
+        "text": "{arrived} of 1 file arrived.",
+        "source": "cli/cmd/floe/sendto.go",
+        "anchor": "/cli/send#messages-from-floe-send-to",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
         "text": "{dir} is not writable; requesting sudo to install the update...",
         "source": "cli/internal/selfupdate/install.go",
         "anchor": null,
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "{saved} of 1 file was saved.",
+        "source": "cli/cmd/floe/sendto.go",
+        "anchor": "/cli/send#messages-from-floe-send-to",
         "why_no_home": null
     },
     {

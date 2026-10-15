@@ -57,14 +57,16 @@
  * JSX block there may close many lines later, and telling that from a stray
  * tag needs the real compiler.
  *
- * Why the last five checks only report: `readability`, `pagestandard`,
- * `glossary`, `messages` and `captures` each measure something the docs were
- * not clear of on the day the check was written (2026-10-14: 85 sentences of
- * more than 35 words on the pages people read, 280 messages with no docs
- * heading that explains them, no picture with its strings recorded). A check
- * that failed on its first day would have been switched off, so each prints
- * NOTE lines until the docs are cleared and one constant is flipped. The
- * section they share, near the end of this file, says how.
+ * The last five checks, `readability`, `pagestandard`, `glossary`,
+ * `messages` and `captures`, each measured something the docs were not clear
+ * of on the day it was written (2026-10-14: 85 sentences of more than 35 words
+ * on the pages people read, 280 messages with no docs heading that explains
+ * them, no picture with its strings recorded). A check that failed on its
+ * first day would have been switched off, so each printed NOTE lines until
+ * the docs were cleared and one constant was flipped. `pagestandard`,
+ * `messages` and `captures` were flipped on 2026-10-15; `readability` and
+ * `glossary` still only report, because what they measure is a judgment a
+ * reader makes. The section they share, near the end of this file, says how.
  *
  * Usage:
  *   node docs-check.mjs [all|links|nav|frontmatter|headings|labels|tables|env|dashes|
@@ -78,7 +80,13 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { haystack, textOccurs } from './message-match.mjs';
+import {
+    COPY_FILES,
+    copyLines,
+    haystack,
+    textOccurs,
+    uncoveredCopy,
+} from './message-match.mjs';
 import {
     INDEX_PAGE,
     MESSAGES_FILE,
@@ -1975,15 +1983,17 @@ function checkDashes(ctx) {
 }
 
 // ---------------------------------------------------------------------------
-// The report-only checks: readability, pagestandard, glossary, messages,
-// captures
+// The five checks that started report-only: readability, pagestandard,
+// glossary, messages, captures
 // ---------------------------------------------------------------------------
 
-// Each of the five checks below measures something the docs have not been
-// cleared of yet, so each prints NOTE lines and cannot fail a run. Each has
-// one constant, named <CHECK>_HARD, at the top of its section: set it to true
-// in the change that clears the docs of what the check reports, and every
-// line it prints becomes HARD (the path `tables` took in #526).
+// Each of the five checks below started out measuring something the docs had
+// not been cleared of, so it printed NOTE lines and could not fail a run. Each
+// has one constant, named <CHECK>_HARD, at the top of its section: set to
+// true in the change that cleared the docs of what the check reports, every
+// line it prints is HARD (the path `tables` took in #526). PAGESTANDARD_HARD,
+// MESSAGES_HARD and CAPTURES_HARD are true since 2026-10-15; readability and
+// glossary still report.
 //
 // A check with hundreds of notes would bury the lines of every other check,
 // and a script whose output nobody reads is the failure the header warns of.
@@ -2342,7 +2352,7 @@ function checkReadability(ctx) {
 // script can decide it. What needs a reader is not here: whether a page opens
 // by saying what the reader will have done, whether a callout is the right
 // one of the two, whether a fact is stated on the page that owns it.
-const PAGESTANDARD_HARD = false;
+const PAGESTANDARD_HARD = true;
 // The changelog describes each release in the words of its day.
 const STANDARD_EXEMPT = ['changelog'];
 // Pages that only quote the apps. The message index is generated: its words
@@ -2663,7 +2673,11 @@ function checkGlossary(ctx) {
 // (written by released-strings.mjs from the two release tags) and never to
 // the working tree. The web app and the server have no such gap, and neither
 // has a cli row typed in a file floe.one serves (`heldToRelease` says which).
-const MESSAGES_HARD = false;
+//
+// Hard since 2026-10-15: a row whose words left its file, an anchor that goes
+// nowhere, a copy line with no row, and an index page that differs from the
+// rows all fail the run. A row with no docs home does not (see below).
+const MESSAGES_HARD = true;
 
 // A source file as message-match.mjs searches it, or null when the path is
 // not a file under the root. An environment file is never opened: server/.env
@@ -2765,13 +2779,28 @@ function checkMessages(ctx) {
                 `${said}: the anchor ${row.anchor} does not exist`
             );
     }
-    // One line, not one per row: several hundred messages had no docs home
-    // on the day the file was seeded.
-    if (homeless)
-        findings.add(
-            MESSAGES_FILE,
-            `${homeless} of ${rows.length} rows have no docs anchor and no why_no_home`
-        );
+    // A row with no anchor and no reason is not a failure: it is listed on
+    // the index as Not explained yet, which is true. The count is in the
+    // closing info line, so a change that adds to it shows.
+
+    // Every copy line of a copy module has a row of that file. The module of
+    // a released app is held to the lines the snapshot recorded at its tag
+    // (a CI checkout has no tags to read); the request page's module is read
+    // from the working tree, as floe.one serves it. A tree without a module
+    // or its snapshot entry checks nothing here: the repository's own tests
+    // pin that every entry of COPY_FILES is there.
+    for (const { surface, file } of COPY_FILES) {
+        let lines = null;
+        if (heldToRelease({ surface, source: file }))
+            lines = released?.copy?.[surface]?.[file] ?? null;
+        else if (existsSync(join(ctx.root, file)))
+            lines = copyLines(read(join(ctx.root, file)), file);
+        for (const line of lines ? uncoveredCopy(lines, rows, file) : [])
+            findings.add(
+                file,
+                `“${line}” has no row of this file in messages.json: add one, with an anchor or a why_no_home`
+            );
+    }
 
     const index = ctx.pages.get(INDEX_PAGE);
     if (index) {
@@ -2808,7 +2837,7 @@ function checkMessages(ctx) {
 // A string that has left all of its sources is a picture that no longer shows
 // the app. A picture of a released app (the directory is named for the
 // surface) is held to the snapshot, like a row of messages.json.
-const CAPTURES_HARD = false;
+const CAPTURES_HARD = true;
 
 function checkCaptures(ctx) {
     const findings = new Findings(ctx, 'captures', CAPTURES_HARD);

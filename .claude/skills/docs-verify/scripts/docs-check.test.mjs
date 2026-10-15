@@ -484,7 +484,7 @@ test('a straight quote that opens a table cell is HARD, and typed marks pass', (
     const typed = fresh();
     for (const line of [
         '',
-        '| Message | Meaning |',
+        '| Text | Meaning |',
         '|---|---|',
         '| “Open in your browser” | x |',
         '| Reads "Offline" at the top | y |',
@@ -495,7 +495,7 @@ test('a straight quote that opens a table cell is HARD, and typed marks pass', (
 
     const root = fresh();
     appendLine(root, 'docs/faq.mdx', '');
-    appendLine(root, 'docs/faq.mdx', '| Message | Meaning |');
+    appendLine(root, 'docs/faq.mdx', '| Text | Meaning |');
     appendLine(root, 'docs/faq.mdx', '|---|---|');
     const n = appendLine(
         root,
@@ -519,7 +519,7 @@ test('a straight quote that opens a table cell is HARD, and typed marks pass', (
 // parenthesis is drawn as an opening mark (production showed that on two
 // request-link messages before #526).
 test('a quote at a cell edge is HARD behind markup, in any cell, and when it closes after punctuation', () => {
-    const table = (row, header = '| Message | Meaning |') => {
+    const table = (row, header = '| Text | Meaning |') => {
         const root = fresh();
         appendLine(root, 'docs/faq.mdx', '');
         const h = appendLine(root, 'docs/faq.mdx', header);
@@ -559,7 +559,7 @@ test('a quote at a cell edge is HARD behind markup, in any cell, and when it clo
 test('a table drawn inside a tilde fence or a nested fence is not read as a table', () => {
     const broken = ['| A | B |', '|---|---|---|', '| 1 | 2 |'];
     const root = fresh();
-    for (const line of ['', '~~~', ...broken, '~~~', '', '````md', '```', ...broken, '```', '````'])
+    for (const line of ['', '~~~text', ...broken, '~~~', '', '````md', '```', ...broken, '```', '````'])
         appendLine(root, 'docs/faq.mdx', line);
     const r = run(root);
     assert.equal(r.status, 0, r.out);
@@ -1095,7 +1095,8 @@ test('a raw "<" in a heading is HARD, and the escaped, code, fenced, valid and f
 });
 
 // ---------------------------------------------------------------------------
-// The report-only checks: readability, pagestandard, glossary, captures.
+// The checks that started report-only: readability, pagestandard, glossary,
+// captures. pagestandard and captures are hard since 2026-10-15.
 //
 // Each test builds a tree of its own with only the pages it names and runs
 // one check, so nothing in the repository's docs can move a result. The real
@@ -1149,6 +1150,7 @@ function only(check, root) {
         out,
         lines,
         notes: lines.filter((l) => l.startsWith(`NOTE  ${check}  `)),
+        hard: lines.filter((l) => l.startsWith(`HARD  ${check}  `)),
         info: lines.filter((l) => l.startsWith(`info  ${check}  `)),
     };
 }
@@ -1411,7 +1413,7 @@ test('a report-only check prints 15 notes in an `all` run and says how to see th
 
 test('pagestandard: callouts, components, frontmatter keys, the opening, and what a page must carry', () => {
     const kinds = (mdx, name = 'docs/faq.mdx') =>
-        only('pagestandard', small({ [name]: mdx })).notes.map((l) =>
+        only('pagestandard', small({ [name]: mdx })).hard.map((l) =>
             l.split('  ').slice(2).join('  ')
         );
     const at = (mdx, text) => `docs/faq.mdx:${lineOf(mdx, text)}`;
@@ -1537,8 +1539,9 @@ test('pagestandard: every troubleshooting H3 carries an explicit id, and the cha
         'pagestandard',
         small({ 'docs/troubleshooting.mdx': mdx, 'docs/faq.mdx': mdx })
     );
-    assert.deepEqual(r.notes, [
-        `NOTE  pagestandard  docs/troubleshooting.mdx:${lineOf(mdx, '### Offline')}  id: a troubleshooting H3 has no explicit {#id}`,
+    assert.equal(r.status, 1, r.out);
+    assert.deepEqual(r.hard, [
+        `HARD  pagestandard  docs/troubleshooting.mdx:${lineOf(mdx, '### Offline')}  id: a troubleshooting H3 has no explicit {#id}`,
     ]);
 
     const log = [
@@ -1554,7 +1557,7 @@ test('pagestandard: every troubleshooting H3 carries an explicit id, and the cha
         '',
     ].join('\n');
     assert.deepEqual(
-        only('pagestandard', small({ 'docs/changelog.mdx': log })).notes,
+        only('pagestandard', small({ 'docs/changelog.mdx': log })).hard,
         []
     );
 });
@@ -1706,12 +1709,12 @@ test('captures: a shot with no strings is summarized, and a recorded string must
             [`${REFS}/released-strings.json`]: `${JSON.stringify({ refs: { cli: 'v1.11.0', desktop: 'desktop-v0.3.0' }, cli: {}, desktop: { 'desktop/frontend/src/App.tsx': ['Request link'] } })}\n`,
         })
     );
-    assert.equal(r.status, 0, r.out);
-    assert.deepEqual(r.notes, [
-        'NOTE  captures  docs/images/desktop/capture-manifest.json  receive.png: \u201cSave to\u201d is not in the snapshot of desktop-v0.3.0 for desktop/frontend/src/App.tsx',
-        'NOTE  captures  docs/images/web/capture-manifest.json  01-send.png: \u201cA label that was renamed\u201d is in none of client/components/Card.tsx, client/lib/copy.ts',
-        'NOTE  captures  docs/images/web/capture-manifest.json  04-loose.png: strings are recorded with no sources to hold them to',
-        'NOTE  captures  docs/images/web/capture-manifest.json  2 of 4 shots record no strings: 02-share.png, 03-wait.png',
+    assert.equal(r.status, 1, r.out);
+    assert.deepEqual(r.hard, [
+        'HARD  captures  docs/images/desktop/capture-manifest.json  receive.png: \u201cSave to\u201d is not in the snapshot of desktop-v0.3.0 for desktop/frontend/src/App.tsx',
+        'HARD  captures  docs/images/web/capture-manifest.json  01-send.png: \u201cA label that was renamed\u201d is in none of client/components/Card.tsx, client/lib/copy.ts',
+        'HARD  captures  docs/images/web/capture-manifest.json  04-loose.png: strings are recorded with no sources to hold them to',
+        'HARD  captures  docs/images/web/capture-manifest.json  2 of 4 shots record no strings: 02-share.png, 03-wait.png',
     ]);
 });
 

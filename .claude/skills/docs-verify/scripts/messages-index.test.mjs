@@ -14,6 +14,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
+    existsSync,
     mkdirSync,
     mkdtempSync,
     readFileSync,
@@ -27,6 +28,9 @@ import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
 import { headingSlugs } from './docs-check.mjs';
 import {
+    COPY_FILES,
+    copyLines,
+    findTemplate,
     findText,
     haystack,
     staticFragments,
@@ -40,7 +44,11 @@ import {
     seedRows,
     sourcePaths,
 } from './messages-seed.mjs';
-import { buildSnapshot } from './released-strings.mjs';
+import {
+    RELEASED_FILE,
+    buildSnapshot,
+    heldToRelease,
+} from './released-strings.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CHECK = join(HERE, 'docs-check.mjs');
@@ -179,11 +187,13 @@ test('static fragments: placeholders, an error that wraps another, and a sentenc
 });
 
 test('a text that is not typed whole passes on two parts of 8 characters or one of 20, and on nothing less', () => {
+    // Sources where no one literal carries the message, so only the
+    // fragment rule can find it: the parts are joined around variables.
     const hay = haystack(
-        'fmt.Errorf("connection closed after %d of %d files", a, b); fmt.Errorf("cannot walk %s: %w", dir, err)'
+        'return errors.New("connection closed after " + strconv.Itoa(a) + " files"); errors.New("cannot walk")'
     );
     // Two parts of eight or more, and one such part alone.
-    const two = haystack('`Sent ${n} files to ${peer} just now`');
+    const two = haystack("'Sent ' + n + ' files to ' + peer + ' just now'");
     assert.ok(textOccurs('Sent {n} files to {peer} just now', two));
     assert.equal(textOccurs('Sent {n} files to {peer}', two), false);
     // One part of twenty or more.
@@ -194,6 +204,46 @@ test('a text that is not typed whole passes on two parts of 8 characters or one 
     assert.equal(textOccurs('cannot walk {folder}: {cause}', hay), false);
     // Whole text, any length.
     assert.ok(textOccurs('cannot walk', hay));
+});
+
+test('a text whose changing parts sit in one literal is found whole, each placeholder standing for one source placeholder', () => {
+    const go = haystack(
+        'fmt.Printf("  Peer version: %s\\n", v); fmt.Printf("Update available: %s -> %s\\n", a, b); fmt.Errorf("cannot walk %s: %w", dir, err)'
+    );
+    // Static words too short for the fragment rule, found as a template.
+    assert.equal(findText(go, 'Peer version: {version}'), -1);
+    assert.ok(findTemplate(go, 'Peer version: {version}') >= 0);
+    assert.ok(textOccurs('Update available: {current} -> {latest}', go));
+    assert.ok(textOccurs('cannot walk {folder}: {cause}', go));
+    // A template literal, an interpolation that is a call included.
+    const ts = haystack(
+        '? `${formatBytes(model.size)} in ${formatETA(seconds)}.`'
+    );
+    assert.ok(textOccurs('{size} in {duration}.', ts));
+    // A shell string that prints ${HOME} for the reader to copy.
+    const sh = haystack(
+        'echo "  echo \'export PATH=\\"\\${HOME}/.local/bin:\\${PATH}\\"\' >> ~/${PROFILE_FILE}"'
+    );
+    assert.ok(
+        textOccurs(
+            'echo \'export PATH="${HOME}/.local/bin:${PATH}"\' >> ~/{profile file}',
+            sh
+        )
+    );
+    // The static parts must be typed side by side and in full.
+    assert.equal(findTemplate(go, 'Peer version: {version} ok'), -1);
+    assert.equal(findTemplate(go, 'Peer versions: {version}'), -1);
+    // A source word is not a placeholder.
+    assert.equal(
+        findTemplate(haystack('"Peer version: unknown"'), 'Peer version: {v}'),
+        -1
+    );
+    // A text that is all placeholders, or has none, is never a template.
+    assert.equal(findTemplate(go, '{cause}'), -1);
+    assert.equal(findTemplate(go, '{a}: {b}'), -1);
+    assert.equal(findTemplate(go, 'Peer version:'), -1);
+    // The word rule: "ion: {v}" does not start inside "version".
+    assert.equal(findTemplate(go, 'ion: {v}'), -1);
 });
 
 // ---------------------------------------------------------------------------
@@ -591,6 +641,10 @@ test('buildSnapshot keeps a cli or desktop row only when its ref has the text, e
         'v1.11.0:cli/engine/transfer/refusal.go':
             '"the drive ran out of space"',
         'desktop-v0.3.0:cli/engine/transfer/refusal.go': '"the disk is full"',
+        // The copy modules, each at its own app's tag.
+        'v1.11.0:cli/cmd/floe/sendto.go': 'lineDone = "All %d files arrived"',
+        'desktop-v0.3.0:desktop/frontend/src/requestCopy.ts':
+            "const c = { a: 'Accept', code: 'relay-cap' };",
     };
     const asked = [];
     const { snapshot, missing } = buildSnapshot({
@@ -658,6 +712,10 @@ test('buildSnapshot keeps a cli or desktop row only when its ref has the text, e
         desktop: {
             'cli/engine/transfer/refusal.go': ['the disk is full'],
             'desktop/frontend/src/errors.ts': ["That code wasn't recognized"],
+        },
+        copy: {
+            cli: { 'cli/cmd/floe/sendto.go': ['All {} files arrived'] },
+            desktop: { 'desktop/frontend/src/requestCopy.ts': ['Accept'] },
         },
     });
     assert.deepEqual(
@@ -884,7 +942,7 @@ test('messages: silent on rows that hold, and one info line when there is no mes
     assert.match(ok.out, /docs-check: 0 hard, 0 notes/);
 });
 
-test('messages: a web row whose text left its source, a missing source, and an anchor that is gone are notes', () => {
+test('messages: a web row whose text left its source, a missing source, and an anchor that is gone fail the run', () => {
     const r = check(
         tree({
             [`${REFS}/messages.json`]: json([
@@ -905,8 +963,8 @@ test('messages: a web row whose text left its source, a missing source, and an a
             'server/policy.js': "const LOG_ON = 'request links: on';\n",
         })
     );
-    assert.equal(r.status, 0, r.out);
-    const notes = r.lines.filter((l) => l.startsWith('NOTE  messages  '));
+    assert.equal(r.status, 1, r.out);
+    const notes = r.lines.filter((l) => l.startsWith('HARD  messages  '));
     assert.equal(notes.length, 4, r.out);
     assert.ok(
         notes.some(
@@ -938,7 +996,7 @@ test('messages: a web row whose text left its source, a missing source, and an a
 test('messages: a cli or desktop row is held to the snapshot of the release, never to the working tree', () => {
     const files = {
         [`${REFS}/messages.json`]: json([
-            // In the snapshot; main has since reworded it. No note.
+            // In the snapshot; main has since reworded it. Nothing printed.
             row({
                 surface: 'cli',
                 text: 'Waiting for peer...',
@@ -946,7 +1004,7 @@ test('messages: a cli or desktop row is held to the snapshot of the release, nev
                 anchor: null,
                 why_no_home: 'a status line',
             }),
-            // In the working tree, not in the release. A note.
+            // In the working tree, not in the release. A failure.
             row({
                 surface: 'cli',
                 text: 'Waiting for the other side...',
@@ -982,8 +1040,8 @@ test('messages: a cli or desktop row is held to the snapshot of the release, nev
         'client/public/install.sh': 'echo "Checksum verified."\n',
     };
     const r = check(tree(files));
-    assert.equal(r.status, 0, r.out);
-    const notes = r.lines.filter((l) => l.startsWith('NOTE  messages  '));
+    assert.equal(r.status, 1, r.out);
+    const notes = r.lines.filter((l) => l.startsWith('HARD  messages  '));
     assert.equal(notes.length, 2, r.out);
     assert.ok(
         notes.some(
@@ -1002,17 +1060,17 @@ test('messages: a cli or desktop row is held to the snapshot of the release, nev
         r.out
     );
 
-    // With no snapshot at all the rows cannot be judged: one note says so.
+    // With no snapshot at all the rows cannot be judged: one line says so.
     delete files[`${REFS}/released-strings.json`];
     const bare = check(tree(files));
     const bareNotes = bare.lines.filter((l) =>
-        l.startsWith('NOTE  messages  ')
+        l.startsWith('HARD  messages  ')
     );
     assert.equal(bareNotes.length, 1, bare.out);
     assert.match(bareNotes[0], /released-strings\.json/);
 });
 
-test('messages: rows with no docs home and no reason are one summary line, not a note each', () => {
+test('messages: rows with no docs home and no reason fail nothing, and are counted in the info line', () => {
     const r = check(
         tree({
             [`${REFS}/messages.json`]: json([
@@ -1030,11 +1088,138 @@ test('messages: rows with no docs home and no reason are one summary line, not a
     );
     assert.equal(r.status, 0, r.out);
     assert.deepEqual(
-        r.lines.filter((l) => l.startsWith('NOTE')),
+        r.lines.filter((l) => l.startsWith('NOTE') || l.startsWith('HARD')),
+        []
+    );
+    assert.ok(
+        r.lines.some(
+            (l) =>
+                l.startsWith('info  messages  ') &&
+                l.includes('2 with no docs anchor and no reason')
+        ),
+        r.out
+    );
+});
+
+test('messages: every copy line of a copy module needs a row of that file, read from the snapshot for a released app', () => {
+    const files = {
+        [`${REFS}/messages.json`]: json([
+            // Covers two lines of the page's module: a title and its body.
+            row({
+                surface: 'web-request',
+                text: 'Relayed drops are capped at 2 GB. Nothing was sent.',
+                source: 'client/lib/request/visitorCopy.ts',
+                anchor: null,
+                why_no_home: 'fixture',
+            }),
+            // Another file's row covers nothing here.
+            row({
+                surface: 'web',
+                text: 'Send 2 GB or less.',
+                anchor: null,
+                why_no_home: 'fixture',
+            }),
+            row({
+                surface: 'desktop',
+                text: 'Accept',
+                source: 'desktop/frontend/src/requestCopy.ts',
+                anchor: null,
+                why_no_home: 'fixture',
+            }),
+        ]),
+        'client/components/Card.tsx': '<p>Send 2 GB or less.</p>\n',
+        'client/lib/request/visitorCopy.ts': [
+            "import { x } from './visitorState';",
+            'export const copy = {',
+            "    title: 'Relayed drops are capped at 2 GB.',",
+            "    body: 'Nothing was sent.',",
+            "    hint: 'Send 2 GB or less.',",
+            "    code: 'relay-cap',",
+            '};',
+            '',
+        ].join('\n'),
+        // main's module: the snapshot of the release is what counts.
+        'desktop/frontend/src/requestCopy.ts': "const a = 'Not released';\n",
+        [`${REFS}/released-strings.json`]: json({
+            refs: { cli: 'v1.11.0', desktop: 'desktop-v0.3.0' },
+            cli: {},
+            desktop: {
+                'desktop/frontend/src/requestCopy.ts': ['Accept'],
+            },
+            copy: {
+                cli: {},
+                desktop: {
+                    'desktop/frontend/src/requestCopy.ts': [
+                        'Accept',
+                        'Saved {} files',
+                    ],
+                },
+            },
+        }),
+    };
+    const r = check(tree(files));
+    assert.equal(r.status, 1, r.out);
+    assert.deepEqual(
+        r.lines.filter((l) => l.startsWith('HARD  messages  ')),
         [
-            `NOTE  messages  ${REFS}/messages.json  2 of 3 rows have no docs anchor and no why_no_home`,
+            'HARD  messages  client/lib/request/visitorCopy.ts  “Send 2 GB or less.” has no row of this file in messages.json: add one, with an anchor or a why_no_home',
+            'HARD  messages  desktop/frontend/src/requestCopy.ts  “Saved {} files” has no row of this file in messages.json: add one, with an anchor or a why_no_home',
         ]
     );
+});
+
+test('copyLines: a copy module read as its reader sees it, codes and paths left out', () => {
+    const ts = copyLines(
+        [
+            "import { a } from '../transferUtils';",
+            '// A comment that says \'Not copy\'.',
+            '/* Nor this: "Not copy" */',
+            "const re = /it's [\"'] not a string/g;",
+            'export const copy = {',
+            "    code: 'relay-cap',",
+            "    KEY: 'RELAY_CAP',",
+            "    one: 'Can\\'t send that',",
+            '    many: `Sent ${n} of ${total}${label ? ` · ${label} saved` : \'\'}`,',
+            "    pct: '100% done',",
+            "    again: 'Can\\'t send that',",
+            '};',
+        ].join('\n'),
+        'client/lib/request/visitorCopy.ts'
+    );
+    // A template inside an interpolation ends first, so it comes first.
+    assert.deepEqual(ts, [
+        "Can't send that",
+        '· {} saved',
+        'Sent {} of {}{}',
+        '100% done',
+    ]);
+    const go = copyLines(
+        [
+            'import "github.com/pion/webrtc/v4"',
+            'const (',
+            '\tlineDone = "All %d files arrived" // a comment',
+            '\tlineRaw  = `Saved to %s\\n`',
+            '\tlineFmt  = "%s: %w"',
+            ')',
+        ].join('\n'),
+        'cli/cmd/floe/sendto.go'
+    );
+    assert.deepEqual(go, ['All {} files arrived', 'Saved to {}\\n']);
+});
+
+test('every copy module exists, and the snapshot holds the copy lines of each released one', () => {
+    const repo = join(HERE, '..', '..', '..', '..');
+    const snapshot = JSON.parse(
+        readFileSync(join(repo, RELEASED_FILE), 'utf8')
+    );
+    for (const { surface, file } of COPY_FILES) {
+        assert.ok(existsSync(join(repo, file)), `${file} is gone`);
+        if (heldToRelease({ surface, source: file }))
+            assert.ok(
+                snapshot.copy?.[surface]?.[file]?.length > 0,
+                `no copy lines of ${file} in ${RELEASED_FILE}`
+            );
+    }
 });
 
 test('messages: docs/messages.mdx is compared with what the generator prints, whatever its line ends', () => {
@@ -1062,7 +1247,8 @@ test('messages: docs/messages.mdx is compared with what the generator prints, wh
             'docs/messages.mdx': fresh.replace('Link Invalid', 'Link Expired'),
         })
     );
-    const notes = stale.lines.filter((l) => l.startsWith('NOTE  messages  '));
+    assert.equal(stale.status, 1, stale.out);
+    const notes = stale.lines.filter((l) => l.startsWith('HARD  messages  '));
     assert.equal(notes.length, 1, stale.out);
     assert.match(
         notes[0],
