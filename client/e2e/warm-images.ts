@@ -21,6 +21,13 @@
  * and the wait was raised from 15 s to 60 s, which changed nothing, because
  * the image was never coming.
  *
+ * Next 16.4.0 fixed it upstream (vercel/next.js#98168, issue #96538). Measured
+ * 2026-10-15 under `next start`: six fresh starts whose first image request
+ * was dropped at the socket at once left the address unanswered past 30 s on
+ * 16.3.8 every time, and answered within 112 ms on 16.4.0 every time. The
+ * warm-up stays: it is one request per picture, it keeps the suite from
+ * resting on that fix, and no test pays for a cold resize.
+ *
  * An image that is already in the optimizer's cache is not affected: forty
  * requests abandoned within 3 ms of a cached address left it answering in
  * 3 ms. So nothing here stops a test from closing a page. It makes sure no

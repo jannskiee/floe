@@ -9,7 +9,10 @@
 // the same address had no answer 330 s later. An image already in the cache
 // is not affected. So nothing a visitor does can leave a picture unanswerable
 // once this has asked for each one first, and patiently: this never abandons a
-// request itself.
+// request itself. Next 16.4.0 fixed the stall upstream (vercel/next.js#98168;
+// e2e/warm-images.ts holds the before-and-after measurement). The warm-up
+// stays as a cheap guard, and it spares each picture's first visitor the
+// resize.
 //
 // The e2e suite has warmed the same way since #577 (e2e/warm-images.ts, which
 // holds the measurement). That file may import nothing, so the logic is
