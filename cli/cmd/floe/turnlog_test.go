@@ -45,14 +45,16 @@ func pionLevelChosen() bool {
 	return false
 }
 
-// turncErrorLine is the TURN client's ERROR line as pion/turn v5.0.13 writes
+// turncErrorLine is the TURN client's ERROR line as pion/turn v5.1.2 writes
 // it when a permission refresh gets an error response, the reason quoted.
 const turncErrorLine = "Fail to refresh permissions: %s"
 
-// TestTURNClientLogIsQuietFromTheStart: from process start, pion's default
-// logger factory, the one pion/ice v4.4.0 gives its TURN client, prints
-// nothing for the "turnc" scope, while every other scope keeps pion's default
-// ERROR level. Before, it printed the TURN client's ERROR line, reason and all.
+// TestTURNClientLogIsQuietFromTheStart: from process start, a factory built
+// from pion's default, as peer.New builds the one pion/webrtc hands the ICE
+// agent and so its TURN client, prints nothing for the "turnc" scope, while
+// every other scope keeps pion's default ERROR level. The line would arrive
+// escaped (TestNoPionLoggerBypassesTheLoggerFactory in engine/peer); floe
+// keeps it off as noise.
 func TestTURNClientLogIsQuietFromTheStart(t *testing.T) {
 	if pionLevelChosen() {
 		t.Skip("a PION_LOG_* or PIONS_LOG_* level is set for this run, and floe leaves those alone")
@@ -60,7 +62,7 @@ func TestTURNClientLogIsQuietFromTheStart(t *testing.T) {
 	var buf bytes.Buffer
 	f := logging.NewDefaultLoggerFactory()
 	f.Writer = &buf
-	f.NewLogger("turnc").Errorf(turncErrorLine, "CreatePermission error response (error 403: \x1b[2J)")
+	f.NewLogger("turnc").Errorf(turncErrorLine, "CreatePermission error response (error 403: Forbidden)")
 	if buf.Len() != 0 {
 		t.Fatalf("pion's default factory printed the TURN client's ERROR line: %q", buf.String())
 	}
@@ -111,14 +113,15 @@ const forgedReason = "\x1b]52;c;U0tFUFRJQw==\x07\x1b[2J\r\n  Floe: forged line f
 // party: it forwards everything, one upstream socket per client as a NAT
 // would, and from a minute on answers every CreatePermission request itself
 // with a 403 on the request's transaction id and forgedReason. pion/turn
-// takes it, and its ERROR line quotes the reason; nothing of it may reach
-// stderr raw.
+// takes it, and its ERROR line quotes the reason. floe keeps the "turnc"
+// scope off as noise, so with no pion level set the line never reaches
+// stderr. With one set (PION_LOG_ERROR=all adds the least) floe leaves the
+// scope on, and the line must arrive through the escaping factory pion/webrtc
+// hands the ICE agent's TURN client, every control in the reason written
+// visibly. Either way nothing of it may reach stderr raw.
 func TestForgedTURNRefreshErrorReachesNoTerminal(t *testing.T) {
 	if os.Getenv("FLOE_TEST_TURN_REFRESH") != "1" {
 		t.Skip("set FLOE_TEST_TURN_REFRESH=1 to run this two-minute test")
-	}
-	if pionLevelChosen() {
-		t.Skip("a PION_LOG_* or PIONS_LOG_* level is set for this run, and floe leaves those alone")
 	}
 	ip := turnTestIP(t)
 	shimAddr, srvAddr, user, pass, sh := forgingTURN(t, ip, time.Minute)
@@ -202,6 +205,13 @@ func TestForgedTURNRefreshErrorReachesNoTerminal(t *testing.T) {
 		t.Fatal("no permission refresh reached the shim after the first minute, so the run shows nothing")
 	}
 	requireNoRawControl(t, "stderr after a forged TURN refresh error", out)
+	escaped := strings.Contains(out, "turnc ERROR: ") && strings.Contains(out, "Fail to refresh permissions: ") && strings.Contains(out, peer.EscapeText(forgedReason))
+	switch {
+	case pionLevelChosen() && !escaped:
+		t.Error("a pion level is set, so the TURN client's refresh error should have reached stderr with the forged reason escaped, and it did not (is turnc in this run's PION_LOG_DISABLE?)")
+	case !pionLevelChosen() && strings.Contains(out, "Fail to refresh permissions"):
+		t.Error("the TURN client's refresh error reached stderr with no pion level set, though floe keeps the turnc scope off")
+	}
 }
 
 // turnTestIP is FLOE_TEST_TURN_IP, or the first private IPv4 address of an

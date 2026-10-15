@@ -1,12 +1,13 @@
 package peer
 
-// Which pion loggers write around newLoggerFactory (FU-40 review L1).
+// No pion logger writes around newLoggerFactory (FU-40 review L1), the TURN
+// client's included (FU-32 F2-1).
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
-	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -18,27 +19,37 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
-// bypassLine is the only kind of line allowed on pion's default route: the
-// mDNS server's "mdns" logger and the TURN client's "turnc", which pion/ice
-// v4.4.0 builds from its own default factory (logging.go). The DTLS client for
-// TURN over DTLS logs as "dtls" on that route too, but this pairing has no
-// TURN server, so a dtls line there would be something new.
-var bypassLine = regexp.MustCompile(`^(mdns|turn[a-z]*) (TRACE|DEBUG|INFO|WARNING|ERROR): `)
-
 // bypassProbeScope names a default-factory logger the test builds itself,
 // after New, to show that the pipe it reads is the one the default route
 // writes to.
 const bypassProbeScope = "floeprobe"
 
-// TestOnlyMDNSAndTURNBypassTheLoggerFactory (FU-40 review L1) pairs two real
-// connections on 127.0.0.1 at PION_LOG_TRACE=all, so that every pion logger
+// turnClientScope starts every line pion/turn's client logger writes, at any
+// level.
+const turnClientScope = "turnc "
+
+// TestNoPionLoggerBypassesTheLoggerFactory (FU-40 review L1, FU-32 F2-1)
+// pairs two real connections at PION_LOG_TRACE=all, so that every pion logger
 // that exists speaks, while the sender's socket trickles hostileUfrags to the
-// receiver. peer.New hands pion the os.Stderr of the moment, so both News run
-// with stderr on one pipe (the factory's writer) and the pairing runs with it
-// on a second, where anything built from pion's default factory after New
-// writes. The second pipe may carry mdns and turn lines and nothing else, and
-// neither pipe may carry a raw control.
-func TestOnlyMDNSAndTURNBypassTheLoggerFactory(t *testing.T) {
+// receiver. The sender also has a TURN server on its list, so its ICE agent
+// makes a TURN client, whose "turnc" logger writes pion/turn's "Fail to
+// refresh permissions" ERROR line: that line quotes the reason phrase of a
+// TURN error response, which anyone on the UDP path to the server can forge,
+// since pion/turn checks no integrity on it. The server is a loopback socket
+// that never answers (silentTURN): the client logs as it starts and before
+// its first request leaves, and the factory it was handed decides where those
+// lines go.
+//
+// peer.New hands pion the os.Stderr of the moment, so both News run with
+// stderr on one pipe (the factory's writer) and the pairing runs with it on a
+// second, where anything built from pion's default factory after New writes.
+// The second pipe may carry nothing but the probe, the turnc lines must be on
+// the first, and neither pipe may carry a raw control. pion/ice v4.4.0 failed
+// this: its WithLoggerFactory set only the agent's own logger, so the agent
+// gave its mDNS server and its TURN client pion's default factory. pion/ice
+// v4.4.3 (pion/ice#976) hands them the one pion/webrtc passes it, the setting
+// engine's.
+func TestNoPionLoggerBypassesTheLoggerFactory(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping an ICE loopback pairing in -short mode")
 	}
@@ -49,6 +60,7 @@ func TestOnlyMDNSAndTURNBypassTheLoggerFactory(t *testing.T) {
 	}
 	t.Setenv("PION_LOG_TRACE", "all")
 
+	turnServer := silentTURN(t)
 	url := pairRelay(t)
 	sender := joinRelay(t, url, "sender")
 	receiver := joinRelay(t, url, "receiver")
@@ -59,7 +71,11 @@ func TestOnlyMDNSAndTURNBypassTheLoggerFactory(t *testing.T) {
 	}
 
 	viaFactory := captureStderr(t)
-	connS, err := New(nil, sender)
+	connS, err := New([]webrtc.ICEServer{{
+		URLs:       []string{"turn:" + turnServer + "?transport=udp"},
+		Username:   "floe",
+		Credential: "floe",
+	}}, sender)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -106,7 +122,13 @@ func TestOnlyMDNSAndTURNBypassTheLoggerFactory(t *testing.T) {
 		t.Fatal("the first message never crossed")
 	}
 	const dropped = 6 // the hostileUfrags pion can parse (logging_test.go)
-	for deadline := time.Now().Add(5 * time.Second); strings.Count(viaFactory.String(), "dropping candidate") < dropped && time.Now().Before(deadline); {
+	// The TURN client writes to whichever pipe its factory holds, so the wait
+	// reads both: a turnc line on the second is what this test reports.
+	turnClientSpoke := func() bool {
+		return strings.Contains(viaFactory.String(), turnClientScope) ||
+			strings.Contains(aroundFactory.String(), turnClientScope)
+	}
+	for deadline := time.Now().Add(5 * time.Second); (strings.Count(viaFactory.String(), "dropping candidate") < dropped || !turnClientSpoke()) && time.Now().Before(deadline); {
 		time.Sleep(20 * time.Millisecond)
 	}
 	closeAndWait(t, connS) // and whatever closing still logs
@@ -121,9 +143,7 @@ func TestOnlyMDNSAndTURNBypassTheLoggerFactory(t *testing.T) {
 		if line == "" || strings.HasPrefix(line, bypassProbeScope+" ") {
 			continue
 		}
-		if !bypassLine.MatchString(line) {
-			t.Errorf("a pion logger other than mdns or turn writes around the factory: %q", line)
-		}
+		t.Errorf("a pion logger writes around the factory: %q", line)
 	}
 	for name, out := range map[string]string{"the factory's pipe": via, "the default route": around} {
 		if bad := firstUnsafe(out); bad != "" {
@@ -136,6 +156,22 @@ func TestOnlyMDNSAndTURNBypassTheLoggerFactory(t *testing.T) {
 	if n := strings.Count(via, "dropping candidate"); n < dropped {
 		t.Errorf("the factory's pipe holds %d dropped candidates, want %d", n, dropped)
 	}
+	if !strings.Contains(via, turnClientScope) {
+		t.Errorf("no turnc line came through the factory, so the TURN client's ERROR line would reach the terminal unescaped")
+	}
+}
+
+// silentTURN is a TURN server address on the loopback that takes datagrams
+// and never answers, so a TURN client made for it starts and asks, and
+// nothing leaves this machine.
+func silentTURN(t *testing.T) string {
+	t.Helper()
+	conn, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("TURN socket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	return conn.LocalAddr().String()
 }
 
 // pairRelay serves /ws on 127.0.0.1 with the two parts of server.js a pairing

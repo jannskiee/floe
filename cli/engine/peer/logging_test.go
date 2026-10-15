@@ -240,7 +240,11 @@ func TestLogLineWriterKeepsOnlyTheLineEnd(t *testing.T) {
 // default does (ERROR when none is set, a scope list, or "all"), so the transfer
 // audit's PION_LOG_TRACE=ice route evidence still prints, now escaped; and
 // every scope pion asks it for (pc, ice, DTLS, SCTP, data channel, mux, the
-// interceptors) writes through the same escape.
+// interceptors, and the mDNS server and TURN client the ICE agent makes)
+// writes through the same escape. That includes the TURN client's ERROR line
+// for a permission refresh that got an error response, whose reason phrase
+// anyone on the UDP path to the TURN server can forge (FU-32 F2-1);
+// logging_bypass_test.go shows the client's logger comes from this factory.
 func TestLoggerFactoryKeepsPionLevels(t *testing.T) {
 	for _, prefix := range []string{"PION_LOG_", "PIONS_LOG_"} {
 		for _, level := range []string{"DISABLE", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"} {
@@ -252,11 +256,15 @@ func TestLoggerFactoryKeepsPionLevels(t *testing.T) {
 	f := newLoggerFactory(&buf)
 	f.NewLogger("ice").Tracef("remote candidate %s", "\x1b[2J")
 	f.NewLogger("pc").Tracef("hidden at the default level %s", "x")
-	scopes := []string{"pc", "ice", "DTLSTransport", "dtls", "sctp", "datachannel", "ortc", "mux", "api", "nack_generator"}
+	scopes := []string{"pc", "ice", "DTLSTransport", "dtls", "sctp", "datachannel", "ortc", "mux", "api", "nack_generator", "mdns", "turnc"}
 	for _, scope := range scopes {
 		f.NewLogger(scope).Errorf("%s logs %s", scope, "\x1b]52;c;ZWNobyBwd25lZA==\x07")
 	}
+	f.NewLogger("turnc").Errorf("Fail to refresh permissions: %s", "CreatePermission error response (error 403: \x1b[2J\r\nFloe: forged)")
 	got := buf.String()
+	if !strings.Contains(got, `turnc ERROR: `) || !strings.Contains(got, `Fail to refresh permissions: CreatePermission error response (error 403: \x1b[2J\x0d\x0aFloe: forged)`) {
+		t.Errorf("the TURN client's refresh error did not come through the escape whole: %q", got)
+	}
 	if bad := firstUnsafe(got); bad != "" {
 		t.Fatalf("the factory wrote %s raw: %q", bad, got)
 	}

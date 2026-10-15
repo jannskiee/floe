@@ -215,8 +215,8 @@ func New(iceServers []webrtc.ICEServer, sc *signaling.Client, opts ...Option) (*
 		se.SetInterfaceFilter(f)
 	}
 	// pion's loggers write through newLoggerFactory, which escapes the
-	// terminal controls a peer can put in a log line. logging.go names the
-	// three that pion/ice still builds from its own default factory.
+	// terminal controls a peer can put in a log line. pion/webrtc hands it to
+	// the ICE agent too, whose TURN client logs through it (logging.go).
 	se.LoggerFactory = newLoggerFactory(os.Stderr)
 	api := webrtc.NewAPI(webrtc.WithSettingEngine(se))
 

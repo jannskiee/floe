@@ -1,9 +1,9 @@
 package main
 
-// pion log scopes turned off from the environment: a stopgap for the one pion
-// logger that floe cannot route through its own escaping factory (FU-32
-// F2-1), and the peer connection's and the data channel's on the
-// request-link send (FU-32 F2-2, FU-46 review 1 L1).
+// pion log scopes turned off from the environment: the packet mux's and the
+// TURN client's for every command, as noise (deep QA QA-07, FU-32 F2-1), and
+// the peer connection's and the data channel's on the request-link send
+// (FU-32 F2-2, FU-46 review 1 L1).
 
 import (
 	"os"
@@ -17,45 +17,10 @@ import (
 // value counts as unset there, and so here.
 var pionEnablingLevels = [...]string{"ERROR", "WARN", "INFO", "DEBUG", "TRACE"}
 
-// quietTURNClientLog disables pion's "turnc" scope unless the person running
-// floe has turned a pion log level on.
-//
-// pion/ice v4.4.0 gives its TURN client pion's DEFAULT logger factory, not the
-// escaping one peer.New hands pion/webrtc (engine/peer/logging.go), so the
-// client's lines reach stderr as they are. Its one ERROR line, pion/turn's
-// "Fail to refresh permissions: ...", quotes the reason phrase of the TURN
-// server's error response byte for byte, and pion/turn takes any error
-// response whose transaction id matches, with no MESSAGE-INTEGRITY check. So
-// anyone on the UDP path to the TURN server, not only the server, can answer
-// the permission refresh that runs every 120 s once a relay allocation holds a
-// permission (whichever path the transfer took), and write terminal controls
-// onto the terminal of floe send or floe receive: a screen clear, an OSC 52
-// clipboard write, an OSC 8 link, lines that pass for floe's own.
-//
-// pion/ice builds that factory when it makes each ICE agent, reading the
-// environment then, so a variable set before any command runs silences the
-// "turnc" scope for the whole process. Only the TURN client logs as "turnc",
-// and nothing floe prints is one of its lines. Someone who turned a level on
-// (ERROR, WARN, INFO, DEBUG or TRACE, as PION_LOG_ or PIONS_LOG_) is
-// debugging pion, and floe leaves every pion variable as it is. That leaves
-// turnc on even when the level names other scopes only: with
-// PION_LOG_TRACE=ice, turnc logs at pion's default ERROR level, so its ERROR
-// line, the one a forged reason reaches, prints raw again. Someone who set
-// only a DISABLE variable asked for less, so turnc joins the one pion reads:
-// PION_LOG_DISABLE, or PIONS_LOG_DISABLE when that one is empty. pion
-// lower-cases the value and splits it on commas without trimming, and "all"
-// disables nothing there, so turnc is added unless one of those pieces is
-// exactly "turnc" already.
-//
-// Remove this once pion/ice hands the TURN client the setting engine's
-// factory: pion/ice v4.4.3 does (pion/ice#976), and pion/webrtc v4.2.21 is
-// the first release that requires it.
-func quietTURNClientLog() { quietPionScope("turnc") }
-
-// quietPeerConnectionLog disables pion's "pc" and "datachannel" scopes by the
-// same rule, on the request-link send only (FU-46, FU-32 F2-2, review 1 L1).
-// runSendTo calls it before it makes its peer: peer.New builds its logger
-// factory from pion's default, which reads the environment then
+// quietPeerConnectionLog disables pion's "pc" and "datachannel" scopes by
+// quietPionScope's rule, on the request-link send only (FU-46, FU-32 F2-2,
+// review 1 L1). runSendTo calls it before it makes its peer: peer.New builds
+// its logger factory from pion's default, which reads the environment then
 // (engine/peer/logging.go), and pion/webrtc hands that factory to the data
 // channels it accepts.
 //
@@ -81,11 +46,11 @@ func quietPeerConnectionLog() {
 	quietPionScope("datachannel")
 }
 
-// quietMuxLog disables pion's "mux" scope for every command by the same rule
-// (deep QA QA-07). The data channel's packet mux logs at ERROR for each
-// datagram it cannot hand on, and in one stalled send out of 38 in the QA
-// runs it printed 174 lines of "mux ERROR: failed to read from
-// packetio.Buffer short buffer" over floe's own output before the stall
+// quietMuxLog disables pion's "mux" scope for every command by
+// quietPionScope's rule (deep QA QA-07). The data channel's packet mux logs
+// at ERROR for each datagram it cannot hand on, and in one stalled send out
+// of 38 in the QA runs it printed 174 lines of "mux ERROR: failed to read
+// from packetio.Buffer short buffer" over floe's own output before the stall
 // ended it. The lines go through the escaping factory, so they could not
 // write controls, but they are pion's internals and nothing the person
 // running floe can act on; floe's own message says what happened. Someone
@@ -93,10 +58,20 @@ func quietPeerConnectionLog() {
 func quietMuxLog() { quietPionScope("mux") }
 
 // quietPionScope disables pion's scope (lower case, as pion names its own)
-// unless the person running floe has turned a pion log level on, the rule
-// quietTURNClientLog states for turnc: nothing changes while a PION_LOG_ or
-// PIONS_LOG_ ERROR, WARN, INFO, DEBUG or TRACE is set, and otherwise scope
-// joins the DISABLE variable pion reads unless pion reads it there already.
+// unless the person running floe has turned a pion log level on. pion reads
+// these variables when it builds a default factory, and peer.New builds its
+// escaping one from that default (engine/peer/logging.go), so a variable set
+// before a peer is made holds for every logger of that peer.
+//
+// Someone who turned a level on (ERROR, WARN, INFO, DEBUG or TRACE, as
+// PION_LOG_ or PIONS_LOG_) is debugging pion, and floe leaves every pion
+// variable as it is, even when the level names other scopes only: with
+// PION_LOG_TRACE=ice, scope logs at pion's default ERROR level again. Someone
+// who set only a DISABLE variable asked for less, so scope joins the one pion
+// reads: PION_LOG_DISABLE, or PIONS_LOG_DISABLE when that one is empty. pion
+// lower-cases the value and splits it on commas without trimming, and "all"
+// disables nothing there, so scope is added unless one of those pieces is
+// exactly scope already.
 func quietPionScope(scope string) {
 	for _, prefix := range [...]string{"PION_LOG_", "PIONS_LOG_"} {
 		for _, level := range pionEnablingLevels {
@@ -126,6 +101,13 @@ func quietPionScope(scope string) {
 // At process start, before main and so before any command can build a peer.
 // The test binary runs it too, which is what turnlog_test.go reads.
 func init() {
-	quietTURNClientLog()
+	// The TURN client's "turnc" scope, by quietPionScope's rule, as noise and
+	// no longer as a security stopgap: since pion/ice 4.4.3 (floe has 4.4.7
+	// since #603) the client logs through newLoggerFactory, so its lines
+	// arrive escaped (TestNoPionLoggerBypassesTheLoggerFactory pins that). Its
+	// one ERROR line, a failed permission refresh, is relay housekeeping every
+	// 120 s that the person running floe cannot act on. It runs first, as the
+	// stopgap did, so floe sets the same DISABLE value as before.
+	quietPionScope("turnc")
 	quietMuxLog()
 }

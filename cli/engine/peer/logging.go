@@ -18,30 +18,28 @@ import (
 //
 // Every logger pion/webrtc builds comes from this factory, the setting
 // engine's: pc, ice, DTLS, SCTP, the data channel, mux, api and the
-// interceptors. Several print values the remote peer chose. A trickled
-// candidate's ufrag reaches "pc ERROR: dropping candidate with ufrag %s" as it
-// came, and PION_LOG_TRACE lines carry whole remote candidates. pion's default
-// factory wrote them straight to stderr, so a peer could clear the screen,
-// plant an OSC 8 link or write the clipboard with OSC 52 on the other side's
-// terminal (review lens B M2, in every CLI release since v1.1.0 moved to
-// pion/webrtc v4, floe send and floe receive alike).
+// interceptors, and the three its ICE agent builds, the mDNS server, the TURN
+// client and the DTLS client for TURN over DTLS. Several print values the
+// remote peer chose. A trickled candidate's ufrag reaches "pc ERROR: dropping
+// candidate with ufrag %s" as it came, and PION_LOG_TRACE lines carry whole
+// remote candidates. pion's default factory wrote them straight to stderr, so
+// a peer could clear the screen, plant an OSC 8 link or write the clipboard
+// with OSC 52 on the other side's terminal (review lens B M2, in every CLI
+// release since v1.1.0 moved to pion/webrtc v4, floe send and floe receive
+// alike).
 //
-// Three loggers still skip it. pion/ice v4.4.0's WithLoggerFactory sets only
-// the agent's own logger, so the agent hands pion's default factory to its
-// mDNS server, its TURN client and the DTLS client for TURN over DTLS, and
-// those write to stderr unescaped. None of them prints a value the peer chose,
-// but the TURN client's text is not the TURN server's alone: its ERROR line,
-// "Fail to refresh permissions", quotes the reason phrase of a TURN error
-// response, and pion/turn takes that response from anyone on the UDP path to
-// the server, with no integrity check (FU-32 F2-1). The CLI silences the
-// "turnc" scope at start (cmd/floe/pionlog.go). The desktop does not yet:
-// launched the usual ways (Start menu, Explorer, its right-click entry) it has
-// no terminal, but started from a terminal that hands it pipes, such as Git
-// Bash, it would print the line there; a desktop follow-up is tracked.
-// logging_bypass_test.go fails if any other logger starts taking that route.
-// mDNS stays on all the same: the CLI needs it to resolve the .local host
-// candidates browsers send. pion/ice v4.4.3 fixes this (pion/ice#976);
-// pion/webrtc v4.2.21 is the first release that requires a fixed pion/ice.
+// The TURN client's lines are not the TURN server's alone either: its ERROR
+// line, "Fail to refresh permissions", quotes the reason phrase of a TURN
+// error response, and pion/turn takes that response from anyone on the UDP
+// path to the server, with no integrity check (FU-32 F2-1). pion/ice v4.4.0's
+// WithLoggerFactory set only the agent's own logger and gave those three
+// pion's default factory, so the line reached stderr raw, and the CLI turned
+// the "turnc" scope off at start to stop it. pion/ice v4.4.3 hands them the
+// factory pion/webrtc passes it (pion/ice#976), and pion/webrtc v4.2.21 is the
+// first release that requires it. The CLI still turns turnc off, now as noise
+// (cmd/floe/pionlog.go); a PION_LOG_ level brings the line back, escaped.
+// logging_bypass_test.go fails if any pion logger built after New, the ICE
+// agent's mDNS server and TURN client included, writes around this factory.
 func newLoggerFactory(w io.Writer) logging.LoggerFactory {
 	f := logging.NewDefaultLoggerFactory()
 	f.Writer = logLineWriter{w: w}
