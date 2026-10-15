@@ -23,14 +23,14 @@ import { DESKTOP_VERSION } from '@/lib/desktopRelease';
 // capture shows, so a set that no longer matches the app is visible in a diff:
 // the previous set carried sentences the app had already taken back.
 const STATES = [
-    { src: '/screenshots/desktop-idle-v030-2x.png', caption: 'waiting for files' },
-    { src: '/screenshots/desktop-staged-v030-2x.png', caption: '3 files staged' },
+    { src: '/screenshots/desktop-idle-v031-2x.png', caption: 'waiting for files' },
+    { src: '/screenshots/desktop-staged-v031-2x.png', caption: '3 files staged' },
     // -noqr-: shot with the QR panel collapsed. Expanded, the panel is ~770 CSS
     // px against the app's 684, so the capture baked in a scrollbar and a card
     // clipped by the bottom edge. Collapsed it fits with room to spare.
-    // The room it shows closed with the capture session on 2026-10-10, so its
-    // link and code lead nowhere.
-    { src: '/screenshots/desktop-share-noqr-v030-2x.png', caption: 'room open' },
+    // The room it shows existed only on a local test server during the capture
+    // session on 2026-10-15, so its link and code lead nowhere.
+    { src: '/screenshots/desktop-share-noqr-v031-2x.png', caption: 'room open' },
 ] as const;
 
 const FINAL = STATES.length - 1;
