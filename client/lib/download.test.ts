@@ -43,12 +43,19 @@ describe('dedupeFileName', () => {
         expect([...used]).toEqual(['file.txt', 'file (1).txt', 'file (2).txt']);
     });
 
-    it('handles dotfiles (name starts with dot)', () => {
+    it('numbers a dotfile at its end, as the Go engine does', () => {
+        // A name whose only dot is its first character has no extension, so
+        // a second .gitignore is '.gitignore (1)', not ' (1).gitignore'.
         const used = new Set(['.gitignore']);
-        // lastIndexOf('.') === 0 → base='', ext='.gitignore' → ' (1).gitignore'
-        // Matches the original inline loop behavior in P2PTransfer.tsx
-        const result = dedupeFileName('.gitignore', used);
-        expect(result).toBe(' (1).gitignore');
+        expect(dedupeFileName('.gitignore', used)).toBe('.gitignore (1)');
+        expect(dedupeFileName('.gitignore', used)).toBe('.gitignore (2)');
+        const inDir = new Set(['config/.env']);
+        expect(dedupeFileName('config/.env', inDir)).toBe('config/.env (1)');
+    });
+
+    it('keeps the last extension of a dotfile that has one', () => {
+        const used = new Set(['.env.local']);
+        expect(dedupeFileName('.env.local', used)).toBe('.env (1).local');
     });
 });
 

@@ -176,9 +176,13 @@ export function dedupeFileName(name: string, used: Set<string>): string {
     const dir = slash === -1 ? '' : name.slice(0, slash + 1);
     const leaf = slash === -1 ? name : name.slice(slash + 1);
 
+    // A name whose only dot is its first character (`.env`) has no extension,
+    // so the number goes at its end, as the Go engine's candidatePath numbers
+    // it. Read as an extension, it came out as ` (1).env`.
     const dot = leaf.lastIndexOf('.');
-    const stem = dot === -1 ? leaf : leaf.slice(0, dot);
-    const ext = dot === -1 ? '' : leaf.slice(dot);
+    const hasExt = dot > 0;
+    const stem = hasExt ? leaf.slice(0, dot) : leaf;
+    const ext = hasExt ? leaf.slice(dot) : '';
 
     let counter = 1;
     let finalName = `${dir}${stem} (${counter})${ext}`;
