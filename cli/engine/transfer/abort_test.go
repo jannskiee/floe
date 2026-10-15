@@ -723,7 +723,7 @@ func TestReceiverWriteErrorClassifiesDiskFull(t *testing.T) {
 				if !c.onSync && failing(f) {
 					return 0, c.err
 				}
-				return f.Write(b)
+				return origWrite(f, b)
 			}
 			syncPart = func(f *os.File) error {
 				if c.onSync && failing(f) {

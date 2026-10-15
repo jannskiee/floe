@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -324,12 +325,11 @@ func TestAbandonStillOwnsTheFileItIsClosing(t *testing.T) {
 }
 
 // TestParkedFilesOwnerWaitsWithoutTheMapLock: the owner of the file whose
-// Close is parked reaches its own unregister at once in production (its next
-// Write fails on the closing handle and the deferred discardPart runs). It
-// must wait on its entry alone: an unrelated file still registers and
-// unregisters while it waits. Nesting the entry lock inside partialMu (the
-// old `defer partialMu.Unlock()` shape of unregisterPartial) passes every
-// other abandon test and fails this one.
+// Close is parked can reach its own unregister while it is parked (the end
+// handler unregisters after the last chunk). It must wait on its entry alone:
+// an unrelated file still registers and unregisters while it waits. Nesting
+// the entry lock inside partialMu (the old `defer partialMu.Unlock()` shape of
+// unregisterPartial) passes every other abandon test and fails this one.
 func TestParkedFilesOwnerWaitsWithoutTheMapLock(t *testing.T) {
 	dir := t.TempDir()
 	a := claimForTest(t, filepath.Join(dir, "a.bin"))
@@ -366,6 +366,100 @@ func TestParkedFilesOwnerWaitsWithoutTheMapLock(t *testing.T) {
 	awaitClosed(t, abandoned, "the abandon")
 	if err := a.Close(); !errors.Is(err, os.ErrClosed) {
 		t.Fatalf("the owner's own Close = %v, want os.ErrClosed", err)
+	}
+}
+
+// TestAbandonWaitsForAnInFlightWrite pins the lock writePartial takes around
+// the receive loop's Write. On Go 1.26 for Windows a Close that lands inside a
+// Write can park for good (see writePartial), so an abandon must not begin
+// closing a file while its owner's Write is under way. The seam holds a Write
+// inside writePartial: the abandon must not reach that file's Close until the
+// Write returns, and then closes and removes the file as usual. A bare
+// f.Write in writePartial, or a lock dropped before the Write, fails here.
+func TestAbandonWaitsForAnInFlightWrite(t *testing.T) {
+	dir := t.TempDir()
+	a := claimForTest(t, filepath.Join(dir, "a.bin"))
+	inWrite, releaseWrite := parkWrite(t, func(f *os.File) bool { return f == a })
+	closing, releaseClose := parkClose(t, func(f *os.File) bool { return f == a })
+	registerPartial(a)
+
+	wrote := make(chan error, 1)
+	go func() {
+		_, err := writePart(a, []byte("chunk"))
+		wrote <- err
+	}()
+	awaitParked(t, inWrite, a)
+	abandoned := goAbandon()
+	select {
+	case <-closing:
+		releaseWrite()
+		releaseClose()
+		awaitClosed(t, abandoned, "the abandon")
+		t.Fatal("the abandon began closing a file while its owner's Write was under way")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	releaseWrite()
+	if err := awaitErr(t, wrote, "the held Write"); err != nil {
+		t.Fatalf("the held Write = %v, want nil: it began before the abandon", err)
+	}
+	awaitParked(t, closing, a)
+	releaseClose()
+	awaitClosed(t, abandoned, "the abandon")
+	if _, err := os.Lstat(a.Name()); !os.IsNotExist(err) {
+		t.Fatalf("the abandoned staging file survived: %v", err)
+	}
+}
+
+// TestWriteWaitsForAnAbandonsClose is the same lock from the other side. A
+// Write that arrives while an abandon is closing its file waits for that
+// Close and Remove, then fails with os.ErrClosed, and it waits on its entry
+// alone: an unrelated file registers and unregisters meanwhile, so a Write
+// held for one file's Close never stalls another file's receive.
+func TestWriteWaitsForAnAbandonsClose(t *testing.T) {
+	dir := t.TempDir()
+	a := claimForTest(t, filepath.Join(dir, "a.bin"))
+	parked, release := parkClose(t, func(f *os.File) bool { return f == a })
+	registerPartial(a)
+	abandoned := goAbandon()
+	awaitParked(t, parked, a)
+
+	wrote := make(chan error, 1)
+	go func() {
+		_, err := writePart(a, []byte("late"))
+		wrote <- err
+	}()
+	select {
+	case err := <-wrote:
+		release()
+		awaitClosed(t, abandoned, "the abandon")
+		t.Fatalf("a Write returned %v while the abandon was closing its file, want it held until the Close", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	b := claimForTest(t, filepath.Join(dir, "b.bin"))
+	bDone := make(chan struct{})
+	go func() {
+		defer close(bDone)
+		registerPartial(b)
+		unregisterPartial(b)
+	}()
+	select {
+	case <-bDone:
+	case <-time.After(time.Second):
+		release()
+		awaitClosed(t, bDone, "the unrelated file's register and unregister")
+		awaitClosed(t, abandoned, "the abandon")
+		t.Fatal("an unrelated file waited behind a Write held for another file's Close")
+	}
+
+	release()
+	awaitClosed(t, abandoned, "the abandon")
+	if err := awaitErr(t, wrote, "the held Write"); !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("the held Write = %v, want os.ErrClosed (the abandon's fingerprint)", err)
+	}
+	if _, err := os.Lstat(a.Name()); !os.IsNotExist(err) {
+		t.Fatalf("the abandoned staging file survived: %v", err)
 	}
 }
 
@@ -547,6 +641,31 @@ func parkClose(t *testing.T, park func(*os.File) bool) (parked <-chan *os.File, 
 	return ch, release
 }
 
+// parkWrite is parkClose for the stagedWrite seam: it parks the Write that
+// writePartial makes for every file park picks until release is called,
+// sending each parked file on the returned channel first, and its cleanup
+// releases and restores the seam.
+func parkWrite(t *testing.T, park func(*os.File) bool) (parked <-chan *os.File, release func()) {
+	t.Helper()
+	ch := make(chan *os.File, 8)
+	gate := make(chan struct{})
+	var once sync.Once
+	release = func() { once.Do(func() { close(gate) }) }
+	prev := stagedWrite
+	stagedWrite = func(f *os.File, b []byte) (int, error) {
+		if park(f) {
+			ch <- f
+			<-gate
+		}
+		return f.Write(b)
+	}
+	t.Cleanup(func() {
+		release()
+		stagedWrite = prev
+	})
+	return ch, release
+}
+
 // claimForTest claims a .part staging file at base and closes it at cleanup
 // (a no-op once something else has), so a failing test never leaves a handle
 // that keeps t.TempDir from being removed on Windows.
@@ -579,7 +698,18 @@ func awaitParked(t *testing.T, parked <-chan *os.File, want *os.File) {
 			t.Fatalf("the seam parked %s, want %s", f.Name(), want.Name())
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("the abandon never reached the Close the seam parks")
+		t.Fatalf("the seam never parked %s within 5 s", want.Name())
+	}
+}
+
+func awaitErr(t *testing.T, ch <-chan error, what string) error {
+	t.Helper()
+	select {
+	case err := <-ch:
+		return err
+	case <-time.After(5 * time.Second):
+		t.Fatalf("%s did not return within 5 s", what)
+		return nil
 	}
 }
 
@@ -606,6 +736,26 @@ func awaitGone(t *testing.T, path string) {
 	}
 }
 
+// waitOrDump waits for done and, past d, fails the test with every
+// goroutine's stack. A parked Close used to hold this package to its 10
+// minute timeout, whose panic names the test and leaves the dump to whoever
+// has the whole log. It first empties the registry, so no test after this one
+// snapshots an entry whose Close is still parked.
+func waitOrDump(t *testing.T, done <-chan struct{}, d time.Duration, what string) {
+	t.Helper()
+	select {
+	case <-done:
+		return
+	case <-time.After(d):
+	}
+	buf := make([]byte, 1<<20)
+	buf = buf[:runtime.Stack(buf, true)]
+	partialMu.Lock()
+	clear(partialFiles)
+	partialMu.Unlock()
+	t.Fatalf("%s did not finish within %v; every goroutine:\n%s", what, d, buf)
+}
+
 // TestCommitAbandonTorture is the regression net for two empirically proven
 // races in an earlier ordering, where AbandonPartials removed a registered
 // path while commitPart's rename was moving it: the delete disposition
@@ -615,27 +765,37 @@ func awaitGone(t *testing.T, path string) {
 // the commit, under the entry lock the abandon holds, neither interleave
 // exists: every commit that reports success must leave its exact payload on
 // disk.
+//
+// It is also the net for the Go 1.26 park that writePartial works around: the
+// workers write through writePart, the receive loop's own Write, while
+// abandons land inside their Writes over and over. With a bare f.Write in
+// writePartial, 9 of 30 runs of this test parked a Close for good, and with
+// the lock 0 of 200 (go1.26.3, Windows 11, 2026-10-15). A park, or any other
+// hang, fails the test within a minute with every goroutine's stack, where it
+// used to hold the package to its 10 minute timeout.
 func TestCommitAbandonTorture(t *testing.T) {
 	dir := t.TempDir()
 	base := filepath.Join(dir, "abandon.bin")
 
 	stop := make(chan struct{})
+	stopSpam := sync.OnceFunc(func() { close(stop) })
+	// A watchdog failure must not leave the loop abandoning later tests' files.
+	t.Cleanup(stopSpam)
 	var spam sync.WaitGroup
 	spam.Add(1)
 	go func() {
 		defer spam.Done()
-		// Paced, not a hot loop: production calls AbandonPartials once, at
-		// process exit. An unpaced loop hammering close/remove/re-create on
-		// colliding paths thousands of times a second can park a Close on
-		// the FD semaphore deep in the Windows poller, which is not an
-		// interleave any real exit path can produce. The pacing still lands
-		// hundreds of abandons across every phase of the claim/write/commit
-		// cycle, which is what the regression net needs.
+		// Unpaced, so an abandon meets most rounds somewhere in the
+		// claim/write/commit cycle, and 30 to 39 of the 200 rounds still
+		// committed in measured runs, for the audit below. Paced at 200 us,
+		// as it was while the park was blamed on the hot loop itself, 196 or
+		// 197 of 200 rounds committed untouched, which left the races above
+		// all but unexercised.
 		for {
 			select {
 			case <-stop:
 				return
-			case <-time.After(200 * time.Microsecond):
+			default:
 				AbandonPartials()
 			}
 		}
@@ -661,7 +821,7 @@ func TestCommitAbandonTorture(t *testing.T) {
 					continue // a concurrent abandon can beat a claim; that is its job
 				}
 				registerPartial(f)
-				if _, err := f.Write([]byte(payload)); err != nil {
+				if _, err := writePart(f, []byte(payload)); err != nil {
 					// Production order: unregister, then the owner's own Close
 					// arbitrates ownership of the path (see the receiver).
 					unregisterPartial(f)
@@ -692,9 +852,14 @@ func TestCommitAbandonTorture(t *testing.T) {
 			}
 		}(w)
 	}
-	wg.Wait()
-	close(stop)
-	spam.Wait()
+	finished := make(chan struct{})
+	go func() {
+		wg.Wait()
+		stopSpam()
+		spam.Wait()
+		close(finished)
+	}()
+	waitOrDump(t, finished, time.Minute, "the torture's workers and abandon loop")
 
 	for _, c := range committed {
 		got, err := os.ReadFile(c.dest)

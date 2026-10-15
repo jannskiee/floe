@@ -31,13 +31,19 @@ import (
 // registered path is ever mid-rename, and a completed file can never be
 // deleted here. The owner of the file being closed still waits for the
 // abandon, as it always has: that wait is what rules the race above out.
+// The owner's every Write takes the same lock (writePartial), so an abandon's
+// Close never starts while a Write is under way: on Go 1.26 for Windows that
+// overlap can park the Close forever.
 //
 // partialMu guards the map only and is never held across a syscall. It used
 // to be held across every Close and Remove, and on Windows a Close waits for
 // every outstanding reference on the handle: one was seen to park under load
-// with the lock held (its cause is not established), and every other file's
-// register and unregister, which is the receive loop, parked behind it. With
-// the per-entry rule only the parked file's owner waits.
+// with the lock held, and every other file's register and unregister, which
+// is the receive loop, parked behind it. With the per-entry rule only the
+// parked file's owner waits. The cause, found later, is the Go bug
+// writePartial describes: the owner's Write is the only call it makes on a
+// registered file that takes a reference on the handle (Stat takes none), and
+// that lock now keeps the Close out of it.
 //
 // An abandon that takes an entry's lock after the last byte but before the
 // owner's unregister deletes a complete .part during an explicit user abort,
@@ -82,6 +88,46 @@ func unregisterPartial(f *os.File) {
 	e.done = true
 	e.mu.Unlock()
 }
+
+// writePartial is the receive loop's Write to its .part (receiver.go's
+// writePart). It holds the file's entry lock across the Write, the lock an
+// abandon holds across its Close, so the two never overlap.
+//
+// That works around a Go bug. On Windows a Write to a file takes two locks in
+// internal/poll's readWriteLock: the read lock, which also holds a reference
+// on the handle, and then the write lock. In Go 1.26, when a Close from
+// another goroutine lands between the two, the write lock fails and the Write
+// returns os.ErrClosed without releasing the read lock or its reference, so
+// the Close, which waits for every reference, never returns. Measured with a
+// Write loop racing a Close and nothing of Floe's: on go1.26.3, 4 of 10,000
+// Closes parked, each leaving the handle closed, read-locked by no goroutine,
+// with one reference; on go1.27.2, 0 of 10,000. Go 1.27 fixed it (golang/go
+// issue 77609, commits 045d1270a7 and eaa6475dbb), 1.26 never got the fix,
+// and every release build and CI leg uses 1.26. Without this lock the bug
+// held TestCommitAbandonTorture to the package timeout twice on Windows CI,
+// and a receive canceled at that instant would hold its exit for the whole
+// wait of AbandonPartialsWithin and leave the .part behind.
+//
+// partialMu is held for the lookup only, so a Write waiting for an abandon's
+// Close never holds up another file's register or unregister. A file not in
+// the registry is written without the lock: no abandon will close it, or one
+// already has, and a Write to a closed file fails before it takes anything.
+func writePartial(f *os.File, b []byte) (int, error) {
+	partialMu.Lock()
+	e := partialFiles[f]
+	partialMu.Unlock()
+	if e == nil {
+		return stagedWrite(f, b)
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return stagedWrite(f, b)
+}
+
+// stagedWrite is the Write writePartial makes. A seam, like closePartial: a
+// Write caught between Go's two locks cannot be produced on demand, so a test
+// swaps in one that blocks.
+var stagedWrite = func(f *os.File, b []byte) (int, error) { return f.Write(b) }
 
 // discardPart drops a staging file the receive loop is giving up on.
 //
@@ -157,7 +203,8 @@ func AbandonPartials() {
 
 // AbandonPartialsWithin runs AbandonPartials and waits for it at most d,
 // reporting whether it finished. The exit paths call this form so a Close
-// that parks cannot hold the process: the abandon carries on in the
+// that parks, or an owner's stalled Write that the abandon waits out at the
+// entry lock, cannot hold the process: the abandon carries on in the
 // background until the process ends. A file it has not finished stays as a
 // .part unless its owner completes and verifies it first; partSuffix
 // guarantees a .part is never mistaken for a finished file, and the next
