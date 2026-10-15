@@ -1396,7 +1396,8 @@ the room, so the old one no longer works.
 ### "Couldn't connect the two devices" {#could-not-connect-the-two-devices}
 
 On the **Send** or **Receive** tab. Both devices were present and exchanged connection details,
-and then 30 seconds passed without a network path that works. The usual cause is a strict network
+and then no network path worked: 30 seconds passed, or the connection checks gave up sooner. The
+usual cause is a strict network
 on one side with no relay to fall back on. The other side refused the relay, with `--no-relay` on
 the CLI or with **Network relay fallback** unchecked in the browser, or the server has no relay.
 
@@ -1511,9 +1512,9 @@ without a more specific reason:
 
 On the receiving side, files that finished are kept and the one that was arriving is discarded.
 
-It can also appear while the two devices are still connecting, when the network path between them
-failed. Then the fix in [Couldn't connect the two devices](#could-not-connect-the-two-devices)
-applies.
+Floe Desktop 0.3.0 also shows it while the two devices are still connecting, when the network path
+between them failed. Later versions show
+[Couldn't connect the two devices](#could-not-connect-the-two-devices) there, and its fix applies.
 
 Check with the other person what arrived before you send again. When this appears at the very end
 of a send, they may already have every file.

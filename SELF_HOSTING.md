@@ -53,6 +53,7 @@ that matter most:
 | `TRUSTED_PROXY_COUNT` | Reverse-proxy hops in front of the server. `0` direct, `1` behind a proxy. |
 | `CLOUDFLARE_TURN_KEY_ID` / `CLOUDFLARE_TURN_KEY_API_TOKEN` | Optional managed TURN via Cloudflare (see below). |
 | `TURN_SECRET` / `TURN_DOMAIN` | Optional self-hosted coturn credentials (see below). |
+| `TURN_TLS` | Optional. `off` (or `false`, `0`, `no`) leaves the `turns:` address (TLS on port 5349) out of the relay list a self-hosted coturn hands out, for a coturn with no TLS certificate. Unset, the list is unchanged. |
 | `POLICY_FILE` | Optional path, inside the container, of the policy file that turns request links on (see [Request links](#request-links)). Unset, or naming a file that does not exist, means request links are off. |
 
 ### Applying a change
@@ -187,6 +188,8 @@ The full steps, the limits, and the rule about matching versions are in
   silently fails. The giveaway is `Default realm: localdomain` in its logs, and
   recovery needs `rmdir coturn/turnserver.conf` first, because copying onto a
   directory succeeds and writes the file inside it.
+  A coturn with no TLS certificate cannot answer the `turns:` address on port 5349,
+  so set `TURN_TLS=off` and clients stop trying it.
   TURN needs its own ports and cannot be served through an HTTP reverse proxy; see
   [the TURN relay guide](https://www.floe.one/docs/self-hosting/turn-relay).
 

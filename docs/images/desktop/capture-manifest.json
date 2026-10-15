@@ -1,19 +1,19 @@
 {
   "app": "Floe Desktop",
-  "version": "desktop-v0.3.0",
-  "captured": "2026-10-10",
-  "method": "wails dev at the desktop-v0.3.0 tag with the version injected, driven through its dev page in headless Chromium; each shot is the card (or the Settings column) plus a 14 px margin, never the whole window",
+  "version": "desktop-v0.3.1",
+  "captured": "2026-10-15",
+  "method": "wails dev of the release tree with the version injected, against a local signaling server with request links on, driven through its dev page in headless Chromium; each shot is the card (or the Settings column) plus a 14 px margin, never the whole window",
   "viewport": {
     "width": 1140,
     "height": 980
   },
   "deviceScaleFactor": 3,
   "colorScheme": "dark",
-  "fixtures": "three synthetic files with neutral names; an isolated settings profile; the request-link shots come from one real link that the drop used up",
+  "fixtures": "three synthetic files with neutral names; an isolated settings profile and home folder; the request-link shots come from one link on the local server, used up by the test-only visitor in cli/internal/rlvisitor",
   "shots": [
     {
       "name": "send-share.png",
-      "note": "Send card with a room open: room code, share link, QR shown, status Active",
+      "note": "Send card with a room open: room code, share link, the QR shown, status Active",
       "css": [
         476,
         734
@@ -23,7 +23,16 @@
         2202
       ],
       "scale": 3,
-      "bytes": 134709
+      "bytes": 139851,
+      "strings": [
+        "Waiting for the receiver",
+        "Hide QR",
+        "Scan to receive files"
+      ],
+      "sources": [
+        "desktop/frontend/src/App.tsx",
+        "desktop/frontend/src/components/SharePanel.tsx"
+      ]
     },
     {
       "name": "receive.png",
@@ -37,7 +46,14 @@
         1260
       ],
       "scale": 3,
-      "bytes": 83206
+      "bytes": 83204,
+      "strings": [
+        "Enter a code or link, then click Receive",
+        "Downloads (default)"
+      ],
+      "sources": [
+        "desktop/frontend/src/App.tsx"
+      ]
     },
     {
       "name": "settings.png",
@@ -51,7 +67,17 @@
         1959
       ],
       "scale": 3,
-      "bytes": 188211
+      "bytes": 188211,
+      "strings": [
+        "Save received files to",
+        "Show notifications",
+        "Contribute to global stats",
+        "Check for updates"
+      ],
+      "sources": [
+        "desktop/frontend/src/App.tsx",
+        "desktop/frontend/src/settings.ts"
+      ]
     },
     {
       "name": "settings-server.png",
@@ -65,7 +91,15 @@
         1011
       ],
       "scale": 3,
-      "bytes": 79541
+      "bytes": 79541,
+      "strings": [
+        "Uses Floe's server unless you set your own",
+        "Only needed if your web app has its own address"
+      ],
+      "sources": [
+        "desktop/frontend/src/settings.ts",
+        "desktop/frontend/src/App.tsx"
+      ]
     },
     {
       "name": "history.png",
@@ -79,11 +113,18 @@
         1128
       ],
       "scale": 3,
-      "bytes": 85818
+      "bytes": 87401,
+      "strings": [
+        "Show in folder",
+        "Remove"
+      ],
+      "sources": [
+        "desktop/frontend/src/components/HistoryView.tsx"
+      ]
     },
     {
       "name": "request-link-waiting.png",
-      "note": "Receive, Request link: an open link waiting for files",
+      "note": "Request link open and waiting: label, link, Copy link, Close link, the end time",
       "css": [
         476,
         380
@@ -93,11 +134,19 @@
         1140
       ],
       "scale": 3,
-      "bytes": 89414
+      "bytes": 87978,
+      "strings": [
+        "Waiting for files",
+        "Copy link",
+        "Close link"
+      ],
+      "sources": [
+        "desktop/frontend/src/requestCopy.ts"
+      ]
     },
     {
       "name": "request-link-request.png",
-      "note": "Receive, Request link: a request with its Accept countdown",
+      "note": "The Accept prompt: the label, the file count and size, the folder, Accept with its countdown, Decline",
       "css": [
         476,
         484
@@ -107,11 +156,17 @@
         1452
       ],
       "scale": 3,
-      "bytes": 120735
+      "bytes": 120854,
+      "strings": [
+        "wants to send you files"
+      ],
+      "sources": [
+        "desktop/frontend/src/requestCopy.ts"
+      ]
     },
     {
       "name": "request-link-finished.png",
-      "note": "Receive, Request link: the finished card with the check mark and the file list",
+      "note": "A finished drop: the files that arrived with their sizes, the folder, Show in folder, Make another link",
       "css": [
         476,
         451
@@ -121,7 +176,15 @@
         1353
       ],
       "scale": 3,
-      "bytes": 96436
+      "bytes": 97848,
+      "strings": [
+        "SHA-256 matched",
+        "Show in folder",
+        "Make another link"
+      ],
+      "sources": [
+        "desktop/frontend/src/requestCopy.ts"
+      ]
     }
   ]
 }

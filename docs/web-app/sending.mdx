@@ -254,6 +254,10 @@ failed", even when "All Files Sent!" was already showing. The card says "The oth
 file that did not match what was sent. Try sending again." See
 [Troubleshooting](/troubleshooting#a-file-did-not-match-what-was-sent).
 
+If the other side is `floe receive` and the person there answers no at its `Accept? [Y/n]`
+prompt, the status reads "Transfer failed" and the card says "receiver declined the transfer".
+`floe receive` 1.11.0 and earlier close the connection without a reason instead.
+
 The file list stays locked after a transfer, and the link stays on screen. After a finished
 transfer the link can still be used. If the recipient closes their page and opens the link again
 from the same network, Floe sends every file again, and the check marks clear and come back as it

@@ -598,15 +598,19 @@ export default function PrivacyPolicy() {
                             term: 'Right-click menu',
                             body: (
                                 <p>
-                                    The GitHub build adds a &quot;Send with Floe&quot; entry to the
-                                    File Explorer right-click menu. It is on by default: the first time
-                                    the app runs it writes one per-user registry key (with a command
-                                    subkey) that holds the app&apos;s location, and if you move the app
-                                    it rewrites that key at the next start. Turn off &quot;Show in
-                                    right-click menu&quot; in Settings and the key is removed; the
-                                    installer&apos;s uninstall removes it too. The portable zip has no
-                                    uninstaller, so turn the switch off before deleting that build. The
-                                    Microsoft Store build does not offer this entry.
+                                    The GitHub build can add a &quot;Send with Floe&quot; entry to the
+                                    File Explorer right-click menu. To turn it off, use &quot;Show in
+                                    right-click menu&quot; in Settings, and the entry is removed. The
+                                    installer build turns it on by default: each time the app starts
+                                    and the entry is missing, it writes one per-user registry key (with
+                                    a command subkey) that holds the app&apos;s location, unless you
+                                    have turned the switch off. The portable zip adds the entry only
+                                    after you turn the switch on. Floe never touches an entry that
+                                    belongs to another copy of the app, and repairs or removes one
+                                    whose program is gone. The installer&apos;s uninstall removes the
+                                    key too. The portable zip has no uninstaller, so turn the switch
+                                    off before deleting that build. The Microsoft Store build does not
+                                    offer this entry.
                                 </p>
                             ),
                         },
