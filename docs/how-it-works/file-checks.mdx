@@ -172,7 +172,8 @@ in every app.
 | `Incomplete file "<name>": received <n> of <m> bytes`, then a sentence on what went wrong, in the web app | That file's size did not match what the sender announced, so the browser discarded it and stopped the transfer. | Ask the sender to send that file and the ones after it again. See [a file did not appear at all](/troubleshooting#a-file-did-not-appear-at-all). |
 | `incomplete file "<name>": received <n> of <m> bytes`, from `floe receive` | The file ended before its announced size, so it was deleted and the receive stopped. | The same. |
 | `sender exceeded the announced size of "<name>"`, from `floe receive` | More data arrived than the sender announced, so the receive stopped at that point and the file was deleted. | The same. |
-| “A file arrived incomplete and wasn't kept”, in Floe Desktop | That file's size did not match what the sender announced, so it was deleted and the receive stopped. | The same. |
+| “A file arrived incomplete and wasn't kept”, in Floe Desktop | That file ended before its announced size, so it was deleted and the receive stopped. | The same. |
+| `transfer failed: sender exceeded the announced size of "<name>"`, in Floe Desktop | More data arrived than the sender announced, so the receive stopped at that point and the file was deleted. | The same. |
 | “A file did not match what was sent, so it was discarded. Ask the sender to try again.”, in the web app | The bytes did not match the sender's SHA-256. | See [the browser entry](/troubleshooting#a-file-did-not-match-what-was-sent). |
 | `a file did not match the SHA-256 the sender computed, so it was not kept`, from `floe receive` and Floe Desktop | The bytes did not match the sender's SHA-256, so the file was deleted before it took its final name. | See [the command line entry](/troubleshooting#a-file-did-not-match-the-sha-256). |
 

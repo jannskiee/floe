@@ -160,7 +160,7 @@ Click **Send**. Floe registers a [room](/glossary#room), the meeting point on Fl
 [signaling server](/glossary#signaling-server), and shows three ways to hand it over.
 
 <Frame caption="The share panel, with the QR code shown">
-  <img src="/images/desktop/send-share.png" style={{ width: "100%", maxWidth: "476px", borderRadius: "12px" }} alt="The Floe Desktop Send card with a room open: the status Active, 3 items, a Cancel button, a room code, a share link, a Hide QR button above a QR code, and the line Waiting for the receiver" />
+  <img src="/images/desktop/send-share.png" style={{ width: "100%", maxWidth: "476px", borderRadius: "12px" }} alt="The Floe Desktop Send card with a room open: Active, 3 items, Cancel, the room code, the share link, a QR code, and Waiting for the receiver." />
 </Frame>
 
 | | Use it for |
@@ -238,9 +238,9 @@ The [badge](/glossary#badge) at the top right of the card tells you what is happ
 | **RELAY** | Connected through Floe's encrypted [relay](/glossary#relay), a server that passes the data along. The 2 GB cap applies. | Keep the send at 2 GB or less. See [Size limits](#size-limits). |
 
 The dot beside the word is green, or amber when the transfer goes through the relay or
-**Hide my IP address** ([Hide my IP](/glossary#hide-my-ip)) is on. An amber **READY** means that setting is on, so the next
-transfer will be relayed and capped at 2 GB. It is the one state that explains itself when you point at it:
-"Hide my IP limits transfers to 2 GB".
+**Hide my IP address** ([Hide my IP](/glossary#hide-my-ip)) is on. An amber **READY** or **AUTO-ACCEPT** means that setting is on, so
+the next transfer will be relayed and capped at 2 GB. Those are the only states that explain themselves when you
+point at them: "Hide my IP limits transfers to 2 GB".
 
 **Cancel** stops the transfer at any point: the status line reads `Canceled`, and the code and link you
 shared stop working. A send that fails shows a red line starting with `Error: ` and drops its code and link

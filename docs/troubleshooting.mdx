@@ -586,7 +586,7 @@ Start the transfer again. On the page you send from, add the files again and sha
 ### "Page not found" {#page-not-found}
 
 A page that reads "404", "Page not found" and "That link points at nothing here. If you were sent
-a share link, check that you copied the whole thing." It has a **Send a file** button and a link
+a Floe link, check that you copied the whole thing." It has a **Send a file** button and a link
 to How Floe works. The address matches no page on the site, which usually means a link was cut
 short when it was copied.
 
@@ -1190,7 +1190,7 @@ the remedy:
 | The browser | “Cannot transfer: your browser is running an older version of Floe.” | “Refresh the page to get the latest version.” |
 | The browser, when the other side is old | “Cannot transfer: peer's floe is too old.” | “Ask the other side to update Floe.” |
 | Floe Desktop, after `Error: transfer failed: ` | `Cannot transfer: your floe is too old for this peer.` | “Update Floe from the Microsoft Store or floe.one/download” |
-| Floe Desktop, when the other side is old | `Cannot transfer: peer's floe is too old.` | “Ask the other side to update Floe.” |
+| Floe Desktop, when the other side is old | `Cannot transfer: peer's floe is too old.` | “Ask the other side to update Floe” |
 
 Update the side the message calls too old. Refresh the page to update a browser, and update Floe
 Desktop through the Microsoft Store or from the download page. Update `floe` with the command that
@@ -1598,12 +1598,13 @@ Error: transfer blocked: relay connections are capped at 2 GB (selected 2.5 GB).
 it holds even on a network that could have connected directly. Without that setting, the same line
 appears without its last sentence when a connection simply ended up relayed.
 
-On the **Receive** tab the cap shows after `Error: transfer failed: `, in the sender's words. From
-`floe send` or Floe Desktop it reads
-`transfer blocked: relay connections are capped at 2 GB (selected 2.5 GB)`. From a sender in the
-browser it reads "Transfer blocked: relay connections are capped at 2 GB. Ask the sender to send 2
-GB or less, or to try a network that allows a direct connection." The cap is applied on the
-sender's side, so only the sender can change it.
+On the **Receive** tab the cap shows after `Error: transfer failed: `, in the sender's words
+without their closing period:
+
+- From `floe send` or Floe Desktop: `transfer blocked: relay connections are capped at 2 GB (selected 2.5 GB)`
+- From a sender in the browser: `Transfer blocked: relay connections are capped at 2 GB. Ask the sender to send 2 GB or less, or to try a network that allows a direct connection`
+
+The cap is applied on the sender's side, so only the sender can change it.
 
 Turn **Hide my IP address** off in Settings to send more than 2 GB, or send 2 GB or less at a time.
 See [Hide my IP address](/desktop/settings#hide-my-ip-address).
@@ -1634,9 +1635,11 @@ In Settings, after you click **Test**, with whatever status came back:
 Error: The API answered HTTP 404 (check that your proxy forwards /api/)
 ```
 
-`/api/` is not reaching the server. Nothing else in Floe Desktop reports this failure. Connection
-details fall back to public STUN without a word, and the room code fails to register, so **Send**
-shows a share link with no code.
+`/api/` is not reaching the server. With **Hide my IP address** off, nothing else in Floe Desktop
+reports this failure. Connection details fall back to public STUN without a word, and the room code
+fails to register, so **Send** shows a share link with no code. With it on, every transfer stops
+with ["Couldn't read this server's relay details for Hide my IP"](#relay-details-unreadable)
+instead.
 
 A `429` is not reported with that line. Test then says "The server is limiting requests from this
 network. Wait a minute and test again", after `Error: `. That is the server's own limit on repeated
@@ -1985,9 +1988,9 @@ instead.
   `status 401`, at most once every 5 minutes.
 
 **Self-hosted coturn.** The bundled service uses host networking, so it needs a Linux host with a
-public IP, a domain, and TLS certificates. `TURN_SECRET` and `TURN_DOMAIN` have to match coturn's
-`static-auth-secret` and `realm`. With only one of the two set, the server offers no relay and says
-nothing.
+public IP, a domain, and a TLS certificate (unless you set `TURN_TLS=off`). `TURN_SECRET` and
+`TURN_DOMAIN` have to match coturn's `static-auth-secret` and `realm`. With only one of the two set,
+the server offers no relay and says nothing.
 
 Fix the variables, then restart the server so that it reads them: `docker compose up -d`, or a
 plain restart without Docker. See [TURN relay](/self-hosting/turn-relay).
@@ -1996,31 +1999,42 @@ plain restart without Docker. See [TURN relay](/self-hosting/turn-relay).
 
 In coturn's log. coturn is running on its built-in defaults with no auth secret, so relaying fails
 without any error for exactly the peers it exists to serve. This happens when
-`coturn/turnserver.conf` did not exist before the first `docker compose up`, so Docker created a
-**directory** at that path. Copying a file onto that directory succeeds and writes the file inside
-it, so the obvious fix appears to work and does not.
+`coturn/turnserver.conf` did not exist before the first `docker compose --profile turn up`, so
+Docker created a **directory** at that path. Copying a file onto that directory succeeds and writes
+the file inside it, so the obvious fix appears to work and does not.
 
-Remove the directory first, then fetch the example config and start coturn again:
+Remove the directory first, then fetch the example config:
 
 ```bash Terminal
 rmdir coturn/turnserver.conf
 curl -fsSL --create-dirs -o coturn/turnserver.conf \
   https://raw.githubusercontent.com/jannskiee/floe/main/coturn/turnserver.conf.example
-docker compose --profile turn up -d
 ```
 
-Before you start it, set `static-auth-secret` and `realm` in the file to match `TURN_SECRET` and
-`TURN_DOMAIN`. See [TURN relay](/self-hosting/turn-relay).
+Set `static-auth-secret` and `realm` in the file to match `TURN_SECRET` and `TURN_DOMAIN`, then
+start coturn again. Keep `--force-recreate`: a coturn that is still running keeps the old
+directory, and a plain `up -d` leaves a running container as it is:
+
+```bash Terminal
+docker compose --profile turn up -d --force-recreate coturn
+```
+
+See [TURN relay](/self-hosting/turn-relay).
 
 ### The server logs nothing at all {#the-server-logs-nothing-at-all}
 
 In `docker logs`, or in the terminal after `npm start`: nothing. That is expected. The signaling
 server has no access log and no startup banner, not even a "listening on" line, so the log of a
-healthy server is usually empty. A request the server refuses leaves one short line such as
-`Refused a request with 403.`; see
-[Operations](/self-hosting/operations#the-server-logs-very-little).
+healthy server is usually empty. Three kinds of refusal leave a line. An HTTP request from a
+browser origin the server does not allow, or one whose body it cannot read, leaves a short line
+such as `Refused a request with 403.`. A connection from an origin the server does not accept
+leaves one `Refused a connection on /ws from Origin ...` line per path for as long as the server
+runs. A refusal from the limits on repeated requests leaves nothing.
+See [Operations](/self-hosting/operations#the-server-logs-very-little).
 
-Two startup lines can appear. A server started with Node directly and without
+A few startup lines can appear. `request links: on` means the policy file turned
+[request links](/self-hosting/request-links) on, and a line saying the policy file was not found
+or is unreadable means they stayed off. A server started with Node directly and without
 `TRUSTED_PROXY_COUNT` writes one line saying which proxy count is in use. A `MAX_*` variable that
 is not a whole number of at least 1 gets one line naming it and the default now in use.
 

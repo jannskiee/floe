@@ -216,8 +216,13 @@ What a run changed, rather than created, is not swept:
   not a revert: read the diff first.)
 - The Explorer entry `HKCU\Software\Classes\*\shell\Floe` (the right-click
   "Send with Floe" verb, `contextMenuBase` in `desktop/contextmenu.go`). A
-  portable or dev launch of the desktop app, a transfer-audit desktop run
-  included, can create it or repoint it at that run's exe. Report only: this
+  portable or dev launch of a desktop build older than desktop-v0.3.1, a
+  transfer-audit desktop run included, can create it or repoint it at that
+  run's exe. From desktop-v0.3.1 a launch never repoints another copy's live
+  entry: it creates the entry, or takes over one whose program is gone, only
+  when that profile left the switch on, or the profile recorded no choice
+  and the copy is installed, and
+  otherwise removes an entry whose program is gone. Report only: this
   skill reads no registry and writes none. Read it from the PowerShell tool
   with `reg query "HKCU\Software\Classes\*\shell\Floe" /s` (Git Bash rewrites
   the `/s`), say whether it exists and which exe it names, and leave the

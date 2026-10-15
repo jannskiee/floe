@@ -60,7 +60,8 @@ Everything before that step (download, checksum, unpacking) runs as your normal 
 not installed, the update stops and tells you to run it again as root or to reinstall with the
 install script.
 
-On Windows no administrator rights are needed: `floe` renames the running file aside, to
+On Windows no administrator rights are needed when `floe.exe` is in a folder you can write to, as
+the install script's is: `floe` renames the running file aside, to
 `floe.exe.floe-update-old`, and moves the new one into place. That file stays until `floe` next
 starts, which removes it. `floe` 1.11.0 and earlier named it `floe.exe.bak`. `floe update` still
 removes a file of that name before it renames, and nothing else does.
@@ -150,7 +151,8 @@ turns off:
 Update available: 1.x.x  run `floe update`, or your package manager's upgrade command
 ```
 
-`floe update` and `floe update --check` always ask GitHub themselves. See
+Whenever `floe update` or `floe update --check` checks, it asks GitHub itself and never uses the
+answer `floe version` keeps. See
 [The update check](/cli/version#the-update-check) for when `floe version` asks and where it keeps
 the answer.
 

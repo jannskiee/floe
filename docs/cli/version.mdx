@@ -43,10 +43,11 @@ answer for 24 hours in `floe/update-check.json`, inside your user config folder:
 | Windows | `%AppData%` |
 
 While a kept answer is less than 24 hours old, `floe version` asks GitHub nothing, so the hint can
-appear up to a day after a release comes out. Delete that file to force a fresh check, or run
-`floe update --check`, which always asks GitHub. With no fresh answer kept, `floe version` waits at
-most 1 second for GitHub and prints no hint if the answer is slower, so it never stalls on a slow
-network.
+appear up to a day after a release comes out. Delete that file to force a fresh check.
+`floe update --check` also asks GitHub on a script or manual install, but it leaves the kept answer
+as it is, and on a package-managed install it stops before asking. With no fresh answer kept,
+`floe version` waits at most 1 second for GitHub and prints no hint if the answer is slower, so it
+never stalls on a slow network.
 
 The hint names both ways to update because on an install that a
 [package manager](/glossary#package-manager) owns, `floe update` installs nothing and names the

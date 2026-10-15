@@ -118,7 +118,7 @@ Server to client:
 | `signal` | `{ signal, sender: peerId }` | A signal from the other peer. |
 | `peer-disconnected` | `{}` | The other peer's connection closed. |
 | `room-full` | `{}` | The room is full, sealed, or reserved. Every case is listed under [When the server answers room-full](#when-the-server-answers-room-full). |
-| `host-absent`, `link-ended`, `disabled` | `{}` | A `request-join` did not get the seat, or a seated sender lost it before the room sealed. See [Request rooms](#request-rooms). |
+| `host-absent`, `link-ended`, `disabled` | `{}` | A `request-join` did not get the seat, or a seated sender lost it before the room sealed. A sender in a sealed room also gets `disabled` when its host reopens the room while request links are off. See [Request rooms](#request-rooms). |
 | `error` | `{ message: string }` | The frame was refused. On this transport the only message is `Invalid room ID`, for a room id that is not a UUID string. |
 
 ### WebSocket messages
@@ -133,7 +133,7 @@ Client to server:
 | `join-room` | `roomId: string` | Join an ordinary room, or make it. |
 | `join-room` | `roomId: string`, `hostToken: string`, `endsIn?: number` | The host join that makes or reclaims a request room. Any `join-room` carrying `hostToken` takes this path. See [Request rooms](#request-rooms). |
 | `request-join` | `roomId: string` | Ask for the sending seat of a request room. `floe send --to` sends it. |
-| `request-seal`, `request-reopen`, `request-close` | `roomId: string` | The host's control messages for its request room. The server acts on one only when it comes from that room's seated host, and never answers it. |
+| `request-seal`, `request-reopen`, `request-close` | `roomId: string` | The host's control messages for its request room. The server acts on one only when it comes from that room's seated host, and never answers it, except that a `request-reopen` sent while request links are off ends the room: the host gets `refused` with `disabled`. |
 | `signal` | `signal`, `target?: string`, `roomId?: string` | Forward a signal. `target`, when set, must be the other peer's id. The Go client sends `roomId`, and the server ignores it as it does on Socket.IO. |
 | `ping` | - | Answered with `{"type":"pong"}`. Only Floe Desktop sends it, on the connection that holds a request link (see [Keeping connections alive](#keeping-connections-alive)). |
 
@@ -316,7 +316,9 @@ one request-link limit answers `limited`, because the daily budget is checked fi
 
 The server checks a `request-join` in this order:
 
-1. The connection has sent 30 `request-join` frames in the last minute: no answer at all.
+1. The connection has already sent 30 `request-join` frames in its current 60-second window: no
+   answer at all. The window opens at the first frame after the last one ran out, so it is not a
+   rolling minute.
 2. The room id is not a UUID: `error`.
 3. Request links are off: `disabled`.
 4. No reservation has that id: `link-ended` if a link with that id ended within the last 24

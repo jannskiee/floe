@@ -48,8 +48,8 @@ and 8 are for.
   needs a new number.
 - A release that adds or changes a feature also changes the Store listing,
   not only What's new: the description, the feature list, the screenshots and
-  the certification notes (store-submit steps 5a and 5b; done once, for
-  desktop-v0.3.0). Decide it here, because the listing text and screenshots
+  the certification notes (store-submit steps 5a and 5b; done for
+  desktop-v0.3.0 and desktop-v0.3.1). Decide it here, because the listing text and screenshots
   have to exist before step 7, and the server has to offer the feature while
   the Store reviews it (step 1a).
 
@@ -195,8 +195,8 @@ the tag, so nobody has to look it up while something is wrong.
   the current desktop release shipped with, so its STALE line is left alone), `desktop/wails.json` (`productVersion`), `.env.docker.example`
   and `docker-compose.yml` (the `FLOE_IMAGE_TAG` examples), SECURITY.md (the
   container images row), docs/self-hosting/images.mdx and
-  docs/self-hosting/configuration.mdx (image tag examples), docs/cli/update.mdx
-  (the sample `floe update` output), docs/cli/version.mdx, docs/cli/flags.mdx
+  docs/self-hosting/configuration.mdx (image tag examples), docs/cli/installation.mdx
+  (the install-script output blocks), docs/cli/version.mdx, docs/cli/flags.mdx
   (`--check` and `--version`), docs/cli/send.mdx and docs/cli/receive.mdx (the
   `Peer version:` examples), docs/reference/transfer-protocol.mdx (every
   `ver` example and the sentences around them), docs/desktop/installation.mdx
@@ -213,7 +213,22 @@ the tag, so nobody has to look it up while something is wrong.
   SELF_HOSTING.md and of "Moving to 1.11.0" in
   docs/self-hosting/operations.mdx; and
   `.claude/skills/docs-verify/references/claim-map.md`, which names changelog
-  entries by their tag.
+  entries by their tag. docs/cli/update.mdx carries no pin since #594: its
+  Output blocks read `1.x.x`, and its `1.11.0 and earlier` sentences, with the
+  older output they quote, are floors that print as `STALE`; leave them.
+- Write the docs snapshot of the released apps' strings,
+  `.claude/skills/docs-verify/references/released-strings.json`, at the commit
+  the release is cut from: the head of `main` the prep branch starts from,
+  whose strings the tagged commit keeps because the prep PR adds no code.
+  `node .claude/skills/docs-verify/scripts/released-strings.mjs --cli <sha> --desktop <sha>`
+  (a series you are not releasing keeps its current tag), then
+  `node .claude/skills/docs-verify/scripts/docs-check.mjs all`. The tags do not
+  exist yet, and the script stops on a ref git does not know. The `messages`
+  and `captures` checks hold every CLI and Floe Desktop row and every desktop
+  picture string to that file, so fix what they report in this PR: a row whose
+  words left the app is reworded or removed (#598 removed twelve), and a new
+  line of `requestCopy.ts` or `sendto.go` gets its row. Step 6 writes the file
+  again at the tags.
 - Make the prep edits with the Edit tool or PowerShell. A Git Bash `sed -i`
   rewrites a CRLF working copy to LF: harmless to the commit under autocrlf,
   noisy in the working tree (git warns on every touch, and tools that do not
@@ -365,6 +380,13 @@ reports an `Unreleased` entry with no entry for the tag as `MISSING`: the
 rename was missed in step 2, and the release body is already pointing at the
 anchor. CI's release-asset step is the merge gate.
 
+On every release, `v*`-only included: once the tags exist, write the docs
+snapshot again with their names,
+`node .claude/skills/docs-verify/scripts/released-strings.mjs --cli vX.Y.Z --desktop desktop-vX.Y.Z`
+(the series you did not release keeps its tag), run `docs-check.mjs all`, and
+commit `released-strings.json` in this PR or in the docs PR that follows the
+tags (v1.11.1: #594). Until then its `refs` name the commit step 2 wrote it at.
+
 ## 7. Store submission (one in flight at a time)
 
 Run `.claude/skills/store-submit/SKILL.md`. It checks that Partner Center
@@ -388,8 +410,9 @@ packaged build), so the Store install can never show it.
 ## Done means
 
 All eight steps with evidence in the report, step 1a included when
-`server/` changed. A `v*`-only release has no desktop half: steps 6, 7 and 8
-and the four desktop URLs of step 5 do not apply, and its completion signals
+`server/` changed. A `v*`-only release has no desktop half: steps 7 and 8, the
+`desktopRelease.ts` bump of step 6 (its snapshot paragraph still applies) and
+the four desktop URLs of step 5 do not apply, and its completion signals
 are the green `release.yml` and `images.yml` runs, the release assets and the
 image digests. With a desktop half, green workflows and four 200s are
 necessary; step 8 and the certification email are the completion signals.

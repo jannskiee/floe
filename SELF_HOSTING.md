@@ -22,8 +22,10 @@ Open [http://localhost:3000](http://localhost:3000).
 
 These defaults work only when the browser is on the same machine. To open Floe from another device,
 set `CLIENT_URL` and `NEXT_PUBLIC_SOCKET_URL` to the address and ports that browser uses. Otherwise
-the page loads and never connects. Changing `PORT` or `CLIENT_PORT` alone needs nothing else: both
-addresses follow. The compose file needs Docker Compose 2.8.0 or later.
+the page loads and never connects. Changing `PORT` or `CLIENT_PORT` alone needs nothing else for
+the browser: both addresses follow. The CLI and Floe Desktop then need `--web` or **Share link
+address** for their links, because only `http://localhost:3001` is paired with the web app for
+them. The compose file needs Docker Compose 2.8.0 or later.
 
 A `.env` file is optional; every value has a working default. To change something,
 fetch the annotated example next to the compose file:
@@ -155,9 +157,11 @@ Three things catch people out:
 - A `docker-compose.yml` downloaded before 1.11.0 does not pass `POLICY_FILE` to
   the server, so the setting does nothing. Download the current file first.
 - With the default two ports, Floe Desktop needs **Share link address** (Settings,
-  **Advanced**) set to the client's address, such as `http://<host>:3000`. Left
-  blank, it builds the link from the server address, and the server does not serve
-  the page a sender opens. On one domain, leave it blank.
+  **Advanced**) set to the client's address, such as `http://<host>:3000`, unless
+  its server address is exactly `http://localhost:3001`, which it pairs with
+  `http://localhost:3000` itself. Left blank otherwise, it builds the link from the
+  server address, and the server does not serve the page a sender opens. On one
+  domain, leave it blank.
 
 The full steps, the limits, and the rule about matching versions are in
 [Turn on request links](https://www.floe.one/docs/self-hosting/request-links).
@@ -189,21 +193,23 @@ The full steps, the limits, and the rule about matching versions are in
   recovery needs `rmdir coturn/turnserver.conf` first, because copying onto a
   directory succeeds and writes the file inside it.
   A coturn with no TLS certificate cannot answer the `turns:` address on port 5349,
-  so set `TURN_TLS=off` and clients stop trying it.
+  so set `TURN_TLS=off` and clients stop trying it (this needs a `docker-compose.yml`
+  from 1.11.1 or later, which passes it to the server).
   TURN needs its own ports and cannot be served through an HTTP reverse proxy; see
   [the TURN relay guide](https://www.floe.one/docs/self-hosting/turn-relay).
 
 ## Upgrading to 1.11.0
 
-1.11.0 fixes security issues in the signaling server, so move to it if you run an
-older version:
+1.11.0 fixes security issues in the signaling server, so if you run an older
+version, update:
 
 ```bash
 docker compose pull
 docker compose up -d
 ```
 
-If you pinned `FLOE_IMAGE_TAG`, set it to `1.11.0` first. Then check four things:
+If you pinned `FLOE_IMAGE_TAG`, set it to `1.11.1` or a later tag first.
+Then check four things:
 
 - **The `Host` header.** The WebSocket origin check is new in this version. If the
   CLI or Floe Desktop reach your server through a proxy on a hostname that is not
@@ -212,8 +218,10 @@ If you pinned `FLOE_IMAGE_TAG`, set it to `1.11.0` first. Then check four things
   `403`. Browsers on your `CLIENT_URL`, a one-domain setup, and a server with no
   proxy in front of it are not affected.
 - **Your `docker-compose.yml`.** Pulling images never changes it. A copy from before
-  1.11.0 passes neither `POLICY_FILE` nor `MAX_FAILED_CODE_RESOLVES` to the server,
-  so download the current file and copy your own changes across.
+  1.11.0 passes neither `POLICY_FILE` nor `MAX_FAILED_CODE_RESOLVES` to the server.
+  One from before 1.11.1 also leaves out `TURN_TLS` and `REQUEST_REPORT_EMAIL`, and
+  its two addresses do not follow a change of `PORT` or `CLIENT_PORT`. Download the
+  current file and copy your own changes across.
 - **Matching versions.** Run the client and server images at the same version,
   because the page a request-link sender opens comes from the client. Compose does
   that by default: `FLOE_IMAGE_TAG` picks both.

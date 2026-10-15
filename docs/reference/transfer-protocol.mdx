@@ -124,6 +124,12 @@ A few more rules decide close cases the same way on both sides:
 - A receiver also ignores a binary frame or an `end` that arrives while no file is open, and an
   `ack` or a `received`, which flow the other way.
 
+One case is decided differently: the other keys of a `metadata` frame. The Go engine reads them
+with Go's JSON decoder, which matches a key whatever its letter case, so `FileName` counts as
+`fileName`. The browser reads the exact keys. A `metadata` frame whose keys differ from the real
+ones only in case is accepted by a Go receiver and refused by a browser. Floe's own senders always
+write the keys exactly as listed below, and the parity table below records the difference.
+
 Both implementations are held to one table of literal frames, each with the decision the Go engine
 makes and the decision the browser makes. `cli/engine/transfer/parity_test.go` and
 `client/lib/transfer/parity.test.ts` carry the same table, and each suite fails when the other
@@ -403,7 +409,7 @@ page does for every code but `hash-mismatch`:
 | `disk-full` | `receiver ran out of disk space` |
 | `expired` | `receiver did not answer in time` |
 | `file-too-large-for-folder` | `receiver cannot store a file this large on its drive` |
-| `hash-mismatch` | `receiver discarded a file because its SHA-256 did not match`, or, from a Go receiver, `receiver discarded a file because the sender's SHA-256 was not readable` |
+| `hash-mismatch` | `receiver discarded a file because its SHA-256 did not match`, or, when the sender's digest could not be read, `receiver discarded a file because the sender's SHA-256 was not readable` |
 | `over-approved` | `receiver got more data than it approved` |
 | `path-too-long` | `receiver cannot store a file path this deep or long`, `receiver cannot store a file path that is not relative to its save folder`, or, for a frame over 1000 bytes, one that starts `receiver rejected the file description:` |
 | `relay-cap` | `receiver's relay connection is capped at 2 GB` |

@@ -22,11 +22,11 @@ Drop files onto the dashed area inside the card, or click it to open the file pi
 one file or many, of any type.
 
 <Frame caption="Three files staged, with the relay checkbox and the send button below them">
-  <img src="/images/web/01-send-staged.png" style={{ width: "100%", maxWidth: "520px", borderRadius: "12px" }} alt="The Floe send card with report.pdf, photo.jpg and notes.txt staged, a Network relay fallback checkbox, and a Create secure link (3 files) button" />
+  <img src="/images/web/01-send-staged.png" style={{ width: "100%", maxWidth: "520px", borderRadius: "12px" }} alt="The Floe send card with report.pdf, photo.jpg and notes.txt staged, a Network relay fallback checkbox, and a Create secure link (3 files) button." />
 </Frame>
 
-Drop them on the card itself. A file dropped anywhere else on the page is refused, so your browser
-never opens it in place of Floe.
+Drop them on the dashed area itself. A file dropped anywhere else, the rest of the card included, is
+refused, so your browser never opens it in place of Floe.
 
 Once something is queued, the large drop area shrinks to an **Add more files** strip above the
 list, and each row gets an X to remove it. The page does not spot duplicates: a file you add twice
@@ -43,8 +43,9 @@ applies, and for what a browser on the receiving end can hold.
 This page cannot send a folder. It has no folder picker, and a folder dropped on it is refused at
 the drop with "Folders cannot be sent from this page. Add the files inside it, or zip it first.",
 and nothing from that drop is added. Zip the folder first, or send it from
-[Floe Desktop](/desktop/sending) or the [CLI](/cli/send), both of which walk the folder for you and
-rebuild it on the other side.
+[Floe Desktop](/desktop/sending) or the [CLI](/cli/send), both of which walk the folder for you.
+Floe Desktop or the CLI on the other side rebuilds it, and a browser rebuilds it only inside
+**Download ZIP**.
 </Warning>
 
 The one page in the browser that does take folders is the page a
@@ -84,7 +85,7 @@ Click **Create secure link**. The button carries the count, so it reads "Create 
 (3 files)".
 
 <Frame caption="The share panel, waiting for the other person to open the link">
-  <img src="/images/web/02-send-share-panel.png" style={{ width: "100%", maxWidth: "520px", borderRadius: "12px" }} alt="The Floe share panel showing a floe.one link containing a room id, Copy and Show QR buttons, and the status line Waiting for peer" />
+  <img src="/images/web/02-send-share-panel.png" style={{ width: "100%", maxWidth: "520px", borderRadius: "12px" }} alt="The Floe share panel showing a floe.one link containing a room id, Copy and Show QR buttons, and the status line Waiting for peer." />
 </Frame>
 
 The card reads "Creating secure link..." while Floe prepares the link. It appears as soon as

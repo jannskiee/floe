@@ -152,7 +152,7 @@ figures above were measured on computers, so on a phone the only way to know is 
 video, for example, may arrive whole or may stop partway with the out-of-memory message. If the
 connection is relayed, a transfer over 2 GB is refused before anything moves: see
 [File size limits](/how-it-works/2gb-limit). While it runs, keep the Floe page open and in front
-on the phone until the file is saved: a phone that locks, or a switch to another app, can pause
+on the phone until the file is saved. A phone that locks, or a switch to another app, can pause
 the page and [end the transfer](#a-device-that-sleeps).
 
 **What you can do:** receive multi-gigabyte transfers with [Floe Desktop](/desktop/receiving) or
@@ -166,7 +166,7 @@ has to hold the files:
 - Send several large files as separate transfers, a few at a time. The receiver saves each batch,
   then opens the next link, which starts the page empty.
 - A single file too large for the phone has to go to a computer instead, through Floe Desktop or
-  the CLI, and be copied to the phone from there with a cable or the phone's own file app. Or make
+  the CLI. Copy it to the phone from there with a cable or the phone's own file app. Or make
   it smaller first, for example by exporting the video at a lower quality.
 - Put both devices on the same Wi-Fi network. The connection is then usually direct, so the 2 GB
   relay cap does not apply.
@@ -197,7 +197,7 @@ What each side of a browser transfer sees once the sleeping device wakes:
 | --- | --- |
 | The sender | The status “Connection interrupted”, usually with the red banner “The connection closed before the transfer finished.” See [Troubleshooting](/troubleshooting#the-connection-closed-before-the-transfer-finished). |
 | The receiver, when a file had finished | “Received 1 of 3 files. The transfer ended before the rest arrived.”, with its own numbers. The finished files stay in the list. |
-| The receiver, when no file had finished | “Connection failed. Ask the sender to try again.” See [Troubleshooting](/troubleshooting#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again). |
+| The receiver, when no file had finished | “Connection failed. Ask the sender to try again. If they turned the relay off, ask them to leave it on.” See [Troubleshooting](/troubleshooting#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again). |
 
 Floe Desktop usually reads "The connection dropped before the transfer finished" on either side.
 
@@ -256,8 +256,8 @@ disk. `sha256sum` on Linux,
 ### Windows cannot keep two names that differ only by a reserved character {#windows-cannot-keep-two-names-that-differ-only-by-a-reserved-character}
 
 Windows refuses `< > : " | ? *` in a file name, so Floe Desktop and `floe receive` on Windows
-replace each of them with `_` before writing. One colon is dropped instead, the one in a name that
-starts like a drive name: see
+replace each of them with `_` before writing. A name that starts like a drive, such as
+`P:L 2025.xlsx`, loses its first two characters instead and is saved as `L 2025.xlsx`: see
 [Names Windows cannot represent are adjusted](/desktop/receiving#names-windows-cannot-represent-are-adjusted).
 Names that were distinct on the sending machine can then land on the same name. A Linux folder
 holding `report:v1.pdf` and `report?v1.pdf` arrives as `report_v1.pdf` and `report_v1 (1).pdf`,

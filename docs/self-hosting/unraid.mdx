@@ -226,7 +226,9 @@ The default configuration has no [relay](/glossary#relay) and works on many netw
 add a [TURN](/glossary#turn) relay. In the Floe-Server template, turn on **Advanced View** and fill
 in **Cloudflare TURN Key ID** and **Cloudflare TURN API Token** with a Cloudflare Realtime TURN key.
 You can also run coturn separately and fill in **Self-hosted TURN Domain** and **Self-hosted TURN
-Secret** instead. If that coturn has no TLS certificate, set **Self-hosted TURN TLS** to `off`. See [TURN relay](/self-hosting/turn-relay).
+Secret** instead. If that coturn has no TLS certificate, set **Self-hosted TURN TLS** to `off`. A
+Floe-Server added from a template older than 1.11.1 has no such field: add a Variable with the key
+`TURN_TLS` and the value `off` instead. See [TURN relay](/self-hosting/turn-relay).
 
 ## Request links on Unraid {#request-links}
 
@@ -251,9 +253,15 @@ them. Request links stay off until a policy file turns them on.
   </Step>
 </Steps>
 
-A server installed from an older template has neither field: add a Path that maps the folder to
-`/app/policy` read-only, and a Variable with the key `POLICY_FILE`. To turn request links off
-again, and for what the server logs, see [Turn on request links](/self-hosting/request-links).
+A Floe-Server added from a template older than 1.11.0 has neither field, and one from the 1.11.0
+template has **Request Link Policy File** but no folder. Add what is missing: a Path that maps the
+folder to `/app/policy` read-only, and a Variable with the key `POLICY_FILE`. To turn request links
+off again, and for what the server logs, see [Turn on request links](/self-hosting/request-links).
+
+The page a sender opens shows **Report this link** only when the Floe-Client template's advanced
+**Request Link Report Email** field holds an address you read. A Floe-Client added from a template
+older than 1.11.1 has no such field: add a Variable with the key `REQUEST_REPORT_EMAIL` instead. See
+[Sending to a link on your server](/self-hosting/request-links#sending-to-a-link-on-your-server).
 
 ## Other settings
 

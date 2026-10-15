@@ -33,7 +33,7 @@ build the client yourself. `compose` is read by Docker Compose itself.
 | [`NEXT_PUBLIC_SITE_URL`](#next-public-site-url) | client (build) | _(none)_ |
 | [`SOURCE_COMMIT`](#source-commit) | client (runtime) | _(none)_ |
 | [`REQUEST_REPORT_EMAIL`](#request-report-email) | client (runtime) | _(none)_ |
-| [`PORT`](#port) | server | `3001` |
+| [`PORT`](#port) | compose (server outside Docker) | `3001` |
 | [`CLIENT_PORT`](#client-port) | compose | `3000` |
 | [`NODE_ENV`](#node-env) | server | `production` (set by the image) |
 | [`CLIENT_URL`](#client-url) | server | _(none)_; Compose passes `http://localhost:3000`, or the port in `CLIENT_PORT` |
@@ -187,7 +187,7 @@ Maximum new connections admitted per address per 60 seconds, counted across Sock
 
 ### `MAX_TURN_REQUESTS_PER_IP` {#max-turn-requests-per-ip}
 
-Maximum `GET /api/turn-credentials` requests per address per 60 seconds. Requests over the cap get `429`, and the client falls back to [STUN](/glossary#stun) only: silently in the browser and Floe Desktop, with a printed warning on the CLI. A transfer that insists on the [relay](/glossary#relay) stops instead: Floe Desktop with [Hide my IP](/glossary#hide-my-ip) address on, or `--relay-only` on the CLI. Raise this in CI or staging suites that start many transfers from one address.
+Maximum `GET /api/turn-credentials` requests per address per 60 seconds. Requests over the cap get `429`, and the client falls back to [STUN](/glossary#stun) only: silently in the browser and Floe Desktop, with a printed warning on the CLI. A transfer that insists on the [relay](/glossary#relay) stops instead: Floe Desktop with [Hide my IP](/glossary#hide-my-ip) address on, a request link's page with Hide my IP on, or `--relay-only` on the CLI. Raise this in CI or staging suites that start many transfers from one address.
 
 ### `MAX_CODE_REQUESTS_PER_IP` {#max-code-requests-per-ip}
 
@@ -223,7 +223,7 @@ Public hostname of your self-hosted TURN server (for example `turn.your-domain.c
 
 ### `TURN_TLS` {#turn-tls}
 
-Set it to `off` when your self-hosted coturn has no TLS certificate. The server then leaves the `turns:` URL (TLS on port 5349) out of the relay list it gives clients, so they stop trying a relay that cannot answer. `false`, `0` and `no` are read as `off` too, in any letter case. Unset, empty or any other value keeps the URL, which a coturn with a certificate needs: on a network that blocks UDP, `turns:` is the relay. It does not change the Cloudflare list, and a server image of 1.11.0 or earlier ignores it.
+Set it to `off` when your self-hosted coturn has no TLS certificate. The server then leaves the `turns:` URL (TLS on port 5349) out of the relay list it gives clients, so they stop trying a relay that cannot answer. `false`, `0` and `no` are read as `off` too, in any letter case. Unset, empty or any other value keeps the URL, which a coturn with a certificate needs: on a network that blocks UDP, `turns:` is the relay. It does not change the Cloudflare list, and a server image of 1.11.0 or earlier ignores it. Under Compose it also needs a current `docker-compose.yml`: a copy from before 1.11.1 does not pass it to the server, so setting it in `.env` does nothing.
 
 ### `UPSTASH_REDIS_REST_URL` {#upstash-redis-rest-url}
 

@@ -67,9 +67,10 @@ a transfer by room code or share link.
 
 <RequestLinkLimits />
 
-Floe Desktop enforces every row but the last two, which the signaling server enforces. The server
-also holds each link to one drop, and ends a link that is still open 7 days and 10 minutes after
-it was made. What each limit looks like when it is reached is in [Request links](/desktop/request-links#limits), and the
+Floe Desktop enforces every row but the last two, which the signaling server enforces. Floe
+Desktop closes a link once its drop ends, and for 24 hours after that the server turns away anyone
+who tries it. The server also ends a link that is still open 7 days and 10 minutes after it was
+made. What each limit looks like when it is reached is in [Request links](/desktop/request-links#limits), and the
 server's side is in [Turn on request links](/self-hosting/request-links#request-link-limits). How
 long the server holds a link whose PC is offline, and how long it remembers a used or ended link,
 is in [Architecture](/reference/architecture#request-rooms).

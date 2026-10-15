@@ -235,6 +235,21 @@ const CURATED = {
         'MAX_REPORT_BYTES',
     ],
 };
+// The client surfaces that leave keys out on purpose, under the same rule as
+// CURATED: each list prints once as an info line, a missing key not listed is
+// a NOTE, and a listed key that turns up present is a NOTE. CONTRIBUTING.md
+// says why under its client table: a development setup never sets SOCKET_URL
+// (the Docker images do) or SOURCE_COMMIT (a self-host's build stamp), and the
+// Configuration reference documents both.
+const CURATED_CLIENT = {
+    'CONTRIBUTING.md (client table)': ['SOCKET_URL', 'SOURCE_COMMIT'],
+    'client/.env.example': ['SOCKET_URL', 'SOURCE_COMMIT'],
+};
+// Keys a client surface sets for the framework rather than for Floe's own
+// source, so "no client source reads it" is expected and prints as info.
+const FRAMEWORK_READ = {
+    NEXT_TELEMETRY_DISABLED: 'read by Next.js itself (its telemetry switch), not by Floe source',
+};
 // Runtime flags the client reads that no operator sets (Vercel sets
 // VERCEL_GIT_COMMIT_SHA itself; a self-host uses SOURCE_COMMIT instead).
 const ENV_IGNORE_CLIENT = new Set([
@@ -1787,6 +1802,21 @@ function checkEnv(ctx) {
             );
     }
     // Presence: client keys.
+    const clientSurfaces = [
+        {
+            name: 'CONTRIBUTING.md (client table)',
+            where: contribRel,
+            present: contrib.client,
+            missing: 'missing from the client table',
+        },
+        {
+            name: 'client/.env.example',
+            where: clientExample.relPath,
+            present: clientExample.vals,
+            missing: 'missing',
+        },
+    ];
+    const clientCuratedAbsent = new Map(clientSurfaces.map((s) => [s.name, []]));
     for (const key of client) {
         if (INTERNAL[key]) {
             report.info(
@@ -1804,14 +1834,28 @@ function checkEnv(ctx) {
             );
             continue;
         }
-        if (!contrib.client.has(key))
-            report.note(
+        for (const s of clientSurfaces) {
+            const listed = (CURATED_CLIENT[s.name] || []).includes(key);
+            if (!s.present.has(key) && listed)
+                clientCuratedAbsent.get(s.name).push(key);
+            else if (!s.present.has(key))
+                report.note('env', `${s.where}:1`, `${key} ${s.missing}`);
+            else if (listed)
+                report.note(
+                    'env',
+                    `${s.where}:1`,
+                    `${key} is listed in CURATED_CLIENT as deliberately absent but is present; drop it from the list`
+                );
+        }
+    }
+    for (const s of clientSurfaces) {
+        const keys = clientCuratedAbsent.get(s.name);
+        if (keys.length)
+            report.info(
                 'env',
-                `${contribRel}:1`,
-                `${key} missing from the client table`
+                `${s.where}:1`,
+                `documents a curated subset; keys deliberately absent: ${keys.join(', ')}`
             );
-        if (!clientExample.vals.has(key))
-            report.note('env', `${clientExample.relPath}:1`, `${key} missing`);
     }
     // Documented but not read.
     const documentedServer = new Map();
@@ -1847,18 +1891,24 @@ function checkEnv(ctx) {
             );
     }
     for (const k of contrib.client.keys()) {
-        if (!client.has(k))
+        if (client.has(k)) continue;
+        const at = `${contribRel}:${contrib.client.get(k).line}`;
+        if (FRAMEWORK_READ[k]) report.info('env', at, `${k}: ${FRAMEWORK_READ[k]}`);
+        else
             report.note(
                 'env',
-                `${contribRel}:${contrib.client.get(k).line}`,
+                at,
                 `${k} is in the client table but no client source reads it`
             );
     }
     for (const [k, v] of clientExample.vals) {
-        if (!client.has(k))
+        if (client.has(k)) continue;
+        const at = `${clientExample.relPath}:${v.line}`;
+        if (FRAMEWORK_READ[k]) report.info('env', at, `${k}: ${FRAMEWORK_READ[k]}`);
+        else
             report.note(
                 'env',
-                `${clientExample.relPath}:${v.line}`,
+                at,
                 `${k} is in the example but no client source reads it`
             );
     }

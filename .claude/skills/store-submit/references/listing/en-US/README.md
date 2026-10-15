@@ -16,7 +16,7 @@ Every text file ends with one newline that is not part of the field. The lengths
 ## The rules
 
 - These files are a record of what is live, not a draft. The skill never writes listing text on its own authority: new words and new images come from the owner (SKILL.md step 5a).
-- A release that changes the listing changes this folder in the same pull request that prepares the release: the new text, the new images, the new rows in `manifest.json`, and a new row in the history table of `../../partner-center.md`. `scripts/listing.test.mjs` fails when the three disagree.
+- A release that changes the listing changes this folder in the pull request that records its submission, not the one that prepares the release: the new text, the new images, the new rows in `manifest.json`, and a new row in the history table of `../../partner-center.md`. That row needs the submission number, which only the draft card gives (SKILL.md step 3), and `scripts/listing.test.mjs` fails when the three disagree. The owner approves the words and images before they are pasted, so what lands here is what was reviewed and saved (#601 did this for `desktop-v0.3.1`).
 - After the listing is saved in Partner Center, read each field back and compare its fingerprint with the manifest's. `node .claude/skills/store-submit/scripts/listing.mjs` prints them, and the djb2 loop for a browser snippet is in `scripts/release-notes.mjs`.
 - What's new is not here. It is rendered from `docs/changelog.mdx` for each release (`scripts/release-notes.mjs`).
 
@@ -32,6 +32,6 @@ They show the `desktop-v0.3.1` release, captured on 2026-10-15 while the owner w
 4. The app driven only through the dev page at `http://localhost:34115` in headless Chromium (viewport 1366 x 768, scale 1), files staged through the `files:open` event, captured with the page's own screenshot. `navigator.share` is stubbed in the page, because WebView2 on Windows has the Web Share API and the shipped app therefore shows **Share** beside **Show QR**. The native window was moved to the second monitor with `SWP_NOACTIVATE` and never touched.
 5. Fixture data only: the label "Acme footage", files with neutral names, Hide my IP off.
 
-The shots, in order: Send with two files staged and the share panel showing; Receive with CODE selected and the field empty; REQUEST LINK waiting for files; the Accept prompt after a local test visitor (`cli/internal/rlvisitor`, which refuses any server that is not local) sent a dozen fixture files, captured once Accept was enabled, then declined so nothing was written.
+The shots, in order: Send with two files staged and the share panel showing; Receive with CODE selected and the field empty; REQUEST LINK waiting for files; the Accept prompt after a local test visitor (`cli/internal/rlvisitor`, which refuses any server that is not localhost, a loopback or a private IP) sent a dozen fixture files, captured once Accept was enabled, then declined so nothing was written.
 
 Before a new set is accepted, look at each image: no user name, no personal path, no real link or address, no other window, no notification over the app.

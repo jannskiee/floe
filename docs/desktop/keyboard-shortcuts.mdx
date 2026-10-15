@@ -11,9 +11,9 @@ Every keyboard shortcut in Floe Desktop for Windows, with the places where each 
 
 | Shortcut | What it does | Where it does nothing |
 |---|---|---|
-| `Ctrl` `O` | Adds files. Leaves Settings or History, switches to **Send** and its **Files** tab, then opens the file picker. | While the cursor is in a text field, while a send or a receive is running, and behind a dialog. |
-| `Ctrl` `Enter` | The current tab's main action: **Send** on the Send tab, **Receive** on the Receive tab's **Code** view. Inside the **Text** box it sends the note, and inside **Code or link** it starts the receive. | In other text fields, in Settings and History, during a transfer, behind a dialog, with nothing to send or receive, and on **Request link**. |
-| `Ctrl` `V` | Pastes files copied in File Explorer, or an image from the clipboard, into the send list. | While the cursor is in a text field, where the field takes the paste. Also during a transfer, behind a dialog, and when the clipboard holds neither files nor an image. |
+| `Ctrl` `O` | Adds files. Leaves Settings or History, switches to **Send** and its **Files** tab, then opens the file picker. | While the cursor is in a text field, while a send or a receive by code is running, and behind a dialog. |
+| `Ctrl` `Enter` | The current tab's main action: **Send** on the Send tab, **Receive** on the Receive tab's **Code** view. Inside the **Text** box it sends the note, and inside **Code or link** it starts the receive. | In other text fields, in Settings and History, during a send or a receive by code, behind a dialog, with nothing to send or receive, and on **Request link**. |
+| `Ctrl` `V` | Pastes files copied in File Explorer, or an image from the clipboard, into the send list. | While the cursor is in a text field, where the field takes the paste. Also during a send or a receive by code, behind a dialog, and when the clipboard holds neither files nor an image. |
 | `Ctrl` `H` | Shows or hides **History**, leaving Settings if it is open. | While the cursor is in a text field, and behind a dialog. |
 | `Ctrl` `,` | Opens or closes **Settings**. | Behind a dialog. Otherwise it works on every screen, also while you type. |
 | `Ctrl` `R` | Starts over: cancels a send or a receive by code and clears the Send and Receive tabs. | While the cursor is in a text field, and behind the **Close Floe?** and **Reset all settings?** dialogs. |
@@ -22,7 +22,10 @@ Every keyboard shortcut in Floe Desktop for Windows, with the places where each 
 | `Enter` | In the **Code or link** field, starts receiving. | In the **Text** box it starts a new line. Use `Ctrl` `Enter` there. |
 
 A dialog, in this table, is one of these three questions: **Start over?**, **Close Floe?** and
-**Reset all settings?**.
+**Reset all settings?**. One more question is not among them: **This drop has renamed files**, which
+**Show in folder** asks for a [request link drop with renamed files](/desktop/request-links#renamed-files).
+`Ctrl` `O`, `Ctrl` `V`, `Ctrl` `H`, `Ctrl` `,` and `Ctrl` `R` still act behind it, and `Esc` answers it with
+**Cancel**.
 
 ## Behavior worth knowing
 

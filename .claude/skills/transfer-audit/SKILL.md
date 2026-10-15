@@ -40,22 +40,28 @@ while the user is at the PC. Never kill a process the run did not start.
 Never delete anything under `%APPDATA%\floe`. Never use the production VM as
 a peer.
 
-## 0. Preconditions (the driver checks the first four and exits 3; the byte and update rules are policy)
+## 0. Preconditions (the driver checks the first four; the byte and update rules are policy)
 
 - `gh auth status` prints a logged-in account (release downloads, the
-  latest-tag lookup, the commit compare).
+  latest-tag lookup, the commit compare). Without it a shipped `run` and a
+  `probe` exit 3.
 - Playwright: `client/node_modules/@playwright/test` resolves and its
   chromium revision is installed under `%LOCALAPPDATA%\ms-playwright`. The
   driver resolves it from `--client-dir`, whose default is `<root>/client`.
   A fresh clone or worktree has no `client/node_modules`, so from one pass
-  `--client-dir <a checkout whose client has node_modules>/client`.
+  `--client-dir <a checkout whose client has node_modules>/client`. A miss
+  does not stop the driver: `run` records a failed `Playwright` row under
+  Infra and `probe` records P3 as skipped; only `--dry-run` exits 3 on it.
 - Ports 3000 and 3001 are free or owned by `floe-run` (head profile only):
   `node .claude/skills/floe-run/scripts/floe-run.mjs check`, where exit 2 on
-  an idle machine is the expected answer.
+  an idle machine is the expected answer. A port held by anything else stops
+  a head `run` with exit 3.
 - No `floe-desktop.exe` is running that the run did not start. The single
   instance mutex would forward our launch into the user's window; the driver
-  refuses instead. `--desktop none` drops the desktop cells and this check
-  with them.
+  refuses instead, and the run goes on with its desktop cells SKIP
+  (`desktop-unavailable` when one was running at the start,
+  `desktop-running` when one appears later). `--desktop none` drops the
+  desktop cells and this check with them.
 - Declare presence. Reading the window never takes the foreground (UI
   Automation snapshots and text reads, `PrintWindow` captures on the window
   rect), but any UI Automation pattern call on a built exe (Invoke,
@@ -236,7 +242,7 @@ files only: `collectVersions` accepts a desktop About reading
 (`desktopProtocol`) and nothing passes one, so the built app's own
 `Transfer protocol` row is not compared). Statuses: CURRENT, STALE,
 UNKNOWN, NOT_INSTALLED, PARITY, DRIFT, INFO. Gating rows (exit 6 when
-STALE): CLI under test, desktop under test, web when a commit under
+STALE, DRIFT or UNKNOWN): CLI under test, desktop under test, web when a commit under
 `client/` is not deployed, protocol, and the server only with
 `--server-sha`. The PATH CLI and an unused Store build are INFO.
 
@@ -390,11 +396,18 @@ through `utimesSync` and read again (an mtime that will not come back is
 reported as `mtime changed`, never a failure; the run manifest carries it,
 so `cleanup` puts it back too); the portable and head exes
 launch with `APPDATA` redirected; the per-user Explorer entry
-`HKCU\Software\Classes\*\shell\Floe`, which an unpackaged exe points at
-itself on startup and creates when there is none (the frontend turns the
-entry on at first run, and a redirected `APPDATA` is always a first run), is
-read once, at the first such launch in the process. An entry that was there
-is put back by every stop and re-read. When there was none, a key that is
+`HKCU\Software\Classes\*\shell\Floe` is read once, at the first such launch
+in the process. Builds up to desktop-v0.3.0 point that entry at themselves
+on startup and create it at every first run, which a redirected `APPDATA`
+always is. Since desktop-v0.3.1 (DSK-04) no launch re-points another copy's
+live entry: the frontend creates a missing one, or takes over one whose
+program is gone, only when the profile's `floe:ctx-menu` marker is `1`, or
+the profile recorded no choice and the copy is installed (an `uninstall.exe`
+beside it), and otherwise removes one whose program is gone, so a portable
+or head launch with `APPDATA` redirected creates nothing. An entry that was
+there is put back by every stop and re-read, unless the launch removed it
+because its program was gone (desktop-v0.3.1 and later): the stop then notes
+`explorer verb: ... is gone; not recreated` and leaves it gone. When there was none, a key that is
 there at stop is removed, but only if its command is exactly the one the app
 writes for an exe this run launched and the key holds nothing else; a key
 for any other exe, or one with values of the owner's own, is left as it is
@@ -436,7 +449,7 @@ Verdicts: PASS needs sha256 equality on every file (on disk for CLI and
 desktop, per blob URL for the browser), completion text on both sides plus
 exit 0 for every CLI process, route evidence (REL: the forced side reads
 `local=relay` in the browser or the pill `Relay` on the desktop; DIR: every
-side with an oracle reads `direct`, or `direct (--no-relay both)` for CLI
+side with an oracle reads `direct`, or `direct [--no-relay both]` for CLI
 pairs), and the receiver's stats attestation. FAIL carries the exact
 signature, the phase, both transcripts, the window-cropped captures and a
 triage key. A PASS or FLAKY row on a DIR cell where no side had a route
@@ -559,9 +572,13 @@ The Explorer verb (`HKCU\Software\Classes\*\shell\Floe`) is guarded on the
 Store lane as well as on the portable and head ones. A packaged launch does
 not touch the key, and the leg's note then reads `explorer verb: unchanged`
 or `still absent`. A Store exe started directly is the one launch whose
-package identity no run had shown; a Floe without identity registers the
-verb for itself at startup, and the stop then puts the key back as it was
-(`removed ...` when there was none, `put back command ...` when there was).
+package identity no run had shown; a Floe without identity follows the
+unpackaged rule above (builds up to desktop-v0.3.0 register the verb for
+themselves at startup; from desktop-v0.3.1 only a profile whose marker is
+`1` does), and the stop then puts the key back as it was (`removed ...`
+when there was none and the launch created one, `put back command ...` when
+there was one and the launch changed it, or `... is gone; not recreated`
+when there was one whose program was gone and the launch removed it).
 
 What an exe run changes on the owner's profile and does not put back,
 because nothing reads it afterwards: the tab the app opens on next time
@@ -660,21 +677,22 @@ a recorded pid whose creation time changed (a recycled pid), and replays the
 steps that alter the machine (desktop close and config restore) also run
 best-effort on Ctrl+C.
 
-A hard kill (the node process ended before its `exit` hook ran) can still
-leave `HKCU\Software\Classes\*\shell\Floe` pointing at a deleted scratch
-exe, and `cleanup` does not replay it. When there was no entry before that
+A hard kill (the node process ended before its `exit` hook ran) of a
+desktop-v0.3.0 or older exe can still leave
+`HKCU\Software\Classes\*\shell\Floe` pointing at a deleted scratch exe, and
+`cleanup` does not replay it. When there was no entry before that
 run, the key is one the run created, and no later run takes it for its own
 (it names an exe that later run never launched), so the owner removes it
 once: `reg delete "HKCU\Software\Classes\*\shell\Floe" /f`. The `wailsdev` lane is not covered
-either, and there the key has two writers. The operator's own `wails dev`
-app runs the same startup rewrite before the driver could take a snapshot.
-And the audit's own page can write it: the frontend turns the Explorer
-entry on at first run when its `floe:ctx-menu` marker is absent
-(`desktop/frontend/src/App.tsx`, the mount effect that calls
-`EnableContextMenu`), every Playwright context starts with empty storage,
-and the dev server binds that call to the dev app (read from the code, not
-observed in a run). Either way the entry ends up pointing at the dev exe
-and nothing puts it back. The Wails
+either. Since DSK-04 (desktop-v0.3.1) nothing rewrites the key at startup:
+the operator's own `wails dev` window acts on it only as its profile's
+`floe:ctx-menu` choice says, except that with no `1` recorded it removes an
+entry whose program is gone, and the audit's own page, whose Playwright
+context starts with no marker, registers it only for an installed copy,
+which a `wails dev` exe is not (`desktop/frontend/src/App.tsx`
+`initCtxMenu`, bound to the dev app by the dev server; read from the code,
+not observed in a run). That page does remove an entry whose program is
+gone, and nothing puts that back. The Wails
 toast activator keys
 (`HKCU\Software\Classes\AppUserModelId\floe-desktop.exe` and its CLSID
 `LocalServer32`) are rewritten by every unpackaged launch too and are
@@ -858,8 +876,9 @@ included.
   link goes to its argv only; the CLI never prints it back, `link()` answers
   null, and the leg's evidence, argv included, is scrubbed like every other.
   Oracles (`CLI_VISITOR_ORACLES`): the prompt, exit 0, the drop's bytes in
-  the exclusive subfolder, the CLI's `All N files arrived (...)` line and
-  its SHA line only when the host verified all N, the desktop's Done copy,
+  the exclusive subfolder, the CLI's arrived line (`1 file arrived (...).`
+  for these one-file cells, `All N files arrived (...).` for more) and its
+  SHA line only when the host verified all N, the desktop's Done copy,
   the route pair (the CLI's `Connected (direct)` and the D pill), the
   desktop.json proof, FLOE_NO_STATS=1 on the CLI (a sender has no stats path
   at all) and a local `/api/stats` delta of 0. A CLI that fails is judged
@@ -1021,7 +1040,9 @@ what each step proves are the same, and the idle windows no longer matter.
    then `run --profile shipped --desktop portable --user-away --monitor secondary --cells S-DIR-D2C`
    (the Explorer key: with none before the run, the sender's notes in
    `attempt.json` read `explorer verb: ... absent before the run` and then
-   `explorer verb: removed ...`)
+   `explorer verb: ... still absent` on desktop-v0.3.1 and later, which
+   register nothing unasked; `explorer verb: removed ...` on an older
+   portable)
 
 Not covered by a live cell (decided). A green request run says nothing about
 these, and does not have to: each was weighed on 2026-10-13 and left to the

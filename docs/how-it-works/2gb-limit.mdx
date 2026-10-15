@@ -74,8 +74,10 @@ Error: transfer blocked: relay connections are capped at 2 GB (selected 2.5 GB)
 **In Floe Desktop**, the status line shows the same sentence, and adds
 `Turn off Hide my IP to send larger files` when Hide my IP is on.
 
-**On a request link's page**, the sender sees a card titled "Relay limit" and nothing is sent.
-When the link maker's Floe Desktop stops the drop partway instead, the page reads "Relayed drops
+**On a request link's page**, a sender whose connection turns out to be relayed sees a card titled
+"Relay limit" and nothing is sent. With **Hide my IP** checked and more than 2 GB picked, the page
+never connects: Send stays off, and the page reads "Relayed drops are capped at 2 GB. Turn off Hide
+my IP, or send 2 GB or less." When the link maker's Floe Desktop stops the drop partway instead, the page reads "Relayed drops
 are capped at 2 GB", and the files saved before that stay on their computer. See
 [Sending through a request link](/web-app/request-links#when-their-floe-stops-the-drop).
 

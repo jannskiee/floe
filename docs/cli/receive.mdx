@@ -179,11 +179,16 @@ A name your system cannot represent is adjusted before the file is written, and 
   front. Two names that differed only in one of those characters therefore arrive as a name and its
   numbered twin.
 - **Also on Windows**, one colon is dropped, not replaced. A file or top-level folder whose name
-  begins with one letter (A to Z) or one digit and then a colon loses those two characters, because
-  that start reads as a drive name. For example, `P:L 2025.xlsx` is saved as `L 2025.xlsx`.
+  begins with any one ASCII character (a letter A to Z, a digit, or a sign such as `_`) and then a
+  colon loses those two characters, because that start reads as a drive name. For example,
+  `P:L 2025.xlsx` is saved as `L 2025.xlsx`, and `_:notes.txt` as `notes.txt`.
 - **Also on Windows**, a backslash, which macOS and Linux allow in a name, separates folders:
-  `back\slash.txt` arrives as `slash.txt` in a folder named `back`, and a leading one is dropped.
+  `back\slash.txt` arrives as `slash.txt` in a folder named `back`. A leading one is dropped when
+  the rest of the name has no other slash or backslash, so `\notes.txt` arrives as `notes.txt`.
 - **On macOS and Linux**, all of those are valid, and names are left exactly as sent.
+- **On every platform**, a name that starts at a drive or a root, such as `C:\notes.txt`,
+  `/notes.txt` or `\back\slash.txt`, is refused: see
+  [Paths that are too deep or too long](#paths-too-deep-or-too-long).
 - **On every platform**, control characters and text-direction marks are replaced with underscores,
   since a file name is not a place for either. A browser receiver strips them instead of replacing
   them, so the same file can land under slightly different names on the two surfaces.

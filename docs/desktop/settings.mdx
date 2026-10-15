@@ -24,7 +24,7 @@ save folder save as you change them. The two address fields under [Advanced](#ad
 out of them, when you leave Settings, and before a **Test**.
 
 <Frame caption="Settings from the top through Privacy, in the build from GitHub. The Microsoft Store build has no Check for updates switch, and no Windows section further down.">
-  <img src="/images/desktop/settings.png" style={{ width: "100%", maxWidth: "480px", borderRadius: "12px" }} alt="Floe Desktop Settings: Save received files to under Transfers; Show notifications, Play sound and an Open button for Windows notification settings under Notifications; Hide my IP address, Contribute to global stats and Check for updates under Privacy" />
+  <img src="/images/desktop/settings.png" style={{ width: "100%", maxWidth: "480px", borderRadius: "12px" }} alt="Floe Desktop Settings showing the save folder under Transfers, the notification switches, and the three Privacy switches." />
 </Frame>
 
 ## Transfers
@@ -239,7 +239,7 @@ Floe uses, for example "Uses Floe's server unless you set your own". It opens by
 below is set, and a collapse you make lasts until you leave Settings.
 
 <Frame caption="Advanced, with Server expanded">
-  <img src="/images/desktop/settings-server.png" style={{ width: "100%", maxWidth: "480px", borderRadius: "12px" }} alt="The expanded Server section showing the Server address field, a Test button, and the Share link address field" />
+  <img src="/images/desktop/settings-server.png" style={{ width: "100%", maxWidth: "480px", borderRadius: "12px" }} alt="The expanded Server section showing the Server address field, a Test button, and the Share link address field." />
 </Frame>
 
 ### Server
@@ -454,7 +454,9 @@ If you edit it by hand:
   the unreadable file beside it as `desktop.json.bad`, so you can copy your settings back out of it. Check
   **Hide my IP address** and **Server address** afterward.
 - If Floe cannot save the file, the line under Advanced reads `Error: could not save settings.` followed by
-  the reason.
+  the reason. That covers **Hide my IP address**, **Contribute to global stats** and the two addresses. When
+  **Show notifications**, **Play sound** or **Check for updates** cannot be saved, that switch flips back and
+  no message appears.
 
 The installer build and the portable build from GitHub use this file, and the `floe` CLI keeps its own files in
 that same `floe` folder, so the two coexist. The installer leaves the file behind when you uninstall, on

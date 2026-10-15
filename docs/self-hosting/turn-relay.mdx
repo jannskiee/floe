@@ -106,6 +106,8 @@ Prefer to run the relay yourself? Leave the Cloudflare variables unset and confi
     ```
 
     The signaling server uses these to issue time-limited HMAC-SHA1 credentials for coturn. Credentials expire after 24 hours. Set both: with only one of the pair, the server hands out no coturn entries and logs nothing about it. Set `TURN_TLS=off` when coturn runs without a certificate: the server then hands out the `stun:` and `turn:` entries only.
+
+    `TURN_TLS` needs a server image newer than 1.11.0 and a `docker-compose.yml` from 1.11.1 or later. An older copy of the file does not pass it to the server, so the `turns:` entry stays; download the current one first, as [Update to the latest code](/self-hosting/operations#update-to-the-latest-code) describes.
   </Step>
   <Step title="Open firewall ports">
     On the host, open the following ports:

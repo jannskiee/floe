@@ -205,7 +205,8 @@ From the [CLI](/glossary#cli), a sender has to name your signaling server as wel
 
 The page a sender opens shows **Report this link** only when you give the web client an address for
 reports, in [`REQUEST_REPORT_EMAIL`](/self-hosting/configuration#request-report-email): under
-Compose, a line in `.env`, then `docker compose up -d`. The link then starts an email to that
+Compose, a line in `.env` and a `docker-compose.yml` from 1.11.1 or later (an older copy does not
+pass the variable on), then `docker compose up -d`. The link then starts an email to that
 address, carrying the link's id and never the part after the `#`. Without an address the page shows
 no report link, so tell the people you share links with how to reach you. The variable needs a web
 client newer than version 1.11.0: see

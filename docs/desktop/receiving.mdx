@@ -19,7 +19,7 @@ unless you choose another one, and nothing is ever overwritten. When the card re
 are complete.
 
 <Frame caption="The Receive tab, on Code">
-  <img src="/images/desktop/receive.png" style={{ width: "100%", maxWidth: "476px", borderRadius: "12px" }} alt="The Floe Desktop Receive card: a Code and Request link switch with a Beta tag beside Request link, an empty Code or link field, a Save to field with a Browse button, and the Receive button" />
+  <img src="/images/desktop/receive.png" style={{ width: "100%", maxWidth: "476px", borderRadius: "12px" }} alt="The Floe Desktop Receive card on Code, with the Code or link field, the Save to field and Browse, and the Receive button." />
 </Frame>
 
 <Steps>
@@ -144,7 +144,7 @@ Click the clock icon at the top right of the card, or press `Ctrl` `H`, for a li
 received.
 
 <Frame caption="History, with a request link drop opened">
-  <img src="/images/desktop/history.png" style={{ width: "100%", maxWidth: "476px", borderRadius: "12px" }} alt="The Floe Desktop History view with one received drop opened: its label, Received, 8.0 MB and the time, the three file names, a green check mark beside the folder it was saved in, and the Show in folder and Remove actions" />
+  <img src="/images/desktop/history.png" style={{ width: "100%", maxWidth: "476px", borderRadius: "12px" }} alt="Floe Desktop History with one request link drop opened: its three file names, its folder with a green check, Show in folder and Remove." />
 </Frame>
 
 Each row shows the file name (or the count, for a batch), the direction, the size, and when it happened.
@@ -221,11 +221,14 @@ name:
 - The characters `< > : " | ? *` become underscores, and so do control characters and text-direction marks.
 - Trailing dots and spaces are removed.
 - A name that is a reserved device name, such as `NUL`, gets an underscore in front.
-- A file or top-level folder whose name starts with one letter (A to Z) or one digit and then a colon loses
-  those two characters, because Windows reads that start as a drive. So `P:L 2025.xlsx` is saved as
-  `L 2025.xlsx`.
+- A file or top-level folder whose name starts with one ASCII character and then a colon loses those two
+  characters, because Windows reads that start as a drive. That character can be a letter (A to Z), a digit or
+  a symbol such as `_` or `#`. So `P:L 2025.xlsx` is saved as `L 2025.xlsx`, and `_:notes.txt` as `notes.txt`.
+  A real drive path such as `C:\notes.txt` is refused instead: see
+  [Paths that are too deep or too long are refused](#paths-too-deep-or-too-long).
 - A backslash, which macOS and Linux allow in a name, is a folder separator on Windows: `back\slash.txt`
-  arrives as `slash.txt` in a folder named `back`, and a leading one is dropped.
+  arrives as `slash.txt` in a folder named `back`. A leading one is dropped when the rest of the name has no
+  other slash or backslash, so `\notes.txt` arrives as `notes.txt`; `\back\slash.txt` is refused.
 - A name with nothing usable left in it, such as one made only of dots, is saved as `received_file`.
 - If two files end up with the same adjusted name, the second is numbered exactly as above.
 

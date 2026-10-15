@@ -743,13 +743,6 @@
     },
     {
         "surface": "web",
-        "text": "Signaling Server URL",
-        "source": "unraid/floe-client.xml",
-        "anchor": "/self-hosting/unraid#direct-lan-installation",
-        "why_no_home": null
-    },
-    {
-        "surface": "web",
         "text": "Something went wrong while receiving, so the transfer was stopped. Ask the sender to try again.",
         "source": "client/lib/transfer/receiver.ts",
         "anchor": "/troubleshooting#something-went-wrong-while-receiving",
@@ -1019,13 +1012,6 @@
         "text": "Waiting for the sender to start",
         "source": "client/components/ReceiverPanel.tsx",
         "anchor": "/troubleshooting#the-transfer-never-starts",
-        "why_no_home": null
-    },
-    {
-        "surface": "web",
-        "text": "Web UI Port",
-        "source": "unraid/floe-client.xml",
-        "anchor": "/self-hosting/unraid#direct-lan-installation",
         "why_no_home": null
     },
     {
@@ -2178,13 +2164,6 @@
     },
     {
         "surface": "site",
-        "text": "Floe: the image warm-up did not finish; pictures are resized on first request instead.",
-        "source": "client/docker/start.mjs",
-        "anchor": null,
-        "why_no_home": "A log line of the client container, printed once when its own picture warm-up fails; nothing for a visitor to do. The images page names it at the v1.11.1 tag."
-    },
-    {
-        "surface": "site",
         "text": "For machines without Store access: the installer and a portable zip (unzip and run floe-desktop.exe). These builds are not signed, so the first time you run one, Windows SmartScreen shows a warning: choose \"More info\", then \"Run anyway\".",
         "source": "client/app/download/page.tsx",
         "anchor": "/desktop/installation#choose-a-channel",
@@ -2824,7 +2803,7 @@
         "surface": "desktop",
         "text": "Closing now stops the transfer before the files finish. Your request link also stops working",
         "source": "desktop/frontend/src/requestCopy.ts",
-        "anchor": null,
+        "anchor": "/desktop/request-links#how-a-link-ends",
         "why_no_home": null
     },
     {
@@ -3014,13 +2993,6 @@
         "text": "DROP STOPPED",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#if-a-drop-stops",
-        "why_no_home": null
-    },
-    {
-        "surface": "desktop",
-        "text": "Drop stopped before any file: over the 2 GB relay limit",
-        "source": "desktop/frontend/src/requestCopy.ts",
-        "anchor": "/desktop/request-links#messages-on-your-pc",
         "why_no_home": null
     },
     {
@@ -4407,7 +4379,7 @@
         "text": "the server answered with an error this version of Floe does not know",
         "source": "desktop/transfer.go",
         "anchor": null,
-        "why_no_home": "a Floe server answers a join with no error but Invalid room ID, so only a server that is not Floe's, or a later version, brings this line; it stands in for that server's own words, which are never shown"
+        "why_no_home": null
     },
     {
         "surface": "desktop",
@@ -4630,21 +4602,7 @@
         "surface": "desktop",
         "text": "transfer failed: the sender's SHA-256 for a file could not be read, so the file was not kept",
         "source": "cli/engine/transfer/refusal.go",
-        "anchor": null,
-        "why_no_home": null
-    },
-    {
-        "surface": "desktop",
-        "text": "transfer failed: Their computer ran out of space",
-        "source": "cli/engine/transfer/refusal.go",
-        "anchor": "/troubleshooting#their-computer-ran-out-of-space",
-        "why_no_home": null
-    },
-    {
-        "surface": "desktop",
-        "text": "transfer failed: They stopped this drop",
-        "source": "cli/engine/transfer/refusal.go",
-        "anchor": "/troubleshooting#they-stopped-the-transfer-in-floe-desktop",
+        "anchor": "/troubleshooting#a-file-did-not-match-the-sha-256",
         "why_no_home": null
     },
     {
@@ -4749,14 +4707,14 @@
         "surface": "desktop",
         "text": "Your request link also stops working",
         "source": "desktop/frontend/src/requestCopy.ts",
-        "anchor": null,
+        "anchor": "/desktop/request-links#how-a-link-ends",
         "why_no_home": null
     },
     {
         "surface": "desktop",
         "text": "Your request link stays open",
         "source": "desktop/frontend/src/requestCopy.ts",
-        "anchor": "/desktop/keyboard-shortcuts#behavior-worth-knowing",
+        "anchor": "/desktop/sending#start-over",
         "why_no_home": null
     },
     {
@@ -4831,14 +4789,14 @@
     },
     {
         "surface": "cli",
-        "text": "`Files are encrypted end-to-end. Nothing is stored on any server.`",
+        "text": "Files are encrypted end-to-end. Nothing is stored on any server.",
         "source": "cli/cmd/floe/main.go",
         "anchor": "/cli/flags#help-and-version-flags",
         "why_no_home": null
     },
     {
         "surface": "cli",
-        "text": "`Floe transfers files directly between devices using WebRTC.`",
+        "text": "Floe transfers files directly between devices using WebRTC.",
         "source": "cli/cmd/floe/main.go",
         "anchor": "/cli/flags#help-and-version-flags",
         "why_no_home": null
@@ -5134,7 +5092,7 @@
         "surface": "cli",
         "text": "connection closed mid-transfer",
         "source": "cli/engine/transfer/sender.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#connection-closed-mid-transfer-from-floe-send",
         "why_no_home": null
     },
     {
@@ -5149,13 +5107,6 @@
         "text": "connection closed while waiting for the receiver (transfer declined or receiver exited)",
         "source": "cli/engine/transfer/sender.go",
         "anchor": "/troubleshooting#connection-closed-while-waiting-for-the-receiver-transfer-declined-or-receiver-exited",
-        "why_no_home": null
-    },
-    {
-        "surface": "cli",
-        "text": "Connection lost. 4 of 12 files arrived. Ask them for a new link to send the other {n}.",
-        "source": "cli/cmd/floe/sendto.go",
-        "anchor": "/cli/send#messages-from-floe-send-to",
         "why_no_home": null
     },
     {
@@ -5281,7 +5232,7 @@
         "surface": "cli",
         "text": "Error: cannot create output directory {dir}: {reason}",
         "source": "cli/cmd/floe/receive.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#cannot-create-output-directory",
         "why_no_home": null
     },
     {
@@ -5309,7 +5260,7 @@
         "surface": "cli",
         "text": "Error: could not resolve \"{code}\": could not reach signaling server: {network reason}",
         "source": "cli/engine/code/client.go",
-        "anchor": "/reference/transfer-protocol#timeouts",
+        "anchor": "/troubleshooting#failed-to-connect-to-signaling-server",
         "why_no_home": null
     },
     {
@@ -5372,7 +5323,7 @@
         "surface": "cli",
         "text": "Error: error sending {name}: connection closed mid-transfer",
         "source": "cli/engine/transfer/sender.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#connection-closed-mid-transfer-from-floe-send",
         "why_no_home": null
     },
     {
@@ -5414,7 +5365,7 @@
         "surface": "cli",
         "text": "Error: error sending {name}: the file grew while it was being sent (announced {n} bytes); send it again once it stops changing",
         "source": "cli/engine/transfer/sender.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#the-file-shrank-or-grew-while-it-was-being-sent",
         "why_no_home": null
     },
     {
@@ -5475,17 +5426,10 @@
     },
     {
         "surface": "cli",
-        "text": "Error: failed to create peer connection: failed to create peer connection: {reason}",
-        "source": "cli/cmd/floe/send.go",
-        "anchor": null,
-        "why_no_home": null
-    },
-    {
-        "surface": "cli",
         "text": "Error: failed to create peer connection: {reason}",
         "source": "cli/cmd/floe/send.go",
         "anchor": null,
-        "why_no_home": "the reason is pion's own, for a connection setting it cannot build from (an ICE server list it cannot parse, from a misconfigured server); no page can name every reason"
+        "why_no_home": null
     },
     {
         "surface": "cli",
@@ -5498,7 +5442,7 @@
         "surface": "cli",
         "text": "Error: incomplete file \"{name}\": received {n} of {m} bytes",
         "source": "cli/engine/transfer/receiver.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#rejected-the-senders-file-description",
         "why_no_home": null
     },
     {
@@ -5540,14 +5484,14 @@
         "surface": "cli",
         "text": "Error: rejected the sender's file description: {detail}",
         "source": "cli/engine/transfer/receiver.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#rejected-the-senders-file-description",
         "why_no_home": null
     },
     {
         "surface": "cli",
         "text": "Error: sender exceeded the announced size of \"{name}\"",
         "source": "cli/engine/transfer/receiver.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#rejected-the-senders-file-description",
         "why_no_home": null
     },
     {
@@ -5750,7 +5694,7 @@
         "surface": "cli",
         "text": "incomplete file \"{name}\": received {n} of {m} bytes",
         "source": "cli/engine/transfer/receiver.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#rejected-the-senders-file-description",
         "why_no_home": null
     },
     {
@@ -5960,7 +5904,7 @@
         "surface": "cli",
         "text": "rejected the sender's file description: {detail}",
         "source": "cli/engine/transfer/receiver.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#rejected-the-senders-file-description",
         "why_no_home": null
     },
     {
@@ -6030,7 +5974,7 @@
         "surface": "cli",
         "text": "sender exceeded the announced size of \"{name}\"",
         "source": "cli/engine/transfer/receiver.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#rejected-the-senders-file-description",
         "why_no_home": null
     },
     {
@@ -6072,7 +6016,7 @@
         "surface": "cli",
         "text": "That is a request link for sending files to someone. Open it in a web browser.",
         "source": "cli/engine/code/client.go",
-        "anchor": "/desktop/request-links#a-request-link-pasted-into-receive",
+        "anchor": "/cli/receive#links-floe-receive-refuses",
         "why_no_home": null
     },
     {
@@ -6128,7 +6072,7 @@
         "surface": "cli",
         "text": "the file grew while it was being sent (announced {a} bytes); send it again once it stops changing",
         "source": "cli/engine/transfer/sender.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#the-file-shrank-or-grew-while-it-was-being-sent",
         "why_no_home": null
     },
     {
@@ -6163,7 +6107,7 @@
         "surface": "cli",
         "text": "the sender stopped the transfer",
         "source": "cli/engine/transfer/receiver.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#rejected-the-senders-file-description",
         "why_no_home": null
     },
     {
@@ -6574,6 +6518,13 @@
     },
     {
         "surface": "server",
+        "text": "Floe: the image warm-up did not finish; pictures are resized on first request instead.",
+        "source": "client/docker/start.mjs",
+        "anchor": "/self-hosting/operations#the-server-logs-very-little",
+        "why_no_home": null
+    },
+    {
+        "surface": "server",
         "text": "HTTP server error:",
         "source": "server/server.js",
         "anchor": "/self-hosting/operations",
@@ -6604,7 +6555,7 @@
         "surface": "server",
         "text": "Invalid host token",
         "source": "server/server.js",
-        "anchor": "/troubleshooting#that-link-is-incomplete",
+        "anchor": "/reference/architecture#the-host-join",
         "why_no_home": null
     },
     {
@@ -6728,6 +6679,13 @@
     },
     {
         "surface": "server",
+        "text": "Signaling Server URL",
+        "source": "unraid/floe-client.xml",
+        "anchor": "/self-hosting/unraid#direct-lan-installation",
+        "why_no_home": null
+    },
+    {
+        "surface": "server",
         "text": "Too many reports",
         "source": "server/stats.js",
         "anchor": "/reference/http-api#post-api-stats-report",
@@ -6780,6 +6738,13 @@
         "text": "Web client for Floe encrypted peer-to-peer file transfer. Install Floe-Server first, then set that server template's Client URL to this app's exact browser origin.",
         "source": "unraid/floe-client.xml",
         "anchor": null,
+        "why_no_home": null
+    },
+    {
+        "surface": "server",
+        "text": "Web UI Port",
+        "source": "unraid/floe-client.xml",
+        "anchor": "/self-hosting/unraid#direct-lan-installation",
         "why_no_home": null
     },
     {

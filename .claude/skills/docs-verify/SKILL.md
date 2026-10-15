@@ -30,8 +30,9 @@ without a file or a page outside the nav (or a docs.json the script cannot parse
 a page with no frontmatter block or missing title or description, two hyphens in a title,
 sidebarTitle or description, a `<` in a heading that MDX cannot read as a closed tag, a table whose
 delimiter row and header differ in cell count, a straight double quote that opens a table
-cell or closes one after punctuation, an em or en dash (in the docs, the root
-and unraid Markdown, the desktop READMEs, `.goreleaser.yml` and `docs/style.css`), a
+cell or closes one after punctuation, an em or en dash (in the docs and docs/docs.json,
+the root, .github and unraid Markdown, the desktop READMEs, `.goreleaser.yml` and
+`docs/style.css`), a
 documented server default that contradicts server/server.js, or one
 of the env self-checks failing (fewer keys than the server modules read, or a configuration
 page that yields no variable rows). And from the three promoted checks: a break of the page
@@ -76,9 +77,10 @@ do not skim.
   quoted attribute or an attribute's braces, a `[text](<dest>)` link destination, and
   anything inside braces, which the script skips whole and never judges (`{#id}` is
   Mintlify's own). The rule is held to @mdx-js/mdx 3.1.1 by a table in the test file.
-  Body text is not checked: a raw `<word>` in a paragraph or a table cell breaks the page
-  the same way, and only the rendered page will show it, so open every page you touched
-  on the preview.
+  This check does not read body text, where a raw `<word>` in a paragraph or a table cell
+  breaks the page the same way. There `pagestandard` fails a bare lower-case `<word>` that
+  does not close on its line (below); any other stray `<` (`<2 GB`, an unclosed capitalized
+  tag) shows only on the rendered page, so open every page you touched on the preview.
 - nav and footer: a page listed twice in docs.json is a NOTE. So is each item where
   docs.json `footer.links` and Footer.tsx `columns` differ; the script cannot know which
   side is right.
@@ -178,9 +180,9 @@ line saying how many it kept back; run one alone to see them all:
   specifiers, codes such as `relay-cap`, constant names, directives, locale tags and
   format strings with no word are not copy. The request page's module is read from the
   working tree: a sentence added to `visitorCopy.ts` gets its row in the same PR. The
-  desktop and CLI modules are held to the lines the snapshot recorded at their tags, so a
+  desktop and CLI modules are held to the lines the snapshot recorded at its refs, so a
   sentence added to `requestCopy.ts` or `sendto.go` gets its row at release prep, when the
-  snapshot is written at the new tags and records the line.
+  snapshot is written for the new release and records the line.
 - `captures`: each `shots` entry of docs/images/\*/capture-manifest.json may record
   `strings` (the UI texts that can be read in the picture) and `sources` (the files that
   type them). A string that has left all of its sources fails the run, the web pictures
@@ -202,15 +204,19 @@ The files behind `messages`, and when each is written:
   an anchor set by hand on a row the audit places nowhere, and it writes what it could not
   match to two lists for a person to decide.
 - references/released-strings.json is written by
-  `node .claude/skills/docs-verify/scripts/released-strings.mjs --cli <v* tag> --desktop <desktop-v* tag>`,
-  at release prep, with the new tags. Between releases it stays behind main: run it again
-  only at the SAME two tags (its `refs` name them), and do so whenever a cli or desktop
-  row, or a desktop picture string, is added or edited, because the file lists only the
-  strings that were rows when it was written; the HARD line names the command. It reads
-  the two tags with `git show` and lists what is not at its tag. Under `copy` it records
-  the copy lines of the desktop and CLI copy modules at their tags, and under
-  `copyScanner` the version of the scanner that read them: a change to the scanner fails a
-  repository test until the file is written again at the same tags.
+  `node .claude/skills/docs-verify/scripts/released-strings.mjs --cli <ref> --desktop <ref>`.
+  At release prep the new tags do not exist yet, and the script stops (exit 2) on a ref git
+  does not know, so the prep PR runs it at the commit the release is cut from
+  (`--cli <sha> --desktop <sha>`; a series that is not releasing keeps its current tag).
+  Once the tags exist, it runs again with the tag names (#598 at that commit, then #594 at
+  the tags), which floe-release step 6 says. Between releases it stays behind
+  main: run it again only at the SAME two refs (its `refs` name them), and do so whenever
+  a cli or desktop row, or a desktop picture string, is added or edited, because the file
+  lists only the strings that were rows when it was written; the HARD line names the
+  command. It reads the two refs with `git show` and lists what is not at its ref. Under
+  `copy` it records the copy lines of the desktop and CLI copy modules at those refs, and
+  under `copyScanner` the version of the scanner that read them: a change to the scanner
+  fails a repository test until the file is written again at the same refs.
 - docs/messages.mdx is printed by `scripts/messages-index.mjs` (`--write` to write it).
   Never edit the page by hand: change the row and write it again.
 

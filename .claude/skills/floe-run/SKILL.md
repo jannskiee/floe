@@ -74,10 +74,16 @@ truth either way: it is read from `/health`, not from the switch.
 failure.
 
 The server prints no banner at startup (`server.js` has a bare
-`server.listen`). The only lines it can print before READY are the policy's,
-shown with the `[server]` prefix: `request links: on` when a policy file turns
-them on, or `policy file not found, request links off` when `POLICY_FILE`
-names a file that is not there. With no policy file it prints nothing. The
+`server.listen`). What it can print before READY, shown with the `[server]`
+prefix: `TRUSTED_PROXY_COUNT is not set, so the default of 1 is in use. ...`
+when neither the session nor `server/.env` sets that variable (a lane clone
+with no `server/.env` prints it at every start); the policy's lines,
+`request links: on` when a policy file turns them on, `policy file not found,
+request links off` when `POLICY_FILE` names a file that is not there, or
+`policy file unreadable, keeping previous policy`; `<NAME> is not a whole
+number of at least 1. Using the default, <n>.` for a malformed `MAX_*` value;
+and `Cloudflare TURN mint failed (<reason>)` when Cloudflare keys reach it and
+the mint fails, because `start` asks `/api/turn-credentials` before READY. The
 `start` wrapper stays alive for the stack's lifetime and exits 0 with
 `floe-run: stopped` after `stop`.
 

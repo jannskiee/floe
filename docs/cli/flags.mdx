@@ -245,7 +245,7 @@ meet:
 
 | Phase | Limit |
 |-------|-------|
-| Waiting for the server to answer the join | 20 seconds, then `timed out waiting for the server to assign a role` |
+| Waiting for the server to answer the join | 20 seconds, then `timed out waiting for the server to assign a role`. With `--to`, 10 seconds, then `Request links are not available on this Floe server.` |
 | Sender waiting for the other side to join | No limit while its connection to the server lasts |
 | Waiting for the other side's offer or answer | 30 seconds, then [`timed out waiting for the peer's offer`](/troubleshooting#timed-out-waiting-for-the-peers-offer), or `timed out waiting for the peer to answer` on the sender |
 | Establishing the connection | 30 seconds more, then [`timed out establishing a connection`](/troubleshooting#timed-out-establishing-a-connection) |

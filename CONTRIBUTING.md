@@ -149,7 +149,7 @@ Before you open a docs PR, run the pre-flight from the repository root:
 node .claude/skills/docs-verify/scripts/docs-check.mjs
 ```
 
-It checks links and anchors, the navigation, frontmatter, headings MDX cannot compile, link labels, table shape, the environment-variable tables, and em and en dashes. Five more checks (readability, the page standard, glossary first use, the message index and the screenshot manifests) only print notes for now. It reads `docs/` and the root Markdown files, and also the code and configuration that link to the docs or repeat their facts: the web app, CLI and desktop source, `.github/`, the server's settings, both env examples, `docker-compose.yml`, `unraid/` and `.goreleaser.yml`. It exits 1 on a defect it can decide and prints everything else as `NOTE` lines for you to read. CI runs the same command on every pull request, in the `Repo guardrails` job, so a defect it can decide blocks the merge.
+It checks links and anchors, the navigation, frontmatter, headings MDX cannot compile, link labels, table shape, the environment-variable tables, and em and en dashes. Three more checks also fail the run: the docs page standard, the message list and the screenshot manifests. The message list, `.claude/skills/docs-verify/references/messages.json`, has a row for each message Floe can show. Rewording a message of the web app, the website, the server or the install scripts that has a row there, renaming a docs heading a row links to, or adding a sentence to the request page's copy (`client/lib/request/visitorCopy.ts`) without a row fails it. Add or change the row in the same PR, then rewrite `docs/messages.mdx` with `node .claude/skills/docs-verify/scripts/messages-index.mjs --write`. A screenshot manifest fails when a string recorded for a docs picture has left the files that type it. Two more checks, readability and glossary first use, only print notes. It reads `docs/` and the root Markdown files, and also the code and configuration that link to the docs or repeat their facts: the web app, CLI and desktop source, `.github/`, the server's settings, both env examples, `docker-compose.yml`, `unraid/` and `.goreleaser.yml`. It exits 1 on a defect it can decide and prints everything else as `NOTE` lines for you to read. CI runs the same command on every pull request, in the `Repo guardrails` job, so a defect it can decide blocks the merge.
 
 `docs/changelog.mdx` is written by hand. When your change is one a user can see:
 
@@ -255,7 +255,7 @@ The Playwright suite in `client/e2e/` runs real transfers between browser tabs, 
 
 Before the first run you need:
 
-- Go on your `PATH`. Every run starts by building the CLI and the test host, so the whole suite needs it, browser-only specs included.
+- Go on your `PATH`. Every run builds the CLI and the test host before the first test, so the whole suite needs it, browser-only specs included.
 - The server's dependencies: `npm ci` in `server/`. Playwright starts the server with `node server.js`.
 - The client's dependencies and a browser: in `client/`, `pnpm install` and then `pnpm exec playwright install chromium` (on Linux, `pnpm exec playwright install --with-deps chromium`).
 
@@ -342,7 +342,7 @@ A first job, `Detect changed paths`, decides which of the jobs below run, and `C
 
 | CI job | Runs when | What it checks |
 |--------|-----------|----------------|
-| `Repo guardrails` | Every PR | That every file reading a value the other peer chose is listed in the peer-data consumer map, and the docs pre-flight: links and anchors, tables, headings MDX cannot compile, documented server defaults, and em and en dashes |
+| `Repo guardrails` | Every PR | That every file reading a value the other peer chose is listed in the peer-data consumer map, and the docs pre-flight: links and anchors, tables, headings MDX cannot compile, documented server defaults, em and en dashes, the docs page standard, the message list and the screenshot manifests |
 | `Build & Lint` | Code changed | Client lint, unit tests, production build and page titles, plus a check that the desktop release named in `client/lib/desktopRelease.ts` has its assets on GitHub |
 | `Server (Node.js 20)`, `Server (Node.js 24)` | Code changed | Server tests, once on each Node version |
 | `CLI (Go, <os>)` | Code changed | Vet, tests and build, on Linux, Windows and macOS |

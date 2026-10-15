@@ -1,6 +1,6 @@
 # Dependency pull requests
 
-Dependabot opens one grouped PR per ecosystem per month, and one per major (.github/dependabot.yml). `CI green` is not enough for the cases below: each names something the suite cannot see. They were the standing items of issue 515, moved here on 2026-10-14 and closed on 2026-10-15, so that they sit where a dependency PR is handled.
+Dependabot opens one grouped PR per ecosystem per month (github-actions weekly). An npm major arrives as a PR of its own; a Go, Docker or Actions major rides in its group, unless the file ignores it (.github/dependabot.yml). `CI green` is not enough for the cases below: each names something the suite cannot see. They were the standing items of issue 515, moved here on 2026-10-14 and closed on 2026-10-15, so that they sit where a dependency PR is handled.
 
 ## Go modules (`go-deps`: cli/ and desktop/)
 

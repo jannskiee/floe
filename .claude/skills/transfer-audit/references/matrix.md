@@ -107,7 +107,8 @@ of the run, which then SKIP before their host is launched.
 
 The visitor (W) opens `<web>/r/<linkId>#<roomId>` in a fresh Chromium
 context, picks the files through the hidden "Choose files" input, clicks
-`Send N files` and reads the page's status card (`lib/visitor.mjs`). The
+`Send 1 file` (every request cell sends one file; `Send N files` for more)
+and reads the page's status card (`lib/visitor.mjs`). The
 link comes from the host's `GetRequestLink` on the wailsdev lane
 (`PlaywrightDriver.readRequestLink`, checked against the link block's
 input) or from the link block's read-only field on an exe
@@ -159,7 +160,7 @@ writes `req-hideip`).
 
 | Cell                   | TA        | Snd | Rcv | Path | Forcer         | Input        | Size        | Required oracles |
 | ---------------------- | --------- | --- | --- | ---- | -------------- | ------------ | ----------- | ---------------- |
-| S-DIR-W2D-req          | TA-10     | W   | D   | DIR  | none           | request-link | 64 MiB      | the prompt shows the visitor's own count and bytes and no relay-over-cap line; on-disk sha256 inside the exclusive drop subfolder, nothing loose beside it; visitor arrived line, its SHA line only when verified equals N; desktop `Received N files` and the SHA sentence; D pill `Direct` and W `direct`; desktop.json proof; visitor stats attempts 0; the link reads used up afterwards. On an exe host, the only host a shipped run has, the cell proves the link and the prompt and then stops as SKIP `request-accept-undrivable` (no UIA Invoke presses Accept there); the wailsdev twin `H-DIR-W2D-req` runs every oracle |
+| S-DIR-W2D-req          | TA-10     | W   | D   | DIR  | none           | request-link | 64 MiB      | the prompt shows the visitor's own count and bytes and no relay-over-cap line; on-disk sha256 inside the exclusive drop subfolder, nothing loose beside it; visitor arrived line, its SHA line only when verified equals N; the desktop done heading (`RECEIVED 1 FILE, ...` for these one-file drops) and the check mark's `SHA-256 matched` text; D pill `Direct` and W `direct`; desktop.json proof; visitor stats attempts 0; the link reads used up afterwards. On an exe host, the only host a shipped run has, the cell proves the link and the prompt and then stops as SKIP `request-accept-undrivable` (no UIA Invoke presses Accept there); the wailsdev twin `H-DIR-W2D-req` runs every oracle |
 | S-REL-W2D-req          | TA-11     | W   | D   | REL  | W sender       | request-link | 4 MiB       | as TA-10 with W `local=relay` and D pill `Relay` |
 | S-REL-W2D-reqhideip    | TA-12     | W   | D   | REL  | D hideIP       | request-link | 4 MiB       | as TA-11 with the relay forced by the host (D pill `Relay`, the visitor unforced); optional. The over 2 GB prompt line is not reachable from a web visitor, which blocks a relayed drop over the cap before its metadata (a spec gap) |
 | H-DIR-W2D-reqblip      | TA-13     | W   | D   | DIR  | none           | request-link | 64 MiB      | the host's `/ws` cut 5 s through the blip proxy while the link waits: a visitor in the gap gets the not-connected copy; the desktop shows Reconnecting then Waiting; after the reclaim the visitor's Try again delivers and hashes match; head only, loopback only |
@@ -182,7 +183,7 @@ writes `req-hideip`).
 | H-REL-W2C-reqopen      | TA-17 (H) | W   | C   | REL  | W sender       | link         | 4 MiB       | as S-REL-W2C-reqopen |
 | H-DIR-D2C-reqopen      | TA-17 (H) | D   | C   | DIR  | none           | code         | 64 MiB      | as S-DIR-D2C-reqopen |
 | H-DIR-C2D-reqopen      | TA-17 (H) | C   | D   | DIR  | none           | code         | 64 MiB      | as S-DIR-C2D-reqopen |
-| H-DIR-C2D-req          | TA-16 (H) | C   | D   | DIR  | none           | request-link | 64 MiB      | the CLI visitor, `floe send <file> --to <link>`: the prompt shows its count and bytes and no relay-over-cap line; the CLI exits 0; on-disk sha256 inside the exclusive drop subfolder, nothing loose beside it; its arrived line (TL-03), its SHA line only when verified equals N; desktop `Received N files` and the SHA sentence; D pill and the CLI's `Connected (direct)`; desktop.json proof; FLOE_NO_STATS=1 on the CLI and a local /api/stats delta of 0; head only (the released CLI is the visitor of `S-DIR-C2D-reqauto`; a prompted shipped twin is left out on purpose) |
+| H-DIR-C2D-req          | TA-16 (H) | C   | D   | DIR  | none           | request-link | 64 MiB      | the CLI visitor, `floe send <file> --to <link>`: the prompt shows its count and bytes and no relay-over-cap line; the CLI exits 0; on-disk sha256 inside the exclusive drop subfolder, nothing loose beside it; its arrived line (TL-03), its SHA line only when verified equals N; the desktop done heading (`RECEIVED 1 FILE, ...` for these one-file drops) and the check mark's `SHA-256 matched` text; D pill and the CLI's `Connected (direct)`; desktop.json proof; FLOE_NO_STATS=1 on the CLI and a local /api/stats delta of 0; head only (the released CLI is the visitor of `S-DIR-C2D-reqauto`; a prompted shipped twin is left out on purpose) |
 
 The host verbs on the wailsdev lane (`scripts/lib/desktop.mjs`
 `PlaywrightDriver`), each by its frozen accessible name from
@@ -276,7 +277,7 @@ pairs.
 | S-DIR-W2C | W   | C   | DIR  | none              | link  | 12 MiB | on-disk sha256; `All Files Sent!`; C exit 0 with `Received` and `Saved to`; W `direct`; C argv+env proof                     |
 | S-DIR-W2D | W   | D   | DIR  | none              | link  | 64 MiB | on-disk sha256; `All Files Sent!`; D `Saved to`; W `direct` and D pill `Direct`; desktop.json proof                          |
 | S-DIR-C2W | C   | W   | DIR  | none              | link  | 12 MiB | blob sha256; C `Sent` exit 0; W `1 file received`; W `direct`; W stats proof                                                 |
-| S-DIR-C2C | C   | C   | DIR  | both `--no-relay` | code  | 12 MiB | on-disk sha256; both exit 0; `Sent` and `Received`; route `direct (--no-relay both)`; C receiver proof                       |
+| S-DIR-C2C | C   | C   | DIR  | both `--no-relay` | code  | 12 MiB | on-disk sha256; both exit 0; `Sent` and `Received`; route `direct [--no-relay both]`; C receiver proof                       |
 | S-DIR-C2D | C   | D   | DIR  | none              | code  | 64 MiB | on-disk sha256; C `Sent` exit 0; D `Saved to`; D pill `Direct`; desktop.json proof                                           |
 | S-DIR-D2W | D   | W   | DIR  | none              | link  | 64 MiB | blob sha256; D `Sent 1 item`; W `1 file received`; D pill and W `direct`; W stats proof                                      |
 | S-DIR-D2C | D   | C   | DIR  | none              | code  | 64 MiB | on-disk sha256; D `Sent 1 item`; C exit 0; D pill `Direct`; C proof                                                          |
@@ -340,7 +341,7 @@ two desktop cells were never launched.
 
 | Cell              | Snd | Rcv | Path | What it proves                                                   | Fixture                                                         | Expected                                                                                                                                    |
 | ----------------- | --- | --- | ---- | ---------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| S-DIR-C2C-bnd8    | C   | C   | DIR  | framing at chunk boundaries                                      | 8 files: 0, 512, 16383, 16384, 16385, 262143, 262144, 262145 B  | 8 sha256 matches; `Received  8 files`                                                                                                       |
+| S-DIR-C2C-bnd8    | C   | C   | DIR  | framing at chunk boundaries                                      | 8 files: 0, 512, 16383, 16384, 16385, 262143, 262144, 262145 B  | 8 sha256 matches; the `Received` row reads `8 files (...)`                                                                                                      |
 | S-DIR-W2C-bnd8    | W   | C   | DIR  | browser sender chunking at the same boundaries                   | same 8                                                          | same; `Create secure link (8 files)`                                                                                                        |
 | S-DIR-C2C-sizes   | C   | C   | DIR  | the size ladder, tiny to large, on the Go engine at both ends    | 6 files in one batch: 1 B, 1 KiB, 64 KiB, 1 MiB, 10 MiB, 100 MiB (about 111 MiB) | 6 sha256 matches on disk; both exit 0; code input, both `--no-relay` |
 | S-DIR-W2C-sizes   | W   | C   | DIR  | the same ladder from the browser sender, which reads every file through the File API | same 6 | as above, with link input |
@@ -356,7 +357,7 @@ two desktop cells were never launched.
 | S-DIR-D2C-link    | D   | C   | DIR  | the link read from the desktop share panel                       | 12 MiB                                                          | as D2C                                                                                                                                      |
 | S-DIR-L2C         | L   | C   | DIR  | a non-loopback direct path                                       | 12 MiB                                                          | as C2C; SKIP `wsl-sideload` when the Linux CLI cannot be side-loaded                                                                        |
 | S-DIR-L2W         | L   | W   | DIR  | non-loopback, browser receiver                                   | 12 MiB                                                          | W `direct`                                                                                                                                  |
-| S-DIR-L2D         | L   | D   | DIR  | non-loopback, desktop receiver                                   | 12 MiB                                                          | D pill `Direct`                                                                                                                             |
+| S-DIR-L2D         | L   | D   | DIR  | non-loopback, desktop receiver                                   | 64 MiB (the desktop-side DIR size)                              | D pill `Direct`                                                                                                                             |
 
 ## Head profile deltas
 
@@ -386,7 +387,7 @@ records `local HEAD <sha>`.
 | process exit after completion | 15 s                        | 15 s                       | receiver 5 s grace (`receiver.go` `ReceiveFilesWithOptions` (the teardown grace)) plus the summary                                                                  |
 | route (after connect)         | 15 s                        | 15 s                       | a side with no oracle runs the budget out; both sides wait in parallel                                                       |
 | verify, teardown              | `max(120 s, size / 50 MB/s)`, then 30 s (60 s with a desktop side) | same | hashing the outputs, then stopping both legs (a desktop stop can take 41 s before its config restore); outside the cell hard cap |
-| cell hard cap                 | sum of the rows above       | sum of the rows above      |                                                                                                                              |
+| cell hard cap                 | link + join + connect + route + first bytes + complete + exit + 10 s | same | join is the receiver's own link time plus 10 s; verify and teardown run outside it; a request link cell adds its Accept wait and its flow's extras, and a request cell whose teardown is raised to 60 s (TA-17's quick cells, which have no Accept wait) adds the difference (`scripts/lib/matrix.mjs` `phaseTimeouts`, `cellPlan`) |
 
 ## Expected strings (quote exactly)
 

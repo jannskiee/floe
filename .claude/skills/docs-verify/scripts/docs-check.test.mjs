@@ -872,6 +872,101 @@ test('an envLimit default that is not plain arithmetic is HARD, not a default no
     );
 });
 
+// A client that reads the two keys CONTRIBUTING.md leaves out on purpose,
+// SOCKET_URL and SOURCE_COMMIT, beside FIXTURE_CLIENT_KEY, which both client
+// surfaces document. The example also sets NEXT_TELEMETRY_DISABLED, which only
+// Next.js reads. `example` adds lines to client/.env.example.
+function clientEnvTree(example = []) {
+    const tmp = envTree(SERVER_KEY_FLOOR);
+    mkdirSync(join(tmp, 'client', 'lib'), { recursive: true });
+    writeFileSync(
+        join(tmp, 'client', 'lib', 'env.ts'),
+        [
+            'export const a = process.env.SOCKET_URL;',
+            'export const b = process.env.SOURCE_COMMIT;',
+            'export const c = process.env.FIXTURE_CLIENT_KEY;',
+            '',
+        ].join('\n')
+    );
+    writeFileSync(
+        join(tmp, 'CONTRIBUTING.md'),
+        [
+            '### Client (`client/.env.local`)',
+            '',
+            '| Variable | Purpose |',
+            '| --- | --- |',
+            '| `FIXTURE_CLIENT_KEY` | A key both surfaces document. |',
+            '',
+        ].join('\n')
+    );
+    writeFileSync(
+        join(tmp, 'client', '.env.example'),
+        ['FIXTURE_CLIENT_KEY=1', 'NEXT_TELEMETRY_DISABLED=1', ...example, ''].join('\n')
+    );
+    // The two left-out keys are documented, as in the repository, by the
+    // Configuration reference.
+    mkdirSync(join(tmp, 'docs', 'self-hosting'));
+    writeFileSync(
+        join(tmp, 'docs', 'self-hosting', 'configuration.mdx'),
+        [
+            '---',
+            'title: "Configuration reference"',
+            'sidebarTitle: "Configuration"',
+            'description: "Every variable."',
+            '---',
+            '',
+            '| Variable | Service | Default |',
+            '| --- | --- | --- |',
+            '| `SOCKET_URL` | client | unset |',
+            '| `SOURCE_COMMIT` | client | unset |',
+            '',
+        ].join('\n')
+    );
+    const r = spawnSync(process.execPath, [SCRIPT, 'env', '--root', tmp], {
+        encoding: 'utf8',
+    });
+    return (r.stdout + r.stderr)
+        .split(/\r?\n/)
+        .filter((l) => /SOCKET_URL|SOURCE_COMMIT|NEXT_TELEMETRY_DISABLED|curated subset/.test(l));
+}
+
+test('client keys left out on purpose print one info line per surface, and turn into a NOTE once present', () => {
+    const lines = clientEnvTree();
+    assert.deepEqual(
+        lines.filter((l) => l.startsWith('NOTE')),
+        [],
+        lines.join('\n')
+    );
+    for (const where of ['CONTRIBUTING.md:1', 'client/.env.example:1'])
+        assert.ok(
+            lines.includes(
+                `info  env  ${where}  documents a curated subset; keys deliberately absent: SOCKET_URL, SOURCE_COMMIT`
+            ),
+            lines.join('\n')
+        );
+    assert.ok(
+        lines.includes(
+            'info  env  client/.env.example:2  NEXT_TELEMETRY_DISABLED: read by Next.js itself (its telemetry switch), not by Floe source'
+        ),
+        lines.join('\n')
+    );
+
+    // A curated key that turns up present is a NOTE, so the list stays honest.
+    const present = clientEnvTree(['SOCKET_URL=http://localhost:3001']);
+    assert.ok(
+        present.includes(
+            'NOTE  env  client/.env.example:1  SOCKET_URL is listed in CURATED_CLIENT as deliberately absent but is present; drop it from the list'
+        ),
+        present.join('\n')
+    );
+    assert.ok(
+        present.includes(
+            'info  env  client/.env.example:1  documents a curated subset; keys deliberately absent: SOURCE_COMMIT'
+        ),
+        present.join('\n')
+    );
+});
+
 test('the proxy count the server example ships is 0 by design, and any other value there is still a NOTE', () => {
     // server/.env.example describes a direct run with no proxy in front, so it
     // ships TRUSTED_PROXY_COUNT=0 beside a code default of 1, as Compose and the

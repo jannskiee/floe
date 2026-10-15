@@ -30,10 +30,10 @@ only. Ship = every step. Never skip step 4's signing recipe for either.
   write after a bare `Set-Location`.
 - `git fetch origin` so origin/main is current (local main has been stale before).
 - `git status --short`, then stage by name, now: unstaged edits classify as nothing in
-  step 2. Never `git add -A` while next dev runs: it writes client/AGENTS.md,
-  client/CLAUDE.md and rewrites client/next-env.d.ts. `next build` rewrites
-  client/next-env.d.ts too, so after a local build run
-  `git checkout -- client/next-env.d.ts` before staging anything under client/.
+  step 2. Never `git add -A` while next dev runs: it rewrites the tracked
+  client/next-env.d.ts (the client/AGENTS.md and client/CLAUDE.md it writes are
+  gitignored). `next build` rewrites client/next-env.d.ts too, so after a local build
+  run `git checkout -- client/next-env.d.ts` before staging anything under client/.
 
 ## 2. Lane
 
@@ -55,7 +55,8 @@ references/dependency-prs.md before merging one.
 On every lane, first: `node .claude/skills/docs-verify/scripts/docs-check.mjs all`.
 The gate runs it on every PR (the docs pre-flight step of `Repo guardrails`), and it
 reads code as well as docs: a changed server default, or a floe.one/docs link in Go,
-TypeScript, a workflow or root Markdown, fails it on a PR that touched no page. (For a
+TypeScript, a workflow, .github Markdown or README.md, SELF_HOSTING.md, CONTRIBUTING.md,
+DESKTOP.md or SECURITY.md, fails it on a PR that touched no page. (For a
 docs change this is layer 1 of docs-verify; the claim walk is the author's job before
 this point.) Then run only the rows for touched areas. Skip what
 only CI can arbitrate and say so in the test plan: `E2E (browser + CLI interop, <os>)`
@@ -96,7 +97,8 @@ arg(s)", so run those from the Bash tool.
 `node .claude/skills/ship-it/scripts/wait-ci.mjs <pr-number>` (either tool). Never
 pipe it (`| tail`, `| Select-Object`): the pipe's exit code replaces the script's, and
 a red run has read as green that way. Run it bare and read its last line. Docs
-and skills lanes finish within a minute or two. For a code lane run it with
+and skills lanes finish in about three minutes (`Skill test suites` on
+windows-latest is the job they wait for). For a code lane run it with
 run_in_background and `--timeout-min 20`: the default of 9 minutes is deliberate (it
 fits under the 600 s cap of a foreground tool call) and is shorter than most code
 runs, so a foreground wait on a code PR ends in exit 3. Exit 0

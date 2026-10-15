@@ -109,7 +109,7 @@ Each entry lists the parts it changed. Filter on the right to see only the ones 
   - `floe <link>` with `receive` left out no longer prints the room link back. It prints `That looks like a link to receive from. To receive, use: floe receive <link>`.
   - When the server's relay details cannot be read, `floe send` and `floe receive` now warn `Warning: could not read TURN credentials from the signaling server. Using STUN only.` instead of carrying on in silence.
   - The `Accept? [Y/n]` prompt of `floe receive` now ends its own line when stdin is closed and there is no answer to read. It shared a line with the first progress line.
-  - On Windows, `floe update` now moves the old `floe.exe` aside as `floe.exe.floe-update-old`, and the next start of `floe` removes it. It was `floe.exe.bak`, which stayed until the next update; a `floe.exe.bak` you keep yourself is never touched.
+  - On Windows, `floe update` now moves the old `floe.exe` aside as `floe.exe.floe-update-old`, and the next start of `floe` removes it. It was `floe.exe.bak`, which stayed until the next update. The cleanup at start never touches a `floe.exe.bak`, but `floe update` still deletes one before it renames, as it always has.
   - A second received file named like `.env` is saved as `.env (1)`, not ` (1).env`.
   - `--server` and `FLOE_SERVER` are read in any letter case, with or without the default port and with or without a dot at the end of the host name, so `https://API.floe.one`, `https://api.floe.one:443` and `https://api.floe.one.` print share links at floe.one instead of at the API host.
   - A transfer of only empty files no longer posts a byte count of 0, which the server always refused.

@@ -280,7 +280,7 @@ name on a routine update; they carry over. Keyword chips silently drop when
 Save happens while the chip input has focus (2026-08-02); the only defense
 is never being in that field.
 
-### 5a. When the release changes the listing itself (done once: Submission 15, 2026-10-09)
+### 5a. When the release changes the listing itself (Submission 15 on 2026-10-09 and Submission 16 on 2026-10-15)
 
 A routine update stops at What's new. A release that changes what the app
 does also changes the description, the feature list and the screenshots.
@@ -292,9 +292,10 @@ else and Save once.
 
 The listing's source is `references/listing/en-US/`: the description, the
 product features, the screenshot captions, the four screenshots and the
-certification notes as Submission 15 saved them. Its `manifest.json` records
-each text's length and djb2 fingerprint and each image's size and SHA-256,
-and its README says how the screenshots were made.
+certification notes as Submission 16 saved them on 2026-10-15. Its
+`manifest.json` names that submission and records each text's length and
+djb2 fingerprint and each image's size and SHA-256, and its README says how
+the screenshots were made.
 
 ```text
 node .claude/skills/store-submit/scripts/listing.mjs
@@ -308,11 +309,15 @@ changing a field, read the live value back and compare its length and djb2
 with the manifest's. A difference means Partner Center was edited outside
 this record: stop and ask, and keep the live text in a file under the
 scratchpad. The new text and the new images come from the user, and this
-skill never drafts a listing description on its own authority. They go into
-that folder, with the manifest rows and a new row in the reference's history
-table, in the pull request that prepares the release, so what is pasted is
-what was reviewed. After the Save, read each field back once more and
-compare it with the new manifest.
+skill never drafts a listing description on its own authority. The user
+approves them before anything is pasted, so what is pasted is what was
+reviewed. They go into that folder, with the manifest rows and a new row in
+the reference's history table, in the pull request that records the
+submission, not the one that prepares the release: the row needs the
+submission number the draft card gave (step 3), and
+`scripts/listing.test.mjs` fails without it (#601 did this for
+desktop-v0.3.1). After the Save, read each field back once more and compare
+it with the new manifest.
 
 - Description: the textarea `#description-required`. It takes the same
   native-setter idiom as What's new (the snippet above with that selector).
@@ -423,7 +428,13 @@ history shows what such a record covered.
        prints the new Identity version (1.3.0.0 for desktop-v0.3.0). The
        Store app's own "Check for updates" pulls it within minutes; winget's
        `msstore` source has lagged the live listing by a day, so it is not
-       the check.
+       the check. Without opening the Store window, PowerShell can ask for
+       the same update: `AppInstallManager.SearchForUpdatesAsync('9NBQ8ZQ1065L', '')`
+       (Windows.ApplicationModel.Store.Preview.InstallControl) returns an
+       update item whose status runs AcquiringLicense, Downloading,
+       Completed (2026-10-15: 1.3.0.0 to 1.3.1.0 in about a minute). The
+       installed `floe-desktop.exe` then has the SHA-256 of the one inside
+       the run's MSIX, which proves the package before the window opens.
     2. The listing, read back: "View product details" under Store presence
        opens the published submission, and `#releaseNotes` there gives the
        `len` and `djb2` the script printed; when step 5a or 5b ran, the same
