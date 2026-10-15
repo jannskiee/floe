@@ -67,7 +67,6 @@ yet has no section of its own so far.
 | “Downloading...” | Not explained yet |
 | “Drop files or click to browse” | Not explained yet |
 | “End-to-end encrypted. Files are never stored on a server.” | Not explained yet |
-| “::error::images.yml publishes from a manual dispatch only on main; rerun a failed tag run in place instead” | Not explained yet |
 | “Files” | Not explained yet |
 | “Files go through it only when a direct connection isn't possible; most transfers stay direct. 2 GB limit when relayed. Learn more” | Not explained yet |
 | “Files stream in below” | Not explained yet |
@@ -115,7 +114,7 @@ yet has no section of its own so far.
 | “receiver could not create a file” | [Transfer protocol](/reference/transfer-protocol) |
 | “receiver could not finish writing a file” | [A banner that starts with receiver](/troubleshooting#a-banner-that-starts-with-receiver) |
 | “receiver could not move a finished file into place” | Not explained yet |
-| “receiver declined the transfer” | Not explained yet |
+| “receiver declined the transfer” | [A banner that starts with receiver](/troubleshooting#a-banner-that-starts-with-receiver) |
 | “receiver did not answer in time” | Not explained yet |
 | “receiver discarded a file because its SHA-256 did not match” | Not explained yet |
 | “receiver discarded a file because the sender's SHA-256 was not readable” | Not explained yet |
@@ -161,7 +160,6 @@ yet has no section of its own so far.
 | “The other side discarded a file that did not match what was sent. Try sending again.” | [When it finishes](/web-app/sending#when-it-finishes) |
 | “The other side rejected the transfer.” | [A banner that starts with receiver](/troubleshooting#a-banner-that-starts-with-receiver) |
 | “The receiver asked to resume "\{name\}" from a position that is not a number, which is not possible. Please try again.” | Not explained yet |
-| “The receiver asked to resume "\{name\}" from byte \{n\} of SIZE, which is not possible. Please try again.” | Not explained yet |
 | “The receiver asked to resume "\{name\}" from byte \{n\} of \{size\}, which is not possible. Please try again.” | Not explained yet |
 | “The sender described a file in a way Floe could not read, so the transfer was stopped. Ask the sender to try again.” | Not explained yet |
 | “The sender ended the transfer before it finished.” | [The sender ended the transfer before it finished.](/troubleshooting#the-sender-ended-the-transfer) |
@@ -175,7 +173,7 @@ yet has no section of its own so far.
 | “The sender stopped because of an error on their side. Ask them to send again.” | [The sender ended the transfer before it finished.](/troubleshooting#the-sender-ended-the-transfer) |
 | “The sender stopped the transfer.” | [The sender ended the transfer before it finished.](/troubleshooting#the-sender-ended-the-transfer) |
 | “The sender stopped: a file could not be read on their device. Ask them to check it and send again.” | [The sender ended the transfer before it finished.](/troubleshooting#the-sender-ended-the-transfer) |
-| “the sender's copy of "\{name\}" changed while it was being sent, so nothing further was sent” | Not explained yet |
+| “the sender's copy of "\{name\}" changed while it was being sent, so nothing further was sent” | [The sender ended the transfer before it finished.](/troubleshooting#the-sender-ended-the-transfer) |
 | “The sender's SHA-256 for a file could not be read, so the file was discarded. Ask the sender to try again.” | [A file did not match what was sent, so it was discarded. Ask the sender to try again.](/troubleshooting#a-file-did-not-match-what-was-sent) |
 | “This browser ran out of memory while receiving, so the transfer was stopped. Receive large files on a computer with Floe Desktop (Windows) or the Floe CLI, which save straight to disk.” | [This browser ran out of memory while receiving](/troubleshooting#this-browser-ran-out-of-memory) |
 | “This in-app browser has limited support for file transfers. Open Floe in Chrome or Safari for the best experience.” | [If Floe says Open in your browser](/web-app/receiving#if-floe-says-open-in-your-browser) |
@@ -197,7 +195,6 @@ yet has no section of its own so far.
 | “Waiting for peer” | [Watch the connection](/web-app/sending#watch-the-connection) |
 | “Waiting for peer...” | [Output](/cli/send#output) |
 | “Waiting for the sender to start” | [The transfer never starts](/troubleshooting#the-transfer-never-starts) |
-| “Web client for Floe encrypted peer-to-peer file transfer. Install Floe-Server first, then set that server template's Client URL to this app's exact browser origin.” | Not explained yet |
 | “Web UI Port” | [Direct LAN installation](/self-hosting/unraid#direct-lan-installation) |
 | “winget install jannskiee.floe” | [Package managers](/cli/installation#package-managers) |
 | “Your files go directly to the other device, even across different networks like mobile data. No server carries them. Floe sets no size limit, but a receiving browser can only hold so much. Learn more” | Not explained yet |
@@ -275,7 +272,7 @@ yet has no section of its own so far.
 | “Relay limit. This connection needs a relay, and relayed drops are capped at 2 GB.” | Not explained yet |
 | “Relay limit. This connection needs a relay, and relayed drops are capped at 2 GB. Send 2 GB or less, or try another network. Learn more” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
 | “Relayed drops are capped at 2 GB” | [When their Floe stops the drop](/web-app/request-links#when-their-floe-stops-the-drop) |
-| “Relayed drops are capped at 2 GB. Nothing was sent. Send under \{n\} GB.” | [When their Floe stops the drop](/web-app/request-links#when-their-floe-stops-the-drop) |
+| “Relayed drops are capped at 2 GB. Nothing was sent. Send 2 GB or less.” | [When their Floe stops the drop](/web-app/request-links#when-their-floe-stops-the-drop) |
 | “Relayed drops are capped at 2 GB. Turn off Hide my IP, or send 2 GB or less.” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
 | “Release to add files” | Not explained yet |
 | “Report this link” | [Report a link](/web-app/request-links#report-a-link) |
@@ -283,8 +280,8 @@ yet has no section of its own so far.
 | “Request links are turned off right now” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
 | “Send 1 file” | [The short version](/web-app/request-links#sending-through-a-request-link) |
 | “Send files - Floe” | Not explained yet |
-| “Send files peer to peer. Nothing is stored on a Floe server. (link preview) and Send files to the person who made this Floe request link.” | Not explained yet |
 | “SEND FILES THROUGH THIS LINK” | [What the page shows](/web-app/request-links#what-the-page-shows) |
+| “Send files to the person who made this Floe request link.” | Not explained yet |
 | “\{size\} in \{duration\}.” | [When the files arrive](/web-app/request-links#when-the-files-arrive) |
 | “Some files in this folder could not be read. Nothing was added.” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
 | “Stop” | Not explained yet |
@@ -344,15 +341,15 @@ yet has no section of its own so far.
 | “2 requests ended without Accept in 10 minutes. Close this link?” | [On your PC](/desktop/request-links#messages-on-your-pc) |
 | “4 of 12 files saved” | [On your PC](/desktop/request-links#messages-on-your-pc) |
 | “A file arrived but their computer blocked saving it” | Not explained yet |
-| “A file arrived incomplete and wasn't kept” | Not explained yet |
+| “A file arrived incomplete and wasn't kept” | [A file arrived incomplete and wasn't kept](/troubleshooting#a-file-arrived-incomplete) |
 | “A file changed while sending and wasn't delivered” | [A file changed while sending and wasn't delivered](/troubleshooting#a-file-changed-while-sending) |
 | “A file didn't match what was sent and was deleted” | [On your PC](/desktop/request-links#messages-on-your-pc) |
 | “A file is larger than the save drive can hold” | [Paths that are too deep or too long are refused](/desktop/receiving#paths-too-deep-or-too-long) |
-| “A file is too large for the drive they save to” | [They stopped the transfer](/troubleshooting#they-stopped-the-transfer-in-floe-desktop) |
+| “A file is too large for the drive they save to” | [Their computer ran out of space and the receiver's other reasons](/troubleshooting#their-computer-ran-out-of-space) |
 | “A file is too large for this drive” | [On your PC](/desktop/request-links#messages-on-your-pc) |
 | “A file's path is too deep or too long to save in this folder” | [A file's path is too deep or too long to save in this folder](/troubleshooting#a-files-path-is-too-deep-or-too-long) |
 | “A finished file couldn't be moved into place” | Not explained yet |
-| “A folder path is too long for their computer. Zip deeply nested folders first” | [They stopped the transfer](/troubleshooting#they-stopped-the-transfer-in-floe-desktop) |
+| “A folder path is too long for their computer. Zip deeply nested folders first” | [Their computer ran out of space and the receiver's other reasons](/troubleshooting#their-computer-ran-out-of-space) |
 | “A folder path was too long for Windows” | [On your PC](/desktop/request-links#messages-on-your-pc) |
 | “A received file couldn't be saved, so it was kept with a .part ending” | [A received file couldn't be saved, so it was kept with a .part ending](/troubleshooting#a-received-file-could-not-be-saved) |
 | “About Auto-accept” | Not explained yet |
@@ -360,7 +357,7 @@ yet has no section of its own so far.
 | “Accept and Decline are ready.” | Not explained yet |
 | “Accepted automatically” | [Auto-accept](/desktop/request-links#auto-accept) |
 | “Active” | [While it sends](/desktop/sending#while-it-sends) |
-| “Add a file to send” | [Receiving files](/desktop/receiving) |
+| “Add a file to send” | [Add files](/desktop/sending#add-files) |
 | “Add files” | Not explained yet |
 | “Adds Send with Floe to the File Explorer right-click menu (under Show more options on Windows 11)” | [Show in right-click menu](/desktop/settings#show-in-right-click-menu) |
 | “Adds the size of what you receive to a public total, never names or contents” | [Contribute to global stats](/desktop/settings#contribute-to-global-stats) |
@@ -388,8 +385,9 @@ yet has no section of its own so far.
 | “Checking the server...” | [Server](/desktop/settings#server) |
 | “Checks GitHub once a day for a new version” | [Check for updates](/desktop/settings#check-for-updates) |
 | “Clear” | [Clear and Undo](/desktop/sending#clear-and-undo) |
-| “\{Cleared ...\}. Press Control Z to undo.” | Not explained yet |
 | “Cleared the text” | [Clear and Undo](/desktop/sending#clear-and-undo) |
+| “Cleared the text. Press Control Z to undo.” | [Clear and Undo](/desktop/sending#clear-and-undo) |
+| “Cleared \{n\} items. Press Control Z to undo.” | [Clear and Undo](/desktop/sending#clear-and-undo) |
 | “Close” | [How a link ends](/desktop/request-links#how-a-link-ends) |
 | “Close Floe?” | [How a link ends](/desktop/request-links#how-a-link-ends) |
 | “Close link” | [Share the link](/desktop/request-links#share-the-link) |
@@ -448,10 +446,10 @@ yet has no section of its own so far.
 | “Floe” | [Accept or decline](/desktop/request-links#accept-or-decline) |
 | “Floe - receive failed” | [If a drop stops](/desktop/request-links#if-a-drop-stops) |
 | “Floe - send failed” | [Notifications](/desktop/settings#notifications) |
-| “Floe could not start. \{cause\}, and when the cause names WebView2: Floe needs the Microsoft WebView2 runtime. If this PC is offline or behind a filtering proxy, install WebView2 from https://developer.microsoft.com/microsoft-edge/webview2/ and start Floe again.” | [Floe will not start](/troubleshooting#floe-will-not-start) |
-| “Floe could not start. \{detail\}, then: Floe needs the Microsoft WebView2 runtime. If this PC is offline or behind a filtering proxy, install WebView2 from https://developer.microsoft.com/microsoft-edge/webview2/ and start Floe again.” | [Floe will not start](/troubleshooting#floe-will-not-start) |
+| “Floe could not start. \{cause\}” | [Floe will not start](/troubleshooting#floe-will-not-start) |
 | “Floe desktop” | [Server in use](/desktop/settings#server-in-use) |
 | “Floe doesn't scan files for malware” | [Floe does not scan files](/desktop/request-links#floe-does-not-scan-files) |
+| “Floe needs the Microsoft WebView2 runtime. If this PC is offline or behind a filtering proxy, install WebView2 from https://developer.microsoft.com/microsoft-edge/webview2/ and start Floe again.” | [Floe will not start](/troubleshooting#floe-will-not-start) |
 | “Folder” | [Add files](/desktop/sending#add-files) |
 | “For requests and transfers while Floe is in the background” | [Show notifications](/desktop/settings#show-notifications) |
 | “GitHub” | Not explained yet |
@@ -594,7 +592,7 @@ yet has no section of its own so far.
 | “The drive ran out of space” | [On your PC](/desktop/request-links#messages-on-your-pc) |
 | “The drop reached the 24-hour limit” | [On your PC](/desktop/request-links#messages-on-your-pc) |
 | “The folders you chose have no files to send” | [`no files to send`](/troubleshooting#no-files-to-send) |
-| “The receiver left before it started” | Not explained yet |
+| “The receiver left before it started” | [The receiver left before it started](/troubleshooting#the-receiver-left-before-it-started) |
 | “The receiver left or declined” | [The receiver left or declined](/troubleshooting#the-receiver-left-or-declined) |
 | “The sender canceled before it started” | [The sender canceled before it started](/troubleshooting#the-sender-canceled-before-it-started) |
 | “The sender couldn't connect” | [On your PC](/desktop/request-links#messages-on-your-pc) |
@@ -613,10 +611,10 @@ yet has no section of its own so far.
 | “The transfer reached its 24-hour limit” | Not explained yet |
 | “The transfer stalled” | [The transfer stalled](/troubleshooting#the-transfer-stalled) |
 | “The transfer was declined” | Not explained yet |
-| “Their computer could not save a file” | [They stopped the transfer](/troubleshooting#they-stopped-the-transfer-in-floe-desktop) |
-| “Their computer ran out of space” | [They stopped the transfer](/troubleshooting#they-stopped-the-transfer-in-floe-desktop) |
+| “Their computer could not save a file” | [Their computer ran out of space and the receiver's other reasons](/troubleshooting#their-computer-ran-out-of-space) |
+| “Their computer ran out of space” | [Their computer ran out of space and the receiver's other reasons](/troubleshooting#their-computer-ran-out-of-space) |
 | “They declined. Nothing was sent” | [Their computer ran out of space and the receiver's other reasons](/troubleshooting#their-computer-ran-out-of-space) |
-| “They didn't get a file whole, so it was discarded” | Not explained yet |
+| “They didn't get a file whole, so it was discarded” | [They didn't get a file whole, so it was discarded](/troubleshooting#they-did-not-get-a-file-whole) |
 | “They discarded a file that didn't match what was sent” | [They discarded a file that didn't match what was sent](/troubleshooting#they-discarded-a-file) |
 | “They left before the connection was made” | [They left before the connection was made](/troubleshooting#they-left-before-the-connection-was-made) |
 | “They stopped the transfer” | [They stopped the transfer](/troubleshooting#they-stopped-the-transfer-in-floe-desktop) |
@@ -628,15 +626,15 @@ yet has no section of its own so far.
 | “This product is only supported on Windows 10 (Server 2016) and later.” | [Requirements](/desktop/installation#requirements) |
 | “This \{size\} drop is over the 2 GB relay limit” | [Accept or decline](/desktop/request-links#accept-or-decline) |
 | “Timed out reaching that address” | [Server](/desktop/settings#server) |
-| “transfer blocked: relay connections are capped at \{n\} GB (selected \{size\}), optionally followed by: . Turn off Hide my IP to send larger files” | [Size limits](/desktop/sending#size-limits) |
+| “transfer blocked: relay connections are capped at \{n\} GB (selected \{size\})” | [Size limits](/desktop/sending#size-limits) |
 | “transfer blocked: relay connections are capped at \{n\} GB (selected \{size\}). Turn off Hide my IP to send larger files” | [Every transfer is capped at 2 GB](/troubleshooting#every-transfer-is-capped-at-2-gb) |
 | “transfer failed: a file did not match the SHA-256 the sender computed, so it was not kept” | [They discarded a file that didn't match what was sent](/troubleshooting#they-discarded-a-file) |
 | “transfer failed: Cannot transfer: your floe is too old for this peer. You: \{rest\} Peer: \{rest\} Update Floe from the Microsoft Store or floe.one/download” | [`Cannot transfer: your floe is too old for this peer.`](/troubleshooting#cannot-transfer-your-floe-is-too-old-for-this-peer) |
 | “transfer failed: the sender's SHA-256 for a file could not be read, so the file was not kept” | Not explained yet |
-| “transfer failed: Their computer ran out of space” | Not explained yet |
+| “transfer failed: Their computer ran out of space” | [Their computer ran out of space and the receiver's other reasons](/troubleshooting#their-computer-ran-out-of-space) |
 | “transfer failed: They stopped this drop” | [They stopped the transfer](/troubleshooting#they-stopped-the-transfer-in-floe-desktop) |
 | “Type or paste text to send” | Not explained yet |
-| “Type some text to send” | [Receiving files](/desktop/receiving) |
+| “Type some text to send” | [Send a text note](/desktop/sending#send-a-text-note) |
 | “Undo” | [Clear and Undo](/desktop/sending#clear-and-undo) |
 | “Update available: Floe \{version\}. See Settings.” | Not explained yet |
 | “Use default server” | [Server](/desktop/settings#server) |
@@ -684,11 +682,10 @@ yet has no section of its own so far.
 | `` Cannot transfer: your floe is too old for this peer. You: protocol {n} ({ver}) Peer: protocol {n} ({ver}) Run `floe update` to upgrade. `` | [`Cannot transfer: your floe is too old for this peer.`](/troubleshooting#cannot-transfer-your-floe-is-too-old-for-this-peer) |
 | `Cannot transfer: your floe is too old for this peer. {rest} Update Floe to continue.` | Not explained yet |
 | `Cannot update a dev build.` | [`Cannot update a dev build.`](/troubleshooting#cannot-update-a-dev-build) |
-| `(cause) server returned {status} when registering code` | [`Warning: could not generate short code`](/troubleshooting#warning-could-not-generate-short-code) |
 | `Checking for updates... {version}` | [Script and manual installs](/cli/update#script-and-manual-installs) |
 | `Checksum not found for {archive}, skipping verification.` | [One-line installer](/cli/installation#one-line-installer) |
-| `Checksum verification failed!` | Not explained yet |
-| `Checksum verification failed.` | Not explained yet |
+| `Checksum verification failed!` | [If the install script stops](/cli/installation#if-the-install-script-stops) |
+| `Checksum verification failed.` | [If the install script stops](/cli/installation#if-the-install-script-stops) |
 | `Checksum verified.` | Not explained yet |
 | `closed before the connection was established` | Not explained yet |
 | `Connected` | [Send through a request link](/cli/send#send-through-a-request-link) |
@@ -696,7 +693,7 @@ yet has no section of its own so far.
 | `Connecting...` | [Send through a request link](/cli/send#send-through-a-request-link) |
 | `connection closed after {n} of {m} files` | [`connection closed before any file arrived (the sender canceled, or the transfer was blocked)`](/troubleshooting#connection-closed-before-any-file-arrived) |
 | `connection closed before any file arrived (the sender canceled, or the transfer was blocked)` | [`connection closed before any file arrived (the sender canceled, or the transfer was blocked)`](/troubleshooting#connection-closed-before-any-file-arrived) |
-| `connection closed before delivery was confirmed` | Not explained yet |
+| `connection closed before delivery was confirmed` | [When the other side stops it](/cli/send#when-the-other-side-stops-it) |
 | `connection closed before the server assigned a role` | [`connection closed before the server assigned a role`](/troubleshooting#connection-closed-before-the-server-assigned-a-role) |
 | `connection closed mid-transfer` | Not explained yet |
 | `connection closed mid-transfer: {name}` | [`connection closed before any file arrived (the sender canceled, or the transfer was blocked)`](/troubleshooting#connection-closed-before-any-file-arrived) |
@@ -706,18 +703,17 @@ yet has no section of its own so far.
 | `Connection lost. {a} of {n} files arrived. Ask them for a new link to send the other one.` | [Messages](/cli/send#messages-from-floe-send-to) |
 | `Connection lost. {a} of {n} files arrived. Ask them for a new link to send the other {k}.` | [Messages](/cli/send#messages-from-floe-send-to) |
 | `Connection lost. {n} of {n} file arrived. Ask them for a new link to send it.` | Not explained yet |
-| `Could not determine latest version.` | Not explained yet |
-| `Could not determine latest version. Set $env:FLOE_VERSION = 'vX.{y}.Z' to install a specific version.` | Not explained yet |
+| `Could not determine latest version.` | [If the install script stops](/cli/installation#if-the-install-script-stops) |
+| `Could not determine latest version. Set $env:FLOE_VERSION = 'vX.Y.Z' to install a specific version.` | [If the install script stops](/cli/installation#if-the-install-script-stops) |
 | `Could not install with sudo, so installing to {LOCAL_BIN} instead.` | [One-line installer](/cli/installation#one-line-installer) |
 | `could not register code: {network reason}` | Not explained yet |
 | `Couldn't connect to their computer. Nothing was sent.` | [Messages](/cli/send#messages-from-floe-send-to) |
 | `curl -fsSL https://floe.one/install.sh \| FLOE_VERSION=vX.Y.Z sh` | Not explained yet |
-| `desktop-v0.3.0` | [Output](/cli/send#output) |
 | `{dir} is not writable; requesting sudo to install the update...` | Not explained yet |
 | `Docs: https://www.floe.one/docs` | [Output](/cli/version#output) |
 | `Downloading floe {version} (windows/{arch})...` | Not explained yet |
-| `echo 'export PATH="{HOME}/.local/bin:{PATH}"' >> ~/.profile` | [`floe` is not found after installing](/troubleshooting#floe-is-not-found-after-installing) |
-| `echo 'export PATH="{HOME}/.local/bin:{PATH}"' >> ~/{PROFILE_FILE}` | [`floe` is not found after installing](/troubleshooting#floe-is-not-found-after-installing) |
+| `echo 'export PATH="${HOME}/.local/bin:${PATH}"' >> ~/.profile` | [`floe` is not found after installing](/troubleshooting#floe-is-not-found-after-installing) |
+| `echo 'export PATH="${HOME}/.local/bin:${PATH}"' >> ~/{profile file}` | [`floe` is not found after installing](/troubleshooting#floe-is-not-found-after-installing) |
 | `Error: --relay-only needs a TURN relay and {server} offers none; drop the flag, or configure a relay on the server` | [`--relay-only needs a TURN relay`](/troubleshooting#relay-only-needs-a-turn-relay) |
 | `Error: --relay-only needs a TURN relay, and the connection details from {server} could not be read; check --server, or drop the flag` | [`--relay-only needs a TURN relay`](/troubleshooting#relay-only-needs-a-turn-relay) |
 | `Error: binary not found after extraction.` | Not explained yet |
@@ -741,7 +737,7 @@ yet has no section of its own so far.
 | `Error: error sending {name}: failed to send metadata: {cause}` | Not explained yet |
 | `Error: error sending {name}: receiver asked to resume at byte {n} of a {m}-byte file` | Not explained yet |
 | `Error: error sending {name}: the file grew while it was being sent (announced {n} bytes); send it again once it stops changing` | Not explained yet |
-| `Error: error sending {name}: the file shrank while it was being sent (announced {n} bytes, read {m}); send it again once it stops changing` | Not explained yet |
+| `Error: error sending {name}: the file shrank while it was being sent (announced {n} bytes, read {m}); send it again once it stops changing` | [`the file shrank while it was being sent`](/troubleshooting#the-file-shrank-or-grew-while-it-was-being-sent) |
 | `Error: error sending {name}: timed out waiting for ack` | [`timed out waiting for ack`](/troubleshooting#timed-out-waiting-for-ack) |
 | `Error: expected sender role, got "{role}" (room may already have two peers)` | Not explained yet |
 | `Error: failed to check for updates: GitHub API returned {n}` | Not explained yet |
@@ -752,16 +748,16 @@ yet has no section of its own so far.
 | `Error: failed to create peer connection: failed to create peer connection: {reason}` | Not explained yet |
 | `Error: failed to fetch ICE credentials: {reason}` | Not explained yet |
 | `Error: incomplete file "{name}": received {n} of {m} bytes` | Not explained yet |
-| `` Error: installed via {homebrewscoopwinget} - run `{command}` to update `` | [``installed via homebrew - run `brew upgrade floe` to update``](/troubleshooting#installed-via-homebrew-run-brew-upgrade-floe-to-update) |
+| `` Error: installed via {package manager} - run `{command}` to update `` | [``installed via homebrew - run `brew upgrade floe` to update``](/troubleshooting#installed-via-homebrew-run-brew-upgrade-floe-to-update) |
 | `Error: receiver discarded a file: incomplete file "{name}": received {n} of {m} bytes` | Not explained yet |
 | `Error: receiver rejected the file description: {detail}` | [floe send](/cli/send) |
 | `Error: rejected the sender's control message: {n} bytes, limit {n}` | Not explained yet |
 | `Error: rejected the sender's file description: batch size {n} is smaller than the file size {m}` | Not explained yet |
 | `Error: rejected the sender's file description: {detail}` | Not explained yet |
 | `Error: sender exceeded the announced size of "{name}"` | Not explained yet |
-| `Error: the file shrank while it was being sent (announced {n} bytes, read {m}); send it again once it stops changing` | Not explained yet |
+| `Error: the file shrank while it was being sent (announced {n} bytes, read {m}); send it again once it stops changing` | [`the file shrank while it was being sent`](/troubleshooting#the-file-shrank-or-grew-while-it-was-being-sent) |
 | `Error: the sender's copy of "{name}" changed while it was being sent, so nothing further was sent` | Not explained yet |
-| `Error: transfer abandoned while completing "{name}"` | Not explained yet |
+| `Error: transfer abandoned while completing "{name}"` | [`rejected the sender's file description` and similar lines](/troubleshooting#rejected-the-senders-file-description) |
 | `Error: transfer blocked: relay connections are capped at 2 GB` | [`relay connections are capped at 2 GB`](/troubleshooting#relay-connections-are-capped-at-2-gb) |
 | `Error: transfer blocked: relay connections are capped at {n} GB (selected {size})` | [Messages](/cli/send#messages-from-floe-send-to) |
 | `Error: update failed: checksum not found in checksums.txt for {archive}` | Not explained yet |
@@ -802,7 +798,7 @@ yet has no section of its own so far.
 | `Open a new terminal, then run 'floe version' to verify.` | [One-line installer](/cli/installation#one-line-installer) |
 | `Or build from source: https://www.floe.one/docs/cli/installation#build-from-source` | [Build from source](/cli/installation#build-from-source) |
 | `peer rejected transfer: protocol incompatible` | Not explained yet |
-| `protocol {n} ({version}) Peer: protocol {n}` | [`Cannot transfer: your floe is too old for this peer.`](/troubleshooting#cannot-transfer-your-floe-is-too-old-for-this-peer) |
+| `Peer version: {version}` | [Output](/cli/send#output) |
 | `receive stopped` | Not explained yet |
 | `receive stopped: a file is larger than the save drive can hold` | [Paths that are too deep or too long](/cli/receive#paths-too-deep-or-too-long) |
 | `receive stopped: a file's path is too deep or too long to save in this folder` | [Paths that are too deep or too long](/cli/receive#paths-too-deep-or-too-long) |
@@ -843,7 +839,7 @@ yet has no section of its own so far.
 | `the connection to the server was lost before the peer connected` | [`the connection to the server was lost before the peer connected`](/troubleshooting#the-connection-to-the-server-was-lost-before-the-peer-connected) |
 | `The drop stopped on their computer.` | [Messages](/cli/send#messages-from-floe-send-to) |
 | `the file grew while it was being sent (announced {a} bytes); send it again once it stops changing` | Not explained yet |
-| `the file shrank while it was being sent (announced {a} bytes, read {b}); send it again once it stops changing` | Not explained yet |
+| `the file shrank while it was being sent (announced {a} bytes, read {b}); send it again once it stops changing` | [`the file shrank while it was being sent`](/troubleshooting#the-file-shrank-or-grew-while-it-was-being-sent) |
 | `the other side left before the connection was established` | [`the other side left before the connection was established`](/troubleshooting#the-other-side-left-before-the-connection-was-established) |
 | `the sender left before the transfer was accepted` | [`the sender left before the transfer was accepted`](/troubleshooting#the-sender-left-before-the-transfer-was-accepted) |
 | `the sender stopped the transfer` | Not explained yet |
@@ -872,13 +868,14 @@ yet has no section of its own so far.
 | `timed out waiting for delivery confirmation from peer` | [`timed out waiting for delivery confirmation from peer`](/troubleshooting#timed-out-waiting-for-delivery-confirmation-from-peer) |
 | `timed out waiting for the server to assign a role` | [`connection closed before the server assigned a role`](/troubleshooting#connection-closed-before-the-server-assigned-a-role) |
 | `too many files named like "{name}"` | Not explained yet |
-| `transfer abandoned while completing "{name}"` | Not explained yet |
+| `transfer abandoned while completing "{name}"` | [`rejected the sender's file description` and similar lines](/troubleshooting#rejected-the-senders-file-description) |
 | `Transfer blocked: relay connections are capped at 2 GB. Ask the sender to send 2 GB or less, or to try a network that allows a direct connection.` | Not explained yet |
 | `transfer blocked: relay connections are capped at {n} GB (selected {size})` | [`relay connections are capped at 2 GB`](/troubleshooting#relay-connections-are-capped-at-2-gb) |
 | `transfer declined` | [Confirmation prompt](/cli/receive#confirmation-prompt) |
-| `Unsupported architecture: {value}` | Not explained yet |
+| `Unsupported architecture: {value}` | [If the install script stops](/cli/installation#if-the-install-script-stops) |
+| `Update available: {current} -> {latest}` | [Script and manual installs](/cli/update#script-and-manual-installs) |
+| `` Update available: {version} run `floe update`, or your package manager's upgrade command `` | [Output](/cli/version#output) |
 | `Verifying checksum...` | Not explained yet |
-| `` {version} run `floe update`, or your package manager's upgrade command `` | [Output](/cli/version#output) |
 | `Waiting for peer...` | [Output](/cli/send#output) |
 | `Waiting for them to accept. They have {n} min to answer.` | [Send through a request link](/cli/send#send-through-a-request-link) |
 | `WARNING: Checksum not found for {archive}, skipping verification.` | [One-line installer](/cli/installation#one-line-installer) |
@@ -890,7 +887,7 @@ yet has no section of its own so far.
 | `Warning: signaling server returned {n} for TURN credentials. Using STUN only.` | [`Warning: could not reach signaling server for TURN credentials. Using STUN only.`](/troubleshooting#warning-could-not-reach-signaling-server-for-turn-credentials-using-stun-only) |
 | `write error: could not finish writing a file, so it was not kept` | [`write error: the drive ran out of space, so the file was not kept`](/troubleshooting#write-error) |
 | `write error: the drive ran out of space, so the file was not kept` | [`write error: the drive ran out of space, so the file was not kept`](/troubleshooting#write-error) |
-| `You stopped this drop. Nothing was sent.` | Not explained yet |
+| `You stopped this drop. Nothing was sent.` | [Ctrl+C](/cli/send#send-through-a-request-link-ctrl-c) |
 | `You stopped this drop. {n} of {n} files were saved.` | [Ctrl+C](/cli/send#send-through-a-request-link-ctrl-c) |
 | `You stopped this drop. {saved line}` | [Ctrl+C](/cli/send#send-through-a-request-link-ctrl-c) |
 | `Your Floe needs an update to send to this link.` | [Messages](/cli/send#messages-from-floe-send-to) |
@@ -904,7 +901,7 @@ yet has no section of its own so far.
 | `Bad request` | [Behavior shared by every endpoint](/reference/http-api#behavior-shared-by-every-endpoint) |
 | `Client URL` | [Direct LAN installation](/self-hosting/unraid#direct-lan-installation) |
 | `Cloudflare TURN mint failed` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |
-| `Cloudflare TURN mint failed ({reason}) where {reason} is: status {HTTP status}, no-ice-servers, an error name such as TimeoutError, or the word error` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |
+| `Cloudflare TURN mint failed ({reason})` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |
 | `Code not found or expired` | [GET /api/code/:code](/reference/http-api#get-api-code-code) |
 | `HTTP server error:` | [Operations](/self-hosting/operations) |
 | `HTTP/1.1 400 Bad Request` | Not explained yet |
@@ -935,6 +932,6 @@ yet has no section of its own so far.
 | `TRUSTED_PROXY_COUNT is not set, so the default of {n} is in use. Set it to the number of reverse proxies in front of this server, or 0 if there are none.` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |
 | `Unhandled error ({origin}), server still serving:` | [Operations](/self-hosting/operations) |
 | `Unhandled error ({origin}), server still serving: {error}` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |
-| `Unhandled error ({origin}), server still serving: {error}; and a bare stack trace for a 5xx` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |
+| `Web client for Floe encrypted peer-to-peer file transfer. Install Floe-Server first, then set that server template's Client URL to this app's exact browser origin.` | Not explained yet |
 | `WebSocket close {n} Server shutting down` | [Operations](/self-hosting/operations) |
 | `WebSocket close {n}, reason: Server shutting down` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |

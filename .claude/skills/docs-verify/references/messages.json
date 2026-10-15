@@ -528,7 +528,7 @@
         "surface": "web",
         "text": "receiver declined the transfer",
         "source": "cli/engine/transfer/refusal.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#a-banner-that-starts-with-receiver",
         "why_no_home": null
     },
     {
@@ -799,13 +799,6 @@
     },
     {
         "surface": "web",
-        "text": "The receiver asked to resume \"{name}\" from byte {n} of SIZE, which is not possible. Please try again.",
-        "source": "client/lib/transfer/sender.ts",
-        "anchor": null,
-        "why_no_home": null
-    },
-    {
-        "surface": "web",
         "text": "The receiver asked to resume \"{name}\" from byte {n} of {size}, which is not possible. Please try again.",
         "source": "client/lib/transfer/sender.ts",
         "anchor": null,
@@ -899,7 +892,7 @@
         "surface": "web",
         "text": "the sender's copy of \"{name}\" changed while it was being sent, so nothing further was sent",
         "source": "cli/engine/transfer/sender.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#the-sender-ended-the-transfer",
         "why_no_home": null
     },
     {
@@ -1026,13 +1019,6 @@
         "text": "Waiting for the sender to start",
         "source": "client/components/ReceiverPanel.tsx",
         "anchor": "/troubleshooting#the-transfer-never-starts",
-        "why_no_home": null
-    },
-    {
-        "surface": "web",
-        "text": "Web client for Floe encrypted peer-to-peer file transfer. Install Floe-Server first, then set that server template's Client URL to this app's exact browser origin.",
-        "source": "unraid/floe-client.xml",
-        "anchor": null,
         "why_no_home": null
     },
     {
@@ -1541,7 +1527,7 @@
     },
     {
         "surface": "web-request",
-        "text": "Relayed drops are capped at 2 GB. Nothing was sent. Send under {n} GB.",
+        "text": "Relayed drops are capped at 2 GB. Nothing was sent. Send 2 GB or less.",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#when-their-floe-stops-the-drop",
         "why_no_home": null
@@ -1597,16 +1583,16 @@
     },
     {
         "surface": "web-request",
-        "text": "Send files peer to peer. Nothing is stored on a Floe server. (link preview) and Send files to the person who made this Floe request link.",
-        "source": "client/app/r/[linkId]/page.tsx",
-        "anchor": null,
+        "text": "SEND FILES THROUGH THIS LINK",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/web-app/request-links#what-the-page-shows",
         "why_no_home": null
     },
     {
         "surface": "web-request",
-        "text": "SEND FILES THROUGH THIS LINK",
-        "source": "client/lib/request/visitorCopy.ts",
-        "anchor": "/web-app/request-links#what-the-page-shows",
+        "text": "Send files to the person who made this Floe request link.",
+        "source": "client/app/r/[linkId]/page.tsx",
+        "anchor": null,
         "why_no_home": null
     },
     {
@@ -1968,13 +1954,6 @@
     },
     {
         "surface": "site",
-        "text": "::error::images.yml publishes from a manual dispatch only on main; rerun a failed tag run in place instead",
-        "source": ".github/workflows/images.yml",
-        "anchor": null,
-        "why_no_home": null
-    },
-    {
-        "surface": "site",
         "text": "A short trail of what happened just before: clicks, page changes, the addresses of network requests, and console lines, with the room link removed from each",
         "source": "client/app/privacy/page.tsx",
         "anchor": "/security-privacy#error-monitoring-and-analytics",
@@ -2306,7 +2285,7 @@
         "surface": "desktop",
         "text": "A file arrived incomplete and wasn't kept",
         "source": "desktop/frontend/src/errors.ts",
-        "anchor": null,
+        "anchor": "/troubleshooting#a-file-arrived-incomplete",
         "why_no_home": null
     },
     {
@@ -2334,7 +2313,7 @@
         "surface": "desktop",
         "text": "A file is too large for the drive they save to",
         "source": "cli/engine/transfer/refusal.go",
-        "anchor": "/troubleshooting#they-stopped-the-transfer-in-floe-desktop",
+        "anchor": "/troubleshooting#their-computer-ran-out-of-space",
         "why_no_home": null
     },
     {
@@ -2362,7 +2341,7 @@
         "surface": "desktop",
         "text": "A folder path is too long for their computer. Zip deeply nested folders first",
         "source": "cli/engine/transfer/refusal.go",
-        "anchor": "/troubleshooting#they-stopped-the-transfer-in-floe-desktop",
+        "anchor": "/troubleshooting#their-computer-ran-out-of-space",
         "why_no_home": null
     },
     {
@@ -2418,7 +2397,7 @@
         "surface": "desktop",
         "text": "Add a file to send",
         "source": "desktop/frontend/src/App.tsx",
-        "anchor": "/desktop/receiving",
+        "anchor": "/desktop/sending#add-files",
         "why_no_home": null
     },
     {
@@ -2606,6 +2585,20 @@
     {
         "surface": "desktop",
         "text": "Cleared the text",
+        "source": "desktop/frontend/src/clear.ts",
+        "anchor": "/desktop/sending#clear-and-undo",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Cleared the text. Press Control Z to undo.",
+        "source": "desktop/frontend/src/clear.ts",
+        "anchor": "/desktop/sending#clear-and-undo",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Cleared {n} items. Press Control Z to undo.",
         "source": "desktop/frontend/src/clear.ts",
         "anchor": "/desktop/sending#clear-and-undo",
         "why_no_home": null
@@ -3032,14 +3025,7 @@
     },
     {
         "surface": "desktop",
-        "text": "Floe could not start. {cause}, and when the cause names WebView2: Floe needs the Microsoft WebView2 runtime. If this PC is offline or behind a filtering proxy, install WebView2 from https://developer.microsoft.com/microsoft-edge/webview2/ and start Floe again.",
-        "source": "desktop/main.go",
-        "anchor": "/troubleshooting#floe-will-not-start",
-        "why_no_home": null
-    },
-    {
-        "surface": "desktop",
-        "text": "Floe could not start. {detail}, then: Floe needs the Microsoft WebView2 runtime. If this PC is offline or behind a filtering proxy, install WebView2 from https://developer.microsoft.com/microsoft-edge/webview2/ and start Floe again.",
+        "text": "Floe could not start. {cause}",
         "source": "desktop/main.go",
         "anchor": "/troubleshooting#floe-will-not-start",
         "why_no_home": null
@@ -3056,6 +3042,13 @@
         "text": "Floe doesn't scan files for malware",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#floe-does-not-scan-files",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Floe needs the Microsoft WebView2 runtime. If this PC is offline or behind a filtering proxy, install WebView2 from https://developer.microsoft.com/microsoft-edge/webview2/ and start Floe again.",
+        "source": "desktop/main.go",
+        "anchor": "/troubleshooting#floe-will-not-start",
         "why_no_home": null
     },
     {
@@ -4042,7 +4035,7 @@
         "surface": "desktop",
         "text": "The receiver left before it started",
         "source": "desktop/frontend/src/errors.ts",
-        "anchor": null,
+        "anchor": "/troubleshooting#the-receiver-left-before-it-started",
         "why_no_home": null
     },
     {
@@ -4182,14 +4175,14 @@
         "surface": "desktop",
         "text": "Their computer could not save a file",
         "source": "cli/engine/transfer/refusal.go",
-        "anchor": "/troubleshooting#they-stopped-the-transfer-in-floe-desktop",
+        "anchor": "/troubleshooting#their-computer-ran-out-of-space",
         "why_no_home": null
     },
     {
         "surface": "desktop",
         "text": "Their computer ran out of space",
         "source": "cli/engine/transfer/refusal.go",
-        "anchor": "/troubleshooting#they-stopped-the-transfer-in-floe-desktop",
+        "anchor": "/troubleshooting#their-computer-ran-out-of-space",
         "why_no_home": null
     },
     {
@@ -4203,7 +4196,7 @@
         "surface": "desktop",
         "text": "They didn't get a file whole, so it was discarded",
         "source": "desktop/frontend/src/errors.ts",
-        "anchor": null,
+        "anchor": "/troubleshooting#they-did-not-get-a-file-whole",
         "why_no_home": null
     },
     {
@@ -4285,8 +4278,8 @@
     },
     {
         "surface": "desktop",
-        "text": "transfer blocked: relay connections are capped at {n} GB (selected {size}), optionally followed by: . Turn off Hide my IP to send larger files",
-        "source": "desktop/transfer.go",
+        "text": "transfer blocked: relay connections are capped at {n} GB (selected {size})",
+        "source": "cli/engine/transfer/relay.go",
         "anchor": "/desktop/sending#size-limits",
         "why_no_home": null
     },
@@ -4322,7 +4315,7 @@
         "surface": "desktop",
         "text": "transfer failed: Their computer ran out of space",
         "source": "cli/engine/transfer/refusal.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#their-computer-ran-out-of-space",
         "why_no_home": null
     },
     {
@@ -4343,7 +4336,7 @@
         "surface": "desktop",
         "text": "Type some text to send",
         "source": "desktop/frontend/src/App.tsx",
-        "anchor": "/desktop/receiving",
+        "anchor": "/desktop/sending#send-a-text-note",
         "why_no_home": null
     },
     {
@@ -4453,13 +4446,6 @@
     },
     {
         "surface": "desktop",
-        "text": "{Cleared ...}. Press Control Z to undo.",
-        "source": "desktop/frontend/src/clear.ts",
-        "anchor": null,
-        "why_no_home": null
-    },
-    {
-        "surface": "desktop",
         "text": "{LABEL} WANTS TO SEND YOU FILES",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#accept-or-decline",
@@ -4477,13 +4463,6 @@
         "text": "· Both people must use {host}",
         "source": "desktop/frontend/src/App.tsx",
         "anchor": "/desktop/settings#server",
-        "why_no_home": null
-    },
-    {
-        "surface": "cli",
-        "text": "(cause) server returned {status} when registering code",
-        "source": "cli/engine/code/client.go",
-        "anchor": "/troubleshooting#warning-could-not-generate-short-code",
         "why_no_home": null
     },
     {
@@ -4707,14 +4686,14 @@
         "surface": "cli",
         "text": "Checksum verification failed!",
         "source": "client/public/install.sh",
-        "anchor": null,
+        "anchor": "/cli/installation#if-the-install-script-stops",
         "why_no_home": null
     },
     {
         "surface": "cli",
         "text": "Checksum verification failed.",
         "source": "client/public/install.ps1",
-        "anchor": null,
+        "anchor": "/cli/installation#if-the-install-script-stops",
         "why_no_home": null
     },
     {
@@ -4770,7 +4749,7 @@
         "surface": "cli",
         "text": "connection closed before delivery was confirmed",
         "source": "cli/engine/transfer/sender.go",
-        "anchor": null,
+        "anchor": "/cli/send#when-the-other-side-stops-it",
         "why_no_home": null
     },
     {
@@ -4840,14 +4819,14 @@
         "surface": "cli",
         "text": "Could not determine latest version.",
         "source": "client/public/install.sh",
-        "anchor": null,
+        "anchor": "/cli/installation#if-the-install-script-stops",
         "why_no_home": null
     },
     {
         "surface": "cli",
-        "text": "Could not determine latest version. Set $env:FLOE_VERSION = 'vX.{y}.Z' to install a specific version.",
+        "text": "Could not determine latest version. Set $env:FLOE_VERSION = 'vX.Y.Z' to install a specific version.",
         "source": "client/public/install.ps1",
-        "anchor": null,
+        "anchor": "/cli/installation#if-the-install-script-stops",
         "why_no_home": null
     },
     {
@@ -4880,13 +4859,6 @@
     },
     {
         "surface": "cli",
-        "text": "desktop-v0.3.0",
-        "source": "cli/engine/transfer/sender.go",
-        "anchor": "/cli/send#output",
-        "why_no_home": null
-    },
-    {
-        "surface": "cli",
         "text": "Docs: https://www.floe.one/docs",
         "source": "cli/cmd/floe/update.go",
         "anchor": "/cli/version#output",
@@ -4901,14 +4873,14 @@
     },
     {
         "surface": "cli",
-        "text": "echo 'export PATH=\"{HOME}/.local/bin:{PATH}\"' >> ~/.profile",
+        "text": "echo 'export PATH=\"${HOME}/.local/bin:${PATH}\"' >> ~/.profile",
         "source": "client/public/install.sh",
         "anchor": "/troubleshooting#floe-is-not-found-after-installing",
         "why_no_home": null
     },
     {
         "surface": "cli",
-        "text": "echo 'export PATH=\"{HOME}/.local/bin:{PATH}\"' >> ~/{PROFILE_FILE}",
+        "text": "echo 'export PATH=\"${HOME}/.local/bin:${PATH}\"' >> ~/{profile file}",
         "source": "client/public/install.sh",
         "anchor": "/troubleshooting#floe-is-not-found-after-installing",
         "why_no_home": null
@@ -5078,7 +5050,7 @@
         "surface": "cli",
         "text": "Error: error sending {name}: the file shrank while it was being sent (announced {n} bytes, read {m}); send it again once it stops changing",
         "source": "cli/engine/transfer/sender.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#the-file-shrank-or-grew-while-it-was-being-sent",
         "why_no_home": null
     },
     {
@@ -5160,7 +5132,7 @@
     },
     {
         "surface": "cli",
-        "text": "Error: installed via {homebrewscoopwinget} - run `{command}` to update",
+        "text": "Error: installed via {package manager} - run `{command}` to update",
         "source": "cli/cmd/floe/update.go",
         "anchor": "/troubleshooting#installed-via-homebrew-run-brew-upgrade-floe-to-update",
         "why_no_home": null
@@ -5211,7 +5183,7 @@
         "surface": "cli",
         "text": "Error: the file shrank while it was being sent (announced {n} bytes, read {m}); send it again once it stops changing",
         "source": "cli/engine/transfer/sender.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#the-file-shrank-or-grew-while-it-was-being-sent",
         "why_no_home": null
     },
     {
@@ -5225,7 +5197,7 @@
         "surface": "cli",
         "text": "Error: transfer abandoned while completing \"{name}\"",
         "source": "cli/engine/transfer/receiver.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#rejected-the-senders-file-description",
         "why_no_home": null
     },
     {
@@ -5496,9 +5468,9 @@
     },
     {
         "surface": "cli",
-        "text": "protocol {n} ({version}) Peer: protocol {n}",
-        "source": "cli/engine/transfer/protocol.go",
-        "anchor": "/troubleshooting#cannot-transfer-your-floe-is-too-old-for-this-peer",
+        "text": "Peer version: {version}",
+        "source": "cli/engine/transfer/sender.go",
+        "anchor": "/cli/send#output",
         "why_no_home": null
     },
     {
@@ -5785,7 +5757,7 @@
         "surface": "cli",
         "text": "the file shrank while it was being sent (announced {a} bytes, read {b}); send it again once it stops changing",
         "source": "cli/engine/transfer/sender.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#the-file-shrank-or-grew-while-it-was-being-sent",
         "why_no_home": null
     },
     {
@@ -5988,7 +5960,7 @@
         "surface": "cli",
         "text": "transfer abandoned while completing \"{name}\"",
         "source": "cli/engine/transfer/receiver.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#rejected-the-senders-file-description",
         "why_no_home": null
     },
     {
@@ -6016,7 +5988,21 @@
         "surface": "cli",
         "text": "Unsupported architecture: {value}",
         "source": "client/public/install.ps1",
-        "anchor": null,
+        "anchor": "/cli/installation#if-the-install-script-stops",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "Update available: {current} -> {latest}",
+        "source": "cli/cmd/floe/update.go",
+        "anchor": "/cli/update#script-and-manual-installs",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "Update available: {version}  run `floe update`, or your package manager's upgrade command",
+        "source": "cli/cmd/floe/update.go",
+        "anchor": "/cli/version#output",
         "why_no_home": null
     },
     {
@@ -6107,7 +6093,7 @@
         "surface": "cli",
         "text": "You stopped this drop. Nothing was sent.",
         "source": "cli/cmd/floe/sendto.go",
-        "anchor": null,
+        "anchor": "/cli/send#send-through-a-request-link-ctrl-c",
         "why_no_home": null
     },
     {
@@ -6146,13 +6132,6 @@
         "why_no_home": null
     },
     {
-        "surface": "cli",
-        "text": "{version} run `floe update`, or your package manager's upgrade command",
-        "source": "cli/cmd/floe/update.go",
-        "anchor": "/cli/version#output",
-        "why_no_home": null
-    },
-    {
         "surface": "server",
         "text": "Bad Request",
         "source": "server/server.js",
@@ -6182,7 +6161,7 @@
     },
     {
         "surface": "server",
-        "text": "Cloudflare TURN mint failed ({reason}) where {reason} is: status {HTTP status}, no-ice-servers, an error name such as TimeoutError, or the word error",
+        "text": "Cloudflare TURN mint failed ({reason})",
         "source": "server/turn.js",
         "anchor": "/self-hosting/operations#the-server-logs-very-little",
         "why_no_home": null
@@ -6392,9 +6371,16 @@
     },
     {
         "surface": "server",
-        "text": "Unhandled error ({origin}), server still serving: {error}; and a bare stack trace for a 5xx",
+        "text": "Unhandled error ({origin}), server still serving: {error}",
         "source": "server/server.js",
         "anchor": "/self-hosting/operations#the-server-logs-very-little",
+        "why_no_home": null
+    },
+    {
+        "surface": "server",
+        "text": "Web client for Floe encrypted peer-to-peer file transfer. Install Floe-Server first, then set that server template's Client URL to this app's exact browser origin.",
+        "source": "unraid/floe-client.xml",
+        "anchor": null,
         "why_no_home": null
     },
     {

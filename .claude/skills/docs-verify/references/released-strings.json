@@ -78,12 +78,11 @@
             "Error: Cannot update a dev build.",
             "Error: failed to check for updates: GitHub API returned {n}",
             "Error: failed to check for updates: {cause}",
-            "Error: installed via {homebrewscoopwinget} - run `{command}` to update",
+            "Error: installed via {package manager} - run `{command}` to update",
             "Run `floe update` to install.",
-            "{version} run `floe update`, or your package manager's upgrade command"
+            "Update available: {version}  run `floe update`, or your package manager's upgrade command"
         ],
         "cli/engine/code/client.go": [
-            "(cause) server returned {status} when registering code",
             "Error: could not resolve \"{code}\": could not reach signaling server: {network reason}",
             "Error: could not resolve \"{code}\": server returned {n} when resolving code",
             "Error: could not resolve \"{input}\": URL does not contain a room id (#room= or ?room=)",
@@ -141,8 +140,7 @@
             "Cannot transfer: your floe is too old for this peer.",
             "Cannot transfer: your floe is too old for this peer. You: protocol {n} ({ver}) Peer: protocol {n} ({ver}) Run `floe update` to upgrade.",
             "Cannot transfer: your floe is too old for this peer. {rest} Update Floe to continue.",
-            "peer rejected transfer: protocol incompatible",
-            "protocol {n} ({version}) Peer: protocol {n}"
+            "peer rejected transfer: protocol incompatible"
         ],
         "cli/engine/transfer/receiver.go": [
             "Accept? [Y/n]",
@@ -226,7 +224,6 @@
             "connection closed before delivery was confirmed",
             "connection closed mid-transfer",
             "connection closed while waiting for the receiver (transfer declined or receiver exited)",
-            "desktop-v0.3.0",
             "failed to seek to offset: {rest}",
             "failed to send chunk: {rest}",
             "failed to send metadata: {rest}",
@@ -266,6 +263,9 @@
             "transfer failed: They stopped this drop",
             "transfer failed: a file did not match the SHA-256 the sender computed, so it was not kept",
             "transfer failed: the sender's SHA-256 for a file could not be read, so the file was not kept"
+        ],
+        "cli/engine/transfer/relay.go": [
+            "transfer blocked: relay connections are capped at {n} GB (selected {size})"
         ],
         "desktop/app.go": [
             "Select a folder",
@@ -363,8 +363,9 @@
         "desktop/frontend/src/clear.ts": [
             "Clear",
             "Cleared the text",
-            "Restored the text",
-            "{Cleared ...}. Press Control Z to undo."
+            "Cleared the text. Press Control Z to undo.",
+            "Cleared {n} items. Press Control Z to undo.",
+            "Restored the text"
         ],
         "desktop/frontend/src/components/HistoryView.tsx": [
             "No transfers yet",
@@ -565,8 +566,8 @@
             "Windows notification settings"
         ],
         "desktop/main.go": [
-            "Floe could not start. {cause}, and when the cause names WebView2: Floe needs the Microsoft WebView2 runtime. If this PC is offline or behind a filtering proxy, install WebView2 from https://developer.microsoft.com/microsoft-edge/webview2/ and start Floe again.",
-            "Floe could not start. {detail}, then: Floe needs the Microsoft WebView2 runtime. If this PC is offline or behind a filtering proxy, install WebView2 from https://developer.microsoft.com/microsoft-edge/webview2/ and start Floe again."
+            "Floe could not start. {cause}",
+            "Floe needs the Microsoft WebView2 runtime. If this PC is offline or behind a filtering proxy, install WebView2 from https://developer.microsoft.com/microsoft-edge/webview2/ and start Floe again."
         ],
         "desktop/requestlink.go": [
             "(1) Floe",
@@ -610,7 +611,6 @@
             "room is full (someone else may already be receiving)",
             "the server answered with an error this version of Floe does not know",
             "this code or link is no longer active; ask the sender for a new one",
-            "transfer blocked: relay connections are capped at {n} GB (selected {size}), optionally followed by: . Turn off Hide my IP to send larger files",
             "transfer blocked: relay connections are capped at {n} GB (selected {size}). Turn off Hide my IP to send larger files"
         ]
     }

@@ -53,7 +53,7 @@ that matter most:
 | `TRUSTED_PROXY_COUNT` | Reverse-proxy hops in front of the server. `0` direct, `1` behind a proxy. |
 | `CLOUDFLARE_TURN_KEY_ID` / `CLOUDFLARE_TURN_KEY_API_TOKEN` | Optional managed TURN via Cloudflare (see below). |
 | `TURN_SECRET` / `TURN_DOMAIN` | Optional self-hosted coturn credentials (see below). |
-| `TURN_TLS` | Optional. `off` (or `false`, `0`, `no`) leaves the `turns:` address (TLS on port 5349) out of the relay list a self-hosted coturn hands out, for a coturn with no TLS certificate. Unset, the list is unchanged. |
+| `TURN_TLS` | Optional. `off` (or `false`, `0`, `no`, in any letter case) makes the server leave the `turns:` address (TLS on port 5349) out of the relay list it gives clients, for a self-hosted coturn with no TLS certificate. Unset, the list is unchanged. A server of 1.11.0 or earlier ignores it. |
 | `POLICY_FILE` | Optional path, inside the container, of the policy file that turns request links on (see [Request links](#request-links)). Unset, or naming a file that does not exist, means request links are off. |
 
 ### Applying a change

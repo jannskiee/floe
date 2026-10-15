@@ -605,10 +605,11 @@ export default function PrivacyPolicy() {
                                     and the entry is missing, it writes one per-user registry key (with
                                     a command subkey) that holds the app&apos;s location, unless you
                                     have turned the switch off. The portable zip adds the entry only
-                                    after you turn the switch on. Floe never touches an entry that
-                                    belongs to another copy of the app, and repairs or removes one
-                                    whose program is gone. The installer&apos;s uninstall removes the
-                                    key too. The portable zip has no uninstaller, so turn the switch
+                                    after you turn the switch on. When it starts, Floe leaves alone an
+                                    entry that belongs to another copy of the app, and repairs or
+                                    removes one whose program is gone. Turning the switch on in one
+                                    copy moves the entry to that copy. The installer&apos;s uninstall
+                                    removes the key too. The portable zip has no uninstaller, so turn the switch
                                     off before deleting that build. The Microsoft Store build does not
                                     offer this entry.
                                 </p>
