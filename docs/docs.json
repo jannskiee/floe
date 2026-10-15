@@ -239,7 +239,8 @@
           "reference/limits",
           "reference/architecture",
           "reference/http-api",
-          "reference/transfer-protocol"
+          "reference/transfer-protocol",
+          "messages"
         ]
       },
       {

@@ -1,7 +1,7 @@
 {
     "refs": {
-        "cli": "797917c",
-        "desktop": "797917c"
+        "cli": "v1.11.1",
+        "desktop": "desktop-v0.3.1"
     },
     "cli": {
         "cli/cmd/floe/main.go": [
@@ -125,7 +125,11 @@
             "cannot send {path}: it is a link to a folder, which Floe does not follow"
         ],
         "cli/engine/transfer/control.go": [
-            "Error: receiver rejected the file description: {detail}"
+            "Error: receiver rejected the file description: {detail}",
+            "The sender stopped."
+        ],
+        "cli/engine/transfer/decide.go": [
+            "the sender left before the transfer was accepted"
         ],
         "cli/engine/transfer/partial.go": [
             "too many files named like \"{name}\""
@@ -303,6 +307,7 @@
             "Direct",
             "Direct, no size limit from Floe",
             "Docs",
+            "Downloads (default)",
             "End-to-end encrypted",
             "Enter a code or link",
             "Enter a code or link, then click Receive",
@@ -364,7 +369,8 @@
         "desktop/frontend/src/components/HistoryView.tsx": [
             "No transfers yet",
             "Remove",
-            "Sent"
+            "Sent",
+            "Show in folder"
         ],
         "desktop/frontend/src/components/SharePanel.tsx": [
             "Copy code",
@@ -538,6 +544,7 @@
             "Your request link also stops working",
             "Your request link stays open",
             "Your request link stops working",
+            "wants to send you files",
             "{LABEL} WANTS TO SEND YOU FILES",
             "{n} files now end in .floe-blocked so Windows won't open them on their own"
         ],
