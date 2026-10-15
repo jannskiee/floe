@@ -11,6 +11,7 @@
             "Error: --relay-only needs a TURN relay, and the connection details from {server} could not be read; check --server, or drop the flag",
             "Error: failed to connect to signaling server: cannot connect to signaling server at {wss address}/ws: websocket: bad handshake (HTTP 403). A reverse proxy in front of the server may be changing the Host header: make it pass Host through unchanged.",
             "Error: failed to connect to signaling server: cannot connect to signaling server at {wss address}/ws: websocket: bad handshake (HTTP 404). Check the server address, and that a reverse proxy in front of the server forwards /ws with the WebSocket upgrade.",
+            "Error: failed to connect to signaling server: cannot connect to signaling server at {wss address}/ws: {reason}",
             "That looks like a link to receive from. To receive, use: floe receive <link>",
             "`Files are encrypted end-to-end. Nothing is stored on any server.`",
             "`Floe transfers files directly between devices using WebRTC.`"

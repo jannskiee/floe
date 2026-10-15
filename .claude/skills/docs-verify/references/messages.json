@@ -5125,6 +5125,13 @@
     },
     {
         "surface": "cli",
+        "text": "Error: failed to connect to signaling server: cannot connect to signaling server at {wss address}/ws: {reason}",
+        "source": "cli/cmd/floe/main.go",
+        "anchor": "/troubleshooting#failed-to-connect-to-signaling-server",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
         "text": "Error: failed to create peer connection: failed to create peer connection: {reason}",
         "source": "cli/cmd/floe/send.go",
         "anchor": null,
