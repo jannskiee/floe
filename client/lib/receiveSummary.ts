@@ -1,3 +1,5 @@
+import { receiveUnderWay } from './pageGuards';
+
 /**
  * The count line under a receiver's file list, and whether it may carry the
  * green check.
@@ -70,21 +72,22 @@ export function joinStepsShown(input: { received: number; busy: boolean; ended: 
  * Whether closing the receiving tab would cost the person something, which is
  * what "Keep this tab open. Closing it interrupts the download." claims.
  *
- * Files that have arrived live in the tab until they are saved, so they always
- * count. With nothing received, the tab matters only while an attempt is
- * under way: not under the Link Invalid card, not while nobody is on the
- * sending side, and not after an attempt that ended, where there is no
- * download left to interrupt.
+ * Exactly when the browser's leave prompt is held on a receiving page
+ * (mainPageHoldsTab in lib/pageGuards.ts): while a receive is under way, or
+ * while a received file has never been handed to the browser to save. Not
+ * under the Link Invalid card, not while nobody is on the sending side and
+ * nothing is unsaved, and not once every file has arrived and each was saved:
+ * the line used to stay for as long as any file was listed, after the prompt
+ * had already let go.
  */
 export function receiverTabMatters(input: {
     linkInvalid: boolean;
     senderAbsent: boolean;
     ended: boolean;
-    received: number;
+    allArrived: boolean;
+    unsaved: number;
 }): boolean {
-    if (input.linkInvalid) return false;
-    if (input.received > 0) return true;
-    return !input.senderAbsent && !input.ended;
+    return receiveUnderWay(input) || input.unsaved > 0;
 }
 
 /**

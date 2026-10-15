@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
     FOLDER_DROP_REFUSED,
@@ -7,6 +8,7 @@ import {
     dropHasFolder,
     fullLoadTarget,
     mainPageHoldsTab,
+    opensMainPage,
     receiveUnderWay,
     unsavedCount,
     type LinkClick,
@@ -159,6 +161,54 @@ describe('fullLoadTarget', () => {
         expect(fullLoadTarget(click({ href: 'blob:https://floe.one/0b6c1f1e' }), HOME)).toBeNull();
         expect(fullLoadTarget(click({ href: 'javascript:void(0)' }), HOME)).toBeNull();
         expect(fullLoadTarget(click({ href: 'http://[' }), HOME)).toBeNull();
+    });
+});
+
+describe('opensMainPage', () => {
+    it('is true for the main page, with or without an anchor or a query', () => {
+        for (const href of ['/', '/#how-it-works', '/?x=1']) expect(opensMainPage(href), href).toBe(true);
+    });
+
+    it('is false for every other page and for other sites', () => {
+        for (const href of ['/download', '/how-it-works', '/privacy', '/r/abc', 'https://www.floe.one/docs', '']) {
+            expect(opensMainPage(href), href).toBe(false);
+        }
+    });
+});
+
+// Back after a soft hop into the main page stayed inside one document, so it
+// never reached the leave prompt. Every link into the main page is a plain
+// anchor: a next/link to it anywhere in the site brings the bug back.
+describe('links into the main page load it in full', () => {
+    const root = fileURLToPath(new URL('../', import.meta.url));
+    const files: string[] = [];
+    const walk = (dir: string) => {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+            const path = join(dir, entry.name);
+            if (entry.isDirectory()) walk(path);
+            else if (entry.name.endsWith('.tsx') && !entry.name.includes('.test.')) files.push(path);
+        }
+    };
+    walk(join(root, 'app'));
+    walk(join(root, 'components'));
+
+    it('no next/link names the main page', () => {
+        const offenders: string[] = [];
+        for (const file of files) {
+            const text = readFileSync(file, 'utf8');
+            for (const m of text.matchAll(/<Link\b[^>]*?\bhref=(?:"([^"]*)"|'([^']*)'|\{`([^`]*)`\}|\{'([^']*)'\}|\{"([^"]*)"\})/g)) {
+                const href = m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5] ?? '';
+                if (opensMainPage(href)) offenders.push(`${file}: ${href}`);
+            }
+        }
+        expect(files.length).toBeGreaterThan(10);
+        expect(offenders).toEqual([]);
+    });
+
+    it('the footer, whose links come from a list, sends the main page through a plain anchor', () => {
+        const footer = read('../components/layout/Footer.tsx');
+        expect(footer).toContain("{ name: 'Floe', href: '/' }");
+        expect(footer).toContain('opensMainPage(link.href)');
     });
 });
 

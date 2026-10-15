@@ -116,6 +116,37 @@ test('the page asks before it is left while a link is out or files are unsaved',
     }
 });
 
+test('Back still asks when the page was reached by an in-app link', async ({ page }) => {
+    // A next/link into the main page made it a soft hop inside one document,
+    // so Back left it the same way and beforeunload never ran: a link that
+    // was out vanished with no question. The links into the main page are
+    // plain anchors now (opensMainPage in lib/pageGuards.ts), so Back unloads.
+    const { path: fixturePath } = createFixture(FIXTURE_DIR, 16 * 1024);
+    await page.goto('/how-it-works');
+    await page.locator('footer').getByRole('link', { name: 'Floe', exact: true }).click();
+    await expect(page).toHaveURL(/\/$/);
+    await page.locator('input[type="file"]').setInputFiles(fixturePath);
+    await page.locator('button', { hasText: /create secure link/i }).click();
+    const linkEl = page.locator('code').filter({ hasText: '#room=' });
+    await expect(linkEl).toBeVisible({ timeout: 10_000 });
+
+    let asked = false;
+    const onDialog = (dialog: import('@playwright/test').Dialog) => {
+        if (dialog.type() === 'beforeunload') asked = true;
+        void dialog.dismiss();
+    };
+    page.on('dialog', onDialog);
+    try {
+        // A dismissed prompt cancels the traversal, so goBack never settles.
+        await page.goBack({ timeout: 3_000 }).catch(() => null);
+        await page.waitForTimeout(1_000);
+    } finally {
+        page.off('dialog', onDialog);
+    }
+    expect(asked).toBe(true);
+    await expect(linkEl).toBeVisible();
+});
+
 test('a folder dropped on the Send page is refused at the drop', async ({ page }) => {
     await page.goto('/');
     const zone = page.getByText('Drop files or click to browse');

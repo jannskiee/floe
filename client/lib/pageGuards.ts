@@ -69,6 +69,20 @@ export function unsavedCount(received: readonly { id: string }[], saved: Readonl
     return received.filter((f) => !saved.has(f.id)).length;
 }
 
+/**
+ * Whether an in-app address leads to the main page. Every link there is a
+ * plain anchor, never next/link, so the main page is always a document of its
+ * own. A next/link into it was a soft hop inside one document: Back then
+ * left the same way, beforeunload never ran, and a link that was out or a
+ * received file that was unsaved went with no question. As its own document,
+ * Back unloads it and reaches the leave prompt above. The Floe wordmark on
+ * the main page reloads through window.location for the same reason.
+ * pageGuards.test.ts fails on any next/link whose address this accepts.
+ */
+export function opensMainPage(href: string): boolean {
+    return href === '/' || href.startsWith('/#') || href.startsWith('/?');
+}
+
 /** What the click listener knows about a click on a link. */
 export interface LinkClick {
     button: number;
