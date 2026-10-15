@@ -39,6 +39,18 @@ updates:
       - dependency-name: "@vitejs/plugin-react"
         update-types:
           - "version-update:semver-major"
+      # @sentry/nextjs 11 is a hand migration, not a bump: it moves
+      # withSentryConfig to @sentry/nextjs/config, streams spans by default (so
+      # beforeSendTransaction never runs), and replaces sendDefaultPii with
+      # dataCollection, whose defaults attach the IP address and cookies. The
+      # room-link scrub (client/lib/scrubUrl.ts) and the privacy page rest on
+      # all three and no test would notice. Majors only, so 10.x minors and
+      # patches still arrive and a Sentry advisory still opens its own security
+      # PR. The checklist and when it is due are in
+      # .claude/skills/ship-it/references/dependency-prs.md.
+      - dependency-name: "@sentry/nextjs"
+        update-types:
+          - "version-update:semver-major"
     groups:
       # Minor and patch only: a single incompatible major inside a 20-update
       # group PR blocks every other update in it (day one: the TypeScript
