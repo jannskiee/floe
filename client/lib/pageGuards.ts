@@ -71,13 +71,15 @@ export function unsavedCount(received: readonly { id: string }[], saved: Readonl
 
 /**
  * Whether an in-app address leads to the main page. Every link there is a
- * plain anchor, never next/link, so the main page is always a document of its
- * own. A next/link into it was a soft hop inside one document: Back then
- * left the same way, beforeunload never ran, and a link that was out or a
- * received file that was unsaved went with no question. As its own document,
- * Back unloads it and reaches the leave prompt above. The Floe wordmark on
- * the main page reloads through window.location for the same reason.
- * pageGuards.test.ts fails on any next/link whose address this accepts.
+ * plain anchor, never next/link, and the main page loads every in-app link
+ * out of it in full (useFullLoadLinks), so it is always a document of its
+ * own. A soft hop inside one document was how Back, and Forward after a
+ * soft hop back, left it with beforeunload never run, and a link that was
+ * out or a received file that was unsaved went with no question. As its own
+ * document, Back and Forward unload it and reach the leave prompt above. The
+ * Floe wordmark on the main page reloads through window.location for the
+ * same reason. pageGuards.test.ts parses every next/link in the site and
+ * fails on one whose address this accepts.
  */
 export function opensMainPage(href: string): boolean {
     return href === '/' || href.startsWith('/#') || href.startsWith('/?');
@@ -118,6 +120,28 @@ export function fullLoadTarget(click: LinkClick, here: string): string | null {
     if (to.origin !== from.origin) return null;
     if (to.pathname === from.pathname && to.search === from.search) return null;
     return to.href;
+}
+
+/**
+ * Whether a click on a link is a plain click to the page itself, with no
+ * anchor. A next/link to the page you are on kept the page and went to the
+ * top; the main page's links into itself are plain anchors now, which would
+ * reload it and drop files that were added but not sent, with no prompt
+ * before Create. The main page keeps the old behavior for these.
+ */
+export function samePageTop(click: LinkClick, here: string): boolean {
+    if (click.defaultPrevented || click.button !== 0 || click.modified || click.download) return false;
+    if (click.target !== '' && click.target.toLowerCase() !== '_self') return false;
+    let to: URL;
+    let from: URL;
+    try {
+        to = new URL(click.href, here);
+        from = new URL(here);
+    } catch {
+        return false;
+    }
+    if (to.origin !== from.origin) return false;
+    return to.pathname === from.pathname && to.search === from.search && to.hash === '';
 }
 
 interface ItemLike {

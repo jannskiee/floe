@@ -190,7 +190,8 @@ export function P2PTransfer() {
         unsaved,
     });
     // The browser's own "Leave site?" prompt while leaving would cost
-    // something, in-app links loaded in full so they reach it, and a stray
+    // something, in-app links always loaded in full so the page stays a
+    // document of its own and Back and Forward reach the prompt, and a stray
     // drop refused anywhere on the page (lib/pageGuards.ts). The Floe wordmark
     // reloads through window.location, so it asks too.
     const holdsTab = mainPageHoldsTab({
@@ -207,7 +208,7 @@ export function P2PTransfer() {
         unsaved,
     });
     useLeavePrompt(holdsTab);
-    useFullLoadLinks(holdsTab);
+    useFullLoadLinks();
     useStrayDropGuard();
 
     const peerRef = useRef<PeerInstance | null>(null);

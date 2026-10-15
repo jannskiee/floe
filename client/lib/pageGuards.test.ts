@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative, sep } from 'node:path';
+import ts from 'typescript';
 import { fileURLToPath } from 'node:url';
 import {
     FOLDER_DROP_REFUSED,
@@ -10,6 +11,7 @@ import {
     mainPageHoldsTab,
     opensMainPage,
     receiveUnderWay,
+    samePageTop,
     unsavedCount,
     type LinkClick,
 } from './pageGuards';
@@ -176,10 +178,73 @@ describe('opensMainPage', () => {
     });
 });
 
-// Back after a soft hop into the main page stayed inside one document, so it
-// never reached the leave prompt. Every link into the main page is a plain
-// anchor: a next/link to it anywhere in the site brings the bug back.
-describe('links into the main page load it in full', () => {
+describe('samePageTop', () => {
+    const HOME = 'https://floe.one/';
+    const click = (over: Partial<LinkClick>): LinkClick => ({
+        button: 0,
+        modified: false,
+        defaultPrevented: false,
+        href: HOME,
+        target: '',
+        download: false,
+        ...over,
+    });
+
+    // A next/link to the page you are on kept the page and went to the top. As
+    // a plain anchor it would reload and drop files not yet sent (review N2).
+    it('is true for a plain click on a link to this very page', () => {
+        expect(samePageTop(click({}), HOME)).toBe(true);
+        expect(samePageTop(click({ target: '_self' }), HOME)).toBe(true);
+    });
+
+    it('is false for another page, another query, or an anchor on this page', () => {
+        expect(samePageTop(click({ href: 'https://floe.one/download' }), HOME)).toBe(false);
+        expect(samePageTop(click({ href: 'https://floe.one/' }), 'https://floe.one/?s=ab12cd34#room=x')).toBe(false);
+        expect(samePageTop(click({ href: 'https://floe.one/#about' }), HOME)).toBe(false);
+    });
+
+    it('leaves the browser its own way with a new tab, a save, a modified click or another site', () => {
+        expect(samePageTop(click({ target: '_blank' }), HOME)).toBe(false);
+        expect(samePageTop(click({ download: true }), HOME)).toBe(false);
+        expect(samePageTop(click({ modified: true }), HOME)).toBe(false);
+        expect(samePageTop(click({ button: 1 }), HOME)).toBe(false);
+        expect(samePageTop(click({ defaultPrevented: true }), HOME)).toBe(false);
+        expect(samePageTop(click({ href: 'https://github.com/' }), HOME)).toBe(false);
+        expect(samePageTop(click({ href: 'http://[' }), HOME)).toBe(false);
+    });
+});
+
+// The main page is a document of its own in both directions, so Back and
+// Forward from it always unload it and reach the leave prompt. Into it: every
+// link is a plain anchor (opensMainPage). Out of it: the page loads every
+// in-app link in full whether or not the prompt is held, so no soft history
+// entry ever sits after it (review N1).
+describe('the main page is always its own document', () => {
+    it('loads every in-app link out of the main page in full, held or not', () => {
+        const page = read('../components/P2PTransfer.tsx');
+        expect(page).toContain('useFullLoadLinks();');
+        expect(page).not.toContain('useFullLoadLinks(holdsTab)');
+    });
+
+    it('the footer, whose links come from a list, sends the main page through a plain anchor', () => {
+        const footer = read('../components/layout/Footer.tsx');
+        expect(footer).toContain("{ name: 'Floe', href: '/' }");
+        expect(footer).toContain('opensMainPage(link.href)');
+    });
+
+    it('the legal pages\' document switcher names no main-page address', () => {
+        const legal = read('../components/legal/LegalShell.tsx');
+        const hrefs = [...legal.matchAll(/href: '([^']*)'/g)].map((m) => m[1]);
+        expect(hrefs).toEqual(expect.arrayContaining(['/privacy', '/terms']));
+        for (const href of hrefs) expect(opensMainPage(href), href).toBe(false);
+    });
+});
+
+// Every next/link in the site, read by the TypeScript parser so props with a
+// `>` in them, renamed imports and object addresses are seen (review N3).
+// An address that is not a literal passes only where this file checks the
+// list it comes from (DYNAMIC_CHECKED).
+describe('no next/link leads into the main page', () => {
     const root = fileURLToPath(new URL('../', import.meta.url));
     const files: string[] = [];
     const walk = (dir: string) => {
@@ -191,24 +256,93 @@ describe('links into the main page load it in full', () => {
     };
     walk(join(root, 'app'));
     walk(join(root, 'components'));
+    const rel = (file: string) => relative(root, file).split(sep).join('/');
 
-    it('no next/link names the main page', () => {
+    const DYNAMIC_CHECKED = new Set(['components/layout/Footer.tsx: link.href', 'components/legal/LegalShell.tsx: doc.href']);
+
+    /** Each next/link element's address: the literal (or a template's fixed
+     *  start), or null with the expression's text when it cannot be read. */
+    function linkAddresses(sourcePath: string, text: string): { href: string | null; text: string }[] {
+        const sf = ts.createSourceFile(sourcePath, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+        const names = new Set<string>();
+        for (const st of sf.statements) {
+            if (
+                ts.isImportDeclaration(st) &&
+                ts.isStringLiteral(st.moduleSpecifier) &&
+                st.moduleSpecifier.text === 'next/link' &&
+                st.importClause?.name
+            ) {
+                names.add(st.importClause.name.text);
+            }
+        }
+        const out: { href: string | null; text: string }[] = [];
+        const addressOf = (init: ts.JsxAttributeValue | undefined): { href: string | null; text: string } => {
+            if (!init) return { href: null, text: '(no value)' };
+            if (ts.isStringLiteral(init)) return { href: init.text, text: init.text };
+            if (ts.isJsxExpression(init) && init.expression) {
+                const e = init.expression;
+                if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) return { href: e.text, text: e.text };
+                if (ts.isTemplateExpression(e) && e.head.text !== '') return { href: e.head.text, text: e.getText(sf) };
+                if (ts.isObjectLiteralExpression(e)) {
+                    for (const p of e.properties) {
+                        if (ts.isPropertyAssignment(p) && p.name.getText(sf) === 'pathname' && ts.isStringLiteral(p.initializer)) {
+                            return { href: p.initializer.text, text: e.getText(sf) };
+                        }
+                    }
+                }
+                return { href: null, text: e.getText(sf) };
+            }
+            return { href: null, text: init.getText(sf) };
+        };
+        const visit = (node: ts.Node) => {
+            if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && names.has(node.tagName.getText(sf))) {
+                for (const prop of node.attributes.properties) {
+                    if (ts.isJsxSpreadAttribute(prop)) out.push({ href: null, text: '...' + prop.expression.getText(sf) });
+                    else if (prop.name.getText(sf) === 'href') out.push(addressOf(prop.initializer));
+                }
+            }
+            ts.forEachChild(node, visit);
+        };
+        visit(sf);
+        return out;
+    }
+
+    it('sees the spellings a pattern match would miss', () => {
+        const sample = `import NextLink from 'next/link';
+import Link from 'next/link';
+const HOME = '/';
+export const A = () => <Link onClick={() => track('home')} href="/">a</Link>;
+export const B = () => <Link className="[&>svg]:size-4" href="/">b</Link>;
+export const C = () => <Link href={HOME}>c</Link>;
+export const D = () => <Link href={{ pathname: '/' }}>d</Link>;
+export const E = () => <NextLink href="/">e</NextLink>;
+export const F = () => <Link href={\`/#\${'about'}\`}>f</Link>;
+export const G = () => <Link href="/download">g</Link>;`;
+        const found = linkAddresses('sample.tsx', sample);
+        const flagged = found.filter((f) => f.href === null || opensMainPage(f.href));
+        expect(found).toHaveLength(7);
+        expect(flagged).toHaveLength(6);
+    });
+
+    it('finds no next/link whose address opens the main page', () => {
         const offenders: string[] = [];
         for (const file of files) {
-            const text = readFileSync(file, 'utf8');
-            for (const m of text.matchAll(/<Link\b[^>]*?\bhref=(?:"([^"]*)"|'([^']*)'|\{`([^`]*)`\}|\{'([^']*)'\}|\{"([^"]*)"\})/g)) {
-                const href = m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5] ?? '';
-                if (opensMainPage(href)) offenders.push(`${file}: ${href}`);
+            for (const a of linkAddresses(file, readFileSync(file, 'utf8'))) {
+                if (a.href !== null && opensMainPage(a.href)) offenders.push(`${rel(file)}: ${a.text}`);
             }
         }
         expect(files.length).toBeGreaterThan(10);
         expect(offenders).toEqual([]);
     });
 
-    it('the footer, whose links come from a list, sends the main page through a plain anchor', () => {
-        const footer = read('../components/layout/Footer.tsx');
-        expect(footer).toContain("{ name: 'Floe', href: '/' }");
-        expect(footer).toContain('opensMainPage(link.href)');
+    it('reads every other next/link address, or checks the list it comes from', () => {
+        const unread: string[] = [];
+        for (const file of files) {
+            for (const a of linkAddresses(file, readFileSync(file, 'utf8'))) {
+                if (a.href === null && !DYNAMIC_CHECKED.has(`${rel(file)}: ${a.text}`)) unread.push(`${rel(file)}: ${a.text}`);
+            }
+        }
+        expect(unread).toEqual([]);
     });
 });
 
