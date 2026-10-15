@@ -49,9 +49,11 @@ function generateCoturnCredentials() {
 
     // 24h, matching CF_TURN_TTL below. Do not shorten: every sender fetches ICE
     // credentials BEFORE its wait for a peer, that wait is intentionally
-    // unbounded (share a link, wait for hours), and no surface ever refreshes
-    // the list. A shorter TTL silently kills relayed transfers for any receiver
-    // who opens the link after the credentials expire.
+    // unbounded (share a link, wait for hours), and only the main web page
+    // reads the list again (client/lib/iceList.ts, when it is an hour old); the
+    // CLI, Floe Desktop and the /r page connect with the list they read first.
+    // A shorter TTL silently kills relayed transfers for any receiver who opens
+    // the link after the credentials expire.
     const ttl = 24 * 3600;
     const expiry = Math.floor(Date.now() / 1000) + ttl;
     const username = `${expiry}:floeuser`;

@@ -94,7 +94,7 @@ func TestReceiverIncomingHookLegacyFallback(t *testing.T) {
 
 	time.Sleep(300 * time.Millisecond)
 
-	// No totalBytes field, like a pre-1.6.0 sender.
+	// No totalBytes field, like a pre-1.5.0 sender.
 	meta := `{"type":"metadata","id":"c-8","fileName":"old.bin","fileSize":4,"index":1,"total":1}`
 	if err := sender.SendText(meta); err != nil {
 		t.Fatalf("SendText metadata: %v", err)

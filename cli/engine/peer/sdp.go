@@ -54,8 +54,9 @@ func filterSDPCandidates(sdp string, room int) (string, int) {
 // client/lib/transfer/protocol.ts.
 //
 // pion/webrtc v3 omitted the attribute, and injecting one after the
-// a=sctp-port line was the fix. pion v4 (v4.2.19 in go.mod) emits it in every
-// description it generates (addDataMediaSection in its sdp.go) with the
+// a=sctp-port line was the fix. pion v4 (v4.2.23 in go.mod since #603, and
+// v4.2.19 before it) emits it in every description it generates
+// (addDataMediaSection in its sdp.go) with the
 // SettingEngine ceiling, 1073741823 by default, so the replace branch below is
 // the live path and the inject branch only covers an SDP that lacks the
 // attribute. pion/sctp fragments large messages itself.

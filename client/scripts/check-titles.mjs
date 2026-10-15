@@ -39,8 +39,10 @@ const EXPECTED = {
     privacy: ['Privacy Policy - Floe'],
     terms: ['Terms of Use - Floe'],
     '_not-found': ['Page Not Found - Floe'],
-    // Next built-in. app/global-error.tsx renders its own <html>, so the root
-    // layout's metadata never reaches it and it cannot be templated.
+    // Next's own prerendered error page (id __next_error__), the same whatever
+    // app/global-error.tsx holds; the app's component renders only at request
+    // time. The root layout's metadata never reaches it, so it cannot be
+    // templated.
     '_global-error': ['500: This page couldn’t load'],
 };
 

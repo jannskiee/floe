@@ -418,7 +418,7 @@ func TestLimitsTotalMustStayConstantAndIndexInOrder(t *testing.T) {
 }
 
 // TestLimitsAnnouncedTotalZeroRefused: a request-link drop must announce its
-// total (a pre-1.6.0 sender cannot use a link anyway); zero with data in the
+// total (a pre-1.5.0 sender cannot use a link anyway); zero with data in the
 // first file, or absent, is refused before OnIncoming and Decide.
 func TestLimitsAnnouncedTotalZeroRefused(t *testing.T) {
 	if testing.Short() {
