@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { fullLoadTarget } from '@/lib/pageGuards';
+import { fullLoadTarget, samePageTop } from '@/lib/pageGuards';
 
 /**
  * The browser's own "Leave site?" prompt, held while `active`. Browsers show
@@ -22,42 +22,49 @@ export function useLeavePrompt(active: boolean) {
 }
 
 /**
- * While `active`, an in-app link loads its page in full, so it goes through
- * the leave prompt above. next/link navigates inside the page and never
- * unloads it, so beforeunload never ran: the navbar's Download pill and the
- * footer's links unmounted the main page, its transfer and its received files
- * without a question (W2-01). A capture listener on the window runs before
- * React's own on the document, and next/link does nothing with a click whose
- * default is already prevented. Which clicks it takes is fullLoadTarget's
- * decision (lib/pageGuards.ts).
+ * Every in-app link loads its page in full, so it goes through the leave
+ * prompt above whenever the prompt is held. next/link navigates inside the
+ * page and never unloads it, so beforeunload never ran: the navbar's Download
+ * pill and the footer's links unmounted the main page, its transfer and its
+ * received files without a question (W2-01). It is on even while nothing is
+ * held, so no soft history entry ever follows the main page, and Forward after
+ * a soft hop back cannot leave it that way either (opensMainPage). A link to
+ * the page itself keeps the page and goes to the top, as next/link did
+ * (samePageTop), instead of reloading away files not yet sent. A capture
+ * listener on the window runs before React's own on the document, and
+ * next/link does nothing with a click whose default is already prevented.
+ * Which clicks it takes is fullLoadTarget's and samePageTop's decision
+ * (lib/pageGuards.ts).
  *
  * The main page only: the request page's footer links are plain anchors for
  * the same reason and more (components/request/RequestShell.tsx).
  */
-export function useFullLoadLinks(active: boolean) {
+export function useFullLoadLinks() {
     useEffect(() => {
-        if (!active) return;
         const onClick = (e: MouseEvent) => {
             const anchor = e.target instanceof Element ? e.target.closest('a[href]') : null;
             if (!(anchor instanceof HTMLAnchorElement)) return;
-            const to = fullLoadTarget(
-                {
-                    button: e.button,
-                    modified: e.metaKey || e.ctrlKey || e.shiftKey || e.altKey,
-                    defaultPrevented: e.defaultPrevented,
-                    href: anchor.href,
-                    target: anchor.target,
-                    download: anchor.hasAttribute('download'),
-                },
-                window.location.href
-            );
+            const click = {
+                button: e.button,
+                modified: e.metaKey || e.ctrlKey || e.shiftKey || e.altKey,
+                defaultPrevented: e.defaultPrevented,
+                href: anchor.href,
+                target: anchor.target,
+                download: anchor.hasAttribute('download'),
+            };
+            if (samePageTop(click, window.location.href)) {
+                e.preventDefault();
+                window.scrollTo({ top: 0 });
+                return;
+            }
+            const to = fullLoadTarget(click, window.location.href);
             if (to === null) return;
             e.preventDefault();
             window.location.assign(to);
         };
         window.addEventListener('click', onClick, true);
         return () => window.removeEventListener('click', onClick, true);
-    }, [active]);
+    }, []);
 }
 
 /**

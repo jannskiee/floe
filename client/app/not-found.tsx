@@ -61,12 +61,15 @@ export default function NotFound() {
                     you copied the whole thing.
                 </p>
                 <div className="mt-9 flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
-                    <Link
+                    {/* A plain anchor: the main page is always its own document
+                        (opensMainPage, lib/pageGuards.ts). */}
+                    {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+                    <a
                         href="/"
                         className="inline-flex min-h-11 items-center rounded-full bg-white px-5 py-2 text-sm font-bold text-black transition hover:bg-zinc-200 focus-visible:outline-2 focus-visible:outline-ice"
                     >
                         Send a file
-                    </Link>
+                    </a>
                     <Link
                         href="/how-it-works"
                         className="inline-flex min-h-11 items-center text-sm font-medium text-zinc-300 transition hover:text-ice focus-visible:outline-2 focus-visible:outline-ice"

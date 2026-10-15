@@ -222,6 +222,22 @@ describe('friendlyError', () => {
         );
     });
 
+    it('names an ICE failure during setup as a failure to connect, not a dropped transfer', () => {
+        // cli/engine/peer/connection.go builds 'connection failed (state: %s)'
+        // only for the setup waits of SetupAsSender and SetupAsReceiver
+        // (the conn.connected channel, read nowhere else), so this text never
+        // describes a transfer that had started. desktop/transfer.go wraps it.
+        for (const state of ['failed', 'disconnected', 'closed']) {
+            expect(friendlyError(`WebRTC setup failed: connection failed (state: ${state})`)).toBe(
+                "Error: Couldn't connect the two devices",
+            );
+        }
+        // A transfer that had started keeps the dropped-connection sentence.
+        expect(friendlyError('transfer failed: connection closed mid-transfer: a.bin (10 of 20 bytes)')).toBe(
+            'Error: The connection dropped before the transfer finished',
+        );
+    });
+
     it('names a source file that changed under the send, not a lost connection', () => {
         // Two backend wrappers sit in front of the engine sentence, which is
         // why this is a substring rule rather than an equality one.

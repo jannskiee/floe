@@ -63,12 +63,15 @@ export function LegalShell({
         // takes the ink color and a visible hairline instead.
         <div className="min-h-dvh bg-zinc-950 font-sans text-zinc-100 print:bg-white print:text-zinc-900 print:[&_*]:text-inherit! print:[&_*]:border-zinc-300!">
             <div className="mx-auto w-full max-w-5xl px-4 pb-10 pt-10 sm:px-6 sm:pt-14">
-                <Link
+                {/* A plain anchor: the main page is always its own document
+                    (opensMainPage, lib/pageGuards.ts). */}
+                {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+                <a
                     href="/"
                     className={`inline-flex items-center gap-2 text-sm text-zinc-400 transition-colors hover:text-zinc-100 ${FOCUS_RING} print:hidden`}
                 >
                     <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back to Floe
-                </Link>
+                </a>
 
                 <div className="mt-10 grid gap-10 lg:grid-cols-12 lg:gap-12">
                     <header className="lg:sticky lg:top-12 lg:col-span-4 lg:self-start print:static">

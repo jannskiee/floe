@@ -255,9 +255,9 @@ const CLOSES_WITH_QUOTE = /[^\s\w.!?"`]"(?:\*\*|__|\*|_|~~|\]\([^)]*\))*$/;
 // naming `--server` showed a flag that does not exist (cli/self-hosted-server,
 // 2026-10-11).
 const TYPESET_KEYS = ['title', 'sidebarTitle', 'description'];
-// The server modules read exactly 18 keys between them today: ten in
-// server.js, five in turn.js and three in stats.js, the six MAX_* ones
-// through envLimit. Fewer means the extractor
+// The server modules read exactly 19 keys between them today: ten in
+// server.js, six in turn.js (TURN_TLS is the newest) and three in stats.js,
+// the six MAX_* ones through envLimit. Fewer means the extractor
 // regex broke, not that the server lost a setting; raise this when a key is
 // added, in the same PR. It stood at 16 for two keys after #503 added
 // POLICY_FILE and FLOE_TEST_REQUEST_GRACE_MS, so the extractor could have lost
@@ -269,7 +269,7 @@ const TYPESET_KEYS = ['title', 'sidebarTitle', 'description'];
 // a module extraction from tripping this: the five TURN keys moving to
 // server/turn.js would otherwise have read as five lost, and the hard fail
 // below returns early, taking every downstream env comparison with it.
-export const SERVER_KEY_FLOOR = 18;
+export const SERVER_KEY_FLOOR = 19;
 
 // ---------------------------------------------------------------------------
 // Helpers

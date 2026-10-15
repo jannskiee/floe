@@ -181,14 +181,17 @@ export function P2PTransfer() {
     // Whether closing this receiving tab would cost something, for the
     // footer's keep-open line.
     const linkInvalid = isLinkInvalid(error);
+    const unsaved = unsavedCount(receivedFiles, savedIds);
     const receiverTabHeld = receiverTabMatters({
         linkInvalid,
         senderAbsent,
         ended: receiveEnded,
-        received: receivedFiles.length,
+        allArrived,
+        unsaved,
     });
     // The browser's own "Leave site?" prompt while leaving would cost
-    // something, in-app links loaded in full so they reach it, and a stray
+    // something, in-app links always loaded in full so the page stays a
+    // document of its own and Back and Forward reach the prompt, and a stray
     // drop refused anywhere on the page (lib/pageGuards.ts). The Floe wordmark
     // reloads through window.location, so it asks too.
     const holdsTab = mainPageHoldsTab({
@@ -202,10 +205,10 @@ export function P2PTransfer() {
             ended: receiveEnded,
             allArrived,
         }),
-        unsaved: unsavedCount(receivedFiles, savedIds),
+        unsaved,
     });
     useLeavePrompt(holdsTab);
-    useFullLoadLinks(holdsTab);
+    useFullLoadLinks();
     useStrayDropGuard();
 
     const peerRef = useRef<PeerInstance | null>(null);
@@ -1768,11 +1771,12 @@ export function P2PTransfer() {
                 <CardFooter className="justify-center border-t border-white/[0.06] !pt-4">
                     {/* The keep-open line is for a tab that something depends
                         on. Under the Link Invalid card, while nobody is on the
-                        sending side and nothing has arrived, and after an
-                        attempt that ended with nothing, nothing does: it told
-                        a person the card had just told to leave that closing
-                        the tab would interrupt a download. The receiver's half
-                        is receiverTabMatters. */}
+                        sending side and nothing is unsaved, after an attempt
+                        that ended with nothing, and once every file arrived and
+                        was saved, nothing does: it told a person the card had
+                        just told to leave that closing the tab would interrupt
+                        a download. The receiver's half is receiverTabMatters,
+                        which holds exactly while the leave prompt does. */}
                     {(isSender && !generatedLink) || (!isSender && !receiverTabHeld) ? (
                         <p className="text-balance text-[10px] uppercase tracking-wide text-zinc-500 text-center leading-relaxed">
                             End-to-end encrypted. Files are never stored on a server.

@@ -20,7 +20,17 @@
         1683
       ],
       "scale": 3,
-      "bytes": 126638
+      "bytes": 126074,
+      "strings": [
+        "Add more files",
+        "Network relay fallback",
+        "most transfers stay direct",
+        "Create secure link"
+      ],
+      "sources": [
+        "client/components/P2PTransfer.tsx",
+        "client/components/RelayFallbackToggle.tsx"
+      ]
     },
     {
       "name": "02-send-share-panel.png",
@@ -34,7 +44,16 @@
         1776
       ],
       "scale": 3,
-      "bytes": 125919
+      "bytes": 128298,
+      "strings": [
+        "Share link",
+        "Show QR",
+        "Waiting for peer"
+      ],
+      "sources": [
+        "client/components/ShareLinkPanel.tsx",
+        "client/components/P2PTransfer.tsx"
+      ]
     },
     {
       "name": "04-receive-waiting.png",
@@ -48,7 +67,17 @@
         1116
       ],
       "scale": 3,
-      "bytes": 95072
+      "bytes": 95388,
+      "strings": [
+        "Secure room joined",
+        "Waiting for the sender to start",
+        "Files stream in below",
+        "Contribute to global stats"
+      ],
+      "sources": [
+        "client/components/ReceiverPanel.tsx",
+        "client/components/StatsContributionToggle.tsx"
+      ]
     },
     {
       "name": "05-receive-downloads.png",
@@ -62,21 +91,40 @@
         1623
       ],
       "scale": 3,
-      "bytes": 111236
+      "bytes": 110617,
+      "strings": [
+        "Download All",
+        "Download ZIP",
+        "SHA-256 matched",
+        "Keep this tab open. Closing it interrupts the download."
+      ],
+      "sources": [
+        "client/components/ReceiverPanel.tsx",
+        "client/lib/receiveSummary.ts"
+      ]
     },
     {
       "name": "06-in-app-browser.png",
       "note": "the prompt shown inside an in-app browser",
       "css": [
         430,
-        502.25
+        551.75
       ],
       "pixels": [
         1290,
-        1506
+        1653
       ],
       "scale": 3,
-      "bytes": 127666
+      "bytes": 138427,
+      "strings": [
+        "Open in your browser",
+        "How to open in your browser",
+        "Copy link to paste in browser",
+        "Continue anyway (some features may not work)"
+      ],
+      "sources": [
+        "client/components/InAppBrowserGuard.tsx"
+      ]
     },
     {
       "name": "07-request-ready.png",
@@ -90,7 +138,17 @@
         1755
       ],
       "scale": 3,
-      "bytes": 183496
+      "bytes": 183496,
+      "strings": [
+        "SEND FILES THROUGH THIS LINK",
+        "Files go to the computer of whoever made this link, not to a Floe server. Floe does not know who that is.",
+        "Works in current Chrome and Edge on a computer.",
+        "What is a request link?",
+        "Report this link"
+      ],
+      "sources": [
+        "client/lib/request/visitorCopy.ts"
+      ]
     }
   ]
 }

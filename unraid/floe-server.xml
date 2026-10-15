@@ -22,6 +22,7 @@
   <Config Name="Cloudflare TURN API Token" Target="CLOUDFLARE_TURN_KEY_API_TOKEN" Default="" Description="Optional API token paired with the Cloudflare TURN Key ID." Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
   <Config Name="Self-hosted TURN Secret" Target="TURN_SECRET" Default="" Description="Optional coturn HMAC secret. Must match static-auth-secret in coturn." Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
   <Config Name="Self-hosted TURN Domain" Target="TURN_DOMAIN" Default="" Description="Optional public hostname for a separate coturn relay." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Self-hosted TURN TLS" Target="TURN_TLS" Default="" Description="Optional. Set to off when your coturn relay has no TLS certificate, so the server leaves the turns: URL (TLS, port 5349) out of the relay list it gives clients. Leave it empty when coturn has a certificate." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
   <Config Name="Upstash Redis REST URL" Target="UPSTASH_REDIS_REST_URL" Default="" Description="Optional REST URL for durable aggregate transfer statistics." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
   <Config Name="Upstash Redis REST Token" Target="UPSTASH_REDIS_REST_TOKEN" Default="" Description="Optional read-write REST token paired with the Upstash URL." Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
 </Container>

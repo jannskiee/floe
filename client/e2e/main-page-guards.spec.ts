@@ -11,7 +11,7 @@
 
 import { test, expect, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import { rmSync } from 'fs';
-import { join } from 'path';
+import { basename, join } from 'path';
 import { tmpdir } from 'os';
 import { browserSenderSetup, createFixture, sha256OfBlobUrl } from './helpers';
 
@@ -40,6 +40,25 @@ async function clickAsks(page: Page, target: Locator): Promise<boolean> {
     try {
         await target.click({ noWaitAfter: true });
         await page.waitForTimeout(1_500);
+    } finally {
+        page.off('dialog', onDialog);
+    }
+    return asked;
+}
+
+/** Runs a history traversal and reports whether the page asked first. The
+ *  prompt is dismissed, which cancels the traversal, so `go` never settles
+ *  and its timeout is expected. */
+async function traversalAsks(page: Page, go: () => Promise<unknown>): Promise<boolean> {
+    let asked = false;
+    const onDialog = (dialog: import('@playwright/test').Dialog) => {
+        if (dialog.type() === 'beforeunload') asked = true;
+        void dialog.dismiss();
+    };
+    page.on('dialog', onDialog);
+    try {
+        await go().catch(() => null);
+        await page.waitForTimeout(1_000);
     } finally {
         page.off('dialog', onDialog);
     }
@@ -114,6 +133,65 @@ test('the page asks before it is left while a link is out or files are unsaved',
         await senderCtx.close();
         await receiverCtx.close();
     }
+});
+
+test('Back still asks when the page was reached by an in-app link', async ({ page }) => {
+    // A next/link into the main page made it a soft hop inside one document,
+    // so Back left it the same way and beforeunload never ran: a link that
+    // was out vanished with no question. The links into the main page are
+    // plain anchors now (opensMainPage in lib/pageGuards.ts), so Back unloads.
+    const { path: fixturePath } = createFixture(FIXTURE_DIR, 16 * 1024);
+    await page.goto('/how-it-works');
+    await page.locator('footer').getByRole('link', { name: 'Floe', exact: true }).click();
+    await expect(page).toHaveURL(/\/$/);
+    await page.locator('input[type="file"]').setInputFiles(fixturePath);
+    await page.locator('button', { hasText: /create secure link/i }).click();
+    const linkEl = page.locator('code').filter({ hasText: '#room=' });
+    await expect(linkEl).toBeVisible({ timeout: 10_000 });
+
+    expect(await traversalAsks(page, () => page.goBack({ timeout: 3_000 }))).toBe(true);
+    await expect(linkEl).toBeVisible();
+});
+
+test('Forward still asks after a hop back to the page', async ({ page }) => {
+    // A link out of the main page was a soft hop while nothing was held, so
+    // after Back the main page had a same-document entry after it, and
+    // Forward from a page holding a link left the same way (review N1). Every
+    // in-app link out of the main page now loads in full.
+    const { path: fixturePath } = createFixture(FIXTURE_DIR, 16 * 1024);
+    await page.goto('/');
+    await page.locator('footer').getByRole('link', { name: 'How It Works', exact: true }).click();
+    await expect(page).toHaveURL(/\/how-it-works$/);
+    await page.goBack();
+    await expect(page).toHaveURL(/\/$/);
+    await page.locator('input[type="file"]').setInputFiles(fixturePath);
+    await page.locator('button', { hasText: /create secure link/i }).click();
+    const linkEl = page.locator('code').filter({ hasText: '#room=' });
+    await expect(linkEl).toBeVisible({ timeout: 10_000 });
+
+    expect(await traversalAsks(page, () => page.goForward({ timeout: 3_000 }))).toBe(true);
+    await expect(linkEl).toBeVisible();
+});
+
+test("the footer's Floe link on the main page keeps files not yet sent", async ({ page }) => {
+    // A next/link to the page you are on kept the page and went to the top.
+    // As a plain anchor it would reload and drop the files, with no prompt
+    // before Create (review N2), so the main page keeps the old behavior.
+    const { path: fixturePath } = createFixture(FIXTURE_DIR, 16 * 1024);
+    await page.goto('/');
+    await page.locator('input[type="file"]').setInputFiles(fixturePath);
+    const listed = page.getByText(basename(fixturePath)).first();
+    await expect(listed).toBeVisible();
+    await page.evaluate(() => {
+        (window as unknown as { floeSameDocument?: boolean }).floeSameDocument = true;
+    });
+
+    await page.locator('footer').getByRole('link', { name: 'Floe', exact: true }).click();
+    await page.waitForTimeout(1_000);
+    expect(await page.evaluate(() => (window as unknown as { floeSameDocument?: boolean }).floeSameDocument)).toBe(true);
+    await expect(listed).toBeVisible();
+    // The site scrolls smoothly, so the top is reached a moment after the click.
+    await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 5_000 }).toBe(0);
 });
 
 test('a folder dropped on the Send page is refused at the drop', async ({ page }) => {

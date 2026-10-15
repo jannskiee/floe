@@ -22,7 +22,8 @@
 # The `client` and `server` services run out of the box (STUN-only, which works on
 # most home and mobile networks). For a production deployment behind one domain,
 # see https://www.floe.one/docs/self-hosting/reverse-proxy. The optional `coturn`
-# relay is only started with the `turn` profile and requires a public IP, domain, and TLS certificates.
+# relay is only started with the `turn` profile. It needs a public IP and a domain,
+# and a TLS certificate too unless you set TURN_TLS=off.
 
 services:
   server:
@@ -65,6 +66,10 @@ services:
       CLOUDFLARE_TURN_KEY_API_TOKEN: ${CLOUDFLARE_TURN_KEY_API_TOKEN:-}
       TURN_SECRET: ${TURN_SECRET:-}
       TURN_DOMAIN: ${TURN_DOMAIN:-}
+      # Set TURN_TLS=off when your coturn has no TLS certificate, which is how the
+      # coturn service below ships (its certificate mount is commented out). The
+      # server then leaves the turns: URL out of the relay list it gives clients.
+      TURN_TLS: ${TURN_TLS:-}
       # Durable global-stats counter (optional). Without these the counter is
       # in-memory only and resets on restart. MAX_REPORT_BYTES caps one report.
       UPSTASH_REDIS_REST_URL: ${UPSTASH_REDIS_REST_URL:-}
@@ -129,4 +134,6 @@ services:
       - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
       # Mount your TLS cert/key here and reference them in turnserver.conf, e.g.:
       # - ./coturn/certs:/etc/coturn/certs:ro
+      # Running without a certificate? Set TURN_TLS=off in .env, or the server
+      # keeps offering clients a turns: URL that this relay cannot answer.
     command: ["-c", "/etc/coturn/turnserver.conf"]

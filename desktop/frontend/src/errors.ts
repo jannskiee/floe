@@ -129,6 +129,10 @@ export const RULES: Array<[pattern: string, friendly: string]> = [
     ['timed out waiting for ack', 'Both people need Floe open at the same time'],
     ['timed out establishing a connection', "Couldn't connect the two devices"],
     ['data channel did not open', "Couldn't connect the two devices"],
+    // ICE gave up during setup: cli/engine/peer/connection.go builds this text
+    // only for the setup waits, so nothing had started. Before desktop-v0.3.1
+    // it read as "The connection dropped before the transfer finished".
+    ['connection failed (state', "Couldn't connect the two devices"],
     ['failed to connect to signaling server', "Can't reach the server"],
     ['failed to fetch ICE credentials', "Can't reach the server"],
     ['timed out waiting for the server', "Can't reach the server"],
@@ -166,7 +170,6 @@ export const RULES: Array<[pattern: string, friendly: string]> = [
     ['received a file in full but could not finish saving it; the complete file was kept in the save folder with a .part ending', COMMIT_KEPT_PART],
     ['cannot create', "Can't write to the save folder"],
     ['write error', "Can't write to the save folder"],
-    ['connection failed (state', 'The connection dropped before the transfer finished'],
     ['failed to send chunk', 'The connection dropped before the transfer finished'],
     ['backpressure stall', 'The connection dropped before the transfer finished'],
     ['connection closed', 'The connection dropped before the transfer finished'],

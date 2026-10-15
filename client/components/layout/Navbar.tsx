@@ -138,13 +138,16 @@ export const Navbar = () => {
                     </button>
                 ) : (
                     /* Off the homepage there is no peer connection to report or clear:
-                       a plain link, no status dot, no status text. */
-                    <Link
+                       a plain link, no status dot, no status text. A plain anchor, not
+                       next/link: the main page is always its own document, so Back
+                       from it reaches the leave prompt (opensMainPage, lib/pageGuards.ts). */
+                    // eslint-disable-next-line @next/next/no-html-link-for-pages
+                    <a
                         href="/"
                         className="flex items-center rounded-full px-2.5 max-[359px]:px-2 py-1.5 sm:px-4 sm:py-2 text-sm font-extrabold tracking-tighter text-white transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-ice"
                     >
                         Floe
-                    </Link>
+                    </a>
                 )}
                 {/* Section anchors are scroll shortcuts on a page the visitor is
                     already scrolling, so on phones they yield the width to the two
@@ -164,15 +167,16 @@ export const Navbar = () => {
                             .filter(Boolean)
                             .join(' ');
                         // On the homepage the pills smooth-scroll; elsewhere they are real
-                        // links back to the homepage anchors (middle-click friendly).
+                        // links back to the homepage anchors (middle-click friendly), plain
+                        // anchors like the wordmark above.
                         return isHome ? (
                             <button key={section.id} onClick={() => scrollToSection(section.id)} className={pillClass}>
                                 {section.label}
                             </button>
                         ) : (
-                            <Link key={section.id} href={`/#${section.id}`} className={pillClass}>
+                            <a key={section.id} href={`/#${section.id}`} className={pillClass}>
                                 {section.label}
-                            </Link>
+                            </a>
                         );
                     })}
                 </div>

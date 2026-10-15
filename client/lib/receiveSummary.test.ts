@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { bulkDownloadShown, joinStepsShown, receiveSummary, receiverTabMatters } from './receiveSummary';
+import { mainPageHoldsTab, receiveUnderWay } from './pageGuards';
 
 // The transfer audit reads the receiver page with this expression and takes a
 // match as "every file arrived" (.claude/skills/transfer-audit/scripts/lib/
@@ -120,29 +121,55 @@ describe('joinStepsShown', () => {
 // "Keep this tab open. Closing it interrupts the download." is for a tab that
 // something depends on.
 describe('receiverTabMatters', () => {
-    const base = { linkInvalid: false, senderAbsent: false, ended: false, received: 0 };
+    const base = { linkInvalid: false, senderAbsent: false, ended: false, allArrived: false, unsaved: 0 };
 
     it('matters while the page is waiting for a sender that is there', () => {
         expect(receiverTabMatters(base)).toBe(true);
     });
 
-    it('matters whenever files are in the tab, because closing it loses them', () => {
-        expect(receiverTabMatters({ ...base, received: 2 })).toBe(true);
-        expect(receiverTabMatters({ ...base, received: 2, senderAbsent: true })).toBe(true);
-        expect(receiverTabMatters({ ...base, received: 2, ended: true })).toBe(true);
+    it('matters while a received file has not been handed to the browser to save', () => {
+        expect(receiverTabMatters({ ...base, allArrived: true, unsaved: 1 })).toBe(true);
+        expect(receiverTabMatters({ ...base, senderAbsent: true, unsaved: 2 })).toBe(true);
+        expect(receiverTabMatters({ ...base, ended: true, unsaved: 1 })).toBe(true);
     });
 
-    it('does not matter under the Link Invalid card, whatever else is true', () => {
+    it('does not matter once every file has arrived and each one was saved', () => {
+        // The leave prompt lets go here (W2-02); the footer used to stay amber
+        // for as long as any file was listed.
+        expect(receiverTabMatters({ ...base, allArrived: true })).toBe(false);
+        expect(receiverTabMatters({ ...base, allArrived: true, senderAbsent: true })).toBe(false);
+        expect(receiverTabMatters({ ...base, ended: true })).toBe(false);
+    });
+
+    it('does not matter under the Link Invalid card', () => {
         expect(receiverTabMatters({ ...base, linkInvalid: true })).toBe(false);
-        expect(receiverTabMatters({ ...base, linkInvalid: true, received: 2 })).toBe(false);
     });
 
-    it('does not matter while nobody is on the sending side and nothing has arrived', () => {
+    it('does not matter while nobody is on the sending side and nothing is unsaved', () => {
         expect(receiverTabMatters({ ...base, senderAbsent: true })).toBe(false);
     });
 
-    it('does not matter after an attempt that ended with nothing: there is no download to interrupt', () => {
-        expect(receiverTabMatters({ ...base, ended: true })).toBe(false);
+    it('holds exactly while the leave prompt does on a receiving page', () => {
+        for (let bits = 0; bits < 16; bits++) {
+            for (const unsaved of [0, 1, 3]) {
+                const input = {
+                    linkInvalid: (bits & 1) !== 0,
+                    senderAbsent: (bits & 2) !== 0,
+                    ended: (bits & 4) !== 0,
+                    allArrived: (bits & 8) !== 0,
+                    unsaved,
+                };
+                const prompt = mainPageHoldsTab({
+                    isSender: false,
+                    linkOut: false,
+                    sendEnd: 'open',
+                    deadEnd: false,
+                    receiveUnderWay: receiveUnderWay(input),
+                    unsaved,
+                });
+                expect(receiverTabMatters(input), JSON.stringify(input)).toBe(prompt);
+            }
+        }
     });
 
     it('is how the page picks the line under the card', () => {

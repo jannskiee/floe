@@ -222,6 +222,7 @@ Both are in the [Configuration reference](https://www.floe.one/docs/self-hosting
 | `CLOUDFLARE_TURN_KEY_API_TOKEN` | No | API token that pairs with `CLOUDFLARE_TURN_KEY_ID`. Keep it secret. |
 | `TURN_SECRET` | No | Shared secret for self-hosted coturn HMAC credentials, used when the Cloudflare variables are unset, and as the fallback when Cloudflare returns nothing usable. Omit both options to use STUN-only (direct connections). |
 | `TURN_DOMAIN` | No | Your self-hosted TURN relay server domain. |
+| `TURN_TLS` | No | Set to `off` when that coturn has no TLS certificate: the `turns:` URL (port 5349) is then left out of the relay list. Unset keeps it. |
 | `UPSTASH_REDIS_REST_URL` | No | Upstash Redis REST URL for the durable global transfer counter. Omit to run the counter in memory only (resets on restart). |
 | `UPSTASH_REDIS_REST_TOKEN` | No | Upstash Redis REST token, paired with the URL above. |
 | `MAX_REPORT_BYTES` | No | Max bytes accepted per `/api/stats/report` call (default: 5 TiB). |

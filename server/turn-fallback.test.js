@@ -16,11 +16,13 @@ const crypto = require('crypto');
 // here instead of assumed. turn.js reads the Cloudflare pair at require time,
 // so with it set every turnCredentialsHandler call below would mint a real
 // credential over the network with a real API token; with the coturn pair set,
-// 'returns null when both are unset' would fail.
+// 'returns null when both are unset' would fail. TURN_TLS goes with them: set to
+// off in the environment, 'returns three ICE server entries' would count two.
 delete process.env.CLOUDFLARE_TURN_KEY_ID;
 delete process.env.CLOUDFLARE_TURN_KEY_API_TOKEN;
 delete process.env.TURN_SECRET;
 delete process.env.TURN_DOMAIN;
+delete process.env.TURN_TLS;
 
 // Nothing in this file may reach the network: any fetch fails loudly and is
 // counted, so a removed guard shows up as a failure instead of a silent mint.
@@ -39,12 +41,16 @@ const {
     turnCredentialsHandler,
 } = require('./turn');
 
-// Tests set TURN_SECRET and TURN_DOMAIN at run time; each one gets back the
-// values it started with (unset, after the deletes above) instead of a blind
-// delete.
+// Tests set TURN_SECRET, TURN_DOMAIN and TURN_TLS at run time; each one gets
+// back the values it started with (unset, after the deletes above) instead of a
+// blind delete.
 let savedTurnEnv = {};
 function saveTurnEnv() {
-    savedTurnEnv = { TURN_SECRET: process.env.TURN_SECRET, TURN_DOMAIN: process.env.TURN_DOMAIN };
+    savedTurnEnv = {
+        TURN_SECRET: process.env.TURN_SECRET,
+        TURN_DOMAIN: process.env.TURN_DOMAIN,
+        TURN_TLS: process.env.TURN_TLS,
+    };
 }
 function restoreTurnEnv() {
     for (const [key, value] of Object.entries(savedTurnEnv)) {
@@ -149,6 +155,57 @@ describe('generateCoturnCredentials', () => {
         assert.equal(result[1].username, result[2].username);
         assert.equal(result[1].credential, result[2].credential);
     });
+
+    // TURN_TLS: the opt-out for a coturn with no TLS listener. The example
+    // coturn config ships its certificate lines commented out, and a turns:
+    // URL on a port that cannot finish a TLS handshake is one more relay every
+    // client tries and never gets.
+    it('TURN_TLS=off leaves the turns: entry out and keeps the other two as they were', (t) => {
+        // One clock for both calls, so both make the same username and the
+        // turn: entries can be compared whole (the HMAC itself is pinned by
+        // the credential test above).
+        t.mock.method(Date, 'now', () => 1_700_000_000_000);
+        process.env.TURN_SECRET = 'test-secret';
+        process.env.TURN_DOMAIN = 'relay.example.org';
+        const withTls = generateCoturnCredentials();
+        process.env.TURN_TLS = 'off';
+        const withoutTls = generateCoturnCredentials();
+        assert.deepEqual(
+            withoutTls.map((entry) => entry.urls),
+            ['stun:relay.example.org:3478', 'turn:relay.example.org:3478']
+        );
+        assert.deepEqual(withoutTls[0], withTls[0]);
+        assert.deepEqual(withoutTls[1], withTls[1], 'the turn: entry and its credential pair are unchanged');
+    });
+
+    it('TURN_TLS reads off, false, 0 and no as off, in any letter case', () => {
+        process.env.TURN_SECRET = 'test-secret';
+        process.env.TURN_DOMAIN = 'turn.example.com';
+        for (const value of ['off', 'OFF', 'Off', ' off ', 'false', 'False', '0', 'no', 'NO']) {
+            process.env.TURN_TLS = value;
+            const urls = generateCoturnCredentials().map((entry) => entry.urls);
+            assert.equal(urls.some((u) => u.startsWith('turns:')), false, `TURN_TLS=${JSON.stringify(value)}`);
+            assert.equal(urls.length, 2, `TURN_TLS=${JSON.stringify(value)}`);
+        }
+    });
+
+    it('every other TURN_TLS value keeps the turns: entry, which is the default', () => {
+        // The default must not move: a relay with a certificate is reached
+        // through this URL by clients on networks that block UDP, and its
+        // operator has set nothing.
+        process.env.TURN_SECRET = 'test-secret';
+        process.env.TURN_DOMAIN = 'turn.example.com';
+        for (const value of [undefined, '', ' ', 'on', 'true', '1', 'yes', 'of', 'offf', 'disabled', 'off,']) {
+            if (value === undefined) delete process.env.TURN_TLS;
+            else process.env.TURN_TLS = value;
+            const urls = generateCoturnCredentials().map((entry) => entry.urls);
+            assert.deepEqual(
+                urls,
+                ['stun:turn.example.com:3478', 'turn:turn.example.com:3478', 'turns:turn.example.com:5349'],
+                `TURN_TLS=${JSON.stringify(value)}`
+            );
+        }
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -173,6 +230,19 @@ describe('turnCredentialsHandler — without Cloudflare', () => {
         assert.equal(res.body.length, 3);
         assert.ok(res.body[0].urls.startsWith('stun:'));
         assert.ok(res.body[1].urls.startsWith('turn:'));
+    });
+
+    it('serves the coturn list without its turns: entry when TURN_TLS is off', async () => {
+        process.env.TURN_SECRET = 'test-secret';
+        process.env.TURN_DOMAIN = 'turn.example.com';
+        process.env.TURN_TLS = 'off';
+        const res = fakeRes();
+        await turnCredentialsHandler({ ip: '1.2.3.4' }, res);
+        assert.equal(res.statusCode, 200);
+        assert.deepEqual(
+            res.body.map((entry) => entry.urls),
+            ['stun:turn.example.com:3478', 'turn:turn.example.com:3478']
+        );
     });
 
     it('rate-limits at TURN_MAX_REQUESTS then returns 429', async () => {
