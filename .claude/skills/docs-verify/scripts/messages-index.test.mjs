@@ -30,6 +30,7 @@ import { headingSlugs } from './docs-check.mjs';
 import {
     COPY_FILES,
     copyLines,
+    copyScannerVersion,
     findTemplate,
     findText,
     haystack,
@@ -717,6 +718,7 @@ test('buildSnapshot keeps a cli or desktop row only when its ref has the text, e
             cli: { 'cli/cmd/floe/sendto.go': ['All {} files arrived'] },
             desktop: { 'desktop/frontend/src/requestCopy.ts': ['Accept'] },
         },
+        copyScanner: copyScannerVersion(),
     });
     assert.deepEqual(
         missing.map((m) => [m.surface, m.text]),
@@ -1051,6 +1053,16 @@ test('messages: a cli or desktop row is held to the snapshot of the release, nev
         ),
         r.out
     );
+    // The line says how to fix a row whose words ARE at the tag: write the
+    // snapshot again at the same two tags.
+    assert.ok(
+        notes.every((l) =>
+            l.includes(
+                'released-strings.mjs --cli v1.11.0 --desktop desktop-v0.3.0'
+            )
+        ),
+        r.out
+    );
     assert.ok(
         notes.some(
             (l) =>
@@ -1207,6 +1219,46 @@ test('copyLines: a copy module read as its reader sees it, codes and paths left 
     assert.deepEqual(go, ['All {} files arrived', 'Saved to {}\\n']);
 });
 
+test('copyLines: escapes read as the reader sees them; specifiers, directives, locale tags and keyword regexes are not lines', () => {
+    const ts = copyLines(
+        [
+            "'use client';",
+            "import { a } from '@/lib/transferUtils';",
+            "const b = require('../Thing/Other');",
+            "const tip = 'Don\\u2019t close this tab.';",
+            "const cafe = 'Caf\\xe9 open';",
+            'const pin = `Keep \\u{1F4CC} pinned`;',
+            "const when = d.toLocaleTimeString('en-US', { hour: 'numeric' });",
+            'function f(s) { return /["\']/.test(s) ? \'Quoted name\' : \'Plain name\'; }',
+            "const half = total / 2; const label = 'Half way';",
+            // A slash alone does not make a path.
+            "const both = 'Sent/received';",
+        ].join('\n'),
+        'client/lib/request/visitorCopy.ts'
+    );
+    assert.deepEqual(ts, [
+        'Don’t close this tab.',
+        'Café open',
+        'Keep \u{1F4CC} pinned',
+        'Quoted name',
+        'Plain name',
+        'Half way',
+        'Sent/received',
+    ]);
+    const go = copyLines(
+        [
+            'import (',
+            '\t"github.com/Microsoft/go-winio"',
+            ')',
+            'type t struct { Name string `json:"name" yaml:"name"` }',
+            'const a = "100%% sure, %[1]s saved"',
+            'const b = "Don\\u2019t stop"',
+        ].join('\n'),
+        'cli/cmd/floe/sendto.go'
+    );
+    assert.deepEqual(go, ['100% sure, {} saved', 'Don’t stop']);
+});
+
 test('every copy module exists, and the snapshot holds the copy lines of each released one', () => {
     const repo = join(HERE, '..', '..', '..', '..');
     const snapshot = JSON.parse(
@@ -1220,6 +1272,13 @@ test('every copy module exists, and the snapshot holds the copy lines of each re
                 `no copy lines of ${file} in ${RELEASED_FILE}`
             );
     }
+    // The lines were read by today's scanner. When this fails, write the
+    // snapshot again at the same tags (its refs): released-strings.mjs.
+    assert.equal(
+        snapshot.copyScanner,
+        copyScannerVersion(),
+        `the copy scanner changed since ${RELEASED_FILE} was written: run released-strings.mjs --cli ${snapshot.refs?.cli} --desktop ${snapshot.refs?.desktop}`
+    );
 });
 
 test('messages: docs/messages.mdx is compared with what the generator prints, whatever its line ends', () => {

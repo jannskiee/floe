@@ -22,9 +22,13 @@
  * as the tag has them, which is what the `messages` check holds the rows of
  * those files to: every line needs a row.
  *
- * Run it at release prep, with the two tags the docs are about to describe,
- * and at no other time: between releases the file is supposed to stay behind
- * main. It reads git only (`git show <ref>:<path>`) and writes this one file.
+ * Run it at release prep, with the two tags the docs are about to describe.
+ * Between releases the file stays behind main: run it again only at the SAME
+ * two tags (they are in its `refs`), which is needed when a cli or desktop
+ * row or a desktop picture string is added or edited (the file lists only the
+ * strings that were rows when it was written) and when the copy scanner
+ * changes (`copyScanner`). Never move the tags between releases. It reads git
+ * only (`git show <ref>:<path>`) and writes this one file.
  *
  * Usage:
  *   node released-strings.mjs --cli <ref> --desktop <ref> [--root <repo>]
@@ -38,6 +42,7 @@ import { fileURLToPath } from 'node:url';
 import {
     COPY_FILES,
     copyLines,
+    copyScannerVersion,
     haystack,
     textOccurs,
 } from './message-match.mjs';
@@ -136,6 +141,7 @@ export function buildSnapshot({ refs, rows, captures = [], show }) {
             cli: listed(found.cli),
             desktop: listed(found.desktop),
             copy,
+            copyScanner: copyScannerVersion(),
         },
         missing,
     };

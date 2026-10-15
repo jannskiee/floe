@@ -2376,8 +2376,9 @@ const COMPONENTS_NOT_USED = [
 ];
 const MESSAGE_TABLE =
     /^\|\s*Message\s*\|\s*What it means\s*\|\s*What to do\s*\|\s*$/;
-// Lower-case tags a page may carry. Any other `<word>` outside code is a tag
-// MDX cannot close (a placeholder typed raw), and the page stops compiling.
+// Lower-case tags a page may carry bare. Any other bare `<word>` outside code,
+// not closed on its line, is a placeholder typed raw: MDX reads it as a tag
+// that never closes, and the page stops compiling.
 const HTML_USED = new Set(
     'img span br a div p kbd code sub sup strong em b i table thead tbody tr td th ul ol li details summary hr pre'.split(
         ' '
@@ -2507,10 +2508,19 @@ function pageStandardFindings(page, rec) {
                     note(i + 1, 'callout: more than one callout under one H2');
                 if (i - lastCalloutClose <= 2)
                     note(i + 1, 'callout: two callouts in a row');
-            } else if (/^[a-z]/.test(name) && !HTML_USED.has(name))
+            } else if (
+                /^[a-z]/.test(name) &&
+                !HTML_USED.has(name) &&
+                // Only the shape a placeholder has: `<name>` bare, with no
+                // attribute and no `</name>` on the line. An element with
+                // attributes (<video controls src=...>), one closed on its
+                // line, or one closed by `/>` compiles.
+                line[m.index + 1 + name.length] === '>' &&
+                !line.includes(`</${name}>`)
+            )
                 note(
                     i + 1,
-                    `tag: a raw <${name}> outside code is a tag MDX cannot close; put it in backticks`
+                    `tag: a raw <${name}> outside code opens a tag that never closes, and the page stops compiling; put it in backticks`
                 );
         }
         if (/<\/(Warning|Info)>/.test(line)) lastCalloutClose = i;
@@ -2711,6 +2721,16 @@ function releasedStrings(ctx) {
     return ctx.released;
 }
 
+// What to do about a string the snapshot does not hold. The snapshot lists
+// only the strings that were rows or picture strings when it was written, so
+// a row added since, whose words are at the tag, needs the snapshot written
+// again at the same two tags; a string that is not at the tag is not in the
+// released app yet, and its row waits for release prep.
+function rebuildHint(released) {
+    const { cli, desktop } = released?.refs ?? {};
+    return `; if it is at that tag, write the snapshot again at the same tags: node .claude/skills/docs-verify/scripts/released-strings.mjs --cli ${cli} --desktop ${desktop}`;
+}
+
 function checkMessages(ctx) {
     const file = join(ctx.root, MESSAGES_FILE);
     if (!existsSync(file)) {
@@ -2751,7 +2771,7 @@ function checkMessages(ctx) {
             )
                 findings.add(
                     row.source,
-                    `${said} is not in the snapshot of ${released.refs?.[row.surface]}`
+                    `${said} is not in the snapshot of ${released.refs?.[row.surface]}${rebuildHint(released)}`
                 );
         } else {
             const hay = sourceHay(ctx, String(row.source));
@@ -2882,7 +2902,7 @@ function checkCaptures(ctx) {
                         )
                             findings.add(
                                 where,
-                                `${said} is not in the snapshot of ${released.refs?.[dir]} for ${sources.join(', ')}`
+                                `${said} is not in the snapshot of ${released.refs?.[dir]} for ${sources.join(', ')}${rebuildHint(released)}`
                             );
                     } else if (
                         !sources.some(

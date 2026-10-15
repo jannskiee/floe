@@ -30,6 +30,7 @@
  * loose is a stale row that passes, never a check that fails on a row that is
  * right, which matters since the `messages` and `captures` checks are hard.
  */
+import { createHash } from 'node:crypto';
 
 // A variable part of a message, as messages.json writes it: {name}, {n},
 // {your path}. A letter must follow the brace, so the JSON bodies the server
@@ -220,7 +221,32 @@ export const COPY_FILES = [
     { surface: 'cli', file: 'cli/cmd/floe/sendto.go' },
 ];
 
-const GO_VERB = /%[-+# 0]*\d*(?:\.\d+)?[a-zA-Z]/g;
+// A Go format verb, an argument index included (%[1]s). `%%` is a percent
+// sign, so it is set aside before this runs.
+const GO_VERB = /%[-+# 0]*(?:\[\d+\])?\d*(?:\.\d+)?(?:\[\d+\])?[a-zA-Z]/g;
+
+// Words after which a slash starts a regular expression, not a division.
+const REGEX_AFTER = new Set([
+    'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void',
+    'throw', 'case', 'do', 'else', 'yield', 'await',
+]);
+
+// The escape at s[i] (a backslash) as the reader sees it, and where the
+// source goes on: the same rule haystack applies, so a line typed with
+// ’ is the line a row writes with a typographic apostrophe. Go's
+// \U00000000 is read too.
+function unescape(s, i) {
+    const m = /^\\(u\{[0-9a-fA-F]+\}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8}|x[0-9a-fA-F]{2}|[\s\S])/.exec(
+        s.slice(i, i + 12)
+    );
+    if (!m) return ['', i + 1];
+    const e = m[1];
+    let t;
+    if (e in SIMPLE_ESCAPES) t = SIMPLE_ESCAPES[e];
+    else if (e.length === 1) t = e;
+    else t = String.fromCodePoint(parseInt(e.replace(/^[uUx]\{?|\}$/g, ''), 16));
+    return [t, i + m[0].length];
+}
 
 /**
  * Every string literal of a TypeScript or Go file, in source order, as the
@@ -234,18 +260,36 @@ export function stringLiterals(source, go = false) {
     const s = source.replace(/\r\n/g, '\n');
     const out = [];
     // Format verbs only in Go: "100% done" in TypeScript is not "100{}one".
-    const emit = (t) => out.push(squeeze(go ? t.replace(GO_VERB, '{}') : t));
+    const emit = (t) =>
+        out.push(
+            squeeze(
+                go
+                    ? t
+                          .replace(/%%/g, '\u0000')
+                          .replace(GO_VERB, '{}')
+                          .replace(/\u0000/g, '%')
+                    : t
+            )
+        );
+    // A module specifier (`from '...'`, `import '...'`, `require('...')`)
+    // names a file, never something a person reads.
+    const specifier = () =>
+        /(?:\bfrom|\bimport|\b(?:require|import)\s*\()\s*$/.test(
+            s.slice(Math.max(0, i - 24), i)
+        );
     let i = 0;
-    // The last character of code read, to tell a regular expression from a
-    // division: a slash after one of these starts a regular expression.
+    // What came last in the code, to tell a regular expression from a
+    // division: a slash after one of these punctuation marks, or after a
+    // word in REGEX_AFTER, starts a regular expression.
     let prev = '(';
     const quoted = (q) => {
         let t = '';
-        for (i++; i < s.length && s[i] !== q && s[i] !== '\n'; i++) {
+        for (i++; i < s.length && s[i] !== q && s[i] !== '\n'; ) {
             if (s[i] === '\\') {
-                const e = s[++i];
-                t += e === 'n' || e === 't' ? ' ' : e === 'r' ? '' : e;
-            } else t += s[i];
+                const [e, next] = unescape(s, i);
+                t += e;
+                i = next;
+            } else t += s[i++];
         }
         i++;
         return t;
@@ -262,11 +306,22 @@ export function stringLiterals(source, go = false) {
                 const end = s.indexOf('*/', i + 2);
                 i = end < 0 ? s.length : end + 2;
             } else if (c === '"' || c === "'") {
-                emit(quoted(c));
+                const named = !go && specifier();
+                const t = quoted(c);
+                if (!named) emit(t);
                 prev = 'x';
             } else if (c === '`') {
-                emit(template());
+                const t = template();
+                // A Go struct tag, `json:"name"`, is metadata.
+                if (!(go && /^(\w+:"[^"]*"\s*)+$/.test(t))) emit(t);
                 prev = 'x';
+            } else if (/[A-Za-z_$]/.test(c)) {
+                // A word: a keyword in REGEX_AFTER lets a slash start a
+                // regular expression, any other name or number divides.
+                let j = i + 1;
+                while (j < s.length && /[\w$]/.test(s[j])) j++;
+                prev = REGEX_AFTER.has(s.slice(i, j)) ? '(' : 'x';
+                i = j;
             } else if (
                 !go &&
                 c === '/' &&
@@ -302,9 +357,9 @@ export function stringLiterals(source, go = false) {
         for (i++; i < s.length && s[i] !== '`'; ) {
             if (go) t += s[i++];
             else if (s[i] === '\\') {
-                const e = s[i + 1];
-                t += e === 'n' || e === 't' ? ' ' : e === 'r' ? '' : e;
-                i += 2;
+                const [e, next] = unescape(s, i);
+                t += e;
+                i = next;
             } else if (s[i] === '$' && s[i + 1] === '{') {
                 t += '{}';
                 i += 2;
@@ -320,21 +375,54 @@ export function stringLiterals(source, go = false) {
 
 /**
  * The literals of a copy module that are copy: words a person reads, as
- * against an import path, a code (`relay-cap`), a constant's name, or a
+ * against a path (an import, a Go package), a code (`relay-cap`), a
+ * constant's name, a directive ('use client'), a locale tag ('en-US'), or a
  * format string with no word in it. Deduplicated, in source order.
  */
 export function copyLines(source, file) {
     const seen = new Set();
+    // No space and a slash, and shaped like a path: it starts at a root or
+    // an alias, its first part has a dot (a host), or it has two slashes.
+    // "N/A" is still copy.
+    const path = (t) =>
+        !/\s/.test(t) &&
+        t.includes('/') &&
+        (/^[@.~/]/.test(t) || /^[^/]*\./.test(t) || /\/.*\//.test(t));
     return stringLiterals(source, file.endsWith('.go')).filter((t) => {
         const copy =
             /[A-Za-z]{2}/.test(t.replace(/\{\}/g, '')) &&
             !/^[a-z0-9_.:/@#-]+$/.test(t) &&
-            !/^\.{1,2}\/\S*$/.test(t) &&
+            !path(t) &&
+            !/^use [a-z]+$/.test(t) &&
+            !/^[a-z]{2,3}-[A-Z]{2}$/.test(t) &&
             !/^[A-Z0-9_]+$/.test(t);
         if (!copy || seen.has(t)) return false;
         seen.add(t);
         return true;
     });
+}
+
+/**
+ * A fingerprint of the copy scanner: its functions, the Go verb pattern, the
+ * regex keywords and the escapes. released-strings.json records it beside the
+ * copy lines it wrote, and a repository test compares the two, so a change to
+ * the scanner cannot leave the desktop and CLI lines read the old way (CI has
+ * no tags to read them again). Line ends are normalized, so a Windows checkout
+ * gets the same answer.
+ */
+export function copyScannerVersion() {
+    const text = [
+        unescape.toString(),
+        stringLiterals.toString(),
+        copyLines.toString(),
+        GO_VERB.source,
+        [...REGEX_AFTER].join(' '),
+        JSON.stringify(SIMPLE_ESCAPES),
+    ].join('\n');
+    return createHash('sha256')
+        .update(text.replace(/\r\n/g, '\n'))
+        .digest('hex')
+        .slice(0, 16);
 }
 
 // A text as the copy check compares it: quotes folded, white space

@@ -1521,6 +1521,28 @@ test('pagestandard: callouts, components, frontmatter keys, the opening, and wha
     ]);
 });
 
+test('pagestandard: a bare <word> typed raw fails, and an element with attributes or closed on its line does not', () => {
+    const mdx = page(
+        'Opening line.',
+        '',
+        'Run it with <name> in place of your file.',
+        '',
+        '<video controls muted src="/images/web/demo.mp4"></video>',
+        '',
+        '<iframe src="https://www.youtube.com/embed/abc" title="Demo" allowFullScreen></iframe>',
+        '',
+        '<figure>A figure closed on its line.</figure>',
+        '',
+        '<Spacer/> and <hr/>.',
+        ''
+    );
+    const r = only('pagestandard', small({ 'docs/faq.mdx': mdx }));
+    assert.equal(r.status, 1, r.out);
+    assert.deepEqual(r.hard, [
+        `HARD  pagestandard  docs/faq.mdx:${lineOf(mdx, 'Run it')}  tag: a raw <name> outside code opens a tag that never closes, and the page stops compiling; put it in backticks`,
+    ]);
+});
+
 test('pagestandard: every troubleshooting H3 carries an explicit id, and the changelog is exempt', () => {
     const mdx = page(
         'Opening.',
@@ -1711,7 +1733,7 @@ test('captures: a shot with no strings is summarized, and a recorded string must
     );
     assert.equal(r.status, 1, r.out);
     assert.deepEqual(r.hard, [
-        'HARD  captures  docs/images/desktop/capture-manifest.json  receive.png: \u201cSave to\u201d is not in the snapshot of desktop-v0.3.0 for desktop/frontend/src/App.tsx',
+        'HARD  captures  docs/images/desktop/capture-manifest.json  receive.png: \u201cSave to\u201d is not in the snapshot of desktop-v0.3.0 for desktop/frontend/src/App.tsx; if it is at that tag, write the snapshot again at the same tags: node .claude/skills/docs-verify/scripts/released-strings.mjs --cli v1.11.0 --desktop desktop-v0.3.0',
         'HARD  captures  docs/images/web/capture-manifest.json  01-send.png: \u201cA label that was renamed\u201d is in none of client/components/Card.tsx, client/lib/copy.ts',
         'HARD  captures  docs/images/web/capture-manifest.json  04-loose.png: strings are recorded with no sources to hold them to',
         'HARD  captures  docs/images/web/capture-manifest.json  2 of 4 shots record no strings: 02-share.png, 03-wait.png',
