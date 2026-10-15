@@ -14,7 +14,7 @@
   "dependencies": {
     "cors": "^2.8.6",
     "dotenv": "^18.0.7",
-    "express": "^5.2.1",
+    "express": "^5.3.0",
     "helmet": "^8.3.0",
     "socket.io": "^4.8.4",
     "ws": "^8.22.0"
