@@ -287,11 +287,26 @@ test('a receiver whose re-join is refused after a blip keeps its link until its 
     // the page side is closed below; with onClose set, Playwright does not
     // pass that close on to the server. setOffline cannot model this: the
     // server hears that close at once.
-    const pageSides: WebSocketRoute[] = [];
+    //
+    // The page's session opens over HTTP polling and then upgrades to this
+    // WebSocket: the page sends "2probe", the server answers "3probe", and the
+    // page's "5" makes the WebSocket its transport. A close before that "5"
+    // only fails the upgrade, and the page carries on over polling, never
+    // disconnected, so nothing re-joins and the seat never frees. That was
+    // every ubuntu failure of this test (five runs on 2026-10-14 and 15; the
+    // trace of main's run 38687849686 forwards "2probe" and "3probe" within
+    // 0.46 s of the page opening and never a "5"). So the page's frames are
+    // forwarded here, and only a socket that has carried the "5" is closed.
+    const pageSides: { ws: WebSocketRoute; upgraded: boolean }[] = [];
     await receiverPage.routeWebSocket(/\/socket\.io\//, (ws) => {
-        ws.connectToServer();
+        const side = { ws, upgraded: false };
+        const server = ws.connectToServer();
+        ws.onMessage((message) => {
+            if (message === '5') side.upgraded = true;
+            server.send(message);
+        });
         ws.onClose(() => {});
-        pageSides.push(ws);
+        pageSides.push(side);
     });
 
     try {
@@ -305,9 +320,10 @@ test('a receiver whose re-join is refused after a blip keeps its link until its 
 
         await receiverPage.goto(`/?s=e2e#room=${roomId}`);
         await expect.poll(() => arrivals, { timeout: 15_000 }).toBe(1);
-        await expect.poll(() => pageSides.length, { timeout: 15_000 }).toBeGreaterThan(0);
+        const transport = () => pageSides.find((side) => side.upgraded);
+        await expect.poll(() => transport() !== undefined, { timeout: 15_000 }).toBe(true);
 
-        await pageSides[pageSides.length - 1].close();
+        await transport()!.ws.close();
 
         // The page reconnects at once under a new socket while its old one
         // still holds the receiving seat, so the re-join is answered
