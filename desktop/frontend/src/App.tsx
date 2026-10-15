@@ -1925,7 +1925,11 @@ function App() {
 
     return (
         <div className="flex h-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100 selection:bg-ice/20">
-            <TitleBar onSettings={() => setSettingsOpen((o) => !o)} settingsActive={settingsOpen} onStartOver={startOver}/>
+            {/* The gear waits behind the three dialogs, like Ctrl+, : the title
+                bar sits above every scrim, so behind Reset all settings? it
+                would close Settings under the question, and behind the other
+                two it would open Settings under them. */}
+            <TitleBar onSettings={() => { if (!modalOpenRef.current) setSettingsOpen((o) => !o); }} settingsActive={settingsOpen} onStartOver={startOver}/>
 
             {/* App-scoped, so it renders on both screens: Settings is where
                 version-curious users already are. The sr-only twin is the

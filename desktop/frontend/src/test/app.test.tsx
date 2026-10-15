@@ -1786,6 +1786,21 @@ describe('shortcuts behind a dialog', () => {
         expect([onSettings(), onHistory()]).toEqual(before);
     });
 
+    // The title bar sits above every scrim, so its gear is clickable while a
+    // dialog is up. It waits there, as Ctrl+, does.
+    it.each(TITLES)('the title bar gear does nothing behind %s, and never closes it', async (title) => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        const dialog = await raise(user, title);
+        const onSettings = () => screen.queryByLabelText('Server address') !== null;
+        const before = onSettings();
+        await user.click(screen.getByRole('button', {name: 'Settings'}));
+        await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+        expect(screen.getByRole('dialog')).toBe(dialog);
+        expect(onSettings()).toBe(before);
+    });
+
     it('the update notice steps aside for Close Floe? too, never dimmed under its scrim', async () => {
         wails.go.GetVersion.mockImplementation(async () => 'desktop-v0.3.0');
         wails.go.CheckForUpdate.mockImplementation(async () => ({version: 'desktop-v0.3.1'}));
