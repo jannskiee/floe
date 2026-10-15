@@ -50,6 +50,11 @@ are constants, not env vars, and every local run comes from a loopback
 address, so a day of testing shares them. The counts are held in the server's
 memory, so a `stop` and a `start` begin again from zero.
 
+The `/r` page of a local client shows no **Report this link**: off floe.one it
+appears only when `REQUEST_REPORT_EMAIL` is set for the client
+(`client/lib/request/report.ts`), and the tool sets none. That is the
+self-hosted default, not a fault of the local stack.
+
 `--request-links` writes `{"requestLinks":true}` to `floe-run-policy.json`
 beside the pidfile (the OS temp dir, never the repo tree) and starts the
 server with `POLICY_FILE` pointing at it; `stop`, and any teardown, deletes
