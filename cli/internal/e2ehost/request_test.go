@@ -1054,6 +1054,15 @@ func TestRequestModeKeepWaitingReopensAfterADecline(t *testing.T) {
 		t.Fatalf("refused = %v, want declined", r)
 	}
 	h.until(t, "reopened")
+	// reopened means the harness wrote request-reopen to its socket, not that
+	// the server has read it. The fake reads each socket on its own goroutine,
+	// so the second visitor's request-join, on a socket of its own, could be
+	// seated first and then evicted by the late reopen, and the host's offer
+	// then had no seat to go to: the visitor timed out waiting for it after
+	// 30 s (macOS, CI run 38696505162). The server must hold the reopen first.
+	if _, _, controls := srv.controlsAfter(2); !equalNames(controls, []string{"request-seal", "request-reopen"}) {
+		t.Fatalf("control frames before the second visit %v, want request-seal, request-reopen", controls)
+	}
 	if err := visit(srv.url, room, path); err != nil {
 		t.Fatalf("second visitor: %v", err)
 	}
