@@ -1,7 +1,7 @@
 {
     "refs": {
-        "cli": "v1.11.0",
-        "desktop": "desktop-v0.3.0"
+        "cli": "797917c",
+        "desktop": "797917c"
     },
     "cli": {
         "cli/cmd/floe/main.go": [
@@ -9,27 +9,31 @@
             "Connected",
             "Error: --relay-only needs a TURN relay and {server} offers none; drop the flag, or configure a relay on the server",
             "Error: --relay-only needs a TURN relay, and the connection details from {server} could not be read; check --server, or drop the flag",
+            "Error: failed to connect to signaling server: cannot connect to signaling server at {wss address}/ws: websocket: bad handshake (HTTP 403). A reverse proxy in front of the server may be changing the Host header: make it pass Host through unchanged.",
+            "Error: failed to connect to signaling server: cannot connect to signaling server at {wss address}/ws: websocket: bad handshake (HTTP 404). Check the server address, and that a reverse proxy in front of the server forwards /ws with the WebSocket upgrade.",
+            "Error: failed to connect to signaling server: cannot connect to signaling server at {wss address}/ws: {reason}",
+            "That looks like a link to receive from. To receive, use: floe receive <link>",
             "`Files are encrypted end-to-end. Nothing is stored on any server.`",
             "`Floe transfers files directly between devices using WebRTC.`"
         ],
         "cli/cmd/floe/receive.go": [
             "Connecting to sender...",
             "Error: cannot create output directory {dir}: {reason}",
+            "That link is for another Floe server, but this Floe is set to use floe.one. Use --server with that server's address, then try again.",
             "That link is for floe.one, but this Floe is set to use another server. Unset FLOE_SERVER or use --server https://api.floe.one, then try again.",
             "room is full (someone else may already be receiving)",
-            "this code is no longer active; ask for a new one"
+            "this code or link is no longer active; ask the sender for a new one"
         ],
         "cli/cmd/floe/send.go": [
             "Error: expected sender role, got \"{role}\" (room may already have two peers)",
-            "Error: failed to connect to signaling server: cannot connect to signaling server at {wss address}/ws: {reason}",
             "Error: failed to create peer connection: failed to create peer connection: {reason}",
+            "Error: failed to create peer connection: {reason}",
             "Error: failed to fetch ICE credentials: {reason}",
             "That looks like a request link, not a file. To send to it, use: floe send <files> --to <link>",
             "They stopped the transfer.",
             "Waiting for peer...",
             "Warning: could not generate short code: {cause}",
             "connection closed before the server assigned a role",
-            "peer disconnected before connecting",
             "room is full",
             "timed out waiting for the server to assign a role"
         ],
@@ -41,12 +45,13 @@
             "Connecting...",
             "Connection lost. 4 of 12 files arrived. Ask them for a new link to send the other {n}.",
             "Connection lost. Nothing was sent.",
+            "Connection lost. {a} of {n} files arrived. Ask them for a new link to send the other one.",
             "Connection lost. {a} of {n} files arrived. Ask them for a new link to send the other {k}.",
             "Connection lost. {n} of {n} file arrived. Ask them for a new link to send it.",
             "Couldn't connect to their computer. Nothing was sent.",
             "Joining the request link...",
             "Nothing was sent.",
-            "Nothing was sent. Send under 2 GB.",
+            "Nothing was sent. Send 2 GB or less.",
             "Request links are not available on this Floe server.",
             "Request links are turned off right now.",
             "Run `floe update` to upgrade.",
@@ -70,18 +75,20 @@
             "Cannot update a dev build.",
             "Checking for updates... {version}",
             "Docs: https://www.floe.one/docs",
+            "Error: Cannot update a dev build.",
             "Error: failed to check for updates: GitHub API returned {n}",
             "Error: failed to check for updates: {cause}",
             "Error: installed via {homebrewscoopwinget} - run `{command}` to update",
             "Run `floe update` to install.",
-            "{version} run `floe update` to upgrade"
+            "{version} run `floe update`, or your package manager's upgrade command"
         ],
         "cli/engine/code/client.go": [
             "(cause) server returned {status} when registering code",
             "Error: could not resolve \"{code}\": could not reach signaling server: {network reason}",
             "Error: could not resolve \"{code}\": server returned {n} when resolving code",
             "Error: could not resolve \"{input}\": URL does not contain a room id (#room= or ?room=)",
-            "Error: could not resolve \"{input}\": code \"{input}\" not found or expired (codes expire after 10 minutes)",
+            "Error: could not resolve \"{input}\": code \"{input}\" not found: it was already used, the sender left, or it expired (a code lasts 10 minutes at most)",
+            "Error: could not resolve \"{input}\": code not recognized: a code is words joined by hyphens, like olive-tiger-castle",
             "Error: could not resolve \"{input}\": invalid response from code API",
             "That is a request link for sending files to someone. Open it in a web browser.",
             "could not register code: {network reason}",
@@ -90,6 +97,7 @@
         ],
         "cli/engine/ice/credentials.go": [
             "Warning: could not reach signaling server for TURN credentials. Using STUN only.",
+            "Warning: could not read TURN credentials from the signaling server. Using STUN only.",
             "Warning: signaling server returned {n} for TURN credentials. Using STUN only."
         ],
         "cli/engine/peer/connection.go": [
@@ -112,6 +120,9 @@
             "closed before the connection was established",
             "the connection to the server was lost before the peer connected",
             "the other side left before the connection was established"
+        ],
+        "cli/engine/transfer/collect.go": [
+            "cannot send {path}: it is a link to a folder, which Floe does not follow"
         ],
         "cli/engine/transfer/control.go": [
             "Error: receiver rejected the file description: {detail}"
@@ -288,9 +299,9 @@
             "Contribute to global stats turns back on",
             "Copy",
             "DTLS, the same as a video call",
-            "Device to device with no size cap, 2 GB through a relay",
+            "Device to device. A receiving browser can only hold so much. 2 GB through a relay",
             "Direct",
-            "Direct & unlimited",
+            "Direct, no size limit from Floe",
             "Docs",
             "End-to-end encrypted",
             "Enter a code or link",
@@ -400,11 +411,13 @@
             "That code wasn't recognized",
             "That link is incomplete",
             "The connection dropped before the transfer finished",
+            "The folders you chose have no files to send",
             "The receiver left before it started",
             "The receiver left or declined",
             "The sender canceled before it started",
             "The sender never started sending",
-            "The server is busy, try again in a minute",
+            "The server is limiting connections from this network. Wait a minute and try again",
+            "The server is limiting requests from this network. Wait a minute and try again",
             "The transfer reached its 24-hour limit",
             "The transfer stalled",
             "The transfer was declined",
@@ -455,6 +468,7 @@
             "Drop stopped: a file is too large for this drive",
             "Drop stopped: a folder path was too long for Windows",
             "Drop stopped: more data arrived than you accepted",
+            "Drop stopped: over the 2 GB relay limit",
             "Drop stopped: the drive ran out of space · {n} of {n} files saved",
             "Ends {when} · Asks first, low space on {drive}",
             "Files save without asking, except in a few cases, like low space or a USB drive",
@@ -485,6 +499,7 @@
             "Only {size} free on {drive}, not enough for this drop",
             "Open in browser",
             "Open the folder anyway?",
+            "Over the 2 GB relay limit",
             "Over the 2 GB relay limit · Nothing saved",
             "RECEIVED 12 FILES, 38.0 GB",
             "REQUEST LINK",
@@ -509,12 +524,12 @@
             "The drive ran out of space",
             "The drop reached the 24-hour limit",
             "The sender couldn't connect",
+            "The sender couldn't connect: Hide my IP is on and no relay is available",
             "The sender stopped this drop",
-            "This drive can't save files over 4 GB",
             "This drop has renamed files",
             "This drop has renamed files. Open the folder anyway?",
             "This network reached today's link limit",
-            "This {size} drop is over the 2 GB Hide my IP limit",
+            "This {size} drop is over the 2 GB relay limit",
             "Waiting for files",
             "Windows blocked Floe from saving a file",
             "Windows blocked Floe from saving a file. The complete file was kept with a .part ending",
@@ -556,7 +571,7 @@
         ],
         "desktop/serverprobe.go": [
             "Connected",
-            "Connected, but there's no relay for Hide my IP",
+            "Connected, but this server has no relay: Hide my IP will not work, and some networks will not connect",
             "Couldn't connect to that server",
             "Couldn't verify the server's certificate",
             "Enter a server address",
@@ -567,13 +582,18 @@
             "That address isn't a Floe server",
             "The API answered HTTP {n} (check that your proxy forwards /api/)",
             "The server didn't return usable connection details",
+            "The server is limiting requests from this network. Wait a minute and test again",
+            "The server refused the realtime connection (check that your proxy forwards /ws and passes the original Host header)",
             "The server refused the realtime connection (check that your proxy forwards /ws)",
+            "The server refused the realtime connection (check that your proxy passes the original Host header)",
             "Timed out reaching that address"
         ],
         "desktop/transfer.go": [
             "Files sent",
             "Floe - send failed",
             "Sending...",
+            "That link is for another Floe server. Set its address as Server address in Settings, then try again",
+            "That link is for floe.one, but Floe is set to use another server. Clear Server address in Settings, then try again",
             "could not stage the text: {reason}",
             "expected sender role, got \"{role}\"",
             "failed to create peer connection: {rest}",
@@ -581,7 +601,8 @@
             "nothing to send",
             "room is full",
             "room is full (someone else may already be receiving)",
-            "this code is no longer active; ask for a new one",
+            "the server answered with an error this version of Floe does not know",
+            "this code or link is no longer active; ask the sender for a new one",
             "transfer blocked: relay connections are capped at {n} GB (selected {size}), optionally followed by: . Turn off Hide my IP to send larger files",
             "transfer blocked: relay connections are capped at {n} GB (selected {size}). Turn off Hide my IP to send larger files"
         ]

@@ -1940,14 +1940,7 @@
     },
     {
         "surface": "web-request",
-        "text": "{a} of {n} files arrived. Ask them for a new link to send the other one.",
-        "source": "client/lib/request/visitorCopy.ts",
-        "anchor": "/web-app/request-links#keep-the-page-open",
-        "why_no_home": null
-    },
-    {
-        "surface": "web-request",
-        "text": "{a} of {n} files arrived. Ask them for a new link to send the other {k}.",
+        "text": "{a} of {n} files arrived. Ask them for a new link to send {other}.",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#keep-the-page-open",
         "why_no_home": null
@@ -1999,6 +1992,13 @@
         "text": "brew install --cask jannskiee/tap/floe",
         "source": "client/components/landing/InstallTabs.tsx",
         "anchor": "/cli/installation#package-managers",
+        "why_no_home": null
+    },
+    {
+        "surface": "site",
+        "text": "Built for Windows 10 or later on 64-bit Intel and AMD processors (x64).",
+        "source": "client/app/download/page.tsx",
+        "anchor": "/desktop/installation#requirements",
         "why_no_home": null
     },
     {
@@ -2122,6 +2122,13 @@
     },
     {
         "surface": "site",
+        "text": "It needs Microsoft WebView2, which most PCs already have; the Store build needs Windows 10 version 2004 or later.",
+        "source": "client/app/download/page.tsx",
+        "anchor": "/desktop/installation#requirements",
+        "why_no_home": null
+    },
+    {
+        "surface": "site",
         "text": "Not connected",
         "source": "client/components/layout/Navbar.tsx",
         "anchor": null,
@@ -2174,20 +2181,6 @@
         "text": "Replay the transfer demo",
         "source": "client/components/landing/CliTerminal.tsx",
         "anchor": null,
-        "why_no_home": null
-    },
-    {
-        "surface": "site",
-        "text": "Built for Windows 10 or later on 64-bit Intel and AMD processors (x64).",
-        "source": "client/app/download/page.tsx",
-        "anchor": "/desktop/installation#requirements",
-        "why_no_home": null
-    },
-    {
-        "surface": "site",
-        "text": "It needs Microsoft WebView2, which most PCs already have; the Store build needs Windows 10 version 2004 or later.",
-        "source": "client/app/download/page.tsx",
-        "anchor": "/desktop/installation#requirements",
         "why_no_home": null
     },
     {
@@ -2696,13 +2689,6 @@
     },
     {
         "surface": "desktop",
-        "text": "Connected, but there's no relay for Hide my IP",
-        "source": "desktop/serverprobe.go",
-        "anchor": "/troubleshooting#the-test-button-says-the-server-has-no-turn-relay",
-        "why_no_home": null
-    },
-    {
-        "surface": "desktop",
         "text": "Connected, but this server has no relay: Hide my IP will not work, and some networks will not connect",
         "source": "desktop/serverprobe.go",
         "anchor": "/troubleshooting#the-test-button-says-the-server-has-no-turn-relay",
@@ -2822,13 +2808,6 @@
     },
     {
         "surface": "desktop",
-        "text": "Device to device with no size cap, 2 GB through a relay",
-        "source": "desktop/frontend/src/App.tsx",
-        "anchor": null,
-        "why_no_home": null
-    },
-    {
-        "surface": "desktop",
         "text": "Device to device. A receiving browser can only hold so much. 2 GB through a relay",
         "source": "desktop/frontend/src/App.tsx",
         "anchor": null,
@@ -2839,13 +2818,6 @@
         "text": "Direct",
         "source": "desktop/frontend/src/App.tsx",
         "anchor": "/desktop/sending#while-it-sends",
-        "why_no_home": null
-    },
-    {
-        "surface": "desktop",
-        "text": "Direct & unlimited",
-        "source": "desktop/frontend/src/App.tsx",
-        "anchor": null,
         "why_no_home": null
     },
     {
@@ -4131,13 +4103,6 @@
     },
     {
         "surface": "desktop",
-        "text": "The server is busy, try again in a minute",
-        "source": "desktop/frontend/src/errors.ts",
-        "anchor": null,
-        "why_no_home": null
-    },
-    {
-        "surface": "desktop",
         "text": "The server is limiting connections from this network. Wait a minute and try again",
         "source": "desktop/frontend/src/errors.ts",
         "anchor": "/troubleshooting#the-server-is-limiting-connections-from-this-network",
@@ -4264,23 +4229,9 @@
     },
     {
         "surface": "desktop",
-        "text": "this code is no longer active; ask for a new one",
-        "source": "desktop/transfer.go",
-        "anchor": "/troubleshooting#this-code-is-no-longer-active-ask-for-a-new-one",
-        "why_no_home": null
-    },
-    {
-        "surface": "desktop",
         "text": "this code or link is no longer active; ask the sender for a new one",
         "source": "desktop/transfer.go",
         "anchor": "/troubleshooting#this-code-is-no-longer-active-ask-for-a-new-one",
-        "why_no_home": null
-    },
-    {
-        "surface": "desktop",
-        "text": "This drive can't save files over 4 GB",
-        "source": "desktop/frontend/src/requestCopy.ts",
-        "anchor": null,
         "why_no_home": null
     },
     {
@@ -4316,13 +4267,6 @@
         "text": "This product is only supported on Windows 10 (Server 2016) and later.",
         "source": "desktop/build/windows/installer/wails_tools.nsh",
         "anchor": "/desktop/installation#requirements",
-        "why_no_home": null
-    },
-    {
-        "surface": "desktop",
-        "text": "This {size} drop is over the 2 GB Hide my IP limit",
-        "source": "desktop/frontend/src/requestCopy.ts",
-        "anchor": "/desktop/request-links#accept-or-decline",
         "why_no_home": null
     },
     {
@@ -5034,13 +4978,6 @@
     },
     {
         "surface": "cli",
-        "text": "Error: could not resolve \"{input}\": code \"{input}\" not found or expired (codes expire after 10 minutes)",
-        "source": "cli/engine/code/client.go",
-        "anchor": "/troubleshooting#code-olive-tiger-castle-not-found-or-expired-codes-expire-after-10-minutes",
-        "why_no_home": null
-    },
-    {
-        "surface": "cli",
         "text": "Error: could not resolve \"{input}\": code \"{input}\" not found: it was already used, the sender left, or it expired (a code lasts 10 minutes at most)",
         "source": "cli/engine/code/client.go",
         "anchor": "/troubleshooting#code-olive-tiger-castle-not-found-or-expired-codes-expire-after-10-minutes",
@@ -5189,7 +5126,7 @@
     {
         "surface": "cli",
         "text": "Error: failed to connect to signaling server: cannot connect to signaling server at {wss address}/ws: {reason}",
-        "source": "cli/cmd/floe/send.go",
+        "source": "cli/cmd/floe/main.go",
         "anchor": "/troubleshooting#failed-to-connect-to-signaling-server",
         "why_no_home": null
     },
@@ -5538,13 +5475,6 @@
     },
     {
         "surface": "cli",
-        "text": "Nothing was sent. Send under 2 GB.",
-        "source": "cli/cmd/floe/sendto.go",
-        "anchor": "/cli/send#messages-from-floe-send-to",
-        "why_no_home": null
-    },
-    {
-        "surface": "cli",
         "text": "Open a new terminal, then run 'floe version' to verify.",
         "source": "client/public/install.ps1",
         "anchor": "/cli/installation#one-line-installer",
@@ -5555,13 +5485,6 @@
         "text": "Or build from source: https://www.floe.one/docs/cli/installation#build-from-source",
         "source": "client/public/install.sh",
         "anchor": "/cli/installation#build-from-source",
-        "why_no_home": null
-    },
-    {
-        "surface": "cli",
-        "text": "peer disconnected before connecting",
-        "source": "cli/cmd/floe/send.go",
-        "anchor": "/troubleshooting#the-connection-to-the-server-was-lost-before-the-peer-connected",
         "why_no_home": null
     },
     {
@@ -5993,13 +5916,6 @@
     },
     {
         "surface": "cli",
-        "text": "this code is no longer active; ask for a new one",
-        "source": "cli/cmd/floe/receive.go",
-        "anchor": "/troubleshooting#this-code-is-no-longer-active-ask-for-a-new-one",
-        "why_no_home": null
-    },
-    {
-        "surface": "cli",
         "text": "this code or link is no longer active; ask the sender for a new one",
         "source": "cli/cmd/floe/receive.go",
         "anchor": "/troubleshooting#this-code-is-no-longer-active-ask-for-a-new-one",
@@ -6227,13 +6143,6 @@
         "text": "{dir} is not writable; requesting sudo to install the update...",
         "source": "cli/internal/selfupdate/install.go",
         "anchor": null,
-        "why_no_home": null
-    },
-    {
-        "surface": "cli",
-        "text": "{version} run `floe update` to upgrade",
-        "source": "cli/cmd/floe/update.go",
-        "anchor": "/cli/version#output",
         "why_no_home": null
     },
     {
