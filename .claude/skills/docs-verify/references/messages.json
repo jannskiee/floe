@@ -10,7 +10,7 @@
         "surface": "web",
         "text": "A server bridges the connection when a direct path is unavailable. Your files stay encrypted. 2 GB limit per session. Learn more",
         "source": "client/components/ConnectionStatusBadge.tsx",
-        "anchor": null,
+        "anchor": "/web-app/sending#watch-the-connection",
         "why_no_home": null
     },
     {
@@ -24,14 +24,14 @@
         "surface": "web",
         "text": "Add more files to send",
         "source": "client/components/P2PTransfer.tsx",
-        "anchor": null,
+        "anchor": "/web-app/sending#add-your-files",
         "why_no_home": null
     },
     {
         "surface": "web",
         "text": "Adds only this transfer's byte count to Floe's public total. File names and contents are never sent. Learn more",
         "source": "client/components/StatsContributionToggle.tsx",
-        "anchor": null,
+        "anchor": "/web-app/receiving#contribute-to-global-stats",
         "why_no_home": null
     },
     {
@@ -73,21 +73,21 @@
         "surface": "web",
         "text": "Choose files to send",
         "source": "client/components/P2PTransfer.tsx",
-        "anchor": null,
+        "anchor": "/web-app/sending#add-your-files",
         "why_no_home": null
     },
     {
         "surface": "web",
         "text": "Connected",
         "source": "client/components/layout/Navbar.tsx",
-        "anchor": null,
+        "anchor": "/web-app/sending#watch-the-connection",
         "why_no_home": null
     },
     {
         "surface": "web",
         "text": "Connection failed",
         "source": "client/components/P2PTransfer.tsx",
-        "anchor": null,
+        "anchor": "/troubleshooting#connection-error",
         "why_no_home": null
     },
     {
@@ -157,7 +157,7 @@
         "surface": "web",
         "text": "Copied",
         "source": "client/components/ShareLinkPanel.tsx",
-        "anchor": null,
+        "anchor": "/web-app/sending#create-the-link",
         "why_no_home": null
     },
     {
@@ -171,7 +171,7 @@
         "surface": "web",
         "text": "Copy link",
         "source": "client/components/ShareLinkPanel.tsx",
-        "anchor": null,
+        "anchor": "/web-app/sending#create-the-link",
         "why_no_home": null
     },
     {
@@ -213,14 +213,14 @@
         "surface": "web",
         "text": "Creating secure link...",
         "source": "client/components/P2PTransfer.tsx",
-        "anchor": null,
+        "anchor": "/web-app/sending#create-the-link",
         "why_no_home": null
     },
     {
         "surface": "web",
         "text": "Creating ZIP archive...",
         "source": "client/hooks/useDownloadManager.ts",
-        "anchor": null,
+        "anchor": "/web-app/receiving#saving-what-arrives",
         "why_no_home": null
     },
     {
@@ -234,7 +234,7 @@
         "surface": "web",
         "text": "Direct Connection",
         "source": "client/components/ConnectionStatusBadge.tsx",
-        "anchor": null,
+        "anchor": "/web-app/sending#watch-the-connection",
         "why_no_home": null
     },
     {
@@ -248,7 +248,7 @@
         "surface": "web",
         "text": "Direct peer connection",
         "source": "client/components/layout/Navbar.tsx",
-        "anchor": null,
+        "anchor": "/web-app/sending#watch-the-connection",
         "why_no_home": null
     },
     {
@@ -269,21 +269,21 @@
         "surface": "web",
         "text": "Downloading...",
         "source": "client/components/ReceiverPanel.tsx",
-        "anchor": null,
+        "anchor": "/web-app/receiving#saving-what-arrives",
         "why_no_home": null
     },
     {
         "surface": "web",
         "text": "Drop files or click to browse",
         "source": "client/components/P2PTransfer.tsx",
-        "anchor": null,
+        "anchor": "/web-app/sending#add-your-files",
         "why_no_home": null
     },
     {
         "surface": "web",
         "text": "End-to-end encrypted. Files are never stored on a server.",
         "source": "client/components/P2PTransfer.tsx",
-        "anchor": null,
+        "anchor": "/web-app/receiving#saving-what-arrives",
         "why_no_home": null
     },
     {
@@ -291,20 +291,20 @@
         "text": "Files",
         "source": "client/components/P2PTransfer.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The small label above the file list, beside the count and total size; a label, not a message."
     },
     {
         "surface": "web",
         "text": "Files go through it only when a direct connection isn't possible; most transfers stay direct. 2 GB limit when relayed. Learn more",
         "source": "client/components/RelayFallbackToggle.tsx",
-        "anchor": null,
+        "anchor": "/web-app/sending#decide-whether-the-relay-is-allowed",
         "why_no_home": null
     },
     {
         "surface": "web",
         "text": "Files stream in below",
         "source": "client/components/ReceiverPanel.tsx",
-        "anchor": null,
+        "anchor": "/web-app/receiving#while-you-wait",
         "why_no_home": null
     },
     {
@@ -325,7 +325,7 @@
         "surface": "web",
         "text": "How to open in your browser",
         "source": "client/components/InAppBrowserGuard.tsx",
-        "anchor": null,
+        "anchor": "/web-app/receiving#if-floe-says-open-in-your-browser",
         "why_no_home": null
     },
     {
@@ -360,7 +360,7 @@
         "surface": "web",
         "text": "Link copied",
         "source": "client/components/InAppBrowserGuard.tsx",
-        "anchor": null,
+        "anchor": "/web-app/receiving#if-floe-says-open-in-your-browser",
         "why_no_home": null
     },
     {
@@ -402,14 +402,14 @@
         "surface": "web",
         "text": "No size limit from Floe over direct connections",
         "source": "client/components/P2PTransfer.tsx",
-        "anchor": null,
+        "anchor": "/web-app/sending#add-your-files",
         "why_no_home": null
     },
     {
         "surface": "web",
         "text": "Not connected",
         "source": "client/components/layout/Navbar.tsx",
-        "anchor": null,
+        "anchor": "/web-app/sending#watch-the-connection",
         "why_no_home": null
     },
     {
@@ -445,7 +445,7 @@
         "text": "Preparing files...",
         "source": "client/hooks/useDownloadManager.ts",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "A progress label the next one replaces before the page draws, so it never shows."
     },
     {
         "surface": "web",
@@ -458,7 +458,7 @@
         "surface": "web",
         "text": "Receive",
         "source": "client/components/P2PTransfer.tsx",
-        "anchor": null,
+        "anchor": "/troubleshooting#in-the-browser",
         "why_no_home": null
     },
     {
@@ -479,28 +479,28 @@
         "surface": "web",
         "text": "received_file",
         "source": "client/lib/download.ts",
-        "anchor": null,
+        "anchor": "/web-app/receiving#saving-what-arrives",
         "why_no_home": null
     },
     {
         "surface": "web",
         "text": "receiver cannot store a file path that is not relative to its save folder",
         "source": "cli/engine/transfer/limits.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#a-banner-that-starts-with-receiver",
         "why_no_home": null
     },
     {
         "surface": "web",
         "text": "receiver cannot store a file path this deep or long",
         "source": "cli/engine/transfer/refusal.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#a-banner-that-starts-with-receiver",
         "why_no_home": null
     },
     {
         "surface": "web",
         "text": "receiver cannot store a file this large on its drive",
         "source": "cli/engine/transfer/refusal.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#a-banner-that-starts-with-receiver",
         "why_no_home": null
     },
     {
@@ -521,7 +521,7 @@
         "surface": "web",
         "text": "receiver could not move a finished file into place",
         "source": "cli/engine/transfer/refusal.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#a-banner-that-starts-with-receiver",
         "why_no_home": null
     },
     {
@@ -536,34 +536,34 @@
         "text": "receiver did not answer in time",
         "source": "cli/engine/transfer/refusal.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The reason a Floe Desktop request link sends with its refusal code. Only a request-link sender can meet it, and both of those, the /r page and floe send --to, show their own sentence for the code instead, so no page shows these words."
     },
     {
         "surface": "web",
         "text": "receiver discarded a file because its SHA-256 did not match",
         "source": "client/lib/transfer/receiver.ts",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The reason a browser receiver sends with its hash-mismatch code. Every sender that sends a SHA-256 reads the code and shows its own sentence, such as \"The other side discarded a file that did not match what was sent. Try sending again.\", which has its own row."
     },
     {
         "surface": "web",
         "text": "receiver discarded a file because the sender's SHA-256 was not readable",
         "source": "client/lib/transfer/receiver.ts",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The reason a browser receiver sends with its hash-mismatch code. Every sender that sends a SHA-256 reads the code and shows its own sentence, such as \"The other side discarded a file that did not match what was sent. Try sending again.\", which has its own row."
     },
     {
         "surface": "web",
         "text": "receiver discarded a file: Incomplete file \"{name}\": received {got} of {want} bytes",
         "source": "client/lib/transfer/receiver.ts",
-        "anchor": null,
+        "anchor": "/troubleshooting#a-banner-that-starts-with-receiver",
         "why_no_home": null
     },
     {
         "surface": "web",
         "text": "receiver discarded a file: incomplete file \"{name}\": received {n} of {m} bytes",
         "source": "client/lib/transfer/receiver.ts",
-        "anchor": null,
+        "anchor": "/troubleshooting#a-banner-that-starts-with-receiver",
         "why_no_home": null
     },
     {
@@ -571,7 +571,7 @@
         "text": "receiver got more data than it approved",
         "source": "cli/engine/transfer/refusal.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The reason a Floe Desktop request link sends with its refusal code. Only a request-link sender can meet it, and both of those, the /r page and floe send --to, show their own sentence for the code instead, so no page shows these words."
     },
     {
         "surface": "web",
@@ -598,7 +598,7 @@
         "surface": "web",
         "text": "receiver stopped because of an internal error",
         "source": "client/lib/transfer/receiver.ts",
-        "anchor": null,
+        "anchor": "/troubleshooting#a-banner-that-starts-with-receiver",
         "why_no_home": null
     },
     {
@@ -613,27 +613,27 @@
         "text": "receiver stopped the transfer at the 24-hour limit",
         "source": "cli/engine/transfer/refusal.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The reason a Floe Desktop request link sends with its refusal code. Only a request-link sender can meet it, and both of those, the /r page and floe send --to, show their own sentence for the code instead, so no page shows these words."
     },
     {
         "surface": "web",
         "text": "receiver stopped the transfer: sender exceeded the announced size of \"{name}\"",
         "source": "cli/engine/transfer/receiver.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "Both Floe senders send no more than the size they announced, so no page you send from meets it."
     },
     {
         "surface": "web",
         "text": "receiver's relay connection is capped at 2 GB",
         "source": "cli/engine/transfer/refusal.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The reason a Floe Desktop request link sends with its refusal code. Only a request-link sender can meet it, and both of those, the /r page and floe send --to, show their own sentence for the code instead, so no page shows these words."
     },
     {
         "surface": "web",
         "text": "Receiving...",
         "source": "client/components/TransferProgressBar.tsx",
-        "anchor": null,
+        "anchor": "/web-app/receiving#saving-what-arrives",
         "why_no_home": null
     },
     {
@@ -654,21 +654,21 @@
         "surface": "web",
         "text": "Relay Connection",
         "source": "client/components/ConnectionStatusBadge.tsx",
-        "anchor": null,
+        "anchor": "/web-app/sending#watch-the-connection",
         "why_no_home": null
     },
     {
         "surface": "web",
         "text": "Relay connection",
         "source": "client/components/layout/Navbar.tsx",
-        "anchor": null,
+        "anchor": "/web-app/sending#watch-the-connection",
         "why_no_home": null
     },
     {
         "surface": "web",
         "text": "Relay Connection. A server bridges the connection when a direct path is unavailable. Your files stay encrypted. 2 GB limit per session. Learn more",
         "source": "client/components/ConnectionStatusBadge.tsx",
-        "anchor": null,
+        "anchor": "/web-app/sending#watch-the-connection",
         "why_no_home": null
     },
     {
@@ -682,14 +682,14 @@
         "surface": "web",
         "text": "Release to add files",
         "source": "client/components/P2PTransfer.tsx",
-        "anchor": null,
+        "anchor": "/web-app/sending#add-your-files",
         "why_no_home": null
     },
     {
         "surface": "web",
         "text": "Scan to receive files",
         "source": "client/components/ShareLinkPanel.tsx",
-        "anchor": null,
+        "anchor": "/web-app/sending#create-the-link",
         "why_no_home": null
     },
     {
@@ -703,7 +703,7 @@
         "surface": "web",
         "text": "Send",
         "source": "client/components/P2PTransfer.tsx",
-        "anchor": null,
+        "anchor": "/troubleshooting#in-the-browser",
         "why_no_home": null
     },
     {
@@ -760,7 +760,7 @@
         "text": "Starting download...",
         "source": "client/hooks/useDownloadManager.ts",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "A progress label the next one replaces before the page draws, so it never shows."
     },
     {
         "surface": "web",
@@ -787,21 +787,21 @@
         "surface": "web",
         "text": "The receiver asked to resume \"{name}\" from a position that is not a number, which is not possible. Please try again.",
         "source": "client/lib/transfer/sender.ts",
-        "anchor": null,
+        "anchor": "/troubleshooting#the-receiver-asked-to-resume",
         "why_no_home": null
     },
     {
         "surface": "web",
         "text": "The receiver asked to resume \"{name}\" from byte {n} of {size}, which is not possible. Please try again.",
         "source": "client/lib/transfer/sender.ts",
-        "anchor": null,
+        "anchor": "/troubleshooting#the-receiver-asked-to-resume",
         "why_no_home": null
     },
     {
         "surface": "web",
         "text": "The sender described a file in a way Floe could not read, so the transfer was stopped. Ask the sender to try again.",
         "source": "client/lib/transfer/receiver.ts",
-        "anchor": null,
+        "anchor": "/troubleshooting#the-sender-sent-something-floe-could-not-read",
         "why_no_home": null
     },
     {
@@ -850,7 +850,7 @@
         "surface": "web",
         "text": "The sender sent more messages than a transfer allows while a file was being checked, so the transfer was stopped.",
         "source": "client/lib/transfer/receiver.ts",
-        "anchor": null,
+        "anchor": "/troubleshooting#the-sender-sent-something-floe-could-not-read",
         "why_no_home": null
     },
     {
@@ -927,14 +927,14 @@
         "surface": "web",
         "text": "Tip: Use \"Download ZIP\" for the best experience on iOS.",
         "source": "client/components/ReceiverPanel.tsx",
-        "anchor": null,
+        "anchor": "/troubleshooting#downloads-behave-oddly-on-ios",
         "why_no_home": null
     },
     {
         "surface": "web",
         "text": "Toggle QR code",
         "source": "client/components/ShareLinkPanel.tsx",
-        "anchor": null,
+        "anchor": "/web-app/sending#create-the-link",
         "why_no_home": null
     },
     {
@@ -949,7 +949,7 @@
         "text": "Transfer",
         "source": "client/components/P2PTransfer.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The label at the top of the card for the moment before the page knows whether it sends or receives; a label, not a message."
     },
     {
         "surface": "web",
@@ -962,7 +962,7 @@
         "surface": "web",
         "text": "transfer blocked: relay connections are capped at 2 GB",
         "source": "cli/engine/transfer/relay.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#the-sender-ended-the-transfer",
         "why_no_home": null
     },
     {
@@ -1018,7 +1018,7 @@
         "surface": "web",
         "text": "Your files go directly to the other device, even across different networks like mobile data. No server carries them. Floe sets no size limit, but a receiving browser can only hold so much. Learn more",
         "source": "client/components/ConnectionStatusBadge.tsx",
-        "anchor": null,
+        "anchor": "/web-app/sending#watch-the-connection",
         "why_no_home": null
     },
     {
@@ -1032,7 +1032,7 @@
         "surface": "web",
         "text": "Zipping...",
         "source": "client/components/ReceiverPanel.tsx",
-        "anchor": null,
+        "anchor": "/web-app/receiving#saving-what-arrives",
         "why_no_home": null
     },
     {
@@ -1074,7 +1074,7 @@
         "surface": "web-request",
         "text": "1 file arrived - Floe",
         "source": "client/lib/request/titleProgress.ts",
-        "anchor": null,
+        "anchor": "/web-app/request-links#what-the-page-shows",
         "why_no_home": null
     },
     {
@@ -1144,7 +1144,7 @@
         "surface": "web-request",
         "text": "All {n} files arrived - Floe",
         "source": "client/lib/request/titleProgress.ts",
-        "anchor": null,
+        "anchor": "/web-app/request-links#what-the-page-shows",
         "why_no_home": null
     },
     {
@@ -1270,7 +1270,7 @@
         "surface": "web-request",
         "text": "Connection lost. {a} of {n} files arrived.",
         "source": "client/lib/request/visitorCopy.ts",
-        "anchor": null,
+        "anchor": "/web-app/request-links#messages-on-the-senders-page",
         "why_no_home": null
     },
     {
@@ -1347,14 +1347,14 @@
         "surface": "web-request",
         "text": "Drop files or folders here",
         "source": "client/lib/request/visitorCopy.ts",
-        "anchor": null,
+        "anchor": "/web-app/request-links#pick-files",
         "why_no_home": null
     },
     {
         "surface": "web-request",
         "text": "Drop stopped - Floe",
         "source": "client/lib/request/titleProgress.ts",
-        "anchor": null,
+        "anchor": "/web-app/request-links#what-the-page-shows",
         "why_no_home": null
     },
     {
@@ -1368,21 +1368,21 @@
         "surface": "web-request",
         "text": "Files go to the computer of whoever made this link, not to a Floe server. Floe does not know who that is.",
         "source": "client/lib/request/visitorCopy.ts",
-        "anchor": null,
+        "anchor": "/web-app/request-links#what-each-side-can-see",
         "why_no_home": null
     },
     {
         "surface": "web-request",
         "text": "Files that already arrived stay on their computer. This link cannot be used again.",
         "source": "client/lib/request/visitorCopy.ts",
-        "anchor": null,
+        "anchor": "/web-app/request-links#when-the-files-arrive",
         "why_no_home": null
     },
     {
         "surface": "web-request",
         "text": "Floe request link",
         "source": "client/app/r/[linkId]/page.tsx",
-        "anchor": null,
+        "anchor": "/desktop/request-links#share-the-link",
         "why_no_home": null
     },
     {
@@ -1397,7 +1397,7 @@
         "text": "How to open in your browser",
         "source": "client/components/InAppBrowserGuard.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The in-app browser card's default title for its steps. The request link page passes its own, \"To use this phone instead\", so the page never shows this one."
     },
     {
         "surface": "web-request",
@@ -1417,7 +1417,7 @@
         "surface": "web-request",
         "text": "Keep sending",
         "source": "client/lib/request/visitorCopy.ts",
-        "anchor": null,
+        "anchor": "/web-app/request-links#when-the-files-arrive",
         "why_no_home": null
     },
     {
@@ -1445,14 +1445,14 @@
         "surface": "web-request",
         "text": "Learn more",
         "source": "client/lib/request/visitorCopy.ts",
-        "anchor": null,
+        "anchor": "/web-app/request-links#what-the-page-shows",
         "why_no_home": null
     },
     {
         "surface": "web-request",
         "text": "Link copied",
         "source": "client/components/InAppBrowserGuard.tsx",
-        "anchor": null,
+        "anchor": "/web-app/receiving#if-floe-says-open-in-your-browser",
         "why_no_home": null
     },
     {
@@ -1508,7 +1508,7 @@
         "surface": "web-request",
         "text": "Privacy",
         "source": "client/components/request/RequestShell.tsx",
-        "anchor": null,
+        "anchor": "/web-app/request-links#keep-the-page-open",
         "why_no_home": null
     },
     {
@@ -1564,7 +1564,7 @@
         "surface": "web-request",
         "text": "Release to add files",
         "source": "client/lib/request/visitorCopy.ts",
-        "anchor": null,
+        "anchor": "/web-app/request-links#pick-files",
         "why_no_home": null
     },
     {
@@ -1599,7 +1599,7 @@
         "surface": "web-request",
         "text": "Send files - Floe",
         "source": "client/lib/request/titleProgress.ts",
-        "anchor": null,
+        "anchor": "/web-app/request-links#what-the-page-shows",
         "why_no_home": null
     },
     {
@@ -1614,7 +1614,7 @@
         "text": "Send files to the person who made this Floe request link.",
         "source": "client/app/r/[linkId]/page.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The request page's description for search engines, which are told not to list the page. Link previews show the text of the \"Send files peer to peer\" row instead."
     },
     {
         "surface": "web-request",
@@ -1641,7 +1641,7 @@
         "surface": "web-request",
         "text": "Stop",
         "source": "client/lib/request/visitorCopy.ts",
-        "anchor": null,
+        "anchor": "/web-app/request-links#when-the-files-arrive",
         "why_no_home": null
     },
     {
@@ -1662,7 +1662,7 @@
         "surface": "web-request",
         "text": "Terms",
         "source": "client/components/request/RequestShell.tsx",
-        "anchor": null,
+        "anchor": "/web-app/request-links#keep-the-page-open",
         "why_no_home": null
     },
     {
@@ -1760,7 +1760,7 @@
         "surface": "web-request",
         "text": "They have less than 1 min to answer. Keep this page open.",
         "source": "client/lib/request/visitorCopy.ts",
-        "anchor": null,
+        "anchor": "/web-app/request-links#send-and-wait",
         "why_no_home": null
     },
     {
@@ -1935,7 +1935,7 @@
         "surface": "web-request",
         "text": "What is a request link?",
         "source": "client/lib/request/visitorCopy.ts",
-        "anchor": null,
+        "anchor": "/web-app/request-links#what-the-page-shows",
         "why_no_home": null
     },
     {
@@ -1991,7 +1991,7 @@
         "surface": "web-request",
         "text": "{a} of 1 file arrived. Ask them for a new link to send it.",
         "source": "client/lib/request/visitorCopy.ts",
-        "anchor": null,
+        "anchor": "/web-app/request-links#messages-on-the-senders-page",
         "why_no_home": null
     },
     {
@@ -2055,7 +2055,7 @@
         "text": "3 files staged",
         "source": "client/components/landing/AppWindow.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "Text inside the home page's animated picture of Floe Desktop, not a message from the app."
     },
     {
         "surface": "site",
@@ -2069,7 +2069,7 @@
         "text": "Back to Floe",
         "source": "client/components/legal/LegalShell.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "A link at the top of the legal pages that returns to the home page; a link label, not a message."
     },
     {
         "surface": "site",
@@ -2089,7 +2089,7 @@
         "surface": "site",
         "text": "Connected",
         "source": "client/components/layout/Navbar.tsx",
-        "anchor": null,
+        "anchor": "/web-app/sending#watch-the-connection",
         "why_no_home": null
     },
     {
@@ -2111,14 +2111,14 @@
         "text": "Copied",
         "source": "client/components/landing/InstallTabs.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The label the home page's copy button takes for a moment after it copies an install command; a button state, not a message."
     },
     {
         "surface": "site",
         "text": "Copy install command",
         "source": "client/components/landing/InstallTabs.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The accessible name of the home page's copy button beside an install command; a button label, not a message."
     },
     {
         "surface": "site",
@@ -2131,7 +2131,7 @@
         "surface": "site",
         "text": "Direct peer connection",
         "source": "client/components/layout/Navbar.tsx",
-        "anchor": null,
+        "anchor": "/web-app/sending#watch-the-connection",
         "why_no_home": null
     },
     {
@@ -2139,28 +2139,28 @@
         "text": "Floe",
         "source": "client/app/layout.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The site's name, used as the default tab title; not a message."
     },
     {
         "surface": "site",
         "text": "Floe home",
         "source": "client/components/layout/Navbar.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The accessible name of the Floe button in the top bar; a button label, not a message."
     },
     {
         "surface": "site",
         "text": "Floe is provided \"as is\" without any warranties. As an open-source project, we do not guarantee uptime, data integrity, or fitness for a particular purpose. Use this service at your own risk.",
         "source": "client/app/terms/page.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "A sentence of the Terms of Use page, legal text rather than a message."
     },
     {
         "surface": "site",
         "text": "Floe: Encrypted P2P File Transfer. No Uploads.",
         "source": "client/app/layout.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The home page's title in link previews when floe.one is shared; the tab itself reads Floe. Not a message."
     },
     {
         "surface": "site",
@@ -2187,7 +2187,7 @@
         "surface": "site",
         "text": "How Floe works",
         "source": "client/app/not-found.tsx",
-        "anchor": null,
+        "anchor": "/troubleshooting#page-not-found",
         "why_no_home": null
     },
     {
@@ -2208,7 +2208,7 @@
         "surface": "site",
         "text": "Not connected",
         "source": "client/components/layout/Navbar.tsx",
-        "anchor": null,
+        "anchor": "/web-app/sending#watch-the-connection",
         "why_no_home": null
     },
     {
@@ -2229,7 +2229,7 @@
         "surface": "site",
         "text": "Relay connection",
         "source": "client/components/layout/Navbar.tsx",
-        "anchor": null,
+        "anchor": "/web-app/sending#watch-the-connection",
         "why_no_home": null
     },
     {
@@ -2251,14 +2251,14 @@
         "text": "Replay the desktop demo",
         "source": "client/components/landing/AppWindow.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "A button on the home page's animated picture of Floe Desktop; a button label, not a message."
     },
     {
         "surface": "site",
         "text": "Replay the transfer demo",
         "source": "client/components/landing/CliTerminal.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "A button on the home page's animated picture of the CLI; a button label, not a message."
     },
     {
         "surface": "site",
@@ -2272,20 +2272,20 @@
         "text": "See every change on GitHub",
         "source": "client/components/legal/LegalShell.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "A link on the legal pages to their history on GitHub; a link label, not a message."
     },
     {
         "surface": "site",
         "text": "Send a file",
         "source": "client/app/not-found.tsx",
-        "anchor": null,
+        "anchor": "/troubleshooting#page-not-found",
         "why_no_home": null
     },
     {
         "surface": "site",
         "text": "Send files peer to peer. Nothing is stored on a Floe server.",
         "source": "client/app/r/[linkId]/page.tsx",
-        "anchor": null,
+        "anchor": "/desktop/request-links#share-the-link",
         "why_no_home": null
     },
     {
@@ -2306,7 +2306,7 @@
         "surface": "site",
         "text": "That link points at nothing here. If you were sent a Floe link, check that you copied the whole thing.",
         "source": "client/app/not-found.tsx",
-        "anchor": null,
+        "anchor": "/troubleshooting#page-not-found",
         "why_no_home": null
     },
     {
@@ -2314,14 +2314,14 @@
         "text": "Try again",
         "source": "client/app/global-error.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The words sit only in a code comment of the site's error screen, about the screen Next.js drew before it; the page itself shows Reload page."
     },
     {
         "surface": "site",
         "text": "waiting for files",
         "source": "client/components/landing/AppWindow.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "Text inside the home page's animated picture of Floe Desktop, not a message from the app."
     },
     {
         "surface": "site",
@@ -2383,7 +2383,7 @@
         "surface": "desktop",
         "text": "A file arrived but their computer blocked saving it",
         "source": "cli/engine/transfer/refusal.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#their-computer-ran-out-of-space",
         "why_no_home": null
     },
     {
@@ -2440,7 +2440,7 @@
         "text": "A finished file couldn't be moved into place",
         "source": "desktop/frontend/src/errors.ts",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The Receive tab's wording for an engine sentence no released build produces: a file that cannot take its final name ends the receive with \"A received file couldn't be saved, so it was kept with a .part ending\", which has its own row."
     },
     {
         "surface": "desktop",
@@ -2467,7 +2467,7 @@
         "surface": "desktop",
         "text": "About Auto-accept",
         "source": "desktop/frontend/src/requestCopy.ts",
-        "anchor": null,
+        "anchor": "/desktop/request-links#auto-accept",
         "why_no_home": null
     },
     {
@@ -2488,7 +2488,7 @@
         "surface": "desktop",
         "text": "Accept and Decline are ready.",
         "source": "desktop/frontend/src/requestCopy.ts",
-        "anchor": null,
+        "anchor": "/desktop/request-links#accept-or-decline",
         "why_no_home": null
     },
     {
@@ -2523,7 +2523,7 @@
         "surface": "desktop",
         "text": "Add files",
         "source": "desktop/frontend/src/components/TransferBits.tsx",
-        "anchor": null,
+        "anchor": "/desktop/sending#add-files",
         "why_no_home": null
     },
     {
@@ -2782,7 +2782,7 @@
         "surface": "desktop",
         "text": "Closing Floe stops the transfer",
         "source": "desktop/frontend/src/App.tsx",
-        "anchor": null,
+        "anchor": "/desktop/sending#while-it-sends",
         "why_no_home": null
     },
     {
@@ -2880,7 +2880,7 @@
         "surface": "desktop",
         "text": "Copy code",
         "source": "desktop/frontend/src/components/SharePanel.tsx",
-        "anchor": null,
+        "anchor": "/desktop/sending#share-the-code-or-link",
         "why_no_home": null
     },
     {
@@ -2979,7 +2979,7 @@
         "text": "Docs",
         "source": "desktop/frontend/src/App.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "A link in the rail beside the transfer card that opens these docs; a link label, not a message."
     },
     {
         "surface": "desktop",
@@ -3084,20 +3084,20 @@
         "text": "DTLS, the same as a video call",
         "source": "desktop/frontend/src/App.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The rail's decorative tile beside the transfer card, read with the rest of the window, not a message."
     },
     {
         "surface": "desktop",
         "text": "End-to-end encrypted",
         "source": "desktop/frontend/src/App.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The rail's decorative tile beside the transfer card, read with the rest of the window, not a message."
     },
     {
         "surface": "desktop",
         "text": "End-to-end encrypted, never stored on a server",
         "source": "desktop/frontend/src/components/TransferBits.tsx",
-        "anchor": null,
+        "anchor": "/desktop/sending#while-it-sends",
         "why_no_home": null
     },
     {
@@ -3118,7 +3118,7 @@
         "surface": "desktop",
         "text": "Enter a code or link, then click Receive",
         "source": "desktop/frontend/src/App.tsx",
-        "anchor": null,
+        "anchor": "/desktop/receiving#enter-a-code-or-link",
         "why_no_home": null
     },
     {
@@ -3132,7 +3132,7 @@
         "surface": "desktop",
         "text": "Error: could not save settings. {reason}",
         "source": "desktop/frontend/src/App.tsx",
-        "anchor": null,
+        "anchor": "/desktop/settings#where-settings-are-stored",
         "why_no_home": null
     },
     {
@@ -3140,13 +3140,13 @@
         "text": "expected sender role, got \"{role}\"",
         "source": "desktop/transfer.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "A guard for a server that seats the Send tab in a brand-new random room as a receiver, which a Floe signaling server never does."
     },
     {
         "surface": "desktop",
         "text": "failed to create peer connection: {rest}",
         "source": "desktop/transfer.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#webrtc-setup-failed",
         "why_no_home": null
     },
     {
@@ -3259,7 +3259,7 @@
         "text": "GitHub",
         "source": "desktop/frontend/src/App.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "A link in the rail beside the transfer card that opens the project on GitHub; a link label, not a message."
     },
     {
         "surface": "desktop",
@@ -3328,7 +3328,7 @@
         "surface": "desktop",
         "text": "If a transfer won't start, update the older app",
         "source": "desktop/frontend/src/App.tsx",
-        "anchor": null,
+        "anchor": "/desktop/settings#transfer-protocol",
         "why_no_home": null
     },
     {
@@ -3398,7 +3398,7 @@
         "surface": "desktop",
         "text": "Installing: WebView2 Runtime",
         "source": "desktop/build/windows/installer/wails_tools.nsh",
-        "anchor": null,
+        "anchor": "/desktop/installation#requirements",
         "why_no_home": null
     },
     {
@@ -3454,7 +3454,7 @@
         "surface": "desktop",
         "text": "Keep this window open until it's done",
         "source": "desktop/frontend/src/components/TransferBits.tsx",
-        "anchor": null,
+        "anchor": "/desktop/sending#while-it-sends",
         "why_no_home": null
     },
     {
@@ -3532,7 +3532,7 @@
         "text": "Maximize",
         "source": "desktop/frontend/src/components/TitleBar.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The title bar's maximize button label; a button label, not a message."
     },
     {
         "surface": "desktop",
@@ -3546,7 +3546,7 @@
         "text": "Minimize",
         "source": "desktop/frontend/src/components/TitleBar.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The title bar's minimize button label; a button label, not a message."
     },
     {
         "surface": "desktop",
@@ -3560,7 +3560,7 @@
         "text": "More data arrived than this transfer announced",
         "source": "desktop/frontend/src/errors.ts",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The Receive tab's wording for an engine sentence that only a request-link drop produces, and a drop shows its own request-link line instead, so Floe Desktop 0.3.1 never shows it."
     },
     {
         "surface": "desktop",
@@ -3580,7 +3580,7 @@
         "surface": "desktop",
         "text": "No transfers yet",
         "source": "desktop/frontend/src/components/HistoryView.tsx",
-        "anchor": null,
+        "anchor": "/desktop/receiving#history",
         "why_no_home": null
     },
     {
@@ -3588,14 +3588,14 @@
         "text": "Nobody answered in time",
         "source": "desktop/frontend/src/errors.ts",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The Receive tab's wording for an engine sentence that only a request-link drop produces, and a drop shows its own request-link line instead, so Floe Desktop 0.3.1 never shows it."
     },
     {
         "surface": "desktop",
         "text": "Nothing is stored",
         "source": "desktop/frontend/src/App.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The rail's decorative tile beside the transfer card, read with the rest of the window, not a message."
     },
     {
         "surface": "desktop",
@@ -3685,14 +3685,14 @@
         "surface": "desktop",
         "text": "or drag them onto the window",
         "source": "desktop/frontend/src/components/TransferBits.tsx",
-        "anchor": null,
+        "anchor": "/desktop/sending#add-files",
         "why_no_home": null
     },
     {
         "surface": "desktop",
         "text": "or drop anywhere",
         "source": "desktop/frontend/src/components/TransferBits.tsx",
-        "anchor": null,
+        "anchor": "/desktop/sending#add-files",
         "why_no_home": null
     },
     {
@@ -3714,7 +3714,7 @@
         "text": "Peer to peer",
         "source": "desktop/frontend/src/App.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The rail's decorative tile beside the transfer card, read with the rest of the window, not a message."
     },
     {
         "surface": "desktop",
@@ -3755,7 +3755,7 @@
         "surface": "desktop",
         "text": "Received files",
         "source": "desktop/frontend/src/requestCopy.ts",
-        "anchor": null,
+        "anchor": "/desktop/request-links#when-it-finishes",
         "why_no_home": null
     },
     {
@@ -3812,7 +3812,7 @@
         "text": "Relayed transfers are capped at 2 GB",
         "source": "desktop/frontend/src/errors.ts",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The Receive tab's wording for an engine sentence that only a request-link drop produces, and a drop shows its own request-link line instead, so Floe Desktop 0.3.1 never shows it."
     },
     {
         "surface": "desktop",
@@ -3846,7 +3846,7 @@
         "surface": "desktop",
         "text": "REQUEST LINK",
         "source": "desktop/frontend/src/requestCopy.ts",
-        "anchor": null,
+        "anchor": "/desktop/request-links#make-a-link",
         "why_no_home": null
     },
     {
@@ -3860,21 +3860,21 @@
         "surface": "desktop",
         "text": "Request link is open",
         "source": "desktop/frontend/src/requestCopy.ts",
-        "anchor": null,
+        "anchor": "/desktop/request-links#where-to-find-it",
         "why_no_home": null
     },
     {
         "surface": "desktop",
         "text": "Request link, beta",
         "source": "desktop/frontend/src/requestCopy.ts",
-        "anchor": null,
+        "anchor": "/desktop/request-links#where-to-find-it",
         "why_no_home": null
     },
     {
         "surface": "desktop",
         "text": "Request link: someone wants to send you files.",
         "source": "desktop/frontend/src/requestCopy.ts",
-        "anchor": null,
+        "anchor": "/desktop/request-links#accept-or-decline",
         "why_no_home": null
     },
     {
@@ -3909,7 +3909,7 @@
         "surface": "desktop",
         "text": "Reset all settings",
         "source": "desktop/frontend/src/App.tsx",
-        "anchor": null,
+        "anchor": "/desktop/settings#reset",
         "why_no_home": null
     },
     {
@@ -3923,7 +3923,7 @@
         "surface": "desktop",
         "text": "Restored the text",
         "source": "desktop/frontend/src/clear.ts",
-        "anchor": null,
+        "anchor": "/desktop/sending#clear-and-undo",
         "why_no_home": null
     },
     {
@@ -3952,7 +3952,7 @@
         "text": "room is full",
         "source": "desktop/transfer.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "A guard for a server that calls the brand-new random room of a send full, which a Floe signaling server never does. The Receive tab's \"room is full\" line has its own row."
     },
     {
         "surface": "desktop",
@@ -3965,7 +3965,7 @@
         "surface": "desktop",
         "text": "Save folder, notifications, privacy and server settings go back to defaults",
         "source": "desktop/frontend/src/App.tsx",
-        "anchor": null,
+        "anchor": "/desktop/settings#reset",
         "why_no_home": null
     },
     {
@@ -3986,7 +3986,7 @@
         "surface": "desktop",
         "text": "Scan to receive files",
         "source": "desktop/frontend/src/components/SharePanel.tsx",
-        "anchor": null,
+        "anchor": "/desktop/sending#share-the-code-or-link",
         "why_no_home": null
     },
     {
@@ -3994,20 +3994,20 @@
         "text": "Select a folder",
         "source": "desktop/app.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The title of the Windows folder picker that Folder and Browse open; a dialog title, not a message."
     },
     {
         "surface": "desktop",
         "text": "Select files to send",
         "source": "desktop/frontend/src/components/TransferBits.tsx",
-        "anchor": null,
+        "anchor": "/desktop/sending#add-files",
         "why_no_home": null
     },
     {
         "surface": "desktop",
         "text": "Select or drag files, then click Send",
         "source": "desktop/frontend/src/App.tsx",
-        "anchor": null,
+        "anchor": "/desktop/sending#add-files",
         "why_no_home": null
     },
     {
@@ -4084,7 +4084,7 @@
         "surface": "desktop",
         "text": "Settings reset to defaults",
         "source": "desktop/frontend/src/App.tsx",
-        "anchor": null,
+        "anchor": "/desktop/settings#reset",
         "why_no_home": null
     },
     {
@@ -4098,7 +4098,7 @@
         "surface": "desktop",
         "text": "Share",
         "source": "desktop/frontend/src/components/SharePanel.tsx",
-        "anchor": null,
+        "anchor": "/desktop/sending#share-the-code-or-link",
         "why_no_home": null
     },
     {
@@ -4126,7 +4126,7 @@
         "surface": "desktop",
         "text": "Share links point to {host}, but transfers use Floe's server",
         "source": "desktop/frontend/src/settings.ts",
-        "anchor": null,
+        "anchor": "/desktop/settings#share-link-address",
         "why_no_home": null
     },
     {
@@ -4218,7 +4218,7 @@
         "text": "Stopped on this computer",
         "source": "desktop/frontend/src/errors.ts",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The Receive tab's wording for an engine sentence that only a request-link drop produces, and a drop shows its own request-link line instead, so Floe Desktop 0.3.1 never shows it."
     },
     {
         "surface": "desktop",
@@ -4378,7 +4378,7 @@
         "surface": "desktop",
         "text": "the server answered with an error this version of Floe does not know",
         "source": "desktop/transfer.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#the-server-answered-with-an-error-floe-does-not-know",
         "why_no_home": null
     },
     {
@@ -4414,7 +4414,7 @@
         "text": "The server only brokers the handshake",
         "source": "desktop/frontend/src/App.tsx",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The rail's decorative tile beside the transfer card, read with the rest of the window, not a message."
     },
     {
         "surface": "desktop",
@@ -4449,7 +4449,7 @@
         "text": "The transfer reached its 24-hour limit",
         "source": "desktop/frontend/src/errors.ts",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The Receive tab's wording for an engine sentence that only a request-link drop produces, and a drop shows its own request-link line instead, so Floe Desktop 0.3.1 never shows it."
     },
     {
         "surface": "desktop",
@@ -4463,7 +4463,7 @@
         "text": "The transfer was declined",
         "source": "desktop/frontend/src/errors.ts",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The Receive tab's wording for an engine sentence that only a request-link drop produces, and a drop shows its own request-link line instead, so Floe Desktop 0.3.1 never shows it."
     },
     {
         "surface": "desktop",
@@ -4609,7 +4609,7 @@
         "surface": "desktop",
         "text": "Type or paste text to send",
         "source": "desktop/frontend/src/App.tsx",
-        "anchor": null,
+        "anchor": "/desktop/sending#send-a-text-note",
         "why_no_home": null
     },
     {
@@ -4630,7 +4630,7 @@
         "surface": "desktop",
         "text": "Update available: Floe {version}. See Settings.",
         "source": "desktop/frontend/src/App.tsx",
-        "anchor": null,
+        "anchor": "/desktop/settings#check-for-updates",
         "why_no_home": null
     },
     {
@@ -4644,14 +4644,14 @@
         "surface": "desktop",
         "text": "Uses Floe's server unless you set your own",
         "source": "desktop/frontend/src/settings.ts",
-        "anchor": null,
+        "anchor": "/desktop/settings#advanced",
         "why_no_home": null
     },
     {
         "surface": "desktop",
         "text": "Uses {host}, so people on floe.one can't reach you",
         "source": "desktop/frontend/src/settings.ts",
-        "anchor": null,
+        "anchor": "/desktop/settings#server",
         "why_no_home": null
     },
     {
@@ -4834,7 +4834,7 @@
         "text": "a finished file could not be moved into place",
         "source": "cli/engine/transfer/refusal.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "A fragment of the line \"receive stopped: a finished file could not be moved into place\", which has its own row."
     },
     {
         "surface": "cli",
@@ -4910,21 +4910,21 @@
         "surface": "cli",
         "text": "cannot create temp file",
         "source": "cli/internal/selfupdate/selfupdate.go",
-        "anchor": null,
+        "anchor": "/cli/update#messages",
         "why_no_home": null
     },
     {
         "surface": "cli",
         "text": "cannot install new binary: {reason}",
         "source": "cli/internal/selfupdate/install.go",
-        "anchor": null,
+        "anchor": "/cli/update#messages",
         "why_no_home": null
     },
     {
         "surface": "cli",
         "text": "cannot locate current executable",
         "source": "cli/internal/selfupdate/selfupdate.go",
-        "anchor": null,
+        "anchor": "/cli/update#messages",
         "why_no_home": null
     },
     {
@@ -4938,14 +4938,14 @@
         "surface": "cli",
         "text": "cannot rename current binary: {reason}",
         "source": "cli/internal/selfupdate/install.go",
-        "anchor": null,
+        "anchor": "/cli/update#messages",
         "why_no_home": null
     },
     {
         "surface": "cli",
         "text": "cannot resolve executable path",
         "source": "cli/internal/selfupdate/selfupdate.go",
-        "anchor": null,
+        "anchor": "/cli/update#messages",
         "why_no_home": null
     },
     {
@@ -4987,7 +4987,7 @@
         "surface": "cli",
         "text": "Cannot transfer: your floe is too old for this peer. {rest} Update Floe to continue.",
         "source": "cli/engine/transfer/protocol.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#cannot-transfer-your-floe-is-too-old-for-this-peer",
         "why_no_home": null
     },
     {
@@ -5029,14 +5029,14 @@
         "surface": "cli",
         "text": "Checksum verified.",
         "source": "client/public/install.sh",
-        "anchor": null,
+        "anchor": "/cli/installation#one-line-installer",
         "why_no_home": null
     },
     {
         "surface": "cli",
         "text": "closed before the connection was established",
         "source": "cli/engine/peer/setuperror.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#webrtc-setup-failed",
         "why_no_home": null
     },
     {
@@ -5162,7 +5162,7 @@
         "surface": "cli",
         "text": "could not register code: {network reason}",
         "source": "cli/engine/code/client.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#warning-could-not-generate-short-code",
         "why_no_home": null
     },
     {
@@ -5176,7 +5176,7 @@
         "surface": "cli",
         "text": "curl -fsSL https://floe.one/install.sh | FLOE_VERSION=vX.Y.Z sh",
         "source": "client/public/install.sh",
-        "anchor": null,
+        "anchor": "/cli/installation#if-the-install-script-stops",
         "why_no_home": null
     },
     {
@@ -5190,7 +5190,7 @@
         "surface": "cli",
         "text": "Downloading floe {version} (windows/{arch})...",
         "source": "client/public/install.ps1",
-        "anchor": null,
+        "anchor": "/cli/installation#one-line-installer",
         "why_no_home": null
     },
     {
@@ -5225,7 +5225,7 @@
         "surface": "cli",
         "text": "Error: binary not found after extraction.",
         "source": "client/public/install.sh",
-        "anchor": null,
+        "anchor": "/cli/installation#if-the-install-script-stops",
         "why_no_home": null
     },
     {
@@ -5288,14 +5288,14 @@
         "surface": "cli",
         "text": "Error: could not resolve \"{input}\": invalid response from code API",
         "source": "cli/engine/code/client.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#invalid-response-from-code-api",
         "why_no_home": null
     },
     {
         "surface": "cli",
         "text": "Error: could not resolve \"{input}\": URL does not contain a room id (#room= or ?room=)",
         "source": "cli/engine/code/client.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#could-not-resolve-invalid-url",
         "why_no_home": null
     },
     {
@@ -5337,28 +5337,28 @@
         "surface": "cli",
         "text": "Error: error sending {name}: error reading file: {cause}",
         "source": "cli/engine/transfer/sender.go",
-        "anchor": null,
+        "anchor": "/cli/send#when-your-side-stops-it",
         "why_no_home": null
     },
     {
         "surface": "cli",
         "text": "Error: error sending {name}: failed to send chunk: {cause}",
         "source": "cli/engine/transfer/sender.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#connection-closed-mid-transfer-from-floe-send",
         "why_no_home": null
     },
     {
         "surface": "cli",
         "text": "Error: error sending {name}: failed to send metadata: {cause}",
         "source": "cli/engine/transfer/sender.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#connection-closed-mid-transfer-from-floe-send",
         "why_no_home": null
     },
     {
         "surface": "cli",
         "text": "Error: error sending {name}: receiver asked to resume at byte {n} of a {m}-byte file",
         "source": "cli/engine/transfer/sender.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#the-receiver-asked-to-resume",
         "why_no_home": null
     },
     {
@@ -5387,20 +5387,20 @@
         "text": "Error: expected sender role, got \"{role}\" (room may already have two peers)",
         "source": "cli/cmd/floe/send.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "A guard for a server that seats floe send in its brand-new random room as a receiver, which a Floe signaling server never does."
     },
     {
         "surface": "cli",
         "text": "Error: failed to check for updates: GitHub API returned {n}",
         "source": "cli/cmd/floe/update.go",
-        "anchor": null,
+        "anchor": "/cli/update#messages",
         "why_no_home": null
     },
     {
         "surface": "cli",
         "text": "Error: failed to check for updates: {cause}",
         "source": "cli/cmd/floe/update.go",
-        "anchor": null,
+        "anchor": "/cli/update#messages",
         "why_no_home": null
     },
     {
@@ -5428,7 +5428,7 @@
         "surface": "cli",
         "text": "Error: failed to create peer connection: {reason}",
         "source": "cli/cmd/floe/send.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#webrtc-setup-failed",
         "why_no_home": null
     },
     {
@@ -5436,7 +5436,7 @@
         "text": "Error: failed to fetch ICE credentials: {reason}",
         "source": "cli/cmd/floe/send.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "A guard for an error the relay-details lookup never returns: on any failure it prints a \"Warning: ... Using STUN only.\" line and carries on, and those lines have their own rows."
     },
     {
         "surface": "cli",
@@ -5456,7 +5456,7 @@
         "surface": "cli",
         "text": "Error: receiver discarded a file: incomplete file \"{name}\": received {n} of {m} bytes",
         "source": "cli/engine/transfer/receiver.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#a-banner-that-starts-with-receiver",
         "why_no_home": null
     },
     {
@@ -5470,14 +5470,14 @@
         "surface": "cli",
         "text": "Error: rejected the sender's control message: {n} bytes, limit {n}",
         "source": "cli/engine/transfer/receiver.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#receive-stopped-path-too-deep-or-too-long",
         "why_no_home": null
     },
     {
         "surface": "cli",
         "text": "Error: rejected the sender's file description: batch size {n} is smaller than the file size {m}",
         "source": "cli/engine/transfer/receiver.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#rejected-the-senders-file-description",
         "why_no_home": null
     },
     {
@@ -5505,7 +5505,7 @@
         "surface": "cli",
         "text": "Error: the sender's copy of \"{name}\" changed while it was being sent, so nothing further was sent",
         "source": "cli/engine/transfer/sender.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#the-sender-stopped",
         "why_no_home": null
     },
     {
@@ -5533,21 +5533,21 @@
         "surface": "cli",
         "text": "Error: update failed: checksum not found in checksums.txt for {archive}",
         "source": "cli/internal/selfupdate/download.go",
-        "anchor": null,
+        "anchor": "/cli/update#messages",
         "why_no_home": null
     },
     {
         "surface": "cli",
         "text": "Error: update failed: failed to fetch checksums: HTTP {n} fetching {address}",
         "source": "cli/internal/selfupdate/selfupdate.go",
-        "anchor": null,
+        "anchor": "/cli/update#messages",
         "why_no_home": null
     },
     {
         "surface": "cli",
         "text": "Error: update failed: permission denied writing to {dir}",
         "source": "cli/internal/selfupdate/install.go",
-        "anchor": null,
+        "anchor": "/cli/update#messages",
         "why_no_home": null
     },
     {
@@ -5561,14 +5561,14 @@
         "surface": "cli",
         "text": "Error: WebRTC setup failed: failed to create data channel",
         "source": "cli/engine/peer/connection.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#webrtc-setup-failed",
         "why_no_home": null
     },
     {
         "surface": "cli",
         "text": "Error: WebRTC setup failed: failed to set remote description: {text from the WebRTC library}",
         "source": "cli/engine/peer/connection.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#webrtc-setup-failed",
         "why_no_home": null
     },
     {
@@ -5576,7 +5576,7 @@
         "text": "Error: WebRTC setup failed: signaling closed before offer was received",
         "source": "cli/engine/peer/connection.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "A guard that no released build can reach: the connection details it waits for arrive on a channel that is never closed, so a lost server connection ends the setup with \"the connection to the server was lost before the peer connected\" instead, which has its own row."
     },
     {
         "surface": "cli",
@@ -5603,21 +5603,21 @@
         "surface": "cli",
         "text": "Extracting...",
         "source": "client/public/install.ps1",
-        "anchor": null,
+        "anchor": "/cli/installation#one-line-installer",
         "why_no_home": null
     },
     {
         "surface": "cli",
         "text": "failed to create answer",
         "source": "cli/engine/peer/connection.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#webrtc-setup-failed",
         "why_no_home": null
     },
     {
         "surface": "cli",
         "text": "failed to create offer",
         "source": "cli/engine/peer/connection.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#webrtc-setup-failed",
         "why_no_home": null
     },
     {
@@ -5625,55 +5625,55 @@
         "text": "failed to seek to offset: {rest}",
         "source": "cli/engine/transfer/sender.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "floe send's error for a failed jump to a position partway into a file, which runs only when the receiver asks to resume, and no Floe receiver does; a receiver that asks for a position outside the file gets the \"receiver asked to resume\" row instead."
     },
     {
         "surface": "cli",
         "text": "failed to send answer",
         "source": "cli/engine/peer/connection.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#webrtc-setup-failed",
         "why_no_home": null
     },
     {
         "surface": "cli",
         "text": "failed to send chunk: {rest}",
         "source": "cli/engine/transfer/sender.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#connection-closed-mid-transfer-from-floe-send",
         "why_no_home": null
     },
     {
         "surface": "cli",
         "text": "failed to send metadata: {rest}",
         "source": "cli/engine/transfer/sender.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#connection-closed-mid-transfer-from-floe-send",
         "why_no_home": null
     },
     {
         "surface": "cli",
         "text": "failed to send offer",
         "source": "cli/engine/peer/connection.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#webrtc-setup-failed",
         "why_no_home": null
     },
     {
         "surface": "cli",
         "text": "failed to set local description",
         "source": "cli/engine/peer/connection.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#webrtc-setup-failed",
         "why_no_home": null
     },
     {
         "surface": "cli",
         "text": "Fetching latest version...",
         "source": "client/public/install.ps1",
-        "anchor": null,
+        "anchor": "/cli/installation#one-line-installer",
         "why_no_home": null
     },
     {
         "surface": "cli",
         "text": "Fetching latest version... {version}",
         "source": "client/public/install.sh",
-        "anchor": null,
+        "anchor": "/cli/installation#one-line-installer",
         "why_no_home": null
     },
     {
@@ -5701,7 +5701,7 @@
         "surface": "cli",
         "text": "invalid response from code API",
         "source": "cli/engine/code/client.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#invalid-response-from-code-api",
         "why_no_home": null
     },
     {
@@ -5737,7 +5737,7 @@
         "text": "nobody answered in time",
         "source": "cli/engine/transfer/refusal.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "A fragment of the line \"receive stopped: nobody answered in time\", which has its own row."
     },
     {
         "surface": "cli",
@@ -5779,7 +5779,7 @@
         "text": "peer rejected transfer: protocol incompatible",
         "source": "cli/engine/transfer/protocol.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The fallback for a stop frame that carries neither a reason nor a code. Every Floe app puts at least one of the two in it, so floe never prints this to a Floe peer."
     },
     {
         "surface": "cli",
@@ -5793,7 +5793,7 @@
         "text": "receive stopped",
         "source": "cli/engine/transfer/refusal.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The engine's sentence for a refusal with no code, which only a hand-built value can carry; floe receive never prints it."
     },
     {
         "surface": "cli",
@@ -5814,49 +5814,49 @@
         "text": "receive stopped: a finished file could not be moved into place",
         "source": "cli/engine/transfer/refusal.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "A sentence no released build prints: a file that cannot take its final name ends floe receive with \"received a file in full but could not finish saving it; ...\", which has its own row."
     },
     {
         "surface": "cli",
         "text": "receive stopped: more data arrived than this transfer announced",
         "source": "cli/engine/transfer/refusal.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The engine's sentence for a refusal that only a Floe Desktop request link makes. floe receive never stops with it, and the request link shows its own line for the code instead."
     },
     {
         "surface": "cli",
         "text": "receive stopped: nobody answered in time",
         "source": "cli/engine/transfer/refusal.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The engine's sentence for a refusal that only a Floe Desktop request link makes. floe receive never stops with it, and the request link shows its own line for the code instead."
     },
     {
         "surface": "cli",
         "text": "receive stopped: relayed transfers are capped at 2 GB",
         "source": "cli/engine/transfer/refusal.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The engine's sentence for a refusal that only a Floe Desktop request link makes. floe receive never stops with it, and the request link shows its own line for the code instead."
     },
     {
         "surface": "cli",
         "text": "receive stopped: the transfer reached its 24-hour limit",
         "source": "cli/engine/transfer/refusal.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The engine's sentence for a refusal that only a Floe Desktop request link makes. floe receive never stops with it, and the request link shows its own line for the code instead."
     },
     {
         "surface": "cli",
         "text": "receive stopped: the transfer was declined",
         "source": "cli/engine/transfer/refusal.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The engine's sentence for a refusal that only a Floe Desktop request link makes. floe receive never stops with it, and the request link shows its own line for the code instead."
     },
     {
         "surface": "cli",
         "text": "receive stopped: the transfer was stopped on this computer",
         "source": "cli/engine/transfer/refusal.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The engine's sentence for a refusal that only a Floe Desktop request link makes. floe receive never stops with it, and the request link shows its own line for the code instead."
     },
     {
         "surface": "cli",
@@ -5876,7 +5876,7 @@
         "surface": "cli",
         "text": "receiver asked to resume at byte {n} of a {m}-byte file",
         "source": "cli/engine/transfer/sender.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#the-receiver-asked-to-resume",
         "why_no_home": null
     },
     {
@@ -5891,13 +5891,13 @@
         "text": "receiver stopped because of an internal error",
         "source": "client/lib/transfer/receiver.ts",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The reason a browser receiver sends with its write-failed code. floe send reads the code and prints its own sentence, \"Their computer could not save a file.\", which has its own row."
     },
     {
         "surface": "cli",
         "text": "rejected the sender's control message: {n} bytes, limit {n}",
         "source": "cli/engine/transfer/receiver.go",
-        "anchor": null,
+        "anchor": "/troubleshooting#receive-stopped-path-too-deep-or-too-long",
         "why_no_home": null
     },
     {
@@ -5919,7 +5919,7 @@
         "text": "relayed transfers are capped at 2 GB",
         "source": "cli/engine/transfer/refusal.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "A fragment of the line \"receive stopped: relayed transfers are capped at 2 GB\", which has its own row."
     },
     {
         "surface": "cli",
@@ -5940,7 +5940,7 @@
         "text": "room is full",
         "source": "cli/cmd/floe/send.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "A guard for a server that calls the brand-new random room of floe send full, which a Floe signaling server never does. floe receive's \"room is full\" line has its own row."
     },
     {
         "surface": "cli",
@@ -5995,7 +5995,7 @@
         "surface": "cli",
         "text": "Set FLOE_VERSION=vX.Y.Z to install a specific version, e.g.:",
         "source": "client/public/install.sh",
-        "anchor": null,
+        "anchor": "/cli/installation#if-the-install-script-stops",
         "why_no_home": null
     },
     {
@@ -6003,14 +6003,14 @@
         "text": "signaling closed before answer was received",
         "source": "cli/engine/peer/connection.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "A guard that no released build can reach: the connection details it waits for arrive on a channel that is never closed, so a lost server connection ends the setup with \"the connection to the server was lost before the peer connected\" instead, which has its own row."
     },
     {
         "surface": "cli",
         "text": "signaling closed before offer was received",
         "source": "cli/engine/peer/connection.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "A guard that no released build can reach: the connection details it waits for arrive on a channel that is never closed, so a lost server connection ends the setup with \"the connection to the server was lost before the peer connected\" instead, which has its own row."
     },
     {
         "surface": "cli",
@@ -6129,21 +6129,21 @@
         "text": "the transfer reached its 24-hour limit",
         "source": "cli/engine/transfer/refusal.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "A fragment of the line \"receive stopped: the transfer reached its 24-hour limit\", which has its own row."
     },
     {
         "surface": "cli",
         "text": "the transfer was declined",
         "source": "cli/engine/transfer/refusal.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "A fragment of the line \"receive stopped: the transfer was declined\", which has its own row."
     },
     {
         "surface": "cli",
         "text": "the transfer was stopped on this computer",
         "source": "cli/engine/transfer/refusal.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "A fragment of the line \"receive stopped: the transfer was stopped on this computer\", which has its own row."
     },
     {
         "surface": "cli",
@@ -6283,7 +6283,7 @@
         "text": "too many files named like \"{name}\"",
         "source": "cli/engine/transfer/partial.go",
         "anchor": null,
-        "why_no_home": null
+        "why_no_home": "The cause floe receive keeps inside its write error and never prints: the receive ends with \"write error: could not finish writing a file, so it was not kept\", or, when it happens as a finished file is saved, with \"received a file in full but could not finish saving it; the complete file was kept in the save folder with a .part ending\". Each has its own row."
     },
     {
         "surface": "cli",
@@ -6296,7 +6296,7 @@
         "surface": "cli",
         "text": "Transfer blocked: relay connections are capped at 2 GB. Ask the sender to send 2 GB or less, or to try a network that allows a direct connection.",
         "source": "client/components/P2PTransfer.tsx",
-        "anchor": null,
+        "anchor": "/troubleshooting#relay-connections-are-capped-at-2-gb",
         "why_no_home": null
     },
     {
@@ -6338,7 +6338,7 @@
         "surface": "cli",
         "text": "Verifying checksum...",
         "source": "client/public/install.ps1",
-        "anchor": null,
+        "anchor": "/cli/installation#one-line-installer",
         "why_no_home": null
     },
     {
@@ -6464,7 +6464,7 @@
         "surface": "cli",
         "text": "{dir} is not writable; requesting sudo to install the update...",
         "source": "cli/internal/selfupdate/install.go",
-        "anchor": null,
+        "anchor": "/cli/update#script-and-manual-installs",
         "why_no_home": null
     },
     {
@@ -6478,7 +6478,7 @@
         "surface": "server",
         "text": "Bad Request",
         "source": "server/server.js",
-        "anchor": null,
+        "anchor": "/reference/http-api#behavior-shared-by-every-endpoint",
         "why_no_home": null
     },
     {
@@ -6534,7 +6534,7 @@
         "surface": "server",
         "text": "HTTP/1.1 400 Bad Request",
         "source": "server/server.js",
-        "anchor": null,
+        "anchor": "/reference/http-api#behavior-shared-by-every-endpoint",
         "why_no_home": null
     },
     {
@@ -6674,7 +6674,7 @@
         "surface": "server",
         "text": "Signaling server for the Floe encrypted peer-to-peer file transfer app. Install this template before Floe-Client. File data does not pass through this server.",
         "source": "unraid/floe-server.xml",
-        "anchor": null,
+        "anchor": "/self-hosting/unraid#add-the-templates-to-unraid",
         "why_no_home": null
     },
     {
@@ -6737,7 +6737,7 @@
         "surface": "server",
         "text": "Web client for Floe encrypted peer-to-peer file transfer. Install Floe-Server first, then set that server template's Client URL to this app's exact browser origin.",
         "source": "unraid/floe-client.xml",
-        "anchor": null,
+        "anchor": "/self-hosting/unraid#add-the-templates-to-unraid",
         "why_no_home": null
     },
     {

@@ -82,9 +82,10 @@ export default function SharePanel({code, link}: {code: string; link: string}) {
                     <QrCode className="h-3.5 w-3.5"/>
                     {qrOpen ? 'Hide QR' : 'Show QR'}
                 </button>
-                {/* Web Share needs webview support: WebView2 (Windows) does not expose
-                    it today, so this renders only where the API exists — the same
-                    feature gate as the browser app. */}
+                {/* Renders only where the Web Share API exists, the same feature
+                    gate as the browser app. WebView2 on Windows has it, so the
+                    shipped app shows Share beside Show QR (the Store screenshots
+                    stub navigator.share to leave it out). */}
                 {typeof navigator.share === 'function' && (
                     <button onClick={share} aria-label="Share link" className={cn(actionBtn, 'w-20', actionIdle)}>
                         <Share2 className="h-3.5 w-3.5"/>

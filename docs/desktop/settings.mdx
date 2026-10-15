@@ -337,6 +337,10 @@ app, and the link would be dead.
 **Test** does not check this address, and saving does not either, so a wrong one gives share links that lead
 nowhere with nothing to flag it. Open one of your share links in a browser to check it.
 
+While this address is set and **Server address** is empty, the **Server** row's line reads, for example,
+"Share links point to app.example.com, but transfers use Floe's server". That is a reminder that both people
+still meet on Floe's own server.
+
 [Request links](/desktop/request-links) are built on the same address. A link that is already open keeps the
 address it was made with.
 
@@ -407,8 +411,9 @@ server settings go back to defaults". It names what you would notice. A save fol
 global stats turns back on". Its last line reads "History, received files and the right-click menu stay as they are". The
 buttons are **Cancel** and **Reset all settings**.
 
-A reset that worked shows no message: the switches change and the dialog closes. If Floe cannot save the
-settings, the dialog shows `Error: could not save settings.` followed by the reason.
+A reset that worked shows no message: the switches change and the dialog closes, and a screen reader
+announces "Settings reset to defaults". If Floe cannot save the settings, the dialog shows
+`Error: could not save settings.` followed by the reason.
 
 It deliberately leaves alone:
 
@@ -442,6 +447,11 @@ Three keys are stored the other way around: `noUpdateCheck`, `noToasts` and `sil
 updates**, **Show notifications** and **Play sound** turned off, so `false` is the default for all three. Floe
 replaces the file in one step, so a crash in the middle of a save cannot damage it. While a save runs, a
 `desktop.json.tmp` sits beside it for a moment.
+
+If Floe cannot write the file when it saves an address, **Hide my IP address** or **Contribute to global
+stats**, the line under **Advanced** reads `Error: could not save settings.` followed by the reason. Floe
+goes on using the addresses it saved last, and a switch keeps its new position until Floe closes. Make sure you can write to `%APPDATA%\floe`, for example that the
+drive is not full, then change the setting again.
 
 If you edit it by hand:
 

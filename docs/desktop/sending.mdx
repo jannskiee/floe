@@ -174,6 +174,9 @@ a green check for 1.5 seconds. A share link looks like `https://floe.one/?s=<8 c
 The `s` value carries no information: it only makes each link a new page, so a phone that already has Floe
 open joins the new room.
 
+**Share**, beside **Show QR**, opens the Windows share window with the share link. If sharing fails, Floe
+copies the link instead.
+
 A phone receives in its browser. On iOS, tell them to use **Download ZIP** rather than saving files one at a
 time, which behaves inconsistently there. See [Receiving files](/web-app/receiving).
 
@@ -254,8 +257,9 @@ waking, the status line usually reads `Error: The connection dropped before the 
 the files that did not arrive again. See
 [A device that sleeps ends the transfer](/how-it-works/known-limitations#a-device-that-sleeps).
 
-While a send waits or runs, the line under the card reads "Keep this window open until it's done". Closing
-the window then asks first, in a dialog titled **Close Floe?** that reads "Closing now stops the transfer and
+While no send, receive or request-link drop is running, the line under the card reads "End-to-end
+encrypted, never stored on a server". While a send waits or runs, it reads "Keep this window open until
+it's done", and closing the window then asks first, in a dialog titled **Close Floe?** that reads "Closing now stops the transfer and
 they get nothing". **Keep open** (or `Esc`) goes back, and **Close** stops the transfer and quits Floe. The
 dialog covers the title bar's close button, `Alt` `F4` and the taskbar's **Close**, and it goes away by
 itself if the transfer ends first.

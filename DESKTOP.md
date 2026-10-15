@@ -114,8 +114,8 @@ go.work                joins cli + desktop into one workspace, active for every 
       dashed drop zone, mono room code + copy-link, polished progress/status (the verify
       row was later removed, see 3a), and a
       QR panel behind a Show QR toggle (react-qr-code; shipped, the earlier "deferred" note
-      was stale). No Share button on Windows: WebView2 does not expose `navigator.share`,
-      and the button is feature-gated on it.
+      was stale). A Share button sits beside it, feature-gated on `navigator.share` as on the
+      web; WebView2 on Windows has the Web Share API, so the shipped app shows it.
 - [x] Folder sends, a "Browse" save-folder picker, and "Show in folder" after receive
 - [x] OS notifications on transfer complete / failure. On Windows every one goes out through
       go-toast's COM path (`toast_windows.go`), never through Wails' own notification, which adds a

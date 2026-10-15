@@ -514,6 +514,7 @@ rejected the transfer." These are the ones you are likely to meet:
 | “receiver rejected the file description: control message is ... bytes, limit 1000” | A file's name is so long that its description is over 1,000 bytes. | Rename the file to something shorter, then send again. |
 | “receiver could not move a finished file into place” | The file arrived whole, but another program on their computer was holding it. | Ask them to remove the `.part` ending from that file, then send the rest. |
 | “receiver discarded a file: Incomplete file ...” or “receiver discarded a file: incomplete file ...” | A file arrived shorter or longer than your page announced. | Send it again. If it was still being written, wait until it stops changing. |
+| “receiver cannot store a file path that is not relative to its save folder” | A file's name starts the way a drive or a top folder does, such as `C:\` or `\notes\a.txt`, so their app will not save it. | Rename the file, then send again. |
 
 A banner that starts "receiver" and is not listed here means the same thing: the receiving app
 stopped on purpose. Start a new transfer once the cause it names is dealt with. Nothing resumes.
@@ -544,6 +545,9 @@ at a position outside it, which means that app is faulty or modified. Trying aga
 receiving app fails the same way. Ask the other person to update Floe, or to receive with another
 Floe app.
 
+`floe send` stops the same way, after `error sending` and the file's name, with
+`receiver asked to resume at byte 4096 of a 2048-byte file`. The fix is the same.
+
 ### "Connection failed. Reload the page to try again" or "Ask the other device to open the link again" {#connection-error}
 
 The connection failed in a way Floe has no closer wording for. On the page you receive on it shows
@@ -551,6 +555,13 @@ before any file has finished arriving, and reads "Connection failed. Reload the 
 If it fails again, ask the sender for a new link." On the page you send from it shows before any
 file has started moving, and reads "Connection failed. Ask the other device to open the link
 again. If it fails again, reload the page, add the files again, and share the new link."
+
+On the page you send from, the status line under the share link reads "Connection failed" with this
+banner. It reads the same with
+["Connection failed. This link was made with Network relay fallback off."](#connection-failed-enable-network-relay-to-connect-across-restrictive-networks)
+and with
+["Connection lost. The other device may have closed the tab."](#connection-lost-the-other-device-may-have-closed-the-tab).
+The banner is the part that says what to do.
 
 Do what the sentence says. If it repeats on a new link, report it: see [Still stuck](#still-stuck).
 
@@ -625,6 +636,7 @@ two-space indent, with no prefix. `Ctrl+C` prints `Canceled.` and exits with sta
 | [`server returned 429 when resolving code`](#server-returned-429-when-resolving-code), from `floe receive` | Too many wrong codes from your network in a minute. | Wait a minute, check the code, try again. |
 | [`This link looks incomplete`](#this-link-looks-incomplete), from `floe receive` or `floe send --to` | The link was cut short or mistyped. | Copy the whole link again, in quotes. |
 | [`invalid URL` or `URL does not contain a room id`](#could-not-resolve-invalid-url), from `floe receive` | What you pasted is not a usable room link. | Paste the whole link, or type the code. |
+| [`invalid response from code API`](#invalid-response-from-code-api), from `floe receive` or `floe send` | Something other than a Floe server answered about the code. | With `floe receive`, paste the link instead. Check the server address. |
 | [`this code or link is no longer active`](#this-code-is-no-longer-active-ask-for-a-new-one), from `floe receive` | The sender is no longer in the transfer. | Ask for a new code or link. |
 | [`room is full`](#room-is-full-someone-else-may-already-be-receiving), from `floe receive` | Someone else already joined this transfer. | Ask for a transfer of your own. |
 | [`That link is for another Floe server`](#that-link-is-for-another-floe-server), from `floe receive` | The link and your `--server` setting disagree. | Do what the line says. |
@@ -639,6 +651,7 @@ two-space indent, with no prefix. `Ctrl+C` prints `Canceled.` and exits with sta
 | [`timed out establishing a connection`](#timed-out-establishing-a-connection) | No network path worked within 30 seconds. | Allow the relay on both sides. |
 | [`the other side left before the connection was established`](#the-other-side-left-before-the-connection-was-established) | The other person left while connecting. | Run it again when they are ready. |
 | [`the connection to the server was lost before the peer connected`](#the-connection-to-the-server-was-lost-before-the-peer-connected) | Your own connection to the server closed. | Check your network, then run it again. |
+| [`WebRTC setup failed:` and another reason](#webrtc-setup-failed), or `failed to create peer connection` | One step of setting up the connection failed. | Do what the entry says for that step. |
 | [A long wait with a VPN or virtual machine](#slow-to-connect-when-a-vpn-or-virtual-machine-is-running) | `floe` tries every network interface. | Pin the interface with `--iface`. |
 | [`connected, but no data arrived from the sender within 30s`](#connected-but-no-data-arrived-from-the-sender-within-30s) | The sender's app stalled after connecting. | Ask for a new transfer. |
 | [`timed out waiting for ack`](#timed-out-waiting-for-ack), from `floe send` | The receiver did not take the file within 2 minutes. | Ask them to be ready, then send again. |
@@ -737,6 +750,17 @@ like a link but cannot be read as one. `URL does not contain a room id` means th
 page with no room in it, such as the home page.
 
 Paste the whole link from the sender, or type the code.
+
+### `invalid response from code API` {#invalid-response-from-code-api}
+
+From `floe receive`, after `could not resolve` and the code. `floe send` prints it too, after
+`Warning: could not generate short code: `, and carries on with the link alone. Something answered
+at the server address, but not with a room: for example a reverse proxy that answers `/api/` with a
+page of its own and status 200.
+
+With `floe receive`, paste the sender's link instead: a link needs no code lookup. Check `--server`
+and `FLOE_SERVER` for a typo. On your own server, make the reverse proxy forward `/api/` to the
+signaling server.
 
 ### `this code or link is no longer active; ask the sender for a new one` {#this-code-is-no-longer-active-ask-for-a-new-one}
 
@@ -933,6 +957,22 @@ Check your network, then run the command again. With `floe receive`, use the lin
 code. With `floe send`, share the new code and link it prints. On a self-hosted server, check that
 the server is still running.
 
+### `WebRTC setup failed:` and another reason {#webrtc-setup-failed}
+
+From `floe send` or `floe receive`, while connecting, for a reason the entries above do not cover.
+Each line names the step that failed:
+
+| Line | What it means | What to do |
+|---|---|---|
+| `WebRTC setup failed: failed to set remote description:` and the [WebRTC](/glossary#webrtc) library's words | The connection details the other app sent could not be used. No current Floe app sends details like that. | Ask the other person to update Floe, or to use another Floe app. |
+| `WebRTC setup failed: failed to send offer:` or `failed to send answer:`, and a reason | The connection to the server closed while `floe` was handing over its connection details. | Check your network, then run the command again. |
+| `WebRTC setup failed: failed to create data channel:`, `failed to create offer:`, `failed to create answer:` or `failed to set local description:`, and a reason | `floe` could not set up its own side of the connection. | Run the command again. If it repeats, report it. |
+| `failed to create peer connection:` and a reason, with no `WebRTC setup failed:` in front | `floe` could not set up its side of the connection, usually because a relay address the server handed out is not valid. | Run the command again. On your own server, check that `TURN_DOMAIN` is a bare hostname such as `turn.example.com`, with no `https://`. |
+| `closed before the connection was established`, also with no `WebRTC setup failed:` in front | The connection was closed on this computer before the two devices finished connecting, for example because the other app opened a second channel, which no Floe app does. | Run the command again. If it repeats with the same person, ask them to update Floe. |
+
+Floe Desktop can show `failed to create peer connection:` as well, after `Error: `. The same fix
+applies.
+
 ### Slow to connect when a VPN or virtual machine is running {#slow-to-connect-when-a-vpn-or-virtual-machine-is-running}
 
 In `floe send` or `floe receive`: a long wait while connecting, with no error. A VPN such as
@@ -1059,6 +1099,7 @@ its tab in the middle of a file, or lost its network. The same event can read an
 
 - `connection closed mid-transfer (1048576 bytes still buffered)`
 - `failed to send chunk:` and a reason
+- `failed to send metadata:` and a reason, when the connection closed just as a file was announced
 - `backpressure stall: peer not draining (1048576 bytes buffered)`
 
 After the last file, to a receiver that does not confirm delivery, such as a browser, it reads
@@ -1285,6 +1326,7 @@ Request-link messages carry no prefix.
 | [“room is full”](#room-is-full-someone-else-may-already-be-receiving), **Receive** | Someone else already joined this transfer. | Ask for a transfer of your own. |
 | [“Can't reach the server”](#could-not-reach-the-server), **Send** or **Receive** | The app lost, or never had, its connection to the server. | Check your network and the **Server address**. |
 | [“The server is limiting connections from this network. Wait a minute and try again”](#the-server-is-limiting-connections-from-this-network), **Send** or **Receive** | Too many new connections from your network in a minute. | Wait a minute, then try again. |
+| [“the server answered with an error this version of Floe does not know”](#the-server-answered-with-an-error-floe-does-not-know), **Send** or **Receive** | The server refused the transfer with an error no Floe server sends. | Check the **Server address** with **Test**. |
 | [“The receiver left before it started”](#the-receiver-left-before-it-started), **Send** | Someone joined with your code or link and left again. | Click **Send** again for a new code and link. |
 | [“They left before the connection was made”](#they-left-before-the-connection-was-made), **Send** or **Receive** | The other person left while connecting. | Start again when they are ready. |
 | [“Couldn't connect the two devices”](#could-not-connect-the-two-devices), **Send** or **Receive** | No network path worked within 30 seconds. | Ask the other side to allow the relay. |
@@ -1376,6 +1418,17 @@ address. Floe Desktop 0.3.0 showed this as
 
 Wait a minute and try again. If it keeps happening on your own server, see
 [429, or "Rate limit exceeded"](#429-or-rate-limit-exceeded).
+
+### "the server answered with an error this version of Floe does not know" {#the-server-answered-with-an-error-floe-does-not-know}
+
+On the **Send** or **Receive** tab, after `Error: `, while Floe joins the transfer or waits for the
+other person. The server turned the transfer away with an error of its own. A Floe signaling server
+sends only one error at that step, for a link whose room id is not valid, and Floe Desktop has its
+own line for that one. So this points at a **Server address** that is not a Floe signaling server.
+Floe Desktop never shows the server's own words.
+
+If you set a **Server address** in Settings, check it with **Test**, or clear it to go back to Floe's
+server.
 
 ### "The receiver left before it started" {#the-receiver-left-before-it-started}
 
@@ -1472,6 +1525,7 @@ that reason as its own line:
 | `Error: Their computer could not save a file` | A write failed on their side. From a browser, it ran out of memory or hit an error. | Ask them to choose another folder, or to receive with Floe Desktop or `floe receive`. |
 | `Error: A folder path is too long for their computer. Zip deeply nested folders first` | A file sits too many folders deep, or its path is too long, for their computer. | Zip deeply nested folders, then send the zip. |
 | `Error: A file is too large for the drive they save to` | A file is 4 GB or larger, and their drive holds just under 4 GB per file, as FAT32 drives do. | Ask them to save to another drive. |
+| `Error: A file arrived but their computer blocked saving it` | The file arrived whole, but it could not take its final name, usually because another program was holding it. It stays there with a `.part` ending. | Ask them to remove the `.part` ending from that file, then send the rest. |
 
 Floe Desktop 0.3.0 showed each of these after `Error: transfer failed: `. Files they had already
 saved stay saved, and nothing resumes.

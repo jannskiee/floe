@@ -279,6 +279,7 @@ The script ends with one of these and installs nothing:
 | `Unsupported architecture:` and a name | Releases are built for 64-bit Intel and ARM only. A 32-bit PowerShell reports `x86`. | Use `go install` or build from source. On Windows, run the 64-bit PowerShell. |
 | `Could not determine latest version.` | The script could not read the newest release from GitHub: no connection, a proxy, or GitHub's limit on requests made without an account. | Try again later, or set `FLOE_VERSION` to a release tag, as the message shows. |
 | `Checksum verification failed!`, then `Expected:` and `Got:` lines (`Checksum verification failed.` in PowerShell) | The download did not match `checksums.txt`. | Run the script again. |
+| `Error: binary not found after extraction.` | The macOS and Linux script unpacked the archive and found no `floe` file in it. | Run the script again. If it repeats, [install from a release archive](#install-from-a-release-archive) by hand. |
 
 A `FLOE_VERSION` that names no release stops the script right after its `Downloading` line, with
 the download tool's own error, such as a 404. In PowerShell, a GitHub that cannot be reached ends

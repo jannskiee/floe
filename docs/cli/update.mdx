@@ -136,11 +136,15 @@ Each of these ends `floe update` with status 1, and nothing is installed:
 | `Error: Cannot update a dev build.` | This `floe` was built from source or with `go install`. | Install a release build. See [`Cannot update a dev build.`](/troubleshooting#cannot-update-a-dev-build) |
 | ``Error: installed via homebrew - run `brew upgrade floe` to update`` | A package manager owns this `floe`. The line names `scoop` or `winget` when one of those does. | Run the command it names. See [`installed via homebrew`](/troubleshooting#installed-via-homebrew-run-brew-upgrade-floe-to-update) |
 | `Error: failed to check for updates: GitHub API returned 403` | GitHub turned the request away, for example because of its limit on requests made without an account, which a shared network or a CI runner reaches quickly. | Try again later, or download the release by hand: see [Install from a release archive](/cli/installation#install-from-a-release-archive). |
+| `Error: failed to check for updates:` and another cause | `floe` could not reach GitHub, or could not read its answer, for example while offline or behind a proxy. | Check your connection, then try again. |
 | `Error: update failed: checksum mismatch for floe_X.Y.Z_linux_amd64.tar.gz:`, then an `expected` and a `got` line | The download did not match the release's `checksums.txt`. | Run `floe update` again. |
 | `Error: update failed: checksum not found in checksums.txt for floe_X.Y.Z_linux_amd64.tar.gz` | The release lists no checksum for your archive, and `floe update` installs nothing without one. | Install that release another way, such as the install script. |
 | `Error: update failed: download failed:` or `failed to fetch checksums:`, and the cause | The archive or `checksums.txt` could not be downloaded, for example `HTTP 404`. | Check your connection, then try again. |
 | `Error: update failed: /usr/local/bin is not writable and sudo is not available; re-run as root, or reinstall with the install script` | The folder that holds `floe` is not yours to write to, and the machine has no `sudo`. | Do what the line says. |
+| `Error: update failed: permission denied writing to /usr/local/bin` | You ran `floe update` as root, and the system still refused a write into the folder that holds `floe`. | Find out what protects that folder. |
 | `Error: update failed: cannot rename current binary:` and the cause | On Windows, `floe` could not move its own running file aside. | Try again. If it keeps failing, run the install script instead. |
+| `Error: update failed: cannot install new binary:` and the cause | On Windows, `floe` moved its running file aside but could not move the new one into place, and tried to put the old one back. | Try again. If it keeps failing, run the install script instead. |
+| `Error: update failed: cannot create temp file:`, `cannot locate current executable:` or `cannot resolve executable path:`, and the cause | `floe` could not make a file in your temporary folder, or could not find the file it runs from. | Check that the drive with your temporary folder has space, then try again. If it keeps failing, run the install script instead. |
 
 ## The update hint
 
