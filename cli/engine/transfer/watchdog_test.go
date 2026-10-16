@@ -378,7 +378,7 @@ func TestSenderAckWaitArmsNothingElse(t *testing.T) {
 	ackLabel := at("\nackLoop:")
 	breakAck := at("break ackLoop")
 	step3 := at("// Step 3: Send binary chunks")
-	backpressure := at("case <-time.After(60 * time.Second):")
+	backpressure := at("backpressureStall := time.NewTimer(")
 	if !(deadline < ackLabel && ackLabel < breakAck && breakAck < step3 && step3 < backpressure) {
 		t.Fatal("the ack deadline, the ack loop and the backpressure wait are no longer in that order; re-anchor this test")
 	}

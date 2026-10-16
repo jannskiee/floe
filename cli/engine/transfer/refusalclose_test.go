@@ -13,12 +13,15 @@ package transfer
 // the first message and then blocks, so nothing drains the sender's buffer;
 // the frames the sender reads come from test-owned Messages and Closed
 // channels, so the refusal and the close are made ready exactly together.
+// Two more pin the backpressure wait with no close at all (TL-16): a refusal
+// alone must end it, and other frames must not restart its stall window.
 
 import (
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -271,24 +274,48 @@ func TestSenderReportsARefusalThatArrivesWithTheCloseAtTheEndMarkerSend(t *testi
 	}
 }
 
-// The backpressure wait: the receiver has accepted and then stopped reading,
-// so the sender is parked on a full buffer when the refusal and the close
-// arrive together. Before the fix that wait never read the receiver's frames,
-// so every run reported "connection closed mid-transfer".
-func TestSenderReportsARefusalThatArrivesWithTheCloseDuringBackpressure(t *testing.T) {
+// blockedSend is a send of a 24 MiB file to newBlockingPair's receiver with
+// its metadata acked, so the sender fills the buffer and parks in the
+// backpressure wait. The test owns the sender's Messages (msgs) and its
+// Closed (closeChannel). A cleanup closes Closed if the test did not and waits
+// for the send to return, so no send outlives its test or races the restore
+// of a package variable the test swapped before starting it.
+type blockedSend struct {
+	msgs      chan webrtc.DataChannelMessage
+	errc      chan error
+	sent      atomic.Int64
+	closed    chan struct{}
+	closeOnce sync.Once
+}
+
+func (b *blockedSend) closeChannel() { b.closeOnce.Do(func() { close(b.closed) }) }
+
+func startBlockedSend(t *testing.T) *blockedSend {
+	t.Helper()
 	dc, first := newBlockingPair(t)
 	path := sizedFile(t, 24<<20)
-	msgs := make(chan webrtc.DataChannelMessage, 4)
-	closed := make(chan struct{})
-	errc := make(chan error, 1)
-	var sent atomic.Int64
+	b := &blockedSend{
+		msgs:   make(chan webrtc.DataChannelMessage, 4),
+		errc:   make(chan error, 1),
+		closed: make(chan struct{}),
+	}
+	returned := make(chan struct{})
 	go func() {
-		errc <- SendFilesWithOptions(dc, []string{path}, "test", SendOptions{
-			OnProgress: func(p Progress) { sent.Store(p.FileBytes) },
-			Messages:   msgs,
-			Closed:     closed,
+		defer close(returned)
+		b.errc <- SendFilesWithOptions(dc, []string{path}, "test", SendOptions{
+			OnProgress: func(p Progress) { b.sent.Store(p.FileBytes) },
+			Messages:   b.msgs,
+			Closed:     b.closed,
 		})
 	}()
+	t.Cleanup(func() {
+		b.closeChannel()
+		select {
+		case <-returned:
+		case <-time.After(10 * time.Second):
+			t.Error("the send was still running 10s after its channel closed")
+		}
+	})
 
 	var meta struct {
 		ID string `json:"id"`
@@ -298,45 +325,123 @@ func TestSenderReportsARefusalThatArrivesWithTheCloseDuringBackpressure(t *testi
 		if err := json.Unmarshal(raw, &meta); err != nil || meta.ID == "" {
 			t.Fatalf("first frame is not the metadata: %v", err)
 		}
-	case err := <-errc:
+	case err := <-b.errc:
 		t.Fatalf("send ended before the metadata: %v", err)
 	case <-time.After(10 * time.Second):
 		t.Fatal("no metadata within 10s")
 	}
 	ack, _ := json.Marshal(map[string]interface{}{"type": "ack", "id": meta.ID, "offset": 0, "pv": 1, "pvMin": 1})
-	msgs <- webrtc.DataChannelMessage{IsString: true, Data: ack}
+	b.msgs <- webrtc.DataChannelMessage{IsString: true, Data: ack}
+	return b
+}
 
-	// Parked: more than the high-water mark handed to the channel and no
-	// progress for 300 ms. dc.Send never blocks, so the backpressure wait is
-	// the only place the chunk loop can stop. The buffered amount itself is
-	// no signal: SACKs for what the receiver's own buffer took pull it back
-	// under the mark after the sender has parked.
+// waitParked returns once the sender is parked: more than the high-water mark
+// handed to the channel and no progress for 300 ms. dc.Send never blocks, so
+// the backpressure wait is the only place the chunk loop can stop. The
+// buffered amount itself is no signal: SACKs for what the receiver's own
+// buffer took pull it back under the mark after the sender has parked.
+func (b *blockedSend) waitParked(t *testing.T) {
+	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
 	last, stableSince := int64(-1), time.Now()
 	for {
 		select {
-		case err := <-errc:
+		case err := <-b.errc:
 			t.Fatalf("send ended before it parked: %v", err)
 		default:
 		}
-		if cur := sent.Load(); cur != last {
+		if cur := b.sent.Load(); cur != last {
 			last, stableSince = cur, time.Now()
 		}
 		if last >= bufferedAmountHighWater && time.Since(stableSince) >= 300*time.Millisecond {
-			break
+			return
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("the sender never parked on a full buffer (%d bytes handed over)", last)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
 
-	msgs <- webrtc.DataChannelMessage{IsString: true, Data: []byte(diskFullRefusal)}
-	close(closed)
+// The backpressure wait: the receiver has accepted and then stopped reading,
+// so the sender is parked on a full buffer when the refusal and the close
+// arrive together. Before the fix that wait never read the receiver's frames,
+// so every run reported "connection closed mid-transfer".
+func TestSenderReportsARefusalThatArrivesWithTheCloseDuringBackpressure(t *testing.T) {
+	b := startBlockedSend(t)
+	b.waitParked(t)
+	b.msgs <- webrtc.DataChannelMessage{IsString: true, Data: []byte(diskFullRefusal)}
+	b.closeChannel()
 	select {
-	case err := <-errc:
+	case err := <-b.errc:
 		wantDiskFull(t, err)
 	case <-time.After(10 * time.Second):
 		t.Fatal("the send did not end within 10s of the refusal and the close")
+	}
+}
+
+// The same wait with a refusal and no close (TL-16). A browser receiver sends
+// its refusal and keeps the channel open, and a receiver that has stopped
+// reading leaves the buffer full, so nothing else ends the wait. Before the
+// fix the refusal sat unread for the whole 60 s stall window and the send
+// then ended with "backpressure stall", its cause lost.
+func TestSenderReportsARefusalWithoutACloseDuringBackpressure(t *testing.T) {
+	b := startBlockedSend(t)
+	b.waitParked(t)
+	b.msgs <- webrtc.DataChannelMessage{IsString: true, Data: []byte(diskFullRefusal)}
+	select {
+	case err := <-b.errc:
+		wantDiskFull(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the send did not end within 10s of a refusal that came without a close")
+	}
+}
+
+// Reading a frame that is not a refusal must not restart the backpressure
+// wait's stall window. A peer that sends anything at all more often than
+// once a window would otherwise park the sender for good on a buffer that
+// never moves. The window is shrunk to 1 s and a frame arrives every 100 ms,
+// so a wait that re-armed its timer on every pass would never fire.
+func TestSenderBackpressureStallIsNotExtendedByOtherFrames(t *testing.T) {
+	prev := deliveryStallWindow
+	t.Cleanup(func() { deliveryStallWindow = prev })
+	deliveryStallWindow = time.Second
+
+	b := startBlockedSend(t)
+	// None of these is a refusal: an ack for another file, a received, a
+	// frame that is not JSON, a type under the wrong key, and a refusal past
+	// the control cap, which a sender never parses.
+	junk := [][]byte{
+		[]byte(`{"type":"ack","id":"another-file","offset":0,"pv":1,"pvMin":1}`),
+		[]byte(`{"type":"received","verified":0}`),
+		[]byte("not json"),
+		[]byte(`{"TYPE":"incompatible","code":"disk-full","pv":1,"pvMin":1}`),
+		[]byte(`{"type":"incompatible","code":"disk-full","pv":1,"pvMin":1,"reason":"` + strings.Repeat("x", controlMsgMax) + `"}`),
+	}
+	stopJunk := make(chan struct{})
+	defer close(stopJunk)
+	go func() {
+		tick := time.NewTicker(100 * time.Millisecond)
+		defer tick.Stop()
+		for i := 0; ; i++ {
+			select {
+			case <-stopJunk:
+				return
+			case <-tick.C:
+				select {
+				case b.msgs <- webrtc.DataChannelMessage{Data: junk[i%len(junk)]}:
+				default:
+				}
+			}
+		}
+	}()
+
+	select {
+	case err := <-b.errc:
+		if err == nil || !strings.Contains(err.Error(), "backpressure stall") {
+			t.Fatalf("send returned %v, want the backpressure stall", err)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("the send was still parked 15s into a 1s stall window: the other frames kept restarting it")
 	}
 }

@@ -85,14 +85,15 @@ func backpressureStalled(prev, cur uint64) bool {
 	return cur >= prev
 }
 
-// deliveryStallWindow is how long the delivery wait after the last file lets
-// the send buffer go without shrinking before it gives up. It is the
-// backpressure wait's window and the receiver's mid-transfer stall watchdog,
-// so one rule governs "the transfer stopped making progress" on both ends.
-// A var only so tests can shrink it. Below four drain ticks (200 ms) the stall
-// arm reads a fake buffer more often than the tick does, which skews the tests
-// that count windows; only a test of the stall arm itself
-// (TestDeliveryWaitEmptyBufferIsNeverAStall) goes below it.
+// deliveryStallWindow is how long the delivery wait after the last file, and
+// the backpressure wait inside each file, let the send buffer go without
+// shrinking before they give up. It equals the receiver's mid-transfer stall
+// watchdog (receiveStallTimeout), so one rule governs "the transfer stopped
+// making progress" on both ends. A var only so tests can shrink it. Below four
+// drain ticks (200 ms) the delivery wait's stall arm reads a fake buffer more
+// often than the tick does, which skews the tests that count windows; only a
+// test of that stall arm itself (TestDeliveryWaitEmptyBufferIsNeverAStall)
+// goes below it.
 var deliveryStallWindow = 60 * time.Second
 
 // deliveryBuffered reads the send buffer during the delivery wait. A seam for
@@ -1196,30 +1197,58 @@ ackLoop:
 			// Backpressure: block until pion's buffer drains below the low-water
 			// mark before queuing more. The loop re-checks after each wakeup so a
 			// stale signal can't let us run away from the receiver. Abort only
-			// when the buffer makes no progress across a full 60 s window: a
-			// slow-but-draining relay (below ~70 KB/s the 4 MB drain takes over
-			// a minute) must not kill the transfer.
-			lastBuffered := dc.BufferedAmount()
-			for dc.BufferedAmount() >= bufferedAmountHighWater {
-				select {
-				case <-sendMore:
-				case <-done:
-					// This wait reads no frames, so a receiver that refused
-					// mid-file (disk-full, write-failed) and then closed left
-					// its reason unread in ackCh: report it before the close.
-					if err := stopBeforeClose(ackCh, flushed, localVer, updateHint, total); err != nil {
-						return err
+			// when the buffer makes no progress across a full deliveryStallWindow
+			// (60 s): a slow-but-draining relay (below ~70 KB/s the 4 MB drain
+			// takes over a minute) must not kill the transfer.
+			//
+			// The receiver's frames are read here too (TL-16). A receiver that
+			// refuses mid-file and keeps its channel open, as a browser does
+			// for a Go sender, and then takes in data slowly or not at all
+			// leaves this wait nothing else to end on: its refusal sat unread
+			// until the buffer drained or a whole window passed with no drain,
+			// so the send reported it a minute or more late, or ended with a
+			// stall in its place. The frame goes through abortFromPeer, as
+			// after each chunk below, and never through stopBeforeClose, whose
+			// wait for a flush that only a close brings would hold every such
+			// refusal for a second. Any other frame is dropped, as there.
+			//
+			// One timer per wait, reset only in its own arm. Re-armed on every
+			// pass, as a time.After in the select was, it let a peer that sends
+			// any frame more often than once a window keep the sender parked
+			// for good on a buffer that never moves. The returns below leave it
+			// unstopped: since Go 1.23 an unreferenced timer is collected
+			// whether or not it fired.
+			if dc.BufferedAmount() >= bufferedAmountHighWater {
+				lastBuffered := dc.BufferedAmount()
+				backpressureStall := time.NewTimer(deliveryStallWindow)
+				for dc.BufferedAmount() >= bufferedAmountHighWater {
+					select {
+					case <-sendMore:
+					case raw := <-ackCh:
+						if err := abortFromPeer(raw, localVer, updateHint, total); err != nil {
+							return err
+						}
+					case <-done:
+						// A refusal and the close can be ready at once, and
+						// select picks between them at random: a receiver that
+						// refused mid-file (disk-full, write-failed) and then
+						// closed must be reported as the refusal.
+						if err := stopBeforeClose(ackCh, flushed, localVer, updateHint, total); err != nil {
+							return err
+						}
+						return fmt.Errorf("connection closed mid-transfer (%d bytes still buffered)", dc.BufferedAmount())
+					case <-backpressureStall.C:
+						cur := dc.BufferedAmount()
+						if backpressureStalled(lastBuffered, cur) {
+							return fmt.Errorf("backpressure stall: peer not draining (%d bytes buffered)", cur)
+						}
+						lastBuffered = cur
+						backpressureStall.Reset(deliveryStallWindow)
+					case <-stop:
+						return ErrSendStopped
 					}
-					return fmt.Errorf("connection closed mid-transfer (%d bytes still buffered)", dc.BufferedAmount())
-				case <-time.After(60 * time.Second):
-					cur := dc.BufferedAmount()
-					if backpressureStalled(lastBuffered, cur) {
-						return fmt.Errorf("backpressure stall: peer not draining (%d bytes buffered)", cur)
-					}
-					lastBuffered = cur
-				case <-stop:
-					return ErrSendStopped
 				}
+				backpressureStall.Stop()
 			}
 			// Last look before the write: a stop seen here queues nothing,
 			// so at most the one chunk already in dc.Send when it closed
