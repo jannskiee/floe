@@ -179,29 +179,49 @@ func TestIncomingDeadlineStopsAJunkFlood(t *testing.T) {
 // TestIncomingDeadlineCanceledByOnIncoming: a real metadata arrives before the
 // deadline, OnIncoming cancels it, and the drop then runs past the deadline
 // (Decide holds longer than it) without the deadline ever firing.
+//
+// The deadline is armed before a whole loopback WebRTC setup, as the desktop
+// arms it at user-connected. Under load that setup alone outlasted 800 ms
+// (it failed on main on a loaded machine, 2026-10-16), and then the deadline
+// fired before any OnIncoming existed to cancel it, which says nothing about
+// the property. Such a round is retried with a longer deadline; a round whose
+// OnIncoming came in time is judged strictly. The margin keeps a cancel from
+// racing the expiry, which TestIncomingDeadlineCancelRace bounds instead.
 func TestIncomingDeadlineCanceledByOnIncoming(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping ICE loopback transfer in -short mode")
 	}
-	const deadline = 800 * time.Millisecond
-	var fired atomic.Bool
-	cancel := StartIncomingDeadline(deadline, func() { fired.Store(true) })
-	t.Cleanup(cancel)
-	start := time.Now()
-	run := runHostile(t, metaFor("a.txt", 4, 1, 1, 4), []byte("abcd"), ReceiveOptions{
-		OnIncoming: func(IncomingInfo) { cancel() },
-		Decide: func(IncomingInfo) Decision {
-			time.Sleep(2 * deadline)
-			return Decision{Kind: DecisionAccept}
-		},
-	})
-	wantSaved(t, run, "a.txt")
-	if took := time.Since(start); took < 2*deadline {
-		t.Fatalf("the drop took %v, so it never outlasted the deadline", took)
+	const margin = 200 * time.Millisecond
+	for _, deadline := range []time.Duration{800 * time.Millisecond, 2 * time.Second, 5 * time.Second} {
+		var fired atomic.Bool
+		var incomingAt atomic.Int64
+		cancel := StartIncomingDeadline(deadline, func() { fired.Store(true) })
+		start := time.Now()
+		run := runHostile(t, metaFor("a.txt", 4, 1, 1, 4), []byte("abcd"), ReceiveOptions{
+			OnIncoming: func(IncomingInfo) {
+				incomingAt.Store(int64(time.Since(start)))
+				cancel()
+			},
+			Decide: func(IncomingInfo) Decision {
+				time.Sleep(2 * deadline)
+				return Decision{Kind: DecisionAccept}
+			},
+		})
+		cancel()
+		if setup := time.Duration(incomingAt.Load()); setup > deadline-margin {
+			t.Logf("OnIncoming came %v after the %v deadline was armed; retrying with a longer one", setup, deadline)
+			continue
+		}
+		wantSaved(t, run, "a.txt")
+		if took := time.Since(start); took < 2*deadline {
+			t.Fatalf("the drop took %v, so it never outlasted the %v deadline", took, deadline)
+		}
+		if fired.Load() {
+			t.Fatalf("the %v deadline fired although OnIncoming cancelled it", deadline)
+		}
+		return
 	}
-	if fired.Load() {
-		t.Fatal("the deadline fired although OnIncoming cancelled it")
-	}
+	t.Fatal("connection setup outlasted every deadline tried, so the property was never tested")
 }
 
 // TestIncomingDeadlineCancelRace: cancel and expiry racing settle on exactly
