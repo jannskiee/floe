@@ -458,8 +458,9 @@ func parseReceived(raw []byte, files int) (ok bool, verified int, hasVerified bo
 }
 
 // parseAckConfirms reports whether raw is an ack that carries the receiver's
-// promise, "confirms": true. Every Go receiver sets it (receiver.go, the ack):
-// it answers the last file with "received" after the commit, or with a
+// promise, "confirms": true. Every Go receiver sets it (receiver.go, the ack),
+// and so does the browser receiver (SG-01, receiver.ts): it answers the last
+// file with "received" after the commit or hand-over, or with a
 // refusal when it keeps a file out, so a sender that reads it waits for that
 // word instead of a drained buffer, and a close without either is no delivery
 // (FT-GO-CONFIRMS, D-144.2).
@@ -520,14 +521,16 @@ type SendOptions struct {
 	//
 	// Set it only against a receiver that always answers "received" or a
 	// refusal. Every current Go receiver does: receiver.go sends "received"
-	// after its last commit. A browser receiver never sends "received", so a
-	// plain send must never set this, or it waits until the browser closes.
+	// after its last commit. A browser receiver of web app 1.11.1 or earlier
+	// never sends "received", so a plain send must never set this, or it
+	// waits until that browser closes.
 	//
 	// A plain send gets the same wait without it when the receiver's first
 	// ack carries "confirms": true (parseAckConfirms), which every Go receiver
-	// sends since FT-GO-CONFIRMS step 2 (D-144.2). A browser receiver, or a Go
-	// receiver before that, sends no such field, and its send still ends at
-	// the drain.
+	// sends since FT-GO-CONFIRMS step 2 (D-144.2), and the browser receiver
+	// since SG-01 (RECEIVER_CONFIRMS in client/lib/transfer/protocol.ts). A
+	// receiver that sends no such field (an older browser or Go receiver)
+	// still has its send end at the drain.
 	//
 	// There is no deadline of its own (E-36, as in the browser): the
 	// receiver's blocked-rename retry is what is bounded (CommitRetry), and a
@@ -827,10 +830,11 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 
 	// Wait for delivery confirmation before closing.
 	//
-	// CLI receivers send {"type":"received"} after writing and verifying every
-	// byte, which is the authoritative signal. Browser receivers don't send it,
-	// but they keep their connection alive so the SCTP buffer naturally drains
-	// to zero, which is the fallback.
+	// Go receivers send {"type":"received"} after writing and verifying every
+	// byte, and the browser receiver after handing every file over (SG-01),
+	// which is the authoritative signal. A browser receiver of web app 1.11.1
+	// or earlier does not send it, but keeps its connection alive so the SCTP
+	// buffer naturally drains to zero, which is the fallback.
 	//
 	// We cannot rely solely on dc.BufferedAmount()==0: when the receiver closes
 	// its connection immediately after the last write (which the CLI does), the
@@ -853,14 +857,15 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 	// would compare two reads 50 ms apart and abort a slow but live drain.
 	//
 	// Under opts.RequireReceived, or when the receiver's first ack carried
-	// confirms (every Go receiver's since FT-GO-CONFIRMS step 2), neither a
-	// drained buffer nor a close is success, only "received" is: the tick arm
-	// still reads what is queued but keeps waiting, the close returns
-	// ErrClosedBeforeReceived, and the stall arm is unchanged. So a refusal a
-	// Go receiver sends once its fsync, hash compare or commit is done
-	// (hash-mismatch, write-failed, save-blocked) is never reported as a
-	// success. A receiver that sent no confirms (a browser, an older Go
-	// receiver) still ends this wait at the drain.
+	// confirms (every Go receiver's since FT-GO-CONFIRMS step 2, the browser
+	// receiver's since SG-01), neither a drained buffer nor a close is
+	// success, only "received" is: the tick arm still reads what is queued
+	// but keeps waiting, the close returns ErrClosedBeforeReceived, and the
+	// stall arm is unchanged. So a refusal a receiver sends once its fsync,
+	// hash compare, commit or read-back is done (hash-mismatch, write-failed,
+	// save-blocked) is never reported as a success. A receiver that sent no
+	// confirms (a browser of web app 1.11.1 or earlier, an older Go receiver)
+	// still ends this wait at the drain.
 	requireReceived := opts.RequireReceived || confirms
 
 	// What the receiver's received frame reported, read by the summary below.

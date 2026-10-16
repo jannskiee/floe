@@ -65,6 +65,8 @@ describe('receiver: per-file SHA-256', () => {
         expect(new Uint8Array(await h.completed[0].blob.arrayBuffer())).toEqual(data);
         expect(h.verifying).toEqual([[1, 1]]);
         expect(h.allComplete).toEqual([[5000, 1]]);
+        // The batch ends with the sender's received frame, which counts it.
+        expect(h.binaryFrames()).toEqual([{ type: 'received', verified: 1 }]);
     });
 
     it('discards a mismatched file and sends hash-mismatch', async () => {
@@ -113,7 +115,7 @@ describe('receiver: per-file SHA-256', () => {
         expect(h.verifying).toEqual([]);
     });
 
-    it('accepts a file without sha256 as today', () => {
+    it('accepts a file without sha256 as today', async () => {
         let calls = 0;
         const h = harness({
             hashBlob: async () => {
@@ -123,8 +125,11 @@ describe('receiver: per-file SHA-256', () => {
         });
         const data = payload(200);
         feed(h, 'a', data, 1, 1, endMessage());
-        // Synchronous, exactly as before: no check, no wait.
+        // No check: the hand-over waits only for the read-back of the
+        // file's parts (see probe), which used to be skipped here.
+        await h.rx.settled();
         expect(calls).toBe(0);
+        expect(h.verifying).toEqual([]);
         expect(h.completed).toHaveLength(1);
         expect(h.completed[0].verified).toBe(false);
         expect(h.errors).toEqual([]);
@@ -145,6 +150,8 @@ describe('receiver: per-file SHA-256', () => {
             expect(h.errors).toEqual([]);
             expect(h.completed).toHaveLength(1);
             expect(h.completed[0].verified).toBe(false);
+            // Kept, so confirmed, and counted as not matched.
+            expect(h.binaryFrames()).toEqual([{ type: 'received', verified: 0 }]);
         }
     });
 
@@ -157,6 +164,7 @@ describe('receiver: per-file SHA-256', () => {
         feed(h, 'b', b, 2, 2, endMessage());
         await h.rx.settled();
         expect(h.completed.map((f) => f.verified)).toEqual([true, false]);
+        expect(h.binaryFrames()).toEqual([{ type: 'received', verified: 1 }]);
     });
 
     // A digest the test releases by hand, so frames can arrive while it is pending.
@@ -265,6 +273,7 @@ describe('receiver: per-file SHA-256', () => {
         const b = payload(20, 3);
         h.rx.handleMessage(b);
         h.rx.handleMessage(endMessage());
+        await h.rx.settled();
         expect(h.errors).toEqual([]);
         expect(new Uint8Array(await h.completed[1].blob.arrayBuffer())).toEqual(b);
     });
@@ -547,6 +556,8 @@ describe('receiver: per-file SHA-256', () => {
             expect(h.completed[0].verified).toBe(true);
             expect(new Uint8Array(await h.completed[0].blob.arrayBuffer())).toEqual(a);
             expect(h.allComplete).toEqual([[400, 1]]);
+            // The connection is gone: no frame chases the close.
+            expect(h.binaryFrames()).toEqual([]);
         });
 
         it('leaves the progress line to the verdict', async () => {
@@ -629,7 +640,9 @@ describe('receiver: per-file SHA-256', () => {
         it('keeps a refusal as the only message when an earlier part then reads back broken', async () => {
             // A hash refusal has reported, as fail() has: once it has spoken
             // after a close, a broken part found later stays quiet instead of
-            // talking over the hash message with an out-of-memory one.
+            // talking over the hash message with an out-of-memory one. The
+            // verdict waits for every part's read-back, so one that is still
+            // out when it comes is one that outlasted the bound.
             const RealBlob = Blob;
             const earlier: { fail?: () => void } = {};
             let slices = 0;
@@ -651,7 +664,7 @@ describe('receiver: per-file SHA-256', () => {
             );
             try {
                 const held = heldHash();
-                const h = harness({ hashBlob: held.hashBlob });
+                const h = harness({ hashBlob: held.hashBlob, hashBoundMs: () => 20 });
                 const a = payload(SPILL_BYTES + 4321, 5);
                 h.rx.handleMessage(metadataMessage('a', 'a.bin', a.byteLength, 1, 1, 0));
                 for (let off = 0; off < a.byteLength; off += 256 * 1024) h.rx.handleMessage(a.subarray(off, off + 256 * 1024));

@@ -50,7 +50,7 @@ export function mainPageHoldsTab(input: {
 
 /**
  * Whether a receive is still under way on the receiving page: from the join
- * until the file the sender announced as its last one has arrived
+ * until the files handed over reach the count the sender announced
  * (`allArrived`, latched at the receiver engine's onAllComplete), unless the
  * attempt ended, the link was refused, or nobody is on the sending side.
  */

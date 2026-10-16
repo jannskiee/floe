@@ -12,6 +12,8 @@ import {
     peerCompatErrorMessage,
     PROTOCOL_VERSION,
     MIN_PROTOCOL_VERSION,
+    RECEIVER_CONFIRMS,
+    receivedMessage,
     normalizeFileSize,
     normalizeSha256,
     metadataProblem,
@@ -43,6 +45,9 @@ export interface ReceiverDeps {
     // is kept unverified instead, capped at POST_END_HASH_WAIT_MS for every
     // file but the last of a batch.
     hashBoundMs?: (bytes: number) => number;
+    // Whether acks promise `received` and the batch ends with one. Defaults to
+    // RECEIVER_CONFIRMS, the rollback lever.
+    confirms?: boolean;
 }
 
 // String frames held while a SHA-256 check is pending. A conforming sender has
@@ -61,7 +66,8 @@ export interface ReceiverCallbacks {
     onSpeedReset?: () => void;
     onFileComplete?: (file: ReceivedFile, index: number, total: number) => void;
     /**
-     * Fires exactly once when the final file of a transfer completes (index === total),
+     * Fires exactly once when the final file of a transfer completes (this
+     * side's own count of files handed over reaches the announced total),
      * carrying the summed bytes and the number of files handed over, both counted
      * here and neither taken from what the sender announced. Use this for
      * per-transfer side effects (analytics, the global byte counter) so they run once
@@ -149,7 +155,9 @@ interface PartialDownload {
     heldBytes: number; // bytes in `held` and `stage` together
     received: number;
     lastReported: number; // `received` value at the last onProgress emission
-    tail: Promise<void> | null; // the read-back of the newest part (see probe), null before the first
+    // Settles once the read-back of every part so far has (see probe), null
+    // before the first part.
+    readBacks: Promise<void> | null;
 }
 
 /**
@@ -172,9 +180,18 @@ interface PartialDownload {
  *   });
  *   peer.on('data', rx.handleMessage);
  *
- * `settled()` resolves once no SHA-256 check is pending. A close handler waits on
- * it, because a Go sender exits right after its last end marker while this side
- * may still be hashing the file it sent.
+ * `settled()` resolves once no file is waiting to be handed over (a SHA-256
+ * check, or the read-back of its parts). A close handler waits on it, because a
+ * Go sender that waits for no `received` (one before 1.11.0, or any while
+ * RECEIVER_CONFIRMS is off) exits right after its last end marker while this
+ * side may still be hashing the file it sent.
+ *
+ * Every ack carries `confirms: true`, and once this side's own count of files
+ * handed over reaches the batch's total it sends `received` with the number
+ * whose SHA-256 matched, the frame a Go receiver sends after its last commit
+ * (SG-01). A Go sender of 1.11.0 or later that reads the promise ends its send
+ * on that frame or a refusal, never on a drained buffer, so a refusal this side
+ * sends after the last byte is what it reports. RECEIVER_CONFIRMS turns both off.
  */
 export function createReceiver(
     cb: ReceiverCallbacks,
@@ -186,6 +203,7 @@ export function createReceiver(
 } {
     const hashBlob = deps.hashBlob ?? workerHashBlob;
     const hashBoundMs = deps.hashBoundMs ?? defaultHashBoundMs;
+    const confirms = deps.confirms ?? RECEIVER_CONFIRMS;
     const partialDownloads = new Map<string, PartialDownload>();
     let currentMetadata: Metadata | null = null;
     let hasCheckedCompat = false;
@@ -206,14 +224,19 @@ export function createReceiver(
     // Files handed to onFileComplete in the current transfer: the `saved` a
     // hash refusal reports, the twin of filesReceived in the Go receiver.
     let filesHanded = 0;
-    // Set when the file the sender announced as its last one is handed over,
-    // and cleared by the next metadata. A sender stop after that point stops
-    // nothing, so it is not reported as a failure (see the incompatible branch).
+    // Of those, the ones whose SHA-256 matched: the `verified` the batch's
+    // received frame carries, the twin of verifiedCount in the Go receiver.
+    let filesVerified = 0;
+    // Set when this side's own count reaches the batch's total, and cleared by
+    // the next metadata. A sender stop after that point stops nothing, so it
+    // is not reported as a failure (see the incompatible branch).
     let batchComplete = false;
 
     // While a SHA-256 check is pending, string frames wait here and are handled
     // in order once it settles. Binary frames are dropped instead: no file is
     // open during the wait, which is what the synchronous path would do to them.
+    // A file sent with no digest waits here too, for the read-back of its
+    // parts alone, and is called checked below all the same.
     let pending = false;
     let queued: string[] = [];
     let settledWaiters: Array<() => void> = [];
@@ -306,19 +329,27 @@ export function createReceiver(
     }
 
     // Hands a finished file over, in the order the callers rely on: the file,
-    // then the per-transfer total, then the waiting state.
+    // then the per-transfer total, then the waiting state, then the sender's
+    // received frame when the batch is done.
     function complete(meta: Metadata, blob: Blob, size: number, verified: boolean): void {
         cb.onFileComplete?.({ id: meta.id, fileName: meta.fileName, fileSize: size, blob, verified }, meta.index, meta.total);
         filesHanded += 1;
+        if (verified) filesVerified += 1;
         // Accumulate for the per-transfer callback, then fire once on the
         // last file so reporting happens a single time per transfer.
         sessionBytes += size;
-        if (meta.index === meta.total) {
-            // This side's own count, never meta.total: the number goes to
-            // analytics, and the announced total is whatever the sender typed.
+        let matched: number | null = null;
+        // The batch ends on this side's own count, as filesReceived >= Total
+        // does in the Go receiver, never on the index the sender typed:
+        // metadataProblem has made total a safe integer from 1 up. The count
+        // reported is this side's own too: it goes to analytics, and the
+        // announced total is whatever the sender typed.
+        if (filesHanded >= meta.total) {
             cb.onAllComplete?.(sessionBytes, filesHanded);
+            matched = filesVerified;
             sessionBytes = 0; // reset for a possible subsequent transfer
             filesHanded = 0;
+            filesVerified = 0;
             batchComplete = true;
         }
         currentMetadata = null;
@@ -326,6 +357,24 @@ export function createReceiver(
         cb.onWaiting?.();
         cb.onProgress?.(0, 0, 0);
         cb.onSpeedReset?.();
+        if (matched !== null) confirmBatch(matched);
+    }
+
+    // The batch's last word to the sender, kept for last so that everything a
+    // throw above would stop (the hand-over, the per-transfer total) has run
+    // before the sender is told the files are kept, and in its own try: a Go
+    // sender before 1.11.0 closes about 50 ms after its last end frame (see
+    // dispose), and a throw here must not turn a received batch into a failure.
+    // Binary, as the Go receiver sends it. Nothing waits on the person saving
+    // a file: the Blob is what they keep, and it is already whole. A closed
+    // connection has nobody to tell.
+    function confirmBatch(verified: number): void {
+        if (!confirms || closed) return;
+        try {
+            cb.send(new Uint8Array(new TextEncoder().encode(receivedMessage(verified))));
+        } catch {
+            // The peer is gone; a sender that promised to wait hears the close.
+        }
     }
 
     // A file that failed its SHA-256: nothing of it is kept, the sender is told
@@ -435,14 +484,19 @@ export function createReceiver(
     }
 
     // Moves the held chunk copies into one Blob part, then checks it. The
-    // check is kept as the file's tail, which a SHA-256 check waits for.
+    // check joins the file's readBacks, which the hand-over waits for: every
+    // part's, not the newest one's alone, or a part that read back broken
+    // after the newest did would stop the transfer after the file was handed
+    // over and confirmed. A probe never rejects, so the chain cannot either.
     function spill(file: PartialDownload): void {
         unstage(file);
         const part = new Blob(file.held);
         file.parts.push(part);
         file.held = [];
         file.heldBytes = 0;
-        file.tail = probe(part, { received: file.received, expected: expectedSize });
+        const check = probe(part, { received: file.received, expected: expectedSize });
+        const before = file.readBacks;
+        file.readBacks = before === null ? check : before.then(() => check);
     }
 
     // Moves the staged bytes to the end of the held copies as one tight copy
@@ -466,9 +520,10 @@ export function createReceiver(
     // out), is still reported; only a failure already reported keeps it quiet.
     //
     // The returned promise settles once the read-back has, and never rejects
-    // for a broken part (that is fail's to report). A SHA-256 check waits for
+    // for a broken part (that is fail's to report). Every hand-over waits for
     // it: a broken part also fails the hash worker's read, and that alone would
-    // hand the file over unverified if the digest won the race.
+    // hand the file over unverified if the digest won the race, and a file
+    // with no digest was handed over before its parts were known to be good.
     function probe(part: Blob, sizes: { received: number; expected: number | null }): Promise<void> {
         if (part.size === 0) return Promise.resolve();
         return part.slice(part.size - 1).arrayBuffer().then(
@@ -486,12 +541,13 @@ export function createReceiver(
         return file.parts.length === 1 ? file.parts[0] : new Blob(file.parts);
     }
 
-    // Settles once a part's read-back has, or once the bound passes, whichever
-    // comes first, so waiting for it can never leave a check pending (CP0-F2).
-    function readBack(tail: Promise<void> | null, bound: AbortSignal | null): Promise<void> {
-        if (tail === null) return Promise.resolve();
+    // Settles once the parts' read-backs have, or once the bound passes,
+    // whichever comes first, so waiting for them can never leave a check
+    // pending (CP0-F2).
+    function readBack(readBacks: Promise<void> | null, bound: AbortSignal | null): Promise<void> {
+        if (readBacks === null) return Promise.resolve();
         return new Promise((resolve) => {
-            tail.then(() => resolve(), () => resolve());
+            readBacks.then(() => resolve(), () => resolve());
             if (bound === null) return;
             if (bound.aborted) resolve();
             else bound.addEventListener('abort', () => resolve(), { once: true });
@@ -505,9 +561,10 @@ export function createReceiver(
     // A file whose SHA-256 is being checked is not partial: every byte is in
     // and its chunks are already released, so its check finishes and the file
     // is handed over or refused as usual (see the verdict at `end`). A Go
-    // sender closes about 50 ms after its last end marker, which is usually
-    // in the middle of that check; stopping it here dropped the last file of
-    // every Go-to-browser transfer whose check outlasted the close.
+    // sender that waits for no `received` (one before 1.11.0, or any while
+    // RECEIVER_CONFIRMS is off) closes about 50 ms after its last end marker,
+    // which is usually in the middle of that check; stopping it here dropped
+    // the last file of every such transfer whose check outlasted the close.
     //
     // The progress line is cleared here as every other stop clears it: it is
     // drawn while the last percent is above 0 and labels itself "Receiving",
@@ -680,13 +737,15 @@ export function createReceiver(
                         heldBytes: 0,
                         received: 0,
                         lastReported: 0,
-                        tail: null,
+                        readBacks: null,
                     });
                 }
 
                 // Send ack with protocol version fields so the sender can verify
-                // compat from its side and show the optional peer-version note.
-                cb.send(ackMessage(msg.id, offset));
+                // compat from its side and show the optional peer-version note,
+                // and with the promise that this batch ends in received or a
+                // refusal (see confirmBatch).
+                cb.send(ackMessage(msg.id, offset, undefined, confirms));
             } else if (msg.type === 'incompatible') {
                 // The sender is stopping on purpose and said why. This used to
                 // be classified as control purely so it was never written as
@@ -786,92 +845,98 @@ export function createReceiver(
                 // so a short file still reports a short file. Read only through
                 // normalizeSha256: a key that is present but unreadable (null, a
                 // number, uppercase, the wrong length) refuses at once, before any
-                // hashing, the twin of parseEnd in the Go receiver.
-                if (Object.prototype.hasOwnProperty.call(msg, 'sha256')) {
-                    const want = normalizeSha256((msg as End).sha256);
-                    if (want === null) {
-                        refuseHash(true);
-                        return;
-                    }
-                    // The Blob is what the person keeps (its object URL is the
-                    // download), so hashing this same object checks exactly those
-                    // bytes. The chunk copies are released before the wait, so
-                    // memory peaks no longer than it did before the check.
-                    const blob = takeBlob(fileData);
-                    const tail = fileData.tail;
-                    partialDownloads.delete(meta.id);
-                    currentMetadata = null;
-                    expectedSize = null;
-                    pending = true;
-                    // Everything from here runs inside the promise chain, so nothing
-                    // that throws (a callback, a hasher, an engine without
-                    // AbortSignal.timeout, which Safari lacks before 16) can leave
-                    // the receiver pending with every later frame queued behind it.
-                    let boundTimer: ReturnType<typeof setTimeout> | null = null;
-                    let bound: AbortSignal | null = null;
-                    Promise.resolve()
-                        .then(() => {
-                            // A controller plus a timer, not AbortSignal.timeout:
-                            // Safari before 16 has no AbortSignal.timeout, so the
-                            // signal was undefined there and a hasher that never
-                            // answered left this pending forever with every later
-                            // frame queued behind it (CP0-F2). AbortController is
-                            // available wherever Workers are. Started before
-                            // onVerifying, so the read-back wait below is bounded
-                            // even when that callback throws.
-                            const ac = new AbortController();
-                            bound = ac.signal;
-                            // With more files to come the sender is waiting on the
-                            // next ack, which queues behind this hash.
-                            const waitMs = meta.index < meta.total
-                                ? Math.min(hashBoundMs(size), POST_END_HASH_WAIT_MS)
-                                : hashBoundMs(size);
-                            boundTimer = setTimeout(() => ac.abort(), waitMs);
-                            cb.onVerifying?.(meta.index, meta.total);
-                            return hashBlob(blob, ac.signal);
-                        })
-                        .catch(() => null)
-                        // The read-back of the file's last part settles with the
-                        // digest, inside the same bound (see probe). A broken part
-                        // fails the hash worker's read too, and that null alone
-                        // would hand the file over unverified; the probe stops the
-                        // transfer on the real cause instead.
-                        .then((got) => readBack(tail, bound).then(() => got))
-                        .then((got) => {
-                            if (boundTimer !== null) {
-                                clearTimeout(boundTimer);
-                                boundTimer = null;
-                            }
-                            pending = false;
-                            try {
-                                // A null digest (no Worker, a worker failure, the time
-                                // bound) keeps the file unverified: a missing check never
-                                // claims a match, and the byte count already passed.
-                                // A transfer stopped during the check hands nothing over,
-                                // unless the connection closing is all that stopped it
-                                // (see dispose): a failure, a broken part included,
-                                // clears `closed` when it reports.
-                                if (aborted && !closed) return;
-                                if (got !== null && got !== want) refuseHash(false);
-                                else complete(meta, blob, size, got === want);
-                            } catch (err) {
-                                // The end frame's own work, finished late, so outside
-                                // runMessage: a throw while the file is handed over
-                                // (a callback, say) stops the transfer once, as it does
-                                // on the unchecked path (#500). One after a stop that
-                                // already spoke surfaces instead, as in runMessage.
-                                if (aborted && !closed) throw err;
-                                fail(err);
-                            } finally {
-                                drain();
-                            }
-                        });
+                // hashing, the twin of parseEnd in the Go receiver. null when
+                // the sender sent no digest.
+                const sentDigest = Object.prototype.hasOwnProperty.call(msg, 'sha256');
+                const digest = sentDigest ? normalizeSha256((msg as End).sha256) : null;
+                if (sentDigest && digest === null) {
+                    refuseHash(true);
                     return;
                 }
-
+                // The Blob is what the person keeps (its object URL is the
+                // download), so hashing this same object checks exactly those
+                // bytes. The chunk copies are released before the wait, so
+                // memory peaks no longer than it did before the check.
                 const blob = takeBlob(fileData);
+                const readBacks = fileData.readBacks;
                 partialDownloads.delete(meta.id);
-                complete(meta, blob, size, false);
+                // No digest to check and no part to read back (an empty file):
+                // nothing to wait for, so it is handed over at once.
+                if (digest === null && readBacks === null) {
+                    complete(meta, blob, size, false);
+                    return;
+                }
+                currentMetadata = null;
+                expectedSize = null;
+                pending = true;
+                // Everything from here runs inside the promise chain, so nothing
+                // that throws (a callback, a hasher, an engine without
+                // AbortSignal.timeout, which Safari lacks before 16) can leave
+                // the receiver pending with every later frame queued behind it.
+                let boundTimer: ReturnType<typeof setTimeout> | null = null;
+                let bound: AbortSignal | null = null;
+                Promise.resolve()
+                    .then(() => {
+                        // A controller plus a timer, not AbortSignal.timeout:
+                        // Safari before 16 has no AbortSignal.timeout, so the
+                        // signal was undefined there and a hasher that never
+                        // answered left this pending forever with every later
+                        // frame queued behind it (CP0-F2). AbortController is
+                        // available wherever Workers are. Started before
+                        // onVerifying, so the read-back wait below is bounded
+                        // even when that callback throws.
+                        const ac = new AbortController();
+                        bound = ac.signal;
+                        // With more files to come the sender is waiting on the
+                        // next ack, which queues behind this hash.
+                        const waitMs = meta.index < meta.total
+                            ? Math.min(hashBoundMs(size), POST_END_HASH_WAIT_MS)
+                            : hashBoundMs(size);
+                        boundTimer = setTimeout(() => ac.abort(), waitMs);
+                        // No digest: the read-back below is all there is to wait for.
+                        if (digest === null) return null;
+                        cb.onVerifying?.(meta.index, meta.total);
+                        return hashBlob(blob, ac.signal);
+                    })
+                    .catch(() => null)
+                    // Every part's read-back settles with the digest, inside the
+                    // same bound (see probe). A broken part fails the hash
+                    // worker's read too, and that null alone would hand the file
+                    // over unverified; the probe stops the transfer on the real
+                    // cause instead. A file with no digest waits for it all the
+                    // same: it used to be handed over first, and a broken part
+                    // then stopped the transfer after the person had the file.
+                    .then((got) => readBack(readBacks, bound).then(() => got))
+                    .then((got) => {
+                        if (boundTimer !== null) {
+                            clearTimeout(boundTimer);
+                            boundTimer = null;
+                        }
+                        pending = false;
+                        try {
+                            // A null digest (no Worker, a worker failure, the time
+                            // bound) keeps the file unverified: a missing check never
+                            // claims a match, and the byte count already passed.
+                            // A transfer stopped during the check hands nothing over,
+                            // unless the connection closing is all that stopped it
+                            // (see dispose): a failure, a broken part included,
+                            // clears `closed` when it reports.
+                            if (aborted && !closed) return;
+                            if (digest !== null && got !== null && got !== digest) refuseHash(false);
+                            else complete(meta, blob, size, digest !== null && got === digest);
+                        } catch (err) {
+                            // The end frame's own work, finished late, so outside
+                            // runMessage: a throw while the file is handed over
+                            // (a callback, say) stops the transfer once, as it does
+                            // for an empty file handed over at once (#500). One
+                            // after a stop that already spoke surfaces instead, as
+                            // in runMessage.
+                            if (aborted && !closed) throw err;
+                            fail(err);
+                        } finally {
+                            drain();
+                        }
+                    });
             }
             return;
         }

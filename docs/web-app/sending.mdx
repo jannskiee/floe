@@ -243,8 +243,8 @@ sender does not wait for one.
 A second line, "[SHA-256 matched](/glossary#sha-256-matched)", appears under it when the receiving
 app reports that every file matched. The match is against the
 [SHA-256](/glossary#sha-256) your browser worked out for each file, a fingerprint of its contents.
-The `floe` CLI and Floe Desktop send that report. A browser receiver does not, so when you send to
-another browser the line never appears on your side. The receiving page shows its own instead. See
+The `floe` CLI, Floe Desktop and a receiving browser all send that report, so the line can appear
+when you send to another browser too, and that page shows its own. See
 [File checks](/how-it-works/file-checks).
 
 After the other side disconnects, the status may change to "Transfer complete", which is the same

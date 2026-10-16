@@ -1112,7 +1112,8 @@ its tab in the middle of a file, or lost its network. The same event can read an
 - `failed to send metadata:` and a reason, when the connection closed just as a file was announced
 - `backpressure stall: peer not draining (1048576 bytes buffered)`
 
-After the last file, to a receiver that does not confirm delivery, such as a browser, it reads
+After the last file, to a receiver that does not confirm delivery, such as a `floe receive` older
+than 1.11.0, it reads
 `connection closed before delivery was confirmed (1048576 bytes unacknowledged)`. The last file may
 not have arrived.
 
@@ -1133,7 +1134,8 @@ From `floe send`, after the last file. `floe send` cannot tell whether everythin
 byte was sent, but the connection closed before the receiving app said it had saved every file, or
 the receiver went silent for about 30 seconds. They may or may not have every file, so `floe send`
 exits with status 1 instead of reporting success. It applies when the receiver is
-`floe receive` 1.11.0 or later or Floe Desktop 0.3.0 or later.
+`floe receive` 1.11.0 or later, Floe Desktop 0.3.0 or later, or a browser, where closing the tab
+right after the last file arrives does it.
 
 Check with the recipient what arrived before you send again.
 

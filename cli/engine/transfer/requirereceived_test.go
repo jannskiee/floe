@@ -55,12 +55,14 @@ func startScriptedSendWiring(t *testing.T, opts SendOptions, pumped bool) *scrip
 }
 
 // confirmsAck is what a receiver that promises its word adds to its ack:
-// every Go receiver since FT-GO-CONFIRMS step 2.
+// every Go receiver since FT-GO-CONFIRMS step 2, and the browser receiver
+// since SG-01.
 const confirmsAck = `,"confirms":true`
 
 // startScriptedSendAck is startScriptedSendWiring with ackExtra written into
-// the scripted receiver's ack after pvMin: "" is the ack a browser receiver or
-// an older Go receiver sends, confirmsAck the one a current Go receiver sends.
+// the scripted receiver's ack after pvMin: "" is the ack an older receiver
+// sends (a browser of web app 1.11.1 or earlier, a Go receiver before
+// FT-GO-CONFIRMS step 2), confirmsAck the one a current receiver sends.
 func startScriptedSendAck(t *testing.T, opts SendOptions, pumped bool, ackExtra string) *scriptedSend {
 	t.Helper()
 	sender, recvCh, msgs, _, closeFn := newPumpedPair(t)
@@ -413,12 +415,13 @@ func TestConfirmsOnlyTheLiteralTrue(t *testing.T) {
 }
 
 // TestPlainSendWithoutConfirmsEndsAtDrain is the no-capability guard. A
-// receiver whose ack carries no confirms (a browser, which never sends
-// "received", or a Go receiver before FT-GO-CONFIRMS step 2) promised nothing,
-// so a plain send still ends in success at the drain while that receiver stays
-// silent and open: waiting for a word it will never send would end every such
-// send in an error. A refusal such a receiver sends after the drain is still
-// never seen, the gap that confirms closes for current Go receivers only.
+// receiver whose ack carries no confirms (a browser of web app 1.11.1 or
+// earlier, which never sends "received", or a Go receiver before
+// FT-GO-CONFIRMS step 2) promised nothing, so a plain send still ends in
+// success at the drain while that receiver stays silent and open: waiting for
+// a word it will never send would end every such send in an error. A refusal
+// such a receiver sends after the drain is still never seen, the gap that
+// confirms closes for current receivers only.
 //
 // It asserts the outcome, not the timing: the send must end in success within
 // the file's 10 s ceiling. An upper bound of one tick flakes under load

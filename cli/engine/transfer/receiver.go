@@ -960,10 +960,12 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 
 						// Tell the sender all bytes are written and verified so it
 						// can close cleanly without relying on SCTP buffer accounting.
-						// Sent as binary so the browser (which checks byteLength) can
-						// classify it and ignore it; CLI senders consume it explicitly.
-						// verified is always present: 0 means this receiver checks
-						// hashes and no file carried one.
+						// Sent as binary, like this receiver's ack; every sender
+						// classifies what its receiver sends by content. The browser
+						// receiver sends the same bytes (receivedMessage in
+						// client/lib/transfer/protocol.ts). verified is always
+						// present: 0 means this receiver checks hashes and no file
+						// carried one.
 						receivedMsg, _ := json.Marshal(map[string]interface{}{"type": "received", "verified": verifiedCount})
 						dc.Send([]byte(receivedMsg))
 						if opts.OnReceivedSent != nil {

@@ -35,6 +35,7 @@ describe('receiver: stores tight copies of chunk bytes', () => {
         rx.handleMessage(backing.subarray(52, 68));
 
         rx.handleMessage(endMessage());
+        await rx.settled();
 
         expect(completedBlob).not.toBeNull();
         const got = new Uint8Array(await completedBlob!.arrayBuffer());
@@ -48,8 +49,10 @@ describe('receiver: onAllComplete fires once per transfer', () => {
     // analytics, optimistic footer bump) must run exactly once with the summed
     // bytes — never once per file — so multi-file transfers are counted correctly
     // and are not partially dropped by the server's per-IP report rate limit.
-    function feedFile(
-        rx: { handleMessage: (d: string | Uint8Array | ArrayBuffer) => void },
+    // Waits for the hand-over, which follows the read-back of the file's
+    // parts, as a sender waits for the next ack before its next file.
+    async function feedFile(
+        rx: ReturnType<typeof createReceiver>,
         id: string,
         size: number,
         index: number,
@@ -60,33 +63,34 @@ describe('receiver: onAllComplete fires once per transfer', () => {
         for (let i = 0; i < size; i++) chunk[i] = (i + 1) % 256; // never starts with '{'
         if (size > 0) rx.handleMessage(chunk);
         rx.handleMessage(endMessage());
+        await rx.settled();
     }
 
-    it('fires a single time with the total bytes and file count for a 3-file transfer', () => {
+    it('fires a single time with the total bytes and file count for a 3-file transfer', async () => {
         const calls: { totalBytes: number; fileCount: number }[] = [];
         const rx = createReceiver({
             send: () => { /* ack — ignored */ },
             onAllComplete: (totalBytes, fileCount) => calls.push({ totalBytes, fileCount }),
         });
 
-        feedFile(rx, 'a', 100, 1, 3);
+        await feedFile(rx, 'a', 100, 1, 3);
         expect(calls).toHaveLength(0); // not after the first file
-        feedFile(rx, 'b', 200, 2, 3);
+        await feedFile(rx, 'b', 200, 2, 3);
         expect(calls).toHaveLength(0); // not after the second file
-        feedFile(rx, 'c', 300, 3, 3);
+        await feedFile(rx, 'c', 300, 3, 3);
 
         expect(calls).toHaveLength(1);
         expect(calls[0]).toEqual({ totalBytes: 600, fileCount: 3 });
     });
 
-    it('fires once for a single-file transfer (index === total === 1)', () => {
+    it('fires once for a single-file transfer (index === total === 1)', async () => {
         const calls: { totalBytes: number; fileCount: number }[] = [];
         const rx = createReceiver({
             send: () => {},
             onAllComplete: (totalBytes, fileCount) => calls.push({ totalBytes, fileCount }),
         });
 
-        feedFile(rx, 'only', 512, 1, 1);
+        await feedFile(rx, 'only', 512, 1, 1);
 
         expect(calls).toHaveLength(1);
         expect(calls[0]).toEqual({ totalBytes: 512, fileCount: 1 });
@@ -94,23 +98,25 @@ describe('receiver: onAllComplete fires once per transfer', () => {
 
     // The count goes to analytics as `files`. It used to be the total the
     // sender announced, so one file sent as "7 of 7" was reported as seven.
-    it('reports the files it handed over, not the total the sender announced', () => {
+    // The transfer now also ends on this side's own count, as it does in the
+    // Go receiver (SG-01), so one file sent as "7 of 7" ends nothing.
+    it('reports the files it handed over, not the total the sender announced', async () => {
         const calls: { totalBytes: number; fileCount: number }[] = [];
         const rx = createReceiver({
             send: () => {},
             onAllComplete: (totalBytes, fileCount) => calls.push({ totalBytes, fileCount }),
         });
 
-        feedFile(rx, 'only', 512, 7, 7);
-        expect(calls).toEqual([{ totalBytes: 512, fileCount: 1 }]);
-
-        feedFile(rx, 'big', 64, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
-        expect(calls[1]).toEqual({ totalBytes: 64, fileCount: 1 });
+        await feedFile(rx, 'only', 512, 7, 7);
+        expect(calls).toEqual([]);
+        // A total that drops mid-batch ends it at the files handed over.
+        await feedFile(rx, 'next', 64, 2, 2);
+        expect(calls).toEqual([{ totalBytes: 576, fileCount: 2 }]);
 
         // The count starts again with each transfer.
-        feedFile(rx, 'a', 10, 1, 2);
-        feedFile(rx, 'b', 20, 2, 2);
-        expect(calls[2]).toEqual({ totalBytes: 30, fileCount: 2 });
+        await feedFile(rx, 'a', 10, 1, 2);
+        await feedFile(rx, 'b', 20, 2, 2);
+        expect(calls[1]).toEqual({ totalBytes: 30, fileCount: 2 });
     });
 });
 
@@ -158,14 +164,16 @@ describe('receiver: a peer that stops on purpose says why', () => {
     // sender stopped right after its last end frame, say) has nothing left to
     // stop. Reported, it turned a complete receive into "The sender stopped."
     // over the files the person was holding.
-    it('keeps a finished receive finished when the sender stops after the last file', () => {
+    it('keeps a finished receive finished when the sender stops after the last file', async () => {
         const h = receiver();
         h.rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 2, 6));
         h.rx.handleMessage(enc.encode('abc'));
         h.rx.handleMessage(endMessage());
+        await h.rx.settled();
         h.rx.handleMessage(metadataMessage('b', 'b.bin', 3, 2, 2, 6));
         h.rx.handleMessage(enc.encode('def'));
         h.rx.handleMessage(endMessage());
+        await h.rx.settled();
         h.rx.handleMessage(incompatibleMessage('The sender stopped.'));
         expect(h.completed).toEqual(['a.bin', 'b.bin']);
         expect(h.errors).toEqual([]);
@@ -196,11 +204,12 @@ describe('receiver: a peer that stops on purpose says why', () => {
         expect(errors).toEqual([]);
     });
 
-    it('still reports a stop that lands before the last file is complete', () => {
+    it('still reports a stop that lands before the last file is complete', async () => {
         const h = receiver();
         h.rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 2, 6));
         h.rx.handleMessage(enc.encode('abc'));
         h.rx.handleMessage(endMessage());
+        await h.rx.settled();
         h.rx.handleMessage(incompatibleMessage('The sender stopped.'));
         expect(h.completed).toEqual(['a.bin']);
         expect(h.errors).toEqual(['The sender stopped.']);
@@ -373,7 +382,11 @@ describe('receiver: framing decides, not content', () => {
             },
             onError: (m) => errors.push(m),
         });
-        return { rx, files, errors, settle: () => Promise.all(pending) };
+        const settle = async () => {
+            await rx.settled();
+            await Promise.all(pending);
+        };
+        return { rx, files, errors, settle };
     }
 
     // Every control type Floe knows, as the entire content of a small file.
@@ -409,6 +422,7 @@ describe('receiver: framing decides, not content', () => {
         h.rx.handleMessage(metadataMessage('a', 'end.json', trap.byteLength, 1, 2, trap.byteLength + 3));
         h.rx.handleMessage(trap);
         h.rx.handleMessage(endMessage());
+        await h.rx.settled();
         h.rx.handleMessage(metadataMessage('b', 'after.txt', 3, 2, 2, trap.byteLength + 3));
         h.rx.handleMessage(enc.encode('abc'));
         h.rx.handleMessage(endMessage());
@@ -473,9 +487,10 @@ describe('receiver: framing decides, not content', () => {
  * could never disagree and a truncated file was handed over as complete.
  */
 describe('receiver: truncation guard', () => {
-    // Feeds metadata announcing `announced` bytes but only delivers `actual`.
-    function feedTruncated(
-        rx: { handleMessage: (d: string | Uint8Array | ArrayBuffer) => void },
+    // Feeds metadata announcing `announced` bytes but only delivers `actual`,
+    // then waits for the hand-over, as a sender waits for the next ack.
+    async function feedTruncated(
+        rx: ReturnType<typeof createReceiver>,
         id: string,
         announced: number,
         actual: number,
@@ -489,6 +504,7 @@ describe('receiver: truncation guard', () => {
             rx.handleMessage(chunk);
         }
         rx.handleMessage(endMessage());
+        await rx.settled();
     }
 
     function harness() {
@@ -504,18 +520,18 @@ describe('receiver: truncation guard', () => {
         return { rx, completed, errors, allComplete };
     }
 
-    it('refuses a file that arrived short', () => {
+    it('refuses a file that arrived short', async () => {
         const h = harness();
-        feedTruncated(h.rx, 'a', 100, 60);
+        await feedTruncated(h.rx, 'a', 100, 60);
         expect(h.completed).toEqual([]);
         expect(h.errors).toHaveLength(1);
         expect(h.errors[0]).toContain('60');
         expect(h.errors[0]).toContain('100');
     });
 
-    it('refuses a file that arrived long, so the guard is equality not a floor', () => {
+    it('refuses a file that arrived long, so the guard is equality not a floor', async () => {
         const h = harness();
-        feedTruncated(h.rx, 'a', 50, 80);
+        await feedTruncated(h.rx, 'a', 50, 80);
         expect(h.completed).toEqual([]);
         expect(h.errors).toHaveLength(1);
         // Over-count is a frame-boundary problem, not a truncation, so the
@@ -524,43 +540,43 @@ describe('receiver: truncation guard', () => {
         expect(h.errors[0]).not.toContain('cut short');
     });
 
-    it('says the file was cut short only when it actually was', () => {
+    it('says the file was cut short only when it actually was', async () => {
         const h = harness();
-        feedTruncated(h.rx, 'a', 100, 60);
+        await feedTruncated(h.rx, 'a', 100, 60);
         expect(h.errors[0]).toContain('cut short');
     });
 
-    it('does not report truncated bytes to the global counter', () => {
+    it('does not report truncated bytes to the global counter', async () => {
         const h = harness();
-        feedTruncated(h.rx, 'a', 100, 60, 1, 1);
+        await feedTruncated(h.rx, 'a', 100, 60, 1, 1);
         expect(h.allComplete).toEqual([]);
     });
 
-    it('stops the transfer instead of moving on to the next file', () => {
+    it('stops the transfer instead of moving on to the next file', async () => {
         const h = harness();
-        feedTruncated(h.rx, 'a', 100, 60, 1, 3);
-        feedTruncated(h.rx, 'b', 10, 10, 2, 3);
-        feedTruncated(h.rx, 'c', 10, 10, 3, 3);
+        await feedTruncated(h.rx, 'a', 100, 60, 1, 3);
+        await feedTruncated(h.rx, 'b', 10, 10, 2, 3);
+        await feedTruncated(h.rx, 'c', 10, 10, 3, 3);
         expect(h.completed).toEqual([]);
         expect(h.errors).toHaveLength(1);
         expect(h.allComplete).toEqual([]);
     });
 
-    it('accepts a file whose count matches exactly', () => {
+    it('accepts a file whose count matches exactly', async () => {
         const h = harness();
-        feedTruncated(h.rx, 'a', 100, 100);
+        await feedTruncated(h.rx, 'a', 100, 100);
         expect(h.completed).toEqual(['a.bin']);
         expect(h.errors).toEqual([]);
     });
 
-    it('accepts a zero byte file announced as zero', () => {
+    it('accepts a zero byte file announced as zero', async () => {
         const h = harness();
-        feedTruncated(h.rx, 'a', 0, 0);
+        await feedTruncated(h.rx, 'a', 0, 0);
         expect(h.completed).toEqual(['a.bin']);
         expect(h.errors).toEqual([]);
     });
 
-    it('accepts a peer that announces no size at all', () => {
+    it('accepts a peer that announces no size at all', async () => {
         // metadataMessage always writes a fileSize, so build the frame by hand. A
         // null size reads the same way: unknown, not refused.
         for (const fields of [{}, { fileSize: null }]) {
@@ -573,6 +589,7 @@ describe('receiver: truncation guard', () => {
             for (let i = 0; i < 50; i++) chunk[i] = (i + 1) % 256;
             h.rx.handleMessage(chunk);
             h.rx.handleMessage(endMessage());
+            await h.rx.settled();
             expect(h.completed).toEqual(['a.bin']);
             expect(h.errors).toEqual([]);
         }
@@ -642,7 +659,7 @@ describe('receiver: truncation guard', () => {
         }
     });
 
-    it('accepts a resumed file that reaches the announced size', () => {
+    it('accepts a resumed file that reaches the announced size', async () => {
         // Metadata for the same id arrives twice; the receiver acks the bytes it
         // already has and the sender continues from there. The sum is against
         // the full announced size, so equality still holds.
@@ -663,6 +680,7 @@ describe('receiver: truncation guard', () => {
         rx.handleMessage(metadataMessage('a', 'a.bin', 100, 1, 1, 0));
         rx.handleMessage(part(60));
         rx.handleMessage(endMessage());
+        await rx.settled();
 
         expect(JSON.parse(acks[1]).offset).toBe(40);
         expect(h.completed).toEqual(['a.bin']);
@@ -931,7 +949,7 @@ describe('receiver: a throw stops the transfer once', () => {
             expect(raw!.byteLength).toBeLessThanOrEqual(CONTROL_MSG_MAX);
         });
 
-        it('counts the files already handed over as saved', () => {
+        it('counts the files already handed over as saved', async () => {
             const sent: (string | Uint8Array)[] = [];
             const done: string[] = [];
             const rx = createReceiver({
@@ -942,6 +960,7 @@ describe('receiver: a throw stops the transfer once', () => {
             rx.handleMessage(metadataMessage('a', 'a.bin', 6, 1, 2, 12));
             rx.handleMessage(enc.encode('abcdef'));
             rx.handleMessage(endMessage());
+            await rx.settled();
             expect(done).toEqual(['a.bin']);
             rx.handleMessage(big);
             const out = frames(sent);
@@ -998,7 +1017,7 @@ describe('receiver: a throw stops the transfer once', () => {
         expect(h.failures[0]?.senderSentVersion).toBe(true);
     });
 
-    it('reports no sizes for a throw after the file was handed over', () => {
+    it('reports no sizes for a throw after the file was handed over', async () => {
         // The file is complete; the sizes would describe nothing in progress.
         const errors: string[] = [];
         const failures: (ReceiveFailure | undefined)[] = [];
@@ -1015,6 +1034,7 @@ describe('receiver: a throw stops the transfer once', () => {
         rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 1, 3));
         rx.handleMessage(enc.encode('abc'));
         expect(() => rx.handleMessage(endMessage())).not.toThrow();
+        await rx.settled();
         expect(errors).toEqual([INTERNAL_ERROR_MESSAGE]);
         expect(failures[0]).toMatchObject({ code: 'internal', received: 0, expected: null });
     });
@@ -1074,12 +1094,13 @@ describe('receiver: holds a bounded amount of a file in the tab', () => {
         return out;
     }
 
-    function feed(rx: { handleMessage: (d: string | Uint8Array | ArrayBuffer) => void }, bytes: Uint8Array, chunk: number) {
+    async function feed(rx: ReturnType<typeof createReceiver>, bytes: Uint8Array, chunk: number) {
         rx.handleMessage(metadataMessage('big', 'big.bin', bytes.byteLength, 1, 1, bytes.byteLength));
         for (let off = 0; off < bytes.byteLength; off += chunk) {
             rx.handleMessage(bytes.subarray(off, Math.min(off + chunk, bytes.byteLength)));
         }
         rx.handleMessage(endMessage());
+        await rx.settled();
     }
 
     it('reassembles a file that crossed several spills, in order, byte for byte', async () => {
@@ -1089,14 +1110,14 @@ describe('receiver: holds a bounded amount of a file in the tab', () => {
         const bytes = pattern(size);
         let blob: Blob | null = null;
         const rx = createReceiver({ send: () => {}, onFileComplete: (f) => { blob = f.blob; } });
-        feed(rx, bytes, 300 * 1024);
+        await feed(rx, bytes, 300 * 1024);
         expect(blob).not.toBeNull();
         const got = new Uint8Array(await blob!.arrayBuffer());
         expect(got.byteLength).toBe(size);
         expect(Buffer.compare(Buffer.from(got), Buffer.from(bytes))).toBe(0);
     });
 
-    it('spills each time SPILL_BYTES gather, not once at the end', () => {
+    it('spills each time SPILL_BYTES gather, not once at the end', async () => {
         const built: number[] = [];
         vi.stubGlobal(
             'Blob',
@@ -1108,7 +1129,7 @@ describe('receiver: holds a bounded amount of a file in the tab', () => {
             }
         );
         const rx = createReceiver({ send: () => {} });
-        feed(rx, pattern(2 * SPILL_BYTES + 100), 256 * 1024);
+        await feed(rx, pattern(2 * SPILL_BYTES + 100), 256 * 1024);
         // Two full parts, the 100-byte tail, then the file composed of them.
         expect(built).toEqual([SPILL_BYTES, SPILL_BYTES, 100, 2 * SPILL_BYTES + 100]);
     });
@@ -1168,10 +1189,10 @@ describe('receiver: holds a bounded amount of a file in the tab', () => {
         expect(built).toEqual([0]);
     });
 
-    it('hands over the single part itself for a file of exactly SPILL_BYTES', () => {
+    it('hands over the single part itself for a file of exactly SPILL_BYTES', async () => {
         const built = counting();
         const h = recorder();
-        feed(h.rx, pattern(SPILL_BYTES), 256 * 1024);
+        await feed(h.rx, pattern(SPILL_BYTES), 256 * 1024);
         expect(built).toEqual([SPILL_BYTES]);
         expect(h.completed[0].size).toBe(SPILL_BYTES);
     });
@@ -1183,23 +1204,29 @@ describe('receiver: holds a bounded amount of a file in the tab', () => {
         h.rx.handleMessage(metadataMessage('a', 'a.bin', first.byteLength, 1, 2, first.byteLength + 777));
         for (let off = 0; off < first.byteLength; off += 256 * 1024) h.rx.handleMessage(first.subarray(off, off + 256 * 1024));
         h.rx.handleMessage(endMessage());
+        await h.rx.settled();
         h.rx.handleMessage(metadataMessage('b', 'b.bin', 777, 2, 2, first.byteLength + 777));
         h.rx.handleMessage(second);
         h.rx.handleMessage(endMessage());
+        await h.rx.settled();
         expect(h.completed).toHaveLength(2);
         expect(Buffer.compare(Buffer.from(await h.completed[0].arrayBuffer()), Buffer.from(first))).toBe(0);
         expect(Buffer.compare(Buffer.from(await h.completed[1].arrayBuffer()), Buffer.from(second))).toBe(0);
         expect(h.errors).toEqual([]);
     });
 
-    it('reports a part found broken after its file was handed over, with that file\'s sizes', async () => {
+    // The hand-over waits for the read-back of the file's parts, with a
+    // digest or without one, so a broken part keeps the file from the person
+    // and stops the transfer with that file's sizes. It used to be handed
+    // over first when the sender sent no SHA-256, and the stop came after.
+    it('reports a broken part before its file is handed over, with that file\'s sizes', async () => {
         brokenParts();
         const h = recorder();
         h.rx.handleMessage(metadataMessage('a', 'a.bin', 3, 1, 1, 3));
         h.rx.handleMessage(enc.encode('abc'));
         h.rx.handleMessage(endMessage());
-        expect(h.completed).toHaveLength(1);
-        await tick();
+        await h.rx.settled();
+        expect(h.completed).toEqual([]);
         expect(h.errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
         expect(h.failures[0]).toMatchObject({ code: 'out-of-memory', received: 3, expected: 3 });
         const abort = JSON.parse(new TextDecoder().decode(h.sent[h.sent.length - 1] as Uint8Array));
@@ -1319,7 +1346,7 @@ describe('receiver: holds a bounded amount in the tab whatever the sender does',
         return { rx, sent, errors, completed };
     }
 
-    function feedFrames(rx: { handleMessage: (d: string | Uint8Array | ArrayBuffer) => void }, bytes: Uint8Array, sizes: number[]) {
+    async function feedFrames(rx: ReturnType<typeof createReceiver>, bytes: Uint8Array, sizes: number[]) {
         rx.handleMessage(metadataMessage('m', 'm.bin', bytes.byteLength, 1, 1, bytes.byteLength));
         let off = 0;
         for (const n of sizes) {
@@ -1327,6 +1354,7 @@ describe('receiver: holds a bounded amount in the tab whatever the sender does',
             off += n;
         }
         rx.handleMessage(endMessage());
+        await rx.settled();
     }
 
     async function same(blob: Blob, bytes: Uint8Array): Promise<boolean> {
@@ -1338,7 +1366,7 @@ describe('receiver: holds a bounded amount in the tab whatever the sender does',
         const h = recorder();
         const n = 100_000;
         const bytes = pattern(n);
-        feedFrames(h.rx, bytes, new Array<number>(n).fill(1));
+        await feedFrames(h.rx, bytes, new Array<number>(n).fill(1));
         expect(h.errors).toEqual([]);
         // One part at the end, as for any file under the line: no new spill.
         expect(builds.map((b) => b.size)).toEqual([n]);
@@ -1353,7 +1381,7 @@ describe('receiver: holds a bounded amount in the tab whatever the sender does',
         const bytes = pattern(size);
         const sizes: number[] = [];
         for (let off = 0; off < size; off += 1024) sizes.push(Math.min(1024, size - off));
-        feedFrames(h.rx, bytes, sizes);
+        await feedFrames(h.rx, bytes, sizes);
         expect(h.errors).toEqual([]);
         expect(builds).toEqual([
             { size: SPILL_BYTES, parts: SPILL_BYTES / COPY_BYTES },
@@ -1372,6 +1400,7 @@ describe('receiver: holds a bounded amount in the tab whatever the sender does',
         for (let i = 0; i < 50_000; i++) h.rx.handleMessage(empty);
         h.rx.handleMessage(enc.encode('abc'));
         h.rx.handleMessage(endMessage());
+        await h.rx.settled();
         expect(h.errors).toEqual([]);
         expect(builds).toEqual([{ size: 3, parts: 1 }]);
         expect(await same(h.completed[0], enc.encode('abc'))).toBe(true);
@@ -1425,6 +1454,7 @@ describe('receiver: holds a bounded amount in the tab whatever the sender does',
         h.rx.handleMessage(metadataMessage('a', 'a.bin', 100, 1, 2, 110));
         h.rx.handleMessage(a);
         h.rx.handleMessage(endMessage());
+        await h.rx.settled();
         const acks = h.sent.filter((d): d is string => typeof d === 'string').map((d) => JSON.parse(d));
         expect(acks.map((m) => [m.id, m.offset])).toEqual([['a', 0], ['a', 40], ['b', 0], ['a', 0]]);
         expect(h.errors).toEqual([]);
@@ -1439,7 +1469,7 @@ describe('receiver: holds a bounded amount in the tab whatever the sender does',
         const bytes = pattern(size);
         const sizes: number[] = [];
         for (let off = 0; off < size; off += chunk) sizes.push(Math.min(chunk, size - off));
-        feedFrames(h.rx, bytes, sizes);
+        await feedFrames(h.rx, bytes, sizes);
         expect(h.errors).toEqual([]);
         // A part per SPILL_BYTES, each from one copy per frame, then the tail
         // and the file composed of the three.
@@ -1464,7 +1494,7 @@ describe('receiver: holds a bounded amount in the tab whatever the sender does',
             total += n;
         }
         const bytes = pattern(total);
-        feedFrames(h.rx, bytes, sizes);
+        await feedFrames(h.rx, bytes, sizes);
         expect(h.errors).toEqual([]);
         // Where a byte line alone spills: each time SPILL_BYTES have gathered.
         const spills: number[] = [];

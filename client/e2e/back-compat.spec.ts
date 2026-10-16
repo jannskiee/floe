@@ -32,6 +32,7 @@ import {
     spawnSend,
     spawnReceive,
     waitForExit,
+    collectStdout,
 } from './helpers';
 
 // Spawned CLIs inherit this process's env. v1.7.5 only phones GitHub from
@@ -129,6 +130,7 @@ test('released CLI send → HEAD browser receive (SHA-256 integrity)', async ({ 
 
     // Start the released sender first so the room exists before the browser joins.
     const { linkPromise, proc } = spawnSend(fixturePath, releasedCli());
+    const senderOut = collectStdout(proc);
     const roomLink = await linkPromise;
 
     const ctx = await browser.newContext();
@@ -146,6 +148,16 @@ test('released CLI send → HEAD browser receive (SHA-256 integrity)', async ({ 
         const blobUrl = (await downloadLink.getAttribute('href'))!;
         const receivedHash = await sha256OfBlobUrl(page, blobUrl);
         expect(receivedHash).toBe(expectedHash);
+
+        // A released sender since 1.11.0 reads the confirms the HEAD page now
+        // puts on its acks (SG-01) and waits for the page's `received`
+        // instead of a drained buffer: it must still finish, in success, with
+        // the page's count of matched files, while the page is open. This is
+        // what proves an installed CLI keeps working once the page deploys.
+        expect(await waitForExit(proc, CLI_TIMEOUT_MS)).toBe(0);
+        // Polled: waitForExit can answer from the exit code before the pipe
+        // has handed over the summary the CLI printed just before it exited.
+        await expect.poll(senderOut).toMatch(/Verified\s+SHA-256 matched/);
     } finally {
         await ctx.close();
         proc.kill();

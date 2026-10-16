@@ -14,6 +14,13 @@ export const MAX_CHUNK = 256 * 1024;       // 256 KB — cap on adaptive chunk
 // every receiver treats the absent digest as the old byte-count check.
 export const SEND_FILE_HASHES = true;
 
+// Whether the browser receiver promises `received` on its acks (confirms) and
+// sends it once every file of a batch is handed over. This is the rollback
+// lever: set it to false and the acks carry no confirms and no received goes
+// out, so a Go sender ends its send at a drained buffer again, as it did
+// against every browser receiver of 1.11.1 or earlier (SG-01).
+export const RECEIVER_CONFIRMS = true;
+
 // Milliseconds the sender waits for the receiver's ack before failing. Mirrors
 // the CLI sender's 120 s ack deadline (cli/engine/transfer/sender.go). It must be
 // this generous because a CLI receiver only acks after a human answers its
@@ -69,7 +76,9 @@ export const END_DIGEST_WAIT_MS = 45_000;
  * unverified rather than the batch timing out. 90 s, not closer to 120: a Go
  * sender sends the next metadata without draining, so its clock can start up
  * to the tail drain (8 MB at 0.5 MB/s, about 16 s) before this hash does. The
- * last file of a batch keeps hashBoundMs: no sender waits on it.
+ * last file of a batch keeps hashBoundMs: no sender's clock runs on it. A
+ * sender that waits for `received` after it (a Go sender whose ack carried
+ * confirms, a request-link visitor) waits with no deadline of its own.
  */
 export const POST_END_HASH_WAIT_MS = 90_000;
 
@@ -105,12 +114,12 @@ export interface Metadata {
     ver?: string;   // sender's human release string, e.g. "v1.5.5"
 }
 
-// `confirms` is optional: a Go receiver's promise that it ends every batch with
-// a received frame or a refusal, so a Go sender waits for that word instead of
-// a drained send buffer (FT-GO-CONFIRMS). The browser sender does not act on
-// it, and a browser receiver never sends it, because it never sends received.
-// classifyControl casts, so read it only through ackConfirmsOf. Mirrors the
-// ack that cli/engine/transfer/receiver.go builds.
+// `confirms` is optional: a receiver's promise that it ends every batch with a
+// received frame or a refusal, so a Go sender waits for that word instead of a
+// drained send buffer (FT-GO-CONFIRMS). Every Go receiver sends it, and the
+// browser receiver does while RECEIVER_CONFIRMS is on (SG-01). The browser
+// sender does not act on it. classifyControl casts, so read it only through
+// ackConfirmsOf. Mirrors the ack that cli/engine/transfer/receiver.go builds.
 export interface Ack {
     type: 'ack';
     id: string;
@@ -129,10 +138,11 @@ export interface End {
     sha256?: string;
 }
 
-// Sent by the CLI receiver after all files are written and verified.
-// Tells the CLI sender delivery is confirmed so it can close cleanly.
-// Browser receivers never send this; the protocol handles both cases.
-// `verified` counts the files whose SHA-256 matched; it is cast, so read it only
+// Sent by a receiver once every file of the batch is kept: a Go receiver after
+// its last commit, the browser receiver after its last hand-over (while
+// RECEIVER_CONFIRMS is on). Tells the sender delivery is confirmed so it can
+// close cleanly. `verified` counts the files whose SHA-256 matched and is
+// always present, 0 when no file carried one; it is cast, so read it only
 // through verifiedCountOf.
 export interface Received {
     type: 'received';
@@ -183,13 +193,26 @@ export function metadataMessage(
     } satisfies Metadata);
 }
 
-export function ackMessage(id: string, offset: number, ver?: string): string {
+// `confirms` is emitted only when the caller passes true, so every other caller
+// (test fakes standing in for a receiver among them) builds the ack it always
+// did, without the promise.
+export function ackMessage(id: string, offset: number, ver?: string, confirms?: boolean): string {
     return JSON.stringify({
         type: 'ack', id, offset,
         pv: PROTOCOL_VERSION,
         pvMin: MIN_PROTOCOL_VERSION,
         ver,
+        confirms: confirms === true ? true : undefined,
     } satisfies Ack);
+}
+
+// The frame a receiver ends a batch with. Byte for byte the one
+// cli/engine/transfer/receiver.go marshals: `type` first, `verified` always
+// present. A count that is not a safe integer from 0 up is sent as 0, which a
+// sender reads as "no file matched", never as more than this side checked.
+export function receivedMessage(verified: number): string {
+    const count = Number.isSafeInteger(verified) && verified >= 0 ? verified : 0;
+    return JSON.stringify({ type: 'received', verified: count } satisfies Received);
 }
 
 // The key is emitted only for a digest that passes normalizeSha256, and `type`

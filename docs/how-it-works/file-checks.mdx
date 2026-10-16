@@ -91,14 +91,15 @@ So what "sent" means depends on whether the receiver reports back.
 | Sending from | To | The send is finished when |
 | --- | --- | --- |
 | `floe send` or Floe Desktop | `floe receive` or Floe Desktop, with both sides on `floe` 1.11.0 or later or Floe Desktop 0.3.0 or later | The receiving app says it has saved every file, after its checks. A file it deleted or could not save at the last moment ends the send as a failure with the reason. |
-| `floe send` or Floe Desktop | A browser, or an older `floe` or Floe Desktop | Everything has left the sending device. |
+| `floe send` 1.11.0 or later, or Floe Desktop 0.3.0 or later | A browser | The receiving page says it holds every file, after its checks. A file it could not keep at the last moment, such as one a browser ran out of memory for, ends the send as a failure with the reason. |
+| `floe send` or Floe Desktop | An older `floe` or Floe Desktop, or a browser when the sending app is older than the versions above | Everything has left the sending device. |
 | The web app's Send page | Any receiver | Everything has left the browser, and the status reads "All Files Sent!". If the receiving app then reports a file it refused, the page replaces that status with the failure and its reason. |
 | A [request link](/glossary#request-link)'s page, or `floe send --to` | Floe Desktop | Floe Desktop says it has saved every file. Nothing less counts. |
 
-On the first and last rows the finished state means the files are saved on the other device. It
-reads `Sent` in the summary of `floe send`, "Sent 3 items" in Floe Desktop, and "ALL 3 FILES
-ARRIVED" on a request link's page. On the two rows between, it means the data left your device, which is not the
-receiver's word.
+On the first two rows and the last, the finished state is the receiver's word: the files are saved
+on the other device, or held by the receiving page, ready to save. It reads `Sent` in the summary of
+`floe send`, "Sent 3 items" in Floe Desktop, and "ALL 3 FILES ARRIVED" on a request link's page. On
+the two rows between, it means the data left your device, which is not the receiver's word.
 
 Where the sender waits for the receiver's word, the wait has no time limit of its own: it lasts
 as long as the connection does. If the receiving device vanishes instead of answering, `floe send`
@@ -146,8 +147,6 @@ without the mark when:
   [when its time ran out](#when-a-browser-runs-out-of-time).
 - The receiver is a browser that had not finished checking some file when its time ran out, or
   that could not run the check.
-- You are the sender and the receiver is a browser, which never reports back. Between two
-  browsers, only the receiving side can show the line.
 - You are the sender and the receiver is an older `floe` or Floe Desktop, which reports that the
   files arrived but not whether they matched.
 - Not every file arrived, because the transfer stopped partway.

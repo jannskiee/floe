@@ -155,6 +155,7 @@ wording of the version they run, and this table lists each place where that diff
 | [Sending through a request link](/web-app/request-links#when-their-floe-stops-the-drop): their Floe stopped a drop for a file name or path too long to save | “A file name or folder path is too long for their computer”, and after the count “Shorten it or zip it first.” | Version 1.11.1 or earlier: “A folder path is too long for their computer”, and after the count “Zip deeply nested folders first.” |
 | [Sending through a request link](/web-app/request-links#report-a-link): **Report this link** on a server other than floe.one | The link starts an email to the address that server's operator set in [`REQUEST_REPORT_EMAIL`](/self-hosting/configuration#request-report-email). With no address set, the page shows no report link. | The link shows on every server and starts an email to Floe's maintainers, who cannot act on another server's links. The variable is not read. |
 | [floe send](/cli/send#folder-transfers): a receiving browser refuses a file whose description is longer than 1,000 bytes | The page tells the sender why, and `floe send` stops with `Error: A folder path is too long for their computer. Zip deeply nested folders first.` | The page sends no answer, so `floe send` waits 120 seconds and ends with `timed out waiting for ack`. |
+| [File checks](/how-it-works/file-checks#delivery-confirmation): a browser receives | The page tells the sender once it holds every file, so the sender can show the [SHA-256 matched](/glossary#sha-256-matched) mark, and a file the page could not keep after the last byte ends the send as a failure. | Version 1.11.1 or earlier: the page tells the sender nothing. The send ends once the data has left, without the mark, and a file the page could not keep after that is never reported. |
 | [Self-hosting overview](/self-hosting/overview#what-the-web-app-on-your-domain-serves): `/docs` on your instance | `/docs` sends the visitor's browser on to the same page under `https://www.floe.one/docs`. | The client container fetches each docs page from `floe.mintlify.site` itself and serves it under your own domain. |
 
 On version 1.11.0, where the “Too many refreshes. Reconnecting” banner stays after a retry has
@@ -163,6 +164,7 @@ the X closes the banner. For a relayed transfer over 2 GB, the sending page's ow
 says to reload the page.
 
 To see the newer wording, update the client image to the newest version: see
+To see the newer wording, update the client image to the latest version: see
 [Update to the latest code](#update-to-the-latest-code).
 
 ## The server logs very little

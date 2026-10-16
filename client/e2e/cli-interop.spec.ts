@@ -27,6 +27,9 @@ import {
     browserSenderSetup,
     spawnSend,
     spawnReceive,
+    collectStdout,
+    waitForExit,
+    CLI_TIMEOUT_MS,
 } from './helpers';
 
 const FIXTURE_DIR = join(tmpdir(), 'floe-cli-interop');
@@ -42,6 +45,7 @@ test('Direction 1: CLI send → browser receive (SHA-256 integrity)', async ({ b
 
     // Start the CLI sender first so the room exists before the browser joins.
     const { linkPromise, proc } = spawnSend(fixturePath);
+    const senderOut = collectStdout(proc);
     const roomLink = await linkPromise;
 
     const ctx = await browser.newContext();
@@ -71,6 +75,16 @@ test('Direction 1: CLI send → browser receive (SHA-256 integrity)', async ({ b
         // "Verifying file 1 of 1" is deliberately not asserted; for a 12 MB
         // file the check is milliseconds and the assertion would flake.
         await expect(page.locator('body')).toContainText('SHA-256 matched', { timeout: 15_000 });
+
+        // The page's acks promise `received` (SG-01), so the CLI waits for
+        // that word, not a drained buffer, and ends on it in success with the
+        // page's count of matched files, while the page is still open. Before,
+        // it ended at the drain, and a refusal the page sent after the last
+        // byte never reached it. This used to kill the CLI unawaited.
+        expect(await waitForExit(proc, CLI_TIMEOUT_MS)).toBe(0);
+        // Polled: waitForExit can answer from the exit code before the pipe
+        // has handed over the summary the CLI printed just before it exited.
+        await expect.poll(senderOut).toMatch(/Verified\s+SHA-256 matched/);
     } finally {
         await ctx.close();
         proc.kill();

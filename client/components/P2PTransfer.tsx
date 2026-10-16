@@ -115,9 +115,9 @@ export function P2PTransfer() {
     // A receiver page only: the server's messages say nobody is on the
     // sending side of this link right now. See lib/roomSeat.ts.
     const [senderAbsent, setSenderAbsent] = useState(false);
-    // A receiver page only: the file the sender announced as its last one has
-    // arrived (the receiver engine's onAllComplete), so no receive is under
-    // way until another file is announced. Read only by the leave prompt.
+    // A receiver page only: the files handed over have reached the count the
+    // sender announced (the receiver engine's onAllComplete), so no receive is
+    // under way until another file is announced. Read only by the leave prompt.
     const [allArrived, setAllArrived] = useState(false);
     // A receiver page only: the received files this page has handed to the
     // browser to save (a file's own link, Download All, Download ZIP). The
@@ -652,9 +652,10 @@ export function P2PTransfer() {
             releaseWakeLock();
             resetConnectionType();
             stopConnectionTypePolling();
-            // A Go sender closes about 50 ms after its last end marker, while
-            // this side may still be checking that file's SHA-256, so the
-            // decision waits for the check and counts the file it produces.
+            // A Go sender that waits for no `received` (one before 1.11.0)
+            // closes about 50 ms after its last end marker, while this side
+            // may still be checking that file, so the decision waits for the
+            // check and counts the file it produces.
             void rx.settled().then(() => {
                 // The branchy part lives in client/lib/receiverClose.ts, where it
                 // can be tested: nothing in the suite mounts this component, and
@@ -814,9 +815,10 @@ export function P2PTransfer() {
                 transferCompleteRef.current = true;
             },
             onAllComplete: (totalBytes, fileCount) => {
-                // No value read: it fires when the file the sender announced
-                // as its last is handed over. Lets go only of the leave
-                // prompt's under-way half; an unsaved file still holds it.
+                // No value read: it fires when this side's own count of files
+                // handed over reaches the total the sender announced. Lets go
+                // only of the leave prompt's under-way half; an unsaved file
+                // still holds it.
                 setAllArrived(true);
                 track('transfer-received', {
                     files: fileCount,

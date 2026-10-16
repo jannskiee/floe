@@ -21,6 +21,8 @@ import {
     verifiedCountOf,
     ackConfirmsOf,
     SEND_FILE_HASHES,
+    RECEIVER_CONFIRMS,
+    receivedMessage,
     END_DIGEST_WAIT_MS,
     POST_END_HASH_WAIT_MS,
     type Ack,
@@ -121,13 +123,21 @@ describe('ackConfirmsOf (twin of parseAckConfirms in cli/engine/transfer/sender.
         expect(ackConfirmsOf({ type: 'ack', id: 'a', offset: 0 })).toBe(false);
     });
 
-    it('is never promised by the browser receiver, which never sends received', () => {
-        // A browser ack that carried it would hold a Go sender until the close
-        // and end that send in an error over a file that arrived.
-        for (const raw of [ackMessage('xyz', 0), ackMessage('xyz', 512, 'v1.10.11')]) {
+    it('is promised only by a caller that passes it, as the browser receiver does', () => {
+        // The browser receiver sends received after its last hand-over
+        // (SG-01), so its acks promise it while RECEIVER_CONFIRMS is on. Every
+        // other caller, test fakes standing in for a receiver among them,
+        // builds the ack it always did: a promise nothing keeps would hold a
+        // Go sender until the close and end that send in an error over a file
+        // that arrived.
+        expect(RECEIVER_CONFIRMS).toBe(true);
+        for (const raw of [ackMessage('xyz', 0), ackMessage('xyz', 512, 'v1.10.11'), ackMessage('xyz', 0, undefined, false)]) {
             const msg = JSON.parse(raw) as Record<string, unknown>;
             expect(Object.prototype.hasOwnProperty.call(msg, 'confirms')).toBe(false);
         }
+        const promised = JSON.parse(ackMessage('xyz', 0, undefined, true)) as Ack;
+        expect(promised).toEqual({ type: 'ack', id: 'xyz', offset: 0, pv: PROTOCOL_VERSION, pvMin: MIN_PROTOCOL_VERSION, confirms: true });
+        expect(ackConfirmsOf(promised)).toBe(true);
     });
 });
 
@@ -455,6 +465,20 @@ describe('per-file SHA-256 fields', () => {
         expect(hashed.startsWith('{"type":"end","sha256":"')).toBe(true);
         expect(JSON.parse(hashed)).toEqual({ type: 'end', sha256: good });
         expect(enc.encode(hashed).byteLength).toBe(90);
+    });
+
+    it('receivedMessage is the frame a Go receiver marshals, and reads back', () => {
+        // Byte for byte what receiver.go sends: json.Marshal sorts a map's
+        // keys, so type comes first, and verified is always present.
+        expect(receivedMessage(0)).toBe('{"type":"received","verified":0}');
+        expect(receivedMessage(2)).toBe('{"type":"received","verified":2}');
+        // Nothing but a count from 0 up goes out, and anything else reads as 0.
+        for (const bad of [-1, 1.5, NaN, Infinity, 2 ** 53]) {
+            expect(receivedMessage(bad), String(bad)).toBe('{"type":"received","verified":0}');
+        }
+        const msg = classifyControl(enc.encode(receivedMessage(2)));
+        expect(msg?.type).toBe('received');
+        expect(verifiedCountOf(msg as Received, 2)).toBe(2);
     });
 
     it('verifiedCountOf rejects non-integers and out-of-range', () => {

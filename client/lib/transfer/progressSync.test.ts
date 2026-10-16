@@ -145,7 +145,7 @@ describe('sender: delivered-bytes progress', () => {
 });
 
 describe('receiver: progress cadence', () => {
-    it('reports progress at least every 1 MB with 256 KB chunks', () => {
+    it('reports progress at least every 1 MB with 256 KB chunks', async () => {
         const reported: number[] = [];
         const rx = createReceiver({
             send: () => { },
@@ -157,6 +157,7 @@ describe('receiver: progress cadence', () => {
         const chunk = new Uint8Array(256 * 1024); // > 1000 bytes, treated as file data
         for (let i = 0; i < 20; i++) rx.handleMessage(chunk);
         rx.handleMessage(endMessage());
+        await rx.settled(); // the hand-over waits for the parts to read back
 
         // 1 MB steps plus completion, then the (0,0,0) reset on 'end'. The old
         // exact-modulo condition emitted nothing at all for this sequence.

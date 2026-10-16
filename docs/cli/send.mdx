@@ -112,9 +112,9 @@ the box below counts 1 MB as 1,048,576 bytes, so the two can differ slightly.
 
 The `Verified   SHA-256 matched` row is the receiver's report that every file matched the
 [SHA-256](/glossary#sha-256), a fingerprint of the file's contents, that your `floe` sent with it.
-It is not a check made on your side. It appears when the receiver is `floe receive` 1.11.0 or later
-or Floe Desktop 0.3.0 or later and every file matched. A browser receiver never sends that report,
-so the box then holds the `Sent` and `Time` rows alone. See [File checks](/how-it-works/file-checks).
+It is not a check made on your side. It appears when the receiver is `floe receive` 1.11.0 or later,
+Floe Desktop 0.3.0 or later, or a browser, and every file matched. Otherwise the box holds the
+`Sent` and `Time` rows alone. See [File checks](/how-it-works/file-checks).
 
 `Time` counts from the moment the receiver accepted, so the time they took to answer is in neither
 the time nor the average speed. In `floe` 1.11.0 and earlier it counted from the moment the
@@ -192,9 +192,9 @@ see [What an older web app shows](/self-hosting/operations#older-web-app-version
 
 ## When a send ends {#notes}
 
-A send that worked exits with status 0 after the `Sent` box. To `floe receive` 1.11.0 or later or
-Floe Desktop 0.3.0 or later, the box prints only after the receiver has said it saved every file. To
-a browser, or to an older receiver, it prints once the other side's connection has acknowledged all
+A send that worked exits with status 0 after the `Sent` box. To `floe receive` 1.11.0 or later,
+Floe Desktop 0.3.0 or later, or a browser, the box prints only after the receiver has said it holds
+every file. To an older receiver, it prints once the other side's connection has acknowledged all
 the data. See [File checks](/how-it-works/file-checks#delivery-confirmation).
 
 `floe send` never reports to the public transfer counter. Only a receiver does, and it can opt out: see [Opting out of the global counter](/cli/flags#opting-out-of-the-global-counter).
@@ -233,8 +233,8 @@ seconds and reported a stalled transfer, and a browser waited until its connecti
 | `Error: error sending report.pdf: connection closed while waiting for the receiver (transfer declined or receiver exited)` | The receiver's side closed or went away before it accepted, or a `floe receive` 1.11.0 or earlier answered `n`. | Ask them, then run `floe send` again. See [`connection closed while waiting for the receiver`](/troubleshooting#connection-closed-while-waiting-for-the-receiver-transfer-declined-or-receiver-exited) |
 | `Error: error sending report.pdf: timed out waiting for ack` | The receiver did not accept within 120 seconds. | Run `floe send` again when they are at the prompt, or have them pass `-y`. See [`timed out waiting for ack`](/troubleshooting#timed-out-waiting-for-ack) |
 | `Error: the other side left before the connection was established` | The receiver joined and then left before the connection came up. | Run `floe send` again and share the new code. See [`the other side left`](/troubleshooting#the-other-side-left-before-the-connection-was-established) |
-| `Error: the connection closed before the receiver confirmed delivery` | The connection ended after the last file, before a receiver that confirms delivery (the versions named above) said it had saved everything. | Ask them which files arrived before you send again. See [`the connection closed before the receiver confirmed delivery`](/troubleshooting#the-connection-closed-before-the-receiver-confirmed-delivery) |
-| `Error: connection closed before delivery was confirmed (65536 bytes unacknowledged)` | A browser, or an older receiver, closed its side after the last file, before it had acknowledged all the data. | Ask them which files arrived. |
+| `Error: the connection closed before the receiver confirmed delivery` | The connection ended after the last file, before a receiver that confirms delivery (a browser, or the versions named above) said it had everything. A browser tab closed right after the last byte does it. | Ask them which files arrived before you send again. See [`the connection closed before the receiver confirmed delivery`](/troubleshooting#the-connection-closed-before-the-receiver-confirmed-delivery) |
+| `Error: connection closed before delivery was confirmed (65536 bytes unacknowledged)` | An older receiver closed its side after the last file, before it had acknowledged all the data. | Ask them which files arrived. |
 | `Error: error sending video.mp4: connection closed mid-transfer (4194304 bytes still buffered)` | The receiver's side closed in the middle of a file. | Ask them which files arrived, then send the rest. |
 
 A receiver that cannot keep a file says why, and `floe send` prints Floe's own sentence for the

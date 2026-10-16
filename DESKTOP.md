@@ -209,10 +209,12 @@ verify the connection independently of the server.
       In the browser the hash has a time bound on both sides (`END_DIGEST_WAIT_MS`,
       `POST_END_HASH_WAIT_MS` and `hashBoundMs` in `protocol.ts`): past it the sender leaves
       the digest out and the receiver keeps the file on the byte-count check.
-- [x] Delivery confirmation. Every Go receiver's ack carries `confirms: true`, and a Go sender
-      that reads it (`parseAckConfirms` in `transfer/sender.go`) ends a send only on the
-      receiver's `received` frame or on the close, never on a drained buffer. A request-link
-      drop always requires `received` (`RequireReceived`).
+- [x] Delivery confirmation. Every Go receiver's ack carries `confirms: true`, and so does
+      the browser receiver's (`RECEIVER_CONFIRMS` in `client/lib/transfer/protocol.ts`), which
+      sends `received` once every file is handed over. A Go sender that reads it
+      (`parseAckConfirms` in `transfer/sender.go`) ends a send only on the receiver's
+      `received` frame or on the close, never on a drained buffer. A request-link drop always
+      requires `received` (`RequireReceived`).
 - [x] Receive limits, in two layers (`transfer/limits.go`). Layer 1 is on for every Go
       receiver and cannot be switched off: a relative path of at most 32 components and 235
       UTF-16 units (`maxPathUnits` is 240 because it counts the `.part` suffix), never starting at a drive or a root, and a size the volume can hold. A

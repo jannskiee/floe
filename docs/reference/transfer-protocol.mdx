@@ -25,7 +25,7 @@ channel.
 For each file the sender sends a `metadata` frame, waits for the receiver's `ack`, sends the bytes
 as binary frames, and closes the file with `end`. A text frame is a control message and a binary
 frame is file data, whatever it contains. A peer that stops on purpose says why in an
-`incompatible` frame, usually with a fixed `code`, and a Go receiver confirms the whole batch with
+`incompatible` frame, usually with a fixed `code`, and the receiver confirms the whole batch with
 `received`.
 
 ## The sequence
@@ -37,8 +37,8 @@ The sender runs this for each file, in order:
 3. **Binary chunks**, sender to receiver, until the file is exhausted.
 4. **`end`**, sender to receiver, closing the file off.
 
-The next file starts again at step 1. The final `received` comes once, after every file, and only
-from a Go receiver.
+The next file starts again at step 1. The final `received` comes once, after every file, from a Go
+receiver and from the browser.
 
 What that order does not show:
 
@@ -84,8 +84,8 @@ A Go sender reads the receiver's promise from the first file's ack (see [`confir
 
 | The receiver's first ack | The send succeeds on | The send fails on |
 |---|---|---|
-| Carries `"confirms": true`, as a current Go receiver's does | `received` only | A refusal, which ends the send with that refusal, or a close before either |
-| Has no promise, as a browser receiver's has none | `received`, or its own send buffer reaching zero, whichever comes first | 60 seconds in which the buffer did not shrink at all, or a close while bytes are still in the buffer |
+| Carries `"confirms": true`, as a current receiver's does | `received` only | A refusal, which ends the send with that refusal, or a close before either |
+| Has no promise, as an older receiver's has none | `received`, or its own send buffer reaching zero, whichever comes first | 60 seconds in which the buffer did not shrink at all, or a close while bytes are still in the buffer |
 
 A close while bytes are still in the buffer ends the send with
 `connection closed before delivery was confirmed (N bytes unacknowledged)`, where `N` is the
@@ -140,7 +140,7 @@ list for another client. A change to how either side reads `end`, `received`, `a
 The other direction, receiver to sender, carries no file data, so nothing there can be confused
 with a chunk and a sender accepts a control message in either framing. It has to: a Go receiver
 sends `ack`, `received`, and `incompatible` as binary, and a browser receiver sends `ack` as a
-string and `incompatible` as binary. A sender ignores a frame of more than 1000 bytes.
+string and `received` and `incompatible` as binary. A sender ignores a frame of more than 1000 bytes.
 
 <Warning>
   If you are building another client, every frame you send to a receiver that is not file data has
@@ -224,7 +224,7 @@ own error starts with `rejected the sender's file description:`.
 Receiver to sender, once per file, before any bytes move.
 
 ```json ack from a browser receiver
-{ "type": "ack", "id": "3f2b9c1e-...", "offset": 0, "pv": 1, "pvMin": 1 }
+{ "type": "ack", "id": "3f2b9c1e-...", "offset": 0, "pv": 1, "pvMin": 1, "confirms": true }
 ```
 
 <ResponseField name="id" type="string" required>
@@ -256,14 +256,16 @@ Receiver to sender, once per file, before any bytes move.
   The receiver's promise that it ends the batch with a word of its own: `received` after the last
   file is saved, or a refusal when it keeps a file out.
 
-  Current Go receivers, the CLI and Floe Desktop, send `true` on every ack. Browser receivers never
-  send it, and neither did Go receivers before `floe` 1.11.0 and Floe Desktop 0.3.0.
+  Current receivers send `true` on every ack: the CLI and Floe Desktop, and the browser. Go
+  receivers before `floe` 1.11.0 and Floe Desktop 0.3.0 never sent it, and neither does a
+  [web app that someone hosts](/self-hosting/operations#older-web-app-versions) and that runs an
+  older version.
 
   A Go sender reads it from the first file's ack. With it, the sender waits for that word instead
   of ending at a drained send buffer, so a file the receiver deletes or cannot save after the last
   byte is never reported as delivered. Only the JSON literal `true` counts. The string `"true"`,
   `1`, `null`, or any other value is no promise, and never an error. Older peers and the browser
-  ignore the field, so it needs no protocol version bump.
+  sender ignore the field, so it needs no protocol version bump.
 </ResponseField>
 
 ```json ack from a current Go receiver
@@ -303,13 +305,16 @@ hashes in a worker while it sends and holds `end` for the digest only so long (s
 
 ### received
 
-Receiver to sender, once, after every file in the batch is written.
+Receiver to sender, once, after every file in the batch is kept.
 
 ```json received
 { "type": "received" }
 ```
 
-Only Go receivers send it. A Go sender stops waiting as soon as it arrives. When the receiver's ack
+Go receivers send it once every file is saved. A browser receiver sends it once every file is
+handed to the page, after its checks (see [Integrity](#integrity)), so a file the browser could not
+keep is refused first and never confirmed. It never waits for the person to save a file. A Go sender
+stops waiting as soon as it arrives. When the receiver's ack
 carried [`confirms`](#ack), it accepts nothing else as success: a close that comes before either
 `received` or a refusal fails the send with
 `the connection closed before the receiver confirmed delivery`. That wait has no deadline of its
@@ -317,23 +322,22 @@ own once the buffer has drained. `floe send` and Floe Desktop close the connecti
 [ICE](/glossary#ice) gives up on it, about 30 seconds after the last packet from the receiver.
 
 floe.one's send page does not wait for it. That send is complete when its own send buffer drains to
-zero, and the page then reads "All Files Sent!". The page keeps listening afterward: a `received`
-that reports every file as verified adds the line
-"[SHA-256 matched](/glossary#sha-256-matched)" (see
-[Sending files](/web-app/sending#when-it-finishes)), and a refusal that arrives in that window
-replaces the success with the refusal.
+zero, and the page then reads "All Files Sent!". The page keeps listening afterward, until a
+`received` or a refusal arrives or the connection closes. A `received` from any receiver that
+reports every file as verified adds the line "[SHA-256 matched](/glossary#sha-256-matched)" (see
+[Sending files](/web-app/sending#when-it-finishes)). A refusal that arrives in that window replaces
+the success with the refusal.
 
 After sending `received`, a Go receiver keeps the connection open until the sender closes it, which
 a Go sender does as soon as it reads the frame. With a sender that does not close, such as a
 browser, it waits 5 seconds, and longer while the frame is still in its send buffer, up to 35
 seconds from sending it.
 
-A Go receiver also reports `verified`, the number of files whose `sha256` was present and
-matched. It is always present, and `0` means no file carried a digest. A sender shows its
-SHA-256 mark only when `verified` equals the number of files it sent. A count that is not a whole
-number from 0 to that number is ignored, never rounded or capped into a match. It is the
-receiver's report, not a check the sender makes. Browser receivers never send `received`, so they
-never report `verified`. What each app shows is in
+Both receivers report `verified`, the number of files whose `sha256` was present and matched. It
+is always present, and `0` means no file carried a digest, or none that the receiver could check in
+time. A sender shows its SHA-256 mark only when `verified` equals the number of files it sent. A
+count that is not a whole number from 0 to that number is ignored, never rounded or capped into a
+match. It is the receiver's report, not a check the sender makes. What each app shows is in
 [File checks](/how-it-works/file-checks#what-you-see-in-each-app).
 
 ```json received with a count
@@ -557,8 +561,9 @@ packet, so the digest is not covering corruption in flight; it ties the file wri
 machine to the bytes read on the other. What the check means for the person receiving is in
 [File checks](/how-it-works/file-checks).
 
-While a browser receiver checks a file's digest, it drops binary frames and holds at most 8 text
-frames, each within the 1000-byte limit. A sender that goes past that stops the transfer with "The
+While a browser receiver checks a file, it drops binary frames and holds at most 8 text frames,
+each within the 1000-byte limit. It checks every file after `end`: the digest when there is one,
+and always a read-back of the last byte of each part it holds the file in. A sender that goes past that stops the transfer with "The
 sender sent more messages than a transfer allows while a file was being checked, so the transfer
 was stopped." A conforming sender has at most one frame in flight then: the next file's
 `metadata`, or an `incompatible`. Another client must not send ahead of the next ack.
@@ -657,7 +662,7 @@ bound for hashing a file is the file's size at 10 MB/s plus 30 seconds.
 - A browser receiver hashes each file after its `end`. While more files follow, it stops after
   that bound or 90 seconds, whichever is sooner, and keeps the file unverified. The next file's ack
   waits behind the hash, and the sender gives up on it after 120 seconds. The last file
-  of a batch gets the whole bound.
+  of a batch gets the whole bound, and the batch's `received` goes out only after it.
 
 A file kept unverified never counts toward `SHA-256 matched`.
 

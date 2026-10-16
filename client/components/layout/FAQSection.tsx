@@ -234,9 +234,8 @@ export const FAQSection = () => {
                             every file matched, the browser and the CLI show
                             &quot;SHA-256 matched&quot; and Floe Desktop shows a green check mark.
                             Without it, at least one file was checked by size only, or the transfer stopped
-                            partway. The sender sees the mark only when a CLI or Floe Desktop
-                            receiver reports that every file matched; a browser that receives never
-                            reports back. A match means the file arrived intact, not that it
+                            partway. The sender sees the mark only when the receiver reports back
+                            that every file matched. A match means the file arrived intact, not that it
                             is safe to open: Floe does not scan files for malware. What the check
                             proves is in{' '}
                             <a

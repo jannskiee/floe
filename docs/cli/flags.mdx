@@ -171,9 +171,10 @@ on, such as `PION_LOG_TRACE=ice`, brings all of them back, so set one only while
   [File checks](/how-it-works/file-checks#delivery-confirmation).
   - `floe send --to` exits `0` only after the other side's Floe confirmed that every file arrived.
   - A plain `floe send` to `floe receive` 1.11.0 or later, or to Floe Desktop 0.3.0 or later, exits
-    `0` only after the receiver said it saved every file.
-  - To a browser, or to an older receiver, it exits `0` once the other side's connection has
-    acknowledged all the data.
+    `0` only after the receiver said it saved every file. To a browser it exits `0` only after the
+    page said it holds every file.
+  - To an older receiver, it exits `0` once the other side's connection has acknowledged all the
+    data.
 - **A send waits as long as it takes.** `floe send` has no time limit of its own while it waits for
   the other side to connect, so give the job a timeout if it must not hang. It does end, with status
   `1`, if its own connection to the signaling server drops while it waits.

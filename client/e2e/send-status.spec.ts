@@ -42,11 +42,24 @@ interface Held {
 }
 
 /** A receiver context whose page keeps its peer connection and data channel
- *  within reach, and keeps its transfers out of the stats counter. */
+ *  within reach, keeps its transfers out of the stats counter, and never sends
+ *  its `received` frame. The page sends that frame once the file is handed
+ *  over (SG-01), and a sender stops listening on it, so a refusal staged after
+ *  the last byte would land on nobody. A receiver that refuses a file never
+ *  sends `received` for it, which is the state these tests stage by hand. */
 async function receiverContext(browser: Browser): Promise<BrowserContext> {
     const ctx = await browser.newContext();
     await ctx.addInitScript(() => {
         try { localStorage.setItem('floe:report-stats', 'false'); } catch { /* ignore */ }
+        const send = RTCDataChannel.prototype.send;
+        RTCDataChannel.prototype.send = function (this: RTCDataChannel, data: never) {
+            const frame: unknown = data;
+            let text = '';
+            if (typeof frame === 'string') text = frame;
+            else if (ArrayBuffer.isView(frame) && frame.byteLength < 1000) text = new TextDecoder().decode(frame);
+            if (text.startsWith('{"type":"received"')) return;
+            return send.call(this, data);
+        } as typeof send;
         const Native = window.RTCPeerConnection;
         class Watched extends Native {
             constructor(config?: RTCConfiguration) {

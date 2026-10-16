@@ -250,6 +250,18 @@ function tail(stdout: string, stderr: string): string {
 }
 
 /**
+ * Everything a spawned CLI prints to stdout from here on, read when the caller
+ * asks. Call it right after the spawn, in the same tick: a stream hands its
+ * data over asynchronously, so nothing it printed is missed. spawnSend's own
+ * listener keeps only what it needs to find the link.
+ */
+export function collectStdout(proc: ChildProcess): () => string {
+    let out = '';
+    proc.stdout?.on('data', (chunk: Buffer) => { out += chunk.toString(); });
+    return () => out;
+}
+
+/**
  * Wait for a spawned process to exit; resolves with its exit code, or null if
  * it is still running after timeoutMs. Never kills the process; the caller's
  * finally-block kill stays responsible for cleanup, and an exited process
