@@ -66,8 +66,8 @@ export const metadata: Metadata = {
 // day every Sentry send hook was made to fail closed (lib/failClosed.ts),
 // which narrows what can leave and changes no sentence here. Also that day, for
 // desktop-v0.3.2: the History row's sentence on a drop Floe was closed during
-// (desktop/requestquit.go quitDrop, takeQuitDrop: label, counts, folder and at
-// most 200 names, beside desktop.json, removed when the drop ends or read once
+// (desktop/requestquit.go quitDrop, takeQuitDrop: label, counts and sizes,
+// folder, at most 200 names, Auto-accept and the write time, beside desktop.json, removed when the drop ends or read once
 // and removed at the next start).
 // Rechecked on 2026-10-12: Sentry is sent no session data, from the browser
 // (sentry.client.config.ts `integrations`) or from the server
@@ -590,8 +590,8 @@ export default function PrivacyPolicy() {
                                     matched their SHA-256 or were renamed, whether Auto-accept took
                                     the drop, and why it stopped if it did; the link itself is never
                                     kept. While a drop arrives, the app also keeps its label, its
-                                    counts, its folder and up to 200 saved file names in a small file
-                                    beside your settings, so a drop the app was closed during still
+                                    counts and sizes, its folder, up to 200 saved file names, and when
+                                    it was last written in a small file beside your settings, so a drop the app was closed during still
                                     gets its row; the file is deleted when the drop ends, or read and
                                     deleted the next time the app starts. It never leaves your device. Remove one entry
                                     with Remove inside its row, or all of them with Clear in the History

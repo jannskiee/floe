@@ -176,9 +176,9 @@ A name your system cannot represent is adjusted before the file is written, and 
 
 - **On Windows**, the characters `< > : " | ? *` become underscores, trailing dots and spaces are
   removed, and a name that is exactly a reserved device name (such as `NUL`) gets an underscore in
-  front. On Windows 10, a name that begins with a reserved device name and a dot, such as `aux.h`,
-  also gets an underscore in front (`_aux.h`); Windows 11 keeps it as it is. Two names that differed only in one of those characters therefore arrive as a name and its
-  numbered twin.
+  front. Two names that differed only in one of those characters therefore arrive as a name and its
+  numbered twin. On Windows 10, a name that begins with a reserved device name and a dot, such as
+  `aux.h`, also gets an underscore in front (`_aux.h`); Windows 11 keeps it as it is.
 - **Also on Windows**, one colon is dropped, not replaced. A file or top-level folder whose name
   begins with any one ASCII character (a letter A to Z, a digit, or a sign such as `_`) and then a
   colon loses those two characters, because that start reads as a drive name. For example,
