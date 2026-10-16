@@ -10,9 +10,19 @@ go 1.26.0
 // or desktop/go.mod when a dependency needs a newer Go, but never this one, and
 // every Go command then stops with "module . listed in go.work file requires
 // go >= X, but go.work lists go Y" (#504 sat red for that reason). Move all
-// three together, with the go-version pins in .github/workflows/ and the Go
-// floor quoted in CONTRIBUTING.md, DESKTOP.md, docs/cli/installation.mdx,
-// docs/reference/architecture.mdx and .claude/skills/ship-it/references/lanes.md.
+// three together, with the Go floor quoted in CONTRIBUTING.md, DESKTOP.md,
+// docs/cli/installation.mdx, docs/reference/architecture.mdx and
+// client/public/install.sh.
+//
+// The go-version pins in .github/workflows/ are a separate line: the toolchain
+// CI and the releases build with, which may be newer than this floor. Since
+// 2026-10-16 they are 1.27 while the floor stays 1.26.0 (the owner's
+// decision), so a source build on 1.26 still works: on macOS 12, which Go 1.27
+// dropped, that is the only route. The floor also sets the GODEBUG defaults:
+// a go1.27.2 build of floe carries DefaultGODEBUG=tracebacklabels=0,
+// x509sslcertoverrideplatform=0, the 1.26 behavior of both settings 1.27
+// changed. Raising the floor to 1.27 changes those defaults and lets
+// writePartial's lock go (cli/engine/transfer/partial.go).
 use (
 	./cli
 	./desktop

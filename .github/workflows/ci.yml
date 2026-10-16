@@ -381,7 +381,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26'
+          go-version: '1.27'
           # The same newest patch a release resolves (see release.yml), so a
           # release builds on a Go patch CI has already run, unless a new one
           # reached the manifest after the last CI run and before the tag.
@@ -421,7 +421,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26'
+          go-version: '1.27'
           check-latest: true # as on the first Go job: test what a release builds on
           cache: false
 
@@ -467,6 +467,13 @@ jobs:
       # (asserted in the install step) and desktop-release.yml's install step;
       # bump all three together.
       WAILS_VERSION: v2.12.0
+      # The chocolatey nsis package for the installer smoke below, the version
+      # desktop-v0.3.1 was built with. nsis 3.13.0 requires nsis.install at
+      # exactly 3.13.0, which carries the NSIS installer inside the package.
+      # Unpinned, a tag could build its installer with an NSIS that no PR had
+      # built. Must match desktop-release.yml's NSIS_VERSION; bump both
+      # together, by hand: Dependabot does not read choco versions.
+      NSIS_VERSION: '3.13.0'
 
     steps:
       - name: Checkout
@@ -477,7 +484,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26'
+          go-version: '1.27'
           check-latest: true # as on the first Go job: test what a release builds on
           cache-dependency-path: desktop/go.sum
 
@@ -527,8 +534,8 @@ jobs:
         # chocolatey CDN on the path of a required check on every code PR,
         # and a transient failure should cost seconds, not a manual re-run.
         run: |
-          choco install nsis -y --no-progress \
-            || { echo "choco install failed once; retrying" >&2; sleep 10; choco install nsis -y --no-progress; }
+          choco install nsis --version "$NSIS_VERSION" -y --no-progress \
+            || { echo "choco install failed once; retrying" >&2; sleep 10; choco install nsis --version "$NSIS_VERSION" -y --no-progress; }
           # wails build -nsis silently skips the installer when makensis is
           # missing (it warns and returns success), so resolve it now or fail.
           export PATH="$PATH:/c/Program Files (x86)/NSIS"
@@ -611,7 +618,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26'
+          go-version: '1.27'
           check-latest: true # as on the first Go job: test what a release builds on
           cache-dependency-path: cli/go.sum
 
@@ -737,7 +744,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26'
+          go-version: '1.27'
           check-latest: true # as on the first Go job: test what a release builds on
           cache-dependency-path: cli/go.sum
 

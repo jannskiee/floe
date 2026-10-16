@@ -77,8 +77,9 @@ var syncPart = func(f *os.File) error { return f.Sync() }
 // like syncPart: a full drive, or a name the filesystem refuses at claim
 // time, cannot be produced on demand either, so tests swap in ones that fail.
 // writePart is writePartial, never a bare f.Write: its entry lock keeps an
-// abandon's Close out of a Write, which on Go 1.26 for Windows can park that
-// Close forever (see writePartial).
+// abandon's Close out of a Write, which on Go 1.26 for Windows (still the
+// go.mod floor, though releases build on 1.27) can park that Close forever
+// (see writePartial).
 var (
 	writePart = writePartial
 	openPart  = claimPart

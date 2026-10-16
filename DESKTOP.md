@@ -197,7 +197,7 @@ verify the connection independently of the server.
       `iceTransportPolicy`, and their only relay control is "Network relay fallback", which is
       the opposite switch (off = direct only). Documented as an asymmetry in
       `docs/how-it-works/relay-connection.mdx` rather than papered over.
-      Follow-up: ship the toggle for the share-link flow, sender and receiver.
+      A toggle for the share-link flow is not planned now: see "Not now" under Feature roadmap.
 
 **3e - Receiver checks (shipped in v1.11.0 and desktop 0.3.0)**
 - [x] Per-file SHA-256. Both senders put a digest of the bytes they sent in each file's `end`
@@ -441,6 +441,11 @@ remains). Request links (Beta, 0.3.0): one-time links a browser or
 link (Stage 2) only with evidence.
 
 **Later:** saved contacts and devices, continuous folder sync, multi-peer send.
+
+**Not now** (each one decided on the date given; it comes back only by a new decision):
+- Hide my IP on the main page, decided 2026-10-16. The ordinary share-link flow, sender and
+  receiver, keeps "Network relay fallback" as its only relay control (see 3d). Hide my IP
+  stays where it is: Floe Desktop, `floe --relay-only` and the request-link page.
 
 ## Signing and distribution notes
 

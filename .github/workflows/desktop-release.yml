@@ -50,6 +50,11 @@ jobs:
       # Must match desktop/go.mod (asserted in the install step below) and
       # ci.yml's desktop job; bump all three together.
       WAILS_VERSION: v2.12.0
+      # Must match ci.yml's desktop job, which builds an installer with it on
+      # every code PR, so a tag never builds with an NSIS no PR has used.
+      # 3.13.0 is what desktop-v0.3.1 shipped with. Bump both together, by
+      # hand: Dependabot does not read choco versions.
+      NSIS_VERSION: '3.13.0'
 
     steps:
       - name: Checkout
@@ -92,8 +97,8 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26'
-          # The newest 1.26 patch, not the one the runner image has cached: see
+          go-version: '1.27'
+          # The newest 1.27 patch, not the one the runner image has cached: see
           # the same line in release.yml.
           check-latest: true
           # Release builds run without the shared module cache: a cache entry
@@ -153,8 +158,8 @@ jobs:
         # chocolatey blip costs a failed tag run, which cannot be re-cut
         # cheaply, so it matters more here than on a PR.
         run: |
-          choco install nsis -y --no-progress \
-            || { echo "choco install failed once; retrying" >&2; sleep 10; choco install nsis -y --no-progress; }
+          choco install nsis --version "$NSIS_VERSION" -y --no-progress \
+            || { echo "choco install failed once; retrying" >&2; sleep 10; choco install nsis --version "$NSIS_VERSION" -y --no-progress; }
           # wails build -nsis silently skips the installer when makensis is
           # missing (it warns and returns success), so resolve it now or fail.
           export PATH="$PATH:/c/Program Files (x86)/NSIS"

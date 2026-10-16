@@ -6399,6 +6399,27 @@
     },
     {
         "surface": "cli",
+        "text": "floe {FLOE_VERSION} needs macOS 13 or later, and this Mac has macOS {MACOS_VERSION}.",
+        "source": "client/public/install.sh",
+        "anchor": "/cli/installation#if-the-install-script-stops",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "v1.11.1 is the last release built for macOS 12:",
+        "source": "client/public/install.sh",
+        "anchor": "/cli/installation#if-the-install-script-stops",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "curl -fsSL https://floe.one/install.sh | FLOE_VERSION=v1.11.1 sh",
+        "source": "client/public/install.sh",
+        "anchor": "/cli/installation#if-the-install-script-stops",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
         "text": "Warning: signaling server returned {n} for TURN credentials. Using STUN only.",
         "source": "cli/engine/ice/credentials.go",
         "anchor": "/troubleshooting#warning-could-not-reach-signaling-server-for-turn-credentials-using-stun-only",

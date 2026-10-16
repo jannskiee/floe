@@ -60,6 +60,39 @@ case "${FLOE_VERSION}" in
   *)  TAG="v${FLOE_VERSION}"; VERSION_NUM="${FLOE_VERSION}" ;;
 esac
 
+# Releases from 1.11.2 on are built with Go 1.27, which needs macOS 13 Ventura
+# or later, so on an older Mac such a binary may not start. 1.11.1 was built
+# with Go 1.26 and still runs on macOS 12, so only the newer versions are
+# refused, and the message names the way out. An unreadable macOS version lets
+# the download go ahead, as before.
+built_for_ventura() {
+  v="${1%%-*}"
+  major="${v%%.*}"; rest="${v#*.}"
+  minor="${rest%%.*}"; patch="${rest#*.}"; patch="${patch%%.*}"
+  case "${major}${minor}${patch}" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "${major}" -gt 1 ] && return 0
+  [ "${major}" -eq 1 ] && [ "${minor}" -gt 11 ] && return 0
+  [ "${major}" -eq 1 ] && [ "${minor}" -eq 11 ] && [ "${patch}" -ge 2 ] && return 0
+  return 1
+}
+if [ "${GOOS}" = "darwin" ]; then
+  MACOS_VERSION="$(sw_vers -productVersion 2>/dev/null || true)"
+  MACOS_MAJOR="${MACOS_VERSION%%.*}"
+  case "${MACOS_MAJOR}" in
+    ''|*[!0-9]*) ;;
+    *)
+      if [ "${MACOS_MAJOR}" -lt 13 ] && built_for_ventura "${VERSION_NUM}"; then
+        echo "floe ${FLOE_VERSION} needs macOS 13 or later, and this Mac has macOS ${MACOS_VERSION}." >&2
+        echo "v1.11.1 is the last release built for macOS 12:" >&2
+        echo "  curl -fsSL https://floe.one/install.sh | FLOE_VERSION=v1.11.1 sh" >&2
+        exit 1
+      fi
+      ;;
+  esac
+fi
+
 ARCHIVE="floe_${VERSION_NUM}_${GOOS}_${GOARCH}.tar.gz"
 DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/${ARCHIVE}"
 CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${TAG}/checksums.txt"

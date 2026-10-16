@@ -1,6 +1,6 @@
 # Tags and the workflows they fire
 
-Read from the workflow files on `main` on 2026-10-12 (2a6e273). When a workflow changes, reread it; this page describes, it does not decide.
+Read from the workflow files on `main` on 2026-10-12 (2a6e273); the Go, NSIS and dispatch lines reread on 2026-10-16, when the workflows moved to Go 1.27 and pinned NSIS. When a workflow changes, reread it; this page describes, it does not decide.
 
 | Trigger             | Workflow                                | Result                                                                                                  |
 | ------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------- |
@@ -15,8 +15,8 @@ Read from the workflow files on `main` on 2026-10-12 (2a6e273). When a workflow 
 - GoReleaser is pinned to an exact `v2.17.1` (a range would resolve through a non-GitHub host inside the step that carries `TAP_GITHUB_TOKEN`); Dependabot does not bump action inputs, so raise it by hand when a release needs a newer one.
 - `.goreleaser.yml` builds linux, darwin and windows for amd64 and arm64: six archives named `floe_X.Y.Z_<os>_<arch>` (zip on windows, tar.gz elsewhere) plus `checksums.txt`.
 - `main.version` is `{{ .Version }}`, the tag WITHOUT the leading `v`, so a `vX.Y.Z` binary prints `floe X.Y.Z`.
-- Go is `1.26` with `check-latest: true`, so the release builds on the newest 1.26 patch in the actions manifest, not on the one the runner image has cached. ci.yml sets the same flag, so that patch is normally one CI has already built and tested. The exception is the trap: a tag pushed after a new patch reaches the manifest and before any CI run.
-- The first `v*` tag after the Go minor has moved is the first released binary on that toolchain (`v1.11.1` is the first on Go 1.26). Read the `go version` line in the GoReleaser run's log, and when the new Go changes a runtime default (1.26 made the Green Tea garbage collector the default), run the transfer audit's 500 MiB throughput baseline once on a build from that toolchain before the tag.
+- Go is `1.27` with `check-latest: true`, so the release builds on the newest 1.27 patch in the actions manifest, not on the one the runner image has cached. ci.yml sets the same flag, so that patch is normally one CI has already built and tested. The exception is the trap: a tag pushed after a new patch reaches the manifest and before any CI run. The workflow minor is ahead of the `go 1.26.0` line of go.mod and go.work on purpose (since 2026-10-16; go.work says why), so the binaries keep 1.26's GODEBUG defaults.
+- The first `v*` tag after the Go minor has moved is the first released binary on that toolchain (`v1.11.1` is the first on Go 1.26, built on go1.26.9; the first `v*` and `desktop-v*` tags after 2026-10-16 are the first on Go 1.27). Read the `go version` line in the GoReleaser run's log, and when the new Go changes a runtime default (1.26 made the Green Tea garbage collector the default; 1.27 makes the compiler call size-specialized allocation routines), run the transfer audit's 500 MiB throughput baseline once on a build from that toolchain before the tag. When the new Go drops an OS release, the release archives stop running there, which needs a CLI changelog line: Go 1.27 needs macOS 13 Ventura or later, where 1.26 ran on macOS 12.
 - The release body is the list GoReleaser writes from commit subjects, then `release.footer`: a "What changed" line linking `changelog#<tag with the dots as hyphens>`. The list drops every `docs`, `test`, `chore`, `style`, `refactor` and `ci` subject, with or without a scope, and merge commits; a breaking subject (`chore!:`) still shows. What changed for a user is only in the hand-written changelog.
 - The release is the repository's Latest. `/releases/latest` must keep resolving to a CLI release: the install scripts, `floe update` and the back-compat CI job depend on it, which is why the desktop series is a pre-release.
 - The same run publishes the Homebrew cask (`jannskiee/homebrew-tap`), the Scoop manifest (`jannskiee/scoop-bucket`) and a PR to `microsoft/winget-pkgs` from the `jannskiee/winget-pkgs` fork, all through `TAP_GITHUB_TOKEN`.
@@ -32,7 +32,7 @@ Read from the workflow files on `main` on 2026-10-12 (2a6e273). When a workflow 
 
 ## `desktop-v*` and desktop-release.yml
 
-- `windows-latest`, Go `1.26` with `check-latest: true`, Node 22. In order: frontend `npm ci`, `npm test`, `npm run build`; `go vet ./...` and `go test -count=1 ./...` in `desktop/`; the Wails CLI installed at `WAILS_VERSION`, after a `grep` that fails the job when that version and `desktop/go.mod` disagree; NSIS installed with one retry; then `wails build -s -nsis`.
+- `windows-latest`, Go `1.27` with `check-latest: true`, Node 22. In order: frontend `npm ci`, `npm test`, `npm run build`; `go vet ./...` and `go test -count=1 ./...` in `desktop/`; the Wails CLI installed at `WAILS_VERSION`, after a `grep` that fails the job when that version and `desktop/go.mod` disagree; NSIS installed from chocolatey at `NSIS_VERSION` (3.13.0, what desktop-v0.3.1 shipped with; ci.yml's desktop job sets the same pin, so every code PR builds an installer with it) with one retry; then `wails build -s -nsis`.
 - The tag must be strictly numeric `desktop-vX.Y.Z` (NSIS `VIProductVersion` rejects suffixes) and the version is injected VERBATIM: `-X main.version=desktop-vX.Y.Z`.
 - `desktop/wails.json` is stamped from the tag in the runner's working tree, never committed, so the committed `productVersion` only feeds the dispatch path. Bump it anyway so the tree matches what shipped.
 - Assets: `floe-desktop-setup-$V.exe` (NSIS installer), `floe-desktop-$V-windows-amd64.zip` (exe plus LICENSE), `SHA256SUMS.txt` (LF endings on purpose, so `sha256sum -c` works). Published with `gh release create --verify-tag --prerelease --latest=false`; both flags are unconditional.
@@ -42,7 +42,7 @@ Read from the workflow files on `main` on 2026-10-12 (2a6e273). When a workflow 
 
 ## `workflow_dispatch` on desktop-release.yml
 
-Same steps, version read from `desktop/wails.json`, in-app version string `dev`, nothing published. The MSIX artifact (`floe-desktop-msix-<X.Y.Z>-run<run_number>`) still uploads, and the exe and zip land in `desktop-dryrun-run<run_number>`.
+Same steps, version read from `desktop/wails.json`, in-app version string `dev`, nothing published. The MSIX artifact (`floe-desktop-msix-<X.Y.Z>-run<run_number>`) still uploads, and the exe and zip land in `desktop-dryrun-run<run_number>`. Run 38075429544 (2026-10-10, on `main`) shows it: `Stamp release version into wails.json` and `Publish release` skipped, both artifacts uploaded. Its MSIX carries the committed wails.json version, the same `<X.Y.Z>` as the last tag's, but `msix-preflight.mjs` lists only `--event push` runs on the tag, so a dispatch's package is never the one handed to the Store. A dispatch is the way to prove a toolchain or installer change (a new Go minor, the NSIS pin) through the release path before any tag.
 
 ## Consumers of `DESKTOP_VERSION`
 

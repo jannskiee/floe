@@ -32,8 +32,8 @@ import (
 // deleted here. The owner of the file being closed still waits for the
 // abandon, as it always has: that wait is what rules the race above out.
 // The owner's every Write takes the same lock (writePartial), so an abandon's
-// Close never starts while a Write is under way: on Go 1.26 for Windows that
-// overlap can park the Close forever.
+// Close never starts while a Write is under way: on Go 1.26 for Windows, still
+// the floor go.mod allows, that overlap can park the Close forever.
 //
 // partialMu guards the map only and is never held across a syscall. It used
 // to be held across every Close and Remove, and on Windows a Close waits for
@@ -102,11 +102,13 @@ func unregisterPartial(f *os.File) {
 // Write loop racing a Close and nothing of Floe's: on go1.26.3, 4 of 10,000
 // Closes parked, each leaving the handle closed, read-locked by no goroutine,
 // with one reference; on go1.27.2, 0 of 10,000. Go 1.27 fixed it (golang/go
-// issue 77609, commits 045d1270a7 and eaa6475dbb), 1.26 never got the fix,
-// and every release build and CI leg uses 1.26. Without this lock the bug
-// held TestCommitAbandonTorture to the package timeout twice on Windows CI,
-// and a receive canceled at that instant would hold its exit for the whole
-// wait of AbandonPartialsWithin and leave the .part behind.
+// issue 77609, commits 045d1270a7 and eaa6475dbb) and 1.26 never got the fix.
+// Release builds and CI moved to 1.27 on 2026-10-16, but the go line of
+// go.mod and go.work is still 1.26.0, so a source build on 1.26 has the bug:
+// keep this lock until that floor reaches 1.27. Without it the bug held
+// TestCommitAbandonTorture to the package timeout twice on Windows CI (then
+// on 1.26), and a receive canceled at that instant would hold its exit for
+// the whole wait of AbandonPartialsWithin and leave the .part behind.
 //
 // partialMu is held for the lookup only, so a Write waiting for an abandon's
 // Close never holds up another file's register or unregister. A file not in

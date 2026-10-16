@@ -84,6 +84,12 @@ homebrew_casks:
     homepage: "https://floe.one"
     description: "Secure peer-to-peer file transfer CLI"
     license: "MIT"
+    # The binaries are built with Go 1.27 (release.yml), which needs macOS 13
+    # Ventura or later, so Homebrew refuses the install on macOS 12 instead of
+    # installing a floe that may not start. The cask schema has no field for a
+    # macOS dependency, hence the raw cask line.
+    custom_block: |
+      depends_on macos: ">= :ventura"
 
 # Scoop (Windows), published into the shared jannskiee/scoop-bucket.
 # This bucket is reused across projects; floe is one manifest inside it.

@@ -772,7 +772,9 @@ func waitOrDump(t *testing.T, done <-chan struct{}, d time.Duration, what string
 // writePartial, 9 of 30 runs of this test parked a Close for good, and with
 // the lock 0 of 200 (go1.26.3, Windows 11, 2026-10-15). A park, or any other
 // hang, fails the test within a minute with every goroutine's stack, where it
-// used to hold the package to its 10 minute timeout.
+// used to hold the package to its 10 minute timeout. That net holds only on a
+// 1.26 toolchain: CI builds on 1.27 since 2026-10-16, where the park cannot
+// happen, so there TestAbandonWaitsForAnInFlightWrite alone pins the lock.
 func TestCommitAbandonTorture(t *testing.T) {
 	dir := t.TempDir()
 	base := filepath.Join(dir, "abandon.bin")
