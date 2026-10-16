@@ -21,8 +21,7 @@
  * So this matches on the shape instead: the frame that actually threw is
  * <anonymous>, meaning eval, new Function, or a script injected with no
  * sourceURL. Nothing we ship evaluates code from a string in a production
- * build, so such a frame is never ours. (Turbopack uses eval in dev only, and
- * fflate's zip worker is a blob: URL, not <anonymous>.)
+ * build, so such a frame is never ours. (Turbopack uses eval in dev only.)
  *
  * The lineno half of the test is load-bearing, not belt and braces. V8 also
  * emits POSITIONLESS pseudo-frames such as `at new Promise (<anonymous>)`, and

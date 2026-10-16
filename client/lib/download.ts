@@ -99,10 +99,10 @@ function sanitizeSegment(segment: string): string {
 
     if (DEVICE_NAMES.has(out.toUpperCase())) return `_${out}`;
 
-    // Cap the length. fflate rejects an entire archive if any one entry name is
-    // too long, so without this a single hostile name denies the ZIP to every
-    // other file in the transfer. Keep the extension, trim the stem, and never
-    // split a surrogate pair.
+    // Cap the length. An archive refuses an entry name too long for its header
+    // (planZip in lib/zipWriter.ts), so without this a single hostile name
+    // denies the ZIP to every other file in the transfer. Keep the extension,
+    // trim the stem, and never split a surrogate pair.
     if (out.length > MAX_SEGMENT) {
         const dot = out.lastIndexOf('.');
         const ext = dot > 0 && out.length - dot <= 16 ? out.slice(dot) : '';
@@ -131,14 +131,15 @@ export function sanitizeFileName(name: unknown): string {
  * Resolves a peer-supplied name to a ZIP entry path, preserving directories.
  *
  * `__proto__` is rewritten here and nowhere else. It is a perfectly legal file
- * name, so `sanitizeFileName` leaves it alone; the constraint belongs to fflate,
- * which flattens entries into a plain object. Assigning that key sets the
- * object's prototype instead of adding an entry, and the file disappears from
- * the archive. Measured with a 5-byte payload: a bare `{}` produced a 525-byte
- * archive containing the other file plus one junk directory entry per payload
- * byte (`0/`, `1/`, ...), which scales to roughly 90x amplification and freezes
- * the tab. Using a null-prototype object removes the amplification but the file
- * is still silently dropped, so both that and this rename are required.
+ * name, so `sanitizeFileName` leaves it alone; the constraint belonged to
+ * fflate's zip(), which took its entries as a plain object. Assigning that key
+ * set the object's prototype instead of adding an entry, and the file
+ * disappeared from the archive. Measured with a 5-byte payload: a bare `{}`
+ * produced a 525-byte archive containing the other file plus one junk
+ * directory entry per payload byte (`0/`, `1/`, ...), which scales to roughly
+ * 90x amplification and freezes the tab. The streaming writer that replaced
+ * zip() takes names as strings in a list, and the rename stays so an archive
+ * names a file as it always has, and so a name can never become that key again.
  */
 export function sanitizeZipEntryName(name: unknown): string {
     if (typeof name !== 'string') return FALLBACK;
@@ -163,7 +164,7 @@ export function sanitizeZipEntryName(name: unknown): string {
  * If `name` is already in `used`, appends " (N)" before the extension
  * until a free slot is found, then adds the result to `used`.
  */
-export function dedupeFileName(name: string, used: Set<string>): string {
+export function dedupeFileName(name: string, used: NameSet): string {
     if (!used.has(name)) {
         used.add(name);
         return name;
@@ -194,25 +195,52 @@ export function dedupeFileName(name: string, used: Set<string>): string {
     return finalName;
 }
 
+/** What dedupeFileName needs of the names already taken: a Set, or a set
+ *  that decides what counts as the same name (foldedNames). */
+export interface NameSet {
+    has(name: string): boolean;
+    add(name: string): unknown;
+}
+
 /**
- * Builds the entry map handed to fflate.
+ * A name set that treats names differing only in letter case, or in how an
+ * accented letter is encoded, as one. Windows and macOS save them as one file,
+ * so a ZIP holding `A.txt` and `a.txt` unpacked only one of them there: on
+ * Windows, Expand-Archive stopped at the second with "already exists" (the
+ * review of the streamed ZIP, 2026-10-16). Names keep their own case; only
+ * the comparison folds.
+ */
+export function foldedNames(): NameSet {
+    const taken = new Set<string>();
+    const fold = (name: string) => name.normalize('NFC').toLowerCase();
+    return {
+        has: (name) => taken.has(fold(name)),
+        add: (name) => taken.add(fold(name)),
+    };
+}
+
+/**
+ * Names the entries handed to the ZIP writer (lib/zipWriter.ts), in the order
+ * given, one entry per item.
  *
- * Extracted from the download hook so the prototype-key behavior is testable
- * without a DOM. Two things here are load-bearing and look removable:
+ * Names that differ only in letter case count as one (foldedNames), so the
+ * second is numbered. Sanitizing comes BEFORE de-duplicating, and that order
+ * is load-bearing.
+ * Reversed, `a:b.txt` and `a?b.txt` are blessed as distinct and then both
+ * collapse to `a_b.txt`, so the archive holds two entries of one name and
+ * extracting it keeps only one of them.
  *
- *  - the null-prototype container, which stops a `__proto__` entry poisoning
- *    our object and generating one junk directory entry per payload byte, and
- *  - sanitizing BEFORE de-duplicating. Reversed, `a:b.txt` and `a?b.txt` are
- *    blessed as distinct and then both collapse to `a_b.txt`, so one silently
- *    overwrites the other.
+ * A list, not an object keyed by name: the streaming writer takes each name as
+ * a string, so no peer name ever becomes a property key. The object fflate's
+ * zip() needed is why a `__proto__` entry once disappeared (see
+ * sanitizeZipEntryName).
  */
 export function buildZipEntries(
-    items: { fileName: unknown; bytes: Uint8Array }[]
-): Record<string, Uint8Array> {
-    const entries = Object.create(null) as Record<string, Uint8Array>;
-    const used = new Set<string>();
-    for (const item of items) {
-        entries[dedupeFileName(sanitizeZipEntryName(item.fileName), used)] = item.bytes;
-    }
-    return entries;
+    items: readonly { fileName: unknown; blob: Blob }[]
+): { name: string; blob: Blob }[] {
+    const used = foldedNames();
+    return items.map((item) => ({
+        name: dedupeFileName(sanitizeZipEntryName(item.fileName), used),
+        blob: item.blob,
+    }));
 }

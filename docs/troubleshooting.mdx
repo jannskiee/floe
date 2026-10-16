@@ -72,7 +72,7 @@ differently: see [What an older web app shows](/self-hosting/operations#older-we
 | [“The receiver asked to resume”](#the-receiver-asked-to-resume), page you send from | The receiving app asked for a position outside the file. | Ask them to update Floe or use another Floe app. |
 | [“Connection failed. Reload the page to try again”](#connection-error), or the sending page's twin | The connection failed in a way Floe has no closer words for. | Do what the sentence says. |
 | [“Cannot transfer: your browser is running an older version of Floe.”](#cannot-transfer-your-floe-is-too-old-for-this-peer), either page | The two apps speak protocol versions that do not overlap. | Update the side the message names. |
-| [“Could not prepare files for ZIP.” or “ZIP creation failed.”](#could-not-prepare-files-for-zip-or-zip-creation-failed), page you receive on | Zipping needs every file in memory at once. | Click **Download All** instead. |
+| [“Could not prepare files for ZIP.” or “ZIP creation failed.”](#could-not-prepare-files-for-zip-or-zip-creation-failed), page you receive on | The archive would be 4 GB or more or hold more than 65,534 files, or the browser ran out of room for it. | Click **Download All** instead. |
 | [Downloads behave oddly on iOS](#downloads-behave-oddly-on-ios) | Safari saves several files one at a time unreliably. | Use **Download ZIP**. |
 | [The page reloaded by itself](#the-page-reloaded-by-itself), either page | The web app was updated while your tab was open. A tab with a transfer under way is not reloaded. | If you were about to send, add the files again. |
 | [“Page not found”](#page-not-found) | The address matches no page, often a link cut short. | Copy the whole link again. |
@@ -570,12 +570,19 @@ Do what the sentence says. If it repeats on a new link, report it: see [Still st
 ### "Could not prepare files for ZIP." or "ZIP creation failed." {#could-not-prepare-files-for-zip-or-zip-creation-failed}
 
 On the page you receive on, after you click **Download ZIP**. Both end with
-`Try "Download All" instead.` Zipping reads every received file back into memory at once, so a
-large transfer can exhaust a phone or a tab. A third wording, such as "1 file(s) could not be
-included in ZIP.", means the archive was saved but that many files are missing from it.
+`Try "Download All" instead.`
 
-Click **Download All**, or save each file from the download button on its own row. Both use far
-less memory than the ZIP.
+- "ZIP creation failed." means the archive would be 4 GB or more, or would hold more
+  than 65,534 files. A ZIP that size needs an extension Floe's archives do not use, so the page
+  refuses it before it reads any file. It also appears when the browser runs out of room for the
+  archive while writing it. The archive is a second copy of the files, so that happens sooner in
+  a private window and on a phone.
+- "Could not prepare files for ZIP." means none of the files could be read back.
+- A third wording, such as "1 file(s) could not be included in ZIP.", means the archive was saved
+  but that many files are missing from it.
+
+Click **Download All**, or save each file from the download button on its own row. Neither makes
+a second copy of the files.
 
 ### Downloads behave oddly on iOS {#downloads-behave-oddly-on-ios}
 

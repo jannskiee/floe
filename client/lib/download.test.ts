@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { zip, unzipSync } from 'fflate';
+import { unzipSync } from 'fflate';
 import {
     buildZipEntries,
     dedupeFileName,
@@ -7,6 +7,7 @@ import {
     sanitizeFileName,
     sanitizeZipEntryName,
 } from './download';
+import { writeZip } from './zipWriter';
 
 describe('dedupeFileName', () => {
     it('returns the original name when unused', () => {
@@ -97,7 +98,7 @@ describe('sanitizeFileName', () => {
     });
 
     it('caps a very long name, keeping the extension', () => {
-        // fflate rejects an entire archive if one entry name is too long, so an
+        // An archive refuses an entry name too long for its header, so an
         // uncapped name would deny the ZIP to every other file in the transfer.
         const got = sanitizeFileName('a'.repeat(500) + '.txt');
         expect(got.length).toBeLessThanOrEqual(200);
@@ -140,7 +141,7 @@ describe('sanitizeZipEntryName', () => {
         expect(sanitizeZipEntryName('a\\b.txt')).toBe('a/b.txt');
     });
 
-    it('renames __proto__, which fflate would otherwise swallow', () => {
+    it('renames __proto__, which the old zip() path swallowed', () => {
         expect(sanitizeZipEntryName('__proto__')).toBe('_proto_');
         expect(sanitizeZipEntryName('d/__proto__')).toBe('d/_proto_');
     });
@@ -251,69 +252,94 @@ describe('sanitizeDisplayText', () => {
 });
 
 describe('buildZipEntries', () => {
-    const bytes = (n: number) => new Uint8Array(n).fill(7);
+    it('numbers a name that differs from an earlier one only in letter case, as Windows and macOS see one name', () => {
+        const b = new Blob(['x']);
+        expect(buildZipEntries([
+            { fileName: 'A.txt', blob: b },
+            { fileName: 'a.txt', blob: b },
+            { fileName: 'DIR/Notes.md', blob: b },
+            { fileName: 'dir/notes.MD', blob: b },
+        ]).map((e) => e.name)).toEqual(['A.txt', 'a (1).txt', 'DIR/Notes.md', 'dir/notes (1).MD']);
+    });
 
-    it('uses a null-prototype container', () => {
-        expect(Object.getPrototypeOf(buildZipEntries([]))).toBe(null);
+    it('numbers an accented name written in another Unicode form', () => {
+        const b = new Blob(['x']);
+        const composed = 'café.txt';
+        const decomposed = 'café.txt';
+        const names = buildZipEntries([{ fileName: composed, blob: b }, { fileName: decomposed, blob: b }]).map((e) => e.name);
+        expect(names[0]).toBe(composed);
+        expect(names[1]).toBe('café (1).txt');
+    });
+
+    const blob = (n: number) => new Blob([new Uint8Array(n).fill(7)]);
+    const names = (items: { fileName: unknown; blob: Blob }[]) => buildZipEntries(items).map((e) => e.name);
+    const readBack = async (items: { fileName: unknown; blob: Blob }[]) => {
+        const { archive } = await writeZip(buildZipEntries(items));
+        return Object.keys(unzipSync(new Uint8Array(await archive.arrayBuffer()))).sort();
+    };
+
+    it('names one entry per file, in the order given, and keeps each file', () => {
+        const b = blob(2);
+        const out = buildZipEntries([
+            { fileName: 'z.txt', blob: blob(1) },
+            { fileName: 'a.txt', blob: b },
+        ]);
+        expect(out.map((e) => e.name)).toEqual(['z.txt', 'a.txt']);
+        expect(out[1].blob).toBe(b);
     });
 
     it('keeps a file named __proto__ instead of losing it', () => {
-        const out = buildZipEntries([
-            { fileName: 'a.txt', bytes: bytes(3) },
-            { fileName: '__proto__', bytes: bytes(3) },
-        ]);
-        expect(Object.keys(out).sort()).toEqual(['_proto_', 'a.txt']);
+        expect(names([
+            { fileName: 'a.txt', blob: blob(3) },
+            { fileName: '__proto__', blob: blob(3) },
+        ])).toEqual(['a.txt', '_proto_']);
     });
 
     it('keeps a file named "__proto__ " with a trailing space', async () => {
-        const out = buildZipEntries([
-            { fileName: 'other.txt', bytes: bytes(3) },
-            { fileName: '__proto__ ', bytes: bytes(3) },
-        ]);
-        const archive = await new Promise<Uint8Array>((resolve, reject) => {
-            zip(out, (err, data) => (err ? reject(err) : resolve(data)));
-        });
         // Round-trip rather than key-count: this exact case produced a
         // plausible-looking archive that was quietly missing a file.
-        expect(Object.keys(unzipSync(archive)).sort()).toEqual(['_proto_', 'other.txt']);
+        expect(await readBack([
+            { fileName: 'other.txt', blob: blob(3) },
+            { fileName: '__proto__ ', blob: blob(3) },
+        ])).toEqual(['_proto_', 'other.txt']);
     });
 
     it('does not pollute Object.prototype', () => {
-        buildZipEntries([{ fileName: '__proto__', bytes: bytes(3) }]);
+        buildZipEntries([{ fileName: '__proto__', blob: blob(3) }]);
         expect(({} as Record<string, unknown>).polluted).toBeUndefined();
         expect(Object.keys({}).length).toBe(0);
     });
 
     it('keeps both files when two names sanitize to the same thing', () => {
-        const out = buildZipEntries([
-            { fileName: 'a:b.txt', bytes: bytes(1) },
-            { fileName: 'a?b.txt', bytes: bytes(2) },
-        ]);
-        expect(Object.keys(out).sort()).toEqual(['a_b (1).txt', 'a_b.txt']);
+        expect(names([
+            { fileName: 'a:b.txt', blob: blob(1) },
+            { fileName: 'a?b.txt', blob: blob(2) },
+        ])).toEqual(['a_b.txt', 'a_b (1).txt']);
     });
 
     it('de-duplicates the file, never the directory', () => {
-        const out = buildZipEntries([
-            { fileName: 'dir.v2/README', bytes: bytes(1) },
-            { fileName: 'dir.v2/README', bytes: bytes(1) },
-        ]);
-        expect(Object.keys(out).sort()).toEqual(['dir.v2/README', 'dir.v2/README (1)']);
+        expect(names([
+            { fileName: 'dir.v2/README', blob: blob(1) },
+            { fileName: 'dir.v2/README', blob: blob(1) },
+        ])).toEqual(['dir.v2/README', 'dir.v2/README (1)']);
+    });
+
+    it('numbers a second dotfile at its end inside the archive too', async () => {
+        expect(await readBack([
+            { fileName: '.env', blob: blob(1) },
+            { fileName: '.env', blob: blob(2) },
+            { fileName: 'cfg/.gitignore', blob: blob(1) },
+            { fileName: 'cfg/.gitignore', blob: blob(1) },
+        ])).toEqual(['.env', '.env (1)', 'cfg/.gitignore', 'cfg/.gitignore (1)']);
     });
 
     it('produces an archive fflate can read back, with no junk entries', async () => {
-        const out = buildZipEntries([
-            { fileName: 'a.txt', bytes: bytes(5) },
-            { fileName: '__proto__', bytes: bytes(5) },
-            { fileName: 'f/nested.bin', bytes: bytes(5) },
-        ]);
-        const archive = await new Promise<Uint8Array>((resolve, reject) => {
-            zip(out, (err, data) => (err ? reject(err) : resolve(data)));
-        });
-        // A bare {} here yields one bogus directory entry per payload byte.
-        expect(Object.keys(unzipSync(archive)).sort()).toEqual([
-            '_proto_',
-            'a.txt',
-            'f/nested.bin',
-        ]);
+        // A bare {} in the old zip() path yielded one bogus directory entry
+        // per payload byte.
+        expect(await readBack([
+            { fileName: 'a.txt', blob: blob(5) },
+            { fileName: '__proto__', blob: blob(5) },
+            { fileName: 'f/nested.bin', blob: blob(5) },
+        ])).toEqual(['_proto_', 'a.txt', 'f/nested.bin']);
     });
 });

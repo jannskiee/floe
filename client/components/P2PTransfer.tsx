@@ -802,6 +802,7 @@ export function P2PTransfer() {
                     id: uuidv4(),
                     fileName: file.fileName,
                     fileSize: file.fileSize,
+                    blob: file.blob,
                     downloadUrl: url,
                     // A local compare result from receiver.ts, never a peer
                     // value.
