@@ -88,13 +88,20 @@ test('sender link survives a receiver closing its tab before the transfer finish
     const secondReceiverCtx = await browser.newContext();
 
     // Socket.IO frames the sender's page receives, so the test can wait for
-    // the server's notice itself (see the wait below).
-    let senderSockets = 0;
+    // the server's notice itself (see the wait below). A Socket.IO session
+    // opens over HTTP polling and moves onto its WebSocket with a "5" frame,
+    // which the pages' sockets are watched for: the notice is counted on the
+    // sender's WebSocket, and the first receiver's close is heard at once only
+    // from its WebSocket.
+    let senderUpgraded = false;
+    let firstReceiverUpgraded = false;
     let peerDisconnectedNotices = 0;
     senderPage.on('websocket', (ws) => {
         // next dev opens its own HMR socket; only the signaling one counts.
         if (!ws.url().includes('/socket.io/')) return;
-        senderSockets++;
+        ws.on('framesent', ({ payload }) => {
+            if (payload === '5') senderUpgraded = true;
+        });
         ws.on('framereceived', ({ payload }) => {
             if (typeof payload === 'string' && payload.includes('"peer-disconnected"')) {
                 peerDisconnectedNotices++;
@@ -111,8 +118,31 @@ test('sender link survives a receiver closing its tab before the transfer finish
         // relay-detection window in handleCreateLink), so closing now is
         // guaranteed to interrupt even with a small fixture.
         const firstReceiverPage = await firstReceiverCtx.newPage();
+        firstReceiverPage.on('websocket', (ws) => {
+            if (!ws.url().includes('/socket.io/')) return;
+            ws.on('framesent', ({ payload }) => {
+                if (payload === '5') firstReceiverUpgraded = true;
+            });
+        });
         await firstReceiverPage.goto(link);
         await expect(senderPage.getByText(/Peer joined/).first()).toBeVisible({ timeout: 30_000 });
+        // The receiver's join goes out over polling while its upgrade is under
+        // way, so Peer joined can show before its "5" reaches the server. A
+        // close in that gap leaves the server a polling session with no request
+        // open, which only the heartbeat ends (25 s + 20 s). Measured with the
+        // receiver's CPU throttled 10x: the 7 closes of 20 that came before the
+        // "5" got the notice 44.2 to 44.8 s later, the 13 after it within
+        // 0.5 s. That was the 15 s wait below failing on CI (10 runs,
+        // 2026-10-08 to 15), the gap the last test in this file met (#608).
+        // The "5" waits only for the polling requests in flight to finish
+        // (the server flushes them within 100 ms of the probe), well inside
+        // the 2 s the first byte waits past the WebRTC connect.
+        await expect
+            .poll(() => senderUpgraded, { message: "the sender's signaling session never moved onto its WebSocket", timeout: 15_000 })
+            .toBe(true);
+        await expect
+            .poll(() => firstReceiverUpgraded, { message: "the first receiver's signaling session never moved onto its WebSocket", timeout: 15_000 })
+            .toBe(true);
         await firstReceiverCtx.close();
 
         // The context close reaches the server as a clean disconnect and the
@@ -121,7 +151,6 @@ test('sender link survives a receiver closing its tab before the transfer finish
         // the wire rather than on screen, so this test checks the room
         // lifecycle and not how the page reacts to the notice, which depends
         // on whether the first receiver's WebRTC connection was already up.
-        expect(senderSockets, 'the sender page never opened a signaling WebSocket').toBeGreaterThan(0);
         await expect.poll(() => peerDisconnectedNotices, { timeout: 15_000 }).toBeGreaterThan(0);
 
         // A second receiver joins the SAME link and completes the transfer.

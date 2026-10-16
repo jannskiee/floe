@@ -248,8 +248,18 @@ test.describe('request look', () => {
     test('focus stays in the card when the pick swaps its controls', async ({ page }) => {
         await page.goto(LINK);
         const choose = page.getByRole('button', { name: visitorCopy.chooseFiles, exact: true });
+        // Asked for before focus(), not beside the key press. The first
+        // filechooser listener is what makes Playwright tell the browser to
+        // intercept choosers, and with Enter sent in the same breath the page
+        // could open its chooser before that took effect: the page took Enter
+        // and clicked its file input with user activation every time, and
+        // still no filechooser came in 10 of 100 local runs (13 CI flakes,
+        // 2026-10-08 to 15). focus() goes to the page after the interception
+        // message, so it is in force before Enter: 0 of 40.
+        const chooserOpened = page.waitForEvent('filechooser');
         await choose.focus();
-        const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.keyboard.press('Enter')]);
+        await page.keyboard.press('Enter');
+        const chooser = await chooserOpened;
         await chooser.setFiles({ name: 'keep.txt', mimeType: 'text/plain', buffer: Buffer.from('keep') });
         // Choose files is gone; focus moved to what replaced it, not to <body>.
         await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute('aria-label'))).toBe(visitorCopy.addMoreFiles);
