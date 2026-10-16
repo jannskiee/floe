@@ -6,7 +6,7 @@ require (
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
-	github.com/wailsapp/wails/v2 v2.12.0
+	github.com/wailsapp/wails/v2 v2.16.0
 	golang.org/x/sys v0.49.0
 )
 

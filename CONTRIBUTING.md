@@ -115,7 +115,7 @@ cd ..
 go test ./...
 ```
 
-For a live-reload development window, install the [Wails CLI](https://wails.io/docs/gettingstarted/installation) at the version `desktop/go.mod` links against (currently v2.12.0) and run `wails dev` from `desktop/`.
+For a live-reload development window, install the [Wails CLI](https://wails.io/docs/gettingstarted/installation) at the version `desktop/go.mod` links against (currently v2.16.0) and run `wails dev` from `desktop/`.
 
 A development build talks to `api.floe.one` until you set **Server address** under Settings, **Advanced** (`http://localhost:3001` for a local server). Before it receives a test transfer through the live server, turn its stats report off, as [Test transfers and the public counter](#test-transfers-and-the-public-counter) shows.
 
