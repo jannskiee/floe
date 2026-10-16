@@ -44,7 +44,7 @@
         1776
       ],
       "scale": 3,
-      "bytes": 128298,
+      "bytes": 130588,
       "strings": [
         "Share link",
         "Show QR",
@@ -67,7 +67,7 @@
         1116
       ],
       "scale": 3,
-      "bytes": 95388,
+      "bytes": 97397,
       "strings": [
         "Secure room joined",
         "Waiting for the sender to start",
@@ -91,7 +91,7 @@
         1623
       ],
       "scale": 3,
-      "bytes": 110617,
+      "bytes": 112151,
       "strings": [
         "Download All",
         "Download ZIP",
