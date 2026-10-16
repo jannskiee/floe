@@ -235,7 +235,7 @@ it, the server terminates the connection instead of sending more.
 
 | Close code | When |
 |---|---|
-| `1008` | The connection was over the per-IP connection limit. It completes its handshake and is then closed, with the reason `Rate limit exceeded`. |
+| `1008` | The connection was over the per-IP connection limit, or its address already held as many open connections as `MAX_SOCKETS_PER_IP` allows. It completes its handshake and is then closed, with the reason `Rate limit exceeded`. |
 | `1009` | The client sent a frame larger than 1 MB. |
 | `1001` | The server is shutting down, with the reason `Server shutting down`. |
 
@@ -391,6 +391,7 @@ app, the CLI, and Floe Desktop as well, see [Limits](/reference/limits).
 | Limit | Value | Applies to |
 |-------|-------|-----------|
 | Connections | 30 per IP per 60 seconds (`MAX_CONNECTIONS_PER_IP`) | Socket.IO and `/ws`, shared |
+| Open connections | 60 per IP at a time (`MAX_SOCKETS_PER_IP`) | Socket.IO and `/ws`, shared |
 | TURN credentials | 20 per IP per 60 seconds (`MAX_TURN_REQUESTS_PER_IP`) | `GET /api/turn-credentials` |
 | Room codes | 60 per IP per 60 seconds (`MAX_CODE_REQUESTS_PER_IP`) | `POST /api/code` and `GET /api/code/:code`, shared |
 | Failed code lookups | 10 per IP per 60 seconds (`MAX_FAILED_CODE_RESOLVES`) | `GET /api/code/:code`, misses only |
@@ -413,6 +414,16 @@ Socket.IO handshake over the limit is rejected in middleware, which the browser 
 `connect_error`, and the web app's transfer page then retries with a growing delay. A `/ws`
 connection over the limit is closed with code `1008` (see
 [How a /ws connection is closed](#how-a-ws-connection-is-closed)).
+
+The open-connection cap is checked first, in the same two places, and refuses with the same
+`Rate limit exceeded`, so a client cannot tell the two apart and does not need to. It counts a
+connection once the server has admitted it and gives the place back when that connection closes,
+however it closes: the client leaves, or a heartbeat in
+[Keeping connections alive](#keeping-connections-alive) ends a connection that stopped answering,
+such as one whose network dropped. It needs no sweep, because a count is dropped when it reaches
+zero. An Engine.IO session that never joins a namespace is not counted, as it is not rate limited
+either, and Socket.IO closes it after 45 seconds. A session whose client leaves the namespace
+without closing is closed by the server at once.
 
 Every per-IP limiter records only what it admits. A refused connection attempt leaves no
 timestamp, just as the three HTTP limiters return the `429` before recording anything. A client
@@ -442,9 +453,9 @@ to the address is dropped first. An IPv6 address keys on its `/64` prefix, so ev
 `/64` shares one bucket. That stops a client from stepping past a limit by rotating the low 64 bits
 of its address. An IPv4-mapped IPv6 address (`::ffff:1.2.3.4`) unwraps to plain IPv4, so the same
 client reached through a dual-stack listener counts once rather than twice. Plain IPv4 is
-unchanged. On dual-stack deployments, size `MAX_CONNECTIONS_PER_IP`, `MAX_TURN_REQUESTS_PER_IP`,
-`MAX_CODE_REQUESTS_PER_IP`, and `MAX_FAILED_CODE_RESOLVES` for a whole IPv6 `/64` rather than a
-single address.
+unchanged. On dual-stack deployments, size `MAX_CONNECTIONS_PER_IP`, `MAX_SOCKETS_PER_IP`,
+`MAX_TURN_REQUESTS_PER_IP`, `MAX_CODE_REQUESTS_PER_IP`, and `MAX_FAILED_CODE_RESOLVES` for a whole
+IPv6 `/64` rather than a single address.
 
 ## Room codes
 

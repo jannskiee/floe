@@ -494,6 +494,49 @@ test('an unsolicited pong does not keep a silent socket seated', async (t) => {
     await assertSurvived(srv, 'a stream of unsolicited pongs');
 });
 
+test('a silent /ws socket the heartbeat reaps gives its place under MAX_SOCKETS_PER_IP back', async (t) => {
+    // A cap of one and a rate limit nothing here comes near, so every 1008
+    // below is the cap's. At 300 ms the reap lands near 600 ms, as above.
+    const srv = await startServer({ HEARTBEAT_MS: '300', MAX_SOCKETS_PER_IP: '1', MAX_CONNECTIONS_PER_IP: '1000' });
+    t.after(() => srv.stop());
+
+    // A connection the server answers a ping message on was admitted; one it
+    // refuses is closed with a code instead. Resolves with the socket or the code.
+    function attempt(options) {
+        const ws = track(new WebSocket(`ws://127.0.0.1:${srv.port}/ws`, options));
+        ws.on('error', () => {});
+        return new Promise((resolve) => {
+            ws.once('open', () => ws.send(JSON.stringify({ type: 'ping' })));
+            ws.on('message', (raw) => { if (String(raw) === '{"type":"pong"}') resolve(ws); });
+            ws.once('close', (code) => resolve(code));
+        });
+    }
+
+    // autoPong: false leaves the heartbeat's pings unanswered, as a peer that
+    // went silent without closing would.
+    const silent = await attempt({ autoPong: false });
+    assert.equal(typeof silent, 'object', `the first connection was refused with ${silent}`);
+    assert.equal(await attempt(), 1008, 'a second connection while the silent one holds the only place');
+
+    const reaped = await Promise.race([
+        new Promise((resolve) => silent.once('close', () => resolve(true))),
+        new Promise((resolve) => setTimeout(() => resolve(false), 1500)),
+    ]);
+    assert.equal(reaped, true, 'the heartbeat never reaped the silent socket');
+
+    // The place comes back when the server's own 'close' runs, which can be a
+    // moment after the client sees the reset. A refusal at the cap spends
+    // nothing, so asking until one is let in is safe.
+    const deadline = Date.now() + 3000;
+    let next;
+    while (typeof (next = await attempt()) === 'number') {
+        assert.equal(next, 1008);
+        assert.ok(Date.now() < deadline, 'the reaped socket never gave its place back');
+        await new Promise((r) => setTimeout(r, 50));
+    }
+    await assertSurvived(srv, 'a reaped socket under the open-socket cap');
+});
+
 test('a peer flooding a non-reading peer is cut off, not buffered', async (t) => {
     const srv = await startServer();
     t.after(() => srv.stop());
@@ -1506,6 +1549,7 @@ test('every join aimed at a used link answers room-full on both transports and n
 // in code alone shows up as a line this file no longer recognizes.
 const LIMIT_DEFAULTS = {
     MAX_CONNECTIONS_PER_IP: 30,
+    MAX_SOCKETS_PER_IP: 60,
     MAX_CODE_REQUESTS_PER_IP: 60,
     MAX_FAILED_CODE_RESOLVES: 10,
     MAX_ACTIVE_CODES: 10000,
@@ -1545,6 +1589,7 @@ test('a MAX_* setting that is not a whole number of at least 1 falls back to its
     // One of each kind: negative, zero, a word, and a spelling parseInt read as 1.
     const typed = {
         MAX_CONNECTIONS_PER_IP: '-1',
+        MAX_SOCKETS_PER_IP: 'sixty',
         MAX_CODE_REQUESTS_PER_IP: '-60',
         MAX_FAILED_CODE_RESOLVES: '0',
         MAX_ACTIVE_CODES: 'unlimited',
@@ -1554,7 +1599,7 @@ test('a MAX_* setting that is not a whole number of at least 1 falls back to its
     const srv = await startServer({ ...NO_RELAY, ...typed });
     t.after(() => srv.stop());
 
-    // Everything the six guard still answers, which is what running on the
+    // Everything the seven guard still answers, which is what running on the
     // defaults means: a connection, a code registered and resolved, a miss, the
     // relay list, and a report. The report goes to this child alone: startServer
     // empties both Upstash variables, so its counter is in memory.
@@ -1568,20 +1613,24 @@ test('a MAX_* setting that is not a whole number of at least 1 falls back to its
     const report = await postJson(srv, '/api/stats/report', { bytes: 2048 });
     assert.equal(report.status, 200, JSON.stringify(report.body));
 
-    await assertSurvived(srv, 'six MAX_* settings that are not whole numbers of at least 1');
+    await assertSurvived(srv, 'seven MAX_* settings that are not whole numbers of at least 1');
     for (const name of Object.keys(typed)) {
         const said = logLines(srv).filter((line) => line === limitLine(name));
         assert.equal(said.length, 1, `${name}: expected the fallback line once\n--- output ---\n${srv.stdout + srv.stderr}`);
     }
     // The line names the variable and the default. What was typed never
     // appears: a value pasted into the wrong field can be a secret.
-    assertLogsCarryNone(srv, ['unlimited', '1e12', '-60'], 'a MAX_* fallback');
+    assertLogsCarryNone(srv, ['unlimited', '1e12', '-60', 'sixty'], 'a MAX_* fallback');
 });
 
 test('each MAX_* setting given a whole number is the limit its own name says, and nothing is logged', async (t) => {
     const srv = await startServer({
         ...NO_RELAY,
         MAX_CONNECTIONS_PER_IP: '1',
+        // Above the one connection the rate limit lets in, so the 1008 below is
+        // MAX_CONNECTIONS_PER_IP's. server.test.js reaches this cap at 3, and
+        // the heartbeat test above at 1.
+        MAX_SOCKETS_PER_IP: '5',
         MAX_CODE_REQUESTS_PER_IP: '4',
         MAX_FAILED_CODE_RESOLVES: '1',
         MAX_ACTIVE_CODES: '1',
@@ -1620,7 +1669,7 @@ test('each MAX_* setting given a whole number is the limit its own name says, an
     assert.equal((await postJson(srv, '/api/stats/report', { bytes: 1000 })).status, 200);
     assert.equal((await postJson(srv, '/api/stats/report', { bytes: 1001 })).status, 400);
 
-    await assertSurvived(srv, 'six MAX_* settings at whole numbers');
+    await assertSurvived(srv, 'seven MAX_* settings at whole numbers');
     assert.deepEqual(logLines(srv).filter((line) => line.includes('is not a whole number')), []);
 });
 

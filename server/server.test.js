@@ -26,6 +26,10 @@ process.env.POLICY_FILE = POLICY_PATH;
 // require, because dotenv never overrides a variable that is already set: a
 // server/.env copied from .env.example (which ships 0) must not change them.
 process.env.TRUSTED_PROXY_COUNT = '1';
+// The open-socket cap, small so 'open-socket cap over both transports' reaches
+// it well inside the 30 admissions a minute MAX_CONNECTIONS_PER_IP leaves one
+// address. The default (60) is pinned by crashguard.test.js and docs-check.
+process.env.MAX_SOCKETS_PER_IP = '3';
 after(() => fs.rmSync(POLICY_DIR, { recursive: true, force: true }));
 
 const {
@@ -57,6 +61,8 @@ const {
     roomToCode,
     codeFailures,
     connectionCounts,
+    openSocketsByKey,
+    MAX_SOCKETS_PER_IP,
     validateReportBytes,
     statsRateLimits,
     makeRateLimiter,
@@ -1207,6 +1213,297 @@ describe('room seal over both transports', () => {
 });
 
 // ---------------------------------------------------------------------------
+// The open-socket cap: connections one address holds open at once
+// ---------------------------------------------------------------------------
+
+describe('open-socket cap over both transports', () => {
+    // MAX_SOCKETS_PER_IP is 3 in this file (set above the require). Like 'room
+    // seal over both transports', these drive the real io.use, Socket.IO
+    // connection and /ws connection handlers on an ephemeral loopback port,
+    // each address named in X-Forwarded-For. Every test has addresses of its
+    // own and admits fewer than 30 connections from each, so the rate limit
+    // (MAX_CONNECTIONS_PER_IP, 30 a minute here) never refuses one of them.
+    let port;
+    const sockets = new Set();
+
+    before(async () => {
+        await new Promise((resolve, reject) => {
+            server.once('error', reject);
+            server.listen(0, '127.0.0.1', () => { server.off('error', reject); resolve(); });
+        });
+        port = server.address().port;
+    });
+
+    after(async () => {
+        for (const ws of sockets) ws.terminate();
+        await new Promise((resolve) => server.close(resolve));
+    });
+
+    const held = (key) => openSocketsByKey.get(key) || 0;
+
+    // A connection ends on the server a few event-loop turns after the client
+    // acts, so a count that is meant to drop is polled for, never read once.
+    async function until(what, predicate, ms = 3000) {
+        const deadline = Date.now() + ms;
+        while (!predicate()) {
+            if (Date.now() > deadline) assert.fail(`timed out: ${what}`);
+            await new Promise((r) => setTimeout(r, 10));
+        }
+    }
+
+    // A /ws connection. Admitted means the server answered a ping on it, which
+    // the refused path never does: that one completes the handshake and is
+    // closed with a code. An upgrade refused before the handshake has a status.
+    function wsAttempt(address, headers = {}, path = '/ws') {
+        const ws = new WebSocket(`ws://127.0.0.1:${port}${path}`, {
+            headers: { 'X-Forwarded-For': address, ...headers },
+        });
+        sockets.add(ws);
+        ws.on('error', () => {});
+        return new Promise((resolve) => {
+            const done = (outcome) => resolve({ ...outcome, ws });
+            ws.once('open', () => ws.send(JSON.stringify({ type: 'ping' })));
+            ws.on('message', (raw) => { if (String(raw) === '{"type":"pong"}') done({ admitted: true }); });
+            ws.once('close', (code, reason) => done({ admitted: false, code, reason: reason.toString() }));
+            ws.once('unexpected-response', (req, res) => {
+                res.resume();
+                req.destroy();
+                done({ admitted: false, status: res.statusCode });
+            });
+        });
+    }
+
+    // A Socket.IO connection over a bare engine.io websocket, as sioPeer above
+    // speaks it: '40' asks for the default namespace, '40' back admits, '44'
+    // is the middleware's refusal. again() asks once more on the same session,
+    // which is what socket.io-client's socket.connect() does after a refusal.
+    function sioAttempt(address, headers = {}) {
+        const ws = new WebSocket(`ws://127.0.0.1:${port}/socket.io/?EIO=4&transport=websocket`, {
+            headers: { 'X-Forwarded-For': address, Origin: 'http://localhost:3000', ...headers },
+        });
+        sockets.add(ws);
+        ws.on('error', () => {});
+        let settle = null;
+        const answer = () => new Promise((resolve) => { settle = resolve; });
+        const once = (outcome) => { if (settle) { const s = settle; settle = null; s(outcome); } };
+        const first = answer();
+        ws.on('message', (raw) => {
+            const text = raw.toString();
+            if (text.startsWith('0')) ws.send('40');
+            else if (text === '2') ws.send('3');
+            else if (text.startsWith('40')) once({ admitted: true });
+            else if (text.startsWith('44')) once({ admitted: false, refusal: JSON.parse(text.slice(2)) });
+        });
+        ws.once('close', () => once({ admitted: false, closed: true }));
+        ws.once('unexpected-response', (req, res) => {
+            res.resume();
+            req.destroy();
+            once({ admitted: false, status: res.statusCode });
+        });
+        return first.then((outcome) => ({
+            ...outcome,
+            ws,
+            again: () => { const next = answer(); ws.send('40'); return next; },
+        }));
+    }
+
+    function httpRequest(method, path, headers, body) {
+        return new Promise((resolve, reject) => {
+            const req = http.request({ host: '127.0.0.1', port, path, method, headers, agent: false }, (res) => {
+                let text = '';
+                res.setEncoding('utf8');
+                res.on('data', (chunk) => { text += chunk; });
+                res.on('end', () => resolve({ status: res.statusCode, body: text }));
+            });
+            req.on('error', reject);
+            req.end(body);
+        });
+    }
+
+    const REFUSED = { message: 'Rate limit exceeded' };
+
+    it('/ws: the connection past the cap is closed with 1008 and spends nothing from the rate window', async () => {
+        const address = '198.51.100.31';
+        for (let i = 0; i < MAX_SOCKETS_PER_IP; i++) {
+            assert.equal((await wsAttempt(address)).admitted, true, `connection ${i + 1}`);
+        }
+        for (let i = 0; i < 5; i++) {
+            const { code, reason } = await wsAttempt(address);
+            assert.deepEqual({ code, reason }, { code: 1008, reason: 'Rate limit exceeded' }, `refusal ${i + 1}`);
+        }
+        assert.equal(held(address), MAX_SOCKETS_PER_IP);
+        // The cap is checked first and only read, so the five refusals left no
+        // timestamp: a client retrying against the cap keeps its rate window.
+        assert.equal(connectionCounts.get(address).length, MAX_SOCKETS_PER_IP);
+        assert.equal((await wsAttempt('198.51.100.32')).admitted, true, 'another address');
+    });
+
+    it('Socket.IO: the connection past the cap is refused in middleware with the rate limit\'s words', async () => {
+        const address = '198.51.100.33';
+        const admitted = [];
+        for (let i = 0; i < MAX_SOCKETS_PER_IP; i++) {
+            const attempt = await sioAttempt(address);
+            assert.equal(attempt.admitted, true, `connection ${i + 1}`);
+            admitted.push(attempt);
+        }
+        // The rate limit's refusal word for word, so the main page and /r show
+        // the banner they show for it (P2PTransfer.tsx, RequestVisitor.tsx).
+        const refused = await sioAttempt(address);
+        assert.deepEqual(refused.refusal, REFUSED);
+        assert.equal(held(address), MAX_SOCKETS_PER_IP);
+        assert.equal(connectionCounts.get(address).length, MAX_SOCKETS_PER_IP);
+
+        // The browser's retry asks again on the same session: refused while the
+        // cap is full, let in once a place is free.
+        assert.deepEqual((await refused.again()).refusal, REFUSED);
+        admitted[0].ws.close();
+        await until('the closed connection gives its place back', () => held(address) === MAX_SOCKETS_PER_IP - 1);
+        assert.equal((await refused.again()).admitted, true);
+        assert.equal(held(address), MAX_SOCKETS_PER_IP);
+    });
+
+    it('counts both transports together', async () => {
+        const address = '198.51.100.34';
+        assert.equal((await wsAttempt(address)).admitted, true);
+        assert.equal((await sioAttempt(address)).admitted, true);
+        assert.equal((await wsAttempt(address)).admitted, true);
+        assert.deepEqual((await sioAttempt(address)).refusal, REFUSED);
+        assert.equal((await wsAttempt(address)).code, 1008);
+        assert.equal(held(address), 3);
+    });
+
+    it('every way a connection ends gives its place back', async () => {
+        const address = '198.51.100.35';
+        const admit = async (attempt) => {
+            const a = await attempt;
+            assert.equal(a.admitted, true);
+            return a.ws;
+        };
+        const ends = [
+            ['/ws, the client closes', async () => (await admit(wsAttempt(address))).close()],
+            ['/ws, the client drops the TCP connection', async () => (await admit(wsAttempt(address))).terminate()],
+            // maxPayload: ws emits 'error', then closes with 1009.
+            ['/ws, the server closes on a frame over 1 MB', async () => (await admit(wsAttempt(address))).send('x'.repeat(1e6 + 1))],
+            ['Socket.IO, the client closes', async () => (await admit(sioAttempt(address))).close()],
+            ['Socket.IO, the client drops the TCP connection', async () => (await admit(sioAttempt(address))).terminate()],
+            // The namespace connection ends, and the server closes the session.
+            ['Socket.IO, the client leaves the namespace', async () => (await admit(sioAttempt(address))).send('41')],
+            // socket.io-parser refuses a reserved event name and the session
+            // closes, so a client cannot fire 'disconnect' and give back twice.
+            ['Socket.IO, the client sends a "disconnect" event', async () => (await admit(sioAttempt(address))).send('42["disconnect"]')],
+            // engine.io ends a protocol-4 session that pings the server.
+            ['Socket.IO, the server ends the session on a fault', async () => (await admit(sioAttempt(address))).send('2')],
+        ];
+        // A witness stays open throughout, so a place given back twice shows as
+        // a count below it, as one never given back shows as a count above it.
+        await admit(sioAttempt(address));
+        for (const [how, end] of ends) {
+            await end();
+            await until(how, () => held(address) === 1);
+        }
+        await new Promise((r) => setTimeout(r, 100));
+        assert.equal(held(address), 1, 'the last place given back once, and only once');
+    });
+
+    it('a connection refused before it is admitted holds no place', async (t) => {
+        t.mock.method(console, 'warn', () => {}); // the once-per-path origin line
+        const address = '198.51.100.36';
+        const foreign = { Origin: 'https://evil.example' };
+        assert.equal((await wsAttempt(address, foreign)).status, 403);
+        assert.equal((await wsAttempt(address, {}, '/wsx')).status, 404);
+        assert.notEqual((await sioAttempt(address, foreign)).admitted, true);
+        assert.equal(held(address), 0);
+
+        const admitted = [];
+        for (let i = 0; i < MAX_SOCKETS_PER_IP; i++) admitted.push(await wsAttempt(address));
+        assert.equal((await wsAttempt(address)).code, 1008);
+        assert.deepEqual((await sioAttempt(address)).refusal, REFUSED);
+        assert.equal(held(address), MAX_SOCKETS_PER_IP);
+        for (const a of admitted) a.ws.close();
+        await until('the admitted connections give their places back', () => held(address) === 0);
+    });
+
+    it('opening and closing over and over never locks an address out', async () => {
+        const address = '198.51.100.37';
+        // Eight rounds of a full cap, then the cap once more: 27 admissions,
+        // inside the 30 a minute the rate limit leaves one address.
+        for (let round = 1; round <= 8; round++) {
+            const open = [];
+            for (let i = 0; i < MAX_SOCKETS_PER_IP; i++) {
+                open.push(await ((i + round) % 2 ? wsAttempt(address) : sioAttempt(address)));
+            }
+            assert.ok(open.every((o) => o.admitted), `round ${round}`);
+            for (const o of open) round % 2 ? o.ws.close() : o.ws.terminate();
+            await until(`round ${round} gives every place back`, () => held(address) === 0);
+        }
+        for (let i = 0; i < MAX_SOCKETS_PER_IP; i++) {
+            assert.equal((await wsAttempt(address)).admitted, true, `after the rounds, connection ${i + 1}`);
+        }
+        assert.equal((await wsAttempt(address)).code, 1008);
+    });
+
+    it('counts an IPv6 client by its /64 and an IPv4-mapped address as plain IPv4', async () => {
+        for (const a of ['2001:db8:7:1::1', '2001:db8:7:1::2', '2001:db8:7:1:ffff:ffff:ffff:ffff']) {
+            assert.equal((await wsAttempt(a)).admitted, true, a);
+        }
+        assert.deepEqual((await sioAttempt('2001:db8:7:1:abcd::9')).refusal, REFUSED, 'the same /64');
+        assert.equal((await wsAttempt('2001:db8:7:2::1')).admitted, true, 'the next /64');
+        assert.equal(held(rateKey('2001:db8:7:1::1')), 3);
+
+        // 198.51.100.38 is c633:6426 in hex.
+        assert.equal((await wsAttempt('198.51.100.38')).admitted, true);
+        assert.equal((await wsAttempt('::ffff:198.51.100.38')).admitted, true);
+        assert.equal((await sioAttempt('::ffff:c633:6426')).admitted, true);
+        assert.equal((await wsAttempt('198.51.100.38')).code, 1008);
+        assert.equal(held('198.51.100.38'), 3);
+    });
+
+    it('a burst of namespace connects on one session never holds more than the cap', async () => {
+        // A session may connect the default namespace again and again, and one
+        // polling POST carries many packets. io.use runs for every packet of it
+        // before the first connection handler does, so the burst passes the
+        // check at once; the handler disconnects whatever lands past the cap.
+        const address = '198.51.100.39';
+        const headers = { 'X-Forwarded-For': address, Origin: 'http://localhost:3000' };
+        const opened = await httpRequest('GET', '/socket.io/?EIO=4&transport=polling', headers);
+        assert.equal(opened.status, 200, opened.body);
+        const { sid } = JSON.parse(opened.body.slice(1));
+        const session = `/socket.io/?EIO=4&transport=polling&sid=${sid}`;
+        const textHeaders = { ...headers, 'Content-Type': 'text/plain;charset=UTF-8' };
+
+        const burst = await httpRequest('POST', session, textHeaders, Array(5).fill('40').join('\x1e'));
+        assert.equal(burst.body, 'ok');
+        // In-process, so the POST's answer is read only after the server's
+        // middleware and connection handlers for the burst have run.
+        assert.equal(held(address), MAX_SOCKETS_PER_IP);
+
+        assert.equal((await httpRequest('POST', session, textHeaders, '1')).body, 'ok');
+        await until('closing the session gives every place back', () => held(address) === 0);
+    });
+
+    it('a session that leaves the namespace is closed, not kept open uncounted', async () => {
+        // Leaving gives the place back, and connectTimeout was cleared at the
+        // connect, so a session left open here would be held for as long as it
+        // answers pings, outside the cap: before this close, a cap of 3 let one
+        // address keep 10 such sessions open past 55 s.
+        const address = '198.51.100.40';
+        const left = [];
+        for (let i = 0; i < MAX_SOCKETS_PER_IP + 1; i++) {
+            const a = await sioAttempt(address);
+            assert.equal(a.admitted, true, `connection ${i + 1}`);
+            const closed = new Promise((resolve) => a.ws.once('close', () => resolve(true)));
+            a.ws.send('41');
+            await until(`connection ${i + 1} gives its place back`, () => held(address) === 0);
+            left.push(closed);
+        }
+        const timeout = new Promise((resolve) => setTimeout(() => resolve(false), 2000));
+        for (const [i, closed] of left.entries()) {
+            assert.equal(await Promise.race([closed, timeout]), true, `session ${i + 1} stayed open with no namespace`);
+        }
+    });
+});
+
+// ---------------------------------------------------------------------------
 // Code lifecycle and the per-key failed-resolve budget
 // ---------------------------------------------------------------------------
 
@@ -1438,7 +1735,7 @@ describe('statsRateLimits', () => {
 });
 
 // ---------------------------------------------------------------------------
-// envLimit: how the six MAX_* settings are read (server/envlimit.js)
+// envLimit: how the seven MAX_* settings are read (server/envlimit.js)
 // ---------------------------------------------------------------------------
 
 describe('envLimit', () => {

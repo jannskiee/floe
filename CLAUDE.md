@@ -69,7 +69,7 @@ wails build            # production build -> build/bin/
 
 ## Environment Setup
 
-**Server** - copy `server/.env.example` to `server/.env`. The block says what each variable is for; the example file holds the working values (it sets `NODE_ENV=production`, `TRUSTED_PROXY_COUNT=0` for a direct run, and the five per-IP and code `MAX_*` limits to their defaults):
+**Server** - copy `server/.env.example` to `server/.env`. The block says what each variable is for; the example file holds the working values (it sets `NODE_ENV=production`, `TRUSTED_PROXY_COUNT=0` for a direct run, and the six per-IP and code `MAX_*` limits to their defaults):
 ```
 CLIENT_URL=http://localhost:3000   # one extra allowed origin, exact match: HTTP CORS and the WebSocket origin check (/ws and Socket.IO)
 PORT=3001
@@ -83,7 +83,8 @@ UPSTASH_REDIS_REST_TOKEN=    # optional, pairs with the URL above
 MAX_REPORT_BYTES=            # optional, per-report cap (default 5 TiB)
 NODE_ENV=                    # optional; Floe never reads it (errorHandler answers the same generic JSON at every setting)
 TRUSTED_PROXY_COUNT=         # optional, proxy hops for client-IP parsing (default 1; affects every per-IP limiter)
-MAX_CONNECTIONS_PER_IP=      # optional, plus MAX_CODE_REQUESTS_PER_IP, MAX_TURN_REQUESTS_PER_IP,
+MAX_CONNECTIONS_PER_IP=      # optional, plus MAX_SOCKETS_PER_IP, MAX_CODE_REQUESTS_PER_IP,
+MAX_SOCKETS_PER_IP=          #   MAX_TURN_REQUESTS_PER_IP, MAX_FAILED_CODE_RESOLVES,
 MAX_FAILED_CODE_RESOLVES=    #   MAX_ACTIVE_CODES: see server/.env.example for the full
 MAX_ACTIVE_CODES=            #   annotated list
 POLICY_FILE=                 # optional, request-link policy file path (unset = request links off; re-read every 60s)
@@ -158,9 +159,10 @@ The global total is viewable only in the browser (the `GlobalStats` component on
 - Desktop: a "Contribute to global stats" switch in Settings (`desktop/frontend/src/App.tsx`), persisted as `reportStats` in `%APPDATA%\floe\desktop.json` by `desktop/config.go` (under `os.UserConfigDir()`, so the folder differs on macOS and Linux; the file, not localStorage, is the truth). When off, `desktop/transfer.go` passes an empty `statsURL` to `ReceiveFilesWithOptions`, the same guard the CLI uses. There is no environment override: `FLOE_NO_STATS` is CLI-only.
 
 ### Rate Limiting
-Four independent per-IP limiters plus one per-key budget, each over a 60s window, tracked in plain `Map`s and cleaned every 60s. Every `MAX_*` value is read by `envLimit` (`server/envlimit.js`): anything that is not a whole number of at least 1 falls back to the default and logs one line that names the variable, never its value; docs-check reads each default out of those calls. Every one of them keys on `rateKey` (`server/ratekey.js`): a port that a proxy appended to the address is removed first (`203.0.113.5:4711`, `[2001:db8::1]:443`), then IPv6 keys by its /64, IPv4-mapped IPv6 is unwrapped to plain IPv4, and anything unparseable (including a zone id) is used unchanged.
+Four independent per-IP limiters plus one per-key budget, each over a 60s window, tracked in plain `Map`s and cleaned every 60s, and one cap on the sockets a key holds open, which has no window. Every `MAX_*` value is read by `envLimit` (`server/envlimit.js`): anything that is not a whole number of at least 1 falls back to the default and logs one line that names the variable, never its value; docs-check reads each default out of those calls. Every one of them keys on `rateKey` (`server/ratekey.js`): a port that a proxy appended to the address is removed first (`203.0.113.5:4711`, `[2001:db8::1]:443`), then IPv6 keys by its /64, IPv4-mapped IPv6 is unwrapped to plain IPv4, and anything unparseable (including a zone id) is used unchanged.
 
 - Connection limiter: 30 per IP (configurable via `MAX_CONNECTIONS_PER_IP`), shared across Socket.IO and WebSocket connections (`checkRateLimit`), counting admitted connections only (a refused attempt is not recorded, so a client that keeps retrying is not locked out past the window).
+- Open-socket cap: 60 connections held open per key (configurable via `MAX_SOCKETS_PER_IP`), Socket.IO and WebSocket together (`openSocketsByKey`). It is checked read-only BEFORE `checkRateLimit`, in `io.use` and in the `/ws` connection handler, so a refusal at the cap spends nothing from the rate window, and it refuses with the rate limit's own words (`Rate limit exceeded`, 1008 on `/ws`), so every client shows what it shows for the rate limit. Socket.IO holds a place in `io.on('connection')` and gives it back on that socket's `disconnect`, never in `io.use`: Socket.IO drops a socket whose session closed before its deferred `next()` with no `disconnect`, so a place taken there would leak. `/ws` holds one after both checks and gives it back on `'close'` alone. A burst of namespace connects on one Engine.IO session passes the check together, so the connection handler disconnects whatever lands past the cap. An Engine.IO session that never connects to a namespace is not counted (Socket.IO's `connectTimeout` closes it after 45 s), and one whose client leaves the namespace is closed on that `disconnect` (reason `client namespace disconnect`), because the connect cleared `connectTimeout` and the session would otherwise stay open uncounted. An entry is deleted at zero, so the map needs no sweep.
 - TURN endpoint: a separate 20 requests per IP (configurable via `MAX_TURN_REQUESTS_PER_IP`) for `GET /api/turn-credentials` (`turnRateLimits`).
 - Stats endpoint: a separate 60 reports per IP for `POST /api/stats/report` (`statsRateLimits`).
 - Code endpoint: a separate 60 requests per IP (configurable via `MAX_CODE_REQUESTS_PER_IP`), shared across `POST /api/code` and `GET /api/code/:code` (`codeRateLimits`), applied via the shared `makeRateLimiter` middleware factory.

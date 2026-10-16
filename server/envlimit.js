@@ -1,10 +1,10 @@
 'use strict';
 
-// How the six MAX_* settings are read: MAX_CONNECTIONS_PER_IP,
-// MAX_CODE_REQUESTS_PER_IP, MAX_FAILED_CODE_RESOLVES and MAX_ACTIVE_CODES in
-// server.js, MAX_TURN_REQUESTS_PER_IP in turn.js and MAX_REPORT_BYTES in
-// stats.js. A module of its own for the reason ratekey.js is one: turn.js and
-// stats.js need it, and server.js requires both.
+// How the seven MAX_* settings are read: MAX_CONNECTIONS_PER_IP,
+// MAX_SOCKETS_PER_IP, MAX_CODE_REQUESTS_PER_IP, MAX_FAILED_CODE_RESOLVES and
+// MAX_ACTIVE_CODES in server.js, MAX_TURN_REQUESTS_PER_IP in turn.js and
+// MAX_REPORT_BYTES in stats.js. A module of its own for the reason ratekey.js
+// is one: turn.js and stats.js need it, and server.js requires both.
 //
 // Every check these values feed has the form `count >= max` (the report cap
 // is `bytes <= max`), so a value below 1 would refuse everything the limit

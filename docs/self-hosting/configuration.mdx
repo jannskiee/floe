@@ -39,6 +39,7 @@ build the client yourself. `compose` is read by Docker Compose itself.
 | [`CLIENT_URL`](#client-url) | server | _(none)_; Compose passes `http://localhost:3000`, or the port in `CLIENT_PORT` |
 | [`TRUSTED_PROXY_COUNT`](#trusted-proxy-count) | server | `1`; Compose and the Unraid template pass `0` |
 | [`MAX_CONNECTIONS_PER_IP`](#max-connections-per-ip) | server | `30` |
+| [`MAX_SOCKETS_PER_IP`](#max-sockets-per-ip) | server | `60` |
 | [`MAX_TURN_REQUESTS_PER_IP`](#max-turn-requests-per-ip) | server | `20` |
 | [`MAX_CODE_REQUESTS_PER_IP`](#max-code-requests-per-ip) | server | `60` |
 | [`MAX_FAILED_CODE_RESOLVES`](#max-failed-code-resolves) | server | `10` |
@@ -76,6 +77,12 @@ What counts as one address: an IPv4 address in full, or an IPv6 `/64`, so everyo
 `/64` shares each limit. An IPv4 client that a dual-stack listener reports as `::ffff:203.0.113.5`
 counts as plain `203.0.113.5`. A port the proxy writes after the address, as in
 `203.0.113.5:4711`, is dropped first.
+
+**One more limit counts open connections, not new ones.** `MAX_SOCKETS_PER_IP` caps how many
+connections one address holds open at once, and a connection gives its place back when it closes.
+One that drops without closing, such as from a laptop put to sleep, holds its place until the
+server's heartbeat ends it, within about a minute. It counts an address the same way, and a restart
+clears it too.
 
 **A `MAX_*` variable takes a whole number of at least 1.** Given anything else, such as `0`, a negative
 number, a fraction, a word, or a spelling such as `1e3`, the server keeps the built-in default. It
@@ -184,6 +191,10 @@ the visitor wrote. How the seal works for the people using a link is in
 ### `MAX_CONNECTIONS_PER_IP` {#max-connections-per-ip}
 
 Maximum new connections admitted per address per 60 seconds, counted across Socket.IO and WebSocket together. A connection over the cap is refused with `Rate limit exceeded`, and a refused attempt is not counted. Raise this in staging or test environments that drive many connections from one address.
+
+### `MAX_SOCKETS_PER_IP` {#max-sockets-per-ip}
+
+Maximum connections one address holds open at once, counted across Socket.IO and WebSocket together. A browser tab on a transfer page holds one, as does `floe send` or `floe receive` while it runs, and each Floe Desktop transfer or open request link. A connection over the cap is refused with `Rate limit exceeded`, the same refusal `MAX_CONNECTIONS_PER_IP` gives, so the web app shows the same banner. A refused attempt is counted against neither limit, and the next attempt gets in once another connection from that address has closed. Raise this when many people share one address, such as an office behind one router. A server image of version 1.11.1 or earlier has no such cap.
 
 ### `MAX_TURN_REQUESTS_PER_IP` {#max-turn-requests-per-ip}
 

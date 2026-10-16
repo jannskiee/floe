@@ -39,7 +39,8 @@ node .claude/skills/floe-run/scripts/floe-run.mjs stop                   kill wh
 The start switches combine (`start --client --relaxed --request-links`).
 
 `--relaxed` raises `MAX_CONNECTIONS_PER_IP`, `MAX_CODE_REQUESTS_PER_IP` and
-`MAX_TURN_REQUESTS_PER_IP` to 1000 a minute, and nothing else. What it leaves
+`MAX_TURN_REQUESTS_PER_IP` to 1000 a minute and `MAX_SOCKETS_PER_IP` to 1000
+open at once, and nothing else. What it leaves
 alone, all in `server/server.js`: 20 new request links per address in any 24
 hours (`REQUEST_CREATES_PER_DAY`; the 21st Make link is refused as `limited`),
 10 open links per address (`REQUEST_LIVE_PER_KEY`, refused as `busy`), 6

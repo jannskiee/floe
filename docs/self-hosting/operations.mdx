@@ -62,7 +62,7 @@ docker compose up -d
 
 That pulls the image tag you run, which is `latest` unless `FLOE_IMAGE_TAG` in `.env` names another, and restarts on it. See [Container images](/self-hosting/images) for the tags. Nothing is built locally, so there is no repository to keep in sync. If you pinned a version, change `FLOE_IMAGE_TAG` first, or the pull has nothing new to fetch. An update is a restart, with the cost described above.
 
-Pulling never changes your `docker-compose.yml`, though, and a setting that a release adds reaches the containers only through that file. A copy from 1.11.0 or earlier passes neither `TURN_TLS` nor `REQUEST_REPORT_EMAIL`, both new in 1.11.1, so setting them in `.env` does nothing. To use either one, download the current file from [GitHub](https://github.com/jannskiee/floe/blob/main/docker-compose.yml) and copy your own changes across.
+Pulling never changes your `docker-compose.yml`, though, and a setting that a release adds reaches the containers only through that file. A copy from 1.11.0 or earlier passes neither `TURN_TLS` nor `REQUEST_REPORT_EMAIL`, both new in 1.11.1, and a copy from 1.11.1 or earlier does not pass `MAX_SOCKETS_PER_IP`, which is newer, so setting any of them in `.env` does nothing. To use one, download the current file from [GitHub](https://github.com/jannskiee/floe/blob/main/docker-compose.yml) and copy your own changes across.
 
 If you run the optional coturn [relay](/glossary#relay), add its profile to both commands or Compose skips the service entirely, so a stopped relay is never restarted:
 

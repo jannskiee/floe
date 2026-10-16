@@ -495,6 +495,7 @@ async function start(flags) {
     const relaxed = flags.relaxed
         ? {
               MAX_CONNECTIONS_PER_IP: '1000',
+              MAX_SOCKETS_PER_IP: '1000',
               MAX_CODE_REQUESTS_PER_IP: '1000',
               MAX_TURN_REQUESTS_PER_IP: '1000',
           }
@@ -659,7 +660,7 @@ async function start(flags) {
         );
     }
     console.log(
-        `limiters: ${flags.relaxed ? 'relaxed to 1000/min per IP (connections, room codes, TURN; the request-link limits are fixed in the server)' : 'server defaults'}`
+        `limiters: ${flags.relaxed ? 'relaxed to 1000/min per IP (connections, room codes, TURN) and 1000 open connections per IP; the request-link limits are fixed in the server' : 'server defaults'}`
     );
     console.log(`pidfile: ${PIDFILE} (wrapper pid ${process.pid})`);
     console.log(`stop: ${SELF} stop`);

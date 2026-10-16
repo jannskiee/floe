@@ -55,6 +55,7 @@ Each entry lists the parts it changed. Filter on the right to see only the ones 
   - Floe Desktop: the Settings gear in the title bar now waits while **Close Floe?**, **Start over?** or **Reset all settings?** is open, as Ctrl+, already did. It opened or closed Settings under the question.
   - Floe Desktop: on Windows 10 the same names get the same underscore, in a receive and in a request-link drop, and so does a request link label such as `con.notes`, which names the folder each drop is saved in. With such a label every drop stopped before a file was saved.
   - Self-hosting: the client image moves Next.js to 16.4.1, past three advisories in features Floe does not use.
+  - Self-hosting: the server now caps how many connections one address holds open at once, 60 by default, set with the new optional `MAX_SOCKETS_PER_IP`. A connection past the cap is refused with `Rate limit exceeded`, as one past the limit on new connections is, so the web app, `floe` and Floe Desktop each show what they already show for that limit.
 </Update>
 
 <Update label="desktop-v0.3.1" description="2026-10-15" tags={["Desktop"]}>

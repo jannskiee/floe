@@ -797,7 +797,7 @@ test('the server key floor: fewer keys is HARD, more is a NOTE to raise it, the 
     assert.doesNotMatch(broken.out, /the floor is behind/);
 });
 
-// The six MAX_* settings are read as envLimit('NAME', default): the helper in
+// The seven MAX_* settings are read as envLimit('NAME', default): the helper in
 // server/envlimit.js looks the variable up by its name, so the line holds no
 // process.env.NAME for the key scan to find, and the default is the second
 // argument. A tree of its own, like envTree, one key short of the floor until

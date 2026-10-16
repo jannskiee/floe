@@ -218,6 +218,7 @@ const ALLOW = {
 const CURATED = {
     'SELF_HOSTING.md': [
         'MAX_CONNECTIONS_PER_IP',
+        'MAX_SOCKETS_PER_IP',
         'MAX_TURN_REQUESTS_PER_IP',
         'MAX_CODE_REQUESTS_PER_IP',
         'MAX_FAILED_CODE_RESOLVES',
@@ -278,9 +279,9 @@ const CLOSES_WITH_QUOTE = /[^\s\w.!?"`]"(?:\*\*|__|\*|_|~~|\]\([^)]*\))*$/;
 // naming `--server` showed a flag that does not exist (cli/self-hosted-server,
 // 2026-10-11).
 const TYPESET_KEYS = ['title', 'sidebarTitle', 'description'];
-// The server modules read exactly 19 keys between them today: ten in
-// server.js, six in turn.js (TURN_TLS is the newest) and three in stats.js,
-// the six MAX_* ones through envLimit. Fewer means the extractor
+// The server modules read exactly 20 keys between them today: eleven in
+// server.js (MAX_SOCKETS_PER_IP is the newest), six in turn.js and three in
+// stats.js, the seven MAX_* ones through envLimit. Fewer means the extractor
 // regex broke, not that the server lost a setting; raise this when a key is
 // added, in the same PR. It stood at 16 for two keys after #503 added
 // POLICY_FILE and FLOE_TEST_REQUEST_GRACE_MS, so the extractor could have lost
@@ -292,7 +293,7 @@ const TYPESET_KEYS = ['title', 'sidebarTitle', 'description'];
 // a module extraction from tripping this: the five TURN keys moving to
 // server/turn.js would otherwise have read as five lost, and the hard fail
 // below returns early, taking every downstream env comparison with it.
-export const SERVER_KEY_FLOOR = 19;
+export const SERVER_KEY_FLOOR = 20;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1434,7 +1435,7 @@ function serverEnv(root) {
             if (!keys.has(key) || (keys.get(key) === null && def !== null))
                 keys.set(key, def);
         }
-        // The six MAX_* settings are read as envLimit('NAME', default):
+        // The seven MAX_* settings are read as envLimit('NAME', default):
         // server/envlimit.js looks the variable up by its name, so the line
         // holds no process.env.NAME for the scan above, and the default is the
         // second argument. Plain arithmetic only (30, or the 5 TiB product);

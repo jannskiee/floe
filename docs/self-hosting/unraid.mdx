@@ -265,12 +265,14 @@ older than 1.11.1 has no such field: add a Variable with the key `REQUEST_REPORT
 
 ## Other settings
 
-The Floe-Server template has fields for the client URL, the proxy count, and the connection limit
-(**Maximum Connections Per IP**). It also has the TURN options, the stats database (**Upstash Redis
-REST URL** and **Upstash Redis REST Token**), and the policy folder and file. Every field but the first two
-and **Signaling Port** shows only in **Advanced View**. Any other server variable in
-[Configuration](/self-hosting/configuration), such as `MAX_TURN_REQUESTS_PER_IP`, has no field: add
-a Variable with that key to Floe-Server.
+The Floe-Server template has fields for the client URL, the proxy count, and the two connection
+limits (**Maximum Connections Per IP** and **Maximum Open Connections Per IP**). It also has the
+TURN options, the stats database (**Upstash Redis REST URL** and **Upstash Redis REST Token**), and
+the policy folder and file. Every field but the first two and **Signaling Port** shows only in
+**Advanced View**. Any other server variable in [Configuration](/self-hosting/configuration), such
+as `MAX_TURN_REQUESTS_PER_IP`, has no field: add a Variable with that key to Floe-Server. A
+Floe-Server added before the template gained **Maximum Open Connections Per IP** has no such field
+either: add a Variable with the key `MAX_SOCKETS_PER_IP` instead.
 
 ## Container updates
 

@@ -106,9 +106,10 @@ engine, so they share these waits and word the result differently.
 
 ## Server limits {#server-limits}
 
-A signaling server counts the first five rows for each network address, over the last 60 seconds.
-The values are the built-in defaults. A self-hosted server can change the ones that name a setting
-in [Configuration](/self-hosting/configuration), which also explains
+A signaling server counts the first five rows for each network address, over the last 60 seconds,
+and the sixth for each address as it stands now. The values are the built-in defaults. A
+self-hosted server can change the ones that name a setting in
+[Configuration](/self-hosting/configuration), which also explains
 [how an address is counted](/self-hosting/configuration#two-things-about-the-limits).
 
 | Limit | Value | At the limit |
@@ -118,6 +119,7 @@ in [Configuration](/self-hosting/configuration), which also explains
 | Requests to make or look up a room code | 60 per address per 60 seconds | The server answers `429`. See [Configuration](/self-hosting/configuration). |
 | Failed room code lookups | 10 per address per 60 seconds | The server answers `429`, whatever code was asked for. See [Configuration](/self-hosting/configuration). |
 | Byte-count reports | 60 per address per 60 seconds. This one has no setting | The server answers `429` and the count is not added. See [Configuration](/self-hosting/configuration#two-things-about-the-limits). |
+| Open connections | 60 per address at a time | The connection is refused, as one over the new-connection limit is. A refused attempt is not counted, so the next one succeeds once another connection from that address has closed. See [Configuration](/self-hosting/configuration#max-sockets-per-ip). |
 | Room codes held at once | 10,000 | Making a code answers `503`. `floe send` goes on with its link alone. See [Troubleshooting](/troubleshooting#503-server-busy-try-again-shortly). |
 | One byte-count report | 5,497,558,138,880 bytes (5 TiB) | The server answers `400` and the count is not added. See [Configuration](/self-hosting/configuration). |
 | One message to the server on either signaling connection | 1,000,000 bytes | A `/ws` connection is closed with code `1009`. See [Architecture](/reference/architecture). |

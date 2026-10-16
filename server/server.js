@@ -451,6 +451,37 @@ function checkRateLimit(ip) {
     return true;
 }
 
+// Connections one key holds open at once, across Socket.IO and /ws. The rate
+// limit above bounds how fast connections arrive, not how many stay: at 30 a
+// minute, a key that never closes one holds 1,800 after an hour, each a socket
+// and a peer object in this process. Only an admitted connection is counted,
+// and each is released once, by the one event that ends it on its transport.
+// An Engine.IO session that never connects to a namespace is not counted (nor
+// rate limited); Socket.IO's connectTimeout closes it after 45 s. One whose
+// client leaves the namespace is closed by the connection handler instead.
+const openSocketsByKey = new Map();
+const MAX_SOCKETS_PER_IP = envLimit('MAX_SOCKETS_PER_IP', 60);
+
+// Read-only, and checked before checkRateLimit, so a client retrying against
+// the cap spends nothing from its rate window.
+function socketCapReached(key) {
+    return (openSocketsByKey.get(key) || 0) >= MAX_SOCKETS_PER_IP;
+}
+
+function holdSocket(key) {
+    const held = (openSocketsByKey.get(key) || 0) + 1;
+    openSocketsByKey.set(key, held);
+    return held;
+}
+
+// At zero the entry goes, so the map holds only keys with a connection open
+// and needs no sweep.
+function releaseSocket(key) {
+    const held = (openSocketsByKey.get(key) || 0) - 1;
+    if (held > 0) openSocketsByKey.set(key, held);
+    else openSocketsByKey.delete(key);
+}
+
 // Periodic cleanup of old rate limit entries and expired codes
 function cleanupTick(now = Date.now()) {
     for (const [ip, timestamps] of connectionCounts.entries()) {
@@ -1620,16 +1651,49 @@ const io = new Server(server, {
     maxHttpBufferSize: 1e6, // Signaling only: SDP/ICE < 10 KB
 });
 
+// Both limits refuse here, not in allowRequest. A middleware refusal reaches
+// the browser as connect_error with this message and leaves the socket
+// inactive, which the main page's banner and retry and /r's SOCKET_REFUSED
+// wait for; an allowRequest refusal is a transport error the manager retries
+// with neither. The open-socket cap uses the rate limit's words for the same
+// reason: both pages show that banner for it.
 io.use((socket, next) => {
     const ip = getClientIp(socket.handshake.headers['x-forwarded-for'], socket.handshake.address);
-    if (!checkRateLimit(ip)) return next(new Error('Rate limit exceeded'));
-    // The key the room seal counts this peer under (handleJoinRoom).
-    socket.data.rateKey = rateKey(ip);
+    const key = rateKey(ip);
+    if (socketCapReached(key) || !checkRateLimit(ip)) return next(new Error('Rate limit exceeded'));
+    // The key the room seal counts this peer under (handleJoinRoom), and the
+    // one the connection handler holds an open-socket place under.
+    socket.data.rateKey = key;
     next();
 });
 
 io.on('connection', (socket) => {
-    const peer = createSocketIOPeer(socket, socket.data.rateKey);
+    // Held here, not in io.use: Socket.IO acts on next() a tick later and
+    // drops a socket whose session closed in between with no 'disconnect', so
+    // a place taken in io.use could never be given back. 'disconnect' fires
+    // once, and only for a socket that reached this handler.
+    const key = socket.data.rateKey;
+    const held = holdSocket(key);
+    socket.on('disconnect', (reason) => {
+        releaseSocket(key);
+        // A client that leaves the namespace keeps its Engine.IO session, which
+        // this cap no longer counts and connectTimeout no longer closes (the
+        // connect cleared it): at a cap of 3, one address kept 10 such sessions
+        // open past 55 s. Floe has one namespace, and socket.io-client closes
+        // the session itself once its last namespace socket leaves.
+        if (reason === 'client namespace disconnect') socket.conn.close();
+    });
+    // One session can ask for the namespace many times in one read (a polling
+    // POST carries many packets, one TCP read many WebSocket frames), and
+    // io.use runs for all of them before this handler runs for any, so each
+    // passed the cap check with the same count. Whatever lands past the cap
+    // leaves at once. socket.io-client asks once per session.
+    if (held > MAX_SOCKETS_PER_IP) {
+        socket.disconnect();
+        return;
+    }
+
+    const peer = createSocketIOPeer(socket, key);
 
     socket.on('ping', (callback) => {
         if (typeof callback === 'function') callback();
@@ -1781,16 +1845,24 @@ wss.on('connection', (ws, req) => {
     ws.on('error', () => {});
 
     const ip = getClientIp(req.headers['x-forwarded-for'], req.socket.remoteAddress);
-    if (!checkRateLimit(ip)) {
+    const key = rateKey(ip);
+    // The open-socket cap first, as in io.use. Both refusals are 1008 with
+    // the same reason, which released CLIs and desktops already treat as a
+    // limit.
+    if (socketCapReached(key) || !checkRateLimit(ip)) {
         ws.close(1008, 'Rate limit exceeded');
         return;
     }
+    // Released on 'close' alone: ws emits it once, after an 'error' as well,
+    // and the heartbeat's terminate() ends in it too.
+    holdSocket(key);
+    ws.on('close', () => releaseSocket(key));
 
     ws.peerId = crypto.randomUUID();
     ws.isAlive = true;
     ws.pingNonce = null;
 
-    const peer = createWSPeer(ws, rateKey(ip));
+    const peer = createWSPeer(ws, key);
 
     ws.on('pong', (data) => handlePong(ws, data));
 
@@ -1952,6 +2024,8 @@ module.exports = {
     roomToCode,
     codeFailures,
     connectionCounts,
+    openSocketsByKey,
+    MAX_SOCKETS_PER_IP,
     turnRateLimits,
     validateReportBytes,
     statsRateLimits,

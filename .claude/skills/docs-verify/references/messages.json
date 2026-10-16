@@ -6595,6 +6595,13 @@
     },
     {
         "surface": "server",
+        "text": "Maximum Open Connections Per IP",
+        "source": "unraid/floe-server.xml",
+        "anchor": "/self-hosting/unraid#other-settings",
+        "why_no_home": null
+    },
+    {
+        "surface": "server",
         "text": "Origin not allowed",
         "source": "server/server.js",
         "anchor": "/reference/http-api#behavior-shared-by-every-endpoint",

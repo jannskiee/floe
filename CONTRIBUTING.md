@@ -213,6 +213,7 @@ Both are in the [Configuration reference](https://www.floe.one/docs/self-hosting
 | `NODE_ENV` | No | Standard Node.js runtime flag (`development` or `production`). Floe's own server code never reads it; Express and some dependencies do, and `server/.env.example` sets `production`. |
 | `TRUSTED_PROXY_COUNT` | No | Trusted reverse-proxy hop count for correct client-IP parsing and rate limiting (default: `1`). Set to `0` for direct exposure with no proxy. Docker Compose passes `0` unless you set it. |
 | `MAX_CONNECTIONS_PER_IP` | No | Connection rate limit ceiling per IP per 60 seconds (default: `30`). Raise in staging or test environments. |
+| `MAX_SOCKETS_PER_IP` | No | Connections one IP may hold open at once, Socket.IO and `/ws` together (default: `60`). A connection past it is refused with `Rate limit exceeded`, as one past the rate limit is. |
 | `MAX_CODE_REQUESTS_PER_IP` | No | Rate limit for the `/api/code` endpoints per IP per 60 seconds (default: `60`), shared across registering and resolving codes. Raise in CI or staging. |
 | `MAX_FAILED_CODE_RESOLVES` | No | Failed lookups on `GET /api/code/:code` allowed per IP per 60 seconds (default: `10`). How it counts is under this table. |
 | `MAX_ACTIVE_CODES` | No | Maximum number of simultaneously-live room codes (default: `10000`). `POST /api/code` returns `503` when the cap is reached. |

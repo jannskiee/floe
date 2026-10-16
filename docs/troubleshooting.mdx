@@ -49,7 +49,7 @@ differently: see [What an older web app shows](/self-hosting/operations#older-we
 | [“Link Invalid”](#link-invalid), a card on the page you receive on | Someone else holds the link, it was cut short, or your network changed. | Close other tabs and reload, or copy the whole link again. |
 | [“The sender is not connected”](#the-sender-is-not-connected), page you receive on | Nobody is on the sending side of the link. | Wait a minute or two, reload once, then ask for a new link. |
 | [Refused after a network change](#a-device-that-changed-networks-is-refused), either page | Your device came back on a new network partway through. | Start a new transfer. |
-| [“Too many refreshes. Reconnecting”](#too-many-refreshes-reconnecting), either page | Too many connections from your network in a minute. | Wait a minute without reloading. |
+| [“Too many refreshes. Reconnecting”](#too-many-refreshes-reconnecting), either page | Too many connections from your network in a minute, or open at once. | Wait a minute without reloading. |
 | [“Connection failed. Ask the sender to try again.”](#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again), page you receive on | No network path, often because the sender turned the relay off. | Ask for a new link with the relay left on. |
 | [“This link was made with Network relay fallback off”](#connection-failed-enable-network-relay-to-connect-across-restrictive-networks), page you send from | Only a relayed path existed, and you had turned the relay off. | Reload, add the files, leave the box checked, share the new link. |
 | [“Connection lost. The other device may have closed the tab.”](#connection-lost-the-other-device-may-have-closed-the-tab), page you send from | The recipient left or lost their network before the transfer started. | Ask them to open the same link again. |
@@ -214,14 +214,16 @@ See [How a transfer works](/how-it-works/signaling#a-room-holds-exactly-two-peop
 
 ### "Too many refreshes. Reconnecting" {#too-many-refreshes-reconnecting}
 
-On either page. The server refused this page's connection because too many connections came from
-your network address within a minute: repeated reloads, many open tabs, or many people behind one
-address. That is the server's [rate limit](/glossary#rate-limit). The page retries by itself, a few
-seconds apart at first and then up to a minute apart, and the banner goes away once a retry gets
-through.
+On either page. The server refused this page's connection because your network address made too
+many connections within a minute, or has too many open at once. Repeated reloads, many open tabs, or
+many people behind one address can each do it. That is the server's
+[rate limit](/glossary#rate-limit), or its cap on open connections. The page retries by itself, a
+few seconds apart at first and then up to a minute apart, and the banner goes away once a retry
+gets through.
 
-Wait a minute without reloading, because every reload opens another connection. If it keeps
-happening on your own server, see [429, or "Rate limit exceeded"](#429-or-rate-limit-exceeded).
+Wait a minute without reloading, because every reload opens another connection, and close Floe tabs
+you no longer need. If it keeps happening on your own server, see
+[429, or "Rate limit exceeded"](#429-or-rate-limit-exceeded).
 
 ### "Connection failed. Ask the sender to try again." {#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again}
 
@@ -643,7 +645,7 @@ two-space indent, with no prefix. `Ctrl+C` prints `Canceled.` and exits with sta
 | [`unknown command` or `accepts 1 arg(s)`](#unknown-command-or-wrong-number-of-arguments) | The command is missing a word, or has too many. | Use `floe receive` and the code as one word. |
 | [`cannot create output directory`](#cannot-create-output-directory), from `floe receive -o` | The folder cannot be made or written. | Fix the path. The same code still works. |
 | [`failed to connect to signaling server`](#failed-to-connect-to-signaling-server) | The server address is wrong, the server is down, or something blocks it. | Check `--server` and your network. |
-| [`connection closed before the server assigned a role`](#connection-closed-before-the-server-assigned-a-role) | The server's limit on new connections. | Wait a minute, then run it again. |
+| [`connection closed before the server assigned a role`](#connection-closed-before-the-server-assigned-a-role) | The server's limits on connections from one address. | Wait a minute, then run it again. |
 | [`Warning: ... Using STUN only.`](#warning-could-not-reach-signaling-server-for-turn-credentials-using-stun-only) | `floe` could not get the relay details. | Check the server address, or wait a minute. |
 | [`Warning: could not generate short code`](#warning-could-not-generate-short-code), from `floe send` | The server gave no room code. | Share the link instead. |
 | [`--relay-only needs a TURN relay`](#relay-only-needs-a-turn-relay) | The server offers no relay. | Drop the flag, or add a relay to the server. |
@@ -848,9 +850,10 @@ path. `floe` adds one sentence with the fix for each. See
 ### `connection closed before the server assigned a role` {#connection-closed-before-the-server-assigned-a-role}
 
 From `floe send` or `floe receive`, right after it starts. The server accepted the connection and
-then closed it before letting `floe` into the transfer. The usual cause is the server's limit of 30
-new connections from one network address in a minute, by default. Many runs in a row, or many
-people behind one address, can reach it. A server that goes quiet instead ends with
+then closed it before letting `floe` into the transfer. The usual cause is one of the server's
+limits on one network address: by default 30 new connections in a minute, and 60 open at once.
+Many runs in a row, many transfers at once, or many people behind one address can reach them. A
+server that goes quiet instead ends with
 `timed out waiting for the server to assign a role` after 20 seconds.
 
 Wait a minute, then run the command again.
@@ -1325,7 +1328,7 @@ Request-link messages carry no prefix.
 | [“this code or link is no longer active”](#this-code-is-no-longer-active-ask-for-a-new-one), **Receive** | The sender is no longer in the transfer. | Ask for a new code or link. |
 | [“room is full”](#room-is-full-someone-else-may-already-be-receiving), **Receive** | Someone else already joined this transfer. | Ask for a transfer of your own. |
 | [“Can't reach the server”](#could-not-reach-the-server), **Send** or **Receive** | The app lost, or never had, its connection to the server. | Check your network and the **Server address**. |
-| [“The server is limiting connections from this network. Wait a minute and try again”](#the-server-is-limiting-connections-from-this-network), **Send** or **Receive** | Too many new connections from your network in a minute. | Wait a minute, then try again. |
+| [“The server is limiting connections from this network. Wait a minute and try again”](#the-server-is-limiting-connections-from-this-network), **Send** or **Receive** | Too many new connections from your network in a minute, or too many open at once. | Wait a minute, then try again. |
 | [“the server answered with an error this version of Floe does not know”](#the-server-answered-with-an-error-floe-does-not-know), **Send** or **Receive** | The server refused the transfer with an error no Floe server sends. | Check the **Server address** with **Test**. |
 | [“The receiver left before it started”](#the-receiver-left-before-it-started), **Send** | Someone joined with your code or link and left again. | Click **Send** again for a new code and link. |
 | [“They left before the connection was made”](#they-left-before-the-connection-was-made), **Send** or **Receive** | The other person left while connecting. | Start again when they are ready. |
@@ -1413,7 +1416,7 @@ Check your network. If you set a **Server address** in Settings, check it with *
 
 On the **Send** or **Receive** tab, right after you click, before any transfer exists. The server
 turned the connection away: by default it takes 30 new connections a minute from one network
-address. Floe Desktop 0.3.0 showed this as
+address, and holds 60 open from it at once. Floe Desktop 0.3.0 showed this as
 ["The connection dropped before the transfer finished"](#the-connection-dropped-before-the-transfer-finished).
 
 Wait a minute and try again. If it keeps happening on your own server, see
@@ -1907,7 +1910,7 @@ restarted.
 | [The badge stays on Offline](#the-browser-cannot-connect-to-my-signaling-server), your own web client | The client dials the wrong server address, or the server refuses its origin. | Set the address, then recreate the container. |
 | [HTTP 403 and a CORS failure](#browser-requests-are-blocked-and-the-server-answers-http-403), browser console and server log | The page's origin is not one the server allows. | Set `CLIENT_URL`, then restart the server. |
 | [`Refused a connection on /ws from Origin`](#the-server-logs-refused-a-connection), server log | A proxy rewrites the `Host` header. | Pass the original `Host` through. |
-| [429, or “Rate limit exceeded”](#429-or-rate-limit-exceeded) | One address reached a per-minute limit. | Wait a minute, then raise the limit if real users keep reaching it. |
+| [429, or “Rate limit exceeded”](#429-or-rate-limit-exceeded) | One address reached a per-minute limit, or holds too many open connections. | Wait a minute, then raise the limit if real users keep reaching it. |
 | [503 “Server busy, try again shortly”](#503-server-busy-try-again-shortly), from `POST /api/code` | The server holds its maximum number of live room codes. | Wait for codes to free up. |
 | [The TURN relay is not working](#the-turn-relay-is-not-working) | Its variables are missing or wrong, or Cloudflare cannot be reached. | Fix the variables, then restart. |
 | [coturn logs `Default realm: localdomain`](#coturn-logs-default-realm-localdomain), coturn log | Docker made a folder where the config file should be. | Remove the folder, fetch the config, restart. |
@@ -1983,20 +1986,22 @@ origin. See [Production deployment](/self-hosting/production).
 ### 429, or "Rate limit exceeded" {#429-or-rate-limit-exceeded}
 
 From the server: an HTTP request answered `429`, or a realtime connection refused with the reason
-`Rate limit exceeded`. Each limit counts one network address over 60 seconds, and every limit clears
-by itself, so wait a minute first. Raise a variable only when real users behind one address keep
+`Rate limit exceeded`. Each limit counts one network address. All but one count over 60 seconds;
+the cap on open connections counts what is open now and frees a place whenever one closes. Every
+limit clears by itself, so wait a minute first. Raise a variable only when real users behind one address keep
 reaching it, and restart the server afterward, because it reads the limits once at startup. What
 was refused tells you which limit it was:
 
 | Message | What it means | What to do |
 |---|---|---|
-| `Rate limit exceeded`, on a Socket.IO or `/ws` connection | Too many new connections from one address. The web app shows [“Too many refreshes. Reconnecting”](#too-many-refreshes-reconnecting), and Floe Desktop shows [“The server is limiting connections from this network”](#the-server-is-limiting-connections-from-this-network). | Raise `MAX_CONNECTIONS_PER_IP`. |
+| `Rate limit exceeded`, on a Socket.IO or `/ws` connection | Too many new connections from one address, or too many open from it at once. The web app shows [“Too many refreshes. Reconnecting”](#too-many-refreshes-reconnecting), and Floe Desktop shows [“The server is limiting connections from this network”](#the-server-is-limiting-connections-from-this-network). | Raise `MAX_CONNECTIONS_PER_IP`, or `MAX_SOCKETS_PER_IP` for connections held open. |
 | `429` with `Too many requests`, from `/api/turn-credentials` | Too many requests for connection details from one address. | Raise `MAX_TURN_REQUESTS_PER_IP`. |
 | `429` with `Too many requests`, from `/api/code` | Too many room-code requests from one address, or too many wrong codes in a minute. | Raise `MAX_CODE_REQUESTS_PER_IP`, or `MAX_FAILED_CODE_RESOLVES` for wrong codes. |
 | `429` with `Too many reports`, from `/api/stats/report` | Too many stats reports from one address. | Nothing to set: this limit has no variable. |
 
 A refused attempt is not counted, so a client that keeps retrying is let back in as its earlier
-requests pass out of the 60 seconds. When everyone is refused at once behind a reverse proxy, the
+requests pass out of the 60 seconds. At the cap on open connections, it is let in once one of them
+closes. When everyone is refused at once behind a reverse proxy, the
 server is usually counting every user under the proxy's address, which `TRUSTED_PROXY_COUNT`
 corrects. See [Configuration](/self-hosting/configuration) for each default, for how an IPv6 address
 is counted, and for `TRUSTED_PROXY_COUNT`.
