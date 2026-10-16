@@ -62,8 +62,9 @@ describe('BROWSER_EXTENSION_URL_PATTERNS', () => {
     });
 
     it('never matches blob: or data: frames', () => {
-        // fflate's `zip` (hooks/useDownloadManager.ts) boots a worker from a
-        // blob: URL, so genuine in-app errors really can carry blob frames.
+        // A blob: or data: URL belongs to the page, never to an extension
+        // (Download ZIP's fflate worker ran from one until the streaming
+        // writer replaced it), so matching either could only hide our errors.
         expect(isExtensionUrl('blob:https://www.floe.one/2f8a5f6c-1b7d-4a3e-9c2f-8d1e5a6b7c90')).toBe(false);
         expect(isExtensionUrl('data:text/javascript;base64,Y29uc29sZS5sb2coMSk=')).toBe(false);
     });

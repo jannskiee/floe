@@ -143,8 +143,11 @@ file, and how much fits depends on the browser.
 When a transfer stops this way, the files that had already arrived stay in the list and can still
 be saved.
 
-Zipping compounds it in every browser: **Download ZIP** reads every file back into the tab at once
-before it writes the archive.
+Zipping adds to it in every browser. **Download ZIP** writes the archive a piece at a time, but
+the archive is a second copy of the files and about as large. In Chrome or Edge in a normal window
+it is kept where received files are, so the limit above counts both. In a private window, in
+Firefox, in Safari and on iPhone and iPad it needs as much memory again. An archive of 4 GB or
+more, or of more than 65,534 files, is refused before any file is read.
 
 **On a phone**, the browser holds less than on a computer. How much depends on the phone, its free
 memory and its browser, and Floe cannot tell beforehand whether a large transfer will fit. The

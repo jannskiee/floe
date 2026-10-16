@@ -91,8 +91,8 @@ describe('next.config.mjs headers()', () => {
     });
 
     it('the site CSP value is unchanged and has no worker-src or connect-src', () => {
-        // Adding either directive here would have to allow blob:, or the fflate
-        // ZIP worker and the ZIP download stop working. The /r page must not
+        // Adding either directive here would have to list every origin the page
+        // connects to and the SHA-256 worker's, or those stop. The /r page must not
         // tempt anyone into tightening it: there is exactly one CSP on the site,
         // it applies to /r through the /:path* entry, and this is its value.
         const csps = [

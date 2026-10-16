@@ -56,8 +56,8 @@ const nextConfig = {
     // so a script-src here would need 'unsafe-inline' and buy nothing. The
     // directives below are enforced regardless of inline script, which is
     // precisely why they are the ones worth having. connect-src and worker-src
-    // are also quietly load-bearing: both would need blob:, or the fflate zip
-    // worker and the ZIP download stop working.
+    // are left out too: each would have to list every origin the page connects
+    // to and the SHA-256 worker's, and one it missed stops that feature.
     async headers() {
         return [
             {
