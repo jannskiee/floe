@@ -94,7 +94,7 @@
 # stage: forwards file paths to a running Floe the way a second launch does
 # (WM_COPYDATA, dwData 1542, UTF-16 JSON {"Args":[...],"WorkingDirectory":"..."}
 # to the message-only window class wails-app-one.floe.desktop-sic, name
-# ...-siw; wails v2.12.0 internal/frontend/desktop/windows/single_instance.go).
+# ...-siw; wails v2.16.0 internal/frontend/desktop/windows/single_instance.go).
 # The receiving app calls WindowUnminimise and WindowShow (desktop/app.go
 # onSecondInstanceLaunch), which is an activation attempt, so stage is
 # AWAY-ONLY: lib/desktop.mjs stages files on the first launch's argv whenever
@@ -264,7 +264,7 @@ $SWP_NOACTIVATE = 0x0010
 $HWND_MESSAGE = [IntPtr](-3)
 $WAILS_COPYDATA_ID = 1542
 
-$DEFAULT_CLASS = 'wailsWindow'      # wails v2.12.0 window.go:81
+$DEFAULT_CLASS = 'wailsWindow'      # wails v2.16.0 window.go:81
 $DEFAULT_TITLE = 'Floe'             # desktop/main.go, the wails.Run Title option
 $DEFAULT_UNIQUE_ID = 'one.floe.desktop'   # desktop/main.go, the wails.Run SingleInstanceLock.UniqueId option
 $CODE_PLACEHOLDER = 'amber-otter-cloud'   # App.tsx receive view

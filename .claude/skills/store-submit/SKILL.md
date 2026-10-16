@@ -99,7 +99,9 @@ certification email are the proof.
   sign-in, say so and wait; the user signs in; then `navigate` to the
   overview again. The sign-in can be an account picker (three accounts on
   2026-09-17): the user picks the account, never the session, however
-  obvious the right one looks.
+  obvious the right one looks. On 2026-10-16 the picker came back on the
+  next `navigate` to the overview after the owner had picked once; after
+  the second pick, every later `navigate` in that tab stayed signed in.
 - "View product details" under Store presence opens the PUBLISHED
   submission's own pages, with an enabled Save (2026-08-28). Read there,
   never save there; a draft's URLs carry a different 19-digit submission id.
