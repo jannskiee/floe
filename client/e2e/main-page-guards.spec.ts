@@ -15,7 +15,10 @@ import { basename, join } from 'path';
 import { tmpdir } from 'os';
 import { browserSenderSetup, createFixture, sha256OfBlobUrl } from './helpers';
 
-const FIXTURE_DIR = join(tmpdir(), 'floe-e2e-main-page-guards');
+// One folder per worker process. With --repeat-each the file runs in several
+// workers at once, and a shared folder was rewritten and removed under the
+// others (ENOENT, or a digest that no longer matched the file sent).
+const FIXTURE_DIR = join(tmpdir(), `floe-e2e-main-page-guards-${process.pid}`);
 
 test.afterAll(() => {
     try { rmSync(FIXTURE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
@@ -258,7 +261,11 @@ test('Forward still asks after a hop back to the page', async ({ page }) => {
     // A link out of the main page was a soft hop while nothing was held, so
     // after Back the main page had a same-document entry after it, and
     // Forward from a page holding a link left the same way (review N1). Every
-    // in-app link out of the main page now loads in full.
+    // in-app link out of the main page now loads in full. The footer's is a
+    // plain anchor, so it does even when the click lands before P2PTransfer
+    // has mounted and added its click listener: as a next/link, a click in
+    // that gap was a soft hop, and this cell failed 7 of 40 runs with the rest
+    // of this file beside it (useFullLoadLinks in hooks/usePageGuards.ts).
     const { path: fixturePath } = createFixture(FIXTURE_DIR, 16 * 1024);
     await page.goto('/');
     await page.locator('footer').getByRole('link', { name: 'How It Works', exact: true }).click();

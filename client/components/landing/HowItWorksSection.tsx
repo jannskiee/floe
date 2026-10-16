@@ -1,5 +1,4 @@
 import React, { ReactNode } from 'react';
-import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { SectionHeader, sectionClass } from './SectionHeader';
 
@@ -51,15 +50,17 @@ export function HowItWorksSection() {
                 ArrowRight, not the ArrowUpRight the Privacy link next door
                 carries. Every ArrowUpRight in the client sits on a link that
                 leaves the site, six for six, so it has come to mean exactly
-                that; this one stays on floe.one, and a forward arrow says so. */}
+                that; this one stays on floe.one, and a forward arrow says so.
+                A plain anchor: nothing the main page renders may be a
+                next/link (useFullLoadLinks, hooks/usePageGuards.ts). */}
             <div className="mt-10">
-                <Link
+                <a
                     href="/how-it-works"
                     className="group inline-flex min-h-10 items-center gap-1.5 text-sm text-zinc-300 transition hover:text-ice focus-visible:outline-2 focus-visible:outline-ice md:min-h-0"
                 >
                     Read the overview
                     <ArrowRight className="h-3.5 w-3.5 text-zinc-500 transition group-hover:text-ice" />
-                </Link>
+                </a>
             </div>
         </section>
     );

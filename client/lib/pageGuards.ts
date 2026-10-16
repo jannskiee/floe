@@ -71,9 +71,9 @@ export function unsavedCount(received: readonly { id: string }[], saved: Readonl
 
 /**
  * Whether an in-app address leads to the main page. Every link there is a
- * plain anchor, never next/link, and the main page loads every in-app link
- * out of it in full (useFullLoadLinks), so it is always a document of its
- * own. A soft hop inside one document was how Back, and Forward after a
+ * plain anchor, never next/link, and so is every in-app link the main page
+ * renders, with useFullLoadLinks as the net behind them, so it is always a
+ * document of its own. A soft hop inside one document was how Back, and Forward after a
  * soft hop back, left it with beforeunload never run, and a link that was
  * out or a received file that was unsaved went with no question. As its own
  * document, Back and Forward unload it and reach the leave prompt above. The

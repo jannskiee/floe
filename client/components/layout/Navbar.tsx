@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 type ConnectionStatus = 'direct' | 'relay' | 'connected' | 'offline';
@@ -190,8 +189,10 @@ export const Navbar = () => {
                         page unreachable from the header on every phone, so the surface
                         most people arrive on offered no route to the desktop app at
                         all. The width it costs below sm is paid for by holding the
-                        four section anchors back. */}
-                    <Link
+                        four section anchors back. A plain anchor, not next/link,
+                        on every page: nothing the main page renders may be a
+                        next/link (useFullLoadLinks, hooks/usePageGuards.ts). */}
+                    <a
                         href="/download"
                         data-umami-event="nav-download"
                         aria-current={onDownload ? 'page' : undefined}
@@ -202,7 +203,7 @@ export const Navbar = () => {
                         }`}
                     >
                         Download
-                    </Link>
+                    </a>
                     <a
                         href="https://www.floe.one/docs"
                         target="_blank"

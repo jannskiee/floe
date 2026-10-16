@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync, readdirSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { dirname, join, relative, sep } from 'node:path';
 import ts from 'typescript';
 import { fileURLToPath } from 'node:url';
 import {
@@ -216,9 +216,10 @@ describe('samePageTop', () => {
 
 // The main page is a document of its own in both directions, so Back and
 // Forward from it always unload it and reach the leave prompt. Into it: every
-// link is a plain anchor (opensMainPage). Out of it: the page loads every
-// in-app link in full whether or not the prompt is held, so no soft history
-// entry ever sits after it (review N1).
+// link is a plain anchor (opensMainPage). Out of it: every in-app link it
+// renders is a plain anchor too, and the page loads any other in-app link in
+// full whether or not the prompt is held, so no soft history entry ever sits
+// after it (review N1).
 describe('the main page is always its own document', () => {
     it('loads every in-app link out of the main page in full, held or not', () => {
         const page = read('../components/P2PTransfer.tsx');
@@ -226,10 +227,9 @@ describe('the main page is always its own document', () => {
         expect(page).not.toContain('useFullLoadLinks(holdsTab)');
     });
 
-    it('the footer, whose links come from a list, sends the main page through a plain anchor', () => {
+    it('the footer, whose links come from a list, keeps its link to the main page', () => {
         const footer = read('../components/layout/Footer.tsx');
         expect(footer).toContain("{ name: 'Floe', href: '/' }");
-        expect(footer).toContain('opensMainPage(link.href)');
     });
 
     it('the legal pages\' document switcher names no main-page address', () => {
@@ -237,6 +237,74 @@ describe('the main page is always its own document', () => {
         const hrefs = [...legal.matchAll(/href: '([^']*)'/g)].map((m) => m[1]);
         expect(hrefs).toEqual(expect.arrayContaining(['/privacy', '/terms']));
         for (const href of hrefs) expect(opensMainPage(href), href).toBe(false);
+    });
+});
+
+// useFullLoadLinks is added by P2PTransfer, which mounts one effect after
+// hydration, and a next/link clicked in that gap was a soft hop: Back and
+// Forward then stayed in one document and Forward left a page holding a link
+// with no prompt (measured, usePageGuards.ts). A plain anchor loads in full
+// before, during and after hydration, so nothing the main page renders may
+// import next/link. The walk follows every import, from the root layout and
+// the page, through the client's own modules.
+describe('nothing the main page renders is a next/link', () => {
+    const root = fileURLToPath(new URL('../', import.meta.url));
+    const rel = (file: string) => relative(root, file).split(sep).join('/');
+
+    function resolve(from: string, spec: string): string | null {
+        const base = spec.startsWith('@/') ? join(root, spec.slice(2)) : join(dirname(from), spec);
+        for (const candidate of [base, `${base}.tsx`, `${base}.ts`, join(base, 'index.tsx'), join(base, 'index.ts')]) {
+            if (/\.tsx?$/.test(candidate) && existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+        }
+        return null;
+    }
+
+    /** Each client module reachable from `entries`, with the packages it imports. */
+    function reach(entries: string[]): Map<string, string[]> {
+        const seen = new Map<string, string[]>();
+        const queue = entries.map((e) => join(root, e));
+        while (queue.length > 0) {
+            const file = queue.shift()!;
+            if (seen.has(file)) continue;
+            const packages: string[] = [];
+            seen.set(file, packages);
+            for (const { fileName } of ts.preProcessFile(readFileSync(file, 'utf8'), true, true).importedFiles) {
+                if (fileName.startsWith('.') || fileName.startsWith('@/')) {
+                    const next = resolve(file, fileName);
+                    if (next) queue.push(next);
+                } else {
+                    packages.push(fileName);
+                }
+            }
+        }
+        return seen;
+    }
+
+    const importersOf = (graph: Map<string, string[]>, pkg: string) =>
+        [...graph].filter(([, packages]) => packages.includes(pkg)).map(([file]) => rel(file));
+
+    const MAIN_PAGE = ['app/layout.tsx', 'app/page.tsx'];
+
+    it('reaches the components the main page renders', () => {
+        const reached = [...reach(MAIN_PAGE).keys()].map(rel);
+        expect(reached).toEqual(
+            expect.arrayContaining([
+                'components/P2PTransfer.tsx',
+                'components/layout/Navbar.tsx',
+                'components/layout/Footer.tsx',
+                'components/landing/DesktopSection.tsx',
+                'components/landing/HowItWorksSection.tsx',
+                'hooks/usePageGuards.ts',
+            ]),
+        );
+    });
+
+    it('sees a next/link where one is imported', () => {
+        expect(importersOf(reach(['app/not-found.tsx']), 'next/link')).toContain('app/not-found.tsx');
+    });
+
+    it('finds no next/link in the main page', () => {
+        expect(importersOf(reach(MAIN_PAGE), 'next/link')).toEqual([]);
     });
 });
 
@@ -258,7 +326,7 @@ describe('no next/link leads into the main page', () => {
     walk(join(root, 'components'));
     const rel = (file: string) => relative(root, file).split(sep).join('/');
 
-    const DYNAMIC_CHECKED = new Set(['components/layout/Footer.tsx: link.href', 'components/legal/LegalShell.tsx: doc.href']);
+    const DYNAMIC_CHECKED = new Set(['components/legal/LegalShell.tsx: doc.href']);
 
     /** Each next/link element's address: the literal (or a template's fixed
      *  start), or null with the expression's text when it cannot be read. */

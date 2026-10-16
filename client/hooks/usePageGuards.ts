@@ -46,6 +46,21 @@ export function useLeavePrompt(active: boolean) {
  * Which clicks it takes is fullLoadTarget's and samePageTop's decision
  * (lib/pageGuards.ts).
  *
+ * This listener alone left a gap, so it is not what keeps the main page a
+ * document of its own. P2PTransfer adds it, and InAppBrowserGuard mounts
+ * P2PTransfer one effect after hydration, so for a moment the page's
+ * next/links were live and soft. Measured under next dev with the rest of
+ * main-page-guards.spec.ts running beside it, an instrumented copy of its
+ * Forward cell failed 11 of 20 times, and each of the 11 (none of the 9 that
+ * passed) clicked the footer's How It Works after hydration and before
+ * P2PTransfer had mounted: the click was a soft hop, Back and Forward stayed
+ * in one document, and beforeunload never ran. Adding the listener at
+ * hydration would only narrow the gap, as effects run after the commit that
+ * makes next/link live. So nothing the main page renders is a next/link
+ * (pageGuards.test.ts walks its imports): a plain anchor loads in full before,
+ * during and after hydration. This stays as the net for a soft link that gets
+ * past that test, and for samePageTop.
+ *
  * The main page only: the request page's footer links are plain anchors for
  * the same reason and more (components/request/RequestShell.tsx).
  */

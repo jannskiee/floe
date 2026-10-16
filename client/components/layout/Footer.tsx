@@ -1,8 +1,6 @@
 import React from 'react';
-import Link from 'next/link';
 import Image from 'next/image';
 import { Heart } from 'lucide-react';
-import { opensMainPage } from '@/lib/pageGuards';
 
 // The four columns mirror the docs footer in docs/docs.json exactly (same
 // headers, same labels, same destinations), so the two surfaces never drift.
@@ -115,22 +113,18 @@ export function Footer() {
                                             >
                                                 {link.name}
                                             </a>
-                                        ) : opensMainPage(link.href) ? (
-                                            // A plain anchor: the main page is always its own
-                                            // document, so Back from it reaches the leave prompt.
+                                        ) : (
+                                            // Plain anchors, never next/link, so the main page is
+                                            // always its own document and Back to it and Forward
+                                            // from it reach the leave prompt: nothing the main
+                                            // page renders may be a next/link (useFullLoadLinks,
+                                            // hooks/usePageGuards.ts).
                                             <a
                                                 href={link.href}
                                                 className="text-sm text-zinc-400 transition-colors hover:text-zinc-100 focus-visible:outline-2 focus-visible:outline-ice"
                                             >
                                                 {link.name}
                                             </a>
-                                        ) : (
-                                            <Link
-                                                href={link.href}
-                                                className="text-sm text-zinc-400 transition-colors hover:text-zinc-100 focus-visible:outline-2 focus-visible:outline-ice"
-                                            >
-                                                {link.name}
-                                            </Link>
                                         )}
                                     </li>
                                 ))}

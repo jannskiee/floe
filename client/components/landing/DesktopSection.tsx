@@ -1,5 +1,4 @@
 import React from 'react';
-import Link from 'next/link';
 import { SectionHeader, sectionClass } from './SectionHeader';
 import { AppWindow } from './AppWindow';
 import { DESKTOP_VERSION } from '@/lib/desktopRelease';
@@ -43,13 +42,15 @@ export function DesktopSection() {
                         ))}
                     </ul>
                     <div className="mt-8">
-                        <Link
+                        {/* A plain anchor: nothing the main page renders may be a
+                            next/link (useFullLoadLinks, hooks/usePageGuards.ts). */}
+                        <a
                             href="/download"
                             data-umami-event="desktop-section-cta"
                             className="inline-flex items-center rounded-full bg-white px-4 py-2 text-sm font-bold text-black transition hover:bg-zinc-200 focus-visible:outline-2 focus-visible:outline-ice"
                         >
                             Get the desktop app
-                        </Link>
+                        </a>
                         <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.2em] text-zinc-600">
                             v{DESKTOP_VERSION} Beta · Windows
                         </p>
