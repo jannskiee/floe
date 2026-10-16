@@ -1114,21 +1114,21 @@
     },
     {
         "surface": "web-request",
-        "text": "A folder path is too long for their computer",
+        "text": "A file name or folder path is too long for their computer",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#when-their-floe-stops-the-drop",
         "why_no_home": null
     },
     {
         "surface": "web-request",
-        "text": "A folder path is too long for their computer. Zip deeply nested folders first.",
+        "text": "A file name or folder path is too long for their computer. Shorten it or zip it first.",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#when-their-floe-stops-the-drop",
         "why_no_home": null
     },
     {
         "surface": "web-request",
-        "text": "A folder path is too long to send. Zip deeply nested folders first.",
+        "text": "A file name or folder path is too long to send. Shorten it or zip it first.",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#messages-on-the-senders-page",
         "why_no_home": null
@@ -1632,6 +1632,13 @@
     },
     {
         "surface": "web-request",
+        "text": "Shorten it or zip it first.",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/web-app/request-links#when-their-floe-stops-the-drop",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
         "text": "Some files in this folder could not be read. Nothing was added.",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#messages-on-the-senders-page",
@@ -1957,13 +1964,6 @@
         "text": "You stopped this drop.",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#messages-on-the-senders-page",
-        "why_no_home": null
-    },
-    {
-        "surface": "web-request",
-        "text": "Zip deeply nested folders first.",
-        "source": "client/lib/request/visitorCopy.ts",
-        "anchor": "/web-app/request-links#when-their-floe-stops-the-drop",
         "why_no_home": null
     },
     {

@@ -72,8 +72,10 @@ export const visitorCopy = {
     /** C-34, the over-10,000-files half. */
     tooManyFiles: 'This drop has more than 10,000 files. Zip them first.',
     /** C-34, the path-over-the-cap half. Its second sentence is C-33, which is
-     *  drawn only as this tail and never on its own. */
-    pathTooLong: 'A folder path is too long to send. Zip deeply nested folders first.',
+     *  drawn only as this tail and as zipNested. Reworded with the owner's
+     *  approval on 2026-10-16: one long file name, with no folder, is over the
+     *  cap as well, and the old words told that pick to zip nested folders. */
+    pathTooLong: 'A file name or folder path is too long to send. Shorten it or zip it first.',
     /** C-35: a quiet line under the count, not a refusal. Empty folders, and the
      *  modification times, are not delivered. */
     emptyFoldersSkipped: 'Empty folders are not sent.',
@@ -223,8 +225,9 @@ export const visitorCopy = {
      *  through a relay, and C-31 and C-80 on this page already say "2 GB or
      *  less". */
     relayCapNothing: 'Nothing was sent. Send 2 GB or less.',
-    /** 4.15.2: path-too-long's line after the saved line (C-33's words). */
-    zipNested: 'Zip deeply nested folders first.',
+    /** 4.15.2: path-too-long's line after the saved line (C-33's words, as
+     *  reworded on 2026-10-16 with pathTooLong). */
+    zipNested: 'Shorten it or zip it first.',
     /** 4.15.2: over-approved's line after the saved line. */
     filesChanged: 'If files changed after you chose them, ask them for a new link.',
     /** C-130's heading; the visitor's own path is in the line under it. */
@@ -249,7 +252,7 @@ const REFUSAL_TITLES: ReadonlyMap<string, string> = new Map([
     ['write-failed', 'Their computer could not save a file'],
     ['hash-mismatch', 'A file changed or was damaged on the way, so their Floe deleted it'],
     ['relay-cap', 'Relayed drops are capped at 2 GB'],
-    ['path-too-long', 'A folder path is too long for their computer'],
+    ['path-too-long', 'A file name or folder path is too long for their computer'],
     ['file-too-large-for-folder', 'A file is too large for the drive they save to'],
     ['save-blocked', 'Their computer blocked saving a file'],
     ['over-approved', 'More data arrived than they accepted'],

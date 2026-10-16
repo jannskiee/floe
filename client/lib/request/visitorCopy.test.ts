@@ -13,6 +13,7 @@ import {
     type StatusContext,
 } from './visitorCopy';
 import { reduce, initialModel, type VisitorModel, type VisitorEvent } from './visitorState';
+import { checkPick } from './metadataBudget';
 
 // The visitor page never renders a peer-supplied string. Everything it shows
 // comes from the frozen Checkpoint C web copy table (D-091, with the stop
@@ -53,7 +54,7 @@ describe('visitor copy: the refusal table (spec 07 4.15.2)', () => {
             'write-failed': 'Their computer could not save a file',
             'hash-mismatch': 'A file changed or was damaged on the way, so their Floe deleted it',
             'relay-cap': 'Relayed drops are capped at 2 GB',
-            'path-too-long': 'A folder path is too long for their computer',
+            'path-too-long': 'A file name or folder path is too long for their computer',
             'file-too-large-for-folder': 'A file is too large for the drive they save to',
             'save-blocked': 'Their computer blocked saving a file',
             'over-approved': 'More data arrived than they accepted',
@@ -89,11 +90,11 @@ describe('visitor copy: the refusal table (spec 07 4.15.2)', () => {
         // the saved line, then the fix. No other code gains a line.
         expect(refusalCopy('path-too-long', 4, 12).lines).toEqual([
             '4 of 12 files were saved.',
-            'Zip deeply nested folders first.',
+            'Shorten it or zip it first.',
         ]);
         expect(refusalCopy('path-too-long', 0, 12).lines).toEqual([
             'Nothing was sent.',
-            'Zip deeply nested folders first.',
+            'Shorten it or zip it first.',
         ]);
         expect(refusalCopy('over-approved', 1, 1).lines).toEqual([
             '1 of 1 file was saved.',
@@ -108,6 +109,20 @@ describe('visitor copy: the refusal table (spec 07 4.15.2)', () => {
             const sentence = ['declined', 'expired', 'stopped'].includes(code);
             expect(refusalCopy(code, 4, 12).title.endsWith('.'), code).toBe(sentence);
         }
+    });
+
+    it('a pick refused for long names, one folder deep, is told what to shorten (C-34)', () => {
+        // A folder of 100 CJK characters holding a file of 200: one level, each
+        // name legal on Windows, and the frame past one control message. The
+        // line used to tell this pick to zip deeply nested folders.
+        const path = '文'.repeat(100) + '/' + '字'.repeat(200) + '.pdf';
+        expect(checkPick([{ relativePath: path, file: { size: 1 } }])).toEqual({
+            ok: false,
+            cause: 'path-too-long',
+        });
+        expect(visitorCopy.pathTooLong).toBe(
+            'A file name or folder path is too long to send. Shorten it or zip it first.'
+        );
     });
 
     it('too-slow maps to the unknown-code copy', () => {

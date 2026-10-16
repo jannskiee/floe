@@ -310,7 +310,9 @@ func (e *PeerStoppedError) Error() string {
 	case CodeOverApproved:
 		return "More data arrived than they accepted. If files changed after you chose them, ask them for a new link."
 	case CodePathTooLong:
-		return "A folder path is too long for their computer. Zip deeply nested folders first."
+		// One long file name with no folder trips it as well as a deep
+		// folder (owner's wording, 2026-10-16).
+		return "A file name or folder path is too long for their computer. Shorten it or zip it first."
 	case CodeRelayCap:
 		return "Relayed drops are capped at 2 GB."
 	case CodeSaveBlocked:

@@ -170,7 +170,7 @@ func runReceive(cmd *cobra.Command, args []string) error {
 
 	// 5. Join the room (we are the second → role = receiver)
 	if err := sc.JoinRoom(roomId); err != nil {
-		return fmt.Errorf("failed to join room: %w", err)
+		return joinFailed(sc, err)
 	}
 
 	// PeerLeft and the deadline are what the desktop copy of this block has
@@ -191,7 +191,7 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	case errMsg := <-sc.Errors:
 		return fmt.Errorf("server error: %s", errMsg)
 	case <-sc.PeerLeft:
-		return fmt.Errorf("connection closed before the server assigned a role")
+		return roleWaitClosed(sc)
 	case <-time.After(roleAssignTimeout):
 		return fmt.Errorf("timed out waiting for the server to assign a role")
 	}

@@ -164,7 +164,7 @@ func TestPeerStoppedErrorSentencesAreFixed(t *testing.T) {
 		CodeFileTooLargeForFolder: "A file is too large for the drive they save to.",
 		CodeHashMismatch:          "A file changed or was damaged on the way, so their Floe deleted it.",
 		CodeOverApproved:          "More data arrived than they accepted. If files changed after you chose them, ask them for a new link.",
-		CodePathTooLong:           "A folder path is too long for their computer. Zip deeply nested folders first.",
+		CodePathTooLong:           "A file name or folder path is too long for their computer. Shorten it or zip it first.",
 		CodeRelayCap:              "Relayed drops are capped at 2 GB.",
 		CodeSaveBlocked:           "A file arrived but their computer blocked saving it.",
 		CodeStopped:               "They stopped this drop.",

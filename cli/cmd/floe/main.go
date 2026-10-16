@@ -27,6 +27,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/gorilla/websocket"
 	"github.com/jannskiee/floe/cli/engine/peer"
 	"github.com/jannskiee/floe/cli/engine/serverurl"
 	"github.com/jannskiee/floe/cli/engine/signaling"
@@ -206,6 +207,54 @@ func signalingConnectError(err error) error {
 		}
 	}
 	return fmt.Errorf("failed to connect to signaling server: %w", err)
+}
+
+// errLimited is the line floe send and floe receive end on when the server
+// turned the connection away by its per-network limit: a 1008 close right
+// after the upgrade (signaling.CloseCode), which a Floe server sends only for
+// that. Floe Desktop's sentence for the same close, approved for the CLI by
+// the owner (2026-10-16) in lower case, as it follows cobra's "Error: ". It
+// used to end on "failed to join room: websocket: close sent" or "connection
+// closed before the server assigned a role", which read as a lost server.
+var errLimited = errors.New("the server is limiting connections from this network. Wait a minute and try again.")
+
+// turnedAway reports whether the server closed sc's socket by its
+// per-network connection limit.
+func turnedAway(sc *signaling.Client) bool {
+	return sc.CloseCode() == websocket.ClosePolicyViolation
+}
+
+// joinFailed is the error for a join-room frame that could not be written. A
+// server that turns the connection away closes it right after the upgrade,
+// so the write can lose the race to the close frame ("websocket: close
+// sent") a moment before the read loop records why the socket closed; the
+// wait gives it that moment, and is bounded so a broken socket of any other
+// kind still fails with the words it always had.
+func joinFailed(sc *signaling.Client, err error) error {
+	if closedByLimit(sc) {
+		return errLimited
+	}
+	return fmt.Errorf("failed to join room: %w", err)
+}
+
+// closedByLimit waits up to a second for sc's socket to finish closing, then
+// reports whether the server closed it by its per-network connection limit.
+func closedByLimit(sc *signaling.Client) bool {
+	select {
+	case <-sc.Down:
+	case <-time.After(time.Second):
+	}
+	return turnedAway(sc)
+}
+
+// roleWaitClosed is the error for a socket that closed during the wait for a
+// role: nobody else is in the room yet, so it is the server's own close, and
+// one by its connection limit says so.
+func roleWaitClosed(sc *signaling.Client) error {
+	if turnedAway(sc) {
+		return errLimited
+	}
+	return errors.New("connection closed before the server assigned a role")
 }
 
 // connectedLine is the status line printed once the data channel is open. It

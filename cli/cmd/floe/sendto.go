@@ -79,10 +79,14 @@ const (
 	lineNeedsUpdate     = "Their Floe needs an update to receive from this link."
 	lineUnknownStop     = "The drop stopped on their computer."
 	lineTooManyFiles    = "This drop has more than 10,000 files. Zip them first."
-	linePathTooLong     = "A folder path is too long to send. Zip deeply nested folders first."
+	linePathTooLong     = "A file name or folder path is too long to send. Shorten it or zip it first."
 	lineVerified        = "Their app reports every file's SHA-256 matched."
 	lineSendTheRest     = "Ask them for a new link to send the rest."
 	lineNothingSent     = "Nothing was sent."
+	// The server turned the connection away by its per-network limit (a 1008
+	// close right after the upgrade), the line floe send and floe receive end
+	// on too; approved by the owner for this command on 2026-10-16.
+	lineLimited = "The server is limiting connections from this network. Wait a minute and try again."
 	// "2 GB or less", not "under": the relay gate is strictly greater-than, so
 	// a drop of exactly 2 GB is allowed (the owner's amendment, as the /r
 	// page's relayCapNothing in visitorCopy.ts already reads).
@@ -424,7 +428,12 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 		return r.fail(cmd, lineNoAnswer)
 	default:
 		// An error frame, a seat that is not the visitor's, or the socket
-		// gone before an answer: no approved line of its own (D-144.8).
+		// gone before an answer: no approved line of its own (D-144.8),
+		// except a socket the server closed by its connection limit, which
+		// it does right after the upgrade, before any answer.
+		if closedByLimit(sc) {
+			return r.fail(cmd, lineLimited)
+		}
 		return r.fail(cmd, lineCouldNotConnect)
 	}
 

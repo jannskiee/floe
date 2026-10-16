@@ -1475,7 +1475,22 @@ func TestSendToPickTimeLimitsEndBeforeAnyNetwork(t *testing.T) {
 			seg := strings.Repeat(string(rune(0x2028)), 80)
 			oneFile(t, filepath.Join(dir, seg, seg), "a.bin", 16)
 			return dir
-		}, []string{"A folder path is too long to send. Zip deeply nested folders first."}},
+		}, []string{"A file name or folder path is too long to send. Shorten it or zip it first."}},
+		{"one file whose name alone is over one control message", func(t *testing.T) string {
+			// No folder at all, so the line cannot be about nesting. Each
+			// character is a six-byte escape in the frame: U+2028 on Windows,
+			// whose names allow no control character, and U+0001 elsewhere,
+			// where a name is at most 255 bytes and U+2028 takes three.
+			ch, n := "\x01", 160
+			if runtime.GOOS == "windows" {
+				ch, n = string(rune(0x2028)), 170
+			}
+			p := filepath.Join(t.TempDir(), strings.Repeat(ch, n)+".bin")
+			if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+				t.Skipf("this file system refuses the name: %v", err)
+			}
+			return p
+		}, []string{"A file name or folder path is too long to send. Shorten it or zip it first."}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			o := captureOutput(t)
@@ -1669,7 +1684,7 @@ var approvedRefusal = []struct {
 	{"write-failed", []string{"Their computer could not save a file.", "Nothing was sent."}},
 	{"hash-mismatch", []string{"A file changed or was damaged on the way, so their Floe deleted it.", "Nothing was sent.", "Ask them for a new link to send the rest."}},
 	{"relay-cap", []string{"Relayed drops are capped at 2 GB.", "Nothing was sent. Send 2 GB or less."}},
-	{"path-too-long", []string{"A folder path is too long for their computer. Zip deeply nested folders first.", "Nothing was sent."}},
+	{"path-too-long", []string{"A file name or folder path is too long for their computer. Shorten it or zip it first.", "Nothing was sent."}},
 	{"file-too-large-for-folder", []string{"A file is too large for the drive they save to.", "Nothing was sent."}},
 	{"save-blocked", []string{"A file arrived but their computer blocked saving it.", "Nothing was sent."}},
 	{"over-approved", []string{"More data arrived than they accepted. If files changed after you chose them, ask them for a new link.", "Nothing was sent."}},
@@ -1760,7 +1775,35 @@ func TestSendToDeepFolderRefusedByHostLimits(t *testing.T) {
 	r := runCLI(t, root, "--to", linkFor(), "--server", s.URL)
 	herr := h.wait(t)
 	r.read(o)
-	wantOutcome(t, r, "A folder path is too long for their computer. Zip deeply nested folders first.", "Nothing was sent.")
+	wantOutcome(t, r, "A file name or folder path is too long for their computer. Shorten it or zip it first.", "Nothing was sent.")
+	var refused *transfer.RefusedError
+	if !errors.As(herr, &refused) || refused.Code != transfer.CodePathTooLong {
+		t.Fatalf("host = %v, want its path-too-long refusal", herr)
+	}
+	if left, _ := os.ReadDir(out); len(left) != 0 {
+		t.Fatalf("the host created %d entries before refusing", len(left))
+	}
+}
+
+// TestSendToLongFileNameRefusedByHostLimits: one file and no folder, whose
+// name alone passes the host's 240-unit limit once ".part" is added (240
+// characters here, legal on NTFS, ext4 and APFS), with a frame short enough
+// that PrecheckDrop passes. The host refuses path-too-long, and the line
+// names a file name: it used to tell a pick with no folder in it to zip
+// deeply nested folders.
+func TestSendToLongFileNameRefusedByHostLimits(t *testing.T) {
+	o := captureOutput(t)
+	s := newReqServer(t, "seat")
+	stubNetwork(t, s.URL)
+	p, _ := oneFile(t, t.TempDir(), strings.Repeat("n", 236)+".txt", 8)
+	out := t.TempDir()
+	var mu sync.Mutex
+	var doneFiles []transfer.FileDone
+	h := startHost(t, s, deliveringHost(out, &doneFiles, &mu))
+	r := runCLI(t, p, "--to", linkFor(), "--server", s.URL)
+	herr := h.wait(t)
+	r.read(o)
+	wantOutcome(t, r, "A file name or folder path is too long for their computer. Shorten it or zip it first.", "Nothing was sent.")
 	var refused *transfer.RefusedError
 	if !errors.As(herr, &refused) || refused.Code != transfer.CodePathTooLong {
 		t.Fatalf("host = %v, want its path-too-long refusal", herr)
