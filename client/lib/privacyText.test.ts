@@ -1,4 +1,4 @@
-// Two sentences of the privacy page that said more than the code does.
+// Three sentences of the privacy page that said more than the code does.
 //
 // vitest cannot import anything under app/, so the page is read as text, the
 // way visitorBoundaries.test.ts reads its sources. Each sentence is pinned
@@ -7,6 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { LOST_KEY, recordLost, takeLost } from './request/lostRecord';
 
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
 // One line of text per paragraph, so a sentence the page wraps still matches.
@@ -48,5 +49,33 @@ describe('the privacy page: what Sentry is sent about a transfer', () => {
     it('agrees with the sample rate the page states and the code sets', () => {
         expect(page).toContain('a 10% sample of page performance traces');
         expect(read('./traceSampling.ts')).toContain('export const TRACES_SAMPLE_RATE = 0.1;');
+    });
+});
+
+describe('the privacy page: the request link page\'s two counts', () => {
+    // "it clears them when the drop ends" was true of a page that runs. A tab
+    // the browser discarded mid-drop runs nothing, so the counts stay until
+    // that tab loads again, where takeLost removes them whatever it finds, or
+    // until it closes and its sessionStorage goes with it (A4-09, owner
+    // answer 11, approved words).
+    it('says how long a discarded tab keeps them', () => {
+        expect(page).toContain(
+            'It never stores the link, the room, or a file name, and it clears them when the drop ends; if the browser discarded the tab first, they stay in that tab until it loads again or you close it.',
+        );
+    });
+
+    it('agrees with the record: it stays through a discard and goes at the next load', () => {
+        const held = new Map<string, string>();
+        const store = {
+            getItem: (k: string) => held.get(k) ?? null,
+            setItem: (k: string, v: string) => void held.set(k, v),
+            removeItem: (k: string) => void held.delete(k),
+        };
+        recordLost(store, 4, 12);
+        // The discard: no code of the page runs, so nothing clears it.
+        expect(held.get(LOST_KEY)).toBeDefined();
+        // The tab loads again, as Chrome's reload of a discarded tab or not.
+        takeLost(store, false);
+        expect(held.has(LOST_KEY)).toBe(false);
     });
 });

@@ -70,7 +70,7 @@ export function joinStepsShown(input: { received: number; busy: boolean; ended: 
 
 /**
  * Whether closing the receiving tab would cost the person something, which is
- * what "Keep this tab open. Closing it interrupts the download." claims.
+ * what "Keep this tab open and in front. Closing it interrupts the download." claims.
  *
  * Exactly when the browser's leave prompt is held on a receiving page
  * (mainPageHoldsTab in lib/pageGuards.ts): while a receive is under way, or

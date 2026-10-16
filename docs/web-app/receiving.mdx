@@ -170,15 +170,22 @@ make it safe to open and says nothing about who sent it. See
 
 <Warning>
 Files stay with the browser until you save them, so closing or reloading the tab discards anything
-you have not saved. Opening a different Floe link in the same tab reloads it too.
+you have not saved. Opening a different Floe link in the same tab reloads it too. One case is
+different: a link from `floe` or Floe Desktop opened in a tab that holds another such link. While a
+receive is under way or a file that arrived is unsaved, your browser asks about leaving if you have
+clicked on the page. If you have not, the page opens the new link only once that is over.
 </Warning>
 
 While a receive is under way, or a file that arrived has not been saved yet, your browser asks
 before the tab is closed or reloaded, or Back leaves the page. It also asks before the Floe button
 or one of the page's own links takes you away. A file counts as saved once its own download button,
 **Download All** or **Download ZIP** has handed it to your browser. For that same time, the line at
-the foot of the card reads "Keep this tab open. Closing it interrupts the download." Once every file
-has arrived and been saved, it reads "End-to-end encrypted. Files are never stored on a server."
+the foot of the card reads "Keep this tab open and in front. Closing it interrupts the download."
+Chrome and Edge can unload a tab in the background to save memory, and that discards the files as
+closing it would. For that same time the page does not reload by itself after Floe's web app is
+updated: see [The page reloaded by itself](/troubleshooting#the-page-reloaded-by-itself). Once every
+file has arrived and been saved, the line reads "End-to-end encrypted. Files are never stored on a
+server."
 
 While the two devices are connected, the page asks your browser to keep the screen on, where the
 browser supports it. Browsers let go of that whenever the tab is hidden, and the page asks again

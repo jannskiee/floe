@@ -14,7 +14,13 @@
  * and native ESM throws "Failed to fetch dynamically imported module". None of
  * these are application bugs - they are expected churn after a deploy, and the
  * fix is always the same: reload so the browser fetches the current bundle.
+ *
+ * The reload goes through the page's reload gate (reloadGate.ts), which skips
+ * it while a transfer holds the tab: that tab keeps the bundle it has, and the
+ * next stale chunk after the transfer reloads it.
  */
+
+import { reloadGate, type ReloadGate } from './reloadGate';
 
 const STALE_BUNDLE_PATTERNS: RegExp[] = [
     // Turbopack: stale module graph after a redeploy
@@ -55,29 +61,48 @@ function messageOf(value: unknown): string | undefined {
     return undefined;
 }
 
+/** What the recovery reads and writes, passed in so a test can hold it. */
+export interface StaleReloadDeps {
+    storage: Pick<Storage, 'getItem' | 'setItem'> | null;
+    now: () => number;
+    gate: Pick<ReloadGate, 'request'>;
+}
+
+function browserDeps(): StaleReloadDeps {
+    let storage: StaleReloadDeps['storage'] = null;
+    try {
+        storage = window.sessionStorage;
+    } catch {
+        // sessionStorage can throw in private/restricted contexts - ignore.
+    }
+    return { storage, now: Date.now, gate: reloadGate };
+}
+
 /**
- * Reload the page once if `message` is a stale-bundle error. Guarded against
- * reload loops via a sessionStorage debounce. Returns true if a reload was
- * triggered.
+ * Reload the page once if `message` is a stale-bundle error, unless a transfer
+ * holds the tab (the gate then skips it). Guarded against reload loops via a
+ * sessionStorage debounce, stamped when the page really reloads. Returns true
+ * if a reload was asked for.
  */
-function reloadIfStaleBundle(message: string | undefined): boolean {
-    if (typeof window === 'undefined') return false;
+export function reloadIfStaleBundle(message: string | undefined, deps: StaleReloadDeps): boolean {
     if (!isStaleBundleError(message)) return false;
 
     let last = 0;
     try {
-        last = Number(window.sessionStorage.getItem(RELOAD_KEY)) || 0;
+        last = Number(deps.storage?.getItem(RELOAD_KEY)) || 0;
     } catch {
         // sessionStorage can throw in private/restricted contexts - ignore.
     }
-    if (Date.now() - last < RELOAD_DEBOUNCE_MS) return false;
+    if (deps.now() - last < RELOAD_DEBOUNCE_MS) return false;
 
-    try {
-        window.sessionStorage.setItem(RELOAD_KEY, String(Date.now()));
-    } catch {
-        // Non-fatal: worst case we lose loop protection in a restricted context.
-    }
-    window.location.reload();
+    deps.gate.request('stale-bundle', () => {
+        try {
+            deps.storage?.setItem(RELOAD_KEY, String(deps.now()));
+        } catch {
+            // Non-fatal: worst case we lose loop protection in a restricted context.
+        }
+        return true;
+    });
     return true;
 }
 
@@ -89,10 +114,10 @@ export function registerStaleBundleReload(): void {
     if (typeof window === 'undefined') return;
 
     window.addEventListener('error', (event: ErrorEvent) => {
-        reloadIfStaleBundle(event.message || messageOf(event.error));
+        reloadIfStaleBundle(event.message || messageOf(event.error), browserDeps());
     });
 
     window.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
-        reloadIfStaleBundle(messageOf(event.reason));
+        reloadIfStaleBundle(messageOf(event.reason), browserDeps());
     });
 }

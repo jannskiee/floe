@@ -1,10 +1,16 @@
 import { useEffect } from 'react';
 import { fullLoadTarget, samePageTop } from '@/lib/pageGuards';
+import { reloadGate } from '@/lib/reloadGate';
 
 /**
  * The browser's own "Leave site?" prompt, held while `active`. Browsers show
  * their own generic wording, and only once the person has used the page; a
  * promise that the tab survives is not what this is (E-50).
+ *
+ * For the same span the page's own reloads never end the transfer unasked
+ * (lib/reloadGate.ts): the stale-bundle recovery is skipped, and the main
+ * page's reload for a new room link waits unless the browser can ask, since
+ * a tab nobody has clicked gets no prompt at all.
  *
  * Shared by the request link visitor (useVisitorGuards) and the main page.
  */
@@ -17,7 +23,11 @@ export function useLeavePrompt(active: boolean) {
             e.returnValue = '';
         };
         window.addEventListener('beforeunload', hold);
-        return () => window.removeEventListener('beforeunload', hold);
+        const release = reloadGate.hold();
+        return () => {
+            window.removeEventListener('beforeunload', hold);
+            release();
+        };
     }, [active]);
 }
 

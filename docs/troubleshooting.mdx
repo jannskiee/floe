@@ -74,7 +74,7 @@ differently: see [What an older web app shows](/self-hosting/operations#older-we
 | [“Cannot transfer: your browser is running an older version of Floe.”](#cannot-transfer-your-floe-is-too-old-for-this-peer), either page | The two apps speak protocol versions that do not overlap. | Update the side the message names. |
 | [“Could not prepare files for ZIP.” or “ZIP creation failed.”](#could-not-prepare-files-for-zip-or-zip-creation-failed), page you receive on | Zipping needs every file in memory at once. | Click **Download All** instead. |
 | [Downloads behave oddly on iOS](#downloads-behave-oddly-on-ios) | Safari saves several files one at a time unreliably. | Use **Download ZIP**. |
-| [The page reloaded by itself](#the-page-reloaded-by-itself), either page | The web app was updated while your tab was open. | Start the transfer again. |
+| [The page reloaded by itself](#the-page-reloaded-by-itself), either page | The web app was updated while your tab was open. A tab with a transfer under way is not reloaded. | If you were about to send, add the files again. |
 | [“Page not found”](#page-not-found) | The address matches no page, often a link cut short. | Copy the whole link again. |
 | [“Something went wrong” and a **Reload page** button](#something-went-wrong-reload-page) | The web app itself failed. | Click **Reload page**. |
 
@@ -591,10 +591,17 @@ save the files from their own rows instead.
 
 On either page, with no message. Floe's web app was updated while your tab was open, and the tab
 asked for a part of the old version that no longer exists. It reloads once to fetch the new
-version, and not again within 10 seconds. A transfer running in that tab ends, and a link the page
+version, and not again within 10 seconds.
+
+For as long as your browser would ask before you leave the page, the tab is not reloaded at all. On
+the page you send from, that is from **Create secure link** until the send ends. On the page you
+receive on, it is while a receive is under way or a file that arrived is unsaved. On a request
+link's page, it is while the page connects, waits for an answer or sends. The tab keeps the version
+it loaded, which carries the transfer to its end, and reloads the next time it asks for a part of
+the old version after that. A reload clears files you had added but not sent, and a link the page
 had made stops working.
 
-Start the transfer again. On the page you send from, add the files again and share the new link.
+If you were about to send, add the files again and share the new link.
 
 ### "Page not found" {#page-not-found}
 

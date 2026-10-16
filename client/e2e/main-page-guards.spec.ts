@@ -1,8 +1,8 @@
 /**
  * What the main page does with a careless click or a stray drop: the leave
- * prompt while something depends on the tab, the window's own drop guard, a
- * dropped folder refused at the drop, and the in-app browser card when its
- * Copy cannot reach the clipboard.
+ * prompt while something depends on the tab, the page's own reloads waiting
+ * for that time, the window's own drop guard, a dropped folder refused at the
+ * drop, and the in-app browser card when its Copy cannot reach the clipboard.
  *
  * A browser shows a beforeunload prompt only after a person has used the
  * page, so every prompt cell clicks something first, as a person would have.
@@ -129,6 +129,56 @@ test('the page asks before it is left while a link is out or files are unsaved',
         const [download] = await Promise.all([receiverPage.waitForEvent('download'), downloadLink.click()]);
         await download.delete();
         expect(await wordmarkAsks(receiverPage)).toBe(false);
+    } finally {
+        await senderCtx.close();
+        await receiverCtx.close();
+    }
+});
+
+test('the page reloads by itself only once nothing depends on the tab', async ({ browser }) => {
+    // The stale-bundle recovery and the reload for a new room link opened in
+    // the same tab wait while the page holds the tab (lib/reloadGate.ts).
+    // Nothing on the receiving page is clicked before them, so the browser
+    // would not ask: at version 1.11.1 both reloaded at once and the unsaved
+    // file went with the page.
+    const { path: fixturePath } = createFixture(FIXTURE_DIR, 64 * 1024);
+    const nextRoom = '00000000-0000-4000-8000-000000000001';
+    const senderCtx = await browser.newContext();
+    const receiverCtx = await optedOutContext(await browser.newContext());
+    const senderPage = await senderCtx.newPage();
+    const receiverPage = await receiverCtx.newPage();
+    type Marked = Window & { floeSameDocument?: boolean };
+    // A reload, or the navigation it is in the middle of, ends the document.
+    const sameDocument = () =>
+        receiverPage.evaluate(() => (window as Marked).floeSameDocument === true).catch(() => false);
+
+    try {
+        const link = await browserSenderSetup(senderPage, fixturePath);
+        await receiverPage.goto(link);
+        const downloadLink = receiverPage.locator('a[download]').first();
+        await expect(downloadLink).toBeVisible({ timeout: 30_000 });
+        await receiverPage.evaluate(() => {
+            (window as Marked).floeSameDocument = true;
+        });
+
+        // The file is unsaved: a stale bundle and a new link both wait.
+        await receiverPage.evaluate((room) => {
+            window.dispatchEvent(new ErrorEvent('error', { message: 'Loading chunk 999 failed.' }));
+            location.hash = `room=${room}`;
+        }, nextRoom);
+        await receiverPage.waitForTimeout(3_000);
+        expect(await sameDocument()).toBe(true);
+        await expect(downloadLink).toBeVisible();
+
+        // Saved from its own link: the page lets go, and one reload runs a
+        // moment later, onto the new link, with the stale-bundle guard stamped.
+        const [download] = await Promise.all([receiverPage.waitForEvent('download'), downloadLink.click()]);
+        expect(await download.failure()).toBeNull();
+        await download.delete();
+        await expect.poll(sameDocument, { timeout: 15_000 }).toBe(false);
+        await receiverPage.waitForLoadState('domcontentloaded');
+        await expect(receiverPage).toHaveURL(new RegExp(`room=${nextRoom}`));
+        expect(await receiverPage.evaluate(() => sessionStorage.getItem('floe:stale-bundle-reloaded-at'))).not.toBeNull();
     } finally {
         await senderCtx.close();
         await receiverCtx.close();

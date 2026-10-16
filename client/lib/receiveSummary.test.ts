@@ -118,7 +118,7 @@ describe('joinStepsShown', () => {
     });
 });
 
-// "Keep this tab open. Closing it interrupts the download." is for a tab that
+// "Keep this tab open and in front. Closing it interrupts the download." is for a tab that
 // something depends on.
 describe('receiverTabMatters', () => {
     const base = { linkInvalid: false, senderAbsent: false, ended: false, allArrived: false, unsaved: 0 };

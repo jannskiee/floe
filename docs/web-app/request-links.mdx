@@ -110,7 +110,9 @@ answer in time, nothing is sent, and **Back to files** returns to your selection
 
 The sending happens in your browser tab, so the tab has to stay open until the last file arrives. Keep the
 tab in front. While the page connects, waits or sends, your browser asks before the tab is closed or
-reloaded. The **Privacy** and **Terms** links at the bottom of the page ask the same way.
+reloaded. The **Privacy** and **Terms** links at the bottom of the page ask the same way. For that time the
+page does not reload by itself either: when Floe's web app is updated mid-drop, the reload waits until the
+attempt ends. See [The page reloaded by itself](/troubleshooting#the-page-reloaded-by-itself).
 
 If you leave anyway, the drop stops. After a reload the page starts again with nothing picked. If they had
 already accepted, the link is used: ask for a new one. Before they accepted, the same link still works.

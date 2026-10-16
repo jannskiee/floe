@@ -59,6 +59,12 @@ export const metadata: Metadata = {
 // The same day: the desktop paragraph's WebView2 sentence matches the GitHub
 // installer, which downloads the runtime during setup, and the app's own
 // check at start (desktop/main.go webview2Hint).
+// Rechecked on 2026-10-16: a request link's two counts outlive the drop in a
+// tab the browser discarded, until that tab loads again (takeLost always
+// removes them) or is closed (sessionStorage goes with it), in
+// lib/request/lostRecord.ts; the sentence says so (owner answer 11). The same
+// day every Sentry send hook was made to fail closed (lib/failClosed.ts),
+// which narrows what can leave and changes no sentence here.
 // Rechecked on 2026-10-12: Sentry is sent no session data, from the browser
 // (sentry.client.config.ts `integrations`) or from the server
 // (sentry.server.config.ts `integrations`; see lib/sentryIntegrations.ts), so
@@ -490,7 +496,8 @@ export default function PrivacyPolicy() {
                     sending, it keeps two numbers in the tab&apos;s own storage, how many files
                     arrived and how many there are, so it can still say how far the drop got if the
                     browser discards the tab. It never stores the link, the room, or a file name, and
-                    it clears them when the drop ends. While a transfer is running
+                    it clears them when the drop ends; if the browser discarded the tab first, they
+                    stay in that tab until it loads again or you close it. While a transfer is running
                     the app asks your browser to keep the screen awake and releases that when the
                     transfer ends. The app writes to your clipboard only when you press Copy and never
                     reads it, and it never asks for notification permission.

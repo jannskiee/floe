@@ -75,7 +75,7 @@ const READS = {
         sources: ['client/components/ReceiverPanel.tsx', 'client/components/StatsContributionToggle.tsx'],
     },
     '05-receive-downloads.png': {
-        strings: ['Download All', 'Download ZIP', 'SHA-256 matched', 'Keep this tab open. Closing it interrupts the download.'],
+        strings: ['Download All', 'Download ZIP', 'SHA-256 matched', 'Keep this tab open and in front. Closing it interrupts the download.'],
         sources: ['client/components/ReceiverPanel.tsx', 'client/lib/receiveSummary.ts'],
     },
     '06-in-app-browser.png': {

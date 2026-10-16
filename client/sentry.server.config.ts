@@ -1,10 +1,12 @@
 import * as Sentry from '@sentry/nextjs';
+import { failClosedHooks } from './lib/failClosed';
 import { withoutLocation } from './lib/noLocation';
 import { scrubServerErrorEvent, scrubServerTransactionEvent } from './lib/scrubUrl';
 import { withoutServerSessions } from './lib/sentryIntegrations';
 import { tracesSampler } from './lib/traceSampling';
 
-Sentry.init({
+// Both send hooks fail closed, as in the browser. See lib/failClosed.ts.
+Sentry.init(failClosedHooks({
     // Set SENTRY_DSN in your environment to enable server-side error tracking.
     // Leave empty (or omit) to disable Sentry.
     dsn: process.env.SENTRY_DSN || '',
@@ -60,4 +62,4 @@ Sentry.init({
     beforeSendTransaction(event) {
         return withoutLocation(scrubServerTransactionEvent(event));
     },
-});
+}));

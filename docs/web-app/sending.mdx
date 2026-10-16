@@ -214,8 +214,15 @@ before the Floe button or one of the page's own links takes you away. It does no
 itself has told you to reload.
 </Warning>
 
-Once the link exists, the line at the foot of the card turns amber and reads "Keep this tab open.
-Closing it cancels the transfer."
+Once the link exists, the line at the foot of the card turns amber and reads "Keep this tab open and
+in front. Closing it cancels the transfer." Chrome and Edge can unload a tab in the background to
+save memory, and that ends the send as closing it would.
+
+For as long as your browser would ask before you leave, the page does not reload by itself either.
+When Floe's web app is updated while you send, the page keeps the version it loaded until the send
+ends. See [The page reloaded by itself](/troubleshooting#the-page-reloaded-by-itself). A link from
+`floe` or Floe Desktop opened in this tab gets your browser's question about leaving if you have
+clicked on the page. If you have not, the page opens it once the send ends.
 
 From the moment the other person joins until the send ends, the page asks your browser to keep the
 screen on, where the browser supports it. Browsers let go of that whenever the tab is hidden, and

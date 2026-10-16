@@ -220,7 +220,7 @@ On the floe.one website:
   Sentry's servers see the IP address a report arrives from, as any server does. Each report is
   sent with an empty location field, which keeps Sentry from working out a location from that
   address. The room secret is stripped out of every error report, breadcrumb, and performance
-  trace before it is sent.
+  trace before it is sent, and a report the stripping fails on is not sent at all.
 - **Session replay is not enabled and will not be added.** A replay records the page address, and
   on a receiver page that address contains the room link, which is the only thing protecting the
   transfer.
@@ -284,7 +284,7 @@ your device. Clearing the site's data in your browser's settings empties all thr
 | Files you have received and not yet saved | The page's memory. In Chrome and Edge, part of a large file sits in the browser's own temporary files on disk | You close or leave the page. A file you saved is an ordinary download from then on |
 | Your **Contribute to global stats** choice | Local storage, key `floe:report-stats`. It is written on your first visit to the homepage, whether or not you receive anything | You clear the site's data |
 | The time of the last automatic reload after a new version of the site was deployed | Session storage, key `floe:stale-bundle-reloaded-at` | You close the tab |
-| On a request link's page, two numbers while a drop is sending: how many files have arrived and how many there are | Session storage, key `floe:r-lost` | The drop ends, or the page next loads |
+| On a request link's page, two numbers while a drop is sending: how many files have arrived and how many there are | Session storage, key `floe:r-lost` | The drop ends. If the browser discarded the tab first: that tab loads again, or you close it |
 | Five of the site's own pages (the home page, Download, How it works, Privacy and Terms) and its build files, so they open without a network. Nothing transfers without one | Cache Storage, written by the site's service worker | You clear the site's data |
 
 That cache never holds a share link, a request link's page, an answer from the server, or these

@@ -2,11 +2,13 @@ import * as Sentry from '@sentry/nextjs';
 import { BROWSER_EXTENSION_URL_PATTERNS } from './lib/browserExtensions';
 import { stripDeviceHints } from './lib/deviceHints';
 import { createEventBudget } from './lib/eventBudget';
+import { failClosedHooks } from './lib/failClosed';
 import { IGNORED_ERROR_PATTERNS } from './lib/ignoredErrors';
 import { isInjectedScriptError } from './lib/injectedScripts';
 import { withoutLocation } from './lib/noLocation';
 import { isNonBrowserRuntimeError } from './lib/nonBrowserRuntimes';
 import { isStaleBundleError } from './lib/staleBundle';
+import { isWebKitDomDesync } from './lib/webkitDomDesync';
 import { scrubBreadcrumb, scrubErrorEvent, scrubSpanJson, scrubTransactionEvent } from './lib/scrubUrl';
 import { withoutBrowserSession, withoutInteractionSpans } from './lib/sentryIntegrations';
 import { tracesSampler } from './lib/traceSampling';
@@ -16,7 +18,10 @@ import { tracesSampler } from './lib/traceSampling';
 // See lib/eventBudget.ts.
 const eventBudget = createEventBudget();
 
-Sentry.init({
+// Every send hook below fails closed: a hook that threw would have the SDK
+// report the throw itself, past beforeSend and with the page address on it.
+// See lib/failClosed.ts.
+Sentry.init(failClosedHooks({
     // Set NEXT_PUBLIC_SENTRY_DSN in your environment to enable error tracking.
     // Leave empty (or omit) to disable Sentry — safe for local development and forks.
     dsn: process.env.NEXT_PUBLIC_SENTRY_DSN || '',
@@ -83,7 +88,8 @@ Sentry.init({
 
     // Stale-bundle/chunk-load errors are expected deploy churn, not bugs: an old
     // tab requests chunks a new deploy removed. The browser auto-reloads onto the
-    // current bundle (see lib/staleBundle.ts). Collapse every wording variant into
+    // current bundle unless a transfer holds the tab (see lib/staleBundle.ts
+    // and lib/reloadGate.ts). Collapse every wording variant into
     // one warning-level issue instead of a flood of distinct, non-actionable errors.
     beforeSend(event, hint) {
         // An extension's injected script throwing on our page is reported as
@@ -99,6 +105,13 @@ Sentry.init({
         // its oldest frames give it away, so the check reads every frame rather
         // than the one that threw. Fixes FLOE-J. See lib/nonBrowserRuntimes.ts.
         if (isNonBrowserRuntimeError(event)) return null;
+
+        // WebKit's wording of the DOM desync a translator or an extension
+        // causes: a NotFoundError from the native removeChild or insertBefore
+        // under React. The Chromium wording is in ignoredErrors.ts; WebKit's
+        // sentence is too generic for that list. The FLOE-P shape. See
+        // lib/webkitDomDesync.ts.
+        if (isWebKitDomDesync(event)) return null;
 
         const message =
             (hint?.originalException as Error | undefined)?.message ??
@@ -196,4 +209,4 @@ Sentry.init({
     // beforeSendTransaction and beforeSendSpan.
 
     debug: false,
-});
+}));

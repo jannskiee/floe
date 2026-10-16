@@ -51,6 +51,8 @@ import {peerDisconnectAction, teardownClaimsClose} from '@/lib/peerDisconnect';
 import {LINK_INVALID, afterReconnect, isLinkInvalid, peerBanner, withRefusalBanner, withoutRefusalBanner} from '@/lib/refusalBanner';
 import {copyText} from '@/lib/clipboard';
 import {mainPageHoldsTab, receiveUnderWay, unsavedCount} from '@/lib/pageGuards';
+import {reloadGate} from '@/lib/reloadGate';
+import {routeLabel} from '@/lib/routeLog';
 import {createIceList, freshenWithin} from '@/lib/iceList';
 import {resolveSocketUrl} from '@/lib/socketUrl';
 
@@ -162,6 +164,7 @@ export function P2PTransfer() {
         startPolling: startConnectionTypePolling,
         stopPolling: stopConnectionTypePolling,
         reset: resetConnectionType,
+        routeOf,
     } = useConnectionType();
 
     const { reportStatsEnabled, setReportStatsEnabled, track, reportBytes } = useTransferAnalytics();
@@ -243,14 +246,11 @@ export function P2PTransfer() {
     const progressRef = useRef(0);
     const fileListRef = useRef<HTMLDivElement>(null);
 
-    // A latest-ref for the once-registered handlers, the same idiom and for the
-    // same reason as useSignaling's cbRef: onUserConnected and
-    // joinRoomAsReceiver both capture their closure before any peer exists, so
-    // reading the state directly reported connection: "unknown" for every
-    // transfer on both roles. Written in an effect rather than during render,
-    // because react-hooks forbids the render-time assignment and because these
-    // reads all happen on a transfer boundary, long after the commit.
-    const connectionTypeRef = useRef<string | null>(null);
+    // The analytics events and the error reports name the route by the
+    // connection they are about, routeOf(peer), never by the badge's state:
+    // onUserConnected and joinRoomAsReceiver capture their closure before any
+    // peer exists, and the badge goes back to null at every close, which a
+    // receive that ends after its sender closed would read (lib/routeLog.ts).
     // What the sender announced, from the first metadata. 0 until then.
     const expectedFilesRef = useRef(0);
     // Timers the unmount cleanup has to reach.
@@ -287,10 +287,6 @@ export function P2PTransfer() {
         }
         return 'Transfer complete';
     };
-
-    useEffect(() => {
-        connectionTypeRef.current = connectionType;
-    });
 
     // The receiver's seat in the room, fed from the server's own messages.
     // Returns true when this page should give its seat back by re-joining.
@@ -753,7 +749,7 @@ export function P2PTransfer() {
                     Sentry.withScope((scope) => {
                         scope.setContext('webrtc', {
                             role: 'receiver',
-                            connectionType,
+                            connectionType: routeOf(peer),
                             filesReceived: receivedFilesRef.current.length,
                             progressPercent: progressAtError,
                             errorCode: report.code,
@@ -825,7 +821,7 @@ export function P2PTransfer() {
                 track('transfer-received', {
                     files: fileCount,
                     bytes: totalBytes,
-                    connection: connectionTypeRef.current ?? 'unknown',
+                    connection: routeLabel(routeOf(peer)),
                     role: 'receiver',
                 });
                 reportBytes(totalBytes);
@@ -870,7 +866,7 @@ export function P2PTransfer() {
                                 receivedBytes: failure.received,
                                 expectedBytes: failure.expected,
                                 filesReceived: receivedFilesRef.current.length,
-                                connectionType: connectionTypeRef.current ?? 'unknown',
+                                connectionType: routeLabel(routeOf(peer)),
                                 // Chromium only, rounded and capped at 8 by the browser.
                                 deviceMemoryGiB: (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? null,
                             });
@@ -958,16 +954,24 @@ export function P2PTransfer() {
 
     // The room id lives in the URL fragment (#room=<id>). Swapping only the
     // fragment is a same-document navigation, so opening a new room link in an
-    // existing tab (e.g. scanning a second QR code on a phone that already has
-    // Floe open) changes the hash without reloading, so the mount effect above
-    // never re-runs and the tab stays stuck on the previous transfer. Detect
-    // that here and reload so the receiver joins the new room from a clean slate.
+    // existing tab changes the hash without reloading, so the mount effect
+    // above never re-runs and the tab stays stuck on the previous transfer.
+    // Detect that here and reload so the receiver joins the new room from a
+    // clean slate. A link this page makes carries its own ?s= nonce and so
+    // loads as a new document (buildShareLink); the links `floe` and Floe
+    // Desktop print (/#room=<id>) differ only in the fragment and come here.
+    // Through the reload gate: while this page holds the tab (a link out or a
+    // send under way, a receive under way or a file not yet saved) the reload
+    // goes ahead only where the browser will ask first, and otherwise waits
+    // for the tab to be let go, when the room is read again, so a link
+    // changed back in the meantime reloads nothing (lib/reloadGate.ts).
     useEffect(() => {
-        const onHashChange = () => {
+        const roomChanged = () => {
             const room = getRoomFromUrl(window.location.hash, window.location.search);
-            if (room && room !== joinedRoomRef.current) {
-                window.location.reload();
-            }
+            return room !== null && room !== joinedRoomRef.current;
+        };
+        const onHashChange = () => {
+            if (roomChanged()) reloadGate.request('room-link', roomChanged);
         };
         window.addEventListener('hashchange', onHashChange);
         return () => window.removeEventListener('hashchange', onHashChange);
@@ -1335,7 +1339,7 @@ export function P2PTransfer() {
                         scope.setContext('webrtc', {
                             role: 'sender',
                             relayEnabled,
-                            connectionType,
+                            connectionType: routeOf(peer),
                             filesCount: files.length,
                             totalBytes,
                             progressPercent: progressRef.current,
@@ -1447,7 +1451,7 @@ export function P2PTransfer() {
                     track('transfer-complete', {
                         files: fileList.length,
                         bytes: fileList.reduce((s, f) => s + f.file.size, 0),
-                        connection: connectionTypeRef.current ?? 'unknown',
+                        connection: routeLabel(routeOf(peer)),
                         role: 'sender',
                     });
                 },
@@ -1776,14 +1780,18 @@ export function P2PTransfer() {
                         was saved, nothing does: it told a person the card had
                         just told to leave that closing the tab would interrupt
                         a download. The receiver's half is receiverTabMatters,
-                        which holds exactly while the leave prompt does. */}
+                        which holds exactly while the leave prompt does.
+                        "In front" for the reason the request page says it:
+                        Chrome and Edge can discard a background tab to save
+                        memory, and a discard ends a send and loses every file
+                        this tab holds (lib/request/lostRecord.ts). */}
                     {(isSender && !generatedLink) || (!isSender && !receiverTabHeld) ? (
                         <p className="text-balance text-[10px] uppercase tracking-wide text-zinc-500 text-center leading-relaxed">
                             End-to-end encrypted. Files are never stored on a server.
                         </p>
                     ) : (
                         <p className="text-balance text-[10px] uppercase tracking-wide text-amber-300/80 text-center leading-relaxed">
-                            Keep this tab open. Closing it{' '}
+                            Keep this tab open and in front. Closing it{' '}
                             {isSender ? 'cancels the transfer' : 'interrupts the download'}.
                         </p>
                     )}

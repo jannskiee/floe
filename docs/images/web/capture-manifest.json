@@ -96,7 +96,7 @@
         "Download All",
         "Download ZIP",
         "SHA-256 matched",
-        "Keep this tab open. Closing it interrupts the download."
+        "Keep this tab open and in front. Closing it interrupts the download."
       ],
       "sources": [
         "client/components/ReceiverPanel.tsx",
