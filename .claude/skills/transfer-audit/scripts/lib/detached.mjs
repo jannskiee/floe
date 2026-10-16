@@ -14,8 +14,8 @@
 // new process is not our child) and an exit event; the pid is what the
 // caller tracks.
 //
-// launchDirect at the foot of the file is the one launch that is not made
-// this way, and its comment says when and why.
+// launchActivated and launchDirect at the foot of the file are the two
+// launches that are not made this way, and their comments say when and why.
 
 import { execFile, spawn } from 'node:child_process';
 
@@ -207,6 +207,109 @@ export function launchDetached(
                             { returnValue: out.returnValue }
                         )
                     );
+                    return;
+                }
+                resolve({ pid: out.pid });
+            }
+        );
+        if (child && typeof child.on === 'function') child.on('error', () => {});
+    });
+}
+
+export const ACTIVATE_SPEC_VAR = 'FLOE_ACTIVATE_SPEC';
+
+/** The C# side of launchActivated: IApplicationActivationManager, one call. */
+const ACTIVATE_CS = String.raw`using System;
+using System.Runtime.InteropServices;
+public static class FloeActivate {
+    [ComImport, Guid("2e941141-7f97-4756-ba1d-9decde894a3d"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IApplicationActivationManager {
+        [PreserveSig] int ActivateApplication([MarshalAs(UnmanagedType.LPWStr)] string appUserModelId, [MarshalAs(UnmanagedType.LPWStr)] string arguments, int options, out uint processId);
+        [PreserveSig] int ActivateForFile(IntPtr appUserModelId, IntPtr itemArray, IntPtr verb, out uint processId);
+        [PreserveSig] int ActivateForProtocol(IntPtr appUserModelId, IntPtr itemArray, out uint processId);
+    }
+    [ComImport, Guid("45BA127D-10A8-46EA-8AB7-56EA9078943C")]
+    class ApplicationActivationManager {}
+    public static string Activate(string aumid, string args) {
+        var m = (IApplicationActivationManager)new ApplicationActivationManager();
+        uint pid;
+        int hr = m.ActivateApplication(aumid, args, 0, out pid);
+        return hr == 0 ? "{\"pid\":" + pid + "}" : "{\"hresult\":\"0x" + hr.ToString("X8") + "\"}";
+    }
+}`;
+
+/** The PowerShell side: reads the spec from ACTIVATE_SPEC_VAR, prints one JSON line. */
+export const ACTIVATE_PS = [
+    "$ErrorActionPreference = 'Stop'",
+    `$raw = $env:${ACTIVATE_SPEC_VAR}`,
+    "if (-not $raw) { throw 'the activation spec is empty' }",
+    '$spec = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($raw)) | ConvertFrom-Json',
+    "Add-Type -TypeDefinition @'",
+    ACTIVATE_CS,
+    "'@",
+    '[Console]::Out.Write([FloeActivate]::Activate([string]$spec.aumid, [string]$spec.arguments))',
+].join('\n');
+
+/** The powershell.exe arguments for launchActivated. */
+export function activateArgs() {
+    return [
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-EncodedCommand',
+        Buffer.from(ACTIVATE_PS, 'utf16le').toString('base64'),
+    ];
+}
+
+/** { pid } or { hresult } from the activation's stdout, or null. */
+export function parseActivateOutput(text) {
+    const s = String(text || '');
+    const ok = /\{"pid":(\d+)\}/.exec(s);
+    if (ok) return { pid: Number(ok[1]) };
+    const bad = /\{"hresult":"(0x[0-9A-F]{8})"\}/.exec(s);
+    return bad ? { hresult: bad[1] } : null;
+}
+
+/**
+ * Start a packaged app the way Start does, with its package identity, through
+ * IApplicationActivationManager.ActivateApplication, passing args as its
+ * command line (quoted as quoteArg does). lib/desktop.mjs launchProcess is the
+ * one caller, for the launch Win32_Process.Create refuses (the Store package's
+ * exe with files, F1), and only on a run that declared the owner away: an
+ * activated app takes the foreground. It is tried before launchDirect, which
+ * Windows has refused with EPERM since the October 2026 update took effect on
+ * this PC (2026-10-16, build 26200.9711), with or without arguments, while an
+ * activation of the same exe with a file worked. Resolves { pid }; a failed
+ * activation rejects with its HRESULT, never the AUMID's arguments.
+ * execFileImpl is injectable so tests never start anything.
+ */
+export function launchActivated(
+    { aumid, args = [] },
+    { execFileImpl = execFile, timeoutMs = LAUNCH_TIMEOUT_MS, baseEnv = process.env } = {}
+) {
+    if (!aumid) throw new Error('package activation: an AUMID is required');
+    const spec = { aumid: String(aumid), arguments: args.map(quoteArg).join(' ') };
+    const encoded = Buffer.from(JSON.stringify(spec), 'utf8').toString('base64');
+    return new Promise((resolve, reject) => {
+        const child = execFileImpl(
+            'powershell.exe',
+            activateArgs(),
+            {
+                encoding: 'utf8',
+                windowsHide: true,
+                timeout: timeoutMs,
+                env: { ...baseEnv, [ACTIVATE_SPEC_VAR]: encoded },
+            },
+            (err, stdout) => {
+                const out = parseActivateOutput(stdout);
+                if (!out) {
+                    const why = err ? err.message.split('\n')[0] : 'no answer';
+                    reject(new Error(`package activation gave no answer (${why})`));
+                    return;
+                }
+                if (out.hresult) {
+                    reject(new Error(`package activation failed (${out.hresult})`));
                     return;
                 }
                 resolve({ pid: out.pid });

@@ -83,7 +83,7 @@ a peer.
   cells run with no idle check, as they did by default before the flag
   existed, and what was away-only then still is (request hosts, SKIP
   `request-host-away-only`; staging files into a running Store app; the
-  direct start of the Store exe with files). Both together behave as
+  start of the Store exe with files, by package activation or directly). Both together behave as
   `--user-away`. The `wailsdev` lane drives a headless page, activates
   nothing and needs neither flag, and `--desktop none` has no desktop to
   drive. What only reads is not gated: `versions`, the `Get-AppxPackage`
@@ -351,12 +351,17 @@ foreground twice on 2026-09-30). The cost is the app's stdout and stderr;
 (F1, field run of 2026-10-11): `Win32_Process.Create` answers 2, access
 denied, for the Store package's exe when it carries files, which is how a
 Store sender cell stages them. Then, and only under `--user-away`, the
-driver spawns that exe itself (`launchDirect` in
-`scripts/lib/detached.mjs`: detached, no console, no pipes);
-`desktop.launch.txt` reads `direct launch (F1)` and the leg's evidence
-carries `launch.started: "direct"`. Without `--user-away` nothing is
-started and the cell is SKIP `present`, because a direct child of this
-process can take the foreground. A leg never starts a second
+driver starts it through package activation (F1b, `launchActivated` in
+`scripts/lib/detached.mjs`: `IApplicationActivationManager` with the AUMID
+and the files as its arguments, the way Start launches it, package identity
+kept); `desktop.launch.txt` reads `package activation (F1b)` and the leg's
+evidence carries `launch.started: "activated"`. Only when activation fails
+does it spawn the exe itself (`launchDirect`: detached, no console, no
+pipes; `direct launch (F1)`, `launch.started: "direct"`). Since the October
+2026 update took effect here (2026-10-16, build 26200.9711) Windows refuses
+that direct spawn with EPERM, with or without arguments, so activation is
+the route that works. Without `--user-away` nothing is started and the cell
+is SKIP `present`, because either start can take the foreground. A leg never starts a second
 instance: while any `floe-desktop.exe` or `floe-desktop-dev.exe` (the app
 `wails dev` runs) is up, the cell is SKIP `desktop-running` before
 anything starts, because the single-instance lock forwards a second
@@ -572,7 +577,7 @@ The Explorer verb (`HKCU\Software\Classes\*\shell\Floe`) is guarded on the
 Store lane as well as on the portable and head ones. A packaged launch does
 not touch the key, and the leg's note then reads `explorer verb: unchanged`
 or `still absent`. A Store exe started directly is the one launch whose
-package identity no run had shown; a Floe without identity follows the
+package identity no run had shown (an activated one keeps it); a Floe without identity follows the
 unpackaged rule above (builds up to desktop-v0.3.0 register the verb for
 themselves at startup; from desktop-v0.3.1 only a profile whose marker is
 `1` does), and the stop then puts the key back as it was (`removed ...`
@@ -1026,8 +1031,8 @@ what each step proves are the same, and the idle windows no longer matter.
 
 1. `probe --profile shipped --desktop store --user-away --monitor secondary`
 2. `run --profile shipped --desktop store --user-away --monitor secondary --cells S-DIR-D2C`
-   (a Store sender: `desktop.launch.txt` names the direct launch when
-   `Win32_Process.Create` refused the exe with files)
+   (a Store sender: `desktop.launch.txt` names the package activation, or
+   the direct launch, when `Win32_Process.Create` refused the exe with files)
 3. `run --profile shipped --desktop store --user-away --monitor secondary --cells S-DIR-W2D-reqauto`
    (the delivery: the check toggled on, the chip AUTO-ACCEPT, no prompt, the
    hashes equal, and `request.saveTo.restored` true)

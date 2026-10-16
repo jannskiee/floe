@@ -245,6 +245,9 @@ test('desktop.mjs starts no exe itself: no spawn import, no visible window optio
         'one fallback call site'
     );
     assert.match(body, /direct = launchDirect/);
+    // F1b: package activation is tried first, from the same one place.
+    assert.equal((body.match(/await activate\(/g) || []).length, 1, 'one activation call site');
+    assert.match(body, /activate = launchActivated/);
     assert.match(
         body,
         /err\.returnValue === 2 &&\s+plan\.mode === 'store' &&\s+plan\.filesStaged/
@@ -334,6 +337,16 @@ function refusing(code) {
     return { calls, detach };
 }
 
+function activateRecorder({ pid = 8484, fail = null } = {}) {
+    const calls = [];
+    const activate = async (o) => {
+        calls.push(o);
+        if (fail) throw new Error(fail);
+        return { pid };
+    };
+    return { calls, activate };
+}
+
 function directRecorder(pid = 7373) {
     const calls = [];
     const direct = async (o) => {
@@ -355,12 +368,15 @@ test('launchProcess falls back to a direct spawn exactly once, and only for the 
         assert.equal(plan.filesStaged, true);
         const wmi = refusing(2);
         const d = directRecorder();
+        const act = activateRecorder({ fail: 'package activation failed (0x80070005)' });
         const out = await launchProcess(plan, {
             evidenceDir: path.join(dir, 'ev'),
             detach: wmi.detach,
+            activate: act.activate,
             direct: d.direct,
             allowDirect: true,
         });
+        assert.deepEqual(act.calls, [{ aumid: AUMID, args: ['C:\\in\\a.bin'] }], 'activation was tried first');
         assert.deepEqual(out, {
             child: null,
             pid: 7373,
@@ -385,7 +401,7 @@ test('launchProcess falls back to a direct spawn exactly once, and only for the 
         );
         assert.match(
             note,
-            /^direct launch \(F1\): Win32_Process\.Create returned 2 \(access denied\) for the Store exe with files, so this process spawned it itself, pid 7373/
+            /^direct launch \(F1\): Win32_Process\.Create returned 2 \(access denied\) for the Store exe with files, and package activation failed, so this process spawned it itself, pid 7373/
         );
         assert.ok(
             !/detached launch \(FU-26\)/.test(note),
@@ -394,10 +410,12 @@ test('launchProcess falls back to a direct spawn exactly once, and only for the 
 
         // The same refusal with the owner at the PC: nothing is spawned.
         const present = directRecorder();
+        const presentAct = activateRecorder();
         await assert.rejects(
             launchProcess(plan, {
                 evidenceDir: path.join(dir, 'ev2'),
                 detach: refusing(2).detach,
+                activate: presentAct.activate,
                 direct: present.direct,
             }),
             (e) => {
@@ -410,9 +428,61 @@ test('launchProcess falls back to a direct spawn exactly once, and only for the 
             }
         );
         assert.equal(present.calls.length, 0);
+        assert.equal(presentAct.calls.length, 0, 'nothing is activated either');
         assert.ok(
             !existsSync(path.join(dir, 'ev2', 'desktop.launch.txt')),
             'no launch, no launch note'
+        );
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+// F1b (2026-10-16): since the October update took effect, Windows refuses a
+// direct spawn of the Store exe (EPERM) and starts it through package
+// activation, with the files as its arguments.
+test('launchProcess starts the refused Store exe with files through package activation first, and says when every way failed', async () => {
+    const dir = tmp();
+    try {
+        const plan = planLaunch({
+            mode: 'store',
+            storeExe: STORE_EXE,
+            files: ['C:\\in\\a.bin'],
+            env: { APPDATA: 'C:\\u\\AppData\\Roaming' },
+        });
+        const act = activateRecorder();
+        const d = directRecorder();
+        const out = await launchProcess(plan, {
+            evidenceDir: path.join(dir, 'ev'),
+            detach: refusing(2).detach,
+            activate: act.activate,
+            direct: d.direct,
+            allowDirect: true,
+        });
+        assert.deepEqual(out, { child: null, pid: 8484, detached: false, activated: true });
+        assert.deepEqual(act.calls, [{ aumid: AUMID, args: ['C:\\in\\a.bin'] }]);
+        assert.equal(d.calls.length, 0, 'no direct spawn after an activation that worked');
+        assert.match(
+            readFileSync(path.join(dir, 'ev', 'desktop.launch.txt'), 'utf8'),
+            /^package activation \(F1b\): Win32_Process\.Create returned 2 \(access denied\) for the Store exe with files, so IApplicationActivationManager started it with the files as its arguments, pid 8484, with its package identity/
+        );
+
+        await assert.rejects(
+            launchProcess(plan, {
+                detach: refusing(2).detach,
+                activate: activateRecorder({ fail: 'package activation failed (0x80070005)' }).activate,
+                direct: async () => {
+                    throw Object.assign(new Error('spawn EPERM'), { code: 'EPERM' });
+                },
+                allowDirect: true,
+            }),
+            (e) => {
+                assert.match(e.message, /refused three ways/);
+                assert.match(e.message, /package activation failed \(0x80070005\)/);
+                assert.match(e.message, /direct start \(spawn EPERM\)/);
+                assert.ok(!e.message.includes('a.bin'), 'no file name in the reason');
+                return true;
+            }
         );
     } finally {
         rmSync(dir, { recursive: true, force: true });

@@ -5,6 +5,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+    ACTIVATE_PS,
+    ACTIVATE_SPEC_VAR,
     CREATE_RESULTS,
     DETACHED_PS,
     SPEC_VAR,
@@ -13,8 +15,10 @@ import {
     detachedArgs,
     detachedSpec,
     envList,
+    launchActivated,
     launchDetached,
     launchDirect,
+    parseActivateOutput,
     parseDetachedOutput,
     quoteArg,
 } from './detached.mjs';
@@ -156,6 +160,45 @@ test('launchDetached puts the Win32_Process.Create return value on its rejection
             return true;
         }
     );
+});
+
+// F1b (2026-10-16): the Store exe with files, started the way Start starts it.
+test('launchActivated sends the AUMID and the quoted files through its env, never its command line, and resolves the pid', async () => {
+    const f = fakeExec('{"pid":8484}');
+    const r = await launchActivated(
+        { aumid: 'Pkg_r1y5w9chaxnzc!App', args: ['C:\\in\\a b.bin', 'C:\\in\\c.bin'] },
+        { execFileImpl: f.impl, baseEnv: { SystemRoot: 'C:\\Windows' } }
+    );
+    assert.deepEqual(r, { pid: 8484 });
+    const [c] = f.calls;
+    assert.equal(c.file, 'powershell.exe');
+    assert.equal(c.opts.windowsHide, true);
+    assert.ok(!c.args.join(' ').includes('a b.bin'), 'no file name on the command line');
+    const spec = JSON.parse(Buffer.from(c.opts.env[ACTIVATE_SPEC_VAR], 'base64').toString('utf8'));
+    assert.deepEqual(spec, { aumid: 'Pkg_r1y5w9chaxnzc!App', arguments: '"C:\\in\\a b.bin" C:\\in\\c.bin' });
+    assert.match(ACTIVATE_PS, /IApplicationActivationManager/);
+    assert.match(ACTIVATE_PS, /\[PreserveSig\] int ActivateApplication/);
+    assert.match(ACTIVATE_PS, /^'@$/m, 'the here-string closes at column 0');
+});
+
+test('launchActivated rejects a failed activation with its HRESULT and a missing answer with the reason, never the files', async () => {
+    const failed = fakeExec('{"hresult":"0x80073CF1"}');
+    await assert.rejects(
+        launchActivated({ aumid: 'X!Y', args: ['C:\\secret-name.bin'] }, { execFileImpl: failed.impl, baseEnv: {} }),
+        (e) => {
+            assert.equal(e.message, 'package activation failed (0x80073CF1)');
+            return true;
+        }
+    );
+    const silent = fakeExec('', new Error('Command failed: powershell.exe\nmore'));
+    await assert.rejects(
+        launchActivated({ aumid: 'X!Y', args: [] }, { execFileImpl: silent.impl, baseEnv: {} }),
+        /^Error: package activation gave no answer \(Command failed: powershell\.exe\)$/
+    );
+    assert.throws(() => launchActivated({ aumid: '' }), /an AUMID is required/);
+    assert.deepEqual(parseActivateOutput('noise {"pid":7} noise'), { pid: 7 });
+    assert.deepEqual(parseActivateOutput('{"hresult":"0x80070005"}'), { hresult: '0x80070005' });
+    assert.equal(parseActivateOutput('{"pid":"7"}'), null);
 });
 
 function fakeSpawn({ pid = 7272, fail = null } = {}) {

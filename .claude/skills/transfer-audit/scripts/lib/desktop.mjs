@@ -99,7 +99,7 @@ import {
 } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { SW, launchDetached, launchDirect } from './detached.mjs';
+import { SW, launchActivated, launchDetached, launchDirect } from './detached.mjs';
 import { sha256OfFile } from './fixtures.mjs';
 import { ownerStateFor, ownerValue } from './ownerstate.mjs';
 import { creationTimeAsync, registerPid, started } from './proc.mjs';
@@ -3203,19 +3203,23 @@ export class PlaywrightDriver {
  * One launch does not start that way (F1, field run 2026-10-11):
  * Win32_Process.Create answers 2, access denied, for the Store package's exe
  * when it carries files, which is how a Store sender stages them. That launch
- * alone falls back to lib/detached.mjs launchDirect, and only when all three
- * hold: the answer was 2, the plan is the Store's, and it stages files. A
- * direct child descends from the operator's terminal and can take the
- * foreground, so the fallback also needs `allowDirect` (the leg passes its
- * --user-away); without it the launch is SKIP present. Every other refusal
- * is rethrown as it came. The result says which way it went (`direct`), and
- * so does desktop.launch.txt.
+ * alone falls back, and only when all three hold: the answer was 2, the plan
+ * is the Store's, and it stages files. The fallback is package activation
+ * first (lib/detached.mjs launchActivated, F1b: the AUMID with the files as
+ * its arguments, package identity kept), then a direct spawn
+ * (launchDirect), which Windows refuses with EPERM on this PC since
+ * 2026-10-16. Both can take the foreground, so the fallback also needs
+ * `allowDirect` (the leg passes its --user-away); without it the launch is
+ * SKIP present. Every other refusal is rethrown as it came. The result says
+ * which way it went (`activated` or `direct`), and so does
+ * desktop.launch.txt.
  */
 export async function launchProcess(
     plan,
     {
         evidenceDir = null,
         detach = launchDetached,
+        activate = launchActivated,
         direct = launchDirect,
         allowDirect = false,
     } = {}
@@ -3232,6 +3236,7 @@ export async function launchProcess(
     }
     let pid;
     let viaDirect = false;
+    let viaActivate = false;
     try {
         ({ pid } = await detach({
             command: plan.command,
@@ -3256,22 +3261,36 @@ export async function launchProcess(
                 'desktop store: Win32_Process.Create refused the package exe with files (2, access denied), and the direct start that takes them can bring the window to the foreground, so it runs only with --user-away; nothing was started',
                 { verdict: 'SKIP', reason: 'present' }
             );
-        ({ pid } = await direct({
-            command: plan.command,
-            args: plan.args,
-            cwd: plan.cwd,
-        }));
-        viaDirect = true;
+        try {
+            ({ pid } = await activate({ aumid: AUMID, args: plan.args }));
+            viaActivate = true;
+        } catch (activateErr) {
+            try {
+                ({ pid } = await direct({
+                    command: plan.command,
+                    args: plan.args,
+                    cwd: plan.cwd,
+                }));
+            } catch (directErr) {
+                throw new Error(
+                    `desktop store: the package exe with files was refused three ways: Win32_Process.Create (2, access denied), ${activateErr.message}, and the direct start (${directErr.message})`
+                );
+            }
+            viaDirect = true;
+        }
     }
     if (evidenceDir) {
         mkdirSync(evidenceDir, { recursive: true });
         writeFileSync(
             path.join(evidenceDir, 'desktop.launch.txt'),
-            viaDirect
-                ? `direct launch (F1): Win32_Process.Create returned 2 (access denied) for the Store exe with files, so this process spawned it itself, pid ${pid}, detached with no pipes; a direct child can take the foreground, which is why this path needs --user-away\n`
+            viaActivate
+                ? `package activation (F1b): Win32_Process.Create returned 2 (access denied) for the Store exe with files, so IApplicationActivationManager started it with the files as its arguments, pid ${pid}, with its package identity; an activated app takes the foreground, which is why this path needs --user-away\n`
+                : viaDirect
+                ? `direct launch (F1): Win32_Process.Create returned 2 (access denied) for the Store exe with files, and package activation failed, so this process spawned it itself, pid ${pid}, detached with no pipes; a direct child can take the foreground, which is why this path needs --user-away\n`
                 : `detached launch (FU-26): Win32_Process.Create pid ${pid}, first window SW_SHOWNOACTIVATE; no stdout or stderr pipe\n`
         );
     }
+    if (viaActivate) return { child: null, pid, detached: false, activated: true };
     return viaDirect
         ? { child: null, pid, detached: false, direct: true }
         : { child: null, pid, detached: true };
@@ -3705,7 +3724,10 @@ export class DesktopLeg extends Leg {
         this.launchSpan.pid = Number.isInteger(launched.pid) ? launched.pid : null;
         this.child = launched.child;
         this.pid = launched.pid;
-        this.launchedDirect = launched.direct === true;
+        // Activated (F1b) and direct (F1) are both launches this process
+        // did not detach; launchedVia says which.
+        this.launchedDirect = launched.direct === true || launched.activated === true;
+        this.launchedVia = launched.activated ? 'activated' : launched.direct ? 'direct' : 'detached';
         // The Safety table's count of built apps started, which _stop
         // answers once it has closed this one (lib/report.mjs).
         const legs = (opts.shared && opts.shared.desktopLegs) || null;
@@ -3713,7 +3735,9 @@ export class DesktopLeg extends Leg {
         this._launchCounted = Boolean(legs);
         if (this.launchedDirect)
             this.note(
-                'the Store exe with files was started directly (Win32_Process.Create refused it, F1)'
+                this.launchedVia === 'activated'
+                    ? 'the Store exe with files was started by package activation (Win32_Process.Create refused it, F1b)'
+                    : 'the Store exe with files was started directly (Win32_Process.Create refused it, F1)'
             );
         // Registered before the window search: a launch that never shows a
         // window is still ours to kill at finalize.
@@ -4897,15 +4921,13 @@ export class DesktopLeg extends Leg {
                   filesStaged: this.plan.filesStaged,
                   identity: this.plan.identity ?? null,
                   url: this.plan.url,
-                  // 'detached' (Win32_Process.Create), 'direct' (the F1
-                  // fallback), or null on the wailsdev lane, which starts
-                  // nothing, and before any launch.
+                  // 'detached' (Win32_Process.Create), 'activated' or
+                  // 'direct' (the F1b and F1 fallbacks), or null on the
+                  // wailsdev lane, which starts nothing, and before any launch.
                   started:
                       this.launchedDirect === null
                           ? null
-                          : this.launchedDirect
-                            ? 'direct'
-                            : 'detached',
+                          : (this.launchedVia ?? (this.launchedDirect ? 'direct' : 'detached')),
                   // What the desktop.json this launch read said about toasts
                   // (editDesktopJson turns them off). Here and not only in
                   // statsProof, which a sender does not have.
