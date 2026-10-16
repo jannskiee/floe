@@ -267,8 +267,64 @@ func TestDropRecordWritesWhatItsLastWindowSaved(t *testing.T) {
 	}
 }
 
+// TestDropRecordRetriesAFailedWrite: on Windows the rename over the record
+// fails while anything holds it open, and the release run of desktop-v0.3.2
+// lost the owed write that way (the test below polls the file). A failed
+// write is tried again a window later, a good write resets the count, and a
+// record that never writes stops after quitRecordRetries tries in a row.
+func TestDropRecordRetriesAFailedWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "quit-drop.json")
+	tally := &dropTally{}
+	rec := newDropRecord(path, "", 5, `D:\Floe\Request 2026-10-16 1405`, false, tally)
+	var owed []time.Duration
+	var fire func()
+	rec.after = func(d time.Duration, f func()) func() bool {
+		owed = append(owed, d)
+		fire = f
+		return func() bool { return true }
+	}
+	failing := 1
+	rec.save = func(p string, q quitDrop) error {
+		if failing > 0 {
+			failing--
+			return errors.New("Access is denied.")
+		}
+		return saveQuitDrop(p, q)
+	}
+
+	tally.add(transfer.FileDone{SavedName: "a", Bytes: 1})
+	rec.fileDone()
+	if _, ok := readQuitDrop(t, path); ok {
+		t.Fatal("a failed write left a record")
+	}
+	if len(owed) != 1 || owed[0] != quitRecordEvery {
+		t.Fatalf("owed writes %v after a failed write, want one a window later", owed)
+	}
+	fire()
+	if q, ok := readQuitDrop(t, path); !ok || q.Result.Saved != 1 {
+		t.Fatalf("the retry wrote %+v (ok %v), want 1 saved", q.Result, ok)
+	}
+	if rec.failed != 0 {
+		t.Fatalf("failed = %d after a good write, want 0", rec.failed)
+	}
+
+	// A record that can never be written is tried quitRecordRetries times.
+	owed = nil
+	failing = 1 << 30
+	rec.flush()
+	for i := 0; i < 2*quitRecordRetries && len(owed) > i; i++ {
+		fire()
+	}
+	if len(owed) != quitRecordRetries {
+		t.Fatalf("%d retries armed for a record that never writes, want %d", len(owed), quitRecordRetries)
+	}
+	rec.clear()
+}
+
 // TestDropRecordOwedWriteRuns is the same with the real timer: five files
-// in the first second, then none, and the record says five.
+// in the first second, then none, and the record says five. Its poller can
+// hold the record open while the owed write renames over it, which the
+// retry above now covers.
 func TestDropRecordOwedWriteRuns(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "quit-drop.json")
 	tally := &dropTally{}

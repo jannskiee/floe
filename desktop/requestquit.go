@@ -27,6 +27,16 @@ import (
 // second.
 const quitRecordEvery = time.Second
 
+// quitRecordRetries is how many failed writes in a row are tried again a
+// window later. On Windows the rename over the record fails with "Access is
+// denied" while anything holds the record open (an antivirus scan, a reader;
+// measured 2026-10-16 on Go 1.26 and 1.27), and the release run of
+// desktop-v0.3.2 lost the owed write that way. Without a retry the files it
+// covered waited for the next saved file, which a hookless end never sees.
+// The bound keeps a record that can never be written (a read-only profile)
+// from retrying for the whole drop.
+const quitRecordRetries = 5
+
 // quitRecordMax bounds the record a launch reads: 200 names of the longest
 // path the engine saves is under 200 KiB.
 const quitRecordMax = 1 << 20
@@ -144,17 +154,21 @@ type dropRecord struct {
 	last    time.Time // the last write; zero before the first
 	cleared bool      // the drop ended on its own: nothing writes the record again
 	now     func() time.Time
-	// owed stops the write armed for files saved inside the last second, nil
-	// when none is armed. after arms it; a test stands in its own.
-	owed  func() bool
-	after func(time.Duration, func()) (stop func() bool)
+	// owed stops the write armed for files saved inside the last second, or
+	// for a failed write's retry, nil when none is armed. after arms it; a
+	// test stands in its own, as it does for save.
+	owed   func() bool
+	after  func(time.Duration, func()) (stop func() bool)
+	save   func(path string, q quitDrop) error
+	failed int // failed writes in a row since the last good one
 }
 
 // newDropRecord is the record of a drop of files files into folder, kept at
 // path ("" keeps nothing).
 func newDropRecord(path, label string, files int, folder string, auto bool, tally *dropTally) *dropRecord {
 	return &dropRecord{path: path, label: label, files: files, folder: folder, auto: auto, tally: tally, now: time.Now,
-		after: func(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }}
+		after: func(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop },
+		save:  saveQuitDrop}
 }
 
 // fileDone writes the record after a saved file, at most once a
@@ -215,8 +229,9 @@ func (r *dropRecord) clear() {
 
 // writeLocked writes the record when a file was saved: with none, a launch
 // would have nothing to show (a stopped drop with nothing saved has no History
-// row) and nothing is written. A failed write keeps the last one. Any write
-// covers the files an armed one was owed for, so it stops that one.
+// row) and nothing is written. A failed write keeps the last one and is tried
+// again a window later, up to quitRecordRetries in a row. Any write covers the
+// files an armed one was owed for, so it stops that one.
 func (r *dropRecord) writeLocked() {
 	if r.cleared || r.path == "" {
 		return
@@ -229,8 +244,14 @@ func (r *dropRecord) writeLocked() {
 	res.AutoAccepted = r.auto
 	res.NoNamedStreams = true
 	now := r.now()
-	if saveQuitDrop(r.path, quitDrop{Label: r.label, At: now.UnixMilli(), Result: res}) == nil {
+	if r.save(r.path, quitDrop{Label: r.label, At: now.UnixMilli(), Result: res}) == nil {
 		r.last = now
+		r.failed = 0
+		return
+	}
+	r.failed++
+	if r.failed <= quitRecordRetries {
+		r.owed = r.after(quitRecordEvery, r.writeOwed)
 	}
 }
 
