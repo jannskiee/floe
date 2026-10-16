@@ -30,6 +30,12 @@ import (
 //   - "what?.txt" and "report<v2>.pdf" could not be created at all, and the
 //     caller turns that into an error that abandons every file still to come in
 //     the batch. The create check catches it.
+//   - "aux.h" opened the device on Windows 10 (A2-03), so claimPart refused it
+//     as not a regular file; "com¹.txt" has the same shape, and "LPT³" is a
+//     port on Microsoft's list. Those three rows can fail before the fix only
+//     on a build below windows11Build; on every build they check that the
+//     line hostWindowsBuild draws is right for the Windows running the test,
+//     because a name kept as sent has to land on a regular file.
 //
 // This cannot use the loopback helpers: the sender reads real local files, and
 // none of these names can exist on a Windows filesystem to be sent in the first
@@ -46,6 +52,9 @@ func TestSanitizedNamesLandOnRealFiles(t *testing.T) {
 		{"trailing space detaches the zone tag", "evil.exe "},
 		{"question mark cannot be created", "what?.txt"},
 		{"angle brackets cannot be created", "report<v2>.pdf"},
+		{"device name before a dot", "aux.h"},
+		{"superscript port before a dot", "com¹.txt"},
+		{"bare superscript port", "LPT³"},
 		// The control: an already-safe name must still work end to end, so a
 		// regression in applyMOTW itself cannot let this test pass vacuously.
 		{"ordinary name still works", "plain.exe"},

@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -244,6 +245,18 @@ func safeJoinSeeds() []fuzzSeed {
 		{name: "reserved-con", text: "CON"},
 		{name: "reserved-nul-txt", text: "NUL.txt"},
 		{name: "reserved-in-folder", text: "sub/aux"},
+		// A device name before the first dot, which Windows 10 still opens as
+		// the device (A2-03).
+		{name: "reserved-stem", text: "aux.h"},
+		{name: "reserved-stem-space", text: "nul .txt"},
+		{name: "reserved-stem-folder", text: "con.d/x.txt"},
+		// The Latin-1 superscripts are port digits to Windows; superscript
+		// four is not.
+		{name: "reserved-superscript", text: "LPT" + ch(0xB3)},
+		{name: "reserved-stem-superscript", text: "com" + ch(0xB9) + ".txt"},
+		{name: "superscript-four-stem", text: "COM" + ch(0x2074) + ".txt"},
+		// strings.ToUpper makes a dotless i an I, so this stem matches CONIN$.
+		{name: "dotless-i-console-stem", text: "con" + ch(0x131) + "n$.x"},
 		{name: "trailing-space-dot", text: "evil.exe . "},
 		{name: "only-spaces-dots", text: " . . "},
 		{name: "component-255-bytes", text: strings.Repeat("c", 255)},
@@ -297,7 +310,12 @@ func anchoredOracle(name string) bool {
 // relative path with safeJoin("", name) and joins it to the output folder at
 // the claim, which must give exactly safeJoin(outputDir, name); and
 // checkPathShape refuses exactly the anchored names and the relative paths
-// past 32 components or 240 units, with path-too-long either way.
+// past 32 components or 240 units, with path-too-long either way. On every
+// leg it also holds the Windows 10 device stem rule (A2-03) to its shape: for
+// each component, the Windows 10 name is the Windows 11 name or that name with
+// one "_" in front, and the "_" only where deviceStemOracle, which is written
+// apart from the code, finds a device name before the Windows 11 name's first
+// dot; it sanitizes to itself again, and has no such device name itself.
 func FuzzSafeJoin(f *testing.F) {
 	addSeeds(f, "FuzzSafeJoin", safeJoinSeeds(), false)
 	// Never created: safeJoin only builds a string.
@@ -334,8 +352,32 @@ func FuzzSafeJoin(f *testing.F) {
 		if code != "" && reason != reasonPathNotRelative && reason != CodePathTooLong.WireReason() {
 			t.Fatalf("checkPathShape(%q) reason %q is neither fixed sentence", name, reason)
 		}
+
+		for _, p := range strings.FieldsFunc(name, func(r rune) bool { return r == '/' || r == '\\' }) {
+			on11 := sanitizeComponent(p, "windows", windows11Build)
+			on10 := sanitizeComponent(p, "windows", windows11Build-1)
+			if on10 != on11 && on10 != "_"+on11 {
+				t.Fatalf("component %q: Windows 10 gives %q, Windows 11 %q; only a leading _ may differ", p, on10, on11)
+			}
+			if on10 != on11 && !deviceStemOracle.MatchString(on11) {
+				t.Fatalf("component %q: Windows 10 gives %q for Windows 11's %q, which has no device name before its first dot", p, on10, on11)
+			}
+			if again := sanitizeComponent(on10, "windows", windows11Build-1); again != on10 {
+				t.Fatalf("component %q: Windows 10 gives %q, then %q on a second pass", p, on10, again)
+			}
+			if deviceStemOracle.MatchString(on10) {
+				t.Fatalf("component %q: Windows 10 gives %q, still a device name before its first dot", p, on10)
+			}
+		}
 	})
 }
+
+// deviceStemOracle is the Windows 10 device check written a second way: a
+// device name, in any ASCII case, then spaces, then a dot or the end. A port
+// digit may be one of the Latin-1 superscripts Windows reads as digits. The
+// dotless i is there because strings.ToUpper, which isDeviceName matches with,
+// makes it an I; that over-match costs an underscore, never a file.
+var deviceStemOracle = regexp.MustCompile(`(?i)^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³]|con[iı]n\$|conout\$) *(\.|$)`)
 
 const seedCLSID = "{ED7BA470-8E54-465E-825C-99712043E01C}"
 
@@ -392,7 +434,7 @@ func FuzzNameHook(f *testing.F) {
 			if p == "" || p == "." || p == ".." {
 				t.Fatalf("blockShellTypes(%q) = %q has a %q component", rel, out, p)
 			}
-			if sanitizeComponent(p, runtime.GOOS) != p {
+			if sanitizeComponent(p, runtime.GOOS, hostWindowsBuild()) != p {
 				t.Fatalf("blockShellTypes(%q) = %q has an unsanitized component %q", rel, out, p)
 			}
 			if clsidSuffix.MatchString(p) {

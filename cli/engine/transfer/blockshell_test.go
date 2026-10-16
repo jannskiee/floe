@@ -102,8 +102,8 @@ func TestBlockShellTypesTable(t *testing.T) {
 	)
 	// What the strip exposes meets the same Windows rules safeJoin applies.
 	rows = append(rows,
-		row{"Folder ." + testCLSID + "/x.txt", sanitizeComponent("Folder ", runtime.GOOS) + "/x.txt", false},
-		row{"CON." + testCLSID, sanitizeComponent("CON", runtime.GOOS), false},
+		row{"Folder ." + testCLSID + "/x.txt", sanitizeComponent("Folder ", runtime.GOOS, hostWindowsBuild()) + "/x.txt", false},
+		row{"CON." + testCLSID, sanitizeComponent("CON", runtime.GOOS, hostWindowsBuild()), false},
 	)
 	for _, r := range rows {
 		got, renamed := hookRel(r.in)

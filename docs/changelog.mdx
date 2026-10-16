@@ -47,9 +47,11 @@ Each entry lists the parts it changed. Filter on the right to see only the ones 
   **On Windows, stopping a receive partway through a file no longer leaves the unfinished file behind**
 
   - A Ctrl+C in `floe receive` that landed while a piece of a file was being written could make `floe` wait its full five seconds before it exited, and leave the unfinished `.part` file in the folder. It now exits without the wait and removes the `.part` file.
+  - On Windows 10, `floe receive` saves a file whose name begins with a reserved device name and a dot, such as `aux.h` or `con.txt`, with an underscore in front (`_aux.h`). Windows 10 opens such a name as the device, so the receive stopped at that file. Windows 11 and other systems keep the name as sent.
   - Web app: a ZIP that holds two files with the same dotfile name, such as two `.env` files, now names the second `.env (1)`, as `floe` and Floe Desktop do. It was named ` (1).env`.
   - Floe Desktop: quitting during a receive could hit the same wait and leave the same `.part` file. It no longer does.
   - Floe Desktop: the Settings gear in the title bar now waits while **Close Floe?**, **Start over?** or **Reset all settings?** is open, as Ctrl+, already did. It opened or closed Settings under the question.
+  - Floe Desktop: on Windows 10 the same names get the same underscore, in a receive and in a request-link drop, and so does a request link label such as `con.notes`, which names the folder each drop is saved in. With such a label every drop stopped before a file was saved.
   - Self-hosting: the client image moves Next.js to 16.4.1, past three advisories in features Floe does not use.
 </Update>
 

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 )
 
 // safeJoin prevents path traversal attacks by cleaning the relative file name
@@ -26,9 +27,10 @@ func safeJoin(outputDir, fileName string) string {
 	// that a trailing trim reduces to ".." or "" has to meet the same test
 	// every other component meets.
 	parts := strings.Split(clean, string(filepath.Separator))
+	goos, build := runtime.GOOS, hostWindowsBuild()
 	var safe []string
 	for _, p := range parts {
-		p = sanitizeComponent(p, runtime.GOOS)
+		p = sanitizeComponent(p, goos, build)
 		if p != ".." && p != "." && p != "" {
 			safe = append(safe, p)
 		}
@@ -40,27 +42,74 @@ func safeJoin(outputDir, fileName string) string {
 }
 
 // reservedDeviceNames are the Win32 device names a file cannot be called.
+// sanitizeComponent matches them, case-insensitively, by two rules:
 //
-// The match is on the WHOLE component, case-insensitively, and deliberately
-// NOT on the stem before the extension. The widespread advice is stem-based,
-// but "CON.txt", "AUX.log" and even "NUL.txt" all create ordinary files on
-// Windows 11, so a stem rule would rename names that demonstrably work.
-// "CONTRACT.pdf" never matches under either rule.
+//   - The whole component, on every Windows build. "CONTRACT.pdf" never
+//     matches.
+//   - The stem, below windows11Build only: the part before the FIRST dot, less
+//     the spaces Windows trims before that dot, so "aux.h", "CON.txt" and
+//     "nul .txt" all match there.
+//
+// The stem rule is the widespread advice, and Windows 11 no longer needs it:
+// "CON.txt", "AUX.log" and even "NUL.txt" all create ordinary files there, so
+// applying it on every build would rename names that demonstrably work. On
+// Windows 10 it is still needed: deep QA (A2-03) measured that "aux.h" and
+// "con.txt" open the device there, so claimPart refused the file as not a
+// regular file and the transfer or the drop stopped at it. The owner's
+// answer was to hold the stem rule to the builds below Windows 11 (answer 18,
+// 2026-10-16) and keep every name Windows 11 can store as it is.
 //
 // On Windows 11 with go1.26.3, measured, only bare "NUL" actually reaches a
 // device; "CON", "AUX", "PRN", "COM1".."COM9" and "LPT1".."LPT9" all produce
 // ordinary files. The rest of the list is kept anyway rather than trimmed to
 // NUL alone: the set is a documented Win32 constraint that older Windows
 // versions and non-Go APIs do enforce, and renaming a file nobody sensibly
-// calls "CON" is far cheaper than silently losing one. The IsRegular check at
-// the call site is what actually catches whatever this list misses.
+// calls "CON" is far cheaper than silently losing one. The stem rule uses the
+// same list, CONIN$ and CONOUT$ included; a stem it renames that Windows 10
+// would have accepted costs an underscore, never the file. The IsRegular check
+// at the call site is what actually catches whatever this list misses.
+//
+// The superscript ports (COM¹ COM² COM³ LPT¹ LPT² LPT³) are on Microsoft's
+// list because Windows reads the Latin-1 superscripts ¹ ² ³ as digits; no
+// other superscript counts, and neither does 0, so COM0 and COM⁴ stay out.
+// They have no case, so strings.ToUpper leaves them as they are and the
+// lookup matches "com¹" too. Measured on Windows 11 build 26200, "COM¹",
+// "LPT³" and "COM¹.txt" all create ordinary files, like "COM1".
 var reservedDeviceNames = map[string]struct{}{
 	"CON": {}, "PRN": {}, "AUX": {}, "NUL": {},
 	"COM1": {}, "COM2": {}, "COM3": {}, "COM4": {}, "COM5": {},
 	"COM6": {}, "COM7": {}, "COM8": {}, "COM9": {},
+	"COM¹": {}, "COM²": {}, "COM³": {},
 	"LPT1": {}, "LPT2": {}, "LPT3": {}, "LPT4": {}, "LPT5": {},
 	"LPT6": {}, "LPT7": {}, "LPT8": {}, "LPT9": {},
+	"LPT¹": {}, "LPT²": {}, "LPT³": {},
 	"CONIN$": {}, "CONOUT$": {},
+}
+
+// windows11Build is the first Windows 11 build. A build below it gets the
+// device stem rule, and so does a build of 0, which is what an unread build
+// looks like: wrongly applied, the rule puts an underscore in front of a name
+// that would have worked; wrongly skipped, a file fails to save. Windows Server
+// 2022 (20348) is below the line and Windows Server 2025 (26100) above it.
+const windows11Build = 22000
+
+// hostWindowsBuild is this machine's Windows build, read once (readWindowsBuild,
+// in winbuild_windows.go and its twin). Off Windows it is 0, which no rule
+// consults, because every rule that reads a build is gated on goos.
+var hostWindowsBuild = sync.OnceValue(readWindowsBuild)
+
+// isDeviceName reports whether s is one of reservedDeviceNames, in any case.
+func isDeviceName(s string) bool {
+	_, reserved := reservedDeviceNames[strings.ToUpper(s)]
+	return reserved
+}
+
+// deviceStem is the part of a trimmed component that Windows 10 compares with
+// the device names: everything before the first dot, less trailing spaces. A
+// colon, the other character Windows ends it at, is already "_" by then.
+func deviceStem(trimmed string) string {
+	stem, _, _ := strings.Cut(trimmed, ".")
+	return strings.TrimRight(stem, " ")
 }
 
 // sanitizeComponent rewrites one peer-supplied path component into a name the
@@ -88,10 +137,12 @@ var reservedDeviceNames = map[string]struct{}{
 //     control character and is left alone.
 //
 //   - Windows only: the characters Win32 reserves become "_", trailing spaces
-//     and dots are trimmed, and a component that IS a device name is prefixed.
-//     Those names are legal and distinct on ext4 and APFS, so rewriting them
-//     elsewhere would lose fidelity for no security gain. The RECEIVER's OS is
-//     the correct gate, because this process is the one creating the file.
+//     and dots are trimmed, and a component that IS a device name is prefixed,
+//     as is one whose stem is a device name when build is below
+//     windows11Build (see reservedDeviceNames). Those names are legal and
+//     distinct on ext4 and APFS, so rewriting them elsewhere would lose
+//     fidelity for no security gain. The RECEIVER's OS is the correct gate,
+//     because this process is the one creating the file.
 //
 // Trailing spaces and dots are trimmed rather than replaced because Win32 drops
 // them while resolving a path, so such a name does not refer to the file it
@@ -109,11 +160,13 @@ var reservedDeviceNames = map[string]struct{}{
 // Progress.SavedName). "_" is never itself a replacement target, so sanitizing
 // twice gives the same answer as sanitizing once.
 //
-// goos is a parameter rather than a build tag so that every branch is
-// exercised on all three CI legs, matching selfupdate.AssetName and desktop's
+// goos and build (the Windows build number, read only when goos is "windows")
+// are parameters rather than a build tag so that every branch is exercised on
+// all three CI legs, matching selfupdate.AssetName and desktop's
 // revealCmd/openCmd. The rules here are a decision about the target OS, not an
 // operation that only exists on one (which is what motw_windows.go is for).
-func sanitizeComponent(name, goos string) string {
+// Callers pass runtime.GOOS and hostWindowsBuild().
+func sanitizeComponent(name, goos string, build uint32) string {
 	windows := goos == "windows"
 
 	// strings.Map rewrites invalid UTF-8 to U+FFFD. That is harmless here:
@@ -130,7 +183,7 @@ func sanitizeComponent(name, goos string) string {
 	if trimmed == "" {
 		return ""
 	}
-	if _, reserved := reservedDeviceNames[strings.ToUpper(trimmed)]; reserved {
+	if isDeviceName(trimmed) || (build < windows11Build && isDeviceName(deviceStem(trimmed))) {
 		return "_" + trimmed
 	}
 	return trimmed
@@ -140,21 +193,28 @@ func sanitizeComponent(name, goos string) string {
 // create, by the rules sanitizeComponent applies to a peer-supplied component:
 // controls and bidi marks become "_" on every platform; on Windows the reserved
 // characters become "_", trailing spaces and dots go, and a device name is
-// prefixed. Both path separators become "_" first, so the result is always ONE
-// component and can never climb out of the folder it is joined onto.
+// prefixed (below Windows 11, a device name before the first dot as well). Both
+// path separators become "_" first, so the result is always ONE component and
+// can never climb out of the folder it is joined onto.
 //
 // "" means nothing usable was left, and so do "." and "..", which a caller must
 // never join onto a folder: each caller picks its own fallback name. The
 // desktop's request lane names the subfolder a drop is saved into after the
 // owner's label with it (spec 06 4.7).
 func SafeFolderName(name string) string {
+	return safeFolderName(name, runtime.GOOS, hostWindowsBuild())
+}
+
+// safeFolderName is SafeFolderName for a given goos and Windows build, so a
+// test can pin each rule on every CI leg.
+func safeFolderName(name, goos string, build uint32) string {
 	one := strings.Map(func(r rune) rune {
 		if r == '/' || r == '\\' {
 			return '_'
 		}
 		return r
 	}, name)
-	out := sanitizeComponent(one, runtime.GOOS)
+	out := sanitizeComponent(one, goos, build)
 	if out == "." || out == ".." {
 		return ""
 	}

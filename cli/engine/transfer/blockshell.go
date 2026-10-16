@@ -92,7 +92,7 @@ func foldIn(s string, list []string) bool {
 func blockShellTypes(rel string) (string, bool) {
 	var kept []string
 	for _, p := range strings.Split(rel, string(filepath.Separator)) {
-		p = sanitizeComponent(stripClassIDs(p), runtime.GOOS)
+		p = sanitizeComponent(stripClassIDs(p), runtime.GOOS, hostWindowsBuild())
 		if p != ".." && p != "." && p != "" {
 			kept = append(kept, p)
 		}
