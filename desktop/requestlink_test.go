@@ -421,7 +421,10 @@ func waitFor(t *testing.T, d time.Duration, what string, cond func() bool) {
 
 // laneApp is a bare App wired to the fake server, and a recorder for every
 // emitted snapshot. Cleanup closes the link and waits for the lane goroutine,
-// so no test leaks one into the next.
+// so no test leaks one into the next. Cleanups run last in, first out, so a
+// save folder a test hands to Make link and does not wait on must come from a
+// t.TempDir() made before laneApp; one made after it is removed while the lane
+// may still be probing it.
 func laneApp(t *testing.T, f *fakeSignalServer) (*App, *snapRecorder) {
 	t.Helper()
 	a := &App{notifyFn: func(string, string) {}, wake: &wakeGuard{onBlock: func() {}, onAllow: func() {}}}

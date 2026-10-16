@@ -425,6 +425,10 @@ func TestDropThatEndsOnItsOwnLeavesNoRecord(t *testing.T) {
 // card come from that snapshot. Make link moves on from it like from any
 // result.
 func TestRestoredDropIsTheStoppedDrop(t *testing.T) {
+	// Made before laneApp, so its removal runs after laneApp's cleanup has
+	// waited for the lane: the Make link below returns at once, and its
+	// goroutine's folder probe would race the removal ("not empty" on Windows).
+	saveDir := t.TempDir()
 	a, _ := laneApp(t, nil)
 	at := time.Now().Add(-26 * time.Hour).UnixMilli()
 	a.lane().restoreQuitDrop(quitDrop{Label: "Acme", At: at, Result: RequestResult{
@@ -444,7 +448,7 @@ func TestRestoredDropIsTheStoppedDrop(t *testing.T) {
 	if s := a.GetRequestLink(); s.State != "stopped" {
 		t.Fatalf("no record changed the lane: %+v", s)
 	}
-	s = a.MakeRequestLink("x", t.TempDir(), "24h", false)
+	s = a.MakeRequestLink("x", saveDir, "24h", false)
 	if s.State != "making" || s.Result != nil || s.Code != "" {
 		t.Fatalf("Make link after a restored drop: %+v", s)
 	}
