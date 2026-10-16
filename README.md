@@ -30,15 +30,15 @@
 
 ## About
 
-Floe is an open-source peer-to-peer file transfer application built on WebRTC. Files stream directly between devices, so both people have to be online at the same time; the signaling server negotiates connections and never stores, inspects, or decrypts file data. When a direct path is blocked, an optional TURN relay bridges the transfer while the data stays end-to-end encrypted, and a relayed transfer is capped at 2 GB.
+Floe sends files directly from one device to another over an encrypted WebRTC connection. There is no account and no upload: files are never stored on a server, so both people need to be online at the same time. The signaling server only helps the two devices find each other. When a direct path is blocked, a TURN relay carries the transfer, still encrypted end to end, up to 2 GB per relayed transfer.
 
-Each file is checked when it arrives: the receiver compares its size and, when the sender supplied one, its SHA-256, and discards a file that does not match (see [File checks](https://www.floe.one/docs/how-it-works/file-checks)). A file that passes both checks arrived intact. Floe does not scan files for malware.
+Each file is checked when it arrives, against its size and, when the sender provides one, its SHA-256. A file that fails is deleted and the transfer stops (see [File checks](https://www.floe.one/docs/how-it-works/file-checks)). Floe does not scan files for malware.
 
-The desktop app and the CLI contain no analytics or telemetry. The only things either sends are an anonymous byte count that the receiving side reports to the public counter, and an update check against GitHub (at most once a day in the desktop app's installer and portable builds, never in the Microsoft Store build, and only when you run `floe version` in the CLI). Both are on by default, and you can turn both off in either. The floe.one website itself runs cookieless, anonymous analytics (including transfer outcomes) and error monitoring, detailed in the [security and privacy docs](https://www.floe.one/docs/security-privacy).
+The desktop app and the CLI contain no analytics or telemetry. They send only two things: an anonymous byte count, which the receiving side reports to the public counter, and an update check against GitHub. The desktop app checks at most once a day, and never in the Microsoft Store build. The CLI checks only when you run `floe version` or `floe update`. Both can be turned off. The floe.one website uses cookieless, anonymous analytics and error monitoring, described in [Security and privacy](https://www.floe.one/docs/security-privacy).
 
-Three clients share one wire protocol: the web app at [floe.one](https://floe.one), a Windows desktop app, and a Go CLI. Send from a browser tab and receive in the desktop app or the CLI, or any other combination, even across different networks.
+Three clients share one protocol: the web app at [floe.one](https://floe.one), Floe Desktop for Windows, and the `floe` CLI. Any of them can send to any other, even across different networks.
 
-For the design behind this, see [how it works](https://www.floe.one/how-it-works) and the [technical reference](https://www.floe.one/docs/how-it-works/signaling).
+To learn more, see [how it works](https://www.floe.one/how-it-works) and the docs' [How a transfer works](https://www.floe.one/docs/how-it-works/signaling).
 
 ## Quick start
 
