@@ -138,8 +138,15 @@ describe('waiting, reconnecting and ended lines', () => {
         expect(scopeLine(END, NOW, true)).toBe('Ends today, 2:05 PM · Accepts automatically');
         // W5b (D-176): the drive is already under the floor, so every drop asks.
         expect(scopeLine(END, NOW, true, 'low-space', 'C:\\Users\\x\\Downloads\\Floe')).toBe('Ends today, 2:05 PM · Asks first, low space on C:');
+        // W5c (answer 19): the drive cannot carry the downloaded-file mark, so
+        // every drop asks; in W5b's shape.
+        expect(scopeLine(END, NOW, true, 'no-mark', 'G:\\Floe')).toBe("Ends today, 2:05 PM · Asks first, Windows can't mark files on G:");
+        expect(scopeLine(END, NOW, true, 'no-mark', '\\\\nas\\share\\Floe')).toBe("Ends today, 2:05 PM · Asks first, Windows can't mark files on \\\\nas\\share");
         // Only a link that accepts automatically ever says it.
         expect(scopeLine(END, NOW, false, 'low-space', 'C:\\x')).toBe('Ends today, 2:05 PM');
+        expect(scopeLine(END, NOW, false, 'no-mark', 'G:\\x')).toBe('Ends today, 2:05 PM');
+        // An autoAsks this build does not know says what W5a says.
+        expect(scopeLine(END, NOW, true, 'anything', 'G:\\x')).toBe('Ends today, 2:05 PM · Accepts automatically');
         expect(fmtEnds(new Date(2026, 8, 21, 9, 0).getTime(), NOW)).toBe('Sep 21, 9:00 AM');
         expect(fmtClock(new Date(2026, 8, 14, 0, 7).getTime())).toBe('12:07 AM');
         expect(fmtClock(new Date(2026, 8, 14, 12, 0).getTime())).toBe('12:00 PM');
@@ -184,6 +191,8 @@ describe('the prompt', () => {
         expect(warningLine('auto-floor', p, 'C:\\Users\\x\\Downloads\\Floe')).toBe('Asks because C: would have under 48.0 GB free');
         expect(warningLine('auto-no-mark', p, 'G:\\Floe')).toBe("Asks because Windows can't mark files on G:");
         expect(warningLine('auto-unknown', p, 'D:\\Footage')).toBe("Asks because Floe couldn't check D:");
+        // P13d (answer 19): no warning, but the route could not be read.
+        expect(warningLine('auto-route-unknown', p, 'D:\\Footage')).toBe("Asks because Floe couldn't check the connection");
     });
 
     it('drops a warning code it does not know', () => {
@@ -395,7 +404,8 @@ describe('the whole table', () => {
     const CODES = ['off', 'disabled', 'limited', 'unknown', 'already-open', 'no-relay', 'relay-unknown', 'expired',
         'closed', 'app-closed', 'setup-failed', 'visitor-left', 'disk-full', 'hash-mismatch', 'path-too-long', 'over-approved',
         'relay-cap', 'file-too-large-for-folder', 'write-failed', 'save-blocked', 'stopped', 'peer-abort', 'time-limit',
-        'low-space', 'file-too-large-for-drive', 'relay-over-cap', 'laptop-power', 'denied', 'too-slow', ...HOSTILE];
+        'low-space', 'file-too-large-for-drive', 'relay-over-cap', 'laptop-power', 'denied', 'too-slow',
+        'auto-floor', 'auto-no-mark', 'auto-unknown', 'auto-route-unknown', 'no-mark', ...HOSTILE];
 
     function everyOutput(): string[] {
         const out: string[] = [];
@@ -403,6 +413,7 @@ describe('the whole table', () => {
         for (const code of CODES) {
             out.push(errorLine(code), endedLine(code, END, NOW), stoppedCard(code, 4, 12), stoppedFull(code, 4, 12), copy.keptPartLine(code));
             out.push(warningLine(code, {freeBytes: 31 * GB, totalBytes: 38 * GB}, 'D:\\Footage\\Floe requests'));
+            out.push(scopeLine(END, NOW, true, code, 'D:\\Footage\\Floe requests'));
             out.push(reopenLine({code, missedAt: MISSED, suggestClose: false}, NOW), reopenLine({code, suggestClose: false}, NOW));
         }
         return out;

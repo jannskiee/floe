@@ -76,6 +76,7 @@ import {
     parsePastedLink,
     phase as requestPhase,
     reduce as reduceRequest,
+    RETRY_FOCUS_MS,
     stoppingDrop,
     type Lifetime,
 } from './requestLink';
@@ -115,7 +116,7 @@ import {SettingAction, SettingRow, SettingField} from './components/SettingsPrim
 import {ProgressRow, StatusLine, FooterNote, Dropzone, FileList, FileSummary, VerifiedMark} from './components/TransferBits';
 import SharePanel from './components/SharePanel';
 import HistoryView from './components/HistoryView';
-import RequestLinkView, {LABEL_INPUT_ID, PROMPT_ACTIONS_ID, PROMPT_HEADING_ID} from './components/RequestLinkView';
+import RequestLinkView, {DECLINED_LINE_ID, LABEL_INPUT_ID, PROMPT_ACTIONS_ID, PROMPT_HEADING_ID} from './components/RequestLinkView';
 import {useCardPin} from './cardPin';
 
 type Mode = 'send' | 'receive' | 'history';
@@ -1683,20 +1684,31 @@ function App() {
     // A5-02: after the owner's own action unmounts the control they pressed,
     // focus goes to the new state's own control (the undo bar's orphan rule:
     // only when focus fell to the page). A change the owner did not cause
-    // moves nothing (spec 06 5.6).
-    const reqActed = useRef(false);
+    // moves nothing (spec 06 5.6). The mark is the time by which the action's
+    // outcome must come (R2-07): the next phase change, whenever it comes, for
+    // every action whose outcome is one (Infinity), and RETRY_FOCUS_MS for
+    // Retry now, whose failed attempt changes nothing, so a later change (the
+    // link's end, the loop's own reconnect) is not the owner's doing. After
+    // Decline focus goes to the declined line, not to Keep waiting under its
+    // guard; Keep waiting is one Tab away (R5-10).
+    const reqActed = useRef<number | null>(null);
     useEffect(() => {
-        if (!reqActed.current) return;
+        const until = reqActed.current;
+        if (until === null) return;
         const target: Record<string, string> = {
             waiting: 'floe-copy-link', reconnecting: 'floe-copy-link', connecting: 'floe-copy-link',
-            declined: 'floe-keep-waiting', receiving: 'floe-receiving-heading',
+            declined: DECLINED_LINE_ID, receiving: 'floe-receiving-heading',
             done: 'floe-make-another', stopped: 'floe-make-another', ended: 'floe-make-another', error: LABEL_INPUT_ID,
         };
         const id = target[reqPhase];
         if (!id) return; // making, deciding: wait for the state the action leads to
-        reqActed.current = false;
-        if (document.activeElement && document.activeElement !== document.body) return;
-        requestAnimationFrame(() => document.getElementById(id)?.focus());
+        reqActed.current = null;
+        if (Date.now() > until) return;
+        const orphaned = () => !document.activeElement || document.activeElement === document.body;
+        if (!orphaned()) return;
+        // Asked again in the frame: a click in between put focus where the
+        // owner chose, and that wins (R2-07).
+        requestAnimationFrame(() => { if (orphaned()) document.getElementById(id)?.focus(); });
     }, [reqPhase]);
     // On REQUEST LINK the card's top is one anchored spot for every state, so
     // a prompt mounting below cannot re-center it and move Close link
@@ -1821,7 +1833,7 @@ function App() {
     // snapshot or is followed by request:state; nothing here decides a state.
     function makeRequestLink(label: string, lifetime: Lifetime, autoAccept: boolean) {
         dispatchReq({type: 'MAKE'});
-        reqActed.current = true;
+        reqActed.current = Infinity;
         // Automatic only when the form's switch says so (D-173, G1).
         MakeRequestLink(label, requestSaveDir.trim(), lifetime, autoAccept === true)
             .then((s) => dispatchReq({type: 'SNAPSHOT', snap: normalizeSnapshot(s)}))
@@ -1829,7 +1841,7 @@ function App() {
             .finally(() => dispatchReq({type: 'MAKE_DONE'}));
     }
     function answerRequest(promptGen: number, answer: 'accept' | 'decline' | 'keep-waiting') {
-        reqActed.current = true;
+        reqActed.current = Infinity;
         AnswerRequest(promptGen, answer).then((s) => dispatchReq({type: 'SNAPSHOT', snap: normalizeSnapshot(s)})).catch(() => {});
     }
     // The base folder is remembered when the owner types or picks one, and
@@ -2643,10 +2655,10 @@ function App() {
                                             saveDir={requestSaveDir}
                                             onSaveDirChange={changeRequestSaveDir}
                                             onMake={makeRequestLink}
-                                            onClose={() => { reqActed.current = true; CloseRequestLink().catch(() => {}); }}
+                                            onClose={() => { reqActed.current = Infinity; CloseRequestLink().catch(() => {}); }}
                                             onAnswer={answerRequest}
-                                            onCancelDrop={() => { reqActed.current = true; dispatchReq({type: 'CANCEL_DROP'}); CancelRequestDrop().catch(() => {}); }}
-                                            onRetry={() => { reqActed.current = true; RetryRequestLink().catch(() => {}); }}
+                                            onCancelDrop={() => { reqActed.current = Infinity; dispatchReq({type: 'CANCEL_DROP'}); CancelRequestDrop().catch(() => {}); }}
+                                            onRetry={() => { reqActed.current = Date.now() + RETRY_FOCUS_MS; RetryRequestLink().catch(() => {}); }}
                                             onShowInFolder={(dir) => { OpenFolder(dir).catch(() => {}); }}
                                             onMakeAnother={makeAnotherLink}
                                             onBrowse={pickRequestFolder}

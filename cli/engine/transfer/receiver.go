@@ -149,6 +149,11 @@ type FileDone struct {
 	SavedName string `json:"savedName"` // on-disk name relative to the output folder, the same value Progress.SavedName carries
 	Bytes     int64  `json:"bytes"`     // bytes written, equal to the announced size (the end handler refuses anything else)
 	Verified  bool   `json:"verified"`  // the sender sent a SHA-256 and it matched the bytes as they were written
+	// Renamed says the request-link name hook (Limits.BlockShellTypes) gave
+	// this file its .floe-blocked ending: this side's own fact, never read
+	// from the name, so a file the sender already called x.floe-blocked is
+	// false. Always false with the hook off (the CLI, a code receive).
+	Renamed bool `json:"renamed"`
 }
 
 // ReceiveOptions carries the optional callbacks for GUI clients. The zero
@@ -273,6 +278,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 	var currentBase string        // currentRel under effectiveOutputDir; the de-collision sequence starts here
 	var currentDest string        // final path claimed for the file (see claimPart)
 	var currentSavedName string   // FINAL on-disk name, relative to effectiveOutputDir (see Progress.SavedName)
+	var currentRenamed bool       // the name hook renamed this file's leaf (FileDone.Renamed)
 	var bytesReceived int64
 	var totalReceived int64
 	var bar *progressbar.ProgressBar
@@ -489,8 +495,10 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				// The name hook, request links only: it renames the leaf and
 				// strips class IDs, so it runs before the depth and length
 				// checks, which then measure the name that will be claimed.
+				// Its own answer, not the name, says whether it renamed.
+				currentRenamed = false
 				if opts.Limits != nil && opts.Limits.BlockShellTypes {
-					currentRel, _ = blockShellTypes(currentRel)
+					currentRel, currentRenamed = blockShellTypes(currentRel)
 				}
 				if code, reason := checkPathShape(info.FileName, currentRel); code != "" {
 					return refuseLimit(dc, localVer, code, reason, filesReceived)
@@ -930,7 +938,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 						verifiedCount++
 					}
 					if opts.OnFileDone != nil {
-						opts.OnFileDone(FileDone{SavedName: currentSavedName, Bytes: bytesReceived, Verified: matched})
+						opts.OnFileDone(FileDone{SavedName: currentSavedName, Bytes: bytesReceived, Verified: matched, Renamed: currentRenamed})
 					}
 					if filesReceived >= currentInfo.Total {
 						elapsed := time.Since(start)

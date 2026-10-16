@@ -439,9 +439,10 @@ describe('the request lane selectors', () => {
     });
 
 
-    it('normalizeSnapshot keeps autoAsks only as low-space and floorBytes only when positive (D-176)', () => {
+    it('normalizeSnapshot keeps autoAsks only as low-space or no-mark and floorBytes only when positive (D-176, W5c)', () => {
         expect(normalizeSnapshot({state: 'waiting', autoAsks: 'low-space'}).autoAsks).toBe('low-space');
-        for (const junk of [undefined, null, '', 'LOW-SPACE', 'anything', 1, true, {}]) {
+        expect(normalizeSnapshot({state: 'waiting', autoAsks: 'no-mark'}).autoAsks).toBe('no-mark');
+        for (const junk of [undefined, null, '', 'LOW-SPACE', 'NO-MARK', 'anything', 1, true, {}]) {
             expect(normalizeSnapshot({state: 'waiting', autoAsks: junk}).autoAsks, String(junk)).toBeUndefined();
         }
         const pr = (v: unknown) => normalizeSnapshot({state: 'deciding', prompt: {files: 1, totalBytes: 1, warnings: ['auto-floor'], floorBytes: v}}).prompt;

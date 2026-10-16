@@ -59,8 +59,10 @@ var blockedExtensions = []string{".lnk", ".url", ".library-ms", ".searchConnecto
 var blockedLeafNames = []string{"desktop.ini"}
 
 // blockedSuffix is what a renamed leaf ends in, so the staging file is
-// <name>.floe-blocked.part. The desktop counts renamed files by this suffix
-// on SavedName, which is why there is no callback for it.
+// <name>.floe-blocked.part. The desktop counts renamed files by
+// FileDone.Renamed, the hook's own answer, never by this suffix: a sender can
+// name a file x.floe-blocked itself, and the hook leaves that one alone
+// (A2-04).
 const blockedSuffix = ".floe-blocked"
 
 // sameFold is a case-insensitive match that covers both ways Windows might

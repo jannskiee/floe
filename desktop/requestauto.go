@@ -163,21 +163,30 @@ func autoAskReason(sp requestSpace) string {
 	return "auto-floor"
 }
 
-// autoSpaceFn answers whether the drive under saveDir is already below the
-// floor, so every drop on a link that accepts automatically would ask; a
-// seam, so a test stands in any drive. Unknown answers false: the waiting line
-// claims nothing it did not measure.
-var autoSpaceFn = func(saveDir string) bool {
+// autoSpaceFn answers why every drop on a link that accepts automatically
+// would ask before any arrives, as the snapshot's AutoAsks: "no-mark" when
+// the drive under saveDir answered that it cannot carry the downloaded-file
+// mark (G6, FAT and exFAT; W5c, W3 R2-08), "low-space" when it is already
+// under the floor (G13, W5b), "" otherwise. The mark outranks the floor, as
+// autoAskReason ranks them, and lasts as long as the drive does. A seam, so a
+// test stands in any drive. Unknown answers "": the waiting line claims
+// nothing it did not measure.
+var autoSpaceFn = func(saveDir string) string {
 	dir := nearestDir(saveDir)
 	if dir == "" {
-		return false
+		return ""
+	}
+	if carries, known := volumeMark(dir); known && !carries {
+		return "no-mark"
 	}
 	free, err := requestDiskFreeFn(dir)
 	if err != nil || free < 0 {
-		return false
+		return ""
 	}
-	capacity := volumeCapacity(dir)
-	return capacity > 0 && free < autoFloor(capacity)
+	if capacity := volumeCapacity(dir); capacity > 0 && free < autoFloor(capacity) {
+		return "low-space"
+	}
+	return ""
 }
 
 // autoSpaceEvery is how often a waiting link that accepts automatically
@@ -191,11 +200,7 @@ func (a *App) watchAutoSpace(rg uint64, stop <-chan struct{}, saveDir string) {
 	tick := time.NewTicker(autoSpaceEvery)
 	defer tick.Stop()
 	for {
-		v := ""
-		if autoSpaceFn(saveDir) {
-			v = "low-space"
-		}
-		a.setAutoAsks(rg, v)
+		a.setAutoAsks(rg, autoSpaceFn(saveDir))
 		select {
 		case <-stop:
 			return

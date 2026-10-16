@@ -476,9 +476,9 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 // webview never touches the data channel.
 //
 // Progress is reported to the UI via Wails events:
-//   - "recv:incoming"  IncomingInfo                 as the sender's first metadata arrives
-//   - "recv:progress"  Progress                     throttled to ten a second
-//   - "recv:file-done" {savedName, bytes, verified} once per committed file
+//   - "recv:incoming"  IncomingInfo as the sender's first metadata arrives
+//   - "recv:progress"  Progress     throttled to ten a second
+//   - "recv:file-done" FileDone     once per committed file (renamed is always false here: no name hook)
 //
 // Returns the absolute output directory on success.
 func (a *App) ReceiveByCode(codeOrLink string, outputDir string, hideIP bool, reportStats bool) (string, error) {
@@ -961,6 +961,11 @@ func (a *App) requestDecide(rg uint64, p requestPairing, d *requestDrop, in tran
 		if reason == "auto-floor" {
 			pr.FloorBytes = autoFloor(sp.capacity)
 		}
+	} else if p.autoAccept && len(pr.Warnings) == 0 {
+		// G4's other half: no warning, but a route this side could not
+		// read, so relay-over-cap could not be computed and the drop asks.
+		// It says so (P13d, W3 R2-08) rather than ask with no reason line.
+		pr.Warnings = append(pr.Warnings, "auto-route-unknown")
 	}
 	pg := a.openPrompt(rg, pr)
 	if pg == 0 {
@@ -1403,7 +1408,9 @@ type dropTally struct {
 }
 
 // add records one committed file. SavedName is the engine's on-disk name,
-// relative to the drop folder; a name the hook renamed ends in .floe-blocked.
+// relative to the drop folder. Renamed is the name hook's own answer: a name
+// that merely ends in .floe-blocked may be the visitor's own choice, which
+// the hook left alone, so the suffix never counts (A2-04).
 func (t *dropTally) add(d transfer.FileDone) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -1412,7 +1419,7 @@ func (t *dropTally) add(d transfer.FileDone) {
 	if d.Verified {
 		t.verified++
 	}
-	if strings.HasSuffix(d.SavedName, ".floe-blocked") {
+	if d.Renamed {
 		t.renamed++
 	}
 	if len(t.names) < requestResultNames {

@@ -8,7 +8,7 @@
 // renders here is the engine's display-safe file name while a drop receives,
 // as a React text node; the prompt shows numbers and host-computed values only.
 
-import {useEffect, useRef, useState, type MouseEvent} from 'react';
+import {useEffect, useRef, useState, type KeyboardEvent, type MouseEvent} from 'react';
 import {AlertCircle, Check, ChevronDown, Folder, FolderOpen, Info, Loader2, X} from 'lucide-react';
 import {Button, cn, Eyebrow, Input} from './ui';
 import {Tooltip} from './Tooltip';
@@ -27,7 +27,7 @@ import {
     type RequestLinkSnapshot,
 } from '../requestLink';
 import {fmtEta, fmtSpeed, type Prog} from '../progress';
-import {shortPath} from '../paths';
+import {shortDropFolder, shortPath} from '../paths';
 import {VerifiedMark} from './TransferBits';
 
 /** The link block and the activity slot below it: the phases in which a link
@@ -40,6 +40,17 @@ export const PROMPT_HEADING_ID = 'floe-request-prompt-heading';
  *  only while this whole row is on screen). */
 export const PROMPT_ACTIONS_ID = 'floe-request-prompt-actions';
 export const LABEL_INPUT_ID = 'floe-request-label';
+/** D1, Request declined: where focus goes after Decline (R5-10), as Receiving
+ *  takes it on its heading, so it never rests on Keep waiting under its guard. */
+export const DECLINED_LINE_ID = 'floe-declined-line';
+
+/** The keydown of a focus target that an owner's action moves focus to (Make
+ *  another link, Keep waiting): the auto-repeat of the key that pressed the
+ *  control before it must not press this one (R2-07). A first press still
+ *  does. */
+function ignoreRepeat(e: KeyboardEvent<HTMLButtonElement>) {
+    if (e.repeat) e.preventDefault();
+}
 /** R30, the amber line the Auto-accept check is described by while it is on. */
 const AUTO_LINE_ID = 'floe-request-auto-line';
 /** R31 and R31a for screen readers (R3 M1): the tooltip's words describe the
@@ -60,10 +71,10 @@ const t1Class = 'text-sm leading-normal text-zinc-200';
 const t2Class = 'text-xs leading-relaxed text-zinc-400';
 const t3Class = 'text-xs leading-relaxed text-zinc-500';
 const warnClass = 'text-xs leading-relaxed text-amber-300/80';
-// The Done folder name, in characters (12 px mono beside Show in folder). The
-// walkthrough measured 7.2 px a character in a 238.63 px room, room for 33, so
-// 34 let CSS cut the very timestamp the middle cut keeps (deep QA L12
-// cell-08); 32 leaves a character of slack.
+// The Done folder name, in display columns (12 px mono beside Show in
+// folder; a wide glyph takes two, R5-11). The walkthrough measured 7.2 px a
+// column in a 238.63 px room, room for 33, so 34 let CSS cut the very
+// timestamp the cut keeps (deep QA L12 cell-08); 32 leaves a column of slack.
 const DONE_FOLDER_MAX = 32;
 // The SAVE TO field's text at rest, in characters. The card is 448 px at every
 // window size (max-w-lg less px-8), which leaves the field 270 px of text
@@ -128,7 +139,7 @@ export default function RequestLinkView(props: RequestLinkViewProps) {
                     the sub-tab row right above already says it. */}
                 <p className={snap.label ? headClass : 'sr-only'}>{copy.linkHeading(snap.label)}</p>
                 <p className={t1Class}>{copy.endedLine(snap.code, snap.expiresAt, Date.now())}</p>
-                <Button id="floe-make-another" className="w-full" onClick={props.onMakeAnother}>{copy.MAKE_ANOTHER_LINK}</Button>
+                <Button id="floe-make-another" className="w-full" onKeyDown={ignoreRepeat} onClick={props.onMakeAnother}>{copy.MAKE_ANOTHER_LINK}</Button>
             </div>
         );
     }
@@ -398,8 +409,10 @@ function ActivitySlot(props: RequestLinkViewProps) {
 // Declined, with Keep waiting under the prompt's 1 s guard from the moment it
 // renders. Keep waiting reopens the link and sits where the Decline that just
 // rendered it was, so the second click of a double click on Decline pressed it
-// (deep QA A5-12), and since focus moves to it after Decline (A5-02) a held
-// Enter would too. Every activation inside the guard is ignored.
+// (deep QA A5-12). Every activation inside the guard is ignored. Focus after
+// Decline goes to the declined line (R5-10), so it never rests on a control a
+// screen reader calls unavailable, and a held Enter cannot reach Keep waiting
+// by repeating: it refuses a repeated key at any time (R2-07).
 function Declined({snap, onAnswer}: RequestLinkViewProps) {
     const mountedAt = useRef(Date.now());
     const [guarded, setGuarded] = useState(true);
@@ -414,10 +427,10 @@ function Declined({snap, onAnswer}: RequestLinkViewProps) {
     return (
         <div className="space-y-4">
             <div className="space-y-2">
-                <p className={t1Class}>{copy.DECLINED_LINE}</p>
+                <p id={DECLINED_LINE_ID} tabIndex={-1} className={cn(t1Class, 'outline-none')}>{copy.DECLINED_LINE}</p>
                 <p className={t2Class}>{copy.DECLINED_QUESTION}</p>
             </div>
-            <Button id="floe-keep-waiting" variant="outline" className={cn('w-full', guarded && 'cursor-not-allowed opacity-50')} aria-disabled={guarded} onClick={keepWaiting}>{copy.KEEP_WAITING}</Button>
+            <Button id="floe-keep-waiting" variant="outline" className={cn('w-full', guarded && 'cursor-not-allowed opacity-50')} aria-disabled={guarded} onKeyDown={ignoreRepeat} onClick={keepWaiting}>{copy.KEEP_WAITING}</Button>
         </div>
     );
 }
@@ -660,10 +673,10 @@ function Result({phase, snap, onMakeAnother, onShowInFolder}: RequestLinkViewPro
                     )}
                     {showFolder && (
                         <div className={cn('flex min-w-0 items-center justify-between gap-3 px-3 py-2', files.rows.length > 0 && 'border-t border-white/10')}>
-                            {/* The drop's own folder name, cut in the middle so its
-                                timestamp stays; the full path is shown nowhere else, so
-                                it is always the title. */}
-                            <span className="truncate font-mono text-xs text-zinc-300" title={r.folder}>{shortPath(copy.folderName(r.folder), DONE_FOLDER_MAX)}</span>
+                            {/* The drop's own folder name, its label cut in the middle
+                                so the date, time and any (n) stay whole; the full path
+                                is shown nowhere else, so it is always the title. */}
+                            <span className="truncate font-mono text-xs text-zinc-300" title={r.folder}>{shortDropFolder(copy.folderName(r.folder), DONE_FOLDER_MAX)}</span>
                             <Button variant="outline" className="h-[30px] shrink-0 text-xs" onClick={show}>
                                 <FolderOpen/> {copy.SHOW_IN_FOLDER}
                             </Button>
@@ -683,7 +696,7 @@ function Result({phase, snap, onMakeAnother, onShowInFolder}: RequestLinkViewPro
             )}
             {/* The one way out of a result (D-169). Outline, not white: the
                 result and Show in folder lead, the next link follows. */}
-            <Button id="floe-make-another" variant="outline" className="w-full" onClick={onMakeAnother}>{copy.MAKE_ANOTHER_LINK}</Button>
+            <Button id="floe-make-another" variant="outline" className="w-full" onKeyDown={ignoreRepeat} onClick={onMakeAnother}>{copy.MAKE_ANOTHER_LINK}</Button>
             {confirming && (
                 <RenamedConfirm
                     onCancel={() => setConfirming(false)}

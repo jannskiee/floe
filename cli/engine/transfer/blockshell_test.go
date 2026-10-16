@@ -5,6 +5,7 @@ package transfer
 // arbitrary names; blockshell_windows_test.go checks the Mark of the Web.
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -141,9 +142,8 @@ func hookLimits(block bool) *ReceiveLimits {
 
 // TestBlockShellTypesDecollides: a renamed file de-collides like any other
 // name. With x.lnk.floe-blocked already in the folder, a second x.lnk lands
-// as "x.lnk (1).floe-blocked" (still ending in .floe-blocked, which is what
-// the desktop counts), the existing file is untouched, and FileDone reports
-// the renamed name.
+// as "x.lnk (1).floe-blocked" (still ending in .floe-blocked), the existing
+// file is untouched, and FileDone reports the renamed name and Renamed.
 func TestBlockShellTypesDecollides(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping ICE loopback transfer in -short mode")
@@ -156,9 +156,11 @@ func TestBlockShellTypesDecollides(t *testing.T) {
 	}
 	var mu sync.Mutex
 	var saved []string
+	var renamed []bool
 	opts := ReceiveOptions{Limits: hookLimits(true), OnFileDone: func(d FileDone) {
 		mu.Lock()
 		saved = append(saved, d.SavedName)
+		renamed = append(renamed, d.Renamed)
 		mu.Unlock()
 	}}
 	run := runHostileIn(t, dir, metaFor("x.lnk", 4, 1, 1, 4), []byte("abcd"), opts)
@@ -171,8 +173,45 @@ func TestBlockShellTypesDecollides(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(saved) != 1 || saved[0] != "x.lnk (1).floe-blocked" {
-		t.Fatalf("FileDone SavedName %v, want [x.lnk (1).floe-blocked]", saved)
+	if len(saved) != 1 || saved[0] != "x.lnk (1).floe-blocked" || !renamed[0] {
+		t.Fatalf("FileDone SavedName %v Renamed %v, want [x.lnk (1).floe-blocked] [true]", saved, renamed)
+	}
+}
+
+// TestFileDoneRenamedOnlyForHookRenames (A2-04): FileDone.Renamed is the
+// hook's own answer, never read from the name. A file the sender already
+// named notes.floe-blocked is saved as sent with Renamed false; a.lnk is
+// renamed with Renamed true; with the hook off nothing is.
+func TestFileDoneRenamedOnlyForHookRenames(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ICE loopback transfer in -short mode")
+	}
+	for _, tc := range []struct {
+		name   string
+		hook   bool
+		saved  string
+		rename bool
+	}{
+		{"notes.floe-blocked", true, "notes.floe-blocked", false},
+		{"a.lnk", true, "a.lnk.floe-blocked", true},
+		{"a.lnk", false, "a.lnk", false},
+	} {
+		t.Run(fmt.Sprintf("%s hook %v", tc.name, tc.hook), func(t *testing.T) {
+			stubDisk(t, 0, 1<<40)
+			var mu sync.Mutex
+			var done []FileDone
+			opts := ReceiveOptions{Limits: hookLimits(tc.hook), OnFileDone: func(d FileDone) {
+				mu.Lock()
+				done = append(done, d)
+				mu.Unlock()
+			}}
+			wantSaved(t, runHostile(t, metaFor(tc.name, 4, 1, 1, 4), []byte("abcd"), opts), tc.saved)
+			mu.Lock()
+			defer mu.Unlock()
+			if len(done) != 1 || done[0].SavedName != tc.saved || done[0].Renamed != tc.rename {
+				t.Fatalf("FileDone %+v, want one with SavedName %q and Renamed %v", done, tc.saved, tc.rename)
+			}
+		})
 	}
 }
 

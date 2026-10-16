@@ -201,6 +201,9 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(c.scopeLine(END, NOW, true)).toBe(approved('W5a'));
         // W5b is drawn at 9:31 PM on drive C:.
         expect(c.scopeLine(new Date(2026, 8, 14, 21, 31).getTime(), NOW, true, 'low-space', 'C:\\Users\\x\\Downloads\\Floe')).toBe(approved('W5b'));
+        // W5c (answer 19, 2026-10-16) in W5b's shape, drawn at the same time
+        // on drive G:, P13b's drive.
+        expect(c.scopeLine(new Date(2026, 8, 14, 21, 31).getTime(), NOW, true, 'no-mark', 'G:\\Floe')).toBe(approved('W5c'));
         expect(c.WAITING_LINE).toBe(approved('W8'));
         expect(c.missedLine(MISSED, NOW)).toBe(approved('W10'));
         expect(c.SETUP_FAILED_LINE).toBe(approved('W11'));
@@ -247,6 +250,8 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(c.warningLine('auto-floor', {...p, floorBytes: 48 * GB}, 'C:\\Floe')).toBe(approved('P13a'));
         expect(c.warningLine('auto-no-mark', p, 'G:\\Floe')).toBe(approved('P13b'));
         expect(c.warningLine('auto-unknown', p, 'D:\\Floe')).toBe(approved('P13c'));
+        // P13d (answer 19, 2026-10-16) names no drive.
+        expect(c.warningLine('auto-route-unknown', p, 'D:\\Floe')).toBe(approved('P13d'));
         expect(c.DECLINED_LINE).toBe(approved('D1'));
         expect(c.DECLINED_QUESTION).toBe(approved('D2'));
         expect(`${c.KEEP_WAITING} / ${c.CLOSE_LINK}`).toBe(bare('D3'));

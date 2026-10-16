@@ -74,9 +74,11 @@ type RequestLinkSnapshot struct {
 	// is per link, set by every Make link and never remembered (G1, G2).
 	AutoAccept bool `json:"autoAccept"`
 	// AutoAsks is "low-space" while a link that accepts automatically sits on
-	// a drive already under its free-space floor, so every drop asks (D-176):
-	// the waiting line says so instead of "Accepts automatically". Empty
-	// otherwise, and always on a link made with Auto-accept off.
+	// a drive already under its free-space floor (D-176), and "no-mark" while
+	// it sits on one that answered it cannot carry the downloaded-file mark
+	// (W3 R2-08), so every drop asks: the waiting line says so instead of
+	// "Accepts automatically" (W5b, W5c). Empty otherwise, and always on a
+	// link made with Auto-accept off.
 	AutoAsks string `json:"autoAsks,omitempty"`
 	// Route is "", "direct" or "relay".
 	Route string `json:"route"`
@@ -114,7 +116,8 @@ type RequestPrompt struct {
 	FreeBytes int64  `json:"freeBytes"` // free space on the save volume
 	// Warnings are codes, never text: low-space, relay-over-cap, and on a
 	// link that accepts automatically the one reason this drop still asks
-	// (auto-floor, auto-no-mark, auto-unknown; D-176).
+	// (auto-floor, auto-no-mark, auto-unknown, D-176; auto-route-unknown,
+	// W3 R2-08).
 	Warnings []string `json:"warnings"`
 	// FloorBytes is the free space an automatic drop must leave (G13), set
 	// only beside the auto-floor reason, for its line.

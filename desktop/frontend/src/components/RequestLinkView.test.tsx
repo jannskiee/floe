@@ -82,6 +82,29 @@ function mouseClick(el: HTMLElement) {
     fireEvent.click(el, {detail: 1});
 }
 
+describe('a held key (R2-07 c)', () => {
+    // Focus moves to Make another link after Close link or Cancel drop, so the
+    // auto-repeat of the Enter that pressed them would press it too.
+    it('Make another link and Keep waiting refuse an auto-repeated key, never a first press', () => {
+        for (const [phase, name] of [['done', 'Make another link'], ['stopped', 'Make another link'], ['ended', 'Make another link'], ['declined', 'Keep waiting']] as const) {
+            const {unmount} = render(<RequestLinkView {...at(phase)}/>);
+            const b = screen.getByRole('button', {name});
+            expect(fireEvent.keyDown(b, {key: 'Enter', repeat: true}), `${phase}: a repeat`).toBe(false);
+            expect(fireEvent.keyDown(b, {key: 'Enter'}), `${phase}: a first press`).toBe(true);
+            unmount();
+        }
+    });
+
+    it('a held Enter on Make another link presses it once', async () => {
+        const user = userEvent.setup();
+        const p = at('ended');
+        render(<RequestLinkView {...p}/>);
+        act(() => screen.getByRole('button', {name: 'Make another link'}).focus());
+        await user.keyboard('{Enter>4}');
+        expect(p.onMakeAnother).toHaveBeenCalledTimes(1);
+    });
+});
+
 describe('the Accept guard', () => {
     beforeEach(() => {
         vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date']});
@@ -93,8 +116,9 @@ describe('the Accept guard', () => {
 
     it('Keep waiting has the guard too, so a double click on Decline cannot reopen the link (A5-12)', () => {
         // The second click of a double click lands where Decline was, which is
-        // Keep waiting once Declined renders; a held Enter lands there too now
-        // that focus moves to it. Both are ignored for 1 s.
+        // Keep waiting once Declined renders. Ignored for 1 s; focus after
+        // Decline goes to the declined line (R5-10), and a held key's repeats
+        // are ignored at any time (R2-07 c).
         const p = at('declined');
         render(<RequestLinkView {...p}/>);
         const keep = screen.getByRole('button', {name: 'Keep waiting'});
@@ -740,6 +764,30 @@ describe('the layout (D-136)', () => {
         expect(screen.getByTitle(result.folder).textContent).toBe('Acme footage 2026-09-14 1405');
     });
 
+    it('Done: the folder name keeps its date, time and (n) whole, and cuts a wide label by display columns (R5-11)', () => {
+        // The test's own column count, independent of the one paths.ts uses:
+        // CJK, Hangul, fullwidth forms and pictographs take two columns.
+        const wide = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]|\p{Extended_Pictographic}/u;
+        const displayCols = (s: string) => Array.from(s).reduce((n, c) => n + (wide.test(c) ? 2 : 1), 0);
+        // Wide glyphs take two columns of 12 px mono, so a CJK or emoji label
+        // that counted one per character overflowed and CSS cut the time off.
+        for (const [label, leaf] of [
+            ['日本語のフォルダ名がとても長いです', ' 2026-10-08 1405'],
+            ['📁🎬📷🎵📁🎬📷🎵📁🎬📷🎵', ' 2026-10-08 1405'],
+            ['Acme footage for the October shoot', ' 2026-10-08 1405 (2)'],
+        ]) {
+            const folder = `D:\\Footage\\Floe requests\\${label}${leaf}`;
+            const {unmount} = render(<RequestLinkView {...at('done')} snap={snap({state: 'done', result: {...result, folder}})}/>);
+            const shown = screen.getByTitle(folder).textContent!;
+            expect(shown.endsWith(leaf), shown).toBe(true);
+            expect(displayCols(shown), shown).toBeLessThanOrEqual(32);
+            expect(shown.includes('...'), shown).toBe(true);
+            // Never half a surrogate pair.
+            expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(shown), shown).toBe(false);
+            unmount();
+        }
+    });
+
     it('a label with no spaces wraps inside the card on every heading that carries it (FU-38)', () => {
         // The field takes 64 characters, and a heading sets them uppercase in
         // 10 px mono at 0.2 em tracking: with no space to break at, the label
@@ -1346,6 +1394,21 @@ describe('Auto-accept (D-173, D-174)', () => {
         const line = screen.getByText(/^Ends .* · Asks first, low space on C:$/);
         expect(line.className).toContain('text-zinc-400');
         expect(screen.queryByText(/Accepts automatically/)).toBeNull();
+    });
+
+    it('an automatic link on a drive that cannot mark files says it will ask (W5c, answer 19)', () => {
+        render(<RequestLinkView {...at('waiting')} snap={snap({state: 'waiting', autoAccept: true, autoAsks: 'no-mark', saveDir: 'G:\\Floe'})}/>);
+        const line = screen.getByText(/^Ends .* · Asks first, Windows can't mark files on G:$/);
+        expect(line.className).toContain('text-zinc-400');
+        expect(screen.queryByText(/Accepts automatically/)).toBeNull();
+    });
+
+    it('a prompt on an automatic link whose route could not be read says why, in gray (P13d, answer 19)', () => {
+        const asked = snap({state: 'deciding', autoAccept: true, route: '', prompt: {...prompt, warnings: ['auto-route-unknown']}});
+        render(<RequestLinkView {...at('deciding', {snap: asked})}/>);
+        const reason = screen.getByText("Asks because Floe couldn't check the connection");
+        expect(reason.className).toContain('text-zinc-400');
+        expect(reason.className).not.toContain('amber');
     });
 
     it('a prompt on an automatic link gives its reason in gray, while a warning stays amber (D-176, D-177)', () => {

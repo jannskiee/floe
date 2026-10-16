@@ -121,12 +121,15 @@ export const COPY_LINK = 'Copy link'; // W2
 export const COPIED = 'Copied'; // W3
 export const CLOSE_LINK = 'Close link'; // W4
 export const ACCEPTS_AUTOMATICALLY = 'Accepts automatically'; // W5a, after the end time
-/** W5, W5a on a link made with Auto-accept on (D-173), and W5b when that
- *  link's drive is already under its floor, so every drop asks (D-176). */
+/** W5, W5a on a link made with Auto-accept on (D-173), W5b when that
+ *  link's drive is already under its floor (D-176), and W5c when the drive
+ *  cannot carry the downloaded-file mark (FAT, exFAT; answer 19, 2026-10-16):
+ *  either way every drop asks. */
 export function scopeLine(expiresAt: number, now: number, autoAccept = false, autoAsks = '', saveDir = ''): string {
     const w5 = `Ends ${fmtEnds(expiresAt, now)}`; // W5 (D-168: no "For one person")
     if (!autoAccept) return w5;
     if (autoAsks === 'low-space') return `${w5} · Asks first, low space on ${driveOf(saveDir)}`; // W5b
+    if (autoAsks === 'no-mark') return `${w5} · Asks first, Windows can't mark files on ${driveOf(saveDir)}`; // W5c
     return `${w5} · ${ACCEPTS_AUTOMATICALLY}`; // W5a
 }
 export const WAITING_LINE = 'Waiting for files'; // W8 (W9 is cut: the IP line is said once, at Ready)
@@ -218,6 +221,10 @@ export function warningLine(code: string, p: {freeBytes: number; totalBytes: num
             return `Asks because Windows can't mark files on ${driveOf(saveDir)}`; // P13b
         case 'auto-unknown':
             return `Asks because Floe couldn't check ${driveOf(saveDir)}`; // P13c
+        // No warning, but Floe could not read the route, so it could not
+        // tell a relay's 2 GB limit apart (answer 19, 2026-10-16).
+        case 'auto-route-unknown':
+            return "Asks because Floe couldn't check the connection"; // P13d
         default:
             return '';
     }

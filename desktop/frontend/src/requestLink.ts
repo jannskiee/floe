@@ -89,8 +89,9 @@ export interface RequestLinkSnapshot {
     /** The link's own Auto-accept switch (D-173): true when a drop that needs
      *  no asking is accepted at once. Per link, never remembered. */
     autoAccept: boolean;
-    /** low-space while a link that accepts automatically sits on a drive
-     *  already under its floor, so every drop asks (D-176). */
+    /** Why every drop asks on a link that accepts automatically: low-space
+     *  while its drive is already under the floor (D-176, W5b), no-mark while
+     *  its drive cannot carry the downloaded-file mark (W5c). */
     autoAsks?: string;
     route: string;
     reconnectUntil?: number;
@@ -201,6 +202,9 @@ export function linkOpen(state: string): boolean {
 // not qualify asks, or after it was declined: "Accepts automatically" over
 // an Accept prompt would contradict the prompt (D-173, review R2 F2).
 const AUTO_SHOWN = new Set(['waiting', 'reconnecting', 'connecting']);
+/** The autoAsks values the bridge may send (requestauto.go autoSpaceFn); any
+ *  other value reads as none, so the line says "Accepts automatically". */
+const AUTO_ASKS = new Set(['low-space', 'no-mark']);
 
 /** autoAcceptShown: the link says, right now, that it accepts by itself. */
 export function autoAcceptShown(snap: {autoAccept: boolean; state: string}): boolean {
@@ -310,7 +314,7 @@ export function normalizeSnapshot(raw: unknown): RequestLinkSnapshot {
         expiresAt: num(r.expiresAt),
         // Automatic only when the bridge says exactly true (G1: fail closed).
         autoAccept: r.autoAccept === true,
-        ...(str(r.autoAsks) === 'low-space' ? {autoAsks: 'low-space'} : {}),
+        ...(AUTO_ASKS.has(str(r.autoAsks)) ? {autoAsks: str(r.autoAsks)} : {}),
         route: str(r.route),
         suggestClose: r.suggestClose === true,
         battery: r.battery === true,
@@ -434,6 +438,15 @@ export function noticeVisible(snap: RequestLinkSnapshot, onRequestView: boolean,
 export function canMake(p: Phase): boolean {
     return p === 'ready' || p === 'error';
 }
+
+/** How long after Retry now a phase change still counts as its outcome for
+ *  focus (R2-07). Retry only nudges the lane's reconnect loop, and an attempt
+ *  that fails leaves the phase as it was, so the next change may come long
+ *  after from something the owner did not do (the link's end, a reconnect of
+ *  the loop's own). 10 s is the host join's own reply wait (replyTimeout in
+ *  cli/engine/signaling/client.go); the dial before it is not counted, so an
+ *  attempt slower than that leaves focus where it fell, on the page. */
+export const RETRY_FOCUS_MS = 10_000;
 
 /** The Accept and Decline guard (spec 06 5.5, E-44): 1 s after the prompt
  *  renders and 1 s after the window regains focus. */

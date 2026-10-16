@@ -1061,6 +1061,95 @@ func TestAutoAcceptPromptSaysWhyItAsks(t *testing.T) {
 	}
 }
 
+// TestAutoAcceptPromptSaysWhenTheRouteIsUnknown (W3 R2-08, answer 19): on a
+// link that accepts automatically, a drop with no warning on a route this side
+// could not read asks (G4: relay-over-cap is computed only for a known relay)
+// and names that reason, auto-route-unknown (P13d), so the prompt never asks
+// without a line. A warning still asks for itself alone, and a link made with
+// Auto-accept off carries no reason.
+func TestAutoAcceptPromptSaysWhenTheRouteIsUnknown(t *testing.T) {
+	cases := []struct {
+		name     string
+		auto     bool
+		vol      func(v *autoVolume)
+		in       transfer.IncomingInfo
+		warnings []string
+	}{
+		{"no warning", true, func(*autoVolume) {}, autoIncoming, []string{"auto-route-unknown"}},
+		{"a warning asks for itself", true, func(v *autoVolume) { v.free = 3 * gib }, transfer.IncomingInfo{Files: 3, TotalBytes: 2 * gib, FirstName: "a.bin", FirstSize: 1 << 20}, []string{"low-space"}},
+		{"Auto-accept off", false, func(*autoVolume) {}, autoIncoming, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			v := roomyVolume()
+			tc.vol(&v)
+			v.install(t)
+			setVar(t, &requestDecideWindow, 50*time.Millisecond)
+			x := newAutoDecide(t, tc.auto, "")
+			assertAsked(t, x, x.decide(tc.in))
+			p := x.promptOf()
+			if p == nil {
+				t.Fatal("no prompt snapshot")
+			}
+			if fmt.Sprint(p.Warnings) != fmt.Sprint(tc.warnings) && !(len(p.Warnings) == 0 && len(tc.warnings) == 0) {
+				t.Fatalf("warnings %q, want %q", p.Warnings, tc.warnings)
+			}
+			if p.FloorBytes != 0 {
+				t.Fatalf("FloorBytes %d beside no floor reason", p.FloorBytes)
+			}
+		})
+	}
+}
+
+// TestWaitingLinkSaysTheDriveCannotMark (W3 R2-08, answer 19): a link that
+// accepts automatically on a drive that answered it cannot carry the
+// downloaded-file mark (FAT, exFAT) carries AutoAsks no-mark while it waits,
+// so the line under the link says every drop asks (W5c). A drive that could
+// not answer claims nothing.
+func TestWaitingLinkSaysTheDriveCannotMark(t *testing.T) {
+	v := roomyVolume()
+	v.streams = false
+	v.install(t)
+	f := newFakeSignalServer(t)
+	a, _ := laneApp(t, f)
+	a.MakeRequestLink("x", t.TempDir(), "24h", true)
+	waitFor(t, 5*time.Second, "AutoAsks no-mark", func() bool {
+		s := stateOf(a)
+		return s.State == "waiting" && s.AutoAsks == "no-mark"
+	})
+}
+
+// TestAutoSpaceFnNamesWhyEveryDropAsks: the waiting line's reason, from the
+// drive alone. The mark outranks the floor (autoAskReason's order), and an
+// answer the drive could not give claims nothing.
+func TestAutoSpaceFnNamesWhyEveryDropAsks(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		vol  func(v *autoVolume)
+		want string
+	}{
+		{"roomy NTFS", func(*autoVolume) {}, ""},
+		{"no mark", func(v *autoVolume) { v.streams = false }, "no-mark"},
+		{"no mark and under the floor", func(v *autoVolume) { v.streams, v.free = false, 3*gib }, "no-mark"},
+		{"the mark could not be checked", func(v *autoVolume) { v.streams, v.streamsErr = false, errors.New("the share did not answer") }, ""},
+		{"under the floor", func(v *autoVolume) { v.free = 3 * gib }, "low-space"},
+		{"free space unreadable", func(v *autoVolume) { v.free = -1 }, ""},
+		{"size unreadable", func(v *autoVolume) { v.free, v.capacity = 3*gib, 0 }, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			v := roomyVolume()
+			c.vol(&v)
+			v.install(t)
+			if got := autoSpaceFn(t.TempDir()); got != c.want {
+				t.Fatalf("autoSpaceFn = %q, want %q", got, c.want)
+			}
+		})
+	}
+	if got := autoSpaceFn(""); got != "" {
+		t.Fatalf("no save folder: %q, want nothing", got)
+	}
+}
+
 // TestWaitingLinkSaysItWillAsk (D-176): a link that accepts automatically on
 // a drive already under its floor carries AutoAsks low-space while it waits,
 // so the waiting line says it will ask; the watcher re-reads the drive and
@@ -1069,7 +1158,12 @@ func TestAutoAcceptPromptSaysWhyItAsks(t *testing.T) {
 func TestWaitingLinkSaysItWillAsk(t *testing.T) {
 	var low atomic.Bool
 	low.Store(true)
-	setVar(t, &autoSpaceFn, func(string) bool { return low.Load() })
+	setVar(t, &autoSpaceFn, func(string) string {
+		if low.Load() {
+			return "low-space"
+		}
+		return ""
+	})
 	setVar(t, &autoSpaceEvery, 50*time.Millisecond)
 	f := newFakeSignalServer(t)
 	a, _ := laneApp(t, f)

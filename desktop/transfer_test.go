@@ -1859,7 +1859,7 @@ func TestRequestResultNamesCapped(t *testing.T) {
 		if i == 7 {
 			name = "evil.lnk.floe-blocked"
 		}
-		tally.add(transfer.FileDone{SavedName: name, Bytes: 10, Verified: i%2 == 0})
+		tally.add(transfer.FileDone{SavedName: name, Bytes: 10, Verified: i%2 == 0, Renamed: i == 7})
 	}
 	r := tally.result(201, "D:\\x")
 	if r.Files != 201 || r.Saved != 201 || len(r.Names) != 200 || r.Bytes != 2010 || r.Verified != 101 || r.Renamed != 1 {
@@ -1867,6 +1867,22 @@ func TestRequestResultNamesCapped(t *testing.T) {
 	}
 	if r.Names[0] != "f000.txt" || r.Names[199] != "f199.txt" {
 		t.Fatalf("names kept %q .. %q, want the first 200 in order", r.Names[0], r.Names[199])
+	}
+}
+
+// TestRequestResultRenamedOnlyForHookRenames (A2-04): Renamed counts the files
+// the name hook renamed (FileDone.Renamed), never a name that only ends in
+// .floe-blocked. A visitor's own notes.floe-blocked is saved as sent and
+// counts 0; the hook's a.lnk.floe-blocked counts 1.
+func TestRequestResultRenamedOnlyForHookRenames(t *testing.T) {
+	var tally dropTally
+	tally.add(transfer.FileDone{SavedName: "notes.floe-blocked", Bytes: 4, Verified: true})
+	if r := tally.result(1, "D:\\x"); r.Renamed != 0 {
+		t.Fatalf("a visitor file already named notes.floe-blocked counts Renamed %d, want 0", r.Renamed)
+	}
+	tally.add(transfer.FileDone{SavedName: "a.lnk.floe-blocked", Bytes: 4, Verified: true, Renamed: true})
+	if r := tally.result(2, "D:\\x"); r.Renamed != 1 || r.Saved != 2 {
+		t.Fatalf("after the hook renamed a.lnk: Renamed %d of %d saved, want 1 of 2", r.Renamed, r.Saved)
 	}
 }
 
