@@ -97,12 +97,14 @@ func resolveReceiveDir(dir string) (string, error) {
 }
 
 // saveDirUsable reports whether an absolute save folder can be made: no name
-// in it holds a character Windows refuses or ends the way Windows trims, and
-// the nearest part of it that exists is a folder. A missing drive, an offline
-// share, a path through a file or a name like a|b or "foo " has none, and a
-// link made there would only fail at Accept, spending the link on a refusal
-// that blames the sender. Stat can stall for an offline share's network
-// timeout, so callers ask it off the UI's path.
+// in it holds a character Windows refuses or ends the way Windows trims, the
+// nearest part of it that exists is a folder, and Floe can make a folder in
+// that one. A missing drive, an offline share, a path through a file, a name
+// like a|b or "foo ", and a folder Floe may not write in (Program Files for a
+// standard user, a read-only share, a folder Controlled folder access guards)
+// have none, and a link made there would only fail at Accept, spending the
+// link on a refusal that blames the sender. Stat can stall for an offline
+// share's network timeout, so callers ask it off the UI's path.
 func saveDirUsable(dir string) bool {
 	dir = filepath.Clean(dir)
 	if runtime.GOOS == "windows" {
@@ -118,7 +120,7 @@ func saveDirUsable(dir string) bool {
 	}
 	for p := dir; ; {
 		if fi, err := os.Stat(p); err == nil {
-			return fi.IsDir()
+			return fi.IsDir() && canMakeFolderIn(p)
 		}
 		parent := filepath.Dir(p)
 		if parent == p {
@@ -126,6 +128,22 @@ func saveDirUsable(dir string) bool {
 		}
 		p = parent
 	}
+}
+
+// canMakeFolderIn reports whether a folder can be made in dir, by making one
+// and removing it at once (deep QA R2-02 rest). A folder, because that is
+// what Accept makes there first (makeDropFolder: the save folder itself when
+// it is missing, then the drop's own), and Windows grants making a folder
+// apart from making a file. Asking the ACL instead would miss what only a
+// write meets: Controlled folder access, a read-only volume, a share's own
+// rules. The name starts with a dot and is gone before Make link goes on.
+func canMakeFolderIn(dir string) bool {
+	probe, err := os.MkdirTemp(dir, ".floe-check-")
+	if err != nil {
+		return false
+	}
+	_ = os.Remove(probe)
+	return true
 }
 
 // badNameRune is a character Windows refuses in a file or folder name: one of

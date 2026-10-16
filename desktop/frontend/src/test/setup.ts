@@ -92,7 +92,7 @@ function installWails() {
         CloseRequestLink: vi.fn(async () => {}),
         GetRequestLink: vi.fn(async () => ({...offSnapshot})),
         MakeRequestLink: vi.fn(async () => ({...offSnapshot, state: 'error', code: 'disabled'})),
-        RequestLinkSupport: vi.fn(async () => ({reachable: false, requestLinks: false})),
+        RequestLinkSupport: vi.fn(async () => ({reachable: false, requestLinks: false, featureList: false})),
         RetryRequestLink: vi.fn(async () => {}),
     };
 

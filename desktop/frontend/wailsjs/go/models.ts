@@ -3,6 +3,7 @@ export namespace main {
 	export class FeatureResult {
 	    reachable: boolean;
 	    requestLinks: boolean;
+	    featureList: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new FeatureResult(source);
@@ -12,6 +13,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.reachable = source["reachable"];
 	        this.requestLinks = source["requestLinks"];
+	        this.featureList = source["featureList"];
 	    }
 	}
 	export class ProbeResult {
@@ -41,6 +43,7 @@ export namespace main {
 	    sizes: number[];
 	    noNamedStreams: boolean;
 	    autoAccepted: boolean;
+	    endedAt?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new RequestResult(source);
@@ -58,6 +61,7 @@ export namespace main {
 	        this.sizes = source["sizes"];
 	        this.noNamedStreams = source["noNamedStreams"];
 	        this.autoAccepted = source["autoAccepted"];
+	        this.endedAt = source["endedAt"];
 	    }
 	}
 	export class RequestPrompt {

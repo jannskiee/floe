@@ -304,6 +304,25 @@ describe('request rows', () => {
         expect(screen.getByText('2 files')).toBeTruthy();
     });
 
+    it('titles an unlabeled drop that saved nothing Nothing saved, never 0 files (deep QA A5-14)', () => {
+        mount([request({label: undefined, stopped: 'save-blocked', names: [], count: 0, offered: 1, verified: 0, bytes: undefined})]);
+        expect(rowButton(/^Nothing saved/)).toBeTruthy();
+        expect(screen.queryByText('0 files')).toBeNull();
+    });
+
+    it('keeps the label as the title of a labeled drop that saved nothing', () => {
+        mount([request({stopped: 'save-blocked', names: [], count: 0, offered: 1, verified: 0, bytes: undefined})]);
+        expect(screen.queryByText('Nothing saved')).toBeNull();
+        expect(screen.queryByText('0 files')).toBeNull();
+    });
+
+    it('shows a drop Floe closed during with ST13 (deep QA A5-09)', async () => {
+        mount([request({stopped: 'app-closed', count: 2, offered: 12, verified: 2})]);
+        await openRow();
+        expect(screen.getByText('Drop stopped: Floe was closed · 2 of 12 files saved')).toBeTruthy();
+        expect(screen.queryByText(/\.part ending/)).toBeNull();
+    });
+
     it('hostile names in a request row render as text', async () => {
         const hostile = ['<img src=x onerror=alert(1)>', '$(calc)', ']]><', '\u202Eevil.exe'];
         const {container} = mount([request({names: hostile, count: 4, offered: 4, verified: 4})]);

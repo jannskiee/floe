@@ -387,7 +387,7 @@ describe('the result card', () => {
         rerender(<RequestLinkView {...at('stopped')} snap={snap({state: 'stopped', code: 'disk-full', result: {...result, files: 1, saved: 1}})}/>);
         expect(screen.getByText('The drive ran out of space · 1 of 1 file saved')).toBeTruthy();
         rerender(<RequestLinkView {...at('stopped')} snap={snap({state: 'stopped', code: 'path-too-long', result: {...result, saved: 0}})}/>);
-        expect(screen.getByText('A folder path was too long for Windows · Nothing saved')).toBeTruthy();
+        expect(screen.getByText('A file name or folder path was too long for Windows · Nothing saved')).toBeTruthy();
         expect(document.body.textContent).not.toMatch(/send the rest/);
     });
 
@@ -1387,5 +1387,32 @@ describe('Auto-accept (D-173, D-174)', () => {
         const {container} = render(<RequestLinkView {...at('ready')}/>);
         await user.click(toggle());
         expect(closingPeriods(container)).toEqual([]);
+    });
+});
+
+// Deep QA A5-10: Cancel drop returns at once, and the drop stops only when its
+// receive returns, seconds later or up to 5 minutes inside a commit retry.
+// The same button says the stop was taken and takes no second click.
+describe('Cancel drop while the drop stops', () => {
+    it('reads Stopping, disabled, on the same button, and calls nothing', async () => {
+        const onCancelDrop = vi.fn();
+        const {rerender} = render(<RequestLinkView {...at('receiving', {onCancelDrop})}/>);
+        const button = screen.getByRole('button', {name: /Cancel drop/});
+        await userEvent.click(button);
+        expect(onCancelDrop).toHaveBeenCalledTimes(1);
+        rerender(<RequestLinkView {...at('receiving', {onCancelDrop, stopping: true})}/>);
+        const stopping = screen.getByRole('button', {name: /Stopping/});
+        expect(stopping).toBe(button);
+        expect((stopping as HTMLButtonElement).disabled).toBe(true);
+        expect(screen.queryByRole('button', {name: /Cancel drop/})).toBeNull();
+        await userEvent.click(stopping);
+        expect(onCancelDrop).toHaveBeenCalledTimes(1);
+    });
+
+    it('is Cancel drop again for a drop that is not stopping', () => {
+        render(<RequestLinkView {...at('receiving', {stopping: false})}/>);
+        const button = screen.getByRole('button', {name: /Cancel drop/});
+        expect((button as HTMLButtonElement).disabled).toBe(false);
+        expect(screen.queryByText('Stopping')).toBeNull();
     });
 });

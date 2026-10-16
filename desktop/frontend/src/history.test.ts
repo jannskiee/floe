@@ -132,9 +132,20 @@ describe('request drops in History', () => {
             verified: 0, renamed: 0, offered: 1, stopped: 'save-blocked',
         });
         // Every other stop with nothing saved still adds nothing.
-        for (const code of ['write-failed', 'disk-full', 'stopped', 'peer-abort', 'unknown', '']) {
+        for (const code of ['write-failed', 'disk-full', 'stopped', 'peer-abort', 'app-closed', 'unknown', '']) {
             expect(requestHistoryEntry(snap({state: 'stopped', code, result: blocked}), AT), code).toBeNull();
         }
+    });
+
+    it('a drop Floe closed during gets its row on the next launch, dated by the drop (ST13, deep QA A5-09)', () => {
+        // Go restores it at launch as stopped with app-closed, at gen 0, with
+        // the time it last recorded the drop.
+        const ended = AT - 26 * 3600 * 1000;
+        const row = requestHistoryEntry({...snap({state: 'stopped', code: 'app-closed', result: {...result, saved: 4, verified: 4, endedAt: ended}}), gen: 0, link: ''}, AT);
+        expect(row).toMatchObject({via: 'request', count: 4, offered: 12, stopped: 'app-closed', at: ended, dir: result.folder, label: 'Acme footage'});
+        // A time in the future, or none, is the launch's own.
+        expect(requestHistoryEntry(snap({state: 'stopped', code: 'app-closed', result: {...result, saved: 4, endedAt: AT + 1}}), AT)?.at).toBe(AT);
+        expect(requestHistoryEntry(snap({state: 'stopped', code: 'app-closed', result: {...result, saved: 4}}), AT)?.at).toBe(AT);
     });
 
     it('request rows keep at most 200 names and the real count', () => {

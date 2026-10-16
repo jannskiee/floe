@@ -20,13 +20,11 @@ export const PASSTHROUGH = [
     // Grouped with the relay cap: both are Hide my IP messages.
     'Hide my IP needs a relay',
     "relay details for Hide my IP",
-    // transfer.go's errNotActive, in today's words ("this code or link is no
-    // longer active; ask the sender for a new one") and in the words it had
-    // through desktop-v0.3.0 ("this code is no longer active; ask for a new
-    // one"). floe receive prints the same sentence from its own source, so
-    // both anchors stay and neither depends on the other change.
+    // transfer.go's errNotActive ("this code or link is no longer active; ask
+    // the sender for a new one"). floe receive prints the same sentence from
+    // its own source. The words it had through desktop-v0.3.0 ("this code is
+    // no longer active") left every Go source, so their anchor went too.
     'this code or link is no longer active',
-    'this code is no longer active',
     'room is full',
     // transfer.go's two lines for a pasted link whose server is not the one
     // Floe uses (linkServerRefusal). Each already names the fix.
@@ -134,7 +132,9 @@ export const RULES: Array<[pattern: string, friendly: string]> = [
     // it read as "The connection dropped before the transfer finished".
     ['connection failed (state', "Couldn't connect the two devices"],
     ['failed to connect to signaling server', "Can't reach the server"],
-    ['failed to fetch ICE credentials', "Can't reach the server"],
+    // No 'failed to fetch ICE credentials' rule: transfer.go wraps an error
+    // from ice.FetchDetail, which returns none on any path (it falls back to
+    // STUN and says so through degraded), so the rule could never fire.
     ['timed out waiting for the server', "Can't reach the server"],
     // There is no 'server error:' rule (A8b-B2). A Floe server sends an error
     // frame on these paths only for a malformed room id ('Invalid room ID'
@@ -148,8 +148,8 @@ export const RULES: Array<[pattern: string, friendly: string]> = [
     ['no files to send', 'The folders you chose have no files to send'],
     ['timed out waiting for delivery', 'The connection dropped before the transfer finished'],
     ['peer disconnected before connecting', 'The receiver left before it started'],
-    // A receive this side stopped on purpose, or could not finish saving
-    // (D-123, approved desktop copy RX1 to RX10). Each pattern is the
+    // A code receive this side stopped on purpose, or could not finish saving
+    // (D-123, approved desktop copy RX1, RX2 and RX10). Each pattern is the
     // engine's WHOLE sentence (RefusedError.Error() and CommitError.Error()
     // in cli/engine/transfer/refusal.go, approved CLI copy RX-01 to RX-10),
     // never the shared "receive stopped" prefix: a desktop SENDER is handed
@@ -158,15 +158,16 @@ export const RULES: Array<[pattern: string, friendly: string]> = [
     // words, and the bare "receive stopped" of an empty code keeps passing
     // through. No rule above occurs inside any of them, so none takes them
     // first; errors.test.ts proves both directions.
+    //
+    // RX3 to RX9 have no rule: a code receive (ReceiveByCode) sets no
+    // ReceiveLimits and no Decide, the only paths that raise over-approved,
+    // relay-cap, time-limit, expired and stopped; nothing refuses with
+    // declined (a decline returns ErrDeclined); and a failed commit returns
+    // CommitError (RX10), never save-blocked. friendlyError is called only
+    // from the Send and Receive tabs, and a request drop shows its stop
+    // through stopCode and requestCopy.ts instead.
     ["receive stopped: a file's path is too deep or too long to save in this folder", "A file's path is too deep or too long to save in this folder"],
     ['receive stopped: a file is larger than the save drive can hold', 'A file is larger than the save drive can hold'],
-    ['receive stopped: more data arrived than this transfer announced', 'More data arrived than this transfer announced'],
-    ['receive stopped: relayed transfers are capped at 2 GB', 'Relayed transfers are capped at 2 GB'],
-    ['receive stopped: the transfer reached its 24-hour limit', 'The transfer reached its 24-hour limit'],
-    ['receive stopped: nobody answered in time', 'Nobody answered in time'],
-    ['receive stopped: the transfer was declined', 'The transfer was declined'],
-    ['receive stopped: the transfer was stopped on this computer', 'Stopped on this computer'],
-    ['receive stopped: a finished file could not be moved into place', "A finished file couldn't be moved into place"],
     ['received a file in full but could not finish saving it; the complete file was kept in the save folder with a .part ending', COMMIT_KEPT_PART],
     ['cannot create', "Can't write to the save folder"],
     ['write error', "Can't write to the save folder"],

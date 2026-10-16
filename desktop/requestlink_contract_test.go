@@ -65,11 +65,11 @@ func TestRequestLinkSnapshotJSONShape(t *testing.T) {
 // TestFeatureResultJSONShape pins the probe result RequestLinkSupport returns
 // over the Wails bridge.
 func TestFeatureResultJSONShape(t *testing.T) {
-	raw, err := json.Marshal(FeatureResult{Reachable: true, RequestLinks: true})
+	raw, err := json.Marshal(FeatureResult{Reachable: true, RequestLinks: true, FeatureList: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(raw) != `{"reachable":true,"requestLinks":true}` {
+	if string(raw) != `{"reachable":true,"requestLinks":true,"featureList":true}` {
 		t.Errorf("FeatureResult JSON = %s", raw)
 	}
 }

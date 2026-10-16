@@ -800,7 +800,12 @@ func (a *App) runRequestDrop(rg uint64, sc *signaling.Client, p requestPairing) 
 				a.emitRequest("request:progress", pr)
 			}
 		}),
-		OnFileDone: d.tally.add,
+		// The tally first, then the quit record from it (A5-09); the record
+		// exists from Accept, and no file is saved before Accept.
+		OnFileDone: func(fd transfer.FileDone) {
+			d.tally.add(fd)
+			d.record.fileDone()
+		},
 		UpdateHint: desktopUpdateHint,
 		Messages:   msgs,
 		Closed:     closed,
@@ -872,10 +877,11 @@ type requestDrop struct {
 	tally  dropTally
 	cap    *time.Timer // the 24 h cap, armed at Accept
 
-	files   int    // the visitor's announced count, for the result
-	folder  string // the drop's own folder, "" until Accept
-	outcome string // how a prompt ended without a drop: declined, expired, left
-	auto    bool   // accepted by the link's own choice, with no prompt (HA1, D-173)
+	files   int         // the visitor's announced count, for the result
+	folder  string      // the drop's own folder, "" until Accept
+	outcome string      // how a prompt ended without a drop: declined, expired, left
+	auto    bool        // accepted by the link's own choice, with no prompt (HA1, D-173)
+	record  *dropRecord // the quit record, from Accept (A5-09, requestquit.go)
 
 	statsURL string // the global stats endpoint read at pairing, "" with the switch off (E-32)
 
@@ -1018,10 +1024,12 @@ func (a *App) acceptRequestDrop(rg uint64, p requestPairing, d *requestDrop, at 
 		a.attentionOff()
 		return transfer.Decision{Kind: transfer.DecisionRefuse, Code: transfer.CodeWriteFailed}
 	}
-	if !a.setDropCancel(rg, d.cancelFunc()) || !a.acceptDrop(rg, RequestResult{Files: d.files, Folder: folder, AutoAccepted: !prompted}) {
+	rec := newDropRecord(quitDropPath(), p.label, d.files, folder, !prompted, &d.tally)
+	if !a.setDropCancel(rg, d.cancelFunc(), rec) || !a.acceptDrop(rg, RequestResult{Files: d.files, Folder: folder, AutoAccepted: !prompted}) {
 		_ = os.Remove(folder)
 		return stopped
 	}
+	d.record = rec
 	d.folder = folder
 	d.auto = !prompted
 	d.accepted.Store(true)
@@ -1066,7 +1074,12 @@ func (a *App) endRequestDrop(rg uint64, sc *signaling.Client, d *requestDrop, er
 		if state == "stopped" && res.Saved == 0 {
 			removeEmptyDirs(d.folder) // empty folders only; anything in them stays
 		}
-		a.endDrop(rg, state, code, &res)
+		// A drop that still owned the lane goes to History through its own
+		// snapshot, so its quit record goes; one a quit ended keeps it for the
+		// next launch (A5-09).
+		if a.endDrop(rg, state, code, &res) {
+			d.record.clear()
+		}
 		if state == "stopped" {
 			// E-32 (D-006): the files this drop saved under their final names
 			// count toward the global stats, once, from here. The engine

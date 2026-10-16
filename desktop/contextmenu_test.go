@@ -73,19 +73,30 @@ func TestContextMenuStateOf(t *testing.T) {
 		cmd        string
 		registered bool
 		want       string
+		// old is an entry written before MultiSelectModel (A3-B9): Floe
+		// Desktop 0.3.1 and earlier wrote the label, the icon and the command
+		// only.
+		old bool
 	}
 	rows := []row{
-		{"no entry", "", false, "missing"},
-		{"this copy's entry", expectedCommand(self), true, "self"},
-		{"another copy's entry", expectedCommand(other), true, "other"},
+		{"no entry", "", false, "missing", false},
+		{"this copy's entry", expectedCommand(self), true, "self", false},
+		{"another copy's entry", expectedCommand(other), true, "other", false},
 		// The folder it ran from was deleted: the entry is dead, a state of
 		// its own (DESKTOP-01), so the launch rule registers over it when this
 		// copy would register and otherwise removes it, rather than leaving a
 		// broken entry behind a switch that reads off.
-		{"an entry whose program is gone", expectedCommand(gone), true, "dead"},
+		{"an entry whose program is gone", expectedCommand(gone), true, "dead", false},
 		// Not a command Floe writes: someone else's, never touched.
-		{"an entry in a shape Floe never writes", `notepad.exe "%1"`, true, "other"},
-		{"an empty command", "", true, "other"},
+		{"an entry in a shape Floe never writes", `notepad.exe "%1"`, true, "other", false},
+		{"an empty command", "", true, "other", false},
+		// A3-B9: this copy's entry without MultiSelectModel is a state of its
+		// own, so the launch writes it again once. Whose an entry is never
+		// changes with its age: another copy's and a dead one read as before.
+		{"this copy's entry from before MultiSelectModel", expectedCommand(self), true, "self-stale", true},
+		{"another copy's entry from before MultiSelectModel", expectedCommand(other), true, "other", true},
+		{"a dead entry from before MultiSelectModel", expectedCommand(gone), true, "dead", true},
+		{"no entry, nothing to be old", "", false, "missing", true},
 	}
 	if runtime.GOOS == "windows" {
 		// DESKTOP-02: Windows paths ignore letter case, so this copy launched
@@ -93,13 +104,13 @@ func TestContextMenuStateOf(t *testing.T) {
 		// installer's page, then the exe double-clicked in Explorer) is still
 		// this copy, and so is the same path with a doubled separator.
 		rows = append(rows,
-			row{"this copy's entry in other letter case", expectedCommand(strings.ToUpper(self)), true, "self"},
-			row{"this copy's entry, not cleaned", expectedCommand(strings.Replace(self, `\portable\`, `\portable\\`, 1)), true, "self"},
+			row{"this copy's entry in other letter case", expectedCommand(strings.ToUpper(self)), true, "self", false},
+			row{"this copy's entry, not cleaned", expectedCommand(strings.Replace(self, `\portable\`, `\portable\\`, 1)), true, "self", false},
 		)
 	}
 	for _, tc := range rows {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := contextMenuStateOf(self, tc.cmd, tc.registered); got != tc.want {
+			if got := contextMenuStateOf(self, tc.cmd, tc.registered, !tc.old); got != tc.want {
 				t.Fatalf("contextMenuStateOf(%q) = %q, want %q", tc.cmd, got, tc.want)
 			}
 		})

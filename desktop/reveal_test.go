@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -31,12 +32,41 @@ func TestRevealCmd(t *testing.T) {
 	wantArgs(t, revealCmd("linux", dir, path).Args, "xdg-open", dir)
 }
 
-// TestOpenCmd pins the per-platform open-with-default-app command.
+// TestOpenCmd pins the open-with-default-app command off Windows, where a
+// process opens the file. Windows asks the shell itself (shellOpen).
 func TestOpenCmd(t *testing.T) {
-	path := `C:\Users\me\Downloads\report.pdf`
-	wantArgs(t, openCmd("windows", path).Args, "rundll32", "url.dll,FileProtocolHandler", path)
+	path := `/Users/me/Downloads/report.pdf`
 	wantArgs(t, openCmd("darwin", path).Args, "open", path)
 	wantArgs(t, openCmd("linux", path).Args, "xdg-open", path)
+}
+
+// TestOpenFileHandsWindowsTheWholePath (A3-B8): rundll32's FileProtocolHandler
+// read its argument as a URL, so a received file whose name holds # or %
+// could open the wrong thing or nothing. On Windows OpenFile hands the shell
+// the joined path as one string, every character kept, and opens no process
+// of its own. The seam records the call instead of opening anything.
+func TestOpenFileHandsWindowsTheWholePath(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the shell open is Windows only")
+	}
+	dir := t.TempDir()
+	var got []string
+	prev := shellOpenFn
+	shellOpenFn = func(p string) error { got = append(got, p); return nil }
+	t.Cleanup(func() { shellOpenFn = prev })
+	a := &App{}
+	for _, name := range []string{"report #2.pdf", "50% off.txt", "a%20b#c.txt", "plain.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got = nil
+		if err := a.OpenFile(dir, name); err != nil {
+			t.Fatalf("OpenFile(%q): %v", name, err)
+		}
+		if want := filepath.Join(dir, name); len(got) != 1 || got[0] != want {
+			t.Fatalf("OpenFile(%q) asked the shell for %q, want exactly %q", name, got, want)
+		}
+	}
 }
 
 func TestFileExists(t *testing.T) {

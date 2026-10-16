@@ -19,3 +19,7 @@ func unregisterContextMenu(base string) error {
 func contextMenuCommand(base string) (string, bool) {
 	return "", false
 }
+
+func contextMenuCurrent(base string) bool {
+	return false
+}

@@ -600,7 +600,7 @@ describe('the Wails mock', () => {
         await expect(MakeRequestLink('Acme footage', '', '24h', false)).resolves.toMatchObject({state: 'error', code: 'disabled'});
         await expect(GetRequestLink()).resolves.toMatchObject({state: 'off', link: ''});
         await expect(AnswerRequest(1, 'accept')).resolves.toMatchObject({state: 'off'});
-        await expect(RequestLinkSupport()).resolves.toEqual({reachable: false, requestLinks: false});
+        await expect(RequestLinkSupport()).resolves.toEqual({reachable: false, requestLinks: false, featureList: false});
     });
 });
 
@@ -1643,6 +1643,59 @@ describe('a webview reload', () => {
     });
 });
 
+// Deep QA A5-09 (ST13): a drop Floe closed during comes back on the next
+// launch as the lane's stopped snapshot at gen 0, from the record Go kept, and
+// gets the History row the quit took from it, dated by the drop.
+describe('a drop Floe closed during', () => {
+    it('gets its History row on the next launch, once, and shows ST13 on the card', async () => {
+        const folder = 'D:\\x\\Acme footage 2026-09-14 1405';
+        const endedAt = Date.now() - 26 * 3600_000;
+        const restored = {
+            state: 'stopped', code: 'app-closed', gen: 0, seq: 1, promptGen: 0, link: '', label: 'Acme footage', saveDir: '',
+            expiresAt: 0, route: '', suggestClose: false,
+            result: {files: 12, saved: 4, bytes: 4096, verified: 4, renamed: 0, folder, names: ['a', 'b', 'c', 'd'], noNamedStreams: true, endedAt},
+        };
+        wails.go.GetRequestLink.mockImplementation(async () => restored);
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await waitFor(() => expect(JSON.parse(localStorage.getItem('floe:history') || '[]')).toHaveLength(1));
+        // Go's startup emits the same snapshot when the pull came first.
+        act(() => { wails.emit('request:state', {...restored, seq: 2}); });
+        await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+        const stored = JSON.parse(localStorage.getItem('floe:history') || '[]');
+        expect(stored).toHaveLength(1);
+        expect(stored[0]).toMatchObject({via: 'request', stopped: 'app-closed', count: 4, offered: 12, dir: folder, at: endedAt, label: 'Acme footage'});
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
+        await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
+        expect(await screen.findByText('Floe was closed · 4 of 12 files saved')).toBeTruthy();
+        expect(screen.getByRole('button', {name: 'Make another link'})).toBeTruthy();
+    });
+});
+
+// Deep QA A5-10: Cancel drop returns at once, and the lane says stopped only
+// when the drop's receive returns. Until then the button reads Stopping.
+describe('Cancel drop', () => {
+    it('reads Stopping, disabled, until the lane says the drop stopped', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
+        await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
+        const base = {code: '', gen: 2, seq: 1, promptGen: 1, link: 'http://localhost:3000/r/Xk3p9Q0aB1c#x', label: '', saveDir: 'D:\\x', expiresAt: Date.now() + 3600_000, route: 'direct', suggestClose: false};
+        act(() => { wails.emit('request:state', {...base, state: 'receiving', result: {files: 3, saved: 0, bytes: 0, verified: 0, renamed: 0, folder: 'D:\\x\\Request 2026-09-14 1405', names: []}}); });
+        await user.click(await screen.findByRole('button', {name: 'Cancel drop'}));
+        expect(wails.go.CancelRequestDrop).toHaveBeenCalledTimes(1);
+        const stopping = await screen.findByRole('button', {name: 'Stopping'});
+        expect((stopping as HTMLButtonElement).disabled).toBe(true);
+        await user.click(stopping);
+        expect(wails.go.CancelRequestDrop).toHaveBeenCalledTimes(1);
+        act(() => { wails.emit('request:state', {...base, seq: 2, state: 'stopped', code: 'stopped', result: {files: 3, saved: 1, bytes: 1, verified: 1, renamed: 0, folder: 'D:\\x\\Request 2026-09-14 1405', names: ['a']}}); });
+        expect(await screen.findByText('You stopped this drop · 1 of 3 files saved')).toBeTruthy();
+        expect(screen.queryByRole('button', {name: 'Stopping'})).toBeNull();
+    });
+});
+
 describe('the calm copy (D-167)', () => {
     it('Send, Receive, Settings and History draw no line that ends in a period', async () => {
         const user = userEvent.setup();
@@ -2109,6 +2162,25 @@ describe('the File Explorer entry at launch', () => {
         const user = await launch('self', null, false);
         expect(wails.go.EnableContextMenu).not.toHaveBeenCalled();
         expect(await switchOn(user)).toBe(true);
+    });
+
+    // A3-B9: an entry this copy wrote before it set MultiSelectModel, which
+    // Windows hides for a selection of more than 15 files. It is this copy's
+    // own, whatever the marker says, so the launch writes it again in today's
+    // shape; Go then reads it as self, and the next launch writes nothing (the
+    // test above). Called, not called once: mount() renders under StrictMode,
+    // which runs the mount effect twice, as the dead-entry test above meets.
+    it("writes this copy's own entry again when it predates MultiSelectModel", async () => {
+        for (const [marker, installed] of [[null, false], ['0', true], ['1', false]] as const) {
+            const user = await launch('self-stale', marker, installed);
+            await waitFor(() => expect(wails.go.EnableContextMenu).toHaveBeenCalled());
+            expect(wails.go.DisableContextMenu).not.toHaveBeenCalled();
+            expect(localStorage.getItem('floe:ctx-menu')).toBe(marker);
+            expect(await switchOn(user)).toBe(true);
+            cleanup();
+            localStorage.clear();
+            vi.clearAllMocks();
+        }
     });
 
     it('asks nothing and writes nothing in a Store build', async () => {

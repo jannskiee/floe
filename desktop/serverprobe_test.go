@@ -418,9 +418,9 @@ func TestProbeHealthReadsFeatures(t *testing.T) {
 	srv := healthServer(`{"status":"healthy","uptime":1,"features":["portal-9","request-1","x"]}`)
 	defer srv.Close()
 
-	r, features := probeHealth(srv.URL)
-	if !r.OK {
-		t.Fatalf("probeHealth = %+v, want OK", r)
+	r, features, listed := probeHealth(srv.URL)
+	if !r.OK || !listed {
+		t.Fatalf("probeHealth = %+v, listed %v, want OK with a list", r, listed)
 	}
 	if !featuresHave(features, "request-1") {
 		t.Errorf("features = %v, want request-1 found", features)
@@ -428,7 +428,7 @@ func TestProbeHealthReadsFeatures(t *testing.T) {
 	if featuresHave(features, "request-2") {
 		t.Errorf("featuresHave matched a name that is not in the list")
 	}
-	if got := requestLinkSupport(srv.URL); got != (FeatureResult{Reachable: true, RequestLinks: true}) {
+	if got := requestLinkSupport(srv.URL); got != (FeatureResult{Reachable: true, RequestLinks: true, FeatureList: true}) {
 		t.Errorf("requestLinkSupport = %+v, want reachable with request-1", got)
 	}
 }
@@ -444,14 +444,14 @@ func TestProbeHealthToleratesMissingFeatures(t *testing.T) {
 		`{"status":"healthy","features":null}`,
 	} {
 		srv := healthServer(body)
-		r, features := probeHealth(srv.URL)
+		r, features, _ := probeHealth(srv.URL)
 		if !r.OK {
 			t.Errorf("%s: probeHealth = %+v, want OK", body, r)
 		}
 		if featuresHave(features, "request-1") {
 			t.Errorf("%s: request-1 found in %v", body, features)
 		}
-		if got := requestLinkSupport(srv.URL); got != (FeatureResult{Reachable: true}) {
+		if got := requestLinkSupport(srv.URL); !got.Reachable || got.RequestLinks {
 			t.Errorf("%s: requestLinkSupport = %+v, want reachable without request links", body, got)
 		}
 		srv.Close()
@@ -463,6 +463,31 @@ func TestProbeHealthToleratesMissingFeatures(t *testing.T) {
 	defer srv.Close()
 	if got := requestLinkSupport(srv.URL); got.RequestLinks {
 		t.Errorf("a string features value read as request-1: %+v", got)
+	}
+}
+
+// TestRequestLinkSupportTellsAMissingListFromAnEmptyOne (deep QA A7-04): a
+// current server always sends a feature list, [] while request links are off,
+// and a server from before request links sends none. Make link words the two
+// apart, so FeatureList reports whether a list came at all; null and a value
+// of the wrong shape are no list.
+func TestRequestLinkSupportTellsAMissingListFromAnEmptyOne(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		want FeatureResult
+	}{
+		{`{"status":"healthy","uptime":42.0}`, FeatureResult{Reachable: true}},
+		{`{"status":"healthy","features":null}`, FeatureResult{Reachable: true}},
+		{`{"status":"healthy","features":"request-1"}`, FeatureResult{Reachable: true}},
+		{`{"status":"healthy","features":[]}`, FeatureResult{Reachable: true, FeatureList: true}},
+		{`{"status":"healthy","features":["portal-9"]}`, FeatureResult{Reachable: true, FeatureList: true}},
+		{`{"status":"healthy","features":["request-1"]}`, FeatureResult{Reachable: true, RequestLinks: true, FeatureList: true}},
+	} {
+		srv := healthServer(tc.body)
+		if got := requestLinkSupport(srv.URL); got != tc.want {
+			t.Errorf("%s: requestLinkSupport = %+v, want %+v", tc.body, got, tc.want)
+		}
+		srv.Close()
 	}
 }
 
@@ -516,7 +541,7 @@ func TestRequestLinkSupportUsesTheConfiguredServer(t *testing.T) {
 	srv := healthServer(`{"status":"healthy","features":["request-1"]}`)
 	defer srv.Close()
 	a := &App{cfg: appConfig{Server: srv.URL}}
-	if got := a.RequestLinkSupport(); got != (FeatureResult{Reachable: true, RequestLinks: true}) {
+	if got := a.RequestLinkSupport(); got != (FeatureResult{Reachable: true, RequestLinks: true, FeatureList: true}) {
 		t.Errorf("RequestLinkSupport = %+v, want reachable with request-1 from %s", got, srv.URL)
 	}
 }

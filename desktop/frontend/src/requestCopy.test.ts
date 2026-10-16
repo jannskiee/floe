@@ -39,6 +39,9 @@ describe('error codes', () => {
         ['no-relay', "Hide my IP needs a relay this server doesn't have"],
         ['relay-unknown', "Couldn't read this server's relay details for Hide my IP"],
         ['save-folder', "Couldn't use that folder"],
+        // A server with no feature list predates request links (deep QA
+        // A7-04): E1 said they were off, which a policy file cannot change.
+        ['unsupported', "This Floe server doesn't offer request links"],
     ])('maps %s to fixed copy', (code, want) => {
         expect(errorLine(code)).toBe(want);
     });
@@ -60,7 +63,7 @@ describe('error codes', () => {
 
 describe('waiting, reconnecting and ended lines', () => {
     it('maps setup-failed to fixed copy', () => {
-        expect(reopenLine({code: 'setup-failed', suggestClose: false})).toBe("The sender couldn't connect");
+        expect(reopenLine({code: 'setup-failed', suggestClose: false}, NOW)).toBe("The sender couldn't connect");
     });
 
     it('names a sender turned away because Hide my IP is on and no relay is available (W14)', () => {
@@ -68,24 +71,43 @@ describe('waiting, reconnecting and ended lines', () => {
         // no relay, and relay-unknown when it could not be read or fetched; the
         // link used to show only Waiting for files (audit row A2-B1).
         const w14 = "The sender couldn't connect: Hide my IP is on and no relay is available";
-        expect(reopenLine({code: 'no-relay', suggestClose: false})).toBe(w14);
-        expect(reopenLine({code: 'relay-unknown', suggestClose: false})).toBe(w14);
-        expect(reopenLine({code: 'no-relay', missedAt: MISSED, suggestClose: false})).toBe(w14);
+        expect(reopenLine({code: 'no-relay', suggestClose: false}, NOW)).toBe(w14);
+        expect(reopenLine({code: 'relay-unknown', suggestClose: false}, NOW)).toBe(w14);
+        expect(reopenLine({code: 'no-relay', missedAt: MISSED, suggestClose: false}, NOW)).toBe(w14);
         // E-40's question still outranks it, as it does every reopen reason.
-        expect(reopenLine({code: 'no-relay', suggestClose: true})).toBe('2 requests ended without Accept in 10 minutes. Close this link?');
+        expect(reopenLine({code: 'no-relay', suggestClose: true}, NOW)).toBe('2 requests ended without Accept in 10 minutes. Close this link?');
     });
 
     it('maps missedAt to fixed copy', () => {
-        expect(reopenLine({code: '', missedAt: MISSED, suggestClose: false})).toBe('Missed a request at 2:14 PM');
+        expect(reopenLine({code: '', missedAt: MISSED, suggestClose: false}, NOW)).toBe('Missed a request at 2:14 PM');
+    });
+
+    it('dates a missed request and a link end that were not today (deep QA A5-11, QA-P1)', () => {
+        // A link lasts up to 7 days, and a bare clock read as today.
+        const nextDay = new Date(2026, 8, 15, 9, 30).getTime();
+        const nextWeek = new Date(2026, 8, 21, 23, 59).getTime();
+        expect(reopenLine({code: '', missedAt: MISSED, suggestClose: false}, nextDay)).toBe('Missed a request at Sep 14, 2:14 PM');
+        expect(copy.missedLine(MISSED, nextWeek)).toBe('Missed a request at Sep 14, 2:14 PM');
+        expect(endedLine('expired', END, nextDay)).toBe('Link ended at Sep 14, 2:05 PM');
+        // The approved example: Oct 15, 3:42 PM, read on another day.
+        const oct15 = new Date(2026, 9, 15, 15, 42).getTime();
+        expect(copy.missedLine(oct15, new Date(2026, 9, 16, 8, 0).getTime())).toBe('Missed a request at Oct 15, 3:42 PM');
+        expect(endedLine('expired', oct15, new Date(2026, 9, 16, 8, 0).getTime())).toBe('Link ended at Oct 15, 3:42 PM');
+        // Still the clock alone on the same day, early or late.
+        expect(endedLine('expired', oct15, new Date(2026, 9, 15, 0, 0).getTime())).toBe('Link ended at 3:42 PM');
+        expect(endedLine('expired', oct15, new Date(2026, 9, 15, 23, 59).getTime())).toBe('Link ended at 3:42 PM');
+        // A close never carries a time.
+        expect(endedLine('closed', END, nextDay)).toBe('Link closed');
+        expect(copy.fmtAt(MISSED, NOW)).toBe('2:14 PM');
     });
 
     it('suggestClose shows the Close this link line', () => {
-        expect(reopenLine({code: '', missedAt: MISSED, suggestClose: true})).toBe('2 requests ended without Accept in 10 minutes. Close this link?');
+        expect(reopenLine({code: '', missedAt: MISSED, suggestClose: true}, NOW)).toBe('2 requests ended without Accept in 10 minutes. Close this link?');
     });
 
     it('maps visitor-left to no line', () => {
-        expect(reopenLine({code: 'visitor-left', missedAt: MISSED, suggestClose: false})).toBe('');
-        expect(reopenLine({code: '', suggestClose: false})).toBe('');
+        expect(reopenLine({code: 'visitor-left', missedAt: MISSED, suggestClose: false}, NOW)).toBe('');
+        expect(reopenLine({code: '', suggestClose: false}, NOW)).toBe('');
     });
 
     it('maps reconnecting to fixed copy (C1, two lines)', () => {
@@ -94,21 +116,21 @@ describe('waiting, reconnecting and ended lines', () => {
     });
 
     it('maps expired to fixed copy', () => {
-        expect(endedLine('expired', END)).toBe('Link ended at 2:05 PM');
+        expect(endedLine('expired', END, NOW)).toBe('Link ended at 2:05 PM');
     });
 
     it('maps closed to fixed copy', () => {
-        expect(endedLine('closed', END)).toBe('Link closed');
+        expect(endedLine('closed', END, NOW)).toBe('Link closed');
     });
 
     it('maps app-closed to fixed copy', () => {
         // X5 is cut (D-170): after a relaunch the view opens at Make link.
-        expect(endedLine('app-closed', END)).toBe('Link closed');
+        expect(endedLine('app-closed', END, NOW)).toBe('Link closed');
     });
 
     it('has no network or server-restart ending (E-34)', () => {
-        expect(endedLine('network', END)).toBe('Link closed');
-        expect(endedLine('server-restart', END)).toBe('Link closed');
+        expect(endedLine('network', END, NOW)).toBe('Link closed');
+        expect(endedLine('server-restart', END, NOW)).toBe('Link closed');
     });
 
     it('writes the scope line with the link end, today or on a later date', () => {
@@ -203,6 +225,11 @@ describe('receiving and done', () => {
         expect(receivingHeading(4, 12, '')).toBe('RECEIVING 4 OF 12');
     });
 
+    it('names Cancel drop, and the stop in progress after it (V4, deep QA A5-10)', () => {
+        expect(copy.CANCEL_DROP).toBe('Cancel drop');
+        expect(copy.STOPPING).toBe('Stopping');
+    });
+
     it('reads the long-drop line in days (V6)', () => {
         expect(etaLongLine(3 * 86400)).toBe('About 3 days at this speed, past the 24-hour limit');
     });
@@ -237,7 +264,9 @@ describe('stop codes', () => {
     it.each([
         ['disk-full', 'The drive ran out of space · 4 of 12 files saved'],
         ['hash-mismatch', "A file didn't match what was sent and was deleted · 4 of 12 files saved"],
-        ['path-too-long', 'A folder path was too long for Windows · 4 of 12 files saved'],
+        // ST4 names a file name too: one long name with no folder above it
+        // stops a drop with path-too-long as well (QA-P2).
+        ['path-too-long', 'A file name or folder path was too long for Windows · 4 of 12 files saved'],
         ['over-approved', 'More data arrived than you accepted · 4 of 12 files saved'],
         ['relay-cap', 'Over the 2 GB relay limit · 4 of 12 files saved'],
         ['file-too-large-for-folder', 'A file is too large for this drive · 4 of 12 files saved'],
@@ -246,6 +275,8 @@ describe('stop codes', () => {
         ['stopped', 'You stopped this drop · 4 of 12 files saved'],
         ['peer-abort', 'The sender stopped this drop · 4 of 12 files saved'],
         ['time-limit', 'The drop reached the 24-hour limit · 4 of 12 files saved'],
+        // ST13: a drop Floe closed during, on the next launch (deep QA A5-09).
+        ['app-closed', 'Floe was closed · 4 of 12 files saved'],
     ])('maps %s to fixed copy', (code, want) => {
         expect(stoppedCard(code, 4, 12)).toBe(want);
     });
@@ -264,11 +295,22 @@ describe('stop codes', () => {
         expect(stoppedFull('peer-abort', 4, 12)).toBe('Drop stopped: the sender left · 4 of 12 files arrived');
         expect(stoppedFull('time-limit', 4, 12)).toBe('Drop stopped: it reached the 24-hour limit · 4 of 12 files saved');
         expect(stoppedFull('stopped', 4, 12)).toBe('You stopped this drop · 4 of 12 files saved');
+        expect(stoppedFull('path-too-long', 4, 12)).toBe('Drop stopped: a file name or folder path was too long for Windows');
+        expect(stoppedFull('app-closed', 4, 12)).toBe('Drop stopped: Floe was closed · 4 of 12 files saved');
+        expect(stoppedFull('app-closed', 1, 1)).toBe('Drop stopped: Floe was closed · 1 of 1 file saved');
+    });
+
+    it('a drop Floe closed during shows its folder like any stop with files saved (ST13)', () => {
+        expect(stoppedShowsFolder('app-closed', 4)).toBe(true);
+        expect(stoppedShowsFolder('app-closed', 0)).toBe(false);
+        expect(copy.keptPartLine('app-closed')).toBe('');
+        // The ended app-closed of a link stays X2: only a stopped drop is ST13.
+        expect(endedLine('app-closed', END, NOW)).toBe('Link closed');
     });
 
     it('peer-abort is the only code that blames the sender', () => {
         const codes = ['disk-full', 'hash-mismatch', 'path-too-long', 'over-approved', 'relay-cap', 'file-too-large-for-folder',
-            'write-failed', 'save-blocked', 'stopped', 'peer-abort', 'time-limit', 'unknown', ''];
+            'write-failed', 'save-blocked', 'stopped', 'peer-abort', 'time-limit', 'app-closed', 'unknown', ''];
         const blaming = codes.filter((c) => /sender/i.test(stoppedCard(c, 4, 12)) || /sender/i.test(stoppedFull(c, 4, 12)));
         expect(blaming).toEqual(['peer-abort']);
     });
@@ -302,7 +344,8 @@ describe('stop codes', () => {
         // Every stop that carries a count inherits the forms, card and History.
         expect(stoppedCard('disk-full', 1, 1)).toBe('The drive ran out of space · 1 of 1 file saved');
         expect(stoppedCard('disk-full', 0, 12)).toBe('The drive ran out of space · Nothing saved');
-        expect(stoppedCard('path-too-long', 0, 1)).toBe('A folder path was too long for Windows · Nothing saved');
+        expect(stoppedCard('path-too-long', 0, 1)).toBe('A file name or folder path was too long for Windows · Nothing saved');
+        expect(copy.NOTHING_SAVED).toBe('Nothing saved');
         expect(stoppedCard('unknown', 0, 0)).toBe('Nothing saved');
         expect(stoppedFull('unknown', 1, 1)).toBe('Drop stopped · 1 of 1 file saved');
         expect(stoppedFull('time-limit', 0, 3)).toBe('Drop stopped: it reached the 24-hour limit · Nothing saved');
@@ -358,9 +401,9 @@ describe('the whole table', () => {
         const out: string[] = [];
         for (const v of Object.values(copy)) if (typeof v === 'string') out.push(v);
         for (const code of CODES) {
-            out.push(errorLine(code), endedLine(code, END), stoppedCard(code, 4, 12), stoppedFull(code, 4, 12), copy.keptPartLine(code));
+            out.push(errorLine(code), endedLine(code, END, NOW), stoppedCard(code, 4, 12), stoppedFull(code, 4, 12), copy.keptPartLine(code));
             out.push(warningLine(code, {freeBytes: 31 * GB, totalBytes: 38 * GB}, 'D:\\Footage\\Floe requests'));
-            out.push(reopenLine({code, missedAt: MISSED, suggestClose: false}), reopenLine({code, suggestClose: false}));
+            out.push(reopenLine({code, missedAt: MISSED, suggestClose: false}, NOW), reopenLine({code, suggestClose: false}, NOW));
         }
         return out;
     }

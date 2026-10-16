@@ -68,6 +68,7 @@ type fakeSignalServer struct {
 	silent    bool   // when set, a token join gets no answer
 	rejectWS  bool   // when set, /ws upgrades fail (the server is down)
 	features  bool   // /health lists request-1
+	emptyList bool   // with features off, /health lists [] (a current server with request links off), not no list (a server from before them)
 	turnBody  string // /api/turn-credentials body; "" answers 500
 	block     chan struct{}
 	upgrades  int
@@ -106,13 +107,16 @@ func newFakeSignalServer(t *testing.T) *fakeSignalServer {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
-		feat := f.features
+		feat, empty := f.features, f.emptyList
 		f.mu.Unlock()
-		if feat {
+		switch {
+		case feat:
 			_, _ = w.Write([]byte(`{"status":"healthy","features":["request-1"]}`))
-			return
+		case empty:
+			_, _ = w.Write([]byte(`{"status":"healthy","features":[]}`))
+		default:
+			_, _ = w.Write([]byte(`{"status":"healthy"}`))
 		}
-		_, _ = w.Write([]byte(`{"status":"healthy"}`))
 	})
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
@@ -614,17 +618,32 @@ func TestMakeRequestLinkNeedsNoSwitch(t *testing.T) {
 	}
 }
 
+// TestMakeRequestLinkRefusesWithoutRequest1: a server with request links off
+// lists [] and is E1's disabled; a server from before request links lists
+// nothing and is unsupported, which says the server does not offer them
+// rather than that they are off (deep QA A7-04). Neither gets a join.
 func TestMakeRequestLinkRefusesWithoutRequest1(t *testing.T) {
-	f := newFakeSignalServer(t)
-	f.set(func(f *fakeSignalServer) { f.features = false })
-	a, _ := laneApp(t, f)
-	a.MakeRequestLink("x", "", "24h", false)
-	s := waitState(t, a, 10*time.Second, "error")
-	if s.Code != "disabled" {
-		t.Fatalf("no request-1: code %q, want disabled", s.Code)
-	}
-	if f.count("join-room") != 0 {
-		t.Fatal("a join was sent to a server without request-1")
+	for _, tc := range []struct {
+		name      string
+		emptyList bool
+		want      string
+	}{
+		{"request links off", true, "disabled"},
+		{"a server from before request links", false, "unsupported"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeSignalServer(t)
+			f.set(func(f *fakeSignalServer) { f.features, f.emptyList = false, tc.emptyList })
+			a, _ := laneApp(t, f)
+			a.MakeRequestLink("x", "", "24h", false)
+			s := waitState(t, a, 10*time.Second, "error")
+			if s.Code != tc.want {
+				t.Fatalf("no request-1: code %q, want %s", s.Code, tc.want)
+			}
+			if f.count("join-room") != 0 {
+				t.Fatal("a join was sent to a server without request-1")
+			}
+		})
 	}
 }
 

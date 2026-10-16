@@ -147,6 +147,16 @@ func (a *App) startup(ctx context.Context) {
 		runtime.EventsEmit(ctx, "files:open", files)
 	}
 
+	// A request drop Floe closed during shows once, as stopped (A5-09, ST13).
+	// Here and not in NewApp: only the instance that holds the single-instance
+	// lock gets here, so a second launch in an Explorer burst cannot read the
+	// record and exit with it. The emit reaches a frontend that pulled
+	// GetRequestLink before this ran; one that pulls later reads it there.
+	if q, ok := takeQuitDrop(quitDropPath()); ok {
+		a.lane().restoreQuitDrop(q, ok)
+		a.emitCurrent()
+	}
+
 	// No Explorer entry is touched here (DSK-04). This used to re-point any
 	// entry that ran another executable at this one, so a portable copy run
 	// once took over the installed copy's entry and left it dead when its

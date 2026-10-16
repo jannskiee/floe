@@ -155,6 +155,12 @@ type RequestResult struct {
 	// drop on such a link that asked, and that the owner accepted, is not
 	// marked. Go's own fact, never peer data.
 	AutoAccepted bool `json:"autoAccepted"`
+
+	// EndedAt is set only on the stopped drop a launch shows from the record
+	// of a drop Floe closed during (app-closed, requestquit.go): when that
+	// record was last written, in unix milliseconds by this PC's clock, so
+	// History dates the row by the drop and not by the launch. 0 otherwise.
+	EndedAt int64 `json:"endedAt,omitempty"`
 }
 
 // The lane's timings. Liveness is the engine's own ping and read deadline
@@ -247,8 +253,9 @@ type requestLane struct {
 	battery        bool // set at each prompt; see RequestLinkSnapshot.Battery
 	prompt         *RequestPrompt
 	result         *RequestResult
-	dropCancel     func() // set while a drop runs (S1-DSK-03b)
-	ownerStop      bool   // the owner's own Cancel drop ended it: no failure toast
+	dropCancel     func()      // set while a drop runs (S1-DSK-03b)
+	dropRecord     *dropRecord // the running drop's quit record, which closeForQuit flushes (A5-09)
+	ownerStop      bool        // the owner's own Cancel drop ended it: no failure toast
 
 	// Attention (S1-DSK-05): whether the flash and the "(1) Floe" title are
 	// on, and when prompts on this link ended without Accept (E-40).
@@ -435,7 +442,7 @@ func (l *requestLane) detachLocked() (sc *signaling.Client, conn closer) {
 	l.stopLocked()
 	sc, conn = l.sc, l.conn
 	l.sc, l.conn = nil, nil
-	l.dropCancel = nil
+	l.dropCancel, l.dropRecord = nil, nil
 	return sc, conn
 }
 
@@ -688,8 +695,9 @@ func reconnectDelay(n int, base, cap time.Duration, r func(int64) int64) time.Du
 
 // MakeRequestLink makes one request link (spec 06 4.3) and returns at once
 // with the current snapshot; the frontend follows request:state. The one-link
-// rule is checked here; the server probe (no request-1 gives disabled, an
-// unreachable server unknown), the relay check and the host join run on the
+// rule is checked here; the server probe (no request-1 gives disabled, or
+// unsupported when the server sent no feature list; an unreachable server
+// unknown), the relay check and the host join run on the
 // lane goroutine. autoAccept is the form's Auto-accept switch for this link
 // only (D-173); false, the default, asks.
 func (a *App) MakeRequestLink(label string, saveDir string, lifetime string, autoAccept bool) RequestLinkSnapshot {
@@ -734,7 +742,7 @@ func (a *App) MakeRequestLink(label string, saveDir string, lifetime string, aut
 	// clear: the connection is closed with the socket, and the cancel, which
 	// belongs to a drop that is over, is dropped unrun (review 1a N4).
 	leftConn := l.conn
-	l.conn, l.dropCancel = nil, nil
+	l.conn, l.dropCancel, l.dropRecord = nil, nil, nil
 	leftWait, leftClose := l.closeWait, l.closeFrameFn
 	l.gen++
 	rg := l.gen
@@ -805,7 +813,14 @@ func (a *App) runRequestLink(rg uint64, stop <-chan struct{}, hideIP bool, lifet
 		return
 	}
 	if !fr.RequestLinks {
-		a.reqFail(rg, "disabled")
+		// [] is a current server with request links off (E1); no list at all
+		// is a server from before them, which turning them on cannot fix
+		// (deep QA A7-04).
+		if fr.FeatureList {
+			a.reqFail(rg, "disabled")
+		} else {
+			a.reqFail(rg, "unsupported")
+		}
 		return
 	}
 	// d: no web base is refused (D-118 relaxed E-21): a one-domain self-host
@@ -1215,9 +1230,9 @@ func (a *App) clearRequestConn(conn closer) {
 	l.mu.Unlock()
 }
 
-// setDropCancel stores the running drop's cancel func for Cancel drop, gated
-// on rg still owning the lane.
-func (a *App) setDropCancel(rg uint64, cancel func()) bool {
+// setDropCancel stores the running drop's cancel func for Cancel drop, and its
+// quit record for closeForQuit, gated on rg still owning the lane.
+func (a *App) setDropCancel(rg uint64, cancel func(), rec *dropRecord) bool {
 	l := a.lane()
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -1225,6 +1240,7 @@ func (a *App) setDropCancel(rg uint64, cancel func()) bool {
 		return false
 	}
 	l.dropCancel = cancel
+	l.dropRecord = rec
 	return true
 }
 
@@ -1342,11 +1358,18 @@ func (a *App) requestWakeRelease(rg uint64) {
 // visitors get host-absent (spec 06 4.9). The socket closes on that goroutine
 // rather than here because closing it first would drop the request-close,
 // and closing it after the write would make the quit wait for the write.
-// Idempotent, and safe on a lane that never made a link.
+// A drop still receiving has its quit record written as it stands, before
+// the connection closes: the drop's own end will find the lane gone and leave
+// the record for the next launch (A5-09, requestquit.go). Idempotent, and
+// safe on a lane that never made a link.
 func (l *requestLane) closeForQuit() {
 	l.mu.Lock()
 	old := l.gen
 	wasLive := liveState(l.state)
+	var rec *dropRecord
+	if l.state == "receiving" {
+		rec = l.dropRecord
+	}
 	sc, conn := l.detachLocked()
 	if wasLive {
 		l.endLocked("ended", "app-closed")
@@ -1354,6 +1377,7 @@ func (l *requestLane) closeForQuit() {
 	closeFrame := l.closeFrameFn
 	app := l.app
 	l.mu.Unlock()
+	rec.flush()
 	if app != nil {
 		app.requestWakeRelease(old)
 		app.attentionOff()
@@ -1454,18 +1478,19 @@ func (a *App) acceptDrop(rg uint64, res RequestResult) bool {
 // with the result, and the wake hold released. The release is not gated on
 // rg still owning the lane: a quit that moved the generation on must not
 // leave the PC held awake. Done sends TO2; a stop the owner did not cause
-// sends TO3; the owner's own Cancel drop sends nothing.
-func (a *App) endDrop(rg uint64, state, code string, res *RequestResult) {
+// sends TO3; the owner's own Cancel drop sends nothing. False when rg no
+// longer owned the lane, which during a drop means a quit ended it.
+func (a *App) endDrop(rg uint64, state, code string, res *RequestResult) bool {
 	a.requestWakeRelease(rg)
 	var ownerStop bool
 	if !a.reqUpdate(rg, func(l *requestLane) {
 		ownerStop = l.ownerStop
 		l.ownerStop = false
 		l.result = res
-		l.dropCancel = nil
+		l.dropCancel, l.dropRecord = nil, nil
 		l.endLocked(state, code)
 	}) {
-		return
+		return false
 	}
 	switch {
 	case state == "done":
@@ -1473,6 +1498,7 @@ func (a *App) endDrop(rg uint64, state, code string, res *RequestResult) {
 	case state == "stopped" && !ownerStop:
 		a.notifyRequest(rg, toastDropFailed)
 	}
+	return true
 }
 
 // requestSpamWindow is E-40's window: two prompts ending without Accept

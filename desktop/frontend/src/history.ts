@@ -87,7 +87,9 @@ export const REQUEST_NAMES_CAP = 200;
  *  keptPartLine). Anything else adds nothing. Built only from the snapshot's
  *  result, the owner's label and the stop code; the link and the room id never
  *  reach it. The names are the engine's display-safe saved names, so the kept
- *  .part, saved under none, adds no name. */
+ *  .part, saved under none, adds no name. A drop Floe closed during reaches
+ *  History on the next launch (app-closed, ST13) and is dated by the time Go
+ *  recorded it (endedAt), not by that launch. */
 export function requestHistoryEntry(snap: RequestLinkSnapshot, now: number = Date.now()): HistEntry | null {
     const r = snap.result;
     if (!r) return null;
@@ -97,7 +99,7 @@ export function requestHistoryEntry(snap: RequestLinkSnapshot, now: number = Dat
         kind: 'recv',
         names: r.names.slice(0, REQUEST_NAMES_CAP),
         count: r.saved,
-        at: now,
+        at: r.endedAt !== undefined && r.endedAt > 0 && r.endedAt <= now ? r.endedAt : now,
         via: 'request',
         verified: r.verified,
         renamed: r.renamed,

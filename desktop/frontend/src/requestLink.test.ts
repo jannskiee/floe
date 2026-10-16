@@ -20,6 +20,7 @@ import {
     reduce,
     requestLinkKind,
     showLaptopLine,
+    stoppingDrop,
     type RequestEvent,
     type RequestLinkSnapshot,
     type RequestUI,
@@ -242,10 +243,30 @@ describe('the request lane reducer', () => {
 
     it('T20 Cancel drop, or a stop, ends as stopped with its code', () => {
         const c = reduce(receiving, {type: 'CANCEL_DROP'});
-        expect(c).toBe(receiving);
+        // Receiving holds until Go says the drop stopped; meanwhile the button
+        // reads Stopping (deep QA A5-10), and a second click changes nothing.
+        expect(phase(c)).toBe('receiving');
+        expect(stoppingDrop(receiving)).toBe(false);
+        expect(stoppingDrop(c)).toBe(true);
+        expect(reduce(c, {type: 'CANCEL_DROP'})).toBe(c);
+        // A progress-free re-emit of receiving keeps it.
+        expect(stoppingDrop(at('receiving', {route: 'direct'})(c))).toBe(true);
         const s = at('stopped', {code: 'stopped', result: {...result, saved: 4}})(c);
         expect(phase(s)).toBe('stopped');
         expect(s.snap.code).toBe('stopped');
+        expect(stoppingDrop(s)).toBe(false);
+    });
+
+    it('T20a Stopping belongs to its own drop only', () => {
+        // Outside receiving Cancel drop is nothing to the reducer.
+        for (const ui of [ready, waiting, deciding, at('done', {result})(receiving)]) {
+            expect(reduce(ui, {type: 'CANCEL_DROP'})).toBe(ui);
+        }
+        // The next generation's drop starts with Cancel drop, not Stopping,
+        // even when Go's stopped snapshot for the cancelled one never came.
+        const c = reduce(receiving, {type: 'CANCEL_DROP'});
+        const next = reduce(c, {type: 'SNAPSHOT', snap: snap({state: 'receiving', gen: c.snap.gen + 1})});
+        expect(stoppingDrop(next)).toBe(false);
     });
 
     it('T21 Make another link after done or stopped returns to Ready', () => {
@@ -497,6 +518,14 @@ describe('Auto-accept on the bridge (D-173)', () => {
         expect(normalizeSnapshot({state: 'done', result: {autoAccepted: true}}).result?.autoAccepted).toBe(true);
         for (const junk of [false, 'true', 1, null, undefined, {}, []]) {
             expect(normalizeSnapshot({state: 'done', result: {autoAccepted: junk}}).result?.autoAccepted, String(junk)).toBe(false);
+        }
+    });
+
+    it('normalizeSnapshot keeps endedAt only as a positive number (ST13)', () => {
+        const at = 1_760_000_000_000;
+        expect(normalizeSnapshot({state: 'stopped', code: 'app-closed', result: {saved: 1, endedAt: at}}).result?.endedAt).toBe(at);
+        for (const junk of [0, -5, '1760000000000', null, undefined, NaN, Infinity, {}]) {
+            expect(normalizeSnapshot({state: 'stopped', result: {saved: 1, endedAt: junk}}).result, String(junk)).not.toHaveProperty('endedAt');
         }
     });
 });

@@ -91,6 +91,25 @@ func TestSaveDirUsable(t *testing.T) {
 	}
 }
 
+// The write check behind saveDirUsable (deep QA R2-02 rest) leaves nothing
+// behind: the folder it tried in holds what it held before, and a folder still
+// to be made is not made by the check.
+func TestSaveDirUsableLeavesNothingBehind(t *testing.T) {
+	dir := t.TempDir()
+	for _, p := range []string{dir, filepath.Join(dir, "new", "deeper")} {
+		if !saveDirUsable(p) {
+			t.Fatalf("%s is refused, want usable", p)
+		}
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		t.Errorf("the check left %q in %s", e.Name(), dir)
+	}
+}
+
 // W3 R2-02: a name Windows refuses (< > : " | ? * or a control character)
 // cannot be made at Accept, so it is not a usable folder; Make link then ends
 // with save-folder instead of spending the link on write-failed.

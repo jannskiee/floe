@@ -26,13 +26,24 @@ func expectedCommand(exe string) string {
 // IsInstalled judges by.
 var executable = os.Executable
 
-// The five answers of ContextMenuState, read by initCtxMenu in App.tsx.
+// contextMenuMultiSelect is the entry's MultiSelectModel (A3-B9). With none,
+// Explorer uses Document, which shows the verb only while 15 or fewer files
+// are selected; Player shows it for any number. With the "<exe>" "%1"
+// command Explorer then starts one process per selected file, the burst
+// onSecondInstanceLaunch gathers into the running window.
+const contextMenuMultiSelect = "Player"
+
+// The six answers of ContextMenuState, read by initCtxMenu in App.tsx.
 const (
 	ctxMenuSelf     = "self"
 	ctxMenuOther    = "other"
 	ctxMenuMissing  = "missing"
 	ctxMenuDead     = "dead"
 	ctxMenuPackaged = "packaged"
+	// ctxMenuSelfStale is this copy's entry in the shape Floe Desktop 0.3.1
+	// and earlier wrote, without MultiSelectModel: the launch writes it again
+	// once, and from then on it reads as self.
+	ctxMenuSelfStale = "self-stale"
 )
 
 // IsInstalled reports whether this copy came from the installer: the NSIS
@@ -52,18 +63,19 @@ func (a *App) IsInstalled() bool {
 
 // ContextMenuState names whose the Explorer entry is, for the frontend's
 // launch rule (initCtxMenu in App.tsx): "self" when it runs this executable,
-// "other" when it runs another copy, "dead" when it runs a program that no
-// longer exists, "missing" when there is none, and "packaged" in a Store
-// build, where the entry cannot work and nothing reads the registry (see
-// IsPackaged). The frontend never re-points "other": that is another copy's
-// entry, and only the owner's switch moves it here.
+// "self-stale" when it does but predates MultiSelectModel, "other" when it
+// runs another copy, "dead" when it runs a program that no longer exists,
+// "missing" when there is none, and "packaged" in a Store build, where the
+// entry cannot work and nothing reads the registry (see IsPackaged). The
+// frontend never re-points "other": that is another copy's entry, and only
+// the owner's switch moves it here.
 func (a *App) ContextMenuState() string {
 	if isPackaged() {
 		return ctxMenuPackaged
 	}
 	exe, _ := executable()
 	cmd, ok := contextMenuCommand(contextMenuBase)
-	return contextMenuStateOf(exe, cmd, ok)
+	return contextMenuStateOf(exe, cmd, ok, contextMenuCurrent(contextMenuBase))
 }
 
 // contextMenuStateOf is ContextMenuState's decision, apart from the registry.
@@ -80,8 +92,10 @@ func (a *App) ContextMenuState() string {
 //
 // "self" compares the program with this executable the way the file system
 // does (sameProgram), so the same copy launched under another spelling of
-// its path is still itself (DESKTOP-02).
-func contextMenuStateOf(exe, cmd string, registered bool) string {
+// its path is still itself (DESKTOP-02). current says the entry carries every
+// value this build writes (contextMenuCurrent); this copy's entry without
+// them is "self-stale" (A3-B9), and whose an entry is never depends on it.
+func contextMenuStateOf(exe, cmd string, registered, current bool) string {
 	if !registered {
 		return ctxMenuMissing
 	}
@@ -90,6 +104,9 @@ func contextMenuStateOf(exe, cmd string, registered bool) string {
 		return ctxMenuOther
 	}
 	if exe != "" && sameProgram(target, exe) {
+		if !current {
+			return ctxMenuSelfStale
+		}
 		return ctxMenuSelf
 	}
 	if _, err := os.Stat(target); os.IsNotExist(err) {
@@ -165,5 +182,6 @@ func (a *App) DisableContextMenu() error {
 // generated bindings only grow, and it answers from the same decision, so the
 // two never disagree about whose the entry is (DESKTOP-02).
 func (a *App) ContextMenuEnabled() bool {
-	return a.ContextMenuState() == ctxMenuSelf
+	s := a.ContextMenuState()
+	return s == ctxMenuSelf || s == ctxMenuSelfStale
 }

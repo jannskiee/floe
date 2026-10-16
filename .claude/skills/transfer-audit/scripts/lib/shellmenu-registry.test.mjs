@@ -91,6 +91,30 @@ test('absent before, created by an exe of this run: the key is removed and its p
     assert.ok(notes.some((n) => /removed HKCU\\.*which a launch of this run had created/.test(n)), notes.join('\n'));
 });
 
+test('absent before, created by a head build with MultiSelectModel Player: removed; another MultiSelectModel is left alone', { skip: !WIN }, () => {
+    const exe = 'C:\\Temp\\lta-run\\bin\\floe-desktop.exe';
+    // After desktop-v0.3.1 the app also writes MultiSelectModel = Player on
+    // the verb (desktop/contextmenu_windows.go, A3-B9).
+    for (const [value, deleted] of [
+        ['Player', true],
+        ['Document', false],
+    ]) {
+        const key = scratch(`multi-${value}`);
+        const guard = new ShellMenuGuard({ key });
+        assert.equal(guard.take(), 'absent');
+        register(key, exe);
+        reg(['add', `HKCU\\${key}`, '/v', 'MultiSelectModel', '/d', value, '/f']);
+        guard.own(exe);
+        const notes = [];
+        assert.deepEqual(
+            guard.restore((l) => notes.push(l)),
+            deleted ? { wrote: true, match: true } : { wrote: false, match: null },
+            value
+        );
+        assert.equal(exists(key), !deleted, value);
+    }
+});
+
 test('absent before, then a key that is not this run\'s: left exactly as it is', { skip: !WIN }, () => {
     const exe = 'C:\\Temp\\lta-run\\bin\\floe-desktop.exe';
 

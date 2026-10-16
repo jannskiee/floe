@@ -339,14 +339,16 @@ describe('friendlyError', () => {
     it('passes hand-written actionable messages through verbatim', () => {
         const relay = 'transfer blocked: relay connections are capped at 2 GB (selected relay). Turn off Hide my IP to send larger files';
         expect(friendlyError(relay)).toBe('Error: ' + relay);
-        // desktop/transfer.go errNotActive, in today's words and in the words
-        // builds up to desktop-v0.3.0 used: both pass through whole.
+        // desktop/transfer.go errNotActive passes through whole. The words
+        // builds up to desktop-v0.3.0 used left every Go source, and their
+        // anchor with them; the sentence would still pass through, by the
+        // default branch, as no rule matches it.
         const active = 'this code or link is no longer active; ask the sender for a new one';
         expect(friendlyError(active)).toBe('Error: ' + active);
+        expect(PASSTHROUGH.filter((p) => active.includes(p))).toEqual(['this code or link is no longer active']);
         const code = 'this code is no longer active; ask for a new one';
         expect(friendlyError(code)).toBe('Error: ' + code);
-        expect(PASSTHROUGH.filter((p) => active.includes(p))).toEqual(['this code or link is no longer active']);
-        expect(PASSTHROUGH.filter((p) => code.includes(p))).toEqual(['this code is no longer active']);
+        expect(PASSTHROUGH.filter((p) => code.includes(p))).toEqual([]);
         // Both Hide my IP relay guards (desktop/transfer.go errNoRelay and
         // errRelayUnknown). They already name what to turn off, so a bucket
         // would replace advice with worse advice. This is the test that
@@ -381,22 +383,30 @@ describe('a code receive this side stopped (D-123)', () => {
     // in cli/engine/transfer/refusal.go (approved-copy-cli.txt RX-01 to RX-10),
     // quoted because Go cannot be imported here. ReceiveByCode wraps each in
     // 'transfer failed: ' (desktop/transfer.go). The second column is the
-    // approved desktop row (RX1 to RX10), which approvedCopy.test.ts ties to
-    // the frozen table.
+    // approved desktop row (RX1, RX2 and RX10), which approvedCopy.test.ts
+    // ties to the frozen table.
     const RX: Array<[engine: string, shown: string]> = [
         ["receive stopped: a file's path is too deep or too long to save in this folder", "A file's path is too deep or too long to save in this folder"],
         ['receive stopped: a file is larger than the save drive can hold', 'A file is larger than the save drive can hold'],
-        ['receive stopped: more data arrived than this transfer announced', 'More data arrived than this transfer announced'],
-        ['receive stopped: relayed transfers are capped at 2 GB', 'Relayed transfers are capped at 2 GB'],
-        ['receive stopped: the transfer reached its 24-hour limit', 'The transfer reached its 24-hour limit'],
-        ['receive stopped: nobody answered in time', 'Nobody answered in time'],
-        ['receive stopped: the transfer was declined', 'The transfer was declined'],
-        ['receive stopped: the transfer was stopped on this computer', 'Stopped on this computer'],
-        ['receive stopped: a finished file could not be moved into place', "A finished file couldn't be moved into place"],
         [
             'received a file in full but could not finish saving it; the complete file was kept in the save folder with a .part ending',
             "A received file couldn't be saved, so it was kept with a .part ending",
         ],
+    ];
+    // RX3 to RX9: sentences no code receive can end with. ReceiveByCode sets
+    // no ReceiveLimits and no Decide, which alone raise over-approved,
+    // relay-cap, time-limit, expired and stopped; nothing refuses with
+    // declined; a failed commit is RX10's CommitError, never save-blocked.
+    // Their rules are gone, so each passes through like any sentence nobody
+    // mapped.
+    const UNREACHABLE = [
+        'receive stopped: more data arrived than this transfer announced',
+        'receive stopped: relayed transfers are capped at 2 GB',
+        'receive stopped: the transfer reached its 24-hour limit',
+        'receive stopped: nobody answered in time',
+        'receive stopped: the transfer was declined',
+        'receive stopped: the transfer was stopped on this computer',
+        'receive stopped: a finished file could not be moved into place',
     ];
     const SHOWN = new Set(RX.map(([, shown]) => 'Error: ' + shown));
 
@@ -407,8 +417,19 @@ describe('a code receive this side stopped (D-123)', () => {
             expect(friendlyError(engine), engine).toBe('Error: ' + shown);
             expect(friendlyError('Error: transfer failed: ' + engine), engine).toBe('Error: ' + shown);
         }
-        // Ten sentences, ten different lines.
+        // Three sentences, three different lines.
         expect(SHOWN.size).toBe(RX.length);
+    });
+
+    it('keeps no rule for a sentence a code receive cannot end with', () => {
+        for (const engine of UNREACHABLE) {
+            expect(RULES.some(([pattern]) => engine.includes(pattern)), engine).toBe(false);
+            expect(friendlyError('transfer failed: ' + engine), engine).toBe('Error: transfer failed: ' + engine);
+        }
+        // Nor for the ICE fetch's wrapper: ice.FetchDetail returns no error on
+        // any path, so transfer.go's 'failed to fetch ICE credentials' never
+        // reaches the status line.
+        expect(RULES.some(([pattern]) => pattern.includes('ICE credentials'))).toBe(false);
     });
 
     it('keeps the receive sentences D-123 left alone where they were', () => {

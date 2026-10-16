@@ -20,6 +20,9 @@ func registerContextMenu(base, exe string) error {
 	if err := k.SetStringValue("Icon", exe); err != nil {
 		return err
 	}
+	if err := k.SetStringValue("MultiSelectModel", contextMenuMultiSelect); err != nil {
+		return err
+	}
 	cmd, _, err := registry.CreateKey(registry.CURRENT_USER, base+`\command`, registry.SET_VALUE)
 	if err != nil {
 		return err
@@ -53,4 +56,17 @@ func contextMenuCommand(base string) (string, bool) {
 		return "", false
 	}
 	return s, true
+}
+
+// contextMenuCurrent reports whether the verb carries the MultiSelectModel
+// this build writes; an entry written by Floe Desktop 0.3.1 or earlier has
+// none (A3-B9).
+func contextMenuCurrent(base string) bool {
+	k, err := registry.OpenKey(registry.CURRENT_USER, base, registry.QUERY_VALUE)
+	if err != nil {
+		return false
+	}
+	defer k.Close()
+	s, _, err := k.GetStringValue("MultiSelectModel")
+	return err == nil && s == contextMenuMultiSelect
 }

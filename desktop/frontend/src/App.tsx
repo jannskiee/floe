@@ -76,6 +76,7 @@ import {
     parsePastedLink,
     phase as requestPhase,
     reduce as reduceRequest,
+    stoppingDrop,
     type Lifetime,
 } from './requestLink';
 import {
@@ -737,7 +738,11 @@ function App() {
         // never repair, broken in Explorer behind a switch that reads off.
         // A launch never writes the marker, so it records the owner's choice
         // only. The installer's uninstaller deletes the key and keeps this
-        // profile, so after a reinstall a '1' brings it back.
+        // profile, so after a reinstall a '1' brings it back. "self-stale" is
+        // this copy's own entry from before MultiSelectModel, which Windows
+        // hides for more than 15 selected files (A3-B9): written again once,
+        // whatever the marker says, since it is already there; Go then reads
+        // it as self.
         //
         // Skipped entirely in a packaged (Microsoft Store) build: the write
         // would land in the package's private registry view, Explorer would
@@ -747,8 +752,9 @@ function App() {
         if (isWindows) {
             const initCtxMenu = () => {
                 ContextMenuState().then(async (state) => {
-                    if (state === 'self') {
+                    if (state === 'self' || state === 'self-stale') {
                         setCtxMenu(true);
+                        if (state === 'self-stale') EnableContextMenu().catch(() => {});
                         return;
                     }
                     if (state !== 'missing' && state !== 'dead') return;
@@ -968,7 +974,7 @@ function App() {
             let line = '';
             if (s.state === 'done' && r) line = doneHeading(r.saved, r.bytes);
             else if (s.state === 'stopped' && r) line = `${STOPPED_HEADING}. ${stoppedCard(s.code, r.saved, r.files)}`;
-            else if (s.state === 'ended') line = endedLine(s.code, s.expiresAt);
+            else if (s.state === 'ended') line = endedLine(s.code, s.expiresAt, Date.now());
             else if (s.state === 'declined') line = DECLINED_LINE;
             else if (s.state === 'waiting' && prev === 'making') line = WAITING_LINE;
             setReqAnnounce(line);
@@ -2639,7 +2645,7 @@ function App() {
                                             onMake={makeRequestLink}
                                             onClose={() => { reqActed.current = true; CloseRequestLink().catch(() => {}); }}
                                             onAnswer={answerRequest}
-                                            onCancelDrop={() => { reqActed.current = true; CancelRequestDrop().catch(() => {}); }}
+                                            onCancelDrop={() => { reqActed.current = true; dispatchReq({type: 'CANCEL_DROP'}); CancelRequestDrop().catch(() => {}); }}
                                             onRetry={() => { reqActed.current = true; RetryRequestLink().catch(() => {}); }}
                                             onShowInFolder={(dir) => { OpenFolder(dir).catch(() => {}); }}
                                             onMakeAnother={makeAnotherLink}
@@ -2648,6 +2654,7 @@ function App() {
                                             onGuardLift={() => setReqAnnounce(ANNOUNCE_GUARD_LIFTED)}
                                             onPromptVisible={setPromptInView}
                                             accepted={acceptedPrompt(reqUI)}
+                                            stopping={stoppingDrop(reqUI)}
                                         />
                                     </div>
 

@@ -17,7 +17,7 @@ const NOW = new Date(2026, 8, 14, 9, 30).getTime();
 // Text only a screen reader hears keeps its punctuation (test/punctuation.ts).
 const SCREEN_READER_ONLY = new Set(['ANNOUNCE_REQUEST', 'ANNOUNCE_GUARD_LIFTED']);
 const STOP_CODES = ['disk-full', 'hash-mismatch', 'path-too-long', 'over-approved', 'relay-cap', 'file-too-large-for-folder',
-    'write-failed', 'save-blocked', 'stopped', 'peer-abort', 'time-limit', 'unknown'];
+    'write-failed', 'save-blocked', 'stopped', 'peer-abort', 'time-limit', 'app-closed', 'unknown'];
 
 function offenders(lines: string[]): string[] {
     return lines.filter(endsInPeriod);
@@ -41,13 +41,14 @@ describe('no line ends in a period (D-167)', () => {
 
     it('every line the Request link builders make', () => {
         const lines = [
-            ...['disabled', 'limited', 'unknown', 'no-relay', 'relay-unknown', 'already-open', 'denied'].map(copy.errorLine),
-            copy.scopeLine(END, NOW), copy.scopeLine(END + 3 * 86400000, NOW), copy.scopeLine(END, NOW, true), copy.missedLine(END),
-            copy.reopenLine({code: 'setup-failed', suggestClose: false}),
-            copy.reopenLine({code: 'no-relay', suggestClose: false}),
-            copy.reopenLine({code: '', missedAt: END, suggestClose: false}),
-            copy.reopenLine({code: '', suggestClose: true}),
-            ...['expired', 'app-closed', 'closed'].map((c) => copy.endedLine(c, END)),
+            ...['disabled', 'unsupported', 'limited', 'unknown', 'no-relay', 'relay-unknown', 'already-open', 'denied'].map(copy.errorLine),
+            copy.scopeLine(END, NOW), copy.scopeLine(END + 3 * 86400000, NOW), copy.scopeLine(END, NOW, true),
+            copy.missedLine(END, NOW), copy.missedLine(END, NOW + 86400000), copy.endedLine('expired', END, NOW + 86400000),
+            copy.reopenLine({code: 'setup-failed', suggestClose: false}, NOW),
+            copy.reopenLine({code: 'no-relay', suggestClose: false}, NOW),
+            copy.reopenLine({code: '', missedAt: END, suggestClose: false}, NOW),
+            copy.reopenLine({code: '', suggestClose: true}, NOW),
+            ...['expired', 'app-closed', 'closed'].map((c) => copy.endedLine(c, END, NOW)),
             copy.promptHeading(''), copy.promptHeading('Acme footage'), copy.promptSize(12, 38 * GB),
             ...['low-space', 'relay-over-cap'].map((c) =>
                 copy.warningLine(c, {freeBytes: 31 * GB, totalBytes: 38 * GB}, 'D:\\Footage\\Floe')),

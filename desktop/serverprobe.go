@@ -84,7 +84,7 @@ func probeServer(raw string, dialWS func(string) error) ProbeResult {
 		return ProbeResult{Message: "Start the address with https:// or http://"}
 	}
 
-	if r, _ := probeHealth(base); !r.OK {
+	if r, _, _ := probeHealth(base); !r.OK {
 		return r
 	}
 	if err := dialWS(base); err != nil {
@@ -114,19 +114,20 @@ func realtimeRefusal(err error) string {
 
 // probeHealth is stage one: reachable, and answering as a Floe server. It also
 // returns the server's optional feature list (spec 04 5.9, ["request-1"] on a
-// server with request links on), which only RequestLinkSupport reads. A missing
-// list is an older or self-hosted server and is not a failure; a list of the
-// wrong shape is treated as absent rather than failing Settings Test.
-func probeHealth(base string) (ProbeResult, []string) {
+// server with request links on), which only RequestLinkSupport reads, and
+// whether a list came at all. A missing list is a server from before request
+// links and is not a failure; null and a value of the wrong shape count as no
+// list rather than failing Settings Test.
+func probeHealth(base string) (ProbeResult, []string, bool) {
 	resp, err := probeClient().Get(base + "/health")
 	if err != nil {
-		return ProbeResult{Message: describeDialError(err)}, nil
+		return ProbeResult{Message: describeDialError(err)}, nil, false
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return ProbeResult{Message: fmt.Sprintf(
-			"That address answered HTTP %d (likely the web app, not the server)", resp.StatusCode)}, nil
+			"That address answered HTTP %d (likely the web app, not the server)", resp.StatusCode)}, nil, false
 	}
 	var body struct {
 		Status   string          `json:"status"`
@@ -135,28 +136,35 @@ func probeHealth(base string) (ProbeResult, []string) {
 	// Bounded: the feature list is the only open-ended field, and nothing a
 	// Floe server sends here comes near 64 KiB.
 	if json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&body) != nil || body.Status != "healthy" {
-		return ProbeResult{Message: "That address isn't a Floe server"}, nil
+		return ProbeResult{Message: "That address isn't a Floe server"}, nil, false
 	}
-	var features []string
-	if json.Unmarshal(body.Features, &features) != nil {
-		features = nil
+	// Into a pointer, so null leaves it nil as an absent key does, and only an
+	// array, [] included, is a list.
+	var features *[]string
+	if json.Unmarshal(body.Features, &features) != nil || features == nil {
+		return ProbeResult{OK: true}, nil, false
 	}
-	return ProbeResult{OK: true}, features
+	return ProbeResult{OK: true}, *features, true
 }
 
 // FeatureResult is the Go-side /health probe for the request link lane: whether
-// the server answered as a healthy Floe server, and whether it lists request-1.
-// One struct return, never a (T, error) pair, for the reason ProbeResult gives.
+// the server answered as a healthy Floe server, whether it lists request-1, and
+// whether it sent a feature list at all. A current server always sends one, []
+// while its request links are off; a server from before request links sends
+// none, and Make link then says the server does not offer them rather than that
+// they are off (deep QA A7-04). One struct return, never a (T, error) pair, for
+// the reason ProbeResult gives.
 type FeatureResult struct {
 	Reachable    bool `json:"reachable"`
 	RequestLinks bool `json:"requestLinks"`
+	FeatureList  bool `json:"featureList"`
 }
 
 // RequestLinkSupport probes the server this app talks to for request-1 (spec
 // 06 4.18). It runs in Go because the webview's CSP blocks the fetch, through
 // probeClient: six seconds, no redirects, so a captive portal or a catch-all
-// rewrite cannot unlock the switch. Only the two booleans reach the frontend,
-// never the body or an error text.
+// rewrite cannot unlock the switch. Only the three booleans reach the
+// frontend, never the body or an error text.
 func (a *App) RequestLinkSupport() FeatureResult {
 	server, _ := a.endpoints()
 	return requestLinkSupport(server)
@@ -169,11 +177,11 @@ func requestLinkSupport(base string) FeatureResult {
 	if base == "" {
 		return FeatureResult{}
 	}
-	r, features := probeHealth(base)
+	r, features, listed := probeHealth(base)
 	if !r.OK {
 		return FeatureResult{}
 	}
-	return FeatureResult{Reachable: true, RequestLinks: featuresHave(features, "request-1")}
+	return FeatureResult{Reachable: true, RequestLinks: featuresHave(features, "request-1"), FeatureList: listed}
 }
 
 // featuresHave reports whether name is in the server's feature list. Exact

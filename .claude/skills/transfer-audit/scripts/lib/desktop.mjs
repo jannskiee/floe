@@ -1274,12 +1274,14 @@ export const SHELL_MENU_KEY = 'Software\\Classes\\*\\shell\\Floe';
 //
 // The delete branch (B1) decides ownership and deletes in this one call: the
 // command must equal one of the request's commands, compared ordinal and
-// ignoring case, and the key must hold nothing but Default, Icon and the
-// command subkey's Default. Then two DeleteSubKey calls on keys opened by
+// ignoring case, and the key must hold nothing but Default, Icon, the
+// MultiSelectModel Player that builds after desktop-v0.3.1 write (A3-B9) and
+// the command subkey's Default. Then two DeleteSubKey calls on keys opened by
 // name, the command subkey first. DeleteSubKey is not recursive, so a subkey
 // that was not there a moment ago makes it throw rather than take it along.
-// No test runs this script (it would touch the real HKCU): desktop.test.mjs
-// plays its rules in a fake and has PowerShell parse the text.
+// shellmenu-registry.test.mjs runs this script against a throwaway key, never
+// the real one; desktop.test.mjs plays its rules in a fake and has PowerShell
+// parse the text.
 export const SHELL_MENU_PS = `$ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 function Send-Answer($answer) {
@@ -1322,7 +1324,7 @@ try {
             foreach ($want in @($req.commands)) {
                 if ($null -ne $value -and [string]::Equals($value, [string]$want, [StringComparison]::OrdinalIgnoreCase)) { $mine = $true }
             }
-            $extra = @($base.GetValueNames() | Where-Object { $_ -ne '' -and $_ -ne 'Icon' }).Count
+            $extra = @($base.GetValueNames() | Where-Object { $_ -ne '' -and $_ -ne 'Icon' -and -not ($_ -eq 'MultiSelectModel' -and [string]$base.GetValue($_) -eq 'Player') }).Count
             $extra += @($base.GetSubKeyNames() | Where-Object { $_ -ne 'command' }).Count
             if ($null -ne $cmd) { $extra += @($cmd.GetValueNames() | Where-Object { $_ -ne '' }).Count + $cmd.SubKeyCount }
             if (-not $mine) {

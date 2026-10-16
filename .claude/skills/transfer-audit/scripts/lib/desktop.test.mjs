@@ -1406,7 +1406,8 @@ const INFRA_NOWHERE = { server: 'http://127.0.0.1:9', web: 'http://127.0.0.1:9' 
  * means a string Default on the command subkey, exists means the base key is
  * there at all, and a delete removes the key only when its command is one of
  * the commands the request names (ignoring case) and the key holds nothing
- * but what the app writes (Default, Icon, the command subkey's Default).
+ * but what the app writes (Default, Icon, MultiSelectModel Player after
+ * desktop-v0.3.1, the command subkey's Default).
  * brokenWrites and brokenDeletes answer ok and change nothing; failReads and
  * failDeletes make that call exit non-zero.
  */
@@ -1489,7 +1490,15 @@ function fakeRegistry(menu = null) {
                     command,
                 });
             const extra =
-                [...base.keys()].some((n) => n !== '' && n !== 'Icon') ||
+                [...base.keys()].some(
+                    (n) =>
+                        n !== '' &&
+                        n !== 'Icon' &&
+                        !(
+                            n === 'MultiSelectModel' &&
+                            base.get(n).value.toLowerCase() === 'player'
+                        )
+                ) ||
                 [...sub.keys()].some((n) => n !== '') ||
                 [...keys.keys()].some(
                     (k) =>
@@ -1752,6 +1761,40 @@ test('ShellMenuGuard, key absent before the run: still absent is left alone; a k
         2,
         'each exe once'
     );
+});
+
+test('ShellMenuGuard, key absent before the run: an entry a head build created, with MultiSelectModel Player, is removed; another MultiSelectModel is not the app\'s', () => {
+    const exe = 'C:\\scratch\\a\\floe-desktop.exe';
+    // After desktop-v0.3.1 the app also writes MultiSelectModel = Player on
+    // the verb (desktop/contextmenu_windows.go, A3-B9).
+    for (const [value, deleted] of [
+        ['Player', true],
+        ['player', true],
+        ['Document', false],
+    ]) {
+        const made = fakeRegistry();
+        const g = new ShellMenuGuard({ exec: made.exec, platform: 'win32' });
+        assert.equal(g.take(), 'absent');
+        made.set(SELF_HEAL(exe));
+        made.keys
+            .get(SHELL_MENU_KEY)
+            .set('MultiSelectModel', { kind: 'String', value });
+        g.own(exe);
+        const n = [];
+        assert.deepEqual(
+            g.restore((l) => n.push(l)),
+            deleted
+                ? { wrote: true, match: true }
+                : { wrote: false, match: null },
+            value
+        );
+        if (deleted) {
+            assert.equal(made.keys.size, 0, value);
+        } else {
+            assert.match(n[0], /holds more than the app writes; left alone/);
+            assert.ok(made.keys.size >= 2, value);
+        }
+    }
 });
 
 test("ShellMenuGuard, key absent before the run: a key that is not this run's is left exactly as it is, and a delete that leaves the key behind is a SafetyError", () => {

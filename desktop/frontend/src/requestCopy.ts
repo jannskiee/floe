@@ -52,6 +52,10 @@ export const AUTO_ACCEPT_ABOUT = 'About Auto-accept'; // R32, the info icon's ac
 // ---- Error, making a link (E3 is cut, E-25; E8 is cut, D-122) --------------
 const ERROR_LINES: Record<string, string> = {
     disabled: 'Request links are off on this server', // E1, X6
+    // A server whose /health carries no feature list predates request links:
+    // turning them on there changes nothing (deep QA A7-04; approved
+    // 2026-10-16). E1 stays for a server that lists none ([]).
+    unsupported: "This Floe server doesn't offer request links",
     limited: "This network reached today's link limit", // E2
     unknown: "Couldn't make a link", // E4
     'no-relay': "Hide my IP needs a relay this server doesn't have", // E5
@@ -82,12 +86,30 @@ export function fmtClock(ms: number): string {
     return `${h % 12 || 12}:${mm} ${h < 12 ? 'AM' : 'PM'}`;
 }
 
+/** sameDay: ms falls on now's local calendar day. */
+function sameDay(ms: number, now: number): boolean {
+    return new Date(ms).toDateString() === new Date(now).toDateString();
+}
+
+/** monthDay renders "Oct 15", the date fmtEnds and fmtAt give another day. */
+function monthDay(ms: number): string {
+    const d = new Date(ms);
+    return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+}
+
 /** fmtEnds renders a link end for W5: "today, 2:05 PM", or the date for a
  *  later day, "Sep 24, 2:05 PM". */
 export function fmtEnds(ms: number, now: number): string {
-    const d = new Date(ms);
-    const day = d.toDateString() === new Date(now).toDateString() ? 'today' : `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+    const day = sameDay(ms, now) ? 'today' : monthDay(ms);
     return `${day}, ${fmtClock(ms)}`;
+}
+
+/** fmtAt renders a time W10 and X1 report: the clock alone today, "2:14 PM",
+ *  and with fmtEnds' date on any other day, "Oct 15, 3:42 PM", because a link
+ *  can last 7 days and a bare clock reads as today (deep QA A5-11 and QA-P1;
+ *  approved 2026-10-16). */
+export function fmtAt(ms: number, now: number): string {
+    return sameDay(ms, now) ? fmtClock(ms) : `${monthDay(ms)}, ${fmtClock(ms)}`;
 }
 
 // ---- Waiting, reconnecting, connecting, ended ------------------------------
@@ -108,8 +130,8 @@ export function scopeLine(expiresAt: number, now: number, autoAccept = false, au
     return `${w5} · ${ACCEPTS_AUTOMATICALLY}`; // W5a
 }
 export const WAITING_LINE = 'Waiting for files'; // W8 (W9 is cut: the IP line is said once, at Ready)
-export function missedLine(missedAt: number): string {
-    return `Missed a request at ${fmtClock(missedAt)}`; // W10
+export function missedLine(missedAt: number, now: number): string {
+    return `Missed a request at ${fmtAt(missedAt, now)}`; // W10, dated on another day
 }
 export const SETUP_FAILED_LINE = "The sender couldn't connect"; // W11
 // W14: runRequestDrop reopens with no-relay or relay-unknown when Hide my IP is
@@ -126,20 +148,21 @@ export const RETRY_NOW = 'Retry now'; // C2
  *  '' when the link simply waits. E-40's question outranks the reason for the
  *  last reopen; a visitor who left before setup finished gets no line (there
  *  is nobody to blame). */
-export function reopenLine(s: {code: string; missedAt?: number; suggestClose: boolean}): string {
+export function reopenLine(s: {code: string; missedAt?: number; suggestClose: boolean}, now: number): string {
     if (s.suggestClose) return SUGGEST_CLOSE_LINE;
     if (s.code === 'setup-failed') return SETUP_FAILED_LINE;
     if (s.code === 'no-relay' || s.code === 'relay-unknown') return HIDE_IP_NO_RELAY_LINE;
     if (s.code === 'visitor-left') return '';
-    if (s.missedAt) return missedLine(s.missedAt);
+    if (s.missedAt) return missedLine(s.missedAt, now);
     return '';
 }
 
-/** endedLine: X1 at the link's own end time, X2 otherwise (the network and
- *  server-restart ends were removed by E-34, and X5, the line after a
- *  relaunch, by D-170, so any other code is a close). */
-export function endedLine(code: string, expiresAt: number): string {
-    if (code === 'expired') return `Link ended at ${fmtClock(expiresAt)}`; // X1
+/** endedLine: X1 at the link's own end time, dated when that was another
+ *  day, X2 otherwise (the network and server-restart ends were removed by
+ *  E-34, and X5, the line after a relaunch, by D-170, so any other code is a
+ *  close). */
+export function endedLine(code: string, expiresAt: number, now: number): string {
+    if (code === 'expired') return `Link ended at ${fmtAt(expiresAt, now)}`; // X1
     return 'Link closed'; // X2
 }
 export const MAKE_ANOTHER_LINK = 'Make another link'; // X3, DN7
@@ -232,6 +255,10 @@ export function timeLeft(eta: string): string {
     return `${eta} left`;
 }
 export const CANCEL_DROP = 'Cancel drop'; // V4
+// Cancel drop's own label, disabled, from the click until the drop stops: the
+// stop can take seconds, up to 5 minutes inside a commit retry, and nothing
+// said it was taken (deep QA A5-10; approved 2026-10-16).
+export const STOPPING = 'Stopping';
 export const ETA_OVER_2H_LINE = 'If the connection drops, the current file starts over'; // V5
 /** V6, with the estimate in whole days. */
 export function etaLongLine(etaSeconds: number): string {
@@ -314,21 +341,25 @@ export function verifiedAll(r: {files: number; saved: number; verified: number})
     return r.files > 0 && r.saved === r.files && r.verified === r.files;
 }
 
-// ---- Stopped (ST2 is cut, E-24; ST13 has no source in Stage 1; ST15 is cut,
-// D-136: Make another link sits right under the card) -----------------------
+// ---- Stopped (ST2 is cut, E-24; ST15 is cut, D-136: Make another link sits
+// right under the card) --------------------------------------------------------
 export const STOPPED_HEADING = 'DROP STOPPED'; // ST0
+/** ST16's form with none saved, and the History title of a drop that saved
+ *  no file and has no label (deep QA A5-14; approved 2026-10-16): it read
+ *  "0 files" over a save-blocked drop's kept .part. */
+export const NOTHING_SAVED = 'Nothing saved';
 /** ST16, and the tail of every stop sentence that carries a count, after a
  *  " · " (D-123, D-136, D-167): "4 of 12 files saved", "1 of 1 file saved",
  *  and "Nothing saved" when none was, whatever the drop offered (0 of 0 and
  *  0 of 1 included). */
 export function savedOf(saved: number, files: number): string {
-    if (saved <= 0) return 'Nothing saved';
+    if (saved <= 0) return NOTHING_SAVED;
     return files === 1 ? `${saved} of 1 file saved` : `${saved} of ${files} files saved`;
 }
 
 // One entry per stop code: the card body under DROP STOPPED, and the full
 // sentence the History row keeps (DH-02). `count` says whether the sentence
-// carries its own count (ST1, ST10 to ST12), takes ST16 on the card (ST3 to
+// carries its own count (ST1, ST10 to ST13), takes ST16 on the card (ST3 to
 // ST8), or takes it only when a file was saved (ST9: its card sits above
 // ST17, the kept file, so "Nothing saved" would contradict it).
 //
@@ -337,10 +368,19 @@ export function savedOf(saved: number, files: number): string {
 // said "before any file", but the engine applies the cap at each file of a
 // drop and reports how many it had saved (refuseRelay in
 // cli/engine/transfer/relay.go), so both were untrue after a saved file.
+//
+// ST4 names a file name too (approved 2026-10-16): the engine's path limit
+// counts the whole saved path, so one long file name with no folder above it
+// stops the drop with path-too-long as well (QA-P2).
+//
+// ST13 is a drop Floe closed during, shown on the next launch from the record
+// requestquit.go keeps (deep QA A5-09): code app-closed, which only that
+// launch's stopped snapshot carries. Ended links keep their own app-closed,
+// which endedLine reads as X2.
 const STOPS: Record<string, {card: string; full: string; count: 'own' | 'append' | 'kept'}> = {
     'disk-full': {card: 'The drive ran out of space', full: 'Drop stopped: the drive ran out of space', count: 'own'}, // ST1
     'hash-mismatch': {card: "A file didn't match what was sent and was deleted", full: "Drop stopped: a file didn't match what was sent and was deleted", count: 'append'}, // ST3
-    'path-too-long': {card: 'A folder path was too long for Windows', full: 'Drop stopped: a folder path was too long for Windows', count: 'append'}, // ST4
+    'path-too-long': {card: 'A file name or folder path was too long for Windows', full: 'Drop stopped: a file name or folder path was too long for Windows', count: 'append'}, // ST4
     'over-approved': {card: 'More data arrived than you accepted', full: 'Drop stopped: more data arrived than you accepted', count: 'append'}, // ST5
     'relay-cap': {card: 'Over the 2 GB relay limit', full: 'Drop stopped: over the 2 GB relay limit', count: 'append'}, // ST6
     'file-too-large-for-folder': {card: 'A file is too large for this drive', full: 'Drop stopped: a file is too large for this drive', count: 'append'}, // ST7
@@ -349,6 +389,7 @@ const STOPS: Record<string, {card: string; full: string; count: 'own' | 'append'
     stopped: {card: 'You stopped this drop', full: 'You stopped this drop', count: 'own'}, // ST10
     'peer-abort': {card: 'The sender stopped this drop', full: 'Drop stopped: the sender left', count: 'own'}, // ST11
     'time-limit': {card: 'The drop reached the 24-hour limit', full: 'Drop stopped: it reached the 24-hour limit', count: 'own'}, // ST12
+    'app-closed': {card: 'Floe was closed', full: 'Drop stopped: Floe was closed', count: 'own'}, // ST13
 };
 
 /** stoppedCard is the body under DROP STOPPED. An unknown code, and every

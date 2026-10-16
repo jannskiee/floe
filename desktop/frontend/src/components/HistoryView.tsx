@@ -5,7 +5,7 @@ import {cn, Eyebrow} from './ui';
 import {fmtWhen, histKey, type HistEntry} from '../history';
 import {fmtBytes} from '../incoming';
 import {shortPath} from '../paths';
-import {ACCEPTED_AUTOMATICALLY_LINE, keptPartLine, stoppedFull, verifiedAll} from '../requestCopy';
+import {ACCEPTED_AUTOMATICALLY_LINE, keptPartLine, NOTHING_SAVED, stoppedFull, verifiedAll} from '../requestCopy';
 import {RenamedConfirm} from './RequestLinkView';
 import {VerifiedMark} from './TransferBits';
 
@@ -99,8 +99,10 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
                                         ? <ArrowUpRight className="size-4 shrink-0 text-zinc-500"/>
                                         : <ArrowDownLeft className="size-4 shrink-0 text-zinc-500"/>}
                                     <span className="min-w-0 flex-1">
+                                        {/* An unlabeled drop that saved nothing (a save-blocked
+                                            one, D-128) read "0 files" (deep QA A5-14). */}
                                         <span className="block truncate text-sm text-zinc-200">
-                                            {request && h.label ? h.label : h.count === 1 ? (h.names[0] || '1 file') : `${h.count} files`}
+                                            {request && h.label ? h.label : request && h.count <= 0 ? NOTHING_SAVED : h.count === 1 ? (h.names[0] || '1 file') : `${h.count} files`}
                                         </span>
                                         <span className="flex items-center gap-2 text-xs text-zinc-500">
                                             <span>{h.kind === 'send' ? 'Sent' : 'Received'}</span>

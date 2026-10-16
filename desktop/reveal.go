@@ -76,22 +76,22 @@ func revealCmd(goos, dir, path string) *exec.Cmd {
 	}
 }
 
-// openCmd returns the command that opens path in its default application.
-// Windows uses rundll32's FileProtocolHandler, the reliable shell-open primitive
-// (it avoids cmd.exe's quoting hazards and explorer.exe's unreliability). It
-// treats the argument URL-ish, so a literal '#' or '%' in the path is a rare
-// unhandled edge; the fully correct fix (ShellExecuteW) would need a syscall
-// dependency and is not worth it here.
+// openCmd returns the command that opens path in its default application off
+// Windows. Windows has no process for it: OpenFile asks the shell itself
+// (shellOpenFn), because rundll32's FileProtocolHandler, used until A3-B8,
+// read its argument as a URL, so a '#' or '%' in a received file's name could
+// open the wrong thing or nothing.
 func openCmd(goos, path string) *exec.Cmd {
-	switch goos {
-	case "windows":
-		return exec.Command("rundll32", "url.dll,FileProtocolHandler", path)
-	case "darwin":
+	if goos == "darwin" {
 		return exec.Command("open", path)
-	default:
-		return exec.Command("xdg-open", path)
 	}
+	return exec.Command("xdg-open", path)
 }
+
+// shellOpenFn opens a file in its default application on Windows
+// (shellopen_windows.go); a variable so a test can see the path it is handed
+// without opening anything.
+var shellOpenFn = shellOpen
 
 // RevealFile opens the OS file manager with the received file dir/name selected.
 // If the exact file is missing it falls back to opening the folder, so the
@@ -126,6 +126,9 @@ func (a *App) OpenFile(dir, name string) error {
 	}
 	p := filepath.Join(dir, leaf)
 	if fileExists(p) {
+		if goruntime.GOOS == "windows" {
+			return shellOpenFn(p)
+		}
 		return openCmd(goruntime.GOOS, p).Start()
 	}
 	return a.OpenFolder(dir)

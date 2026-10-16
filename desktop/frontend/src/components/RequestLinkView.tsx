@@ -102,6 +102,9 @@ export interface RequestLinkViewProps {
     /** The count and folder of the prompt this drop answered, for Receiving
      *  before the first progress event (requestLink.ts acceptedPrompt). */
     accepted?: {files: number; folder: string} | null;
+    /** Cancel drop was pressed and the drop has not stopped yet
+     *  (requestLink.ts stoppingDrop): the button reads Stopping, disabled. */
+    stopping?: boolean;
 }
 
 export default function RequestLinkView(props: RequestLinkViewProps) {
@@ -124,7 +127,7 @@ export default function RequestLinkView(props: RequestLinkViewProps) {
                 {/* With no label, REQUEST LINK stays for screen readers only:
                     the sub-tab row right above already says it. */}
                 <p className={snap.label ? headClass : 'sr-only'}>{copy.linkHeading(snap.label)}</p>
-                <p className={t1Class}>{copy.endedLine(snap.code, snap.expiresAt)}</p>
+                <p className={t1Class}>{copy.endedLine(snap.code, snap.expiresAt, Date.now())}</p>
                 <Button id="floe-make-another" className="w-full" onClick={props.onMakeAnother}>{copy.MAKE_ANOTHER_LINK}</Button>
             </div>
         );
@@ -381,7 +384,7 @@ function ActivitySlot(props: RequestLinkViewProps) {
     }
     // Waiting, or deciding without a prompt yet. On a reopened link the news
     // comes first and "Waiting for files." is the quiet reassurance under it.
-    const reopened = copy.reopenLine(snap);
+    const reopened = copy.reopenLine(snap, Date.now());
     return reopened ? (
         <div className="space-y-2">
             <p className={t1Class}>{reopened}</p>
@@ -535,7 +538,7 @@ function Prompt({snap, onAnswer, onGuardLift, onPromptVisible}: RequestLinkViewP
 }
 
 // ---- Receiving (DV-01 to DV-03) ---------------------------------------------
-function Receiving({snap, progress, accepted, onCancelDrop}: RequestLinkViewProps) {
+function Receiving({snap, progress, accepted, onCancelDrop, stopping}: RequestLinkViewProps) {
     // Speed and time left, averaged since this drop's first progress event
     // (the track() rule in progress.ts), keyed on the lane generation.
     const start = useRef<{gen: number; t: number; bytes: number} | null>(null);
@@ -591,7 +594,12 @@ function Receiving({snap, progress, accepted, onCancelDrop}: RequestLinkViewProp
             {/* P11 is advice, not a fact about this drop, so it is not amber. */}
             {laptopLine && <p className={t2Class}>{copy.LAPTOP_LINE}</p>}
             <div className="flex justify-end">
-                <Button variant="outline" onClick={onCancelDrop}><X/> {copy.CANCEL_DROP}</Button>
+                {/* From the click until the drop stops (deep QA A5-10): the
+                    same button, not a new one, says the stop was taken and
+                    takes no second click. */}
+                <Button variant="outline" disabled={stopping} onClick={stopping ? undefined : onCancelDrop}>
+                    {stopping ? <Loader2 className="animate-spin"/> : <X/>} {stopping ? copy.STOPPING : copy.CANCEL_DROP}
+                </Button>
             </div>
         </div>
     );

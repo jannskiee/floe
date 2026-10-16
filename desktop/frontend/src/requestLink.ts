@@ -141,6 +141,10 @@ export interface RequestResult {
     /** The link took this drop by its own choice, with no prompt (HA1,
      *  D-173). Absent reads as not automatic. */
     autoAccepted?: boolean;
+    /** Set only on the stopped drop a launch shows for a drop Floe closed
+     *  during (app-closed, ST13): when Go last recorded it, in unix
+     *  milliseconds, which History dates the row by. */
+    endedAt?: number;
 }
 
 /** A Link ends key: the fixed set Go's requestLifetime takes (D-173). Nothing
@@ -219,12 +223,23 @@ export interface RequestUI {
      *  before the first progress event, since a receiving snapshot need not
      *  carry the prompt (D-136). Never a visitor string (OD-04). */
     accepted: {gen: number; files: number; folder: string} | null;
+    /** The generation whose drop the owner asked to stop with Cancel drop, or
+     *  null. Go answers only once the drop has stopped, which can take
+     *  seconds (deep QA A5-10), so until then the button reads Stopping and
+     *  takes no second click (stoppingDrop). */
+    stopping: number | null;
 }
 
 export const initialRequestUI: RequestUI = {
     snap: OFF_SNAPSHOT, making: false, hiddenKey: '', localError: '',
-    accepted: null,
+    accepted: null, stopping: null,
 };
+
+/** stoppingDrop: Cancel drop was pressed for the drop on screen, which still
+ *  receives. Any later state, or a newer generation, ends it by itself. */
+export function stoppingDrop(ui: RequestUI): boolean {
+    return ui.stopping !== null && ui.stopping === ui.snap.gen && ui.snap.state === 'receiving';
+}
 
 /** keepAccepted is the accepted field after adopting `snap`: its prompt when it
  *  carries one, the one already kept while the generation holds, else none. */
@@ -247,12 +262,13 @@ export type RequestEvent =
     | {type: 'MAKE_FAILED'}
     | {type: 'ACK_ERROR'}
     | {type: 'MAKE_ANOTHER'}
+    // Cancel drop: the one local state Go's next snapshot ends (stopping).
+    | {type: 'CANCEL_DROP'}
     // No state of their own: Go answers each with a snapshot. They exist so a
     // caller can dispatch them and the tests can show they change nothing
     // locally (T9, T14, T15, T17, T18, T20, T23).
     | {type: 'CLOSE'}
     | {type: 'ANSWER'; answer: string}
-    | {type: 'CANCEL_DROP'}
     | {type: 'GUARD_TICK'}
     | {type: 'WINDOW_FOCUS'};
 
@@ -325,6 +341,7 @@ export function normalizeSnapshot(raw: unknown): RequestLinkSnapshot {
             folder: str(res.folder),
             ...namesAndSizes(res.names, res.sizes),
             autoAccepted: res.autoAccepted === true,
+            ...(num(res.endedAt) > 0 ? {endedAt: num(res.endedAt)} : {}),
         };
     }
     return out;
@@ -381,6 +398,9 @@ export function reduce(ui: RequestUI, ev: RequestEvent): RequestUI {
             if (p !== 'done' && p !== 'stopped' && p !== 'ended' && p !== 'error') return ui;
             return {...ui, localError: '', hiddenKey: keyOf(ui.snap)};
         }
+        case 'CANCEL_DROP':
+            if (ui.snap.state !== 'receiving' || stoppingDrop(ui)) return ui;
+            return {...ui, stopping: ui.snap.gen};
         default:
             return ui;
     }
