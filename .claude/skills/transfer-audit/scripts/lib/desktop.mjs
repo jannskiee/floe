@@ -1077,6 +1077,31 @@ export function classifyStatus(text) {
 // ------------------------------------------------ desktop.json guard
 
 /**
+ * The server and web address a probe launch writes into desktop.json:
+ * nothing listens on port 9, so a probe never reaches a real server.
+ */
+export const PROBE_SENTINEL_URL = 'http://127.0.0.1:9';
+
+/**
+ * Whether desktop.json bytes name the probe sentinel as the server or the web
+ * app. The owner never sets it, so a file that holds it is an earlier run's
+ * edit that was never put back. Unreadable JSON is not judged here.
+ */
+export function holdsProbeSentinel(bytes) {
+    let cfg;
+    try {
+        cfg = JSON.parse(String(bytes ?? '').replace(/^﻿/, '').trim() || '{}');
+    } catch {
+        return false;
+    }
+    return Boolean(
+        cfg &&
+            typeof cfg === 'object' &&
+            (cfg.server === PROBE_SENTINEL_URL || cfg.web === PROBE_SENTINEL_URL)
+    );
+}
+
+/**
  * Backup, edit and restore the real desktop.json around a Store-mode run.
  * apply() refuses when any floe-desktop.exe exists (not ours) or the file is
  * missing (never create or delete under %APPDATA%\floe). restore() writes
@@ -1166,7 +1191,17 @@ export class DesktopConfigGuard {
         const st = this._stat(this.configPath);
         this.mtimeMs = st.mtimeMs;
         this.atimeMs = st.atimeMs;
-        this.backup = this.fs.readFileSync(this.configPath);
+        const current = this.fs.readFileSync(this.configPath);
+        // A probe edit that an earlier run never put back (a run stopped
+        // hard, or before #636 a probe launch that threw) is not the owner's
+        // file. Taking it for the original made every later run restore it,
+        // and the owner's Floe Desktop sat on a dead server from 2026-10-08
+        // until they reset its settings on 2026-10-17.
+        if (holdsProbeSentinel(current))
+            throw new PreconditionError(
+                `desktop.json at ${this.configPath} already names the probe sentinel ${PROBE_SENTINEL_URL}: an earlier run's edit was never put back, so it is not the owner's original. Nothing was changed. Reset Floe Desktop's settings (Settings > Reset all settings) and run again.`
+            );
+        this.backup = current;
         this.sha = sha256(this.backup);
         if (this.evidenceDir) {
             this.fs.mkdirSync(this.evidenceDir, { recursive: true });
@@ -5558,8 +5593,8 @@ async function probeLeg(opts, files = []) {
         },
         evidenceDir,
         infra: opts.infra ?? {
-            server: 'http://127.0.0.1:9',
-            web: 'http://127.0.0.1:9',
+            server: PROBE_SENTINEL_URL,
+            web: PROBE_SENTINEL_URL,
         },
     });
     try {

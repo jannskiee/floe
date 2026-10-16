@@ -529,6 +529,13 @@ interrupted. Precedence 2, 4, 3, 130, 1, 5, 6, 0. `versions` exits 0 or 6,
 `probe` 0 or 3, `cleanup` 0 or 1. A 3 from `run` or `probe` with the line
 `an earlier run under --out (...) edited the real desktop.json` is the start
 check of section 0: nothing was created, and `cleanup --run <id>` clears it.
+A desktop probe or leg that stops on `desktop.json ... already names the
+probe sentinel http://127.0.0.1:9` found an earlier run's probe edit that
+was never put back, with no manifest left to replay. Nothing was changed.
+The owner resets Floe Desktop's settings (Settings > Reset all settings) or
+puts their own file back, and the run starts again. Before this check, every
+run took such a file for the original and restored it: from 2026-10-08 to
+2026-10-17 the owner's Floe Desktop pointed at that dead address.
 
 The Safety section is printed every run and must read: browser stats
 attempts 0 (all aborted), `floe:bytes-reported` events 0, CLI receivers

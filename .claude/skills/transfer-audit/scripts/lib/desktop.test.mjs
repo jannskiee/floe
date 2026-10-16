@@ -33,6 +33,8 @@ import {
     DesktopConfigGuard,
     DesktopLeg,
     EXE_NAME,
+    holdsProbeSentinel,
+    PROBE_SENTINEL_URL,
     FAST_SAMPLE_MS,
     FAST_SAMPLE_WINDOW_MS,
     LAUNCH_MODES,
@@ -3766,6 +3768,62 @@ test('DesktopConfigGuard refuses to edit a desktop.json another guard of this ru
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
+});
+
+// 2026-10-17: a probe edit left in place on 2026-10-08 was taken for the
+// owner's original by every later run, so each restore wrote the dead probe
+// server back and the owner's Floe Desktop could not connect for nine days.
+test('DesktopConfigGuard refuses a desktop.json that already names the probe sentinel, and changes nothing', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'lta-guard-sentinel-'));
+    try {
+        const file = path.join(dir, 'desktop.json');
+        // The exact file found on the owner's PC.
+        const leaked = `{"server":"${PROBE_SENTINEL_URL}","web":"${PROBE_SENTINEL_URL}","hideIP":false,"reportStats":false,"noUpdateCheck":true,"migrated":true}`;
+        for (const bytes of [leaked, `﻿${leaked}\n`, JSON.stringify({ server: '', web: PROBE_SENTINEL_URL })]) {
+            writeFileSync(file, bytes);
+            const g = new DesktopConfigGuard({
+                configPath: file,
+                edit: { server: 'https://api.floe.one', web: '', hideIP: false },
+                evidenceDir: dir,
+                processes: async () => [],
+            });
+            await assert.rejects(g.apply(), (e) => {
+                assert.equal(e.name, 'PreconditionError');
+                assert.match(e.message, /probe sentinel/);
+                assert.match(e.message, /Reset all settings/);
+                return true;
+            });
+            assert.equal(g.applied, false);
+            assert.equal(readFileSync(file, 'utf8'), bytes, 'left exactly as found');
+            assert.equal(existsSync(path.join(dir, 'desktop.json.bak')), false, 'no backup of a file that is not the owner\'s');
+        }
+        // The owner's own settings, a custom server included, are taken as before.
+        const owners = JSON.stringify({ server: 'http://127.0.0.1:3001', web: 'http://localhost:3000', reportStats: true });
+        writeFileSync(file, owners);
+        const ok = new DesktopConfigGuard({
+            configPath: file,
+            edit: { server: PROBE_SENTINEL_URL, web: PROBE_SENTINEL_URL, hideIP: false },
+            evidenceDir: null,
+            processes: async () => [],
+        });
+        await ok.apply();
+        assert.ok(holdsProbeSentinel(readFileSync(file)), 'the probe edit itself names the sentinel');
+        ok.restore();
+        assert.equal(readFileSync(file, 'utf8'), owners);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('holdsProbeSentinel reads server and web only, and never judges a file it cannot parse', () => {
+    assert.equal(holdsProbeSentinel(`{"server":"${PROBE_SENTINEL_URL}"}`), true);
+    assert.equal(holdsProbeSentinel(`{"web":"${PROBE_SENTINEL_URL}"}`), true);
+    assert.equal(holdsProbeSentinel('{"server":"","web":""}'), false);
+    assert.equal(holdsProbeSentinel('{"server":"http://127.0.0.1:90"}'), false);
+    assert.equal(holdsProbeSentinel(`{"note":"${PROBE_SENTINEL_URL}"}`), false);
+    assert.equal(holdsProbeSentinel('not json'), false);
+    assert.equal(holdsProbeSentinel(''), false);
+    assert.equal(holdsProbeSentinel(null), false);
 });
 
 // Finding 10: cleanup replayed the backup even when the run had restored the
