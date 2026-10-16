@@ -140,6 +140,11 @@ downloads that release's archive and its `checksums.txt` from GitHub.
     ```
 
     Open a new terminal after running it.
+
+    If a step fails (a processor with no release, a download that does not complete, a checksum that
+    does not match), the script prints the reason in red and stops before it copies `floe.exe`
+    anywhere. It never closes your PowerShell window, so the reason stays on screen; the
+    `Installed floe` line is the sign that it finished.
   </Tab>
 </Tabs>
 

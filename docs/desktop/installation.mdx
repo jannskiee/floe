@@ -181,7 +181,8 @@ What is removed depends on the channel:
 The portable build adds **Send with Floe** to File Explorer only if you turned on
 [Show in right-click menu](/desktop/settings#show-in-right-click-menu). If you did, turn it off in Floe first,
 then delete the files you unzipped. Deleting them with the switch still on leaves an entry that points at a
-program that is gone, until the next Floe you start takes it over or removes it.
+program that is gone, until the next installer or portable Floe you start takes it over or removes it. The
+Microsoft Store build never reads or changes the entry, so it cannot clean one up.
 
 The installer build's uninstaller deliberately leaves a few things behind, so a reinstall picks up where you
 left off:

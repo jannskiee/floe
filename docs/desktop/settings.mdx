@@ -221,10 +221,11 @@ Details worth knowing:
 - The entry applies to **files**, not folders. To send a folder, use **Folder** in the app.
 - It stores the path to the Floe that registered it. An entry another copy of Floe registered is left alone
   while that copy exists, and this switch reads off until you turn it on here.
-- If the program an entry runs is gone, for example a portable copy you moved or deleted, the next Floe to
-  start takes the entry over when it would add one. That is when you left this switch on, or when it is the
-  installer build and you never switched it off. Otherwise it removes the entry, so a **Send with Floe** that
-  cannot start does not stay behind.
+- If the program an entry runs is gone, for example a portable copy you moved or deleted, the next installer
+  or portable Floe to start takes the entry over when it would add one. That is when you left this switch on,
+  or when it is the installer build and you never switched it off. Otherwise it removes the entry, so a
+  **Send with Floe** that cannot start does not stay behind. The Microsoft Store build never reads or changes
+  the entry.
 - Uninstalling the installer build removes the entry, whichever copy it belongs to. After a reinstall Floe
   registers it again unless you had switched it off.
 - The portable build has no uninstaller: turn the switch off before you delete it.
