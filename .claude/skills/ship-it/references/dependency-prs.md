@@ -8,6 +8,7 @@ Dependabot opens one grouped PR per ecosystem per month (github-actions weekly).
 - **`go.work` moves by hand.** Dependabot raises the `go` line of a module and never the workspace's, and every Go command then stops with "module . listed in go.work file requires go >= X". The comment in go.work lists everything that moves with it.
 - **A desktop/go.mod bump changes the released `floe` binary.** The workspace is active for every build, goreleaser's included.
 - **The first release built on a new Go minor:** read the `go version` line in that GoReleaser run's log. When the new Go changes a runtime default (1.26 made the Green Tea garbage collector the default), run the transfer audit's 500 MiB throughput baseline once on that build before the tag.
+- **A new Go minor can need a new Wails.** Wails pins its own golang.org/x/tools, and an old one cannot read a newer Go's export data: Wails 2.12.0 stopped every desktop build on Go 1.27 with `internal error: package "context" without types was imported from github.com/jannskiee/floe/desktop`, and `-skipbindings` did not avoid it (#625 moved to Wails 2.16.0, which pins x/tools 0.47.0). Before moving the `go-version` pins, build the desktop with the new Go (`wails build -s` in desktop/). `WAILS_VERSION` in ci.yml and desktop-release.yml and the Wails line of desktop/go.mod move together.
 
 ## npm (`npm-deps`: client/, server/, desktop/frontend/)
 

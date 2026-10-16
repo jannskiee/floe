@@ -61,9 +61,8 @@ docs change this is layer 1 of docs-verify; the claim walk is the author's job b
 this point.) Then run only the rows for touched areas. Skip what
 only CI can arbitrate and say so in the test plan: `E2E (browser + CLI interop, <os>)`
 x3, `Back-compat (HEAD vs latest release)`, the packaging steps of `Desktop (Wails,
-windows-latest)`, `Docker (self-hosting stack)`, and the shellcheck half of `Lint
-workflows`. actionlint is installed here, so workflow edits get `actionlint -color`
-locally.
+windows-latest)`, and `Docker (self-hosting stack)`. actionlint and shellcheck are installed here (scoop
+shims), so workflow edits get `actionlint -color`, which runs shellcheck, locally.
 
 ## 4. Commit (PowerShell tool only)
 

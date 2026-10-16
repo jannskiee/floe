@@ -751,6 +751,15 @@ test("requestStateFromItems reads the scope line of an automatic link: W5a is wh
         [asks.autoShown, asks.autoAsks, asks.autoAsksDrive],
         [false, 'low-space', 'D:']
     );
+    // W5c (desktop-v0.3.2): a drive that cannot carry the downloaded-file mark.
+    const noMark = requestStateFromItems(
+        waiting("Ends today, 9:41 PM · Asks first, Windows can't mark files on G:"),
+        { autoAccept: true }
+    );
+    assert.deepEqual(
+        [noMark.autoShown, noMark.autoAsks, noMark.autoAsksDrive],
+        [false, 'no-mark', 'G:']
+    );
     // UIA reports the rendered case, and the words count only at the line's end.
     assert.equal(
         requestStateFromItems(

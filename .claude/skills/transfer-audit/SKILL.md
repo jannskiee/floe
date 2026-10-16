@@ -1129,7 +1129,10 @@ file and the only place the tiny end (where per-file framing dominates) and
 the large end meet in a single transfer; a three-file folder on CLI to CLI and the browser
 `Download ZIP` path with the entries hashed by the zip reader borrowed from
 `store-submit`; the 2 GB relay cap refused before any byte moves by a 3 GiB
-sparse file over a browser-forced relay (`fsutil sparse`, at least 4 GiB
+sparse file over a browser-forced relay (its exact edge is a hand pair, CLI
+`--relay-only` to a CLI receiver: 2,147,483,648 bytes passes and 2,147,483,649
+is refused, since the gate is strictly greater-than; run it only on the owner's
+word, as it moves 2 GiB over TURN) (`fsutil sparse`, at least 4 GiB
 free); a 500 MiB direct throughput baseline (CLI to CLI only, browser
 receivers hold the file in memory); a sender killed at 50 MiB leaving no
 `.part`, and a killed receiver leaving exactly one `.part` with the retry

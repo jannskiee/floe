@@ -221,7 +221,9 @@ export const RE = Object.freeze({
     // line's end, so neither the end time's wording nor the separator is
     // load-bearing here.
     scopeAuto: /(?:^|\s)Accepts automatically$/i,
-    scopeAsks: /(?:^|\s)Asks first, low space on (.+)$/i,
+    // W5c (desktop-v0.3.2): "... · Asks first, Windows can't mark files on
+    // <drive>", on a drive that cannot carry the downloaded-file mark.
+    scopeAsks: /(?:^|\s)Asks first, (low space|Windows can't mark files) on (.+)$/i,
 });
 
 /**
@@ -521,14 +523,14 @@ export function requestStateFromItems(
         link
     )
         out.link = String(link.value);
-    // W5a and W5b show only while the link waits or pairs a sender
+    // W5a, W5b and W5c show only while the link waits or pairs a sender
     // (requestLink.ts autoAcceptShown), never over a prompt.
     if (['waiting', 'reconnecting', 'connecting'].includes(out.state)) {
         const asks = texts.map((t) => RE.scopeAsks.exec(t)).find(Boolean);
         out.autoShown = texts.some((t) => RE.scopeAuto.test(t));
         if (asks) {
-            out.autoAsks = 'low-space';
-            out.autoAsksDrive = asks[1];
+            out.autoAsks = /^low/i.test(asks[1]) ? 'low-space' : 'no-mark';
+            out.autoAsksDrive = asks[2];
         }
     }
     if (out.state === 'ended')
