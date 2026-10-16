@@ -2854,6 +2854,57 @@ test('probe() never throws and names its probes; store paths sit under WindowsAp
     assert.ok(WINDOWS_APPS.endsWith('\\'));
 });
 
+// 2026-10-16: P6 on the Store build, run without --user-away, throws from
+// the launch after the config guard edited desktop.json. probeLeg never handed
+// that leg back, so nothing restored the file, and all eight desktop cells of
+// the run then refused it as "still edited by an earlier leg of this run".
+test('a probe whose launch throws puts desktop.json back, and the next leg can take it', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'lta-probe-restore-'));
+    const savedAppData = process.env.APPDATA;
+    try {
+        process.env.APPDATA = dir;
+        const cfg = path.join(dir, 'floe', 'desktop.json');
+        assert.equal(defaultConfigPath(), cfg);
+        mkdirSync(path.dirname(cfg), { recursive: true });
+        const original = Buffer.from('{"reportStats":true,"migrated":true}\n');
+        writeFileSync(cfg, original);
+        const r = await probe({
+            probe: 'P6',
+            mode: 'store',
+            out: dir,
+            allowForeground: true,
+            uia: fakeUiaClient(`${WINDOWS_APPS}x\floe-desktop.exe`),
+            lister: NO_PROCS,
+            shellMenu: new ShellMenuGuard({ platform: 'linux' }),
+            infra: INFRA_NOWHERE,
+            launcher: async () => {
+                assert.notDeepEqual(readFileSync(cfg), original, 'edited before the launch');
+                throw new PhaseError('start', 'refused for the test');
+            },
+        });
+        assert.equal(r.verdict, 'error');
+        assert.match(r.detail, /refused for the test/);
+        assert.ok(readFileSync(cfg).equals(original), 'desktop.json is back');
+        assert.ok(
+            ![...activeGuards].some((g) => g.configPath === cfg),
+            'no guard of this run still holds the file'
+        );
+        const next = new DesktopConfigGuard({
+            configPath: cfg,
+            edit: { server: 'https://audit.example', web: '', hideIP: false },
+            evidenceDir: null,
+            processes: NO_PROCS,
+        });
+        await next.apply();
+        next.restore();
+        assert.ok(readFileSync(cfg).equals(original));
+    } finally {
+        if (savedAppData === undefined) delete process.env.APPDATA;
+        else process.env.APPDATA = savedAppData;
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
 test('awaitConnected accepts a completion that landed between two polls (fast transfer)', async () => {
     // 2026-08-29: the WSL sender moved 12 MiB to the desktop in 0.3 s, so no
     // Incoming, progress or DIRECT sample was ever read at 500 ms, while the

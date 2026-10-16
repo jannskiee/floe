@@ -5540,7 +5540,18 @@ async function probeLeg(opts, files = []) {
             web: 'http://127.0.0.1:9',
         },
     });
-    await leg.launch(files);
+    try {
+        await leg.launch(files);
+    } catch (err) {
+        // The probe never receives this leg, so its closeLeg cannot stop it.
+        // A launch that throws after the config guard edited desktop.json
+        // (P6 on the Store build, refused with files and run without
+        // --user-away) would leave the edit in place, and every later
+        // desktop leg of the run refuses to take it for the original
+        // (2026-10-16: all eight desktop cells errored that way).
+        await leg.stop('probe launch failed').catch(() => {});
+        throw err;
+    }
     return leg;
 }
 
