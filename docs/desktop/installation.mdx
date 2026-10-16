@@ -191,6 +191,8 @@ left off:
 - Your transfer history and save folders, in `%APPDATA%\floe\webview`.
 - The update check's once-a-day cache, in `%APPDATA%\floe\desktop-update-check.json`. Only the builds from
   GitHub write it.
+- If Floe was closed during a request-link drop and has not started since, that drop's record, in
+  `%APPDATA%\floe\quit-drop.json`.
 
 To remove those as well, paste `%APPDATA%\floe` into File Explorer's address bar and delete what you find.
 The `floe` CLI keeps its own files in that same folder, so only delete the whole folder if you are removing

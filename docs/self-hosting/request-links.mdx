@@ -221,7 +221,8 @@ asks the server nothing until someone clicks **Make link**, which first checks t
 
 | Message | What it means | What to do |
 |---|---|---|
-| “Request links are off on this server” | `/health` does not list `request-1`: there is no policy file, the file says off, or the server is older than 1.11.0. It also replaces an open link when you turn request links off. | Follow [Turn request links on](#request-links). |
+| “Request links are off on this server” | `/health` does not list `request-1`: there is no policy file, or the file says off. It also replaces an open link when you turn request links off. | Follow [Turn request links on](#request-links). |
+| “This Floe server doesn't offer request links” | `/health` has no `features` list at all: the server is older than 1.11.0. Earlier versions of Floe Desktop said “Request links are off on this server” here. | Update the server, then [turn request links on](#request-links). |
 | “This network reached today's link limit” | 20 links were made from that network in the last 24 hours. | Wait. The limit has no setting. |
 | “Couldn't make a link” | The server could not be reached, that network already has 10 links open, or the server holds 5,000. | Run **Test** under Settings, then close links that are no longer needed. |
 
@@ -235,5 +236,7 @@ Every other message on a link's own screen is in
   [The link opens a page that is not Floe's send page](/troubleshooting#the-link-opens-a-page-that-is-not-floes-send-page).
 - **Make link** answers "Request links are off on this server": see
   [Request links are off on this server](/troubleshooting#request-links-are-turned-off-on-this-server).
+- **Make link** answers "This Floe server doesn't offer request links": the server predates them. See
+  [This Floe server doesn't offer request links](/troubleshooting#this-floe-server-doesnt-offer-request-links).
 - A sender sees "Their computer is not connected right now" after you restarted the server: see
   [Their computer is not connected right now](/troubleshooting#their-computer-is-not-connected-right-now).

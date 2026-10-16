@@ -299,6 +299,7 @@ can hold while it receives is under
 | --- | --- | --- |
 | Settings | `%APPDATA%\floe\desktop.json`. A file Floe could not read is kept beside it as `desktop.json.bad`. See [Where settings are stored](/desktop/settings#where-settings-are-stored) | You delete the file. Uninstalling leaves it |
 | History: the last 50 transfers, with file names, folders, sizes and times, and for a request-link drop your label | The app's [WebView2](/glossary#webview2) profile, `%APPDATA%\floe\webview` | You remove a row or clear the list, as [History](/desktop/receiving#history) shows, or delete the folder. Reset and uninstalling leave it |
+| A request-link drop that is still arriving: its label, its counts, its folder and up to 200 saved file names, so a drop Floe was closed during still gets its History row | `%APPDATA%\floe\quit-drop.json` | The drop ends, or the next time Floe starts, which reads it once and deletes it |
 | Your save folders, the tab you last used, your right-click menu choice, and, while a request link is open, the time it ends | The same profile | You delete the folder |
 | The update check's last answer (GitHub builds) | `%APPDATA%\floe\desktop-update-check.json` | The next check overwrites it, or you delete it |
 | The **Send with Floe** right-click entry (the installer build from GitHub, and the portable build once you turn it on) | A per-user registry key, `HKCU\Software\Classes\*\shell\Floe` | You turn off [Show in right-click menu](/desktop/settings#show-in-right-click-menu), or uninstall the installer build |

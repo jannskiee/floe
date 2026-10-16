@@ -93,6 +93,7 @@ use that folder" under the button, and makes no link, when:
 - a folder name has a character Windows does not allow: `<`, `>`, `:`, `"`, `|`, `?` or `*`
 - a folder name ends in a space, or in a period that follows a space or another period
 - the path has no drive, such as `\Floe`, or is relative to a drive, such as `D:Floe`
+- Floe cannot write there, such as in Program Files or on a read-only share
 
 Click **Make link**. While Floe works, the button reads "Making link...". Above the button, one line says
 who can see your IP address: "Senders see your IP, even if you decline". With Hide my IP on, it reads "Hide
@@ -146,17 +147,20 @@ Some drops still ask, with **Accept** and **Decline** as usual:
 - A drop that would leave less than 20 GB, or less than a tenth of the drive, free, and a drop to a drive
   whose free space or size Floe could not read.
 
-When a drop asks for one of the last two reasons, the request says why in one gray line:
+When a drop asks for one of the last three reasons, the request says why in one gray line:
 
 | Gray line | Why the drop asks |
 |---|---|
 | “Asks because C: would have under 48.0 GB free” | It would leave less free space than an automatic drop must. |
 | “Asks because Windows can't mark files on G:” | The drive cannot carry the downloaded-file mark. |
 | “Asks because Floe couldn't check D:” | Floe could not read the drive's free space or size, or the drive did not answer in time. |
+| “Asks because Floe couldn't check the connection” | Floe could not tell whether the drop comes through the relay. |
 
 Floe also reads the drive when you make the link and every 10 minutes while it waits. When the drive already
 has less free space than an automatic drop must leave, every drop would ask. The line under the link then
-reads "Ends today, 2:05 PM · Asks first, low space on C:" instead.
+reads "Ends today, 2:05 PM · Asks first, low space on C:" instead. On a drive that cannot carry the
+downloaded-file mark, every drop asks too, and the line reads "Ends today, 2:05 PM · Asks first, Windows
+can't mark files on E:".
 
 Everything else about a drop stays the same: one drop per link, at most 10,000 files, 2 GB kept free after
 each file, renamed shortcut-type files, and [who sees your IP address](#who-sees-your-ip-address).
@@ -266,7 +270,8 @@ window comes to the front, so a click meant for something else cannot answer it.
 
 You have 9 minutes 45 seconds to answer, and **Accept** counts it down. After that the request ends on its
 own and the sender's page says they did not answer in time. A missed request does not close the link: it
-waits again and reads, for example, "Missed a request at 2:14 PM".
+waits again and reads, for example, "Missed a request at 2:14 PM", or "Missed a request at Oct 15, 3:42 PM"
+when it was not today.
 
 If the sender's connection fails while the request is showing, because their browser closed or crashed or
 their network went away, the request ends on its own. That takes about 30 seconds, and then the link waits
@@ -290,7 +295,9 @@ flash, the title and the notice stay. Notifications come back once fewer than tw
 Each drop gets its own new folder inside your **Save to** folder, created only when the drop is accepted, by
 you or by Auto-accept. It is named from your label and this PC's clock, such as
 `Acme footage 2026-09-14 1405`, or `Request 2026-09-14 1405` with no label. The time is on a 24-hour clock,
-so the folders sort by date. A character Windows does not allow in a folder name becomes `_` there. If the
+so the folders sort by date. A character Windows does not allow in a folder name becomes `_` there. On
+Windows 10, a label that begins with a reserved device name and a dot, such as `con.notes`, also gets an `_`
+in front. If the
 name is taken, Floe adds a number, from `(2)` to `(99)`, and never writes into a folder that already exists.
 
 **Make link** checks the **Save to** folder once. If the drop's folder cannot be made at Accept, for example
@@ -304,7 +311,8 @@ receive (see [Receiving files](/desktop/receiving#names-windows-cannot-represent
 ## While files arrive {#while-files-arrive}
 
 The card reads, for example, **RECEIVING 2 OF 12 FROM ACME FOOTAGE**, and shows which file is arriving, how
-much has arrived, the speed, and the time left. **Cancel drop** stops it. You can minimize the window. From
+much has arrived, the speed, and the time left. **Cancel drop** stops it, and reads **Stopping** until the
+drop has stopped, which can take a few seconds. You can minimize the window. From
 the moment the drop is accepted until it ends, Floe asks Windows to keep the PC awake; the screen can still
 turn off. It does not keep the PC awake while a link only waits.
 
@@ -424,7 +432,7 @@ still shows "Floe - receive failed":
 
 | What the drop announced | The card |
 |---|---|
-| A first file whose path is too deep or too long | “A folder path was too long for Windows · Nothing saved” |
+| A first file whose name or path is too long, or too deep | “A file name or folder path was too long for Windows · Nothing saved” |
 | A first file too large for the save drive | “A file is too large for this drive · Nothing saved” |
 | More than 10,000 files | “More data arrived than you accepted · Nothing saved” |
 
@@ -441,7 +449,7 @@ total, as a finished drop's do. See [Contribute to global stats](/desktop/settin
 
 | How | What you see | What to do |
 |---|---|---|
-| Its end time passes | “Link ended at 2:05 PM”. A request or a drop that began before then keeps going. | Click **Make another link** if you need one. |
+| Its end time passes | “Link ended at 2:05 PM”, or “Link ended at Oct 15, 3:42 PM” when it was not today. A request or a drop that began before then keeps going. | Click **Make another link** if you need one. |
 | You click **Close link** | “Link closed” | Nothing. |
 | A drop finishes or stops | The result card; the link is used up. | Click **Make another link** for the next drop. |
 | You close Floe | Floe asks first, in a dialog titled **Close Floe?**, with **Keep open** and **Close**. See below the table. | Choose **Keep open** to keep the link. |
@@ -450,7 +458,10 @@ total, as a finished drop's do. See [Contribute to global stats](/desktop/settin
 
 When you close Floe while a link waits, the dialog reads "Your request link stops working". While a drop is
 arriving, it reads "Closing now stops the transfer before the files finish", and **Close** stops the drop at
-once. The files saved so far stay in its folder, and the sender needs a new link for the rest. With a send or
+once. The files saved so far stay in its folder, and the sender needs a new link for the rest. The next time
+Floe starts, the drop shows as stopped, for example "Floe was closed · 4 of 12 files saved", with **Show in
+folder**, and gets its row in History. The same happens when Windows ends Floe, for example to restart for
+an update. With a send or
 a receive by code running too, a second line reads "Your request link also stops working".
 
 The link is kept in memory only, so after a close it cannot come back. If you reopen Floe before the link's
@@ -472,7 +483,9 @@ network reached today's link limit" or "Couldn't make a link".
 ## History {#history}
 
 Each drop that finishes, stops after saving a file, or stops with a complete file kept as `.part` adds one
-row to [History](/desktop/receiving#history), titled with your label if you gave one. Opening it shows the
+row to [History](/desktop/receiving#history), titled with your label if you gave one. With no label, a drop
+that saved no file is titled "Nothing saved". A drop Floe was closed during gets its row the next time Floe
+starts. Opening it shows the
 check mark when every file was checked, "Accepted automatically" for a drop that Auto-accept took, and why
 it stopped. It repeats no renamed-files warning (that stays on the finished card), but **Show in folder**
 still asks first after renames. Declined and missed requests add nothing.
@@ -486,6 +499,7 @@ History words a stop in its own sentence, which can differ from the card's:
 | “Windows blocked Floe from saving a file” | “Drop stopped: Windows blocked a save” |
 | “The drop reached the 24-hour limit · 4 of 12 files saved” | “Drop stopped: it reached the 24-hour limit · 4 of 12 files saved” |
 | “4 of 12 files saved” | “Drop stopped · 4 of 12 files saved” |
+| “Floe was closed · 4 of 12 files saved” | “Drop stopped: Floe was closed · 4 of 12 files saved” |
 
 Every other stop reads in History as “Drop stopped:” and the card's sentence, without the count, such as
 “Drop stopped: over the 2 GB relay limit”. “You stopped this drop” keeps its count in both.
@@ -517,7 +531,8 @@ it over 2 GB. See [File size limits](/how-it-works/2gb-limit).
 
 | Message | What it means | What to do |
 |---|---|---|
-| “Request links are off on this server” | Under **Make link**, the server has turned request links off or does not offer them. It also ends a waiting link when the server turns them off. Send and Receive with a code still work. | Try again later. For your own server, see [Turn on request links](/self-hosting/request-links). |
+| “Request links are off on this server” | Under **Make link**, the server has turned request links off. It also ends a waiting link when the server turns them off. Send and Receive with a code still work. | Try again later. For your own server, see [Turn on request links](/self-hosting/request-links). |
+| “This Floe server doesn't offer request links” | Under **Make link**, the server is older than 1.11.0, from before request links. No setting on it turns them on. | Ask whoever runs the server to update it. See [Troubleshooting](/troubleshooting#this-floe-server-doesnt-offer-request-links). |
 | “This network reached today's link limit” | The server allows 20 new request links from one network in any 24 hours. A link you closed still counts, and so does a link Floe made again after a long sleep. | Wait, then make the link again. |
 | “Couldn't make a link” | Floe could not reach the server, the server is full, your network already has 10 request links open, or the server turned the link down for a reason Floe does not show. | Check your connection, then try again. |
 | “Couldn't use that folder” | Under **Make link**, the **Save to** folder names no place Floe can use. The cases are listed under [Make a link](#make-a-link). No link was made. | Choose the folder with **Browse**, or type a full path such as `D:\Footage`. |
@@ -526,19 +541,21 @@ it over 2 GB. See [File size limits](/how-it-works/2gb-limit).
 | “Close your open link to make a new one” | You can have one request link open at a time. | Close the open link first. |
 | “Only 12.0 GB free on D:, not enough for this drop” | On the request, in amber. After this drop the save drive would have less than 2 GB free, so the drop would stop partway. | Free some space before you accept, or decline. |
 | “This 3.1 GB drop is over the 2 GB relay limit” | On the request, in amber. The drop is over 2 GB, and the connection is relayed or Hide my IP is on. | Decline, then turn off Hide my IP if it is on, or ask for 2 GB or less per drop. |
-| “Missed a request at 2:14 PM” | Someone clicked **Send** and the request ended without an answer. The link is still open. | If you expected files, ask them to send again. |
+| “Missed a request at 2:14 PM” | Someone clicked **Send** and the request ended without an answer. The link is still open. On another day it gives the date too, such as “Missed a request at Oct 15, 3:42 PM”. | If you expected files, ask them to send again. |
 | “The sender couldn't connect” | Someone clicked **Send** (or ran `floe send --to`), but the two computers could not finish connecting, or connected and announced no file within 30 seconds. The link waits again. | They can try again. If it keeps happening, see [The transfer never starts](/troubleshooting#the-transfer-never-starts). |
 | “The sender couldn't connect: Hide my IP is on and no relay is available” | Hide my IP is on, and when a sender connected the server had no relay, or Floe could not read its relay list. The link waits again. | Turn off Hide my IP, or add a relay to your server. See [Who sees your IP address](#who-sees-your-ip-address). |
 | “2 requests ended without Accept in 10 minutes. Close this link?” | Two requests on this link ended without an Accept, so Floe stopped showing Windows notifications for the next ones. The flash, the title and the notice stay. | Close the link if you expect nothing more through it. |
 | “Can't reach the Floe server” with “Reconnecting...” | Floe lost its connection to the server and keeps trying until the link's end time. Meanwhile the sender's page says your computer is not connected. | Check your connection, or click **Retry now**. |
 | “If the connection drops, the current file starts over” | Under the progress, once a drop has run for 1 minute with more than 2 hours left. There is no resume. | Keep the PC awake and online until the drop ends. |
 | “About 2 days at this speed, past the 24-hour limit” | Under the progress, once a drop has run for 1 minute with more than 24 hours left. A single drop stops at 24 hours, and the files saved by then stay. | Let it run and send a new link for the rest, or cancel and ask for fewer files per drop. |
-| “Link ended at 2:05 PM” | The link reached its end time. | Click **Make another link** if you need one. |
+| “Link ended at 2:05 PM” | The link reached its end time. On another day it gives the date too, such as “Link ended at Oct 15, 3:42 PM”. | Click **Make another link** if you need one. |
 | “Link closed” | You closed the link. | Nothing. |
 | “Ends today, 2:05 PM · Asks first, low space on C:” | A link made with Auto-accept is waiting on a drive that already has less free space than an automatic drop must leave, so every drop will ask. | Free some space, or make the link with another **Save to** folder. |
+| “Ends today, 2:05 PM · Asks first, Windows can't mark files on E:” | A link made with Auto-accept is waiting on a drive that cannot carry the downloaded-file mark, such as a FAT32 or exFAT USB drive, so every drop will ask. | Make the link with a **Save to** folder on an NTFS drive, or accept each drop. |
 | “Asks because C: would have under 48.0 GB free” | On a link made with Auto-accept, this drop would leave less than 20 GB, or a tenth of the drive, free, so it asks. | Accept or decline as usual. |
 | “Asks because Windows can't mark files on G:” | On a link made with Auto-accept, the save drive cannot carry the downloaded-file mark, so the drop asks. | Accept or decline as usual. |
 | “Asks because Floe couldn't check D:” | On a link made with Auto-accept, Floe could not read the save drive's free space or size, or the drive did not say in time whether it can carry the downloaded-file mark, so the drop asks. | Accept or decline as usual. |
+| “Asks because Floe couldn't check the connection” | On a link made with Auto-accept, Floe could not tell whether this drop comes through the relay, so it asks. | Accept or decline as usual. |
 | “Request links open in a web browser” | Under **Receive**, when a request link is pasted into **Code or link**. | Click **Open in browser**. |
 
 In these messages, a network is everyone who shares one internet address, such as one home or office.
@@ -549,7 +566,7 @@ When a drop stops, the card reads **DROP STOPPED** with one of these, and **Make
 |---|---|---|
 | “The drive ran out of space · 4 of 12 files saved” | The save drive filled up, or the next file would have left less than 2 GB free. | Free some space or choose another folder, then send the sender a new link for the rest. |
 | “A file didn't match what was sent and was deleted” | A file's SHA-256 on your PC did not match the sender's. | Send a new link; they can send the rest again. |
-| “A folder path was too long for Windows” | A file's path in the drop was too deep or too long to save. | Ask the sender to zip deeply nested folders first. |
+| “A file name or folder path was too long for Windows” | A file's name or path in the drop was too long, or too deep, to save. One long file name is enough. | Ask the sender to shorten the name, or to zip deeply nested folders first. |
 | “More data arrived than you accepted” | The sender sent more than the count and size you accepted, often because files changed after they chose them. It is also the sentence for a drop that announces more than 10,000 files, which stops before any request appears. | Send a new link; they choose the files again. |
 | “Over the 2 GB relay limit” | The drop went through the relay and would have gone past 2 GB. Files saved before the limit stay. | Turn off Hide my IP if it is on, or ask for 2 GB or less per drop. |
 | “A file is too large for this drive” | The save drive cannot hold a file that large, such as 4 GB or more on FAT32. | Save to an NTFS or exFAT drive. |
@@ -558,6 +575,7 @@ When a drop stops, the card reads **DROP STOPPED** with one of these, and **Make
 | “You stopped this drop · 4 of 12 files saved” | You clicked **Cancel drop**. | Nothing, or send a new link for the rest. |
 | “The sender stopped this drop · 4 of 12 files saved” | The sender stopped sending. | Nothing, unless they want to send the rest. |
 | “The drop reached the 24-hour limit · 4 of 12 files saved” | A single drop stops at 24 hours. | Send a new link for the rest. |
+| “Floe was closed · 4 of 12 files saved” | Shown the next time Floe starts: Floe was closed, by you or by Windows, while the drop arrived. | Send a new link for the rest. |
 | “4 of 12 files saved” | The drop stopped for another reason, such as a lost connection. | Send a new link for the rest. |
 
 Every stop sentence on the card ends with the count after a middle dot, such as “· 4 of 12 files saved”. With
@@ -578,8 +596,10 @@ and until then **Make link** says "Request links are off on this server". See [T
 
 ## If something goes wrong {#related}
 
-- **Make link** says "Request links are off on this server": the server does not offer request links. See
+- **Make link** says "Request links are off on this server": the server has request links turned off. See
   [Troubleshooting](/troubleshooting#request-links-are-turned-off-on-this-server).
+- **Make link** says "This Floe server doesn't offer request links": the server is older than 1.11.0. See
+  [Troubleshooting](/troubleshooting#this-floe-server-doesnt-offer-request-links).
 - The link shows "The sender couldn't connect": their browser and your PC could not finish connecting. See
   [Troubleshooting](/troubleshooting#the-sender-could-not-connect).
 - The sender sees "Their computer is not connected right now": Floe has to be open on your PC, awake and

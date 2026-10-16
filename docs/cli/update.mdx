@@ -79,6 +79,10 @@ It prints the same first lines and, when a newer release exists, ends with
 script with `FLOE_VERSION`: see [One-line installer](/cli/installation#one-line-installer). A later
 `floe update` then offers to move you to the latest one.
 
+On macOS 12, stay on 1.11.1: later releases need macOS 13 Ventura, and `floe update` installs them
+anyway. Keep 1.11.1 with the install script's `FLOE_VERSION`, or
+[build from source](/cli/installation#build-from-source).
+
 You can also run the install script again at any time to upgrade. It writes the latest release to
 its own folder (`/usr/local/bin` or `~/.local/bin`, or `%LOCALAPPDATA%\Programs\floe` on Windows),
 so it replaces your `floe` only when that is where it lives:

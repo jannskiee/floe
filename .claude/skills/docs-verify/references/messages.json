@@ -2437,21 +2437,14 @@
     },
     {
         "surface": "desktop",
-        "text": "A finished file couldn't be moved into place",
-        "source": "desktop/frontend/src/errors.ts",
-        "anchor": null,
-        "why_no_home": "The Receive tab's wording for an engine sentence no released build produces: a file that cannot take its final name ends the receive with \"A received file couldn't be saved, so it was kept with a .part ending\", which has its own row."
-    },
-    {
-        "surface": "desktop",
-        "text": "A folder path is too long for their computer. Zip deeply nested folders first",
+        "text": "A file name or folder path is too long for their computer. Shorten it or zip it first",
         "source": "cli/engine/transfer/refusal.go",
         "anchor": "/troubleshooting#their-computer-ran-out-of-space",
         "why_no_home": null
     },
     {
         "surface": "desktop",
-        "text": "A folder path was too long for Windows",
+        "text": "A file name or folder path was too long for Windows",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#messages-on-your-pc",
         "why_no_home": null
@@ -2564,6 +2557,13 @@
     {
         "surface": "desktop",
         "text": "Asks because Floe couldn't check {drive}",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#auto-accept",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Asks because Floe couldn't check the connection",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#auto-accept",
         "why_no_home": null
@@ -2683,6 +2683,13 @@
     {
         "surface": "desktop",
         "text": "Cancel drop",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#while-files-arrive",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Stopping",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#while-files-arrive",
         "why_no_home": null
@@ -3025,7 +3032,7 @@
     },
     {
         "surface": "desktop",
-        "text": "Drop stopped: a folder path was too long for Windows",
+        "text": "Drop stopped: a file name or folder path was too long for Windows",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#history",
         "why_no_home": null
@@ -3033,6 +3040,13 @@
     {
         "surface": "desktop",
         "text": "Drop stopped: it reached the 24-hour limit",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#history",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Drop stopped: Floe was closed",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#history",
         "why_no_home": null
@@ -3103,6 +3117,13 @@
     {
         "surface": "desktop",
         "text": "Ends {when} · Asks first, low space on {drive}",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#auto-accept",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Ends {when} · Asks first, Windows can't mark files on {drive}",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#auto-accept",
         "why_no_home": null
@@ -3557,13 +3578,6 @@
     },
     {
         "surface": "desktop",
-        "text": "More data arrived than this transfer announced",
-        "source": "desktop/frontend/src/errors.ts",
-        "anchor": null,
-        "why_no_home": "The Receive tab's wording for an engine sentence that only a request-link drop produces, and a drop shows its own request-link line instead, so Floe Desktop 0.3.1 never shows it."
-    },
-    {
-        "surface": "desktop",
         "text": "More data arrived than you accepted",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#messages-on-your-pc",
@@ -3582,13 +3596,6 @@
         "source": "desktop/frontend/src/components/HistoryView.tsx",
         "anchor": "/desktop/receiving#history",
         "why_no_home": null
-    },
-    {
-        "surface": "desktop",
-        "text": "Nobody answered in time",
-        "source": "desktop/frontend/src/errors.ts",
-        "anchor": null,
-        "why_no_home": "The Receive tab's wording for an engine sentence that only a request-link drop produces, and a drop shows its own request-link line instead, so Floe Desktop 0.3.1 never shows it."
     },
     {
         "surface": "desktop",
@@ -3809,13 +3816,6 @@
     },
     {
         "surface": "desktop",
-        "text": "Relayed transfers are capped at 2 GB",
-        "source": "desktop/frontend/src/errors.ts",
-        "anchor": null,
-        "why_no_home": "The Receive tab's wording for an engine sentence that only a request-link drop produces, and a drop shows its own request-link line instead, so Floe Desktop 0.3.1 never shows it."
-    },
-    {
-        "surface": "desktop",
         "text": "Remove",
         "source": "desktop/frontend/src/components/HistoryView.tsx",
         "anchor": "/desktop/receiving#history",
@@ -3880,6 +3880,13 @@
     {
         "surface": "desktop",
         "text": "Request links are off on this server",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#messages-on-your-pc",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "This Floe server doesn't offer request links",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#messages-on-your-pc",
         "why_no_home": null
@@ -4215,13 +4222,6 @@
     },
     {
         "surface": "desktop",
-        "text": "Stopped on this computer",
-        "source": "desktop/frontend/src/errors.ts",
-        "anchor": null,
-        "why_no_home": "The Receive tab's wording for an engine sentence that only a request-link drop produces, and a drop shows its own request-link line instead, so Floe Desktop 0.3.1 never shows it."
-    },
-    {
-        "surface": "desktop",
         "text": "Test",
         "source": "desktop/frontend/src/App.tsx",
         "anchor": "/desktop/settings#server",
@@ -4314,6 +4314,13 @@
     {
         "surface": "desktop",
         "text": "The drop reached the 24-hour limit",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#messages-on-your-pc",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Floe was closed",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#messages-on-your-pc",
         "why_no_home": null
@@ -4446,24 +4453,10 @@
     },
     {
         "surface": "desktop",
-        "text": "The transfer reached its 24-hour limit",
-        "source": "desktop/frontend/src/errors.ts",
-        "anchor": null,
-        "why_no_home": "The Receive tab's wording for an engine sentence that only a request-link drop produces, and a drop shows its own request-link line instead, so Floe Desktop 0.3.1 never shows it."
-    },
-    {
-        "surface": "desktop",
         "text": "The transfer stalled",
         "source": "desktop/frontend/src/errors.ts",
         "anchor": "/troubleshooting#the-transfer-stalled",
         "why_no_home": null
-    },
-    {
-        "surface": "desktop",
-        "text": "The transfer was declined",
-        "source": "desktop/frontend/src/errors.ts",
-        "anchor": null,
-        "why_no_home": "The Receive tab's wording for an engine sentence that only a request-link drop produces, and a drop shows its own request-link line instead, so Floe Desktop 0.3.1 never shows it."
     },
     {
         "surface": "desktop",
@@ -4838,14 +4831,21 @@
     },
     {
         "surface": "cli",
-        "text": "A folder path is too long for their computer. Zip deeply nested folders first.",
+        "text": "A file name or folder path is too long for their computer. Shorten it or zip it first.",
         "source": "cli/engine/transfer/refusal.go",
         "anchor": "/cli/send#messages-from-floe-send-to",
         "why_no_home": null
     },
     {
         "surface": "cli",
-        "text": "A folder path is too long to send. Zip deeply nested folders first.",
+        "text": "A file name or folder path is too long to send. Shorten it or zip it first.",
+        "source": "cli/cmd/floe/sendto.go",
+        "anchor": "/cli/send#messages-from-floe-send-to",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "The server is limiting connections from this network. Wait a minute and try again.",
         "source": "cli/cmd/floe/sendto.go",
         "anchor": "/cli/send#messages-from-floe-send-to",
         "why_no_home": null
@@ -5084,8 +5084,15 @@
     {
         "surface": "cli",
         "text": "connection closed before the server assigned a role",
-        "source": "cli/cmd/floe/send.go",
+        "source": "cli/cmd/floe/main.go",
         "anchor": "/troubleshooting#connection-closed-before-the-server-assigned-a-role",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "the server is limiting connections from this network. Wait a minute and try again.",
+        "source": "cli/cmd/floe/main.go",
+        "anchor": "/troubleshooting#the-server-is-limiting-connections-from-this-network-cli",
         "why_no_home": null
     },
     {

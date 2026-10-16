@@ -659,7 +659,8 @@ two-space indent, with no prefix. `Ctrl+C` prints `Canceled.` and exits with sta
 | [`unknown command` or `accepts 1 arg(s)`](#unknown-command-or-wrong-number-of-arguments) | The command is missing a word, or has too many. | Use `floe receive` and the code as one word. |
 | [`cannot create output directory`](#cannot-create-output-directory), from `floe receive -o` | The folder cannot be made or written. | Fix the path. The same code still works. |
 | [`failed to connect to signaling server`](#failed-to-connect-to-signaling-server) | The server address is wrong, the server is down, or something blocks it. | Check `--server` and your network. |
-| [`connection closed before the server assigned a role`](#connection-closed-before-the-server-assigned-a-role) | The server's limits on connections from one address. | Wait a minute, then run it again. |
+| [`the server is limiting connections from this network`](#the-server-is-limiting-connections-from-this-network-cli) | Too many new connections from your network in a minute, or too many open from it at once. | Wait a minute, then run it again. |
+| [`connection closed before the server assigned a role`](#connection-closed-before-the-server-assigned-a-role) | The server closed the connection for another reason. | Run it again. If it repeats, check the server. |
 | [`Warning: ... Using STUN only.`](#warning-could-not-reach-signaling-server-for-turn-credentials-using-stun-only) | `floe` could not get the relay details. | Check the server address, or wait a minute. |
 | [`Warning: could not generate short code`](#warning-could-not-generate-short-code), from `floe send` | The server gave no room code. | Share the link instead. |
 | [`--relay-only needs a TURN relay`](#relay-only-needs-a-turn-relay) | The server offers no relay. | Drop the flag, or add a relay to the server. |
@@ -861,16 +862,31 @@ is the server's origin check, usually a [reverse proxy](/glossary#reverse-proxy)
 path. `floe` adds one sentence with the fix for each. See
 [Run behind one domain](/self-hosting/reverse-proxy).
 
+### `the server is limiting connections from this network` {#the-server-is-limiting-connections-from-this-network-cli}
+
+From `floe send` or `floe receive`, right after it starts. The whole line is
+`Error: the server is limiting connections from this network. Wait a minute and try again.` The
+server turned the connection away by one of its limits on one network address: by default 30 new
+connections in a minute, and 60 open at once. Many runs in a row, many transfers at once, or many
+people behind one address can reach them. `floe send --to` prints the same sentence with a capital
+letter. Versions of `floe` before 1.11.2 printed
+[`connection closed before the server assigned a role`](#connection-closed-before-the-server-assigned-a-role),
+or `failed to join room: websocket: close sent`, for the same refusal.
+
+Wait a minute, then run the command again. If it keeps happening on your own server, see
+[429, or "Rate limit exceeded"](#429-or-rate-limit-exceeded).
+
 ### `connection closed before the server assigned a role` {#connection-closed-before-the-server-assigned-a-role}
 
 From `floe send` or `floe receive`, right after it starts. The server accepted the connection and
-then closed it before letting `floe` into the transfer. The usual cause is one of the server's
-limits on one network address: by default 30 new connections in a minute, and 60 open at once.
-Many runs in a row, many transfers at once, or many people behind one address can reach them. A
-server that goes quiet instead ends with
+then closed it before letting `floe` into the transfer, for a reason other than its connection
+limits, which end with
+[`the server is limiting connections from this network`](#the-server-is-limiting-connections-from-this-network-cli)
+instead. A server that restarted, or a proxy in front of it that closed the connection, can cause
+it. A server that goes quiet instead ends with
 `timed out waiting for the server to assign a role` after 20 seconds.
 
-Wait a minute, then run the command again.
+Run the command again. If it repeats, check the server, or ask whoever runs it.
 
 ### `Warning: could not reach signaling server for TURN credentials. Using STUN only.` {#warning-could-not-reach-signaling-server-for-turn-credentials-using-stun-only}
 
@@ -1174,15 +1190,15 @@ when you click **Send**. Each line names the path:
 
 ### `receive stopped: a file's path is too deep or too long to save in this folder` {#receive-stopped-path-too-deep-or-too-long}
 
-From `floe receive`. A file in the transfer sits too many folders deep, or its path inside the
-transfer is too long, for `floe receive` to save it safely. It refuses such a file before writing
-it, and no flag turns that off. The sender sees
-`A folder path is too long for their computer. Zip deeply nested folders first.`
+From `floe receive`. A file in the transfer sits too many folders deep, or its name or its path
+inside the transfer is too long, for `floe receive` to save it safely. It refuses such a file
+before writing it, and no flag turns that off. The sender sees
+`A file name or folder path is too long for their computer. Shorten it or zip it first.`
 
 A path long enough to make the file's description longer than 1,000 bytes stops one step earlier,
 with `rejected the sender's control message: 1204 bytes, limit 1000`. The fix is the same.
 
-Ask the sender to zip deeply nested folders first. See
+Ask the sender to shorten the name, or to zip deeply nested folders first. See
 [Paths that are too deep or too long](/cli/receive#paths-too-deep-or-too-long) for the limits.
 
 ### `rejected the sender's file description` and similar lines {#rejected-the-senders-file-description}
@@ -1542,7 +1558,7 @@ that reason as its own line:
 | `Error: They declined. Nothing was sent` | They answered `n` at the prompt of `floe receive`. | Check with them before you send again. |
 | `Error: Their computer ran out of space` | The drive they save to is full. | Send again once they have made room. |
 | `Error: Their computer could not save a file` | A write failed on their side. From a browser, it ran out of memory or hit an error. | Ask them to choose another folder, or to receive with Floe Desktop or `floe receive`. |
-| `Error: A folder path is too long for their computer. Zip deeply nested folders first` | A file sits too many folders deep, or its path is too long, for their computer. | Zip deeply nested folders, then send the zip. |
+| `Error: A file name or folder path is too long for their computer. Shorten it or zip it first` | A file's name or path is too long, or it sits too many folders deep, for their computer. One long file name is enough. | Shorten the name, or zip it and send the zip. |
 | `Error: A file is too large for the drive they save to` | A file is 4 GB or larger, and their drive holds just under 4 GB per file, as FAT32 drives do. | Ask them to save to another drive. |
 | `Error: A file arrived but their computer blocked saving it` | The file arrived whole, but it could not take its final name, usually because another program was holding it. It stays there with a `.part` ending. | Ask them to remove the `.part` ending from that file, then send the rest. |
 
@@ -1799,6 +1815,7 @@ a reload empties your file selection.
 | [“Request links are not available on this Floe server.”](#request-links-are-not-available-on-this-floe-server), sender's page or `floe send --to` | The server does not answer request links. | Ask which server their Floe uses. |
 | [“They did not answer in time. Nothing was sent.”](#they-did-not-answer-in-time), sender's page | The person who made the link did not click **Accept** in time. | Ask them to be at their PC, then send again. |
 | [“Request links are off on this server”](#request-links-are-turned-off-on-this-server), Floe Desktop | The server has request links turned off. | Try again later. |
+| [“This Floe server doesn't offer request links”](#this-floe-server-doesnt-offer-request-links), Floe Desktop | The server is older than 1.11.0, from before request links. | Ask whoever runs it to update it. |
 | [“This network reached today's link limit”](#this-network-made-too-many-request-links-today), Floe Desktop | 20 new links from one network in 24 hours. | Wait, then make the link again. |
 | [“The sender couldn't connect”](#the-sender-could-not-connect), Floe Desktop | Their device and your PC could not finish connecting. | Ask them to try again. |
 | [The link opens a page that is not Floe's](#the-link-opens-a-page-that-is-not-floes-send-page), the sender's browser | **Share link address** is blank on a self-hosted setup. | Set **Share link address**, then make a new link. |
@@ -1884,7 +1901,19 @@ request links stop: Send and Receive with a code still work.
 
 Try again later, or ask whoever runs the server. If it is your own server, see
 [Turn on request links](/self-hosting/request-links): its `/health` answer lists `request-1` under
-`features` only while request links are on.
+`features` only while request links are on. A server from before request links gets
+["This Floe server doesn't offer request links"](#this-floe-server-doesnt-offer-request-links)
+instead.
+
+### "This Floe server doesn't offer request links" {#this-floe-server-doesnt-offer-request-links}
+
+In Floe Desktop, when you click **Make link**. The server is older than 1.11.0: its `/health` answer
+has no `features` list, because it was released before request links, and no setting on it turns
+them on. Send and Receive with a code still work. Earlier versions of Floe Desktop said "Request
+links are off on this server" here.
+
+Ask whoever runs the server to update it to 1.11.0 or later. If it is your own server, update it,
+then see [Turn on request links](/self-hosting/request-links).
 
 ### "This network reached today's link limit" {#this-network-made-too-many-request-links-today}
 
@@ -2010,7 +2039,7 @@ was refused tells you which limit it was:
 
 | Message | What it means | What to do |
 |---|---|---|
-| `Rate limit exceeded`, on a Socket.IO or `/ws` connection | Too many new connections from one address, or too many open from it at once. The web app shows [“Too many refreshes. Reconnecting”](#too-many-refreshes-reconnecting), and Floe Desktop shows [“The server is limiting connections from this network”](#the-server-is-limiting-connections-from-this-network). | Raise `MAX_CONNECTIONS_PER_IP`, or `MAX_SOCKETS_PER_IP` for connections held open. |
+| `Rate limit exceeded`, on a Socket.IO or `/ws` connection | Too many new connections from one address, or too many open from it at once. The web app shows [“Too many refreshes. Reconnecting”](#too-many-refreshes-reconnecting), Floe Desktop shows [“The server is limiting connections from this network”](#the-server-is-limiting-connections-from-this-network), and `floe` ends with [`the server is limiting connections from this network`](#the-server-is-limiting-connections-from-this-network-cli). | Raise `MAX_CONNECTIONS_PER_IP`, or `MAX_SOCKETS_PER_IP` for connections held open. |
 | `429` with `Too many requests`, from `/api/turn-credentials` | Too many requests for connection details from one address. | Raise `MAX_TURN_REQUESTS_PER_IP`. |
 | `429` with `Too many requests`, from `/api/code` | Too many room-code requests from one address, or too many wrong codes in a minute. | Raise `MAX_CODE_REQUESTS_PER_IP`, or `MAX_FAILED_CODE_RESOLVES` for wrong codes. |
 | `429` with `Too many reports`, from `/api/stats/report` | Too many stats reports from one address. | Nothing to set: this limit has no variable. |

@@ -64,7 +64,11 @@ export const metadata: Metadata = {
 // removes them) or is closed (sessionStorage goes with it), in
 // lib/request/lostRecord.ts; the sentence says so (owner answer 11). The same
 // day every Sentry send hook was made to fail closed (lib/failClosed.ts),
-// which narrows what can leave and changes no sentence here.
+// which narrows what can leave and changes no sentence here. Also that day, for
+// desktop-v0.3.2: the History row's sentence on a drop Floe was closed during
+// (desktop/requestquit.go quitDrop, takeQuitDrop: label, counts, folder and at
+// most 200 names, beside desktop.json, removed when the drop ends or read once
+// and removed at the next start).
 // Rechecked on 2026-10-12: Sentry is sent no session data, from the browser
 // (sentry.client.config.ts `integrations`) or from the server
 // (sentry.server.config.ts `integrations`; see lib/sentryIntegrations.ts), so
@@ -585,7 +589,11 @@ export default function PrivacyPolicy() {
                                     saved files adds one row too, with your label, how many files
                                     matched their SHA-256 or were renamed, whether Auto-accept took
                                     the drop, and why it stopped if it did; the link itself is never
-                                    kept. It never leaves your device. Remove one entry
+                                    kept. While a drop arrives, the app also keeps its label, its
+                                    counts, its folder and up to 200 saved file names in a small file
+                                    beside your settings, so a drop the app was closed during still
+                                    gets its row; the file is deleted when the drop ends, or read and
+                                    deleted the next time the app starts. It never leaves your device. Remove one entry
                                     with Remove inside its row, or all of them with Clear in the History
                                     view. Reset in Settings and uninstalling the app both leave it in
                                     place.

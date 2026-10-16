@@ -304,10 +304,11 @@ receiver, which is deliberate (share a link and wait) and cancelable.
 
 ## Release history
 
-Current release: `desktop-v0.3.1` (Microsoft Store 9NBQ8ZQ1065L + GitHub
-pre-release), shipped 2026-10-15. Paired with CLI `v1.11.1`, because the
-engine changes they both carry (the link-server check before connecting, the
-receiver's naming of a second `.env` file, linked files sent at their target's size)
+Current release: `desktop-v0.3.2` (Microsoft Store 9NBQ8ZQ1065L + GitHub
+pre-release), shipped 2026-10-16. Paired with CLI `v1.11.2`, because the
+engine changes they both carry (the Windows 10 device-name rule on a receive, a
+sender that reads the receiver's refusal while it waits on a full buffer, the
+`.part` file removed when a receive stops mid-write, the long-name refusal words)
 live in `cli/engine`, which reaches a desktop user only through a desktop tag, and
 the CLI half of the same change only reaches a `floe` user through a CLI tag.
 

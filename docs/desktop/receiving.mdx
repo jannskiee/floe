@@ -150,7 +150,8 @@ received.
 Each row shows the file name (or the count, for a batch), the direction, the size, and when it happened.
 Times use a 24-hour clock: `Today, 19:55`, `Yesterday, 09:12` or `Jul 19, 19:55`. A sent folder is listed by
 its own name, and a note as `message.txt`. A drop through a [request link](/desktop/request-links#history)
-adds one row, titled with your label if you gave the link one. An empty list reads "No transfers yet".
+adds one row, titled with your label if you gave the link one, or "Nothing saved" for a drop with no label
+that saved no file. An empty list reads "No transfers yet".
 
 Click any row to open it. The panel underneath lists the individual file names and carries **Remove** along
 the bottom. A received transfer also says where it was saved and adds **Show in folder**. A sent transfer has
@@ -220,7 +221,8 @@ name:
 
 - The characters `< > : " | ? *` become underscores, and so do control characters and text-direction marks.
 - Trailing dots and spaces are removed.
-- A name that is a reserved device name, such as `NUL`, gets an underscore in front.
+- A name that is a reserved device name, such as `NUL`, gets an underscore in front. On Windows 10, so does a
+  name that begins with one and a dot, such as `aux.h`, which is saved as `_aux.h`; Windows 11 keeps that name.
 - A file or top-level folder whose name starts with one ASCII character and then a colon loses those two
   characters, because Windows reads that start as a drive. That character can be a letter (A to Z), a digit or
   a symbol such as `_` or `#`. So `P:L 2025.xlsx` is saved as `L 2025.xlsx`, and `_:notes.txt` as `notes.txt`.

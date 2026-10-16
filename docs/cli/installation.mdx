@@ -7,7 +7,8 @@ keywords: ["install floe", "brew", "winget", "scoop", "go install", "download cl
 
 This page installs `floe`, Floe's [CLI](/glossary#cli) (command-line program), on macOS, Windows,
 or Linux and confirms that it runs. It is for anyone who wants to send or receive from a terminal or
-a script. `floe` is a single file that needs nothing else installed to run.
+a script. `floe` is a single file that needs nothing else installed to run. The release builds for
+macOS need macOS 13 Ventura or later; on macOS 12, use [Build from source](#build-from-source).
 
 If you would rather have a window than a terminal, [Floe Desktop](/desktop/installation) runs on
 this same transfer engine, so the two interoperate. It is Windows only; on macOS and Linux this
@@ -242,7 +243,8 @@ manual install. See [Update the CLI](/cli/update).
 
 ## Build from source
 
-Requires Go 1.26 or later.
+Requires Go 1.26 or later. On macOS 12, which the release builds no longer support, this is how to
+get a current `floe`: Go 1.26 still runs there.
 
 ```bash Terminal
 git clone https://github.com/jannskiee/floe.git

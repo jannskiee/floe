@@ -181,7 +181,7 @@ The receiver checks where each file would go before saving it. It refuses a file
 32 levels deep, a path too long for it to save, or a file too large for its drive.
 `floe receive` 1.11.0 or later and Floe Desktop 0.3.0 or later make these checks. `floe send` then
 stops with one line, such as
-`Error: A folder path is too long for their computer. Zip deeply nested folders first.`, and exits
+`Error: A file name or folder path is too long for their computer. Shorten it or zip it first.`, and exits
 with status 1. Files the recipient saved before that one stay there. See
 [Paths that are too deep or too long](/cli/receive#paths-too-deep-or-too-long).
 
@@ -245,7 +245,7 @@ reason:
 | `Error: Their computer ran out of space.` | Their save drive filled up. | Ask them to free space, then send again. |
 | `Error: Their computer could not save a file.` | Their computer refused a write into the save folder. | Ask them to check their save folder. |
 | `Error: A file changed or was damaged on the way, so their Floe deleted it.` | A file's SHA-256 did not match on their side. | Send that file and the ones after it again. |
-| `Error: A folder path is too long for their computer. Zip deeply nested folders first.` | A file's path was too deep or too long to save on their side. | Zip the deeply nested folder and send the archive. |
+| `Error: A file name or folder path is too long for their computer. Shorten it or zip it first.` | A file's name or path was too long, or too deep, to save on their side. One long file name is enough. | Shorten the name, or zip it and send the archive. |
 | `Error: A file is too large for the drive they save to.` | Their save drive cannot hold a file that large, for example a file of 4 GB or more on a FAT32 drive. | Ask them to save to another drive. |
 | `Error: A file arrived but their computer blocked saving it.` | The file arrived whole but could not take its final name, so it stays there with a `.part` ending. | Ask them about that file before you send it again. |
 
@@ -409,7 +409,8 @@ Each of these ends the command with status 1.
 | `Connection lost. Nothing was sent.` | The connection dropped after their computer connected and before they accepted. | Run the command again. |
 | `Connection lost. 4 of 12 files arrived. Ask them for a new link to send the other 8.` | The connection dropped after they accepted. There is no resume. With one file left the line ends `send the other one.`, and a single file reads `0 of 1 file arrived. Ask them for a new link to send it.` | Ask them for a new link and send the files that did not arrive. |
 | `This drop has more than 10,000 files. Zip them first.` | A drop can hold up to 10,000 files. Floe checks this before it contacts any server. | Zip them and send the archive. |
-| `A folder path is too long to send. Zip deeply nested folders first.` | A file's folder path and name are too long to send. Floe checks this before it contacts any server. | Zip the deeply nested folder and send the archive. |
+| `A file name or folder path is too long to send. Shorten it or zip it first.` | A file's name, or its folder path and name together, are too long to send. Floe checks this before it contacts any server. | Shorten the name, or zip it and send the archive. |
+| `The server is limiting connections from this network. Wait a minute and try again.` | The server turned the connection away by its limits on one network address, before the link was checked. See [the server is limiting connections from this network](/troubleshooting#the-server-is-limiting-connections-from-this-network-cli). | Wait a minute, then run the command again. |
 | `Their Floe needs an update to receive from this link.` | Their Floe Desktop is too old for your `floe`. It cannot appear today: every Floe release so far speaks the same transfer protocol version. | Ask them to update Floe Desktop. |
 | `Your Floe needs an update to send to this link.`, then ``Run `floe update` to upgrade.`` | Your `floe` is too old for their Floe Desktop. It cannot appear today, for the same reason. | Run `floe update`. |
 
@@ -433,7 +434,7 @@ saved, such as `4 of 12 files were saved.` (`1 of 1 file was saved.` for a singl
 | `Their computer could not save a file.` | Their computer refused a write into the save folder. | Ask them to check their save folder. |
 | `A file changed or was damaged on the way, so their Floe deleted it.`, and after the count `Ask them for a new link to send the rest.` | A file's SHA-256 did not match on their side. | Ask them for a new link and send the rest again. |
 | `Relayed drops are capped at 2 GB.`, with `Nothing was sent. Send 2 GB or less.` in place of the count when nothing was saved | Their Floe found the drop going through the relay and past 2 GB. `floe` 1.11.0 ends that line `Send under 2 GB.` | Send 2 GB or less, or ask them to turn off **Hide my IP address** if it is on. |
-| `A folder path is too long for their computer. Zip deeply nested folders first.` | A file's path was too deep or too long to save on their side. | Zip the deeply nested folder and send the archive. |
+| `A file name or folder path is too long for their computer. Shorten it or zip it first.` | A file's name or path was too long, or too deep, to save on their side. One long file name is enough. | Shorten the name, or zip it and send the archive. |
 | `A file is too large for the drive they save to.` | Their save drive cannot hold a file that large. | Ask them to save to another drive. |
 | `A file arrived but their computer blocked saving it.` | Their Floe could not move a finished file into place, after 5 minutes of retries. The complete file stays there with a `.part` ending. | Ask them about that file before you send it again. |
 | `More data arrived than they accepted. If files changed after you chose them, ask them for a new link.` | Your `floe` sent more than the count and size they accepted. | Ask them for a new link, and send once the files have stopped changing. |
