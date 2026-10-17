@@ -1,7 +1,7 @@
 {
     "refs": {
-        "cli": "v1.11.2",
-        "desktop": "desktop-v0.3.2"
+        "cli": "7d2db56",
+        "desktop": "7d2db56"
     },
     "cli": {
         "cli/cmd/floe/main.go": [
@@ -456,7 +456,6 @@
             "Asks because {drive} would have under {size} free",
             "Aug",
             "Auto-accept",
-            "Beta",
             "Browse",
             "Can't reach the Floe server",
             "Cancel",
@@ -546,7 +545,6 @@
             "Request declined. Keep waiting for the right sender?",
             "Request link",
             "Request link is open",
-            "Request link, beta",
             "Request link: someone wants to send you files.",
             "Request links are off on this server",
             "Request links open in a web browser",
@@ -702,8 +700,6 @@
                 "Open in browser",
                 "Code",
                 "Request link",
-                "Beta",
-                "Request link, beta",
                 "Label",
                 "Optional",
                 "Save to",

@@ -304,13 +304,11 @@ receiver, which is deliberate (share a link and wait) and cancelable.
 
 ## Release history
 
-Current release: `desktop-v0.3.2` (Microsoft Store 9NBQ8ZQ1065L + GitHub
-pre-release), shipped 2026-10-16. Paired with CLI `v1.11.2`, because the
-engine changes they both carry (the Windows 10 device-name rule on a receive, a
-sender that reads the receiver's refusal while it waits on a full buffer, the
-`.part` file removed when a receive stops mid-write, the long-name refusal words)
-live in `cli/engine`, which reaches a desktop user only through a desktop tag, and
-the CLI half of the same change only reaches a `floe` user through a CLI tag.
+Current release: `desktop-v1.0.0` (Microsoft Store 9NBQ8ZQ1065L + GitHub
+pre-release), shipped 2026-10-17, the first release out of Beta. Paired with CLI
+`v1.11.3`, because the web app's request link page lost its Beta tag in the same
+change, and the container images a self-hoster runs move only on a `v*` tag;
+`floe` itself is unchanged apart from its version number.
 
 The list below is the verified order the first public release (0.1.0 Beta)
 actually followed. Steps 1-3 shipped the GitHub Beta; the plan then pivoted

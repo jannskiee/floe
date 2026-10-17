@@ -2612,13 +2612,6 @@
     },
     {
         "surface": "desktop",
-        "text": "Beta",
-        "source": "desktop/frontend/src/requestCopy.ts",
-        "anchor": "/desktop/request-links#where-to-find-it",
-        "why_no_home": null
-    },
-    {
-        "surface": "desktop",
         "text": "Both people must use the same server, which never sees your files",
         "source": "desktop/frontend/src/App.tsx",
         "anchor": "/desktop/settings#server",
@@ -3852,13 +3845,6 @@
     {
         "surface": "desktop",
         "text": "Request link is open",
-        "source": "desktop/frontend/src/requestCopy.ts",
-        "anchor": "/desktop/request-links#where-to-find-it",
-        "why_no_home": null
-    },
-    {
-        "surface": "desktop",
-        "text": "Request link, beta",
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#where-to-find-it",
         "why_no_home": null
