@@ -2,33 +2,33 @@
   "product": "Floe Desktop, Microsoft Store 9NBQ8ZQ1065L",
   "locale": "en-US",
   "saved": {
-    "submission": 16,
-    "date": "2026-10-15",
-    "package": "1.3.1.0",
-    "tag": "desktop-v0.3.1"
+    "submission": 18,
+    "date": "2026-10-17",
+    "package": "2.0.0.0",
+    "tag": "desktop-v1.0.0"
   },
   "fields": {
     "description": {
       "file": "description.txt",
-      "len": 3404,
-      "djb2": "f7173704"
+      "len": 3351,
+      "djb2": "05eddf8a"
     },
     "features": {
       "file": "features.txt",
-      "len": 989,
-      "djb2": "07412c18",
+      "len": 982,
+      "djb2": "d00e4aab",
       "count": 11
     },
     "captions": {
       "file": "captions.txt",
-      "len": 353,
-      "djb2": "10aaa6c5",
+      "len": 346,
+      "djb2": "a8403518",
       "count": 4
     },
     "certification-notes": {
       "file": "certification-notes.txt",
-      "len": 1278,
-      "djb2": "6db7e3bd"
+      "len": 1266,
+      "djb2": "ce7cff98"
     }
   },
   "screenshots": [
@@ -36,29 +36,29 @@
       "file": "screenshots/01-send-share.png",
       "width": 1366,
       "height": 768,
-      "bytes": 95149,
-      "sha256": "9e1561f2dc295878a6a3897df4c64b796a8af4d354c1e94e513aa4e8d7fb0f65"
+      "bytes": 95927,
+      "sha256": "87a54fe56002bfbd0b4a0e5633ef85794fc36476efad8be2db4b9c3d7a7525f4"
     },
     {
       "file": "screenshots/02-receive-code.png",
       "width": 1366,
       "height": 768,
-      "bytes": 86665,
-      "sha256": "70b750cb8bf8f340998c7fddba3c75b034064fb749427014dd579957e30d9559"
+      "bytes": 86137,
+      "sha256": "97ea5c9168643cbb38f5f42fb636ff09d1d1d878710f39f690562f8495ec6538"
     },
     {
       "file": "screenshots/03-request-link-waiting.png",
       "width": 1366,
       "height": 768,
-      "bytes": 88618,
-      "sha256": "19adb931eea53144d91394739e2cc99e4915f9ecab3a68ae442877ddf20da4ab"
+      "bytes": 87726,
+      "sha256": "b08b7c3013f954aa2d6c4e0c635d348add56379bcc76f135429d85928c94bbd7"
     },
     {
       "file": "screenshots/04-request-accept.png",
       "width": 1366,
       "height": 768,
-      "bytes": 97597,
-      "sha256": "5c74c52d4fd687bd92848395e0dc36718e144638cb2fe8bcccb8dc00878b6f2b"
+      "bytes": 96156,
+      "sha256": "03bd4d9a0a32a5d2aed9a6fd85f421b412ad195a25433843bd101c0086536f37"
     }
   ]
 }

@@ -1,6 +1,6 @@
 Peer-to-peer: files stream device to device, end-to-end encrypted (WebRTC)
 Works with the Floe web app and CLI: any two surfaces can transfer
-Request links (Beta): make a one-time link so one person can send you files from their browser; nothing is saved until you accept, unless you turn on Auto-accept for that link
+Request links: make a one-time link so one person can send you files from their browser; nothing is saved until you accept, unless you turn on Auto-accept for that link
 Request link limits: works only while Floe Desktop is open, awake and online; relayed drops stop at 2 GB; no resume; files are not scanned for malware
 Every received file is checked against the SHA-256 its sender computed, when one is provided, and a file that does not match is deleted
 Send folders without zipping

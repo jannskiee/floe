@@ -14,10 +14,9 @@ the package identity is the `<Identity>` element of
 `$identityVersion` line of `desktop/build/msix/pack.ps1`; the artifact is the
 "Upload MSIX artifact" step of `.github/workflows/desktop-release.yml`. The
 URLs, selectors and JS idioms that were recorded are in
-`references/partner-center.md`. It is not complete: its "To capture at the
-next submission" section names three things no session wrote down, and the
-first submission that meets one fills it in. The page wins over that file,
-and the file gets the correction with the date.
+`references/partner-center.md`. Its three open items were recorded on
+2026-10-17 (Submission 18). The page wins over that file, and the file gets
+the correction with the date.
 
 Paths below are relative to the repo root. From a worktree or checkout that
 predates the skill, run the scripts by absolute path from one that has them,
@@ -282,7 +281,7 @@ name on a routine update; they carry over. Keyword chips silently drop when
 Save happens while the chip input has focus (2026-08-02); the only defense
 is never being in that field.
 
-### 5a. When the release changes the listing itself (Submission 15 on 2026-10-09 and Submission 16 on 2026-10-15)
+### 5a. When the release changes the listing itself (Submission 15 on 2026-10-09, Submission 16 on 2026-10-15, Submission 18 on 2026-10-17)
 
 A routine update stops at What's new. A release that changes what the app
 does also changes the description, the feature list and the screenshots.
@@ -294,7 +293,7 @@ else and Save once.
 
 The listing's source is `references/listing/en-US/`: the description, the
 product features, the screenshot captions, the four screenshots and the
-certification notes as Submission 16 saved them on 2026-10-15. Its
+certification notes as Submission 18 saved them on 2026-10-17. Its
 `manifest.json` names that submission and records each text's length and
 djb2 fingerprint and each image's size and SHA-256, and its README says how
 the screenshots were made.

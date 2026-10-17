@@ -2,18 +2,18 @@ Floe Desktop sends files directly between two devices. No account, no server sto
 
 Pick your files, share the short code or link, and the other side receives: in this app, at floe.one in any browser, or with the Floe command-line tool. The two devices connect to each other and the encrypted bytes flow directly between them, or through a relay when a direct connection can't be made. Floe's servers only introduce the two peers; file contents never reach them and are never stored anywhere.
 
-REQUEST LINKS (BETA)
+REQUEST LINKS
 
 Need files from someone? Make a request link in Floe Desktop and send it to them. They open it in their browser, pick files and click Send, with nothing to install. Floe asks you first, and nothing is saved until you click Accept, unless you turn on Auto-accept for that link. The files then stream to this PC into a new folder, under Downloads\Floe unless you choose another.
 
-Request links are in Receive, next to Code, marked Beta. Their limits:
+Request links are in Receive, next to Code. Their limits:
 - One link open at a time. Each link is for one person and one drop, and ends when its time runs out (30 minutes to 7 days, 24 hours by default) or when you close it.
 - Auto-accept is off on every new link. With it on, a drop through that link saves without asking, except in a few cases, like low space or a USB drive, where Floe asks and says why. Only turn it on if you trust everyone with the link.
 - A link works only while Floe Desktop is open and this PC is awake and online. Nothing waits on a server for later.
 - Whoever sends sees your IP address once they connect, even if you decline, unless Hide my IP is on.
 - A drop holds up to 10,000 files and stops after 24 hours. Relayed drops stop at 2 GB, and Hide my IP relays every drop.
 - There is no resume. If the connection drops, the rest has to be sent again through a new link.
-- During the Beta, the sender's page supports current Chrome and Edge on a computer.
+- The sender's page supports current Chrome and Edge on a computer.
 - Floe does not scan files for malware. Some Windows file types that File Explorer opens on sight, such as shortcuts, arrive renamed with a .floe-blocked ending, and files are marked as downloaded on drives that keep the mark, such as NTFS.
 - Request links need a Floe server that offers them. Floe's own server does, and it can turn them off for everyone if it has to.
 
@@ -31,4 +31,4 @@ Floe draws its interface with the Microsoft Edge WebView2 Runtime, so that runti
 
 Floe also needs Windows 10 version 2004 (build 19041) or later, 64-bit (x64).
 
-This is a beta. Found a bug? Reports are welcome on the issue tracker.
+Found a bug? Reports are welcome on the issue tracker.
