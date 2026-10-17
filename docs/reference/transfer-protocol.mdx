@@ -164,7 +164,7 @@ Sender to receiver, before each file.
   "totalBytes": 11800000,
   "pv": 1,
   "pvMin": 1,
-  "ver": "1.11.2"
+  "ver": "1.11.3"
 }
 ```
 
@@ -201,9 +201,9 @@ Sender to receiver, before each file.
   Lowest protocol version this peer still supports.
 </ResponseField>
 <ResponseField name="ver" type="string">
-  The human release string, and its shape depends on the build. The CLI sends `1.11.2` with no
+  The human release string, and its shape depends on the build. The CLI sends `1.11.3` with no
   leading `v`, because GoReleaser strips it. The desktop app sends the tag verbatim, as
-  `desktop-v0.3.2`. A build from source sends `dev`. Browser peers omit the field entirely. It is
+  `desktop-v1.0.0`. A build from source sends `dev`. Browser peers omit the field entirely. It is
   informational and never gates a transfer.
 </ResponseField>
 
@@ -269,7 +269,7 @@ Receiver to sender, once per file, before any bytes move.
 </ResponseField>
 
 ```json ack from a current Go receiver
-{ "type": "ack", "id": "3f2b9c1e-...", "offset": 0, "pv": 1, "pvMin": 1, "ver": "1.11.2", "confirms": true }
+{ "type": "ack", "id": "3f2b9c1e-...", "offset": 0, "pv": 1, "pvMin": 1, "ver": "1.11.3", "confirms": true }
 ```
 
 ### Binary chunks
@@ -464,23 +464,23 @@ because it does not close the connection afterward.
   "reason": "receiver stopped the transfer",
   "pv": 1,
   "pvMin": 1,
-  "ver": "1.11.2",
+  "ver": "1.11.3",
   "code": "stopped",
   "saved": 2
 }
 ```
 
 No two released peers can produce a version mismatch, because every release speaks version 1. A
-Floe Desktop 0.3.2 receiver that was offered a file by a sender announcing only version 2 would
+Floe Desktop 1.0.0 receiver that was offered a file by a sender announcing only version 2 would
 answer with this:
 
 ```json incompatible for a version mismatch
 {
   "type": "incompatible",
-  "reason": "Cannot transfer: peer's floe is too old.\n  You: protocol 2  Peer: protocol 1 (desktop-v0.3.2)\n  Ask the other side to update Floe.",
+  "reason": "Cannot transfer: peer's floe is too old.\n  You: protocol 2  Peer: protocol 1 (desktop-v1.0.0)\n  Ask the other side to update Floe.",
   "pv": 1,
   "pvMin": 1,
-  "ver": "desktop-v0.3.2"
+  "ver": "desktop-v1.0.0"
 }
 ```
 

@@ -1,7 +1,7 @@
 {
     "refs": {
-        "cli": "7d2db56",
-        "desktop": "7d2db56"
+        "cli": "v1.11.3",
+        "desktop": "desktop-v1.0.0"
     },
     "cli": {
         "cli/cmd/floe/main.go": [
