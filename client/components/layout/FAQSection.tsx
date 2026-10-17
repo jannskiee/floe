@@ -231,10 +231,10 @@ export const FAQSection = () => {
                             than 0.3.0 provides none, and a browser sending a very large file can
                             finish sending it before its SHA-256 is ready, and then ends that file
                             without one. A file that does not match is discarded instead of saved. When
-                            every file matched, the browser and the CLI show
-                            &quot;SHA-256 matched&quot; and Floe Desktop shows a green check mark.
-                            Without it, at least one file was checked by size only, or the transfer stopped
-                            partway. The sender sees the mark only when the receiver reports back
+                            every file matched, the CLI shows &quot;SHA-256 matched&quot;, and the
+                            browser and Floe Desktop show a green check mark. A gray check mark, or
+                            none, means at least one file was checked by size only, or the transfer
+                            stopped partway. The sender sees the mark only when the receiver reports back
                             that every file matched. A match means the file arrived intact, not that it
                             is safe to open: Floe does not scan files for malware. What the check
                             proves is in{' '}

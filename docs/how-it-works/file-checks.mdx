@@ -117,8 +117,8 @@ can. No app shows the SHA-256 itself. In these docs this is the
 
 | Where | What you see when every file's SHA-256 matched |
 | --- | --- |
-| Web app, receiving | The line "SHA-256 matched" under "3 files received". |
-| Web app, the Send page | The line "SHA-256 matched" under "All Files Sent!". |
+| Web app, receiving | A green check mark in front of "3 files received". |
+| Web app, the Send page | A green check mark in front of "All Files Sent!", and the status turns green. |
 | Web app, a request link's page | “Their app reports every file's SHA-256 matched.” on the card “ALL 3 FILES ARRIVED”. |
 | `floe receive` | A `Verified` row that reads `SHA-256 matched`, under `Received` in the summary. [floe receive](/cli/receive#output) shows the whole summary. |
 | `floe send` | The same `Verified` row, between `Sent` and `Time`. |
@@ -127,11 +127,14 @@ can. No app shows the SHA-256 itself. In these docs this is the
 | Floe Desktop, receiving with a code or a link | A green check mark in front of "Saved to" and the folder. |
 | Floe Desktop, a request link | A green check mark after the heading, for example "RECEIVED 12 FILES, 38.0 GB", and beside the folder in that drop's row in History. |
 
-Floe Desktop draws the check mark without words. A screen reader reads it as "SHA-256 matched".
+The web app's main page and Floe Desktop draw the check mark without words. A screen reader reads
+it as "SHA-256 matched". A request link's page writes a sentence instead, and the CLI a row.
 
 On the sending side the mark is the receiver's report, not a check your own app made: your app
-sent the SHA-256, and the other side says every file matched it. See
-[When it finishes](/web-app/sending#when-it-finishes) for the web app's Send page.
+sent the SHA-256, and the other side says every file matched it. The web app's Send page says
+"All Files Sent!" as soon as the last byte leaves, before that report, so its check mark is gray
+for a moment and turns green when the report arrives. See
+[When it finishes](/web-app/sending#when-it-finishes).
 
 ## When there is no mark {#when-there-is-no-mark}
 
@@ -155,7 +158,8 @@ without the mark when:
 
 | Where | What you see without the mark |
 | --- | --- |
-| Web app | No "SHA-256 matched" line. Everything else reads the same. |
+| Web app, receiving or the Send page | A gray check mark in place of the green one. On the Send page "All Files Sent!" stays gray. |
+| Web app, a request link's page | Only the line that says the files arrived. |
 | `floe send` and `floe receive` | No `Verified` row in the summary. |
 | `floe send --to` | Only the line that says the files arrived. |
 | Floe Desktop, sending or receiving with a code or a link | A gray check mark in place of the green one. |

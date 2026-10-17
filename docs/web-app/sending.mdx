@@ -236,22 +236,26 @@ what each side sees and what to do.
 
 ## When it finishes {#when-it-finishes}
 
-The status line under the link turns green, gets a check mark, and reads "All Files Sent!". That
-means every byte has left this browser. It is not the other side's confirmation, because a browser
+The status line under the link gets a gray check mark and reads "All Files Sent!". That means
+every byte has left this browser. It is not the other side's confirmation, because a browser
 sender does not wait for one.
 
-A second line, "[SHA-256 matched](/glossary#sha-256-matched)", appears under it when the receiving
-app reports that every file matched. The match is against the
-[SHA-256](/glossary#sha-256) your browser worked out for each file, a fingerprint of its contents.
-The `floe` CLI, Floe Desktop and a receiving browser all send that report, so the line can appear
-when you send to another browser too, and that page shows its own. See
-[File checks](/how-it-works/file-checks).
+The check mark and the status turn green when the receiving app reports that every file matched
+(the [SHA-256 matched](/glossary#sha-256-matched) mark). That report usually lands a moment after
+"All Files Sent!". The match is against the [SHA-256](/glossary#sha-256) your browser worked out
+for each file, a fingerprint of its contents. The `floe` CLI, Floe Desktop and a receiving browser
+all send that report, so the check mark can turn green when you send to another browser too, and
+that page shows its own. A check mark that stays gray means the receiver did not report a match
+for every file, for example an older app that checks sizes only. See
+[File checks](/how-it-works/file-checks#when-there-is-no-mark).
 
 After the other side disconnects, the status may change to "Transfer complete", which is the same
 result. If their device drops off the network without closing the connection, the status can
 change to "Connection interrupted" instead, although every byte had already left this browser.
 Either way the file rows keep their check marks, and the progress row still reads "Sent 3 files"
-with your own number. A "SHA-256 matched" line that was showing stays.
+with your own number. "Transfer complete" keeps the check mark the status had. "Connection
+interrupted" has no check mark, so a green one goes with the status it was beside, although the
+receiver's report still stands.
 
 This is what the web app at floe.one shows. A web app that someone hosts themselves can run an
 older version, where a few of these lines read differently: see

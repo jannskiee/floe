@@ -508,7 +508,9 @@ app's default and says that instead.
 
 What each side says about its own per-file SHA-256 check is carried as
 evidence and never judged: the CLI's `Verified   SHA-256 matched` row and
-the web app's `SHA-256 matched` line land in `completion.sender.verified`
+the web app's `SHA-256 matched` line (screen-reader only since the green
+check took its place on screen, and still a line of the card's innerText)
+land in `completion.sender.verified`
 and `completion.receiver.verified` (a browser leg also records the page's
 last word as `verifiedLine`, because a sender page gets its line after
 `All Files Sent!`). The browser leg reads the line inside the transfer card

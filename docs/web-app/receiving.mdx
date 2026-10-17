@@ -106,7 +106,7 @@ rest are still coming. A saved file goes where your browser puts every download,
 Downloads folder. On an iPhone or iPad, Safari puts downloads in the Files app.
 
 <Frame caption="A finished transfer, with per-file buttons and the two bulk options">
-  <img src="/images/web/05-receive-downloads.png" style={{ width: "100%", maxWidth: "520px", borderRadius: "12px" }} alt="The Floe receive card with Download All and Download ZIP above three received files, and the lines 3 files received and SHA-256 matched." />
+  <img src="/images/web/05-receive-downloads.png" style={{ width: "100%", maxWidth: "520px", borderRadius: "12px" }} alt="The Floe receive card with Download All and Download ZIP above three received files, and a green check mark before 3 files received." />
 </Frame>
 
 While a file arrives, a progress row reads, for example, "Receiving file 2 of 3", then the speed,
@@ -115,8 +115,9 @@ the time left and a percentage. The percentage is for the current file only, so 
 checks it.
 
 Between files, the line under the list reads "Received 1 of 3 files. Waiting for the rest". The
-green check and a count such as "3 files received" appear only once every file the sender
-announced has arrived. A smaller line under the list, such as "3 files (8.02 MB)", counts what has
+check mark and a count such as "3 files received" appear only once every file the sender
+announced has arrived. The check mark is green only when every file's SHA-256 matched, as
+described further down. A smaller line under the list, such as "3 files (8.02 MB)", counts what has
 arrived so far.
 
 The list becomes a scroll box once it holds more than four files, and it scrolls to the newest file
@@ -165,8 +166,9 @@ The names in the list are made safe to save, so they can differ from what the se
 A file that fails a check never reaches the list. Floe discards a file whose size does not match
 what the sender announced, or whose [SHA-256](/glossary#sha-256), a fingerprint of its contents,
 does not match when the sender provides one. The rest of the transfer stops with it. When every
-file arrived and every SHA-256 matched, the line
-"[SHA-256 matched](/glossary#sha-256-matched)" appears under the list. See
+file arrived and every SHA-256 matched, the line "3 files received" under the list, with your own
+number, gets a green check mark (the [SHA-256 matched](/glossary#sha-256-matched) mark). When some
+file could be checked by its size only, the check mark is gray. See
 [File checks](/how-it-works/file-checks).
 
 Floe does not scan files for malware. A file that passes its checks arrived intact, which does not

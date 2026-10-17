@@ -11,11 +11,12 @@ interface ShareLinkPanelProps {
     onToggleQr: () => void;
     status: string;
     // 'SHA-256 matched' once the receiver reported every file verified, else
-    // null. Never a digest value, and never a count (D-101).
+    // null. Never a digest value, and never a count (D-101). It picks the
+    // check beside the status and is read to screen readers; it is not drawn.
     verifiedLine: string | null;
     // How the send ended, latched by the page (lib/sendSummary.ts). The
-    // verified line follows it, because the status sentence is rewritten
-    // after a finished send and the line must not go with it.
+    // verified words follow it, because the status sentence is rewritten
+    // after a finished send and the words must not go with it.
     sendEnd: SendEnd;
 }
 
@@ -39,6 +40,15 @@ export function ShareLinkPanel({
     // A status that has ended does not spin: the spinner beside it said the
     // page was still working on something, under a banner saying it was not.
     const hasEnded = shareStatusEnded(status);
+    // Gated on the send's own latched end, not on the report alone.
+    // onDelivered fires on ANY received frame, and the session's received arm
+    // runs whenever one arrives, so a peer that confirms delivery early could
+    // otherwise mark a send while the page still says 'Sending: x', and the
+    // mark would then sit over a freshly created link until the next peer
+    // joined. The peer picks the moment, so the moment is not something to
+    // render on. Not gated on the status sentence either: see
+    // verifiedLineShown.
+    const verified = verifiedLineShown({ verifiedLine, end: sendEnd });
 
     return (
         <div className="rounded-xl bg-black/40 p-4 border border-white/[0.08] mb-4">
@@ -109,8 +119,19 @@ export function ShareLinkPanel({
             )}
 
             <div className="mt-3 flex w-full items-center justify-center gap-2 text-xs transition-colors duration-300">
+                {/* The desktop's rule (D-161): green only once the receiver
+                    reported every file's SHA-256 matched, a gray plain check
+                    for a send that finished without that report. A browser
+                    sender says "All Files Sent!" when the last byte leaves,
+                    and the report lands after it, so a current receiver turns
+                    the gray check green a moment later; an older one never
+                    does. */}
                 {isComplete ? (
-                    <CheckCircle2 className="h-3 w-3 shrink-0 text-green-400" />
+                    verified ? (
+                        <CheckCircle2 data-mark="verified" className="h-3 w-3 shrink-0 text-green-400" />
+                    ) : (
+                        <Check data-mark="plain" className="h-3 w-3 shrink-0 text-zinc-500" />
+                    )
                 ) : hasEnded ? null : (
                     <Loader2 className="h-3 w-3 shrink-0 animate-spin text-zinc-500" />
                 )}
@@ -119,27 +140,20 @@ export function ShareLinkPanel({
                     212 and 241 px in 12 px Geist, 320 to 430 wide). Two lines
                     at most, so a long name in "Sending: <name>" still stops. */}
                 <span
-                    className={`min-w-0 line-clamp-2 break-words text-balance text-center ${isComplete ? 'text-green-400 font-medium' : 'text-zinc-500'}`}
+                    className={`min-w-0 line-clamp-2 break-words text-balance text-center ${isComplete ? (verified ? 'text-green-400 font-medium' : 'text-zinc-300 font-medium') : 'text-zinc-500'}`}
                 >
                     {status}
                 </span>
             </div>
 
-            {/* A sibling of the status line, not part of it: the audit anchors
-                on the sender's completion status as its own text, and that
-                string must stay byte for byte what it is.
-
-                Gated on the send's own latched end, not on the report alone.
-                onDelivered fires on ANY received frame, and the session's
-                received arm runs whenever one arrives, so a peer that confirms
-                delivery early could otherwise paint this line while the page
-                still says 'Sending: x', and it would then sit over a freshly
-                created link until the next peer joined. The peer picks the
-                moment, so the moment is not something to render on. Not gated
-                on the status sentence either: see verifiedLineShown. */}
-            {verifiedLineShown({ verifiedLine, end: sendEnd }) && (
-                <p className="mt-1 text-center text-xs text-zinc-500">{verifiedLine}</p>
-            )}
+            {/* The words the green check stands for, for screen readers only:
+                it was a visible line until the check carried it. A sibling of
+                the status line, not part of it: the audit anchors on the
+                sender's completion status as its own text, and that string
+                must stay byte for byte what it is. It stays when a finished
+                send's status is rewritten, as the report it reads does; the
+                check goes with the status's own mark. */}
+            {verified && <p className="sr-only">{verifiedLine}</p>}
         </div>
     );
 }

@@ -1,5 +1,5 @@
 import type { RefObject } from 'react';
-import { AlertTriangle, CheckCircle2, Circle, Download, FileArchive, Loader2 } from 'lucide-react';
+import { AlertTriangle, Check, CheckCircle2, Circle, Download, FileArchive, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { StatsContributionToggle } from '@/components/StatsContributionToggle';
 import { ReceivedFilesList } from '@/components/ReceivedFilesList';
@@ -29,7 +29,8 @@ interface ReceiverPanelProps {
     onSaved: (ids: readonly string[]) => void;
     listRef: RefObject<HTMLDivElement | null>;
     // 'SHA-256 matched' once every announced file arrived and every one of them
-    // verified, else null. Never a digest value (D-101).
+    // verified, else null. Never a digest value (D-101). It picks the check in
+    // front of the count line and is read to screen readers; it is not drawn.
     verifiedLine: string | null;
     // The count line and whether it may carry the check: complete, still
     // waiting on files, or ended short. See lib/receiveSummary.ts.
@@ -205,7 +206,17 @@ export function ReceiverPanel({
                 </div>
             ) : summary.kind === 'complete' ? (
                 <div className="flex w-full items-center justify-center gap-2 text-xs text-zinc-400 pt-2">
-                    <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500" />
+                    {/* The desktop's rule (D-161): a green circle-check only
+                        when every file's SHA-256 matched, a gray plain check
+                        for a receive that finished with some file checked by
+                        size only. The file rows above keep their green
+                        circles: those say a file is here, not that it was
+                        hashed. */}
+                    {verifiedLine ? (
+                        <CheckCircle2 data-mark="verified" className="h-3 w-3 shrink-0 text-green-500" />
+                    ) : (
+                        <Check data-mark="plain" className="h-3 w-3 shrink-0 text-zinc-500" />
+                    )}
                     <span>{summary.text}</span>
                 </div>
             ) : summary.kind === 'waiting' && (
@@ -215,14 +226,14 @@ export function ReceiverPanel({
                 </div>
             )}
 
-            {/* Its own block element, never a second span inside the completion
-                line above: the audit's TEXT.received is the anchored regex
+            {/* The words the green check stands for, for screen readers only:
+                it was a visible line until the check carried it. Its own block
+                element, never a second span inside the completion line above:
+                the audit's TEXT.received is the anchored regex
                 /^(\d+) files? received$/ against innerText, so anything sharing
                 that line breaks it. */}
             {verifiedLine && !busy && receivedFiles.length > 0 && (
-                <div className="flex w-full items-center justify-center gap-2 text-xs text-zinc-500">
-                    <span>{verifiedLine}</span>
-                </div>
+                <p className="sr-only">{verifiedLine}</p>
             )}
         </div>
     );

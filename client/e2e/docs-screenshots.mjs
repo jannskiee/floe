@@ -74,8 +74,10 @@ const READS = {
         strings: ['Secure room joined', 'Waiting for the sender to start', 'Files stream in below', 'Contribute to global stats'],
         sources: ['client/components/ReceiverPanel.tsx', 'client/components/StatsContributionToggle.tsx'],
     },
+    // "SHA-256 matched" is not read here: the green check in front of the
+    // count line carries it, and the words are for screen readers only.
     '05-receive-downloads.png': {
-        strings: ['Download All', 'Download ZIP', 'SHA-256 matched', 'Keep this tab open and in front. Closing it interrupts the download.'],
+        strings: ['Download All', 'Download ZIP', 'Keep this tab open and in front. Closing it interrupts the download.'],
         sources: ['client/components/ReceiverPanel.tsx', 'client/lib/receiveSummary.ts'],
     },
     '06-in-app-browser.png': {

@@ -227,7 +227,9 @@ export const TEXT = Object.freeze({
     // announced file arrived and every one matched its SHA-256 (never a
     // digest). A receiver draws it with its completion line; a sender gets it
     // with the receiver's `received` frame, which lands after "All Files
-    // Sent!". Recorded as evidence and never judged (readVerifiedLine).
+    // Sent!". On screen a green circle-check stands for it and the words are
+    // sr-only, which innerText still yields as a line of their own. Recorded
+    // as evidence and never judged (readVerifiedLine).
     verifiedLine: 'SHA-256 matched',
 });
 

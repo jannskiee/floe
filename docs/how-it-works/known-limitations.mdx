@@ -249,8 +249,9 @@ Two things the check does not do:
   read it back. The web app checks the copy it holds, before your browser saves it.
 - A file that comes without a SHA-256, or whose check did not finish
   [in the time allowed](/how-it-works/file-checks#when-a-browser-runs-out-of-time), is checked
-  against its size and nothing more. That file is kept, and no green check mark or
-  `SHA-256 matched` line appears.
+  against its size and nothing more. That file is kept, and the transfer finishes without the
+  green check mark or the `Verified` row. See
+  [When there is no mark](/how-it-works/file-checks#when-there-is-no-mark).
 
 **What you can do:** compare hashes yourself when you need proof about the file as it sits on
 disk. `sha256sum` on Linux,

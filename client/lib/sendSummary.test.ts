@@ -245,8 +245,12 @@ describe('the verified line follows the send, not the status sentence', () => {
 
     it('is how the panel decides, and the page hands the panel the latched end', () => {
         const panel = read('../components/ShareLinkPanel.tsx');
-        expect(panel).toContain('verifiedLineShown({ verifiedLine, end: sendEnd })');
+        expect(panel).toContain('const verified = verifiedLineShown({ verifiedLine, end: sendEnd });');
         expect(panel).not.toContain('verifiedLine && isComplete');
+        // The same answer picks the status check and the status color, so a
+        // green "All Files Sent!" never sits beside the gray check.
+        expect(panel).toContain("isComplete ? (\n                    verified ? (");
+        expect(panel).toContain("verified ? 'text-green-400 font-medium' : 'text-zinc-300 font-medium'");
         const page = read('../components/P2PTransfer.tsx');
         expect(page).toMatch(/<ShareLinkPanel[\s\S]*?sendEnd=\{sendEnd\}/);
     });

@@ -71,10 +71,13 @@ test('Direction 1: CLI send → browser receive (SHA-256 integrity)', async ({ b
         expect(body).not.toMatch(/did not match what was sent|could not be read/i);
 
         // And the page now says so: every handed-over file verified, so the
-        // success line shows under the completion line. The transient
-        // "Verifying file 1 of 1" is deliberately not asserted; for a 12 MB
-        // file the check is milliseconds and the assertion would flake.
-        await expect(page.locator('body')).toContainText('SHA-256 matched', { timeout: 15_000 });
+        // completion line carries the green check, with the words for screen
+        // readers only. The transient "Verifying file 1 of 1" is deliberately
+        // not asserted; for a 12 MB file the check is milliseconds and the
+        // assertion would flake.
+        await expect(page.locator('[data-mark="verified"]')).toBeVisible({ timeout: 15_000 });
+        await expect(page.locator('[data-mark="plain"]')).toHaveCount(0);
+        await expect(page.locator('main')).toContainText('SHA-256 matched');
 
         // The page's acks promise `received` (SG-01), so the CLI waits for
         // that word, not a drained buffer, and ends on it in success with the
@@ -132,11 +135,22 @@ test('Direction 2: browser send → CLI receive (SHA-256 integrity)', async ({ b
         // The CLI receiver's `received` frame carries verified=1 and now
         // reaches the page, because the session listener outlives onAllSent
         // (F-SHA-4). Before this the finally closed the channel first. The
-        // line follows the delivered send, not the status sentence, so it
-        // is there under all three endings. It used to be gated on the two
-        // sentences that say the send is complete, and under 'Connection
-        // interrupted' it went away while the rows above still read sent.
+        // words follow the delivered send, not the status sentence, so they
+        // are there (for screen readers) under all three endings. They used
+        // to be gated on the two sentences that say the send is complete,
+        // and under 'Connection interrupted' they went away while the rows
+        // above still read sent.
         await expect(page.getByText('SHA-256 matched', { exact: true })).toBeVisible({ timeout: 15_000 });
+        // A verified send never shows the gray check, whichever ending
+        // stayed. The green one sits beside the two endings that say the
+        // send is complete; 'Connection interrupted' has no mark of its own.
+        await expect(page.locator('[data-mark="plain"]')).toHaveCount(0);
+        await expect
+            .poll(async () => {
+                if (/Connection interrupted/.test(await page.locator('main').innerText())) return 'interrupted';
+                return (await page.locator('[data-mark="verified"]').count()) === 1 ? 'verified' : 'none';
+            })
+            .not.toBe('none');
         const ending = (await page.locator('body').innerText()).match(
             /All Files Sent!|Transfer complete|Connection interrupted/
         );

@@ -76,18 +76,21 @@ export function shareStatusEnded(status: string): boolean {
 }
 
 /**
- * Whether "SHA-256 matched" shows under the status line.
+ * Whether the send counts as verified: the status line's check is the green
+ * circle-check rather than the gray plain one, and "SHA-256 matched" is read
+ * to screen readers under it.
  *
  * It is the receiver's report about a send this page delivered, so it follows
  * the latched end of the send and not the status sentence. Gated on the
- * sentence, the line vanished when a finished send's status became
- * "Connection interrupted" (the other device dropped off the network after
- * every byte had left), while the rows above still read sent.
+ * sentence, the words (a visible line then) vanished when a finished send's
+ * status became "Connection interrupted" (the other device dropped off the
+ * network after every byte had left), while the rows above still read sent.
+ * The check itself belongs to the status's own mark and goes with it there.
  *
  * `delivered` is this page's own engine saying every file left (onAllSent).
  * The report alone is not enough: a peer picks the moment it sends one, and a
- * peer that confirmed early would otherwise paint the line over a send still
- * in progress, or over a fresh link waiting for its next recipient.
+ * peer that confirmed early would otherwise mark a send still in progress, or
+ * a fresh link waiting for its next recipient.
  */
 export function verifiedLineShown(input: { verifiedLine: string | null; end: SendEnd }): boolean {
     return input.verifiedLine !== null && input.end === 'delivered';

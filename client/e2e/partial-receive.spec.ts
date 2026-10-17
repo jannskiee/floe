@@ -34,6 +34,10 @@ const MIB = 1024 * 1024;
 interface Step {
     announced: number;
     sent: number;
+    // false: the end marker carries no SHA-256, as from a floe older than
+    // 1.11.0 or a browser whose hash was not ready, so the file is checked
+    // by size only.
+    hash?: boolean;
 }
 
 interface Rig {
@@ -166,7 +170,9 @@ async function sendSteps(sender: Page, steps: Step[]): Promise<void> {
             }
             await drained(0);
             if (step.sent < step.announced) return;
-            peer.send(w.floeLoopback.endMessage(hex(await crypto.subtle.digest('SHA-256', body))));
+            peer.send(w.floeLoopback.endMessage(
+                step.hash === false ? null : hex(await crypto.subtle.digest('SHA-256', body)),
+            ));
         }
         await drained(0);
     }, { steps });
@@ -192,8 +198,10 @@ test('a sender that vanishes during file 2 of 3 does not leave the receiver look
         await expect(
             rig.receiver.getByText('Received 1 of 3 files. The transfer ended before the rest arrived.'),
         ).toBeVisible();
-        // No completion line, so no green check: the two are one element.
+        // No completion line, so no check of either kind: the two are one
+        // element.
         await expect(rig.receiver.getByText(/^\d+ files? received$/)).toHaveCount(0);
+        await expect(rig.receiver.locator('[data-mark]')).toHaveCount(0);
         // The row for the file that never finished is gone with it.
         await expect(rig.receiver.getByRole('progressbar')).toHaveCount(0);
         // What did arrive is still there to download.
@@ -214,7 +222,11 @@ test('a full receive still ends on the completion line, before and after the sen
         ]);
 
         await expect(rig.receiver.getByText(/^3 files received$/)).toBeVisible();
-        await expect(rig.receiver.getByText('SHA-256 matched', { exact: true })).toBeVisible();
+        // Every file matched: the green check in front of the count line,
+        // and the words for screen readers only (the desktop's rule).
+        await expect(rig.receiver.locator('[data-mark="verified"]')).toBeVisible();
+        await expect(rig.receiver.locator('[data-mark="plain"]')).toHaveCount(0);
+        await expect(rig.receiver.getByText('SHA-256 matched', { exact: true })).toHaveClass('sr-only');
         await expect(rig.receiver.locator('a[download]')).toHaveCount(3);
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -227,6 +239,26 @@ test('a full receive still ends on the completion line, before and after the sen
         await expect(rig.receiver.getByText(/^3 files received$/)).toBeVisible();
         await expect(rig.receiver.getByText(/The transfer ended before the rest arrived/)).toHaveCount(0);
         expect(rig.statsReports(), 'the opted-out receiver reported stats').toBe(0);
+    } finally {
+        await rig.close();
+    }
+});
+
+test('a full receive with a file checked by size only ends on the gray check', async ({ browser }) => {
+    const rig = await openRig(browser, randomUUID());
+    try {
+        await sendSteps(rig.sender, [
+            { announced: KIB, sent: KIB },
+            { announced: KIB, sent: KIB, hash: false },
+        ]);
+
+        // Every file arrived, so the count line is the complete one, but one
+        // came with no SHA-256: the gray plain check, and no words at all.
+        await expect(rig.receiver.getByText(/^2 files received$/)).toBeVisible();
+        await expect(rig.receiver.locator('[data-mark="plain"]')).toBeVisible();
+        await expect(rig.receiver.locator('[data-mark="verified"]')).toHaveCount(0);
+        await expect(rig.receiver.getByText('SHA-256 matched', { exact: true })).toHaveCount(0);
+        await expect(rig.receiver.locator('a[download]')).toHaveCount(2);
     } finally {
         await rig.close();
     }
