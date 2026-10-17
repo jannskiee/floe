@@ -443,7 +443,7 @@ jobs:
 
   desktop:
     name: Desktop (Wails, windows-latest)
-    # Windows-only on purpose: the desktop app ships Windows-only for the beta,
+    # Windows-only on purpose: the desktop app ships for Windows only,
     # and the Go code is thick with windows build tags that other runners skip.
     #
     # After vet + tests, this job re-runs the release packaging path as a

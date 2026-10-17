@@ -129,7 +129,7 @@ go.work                joins cli + desktop into one workspace, active for every 
       **Share link address**) persisted to `os.UserConfigDir()/floe/desktop.json`, with a Test button
       that probes `/health`, `/ws` and `/api/turn-credentials` from Go. Leave both blank to use Floe's
       own servers. The WebView cannot probe directly: `index.html` sets `connect-src 'self'`.
-- [x] Request links (Beta, shipped in 0.3.0): Receive > Request link makes a one-time link that one
+- [x] Request links (shipped in 0.3.0, out of Beta in 1.0.0): Receive > Request link makes a one-time link that one
       person sends through, from a browser or with `floe send --to`. Nothing is saved until the
       owner accepts, unless the link was made with Auto-accept on (`requestauto.go`, which also
       decides which drops still ask). The lane is `requestlink.go`, with its own slot so an open
@@ -282,7 +282,7 @@ receiver, which is deliberate (share a link and wait) and cancelable.
 
 ### Phase 4 - Release pipeline
 - [x] Release workflow: a plain `desktop-release.yml` on `desktop-v*` tags
-      (Windows-only for the Beta; GoReleaser adds nothing for a Wails NSIS
+      (Windows-only for now; GoReleaser adds nothing for a Wails NSIS
       build, and the native-runner matrix waits for the macOS/Linux era)
 - [ ] Code signing for the GitHub builds (no current provider: SignPath Foundation
       declined; the Store MSIX is already re-signed by Microsoft)
@@ -439,7 +439,7 @@ full-speed same-network transfers, send to self across your own devices, transfe
 history (shipped in 0.1.0), resume of interrupted transfers, connection
 verification words (from the PAKE), and a global hotkey with screenshot or
 clipboard send (clipboard paste-to-send shipped in 0.1.0; the global hotkey
-remains). Request links (Beta, 0.3.0): one-time links a browser or
+remains). Request links (0.3.0, out of Beta in 1.0.0): one-time links a browser or
 `floe send --to` can send through, with per-link Auto-accept; a reusable drop
 link (Stage 2) only with evidence.
 

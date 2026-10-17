@@ -128,17 +128,17 @@
     },
     {
       "name": "07-request-ready.png",
-      "note": "the request link page with three files chosen, before Send (captured through a real link that the drop then used up; not produced by docs-screenshots.mjs)",
+      "note": "the request link page with three files chosen, before Send (captured on 2026-10-17 from the desktop-v1.0.0 change on a local stack, through a link the local Floe Desktop made, and never sent; not produced by docs-screenshots.mjs)",
       "css": [
         604,
-        585
+        575
       ],
       "pixels": [
         1812,
-        1755
+        1725
       ],
       "scale": 3,
-      "bytes": 183496,
+      "bytes": 179442,
       "strings": [
         "SEND FILES THROUGH THIS LINK",
         "Files go to the computer of whoever made this link, not to a Floe server. Floe does not know who that is.",

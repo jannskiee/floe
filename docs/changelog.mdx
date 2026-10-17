@@ -43,10 +43,13 @@ Floe ships on two version lines. `vX.Y.Z` releases the `floe` CLI and the contai
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
-<Update label="Unreleased" tags={["Desktop"]}>
-  **A request-link drop's record of what it saved tries again when Windows refuses the write**
+<Update label="Unreleased" tags={["Desktop", "Web"]}>
+  **Floe Desktop and request links are out of Beta**
 
+  - Floe Desktop and request links are no longer labeled Beta: **Request link** under **Receive** has no **Beta** tag. How request links work is unchanged, and Floe's server can still turn them off for everyone.
   - While a request-link drop arrives, Floe Desktop keeps a small record of the files it saved, so a drop Floe is closed during still gets its History row. When Windows refused a write of that record, for example while an antivirus scan held the file, the files it covered waited for the next file to arrive, and a drop that Windows ended right then could show fewer saved files than it had. The write is now tried again a second later, up to five times.
+  - Web app: the request link page no longer shows a **Beta** tag beside "SEND FILES THROUGH THIS LINK". It still says "Works in current Chrome and Edge on a computer." under its heading.
+  - Web app: the home page, the download page, the FAQ, the terms and the privacy policy no longer call Floe Desktop or request links Beta. The terms now say that Floe can turn request links off for everyone at any time.
 </Update>
 
 <Update label="desktop-v0.3.2" description="2026-10-16" tags={["Desktop"]}>

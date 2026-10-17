@@ -668,7 +668,7 @@ func requestLinkFor(web, linkID, roomID string) string {
 }
 
 // joinCode maps a host join result to the snapshot code (step 3g): only the
-// two refusals the Beta names keep their own code; every other answer,
+// two refusals the copy names keep their own code; every other answer,
 // including an unrecognized refusal code, is unknown (E-25, E-59).
 func joinCode(res signaling.HostJoinResult) string {
 	switch res {
@@ -728,7 +728,7 @@ func (a *App) MakeRequestLink(label string, saveDir string, lifetime string, aut
 	l := a.lane()
 	l.mu.Lock()
 	if l.live.Load() {
-		// One link in the Beta (OD-05). The live link is left exactly as it
+		// One link at a time (OD-05). The live link is left exactly as it
 		// is, and the refusal carries gen 0 so a frontend already following
 		// the live link never adopts it over that link. It still takes a seq.
 		l.seq++

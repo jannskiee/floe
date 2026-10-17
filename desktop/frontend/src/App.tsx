@@ -84,7 +84,6 @@ import {
     ANNOUNCE_GUARD_LIFTED,
     ANNOUNCE_REQUEST,
     AUTO_ACCEPT_CHIP,
-    BETA_CHIP,
     CLOSE_DROP_RECEIVING_LINE,
     CLOSE_FLOE,
     CLOSE_LINK_ALSO_LINE,
@@ -96,7 +95,6 @@ import {
     LINK_OPEN_DESCRIPTION,
     OPEN_IN_BROWSER,
     REQUEST_TAB,
-    REQUEST_TAB_NAME,
     START_OVER_LINK_LINE,
     STOPPED_HEADING,
     WAITING_LINE,
@@ -1897,19 +1895,14 @@ function App() {
         </button>
     );
 
-    // Receive > CODE | REQUEST LINK (R1 to R3): two aria-pressed words like the
-    // History toggle. The Beta chip is outside the second button but grouped
-    // with it, on the words' shared baseline with a 4 px gap (the owner's look,
-    // 2026-09-23: the chip belongs to its label, not to the row). Its right
-    // padding gives back the 0.15em that the letter spacing adds after the last
-    // letter, so the word sits centered in the chip. It is hidden from the
-    // accessibility tree because the second button's name already says "beta"
-    // (R3). Plain elements, not components, so nothing remounts.
+    // Receive > CODE | REQUEST LINK (R1): two aria-pressed words like the
+    // History toggle, each named by its own word. The Beta chip beside REQUEST
+    // LINK (R2) and the name that carried it (R3) went at desktop-v1.0.0.
+    // Plain elements, not components, so nothing remounts.
     const choiceButton = (k: 'code' | 'request') => (
         <button
             type="button"
             aria-pressed={receiveKind === k}
-            aria-label={k === 'request' ? REQUEST_TAB_NAME : undefined}
             onClick={() => setReceiveKind(k)}
             className={cn(
                 'border-b pb-0.5 font-mono text-[10px] uppercase tracking-[0.2em] transition-colors',
@@ -1922,10 +1915,7 @@ function App() {
     const receiveRow = (
         <div className="flex items-baseline gap-4 px-0.5">
             {choiceButton('code')}
-            <span className="flex items-baseline gap-1">
-                {choiceButton('request')}
-                <span aria-hidden className="rounded bg-white/[0.07] py-[3px] pl-1.5 pr-[calc(0.375rem_-_0.15em)] font-mono text-[10px] uppercase leading-none tracking-[0.15em] text-zinc-400">{BETA_CHIP}</span>
-            </span>
+            {choiceButton('request')}
         </div>
     );
 

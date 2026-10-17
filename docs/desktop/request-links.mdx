@@ -1,17 +1,17 @@
 ---
 title: "Request links: let someone send files to your PC"
 sidebarTitle: "Request links"
-description: "Make a one-time link in Floe Desktop so one person can send files to your PC from a browser. You accept first, unless Auto-accept is on. In Beta."
-keywords: ["request link", "request links", "receive files from a browser", "one-time link", "accept or decline", "auto-accept", "beta"]
+description: "Make a one-time link in Floe Desktop so one person can send files to your PC from a browser. You accept first, unless Auto-accept is on."
+keywords: ["request link", "request links", "receive files from a browser", "one-time link", "accept or decline", "auto-accept"]
 ---
 
 import RequestLinkLimits from '/snippets/request-link-limits.mdx';
 import RequestLinkVisibility from '/snippets/request-link-visibility.mdx';
 
 With a [request link](/glossary#request-link), one person can send files to your PC from their browser, with
-nothing to install on their side: you make the link in Floe Desktop and send it to them. When they click
+nothing to install on their side: you make it in Floe Desktop for Windows and send it to them. When they click
 **Send**, your Floe asks you first, and nothing is saved until you click **Accept**, unless you made the link
-with [Auto-accept](#auto-accept) on. Request links are in [Beta](/glossary#beta), in Floe Desktop for Windows.
+with [Auto-accept](#auto-accept) on.
 
 {/* Load-bearing: the sender's page in Floe 1.11.0 web clients links "What is a request link?" to this page
     (REQUEST_LINK_DOCS_PATH in client/lib/request/constants.ts), so a sender can land here. Keep this routing
@@ -37,7 +37,7 @@ that offers request links (Floe's own server does). The sender needs only a brow
   </Step>
   <Step title="Send the link to one person">
     Click **Copy link** and send them the whole link through a channel you trust. They open it in their
-    browser, pick files, and click **Send**. During Beta their page is supported in current Chrome and Edge on a computer: see [Sending through a request link](/web-app/request-links).
+    browser, pick files, and click **Send**. Their page is supported in current Chrome and Edge on a computer: see [Sending through a request link](/web-app/request-links).
   </Step>
   <Step title="Click Accept">
     Floe shows how many files they want to send, the total size, and the folder the files will go into.
@@ -60,7 +60,7 @@ that offers request links (Floe's own server does). The sender needs only a brow
 
 ## Where to find it {#where-to-find-it}
 
-In Floe Desktop, open **Receive**. **Request link** sits next to **Code**, with a small **Beta** tag.
+In Floe Desktop, open **Receive**. **Request link** sits next to **Code**.
 There is no switch to turn on, and Floe asks the server nothing about request links until you click
 **Make link**.
 

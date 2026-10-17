@@ -98,9 +98,8 @@ export default function TermsOfUse() {
                     is sending, and the paragraph above applies to it in full.
                 </p>
                 <p>
-                    Request links are in Beta, and Floe Desktop and the request link page both label
-                    them that way. During the Beta we can turn request links off for everyone, as the
-                    privacy policy describes.
+                    We can turn request links off for everyone at any time, as the privacy policy
+                    describes.
                 </p>
             </LegalSection>
 

@@ -192,9 +192,9 @@ type requestConfig struct {
 	stopReason string
 }
 
-// requestMaxFiles is the request lane's Beta file cap (spec 05 8.3), kept when
+// requestMaxFiles is the request lane's file cap (spec 05 8.3), kept when
 // only -block-shell-types turns the limits on: a zero MaxFiles refuses every
-// drop. The Beta free-space reserve is left out so no test depends on this
+// drop. The lane's free-space reserve is left out so no test depends on this
 // disk, and -commit-retry stays dropped (FT-12).
 const requestMaxFiles = 10000
 

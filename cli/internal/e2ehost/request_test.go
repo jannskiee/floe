@@ -158,7 +158,7 @@ func TestCloseBeforeVisitIsOffUnlessAsked(t *testing.T) {
 // else in it moves: no free-space reserve (a test must not depend on this
 // disk), no host relay check, the engine's default commit retry. With neither
 // flag Limits stays nil, the plain receive. -block-shell-types alone keeps the
-// Beta file cap, because a zero MaxFiles would refuse every drop.
+// lane's file cap, because a zero MaxFiles would refuse every drop.
 func TestLimitFlagsPlumb(t *testing.T) {
 	dir := t.TempDir()
 	plain, err := parseRequestFlags([]string{"-out", dir})

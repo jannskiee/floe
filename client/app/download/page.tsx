@@ -26,7 +26,7 @@ export const metadata: Metadata = {
     // badge and its body carries no route to "/", so promising a browser option
     // here would be advertising something this page does not offer.
     description:
-        'Get Floe Desktop for Windows from the Microsoft Store (Beta), or install the floe CLI: free, encrypted, peer-to-peer file transfer.',
+        'Get Floe Desktop for Windows from the Microsoft Store, or install the floe CLI: free, encrypted, peer-to-peer file transfer.',
     alternates: { canonical: '/download' },
     // Spread before overriding, never a bare object: declaring either key
     // replaces the root layout's whole block, so the spread is what keeps
@@ -95,7 +95,7 @@ const OTHER_WAYS: {
     },
     {
         label: 'Feedback',
-        desc: 'Found a bug in the Beta? A report is the most useful thing you can send.',
+        desc: 'Found a bug? A report is the most useful thing you can send.',
         actions: [
             {
                 name: 'Open an issue',
@@ -155,7 +155,7 @@ export default function Download() {
                     </div>
 
                     <p className="mt-6 font-mono text-xs text-zinc-500">
-                        v{DESKTOP_VERSION} Beta <span className="text-zinc-700">·</span>{' '}
+                        v{DESKTOP_VERSION} <span className="text-zinc-700">·</span>{' '}
                         {DESKTOP_RELEASE_DATE} <span className="text-zinc-700">·</span>{' '}
                         {/* whitespace-nowrap: when the meta line wraps at 320px the link
                             drops to the next line whole instead of splitting mid-label */}

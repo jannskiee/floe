@@ -434,7 +434,7 @@ export function noticeVisible(snap: RequestLinkSnapshot, onRequestView: boolean,
 }
 
 /** canMake: Make link is offered only with nothing open and nothing being
- *  made (one link in the Beta, OD-05). */
+ *  made (one link at a time, OD-05). */
 export function canMake(p: Phase): boolean {
     return p === 'ready' || p === 'error';
 }

@@ -132,14 +132,10 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         // One row per ID; a parse that finds a handful means the table format
         // moved and every check below would be vacuous.
         expect(rows.size).toBeGreaterThan(120);
-        // The word the cut S1 had lives on as the R2 chip (D-160).
-        expect(bare('R2')).toBe('Beta');
     });
 
     it('Receive row and Ready rows match byte for byte', () => {
         expect(`${c.CODE_TAB.toUpperCase()} / ${c.REQUEST_TAB.toUpperCase()}`).toBe(approved('R1'));
-        expect(c.BETA_CHIP).toBe(bare('R2'));
-        expect(c.REQUEST_TAB_NAME).toBe(approved('R3'));
         expect(c.LABEL_EYEBROW.toUpperCase()).toBe(approved('R6'));
         expect(c.LABEL_PLACEHOLDER).toBe(approved('R7'));
         expect(c.SAVE_TO_EYEBROW.toUpperCase()).toBe(approved('R8'));
@@ -375,18 +371,20 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
     it('no cut row can come out of requestCopy.ts', () => {
         const cut = [...rows.values()].filter(isCut);
         expect(cut.map((r) => r.id).sort()).toEqual([
-            'C3', 'DN10', 'DN2', 'E3', 'E8', 'H1', 'H3', 'P10', 'P5', 'P7', 'P8', 'Q1', 'R18', 'R19', 'R28', 'R4', 'R5', 'S1', 'S2', 'S3', 'S4', 'S5', 'ST15', 'ST2', 'V7', 'V8', 'W6', 'W7', 'W9', 'X4', 'X5',
+            'C3', 'DN10', 'DN2', 'E3', 'E8', 'H1', 'H3', 'P10', 'P5', 'P7', 'P8', 'Q1', 'R18', 'R19', 'R2', 'R28', 'R3', 'R4', 'R5', 'S1', 'S2', 'S3', 'S4', 'S5', 'ST15', 'ST2', 'V7', 'V8', 'W6', 'W7', 'W9', 'X4', 'X5',
         ]);
-        // P5 is the one row taken out of a shipped build (desktop-v0.3.0 has
-        // its string, and no path there can show it).
-        expect(rows.get('P5')?.status).toMatch(/^REMOVED /);
+        // Three rows were taken out of a shipped build: P5 (desktop-v0.3.0 has
+        // its string, and no path there can show it), and R2 and R3, the Beta
+        // tag and the accessible name that carried it (desktop-v1.0.0 has no
+        // Beta label).
+        for (const id of ['P5', 'R2', 'R3']) expect(rows.get(id)?.status, id).toMatch(/^REMOVED /);
         const out: string[] = [];
         for (const v of Object.values(c) as unknown[]) if (typeof v === 'string') out.push(v);
         // The Settings copy too: the Beta section is gone, and its words must
         // not come back through settings.ts.
         for (const v of Object.values(settings) as unknown[]) if (typeof v === 'string') out.push(v);
         // A cut row whose words a live row also owns is exempt: nothing can
-        // tell the two apart (the cut S1 "Beta" is the live R2 chip).
+        // tell the two apart.
         const live = new Set(
             [...rows.values()].filter((r) => !isCut(r)).map((r) => r.string.replace(/ \([^()]*\)$/, '')),
         );

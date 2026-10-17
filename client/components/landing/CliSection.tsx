@@ -6,7 +6,7 @@ import { InstallTabs } from './InstallTabs';
 
 const COMMANDS = [
     { cmd: 'floe send <path>', desc: 'Share files or entire folders' },
-    { cmd: 'floe send <path> --to <link>', desc: 'Send through a Floe Desktop request link (Beta)' },
+    { cmd: 'floe send <path> --to <link>', desc: 'Send through a Floe Desktop request link' },
     { cmd: 'floe receive <code>', desc: 'A short code is all the other side needs' },
     { cmd: 'floe update', desc: 'Updates itself in place, unless a package manager installed it' },
 ];

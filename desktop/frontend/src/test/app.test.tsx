@@ -91,17 +91,18 @@ describe('the mount effect', () => {
         expect(Object.keys(localStorage).filter((k) => k.startsWith('floe:request'))).toEqual([]);
     });
 
-    it('the Request link tab and its BETA chip show at launch', async () => {
+    it('the Request link tab shows at launch, with no Beta tag', async () => {
         const user = userEvent.setup();
         mount();
         await settled();
         await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
 
-        const tab = await screen.findByRole('button', {name: 'Request link, beta'});
+        const tab = await screen.findByRole('button', {name: 'Request link'});
         expect(tab.getAttribute('aria-pressed')).toBe('false');
-        const chip = screen.getByText('Beta', {selector: 'span'});
-        expect(chip.getAttribute('aria-hidden')).toBe('true');
-        expect(chip.parentElement!.contains(tab)).toBe(true);
+        // desktop-v1.0.0 dropped the Beta label: no tag beside the word, and
+        // the button is named by its word alone, like Code.
+        expect(tab.getAttribute('aria-label')).toBeNull();
+        expect(document.body.textContent).not.toMatch(/\bbeta\b/i);
         // Seeing the tab asked no server anything.
         expect(wails.go.RequestLinkSupport).not.toHaveBeenCalled();
     });
@@ -114,14 +115,14 @@ describe('the mount effect', () => {
         mount();
         await settled();
         await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
-        await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
+        await user.click(await screen.findByRole('button', {name: 'Request link'}));
         const make = screen.getByRole('button', {name: 'Make link'});
         await user.click(make);
 
         const alert = await screen.findByRole('alert');
         expect(alert.textContent).toBe('Request links are off on this server');
         expect(make.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-        expect(screen.getByRole('button', {name: 'Request link, beta'}).getAttribute('aria-pressed')).toBe('true');
+        expect(screen.getByRole('button', {name: 'Request link'}).getAttribute('aria-pressed')).toBe('true');
         expect(screen.getByRole('button', {name: 'Make link'})).toBeTruthy();
         expect(screen.queryByRole('button', {name: 'Copy link'})).toBeNull();
         expect(wails.go.RequestLinkSupport).not.toHaveBeenCalled();
@@ -133,11 +134,11 @@ describe('the mount effect', () => {
         mount();
         await settled();
         await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
-        await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
+        await user.click(await screen.findByRole('button', {name: 'Request link'}));
         await user.click(screen.getByRole('button', {name: 'Make link'}));
 
         expect((await screen.findByRole('alert')).textContent).toBe("Couldn't make a link");
-        expect(screen.getByRole('button', {name: 'Request link, beta'})).toBeTruthy();
+        expect(screen.getByRole('button', {name: 'Request link'})).toBeTruthy();
     });
 
     it('remembers the request save folder only when the owner chooses one', async () => {
@@ -146,7 +147,7 @@ describe('the mount effect', () => {
         mount();
         await settled();
         await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
-        await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
+        await user.click(await screen.findByRole('button', {name: 'Request link'}));
         expect(localStorage.getItem('floe:requestSaveDir')).toBeNull();
         await user.click(screen.getByRole('button', {name: /Browse/}));
         await waitFor(() => expect(localStorage.getItem('floe:requestSaveDir')).toBe('D:\\Footage\\Floe requests'));
@@ -870,7 +871,7 @@ describe('the request link in the app', () => {
     }
     const push = (s: Record<string, unknown>) => act(() => { wails.emit('request:state', s); });
     const receiveTab = () => screen.getAllByRole('button', {name: 'Receive'})[0];
-    const requestButton = () => screen.getByRole('button', {name: 'Request link, beta'});
+    const requestButton = () => screen.getByRole('button', {name: 'Request link'});
 
     it('registers every Go listener and tears down every one, the request events included', async () => {
         const {unmount} = mount();
@@ -936,23 +937,6 @@ describe('the request link in the app', () => {
         expect(screen.getByRole('button', {name: 'Code'}).getAttribute('aria-pressed')).toBe('false');
         expect(requestButton().getAttribute('aria-pressed')).toBe('true');
         expect(screen.getByRole('button', {name: 'Make link'})).toBeTruthy();
-        // The Beta chip sits outside the pair, and is silent (R3 already says beta).
-        const chip = screen.getByText('Beta', {selector: 'span'});
-        expect(chip.getAttribute('aria-hidden')).toBe('true');
-    });
-
-    it('the Beta chip sits right beside REQUEST LINK, apart from CODE', async () => {
-        mount();
-        await settled();
-        await userEvent.click(receiveTab());
-        const chip = await screen.findByText('Beta', {selector: 'span'});
-        // The owner's 2026-09-23 look: the chip belongs to its label, on the
-        // words' baseline with a small gap, not to the row's CODE gap.
-        const pair = chip.parentElement!;
-        expect(pair.contains(requestButton())).toBe(true);
-        expect(pair.contains(screen.getByRole('button', {name: 'Code'}))).toBe(false);
-        expect(pair.className.split(' ')).toEqual(expect.arrayContaining(['items-baseline', 'gap-1']));
-        expect(chip.className).not.toMatch(/\bml-/);
     });
 
     it('the Ready view has no helper line above the form (R4, cut by the owner)', async () => {
@@ -1349,7 +1333,7 @@ describe('the request link in the app', () => {
         expect(card().style.marginBottom).toBe('');
         expect(card().className).toContain('m-auto');
         await user.click(receiveTab());
-        await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
+        await user.click(await screen.findByRole('button', {name: 'Request link'}));
         expect(card().style.marginTop).toBe('75px');
     });
 
@@ -1427,7 +1411,7 @@ describe('visitor names in the app', () => {
         mount();
         await settled();
         await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
-        await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
+        await user.click(await screen.findByRole('button', {name: 'Request link'}));
         const base = {code: '', gen: 2, promptGen: 1, link: 'http://localhost:3000/r/Xk3p9Q0aB1c#x', label: 'Acme footage', saveDir: 'D:\\x', expiresAt: Date.now() + 3600_000, route: 'direct', suggestClose: false};
         let gen = base.gen;
         for (const name of HOSTILE) {
@@ -1465,7 +1449,7 @@ describe('request progress per drop (F2-03)', () => {
         mount();
         await settled();
         await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
-        await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
+        await user.click(await screen.findByRole('button', {name: 'Request link'}));
         const base = {code: '', promptGen: 1, link: 'http://localhost:3000/r/Xk3p9Q0aB1c#x', label: 'Acme', saveDir: 'D:\\x', expiresAt: Date.now() + 3600_000, route: 'direct', suggestClose: false};
         // One drop on the link of lane generation 3, its last progress event
         // naming the twelfth of twelve files.
@@ -1667,7 +1651,7 @@ describe('a drop Floe closed during', () => {
         expect(stored).toHaveLength(1);
         expect(stored[0]).toMatchObject({via: 'request', stopped: 'app-closed', count: 4, offered: 12, dir: folder, at: endedAt, label: 'Acme footage'});
         await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
-        await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
+        await user.click(await screen.findByRole('button', {name: 'Request link'}));
         expect(await screen.findByText('Floe was closed · 4 of 12 files saved')).toBeTruthy();
         expect(screen.getByRole('button', {name: 'Make another link'})).toBeTruthy();
     });
@@ -1681,7 +1665,7 @@ describe('Cancel drop', () => {
         mount();
         await settled();
         await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
-        await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
+        await user.click(await screen.findByRole('button', {name: 'Request link'}));
         const base = {code: '', gen: 2, seq: 1, promptGen: 1, link: 'http://localhost:3000/r/Xk3p9Q0aB1c#x', label: '', saveDir: 'D:\\x', expiresAt: Date.now() + 3600_000, route: 'direct', suggestClose: false};
         act(() => { wails.emit('request:state', {...base, state: 'receiving', result: {files: 3, saved: 0, bytes: 0, verified: 0, renamed: 0, folder: 'D:\\x\\Request 2026-09-14 1405', names: []}}); });
         await user.click(await screen.findByRole('button', {name: 'Cancel drop'}));

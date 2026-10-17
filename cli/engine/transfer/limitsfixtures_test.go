@@ -265,7 +265,7 @@ func stubDisk(t *testing.T, volumeMax, free int64) *diskStub {
 	return d
 }
 
-// requestLimits is the request lane's Beta values (spec 05 8.3).
+// requestLimits is the request lane's values (spec 05 8.3).
 func requestLimits() *ReceiveLimits {
 	return &ReceiveLimits{MaxFiles: 10000, FreeReserve: 2 << 30, BlockShellTypes: true}
 }

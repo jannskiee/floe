@@ -1198,13 +1198,6 @@
     },
     {
         "surface": "web-request",
-        "text": "Beta",
-        "source": "client/lib/request/visitorCopy.ts",
-        "anchor": "/web-app/request-links#what-the-page-shows",
-        "why_no_home": null
-    },
-    {
-        "surface": "web-request",
         "text": "Cancel",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#send-and-wait",

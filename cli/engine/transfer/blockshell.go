@@ -5,7 +5,7 @@ package transfer
 // name it will not parse, because some of them make Explorer fetch a path the
 // sender chose and hand over the owner's NTLM credentials on the way
 // (CVE-2025-24054, CVE-2025-50154). A rename, never a refusal, and request
-// links only in Beta (OD-12): the uniform rule for every receiver is BX-08.
+// links only (OD-12): the uniform rule for every receiver is BX-08.
 //
 // Residual, by design: a new Explorer handler bug can make another type
 // dangerous before it is listed here; nothing scans file contents; and the

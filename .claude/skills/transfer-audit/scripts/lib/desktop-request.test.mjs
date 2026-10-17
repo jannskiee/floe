@@ -35,7 +35,8 @@ const make = (d, f, extra = {}) =>
 
 test('the request strings are the frozen copy, and the wait exceeds the guard', () => {
     assert.deepEqual(REQUEST_STRINGS, {
-        choice: 'Request link, beta',
+        choice: 'Request link',
+        choiceBeta: 'Request link, beta',
         lifetime24h: 'In 24 hours',
         lifetime7d: 'In 7 days',
         // D-173: the six Link ends keys (requestLifetime in Go), in list order.
@@ -102,6 +103,21 @@ test('wailsdev awaitRequestTab: from Send it clicks RECEIVE once and sees the ch
     assert.equal(c.dom.settingsOpen, false, 'Settings was never opened');
 });
 
+// Until the installed Store build is desktop-v1.0.0 a host can be a 0.3.x
+// build, whose choice is named "Request link, beta" (R3, cut at 1.0.0).
+test('wailsdev: a build before desktop-v1.0.0 names the choice "Request link, beta", and awaitRequestTab and MakeLink find and click it', async () => {
+    const a = fakeRequestDom({ tabName: 'Request link, beta' });
+    a.dom.mode = 'send';
+    assert.equal((await driverOn(a).awaitRequestTab({ now: a.now, nap: a.nap })).shown, true);
+
+    const f = fakeRequestDom({ tabName: 'Request link, beta' });
+    await make(driverOn(f), f);
+    assert.equal(f.dom.state, 'waiting');
+    const names = f.dom.clicks.map((c) => c.name);
+    assert.ok(names.includes('Request link, beta'), names.join(', '));
+    assert.ok(!names.includes('Request link'), 'the 1.0.0 name was never clicked');
+});
+
 test('wailsdev AcceptRequest never clicks before 1200 ms from the prompt, on a fake clock', async () => {
     const f = fakeRequestDom();
     const d = driverOn(f);
@@ -147,7 +163,7 @@ test('wailsdev Decline then Keep waiting: the order holds, and Keep waiting refu
     assert.equal(f.dom.reopens, 1, 'Keep waiting reopened the link once');
     assert.deepEqual(
         f.dom.clicks.map((c) => c.name),
-        ['Receive', 'Request link, beta', 'Make link', 'Decline', 'Keep waiting']
+        ['Receive', 'Request link', 'Make link', 'Decline', 'Keep waiting']
     );
     // A second visitor can then be answered on the same link.
     f.requestAt(f.clock.t + 10);
@@ -272,7 +288,7 @@ test('wailsdev CloseLink ends the link and the ended view shows Make another lin
     assert.equal(f.dom.state, 'waiting');
     assert.deepEqual(
         f.dom.clicks.map((c) => c.name).slice(-4),
-        ['Receive', 'Request link, beta', 'Make another link', 'Make link']
+        ['Receive', 'Request link', 'Make another link', 'Make link']
     );
 });
 
@@ -336,7 +352,7 @@ test('wailsdev request verbs bring a page that moved to Send back to Receive > R
     moved(f);
     await d.closeRequestLink({ now: f.now, nap: f.nap });
     assert.equal(f.dom.state, 'closed');
-    assert.deepEqual(tail(f, 3), ['Receive', 'Request link, beta', 'Close link']);
+    assert.deepEqual(tail(f, 3), ['Receive', 'Request link', 'Close link']);
 
     // Decline, Keep waiting, Accept and Cancel drop.
     const g = fakeRequestDom();
@@ -376,7 +392,7 @@ test('wailsdev request verbs bring a page that moved to Send back to Receive > R
     await p.closeRequestLink({ now: q.now, nap: q.nap });
     assert.deepEqual(
         q.dom.clicks.map((c) => c.name),
-        ['Receive', 'Request link, beta', 'Make link', 'Close link']
+        ['Receive', 'Request link', 'Make link', 'Close link']
     );
 });
 

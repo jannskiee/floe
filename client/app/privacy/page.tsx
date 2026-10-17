@@ -779,8 +779,8 @@ export default function PrivacyPolicy() {
                     <LegalLink href={`mailto:${REQUEST_REPORT_ADDRESS}`}>{REQUEST_REPORT_ADDRESS}</LegalLink>{' '}
                     with the part of the link before the <InlineCode>#</InlineCode>. Never post a whole
                     request link anywhere public: the part after the <InlineCode>#</InlineCode> lets
-                    anyone use it. During the Beta, what we can do about a reported request link is
-                    limited as well: we can turn request links off for everyone, or wait for the link to
+                    anyone use it. What we can do about a reported request link is limited as well: we
+                    can turn request links off for everyone, or wait for the link to
                     end on its own, which it does within about 7 days of being made. We still cannot tell who made it
                     or who used it.
                 </p>

@@ -124,9 +124,8 @@ describe('the /r layout at every size', () => {
         // The Sending header and its route badge: 91 px of page scroll at 280
         // with 200% text.
         expect(read('RequestProgress.tsx')).toContain('<div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">');
-        // The eyebrow and the Beta chip.
-        expect(read('ReadyHeader.tsx')).toContain('<div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">');
-        expect(classesBefore(read('ReadyHeader.tsx'), '{visitorCopy.readyEyebrow}')).toContain('flex-[1_1_9.5rem]');
+        // The eyebrow's row held a second item, the Beta chip, until
+        // desktop-v1.0.0; alone in it, the heading has nothing to wrap past.
     });
 
     it('a status line breaks a long path instead of widening the page', () => {

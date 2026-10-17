@@ -600,6 +600,17 @@ describe('visitor copy: Ready and Sending strings', () => {
             expect(s, s).not.toMatch(new RegExp('[' + String.fromCharCode(0x2013, 0x2014) + ']'));
         }
     });
+
+    it('no copy string says Beta: request links left Beta at desktop-v1.0.0', () => {
+        const all: string[] = [];
+        const walk = (v: unknown) => {
+            if (typeof v === 'string') all.push(v);
+            else if (v && typeof v === 'object') Object.values(v).forEach(walk);
+        };
+        walk(visitorCopy);
+        expect(all.length).toBeGreaterThan(60);
+        expect(all.filter((s) => /\bbeta\b/i.test(s))).toEqual([]);
+    });
 });
 
 describe('visitor copy: the Arrived line names a route only when one was read (owner answer 27)', () => {

@@ -37,13 +37,17 @@ export function fakeRequestUiaClient(h, { activates = true, idle = 600 } = {}) {
     };
     const canon = (name) =>
         views.buttons().find((b) => b.toLowerCase() === String(name).toLowerCase());
+    // Chromium names a button by its CSS-uppercased text (RECEIVE, CODE, and
+    // REQUEST LINK since desktop-v1.0.0); an aria-label, such as the
+    // "Request link, beta" of 0.3.x, is not transformed.
+    const named = (b) => ({ Receive: 'RECEIVE', Code: 'CODE', 'Request link': 'REQUEST LINK' })[b] ?? b;
     const items = (values) => {
         const out = [];
         let i = 0;
         const add = (item) => out.push({ i: i++, ...item });
         const buttons = views.buttons();
         if (dom.settingsOpen) {
-            for (const b of buttons) add({ type: 'Button', name: b === 'Receive' ? 'RECEIVE' : b });
+            for (const b of buttons) add({ type: 'Button', name: named(b) });
             for (const sw of views.switches()) {
                 const item = { type: 'CheckBox', name: sw.name };
                 if (sw.disabled) item.enabled = false;
@@ -53,7 +57,7 @@ export function fakeRequestUiaClient(h, { activates = true, idle = 600 } = {}) {
             return out;
         }
         for (const b of buttons) {
-            const item = { type: 'Button', name: b === 'Receive' ? 'RECEIVE' : b };
+            const item = { type: 'Button', name: named(b) };
             if (views.guarded(b)) item.enabled = false;
             add(item);
         }

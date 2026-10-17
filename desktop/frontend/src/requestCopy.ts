@@ -16,11 +16,9 @@ import {shortPath} from './paths';
 export const CODE_PASTE_LINE = 'Request links open in a web browser'; // CP2
 export const OPEN_IN_BROWSER = 'Open in browser'; // CP3
 
-// ---- Receive row and Ready -------------------------------------------------
+// ---- Receive row and Ready (R2 and R3, the Beta tag, cut at 1.0.0) ---------
 export const CODE_TAB = 'Code'; // R1, rendered in uppercase
 export const REQUEST_TAB = 'Request link'; // R1, rendered in uppercase
-export const BETA_CHIP = 'Beta'; // R2, rendered in uppercase
-export const REQUEST_TAB_NAME = 'Request link, beta'; // R3 (accessible name)
 export const LABEL_EYEBROW = 'Label'; // R6, rendered in uppercase
 export const LABEL_PLACEHOLDER = 'Optional'; // R7, the label field's placeholder (D-161, D-167)
 export const SAVE_TO_EYEBROW = 'Save to'; // R8 and W7, rendered in uppercase

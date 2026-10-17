@@ -324,6 +324,25 @@ test('UIA awaitRequestTab: from Send it clicks RECEIVE once and sees the REQUEST
     assert.equal(c.h.dom.settingsOpen, false, 'Settings was never opened');
 });
 
+// Until the installed Store build is desktop-v1.0.0 a host can be a 0.3.x
+// build, whose choice is named "Request link, beta" (R3, cut at 1.0.0).
+test('UIA: a build before desktop-v1.0.0 names the choice "Request link, beta", and awaitRequestTab and MakeLink find and click it', async () => {
+    const a = hostWith({ tabName: 'Request link, beta' });
+    a.h.dom.mode = 'send';
+    assert.equal((await a.driver.awaitRequestTab(a.clock)).shown, true);
+
+    const dir = tmp();
+    try {
+        const { h, client, driver, clock } = hostWith({ tabName: 'Request link, beta' });
+        await driver.makeRequestLink({ saveDir: dir, ...clock });
+        assert.equal(h.dom.state, 'waiting');
+        assert.equal(clicksOf(client, 'Request link, beta').length, 1);
+        assert.equal(clicksOf(client, 'Request link').length, 0, 'the 1.0.0 name was never clicked');
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
 test('the away guard: an exe request host re-reads the input idle time before every pattern call and stops as SKIP present when the owner is back, having clicked nothing', async () => {
     const dir = tmp();
     try {

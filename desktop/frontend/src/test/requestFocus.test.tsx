@@ -47,7 +47,7 @@ describe('A5-02 red: focus and announcements after owner actions', () => {
         mount();
         await settled();
         await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
-        await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
+        await user.click(await screen.findByRole('button', {name: 'Request link'}));
 
         // Each state's own element (R2-07 d), not merely "not the page".
         expect((await act1(user, 'Make link', () => snap(1, 'waiting'), 'Copy link'))?.id, 'after Make link').toBe('floe-copy-link');
@@ -76,7 +76,7 @@ describe('A5-02 red: focus and announcements after owner actions', () => {
         mount();
         await settled();
         await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
-        await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
+        await user.click(await screen.findByRole('button', {name: 'Request link'}));
         push(snap(7, 'waiting'));
         expect((await act1(user, 'Close link', () => snap(7, 'ended', {code: 'closed'}), 'Make another link'))?.id, 'after Close link').toBe('floe-make-another');
         expect(statusText()).toContain('Link closed');
@@ -87,7 +87,7 @@ describe('A5-02 red: focus and announcements after owner actions', () => {
         mount();
         await settled();
         await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
-        await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
+        await user.click(await screen.findByRole('button', {name: 'Request link'}));
         push(snap(8, 'waiting'));
         const close = screen.getByRole('button', {name: 'Close link'});
         act(() => close.focus());
@@ -108,7 +108,7 @@ describe('A5-02 red: focus and announcements after owner actions', () => {
         mount();
         await settled();
         await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
-        await user.click(await screen.findByRole('button', {name: 'Request link, beta'}));
+        await user.click(await screen.findByRole('button', {name: 'Request link'}));
 
         // A retry that brings the link back: Copy link.
         push(snap(9, 'reconnecting'));

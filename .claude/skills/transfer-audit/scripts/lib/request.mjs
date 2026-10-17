@@ -98,7 +98,7 @@ const LINK_OPEN = new Set([
 ]);
 const RESULTS = new Set(['done', 'stopped']);
 // A link or a drop that is live: Go refuses a second Make link
-// (already-open, one link in the Beta) and the view shows no Save to field.
+// (already-open, one link at a time) and the view shows no Save to field.
 const LIVE = new Set([...LINK_OPEN, 'receiving', 'making']);
 
 const scrub = (s) => redactRequestLinks(s);
@@ -276,7 +276,7 @@ export async function awaitRequestTab(host, { now = Date.now, nap = defaultSleep
     if (!r.shown)
         throw flow(
             'host.start',
-            `the REQUEST LINK tab did not show within ${TAB_WAIT_MS} ms (Receive > Request link, beta); a build under test since H7 shows it without a Settings switch`
+            `the REQUEST LINK tab did not show within ${TAB_WAIT_MS} ms (Receive > Request link); a build under test since H7 shows it without a Settings switch`
         );
     return { via: r.via, waitedMs: r.waitedMs };
 }

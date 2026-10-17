@@ -48,13 +48,13 @@ The [quickstart guide](https://www.floe.one/docs/quickstart) walks through sendi
 
 ## Desktop
 
-Floe Desktop runs on Windows 10 and 11 (x64) and is currently in Beta. The Microsoft Store build is signed by Microsoft and updates automatically.
+Floe Desktop runs on Windows 10 and 11 (x64). The Microsoft Store build is signed by Microsoft and updates automatically.
 
 <a href="https://apps.microsoft.com/detail/9NBQ8ZQ1065L"><img src="client/public/ms-store-badge.svg" alt="Download from the Microsoft Store" width="161" height="44" /></a>
 
 Prefer a direct download? An installer and a portable build are on the [download page](https://www.floe.one/download). Setup details are in the [desktop installation guide](https://www.floe.one/docs/desktop/installation).
 
-Request links (Beta) let one person send files straight to your PC. You make a one-time link in Floe Desktop, and they open it in a browser or run `floe send <files> --to <link>`. During the Beta the browser page is supported in current Chrome and Edge on a computer. Nothing is saved until you accept, unless you turn on Auto-accept for that link. To make a link, see [Request links](https://www.floe.one/docs/desktop/request-links). If someone sent you one, see [Sending through a request link](https://www.floe.one/docs/web-app/request-links).
+Request links let one person send files straight to your PC. You make a one-time link in Floe Desktop, and they open it in a browser or run `floe send <files> --to <link>`. The browser page is supported in current Chrome and Edge on a computer. Nothing is saved until you accept, unless you turn on Auto-accept for that link. To make a link, see [Request links](https://www.floe.one/docs/desktop/request-links). If someone sent you one, see [Sending through a request link](https://www.floe.one/docs/web-app/request-links).
 
 ## CLI
 

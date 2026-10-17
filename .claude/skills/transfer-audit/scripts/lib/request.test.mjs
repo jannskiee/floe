@@ -899,7 +899,7 @@ test('a server without request-1 (the kill switch): the REQUEST LINK tab is stil
     assert.equal(r.verdict, 'FAIL', r.note);
     assert.equal(r.reason, 'request-flow');
     assert.match(r.note, /Make link ended in error \(disabled\)/);
-    assert.ok(clicksOf(w, 'Request link, beta').length >= 1, 'the tab was there');
+    assert.ok(clicksOf(w, 'Request link').length >= 1, 'the tab was there');
     assert.equal(clicksOf(w, 'Settings').length, 0, 'no Settings visit to turn anything on');
     assert.equal(r.attempts.length, 1, 'a request-flow finding is never retried');
 });

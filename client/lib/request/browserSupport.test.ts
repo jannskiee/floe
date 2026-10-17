@@ -83,7 +83,7 @@ describe('canPickFolders', () => {
 
     it('allows folder picking on desktop Chrome', () => {
         expect(canPickFolders(SUPPORTS, DESKTOP_CHROME)).toBe(true);
-        // Desktop Edge, which is the other browser the Beta copy names.
+        // Desktop Edge, which is the other browser the support line names.
         expect(
             canPickFolders(
                 SUPPORTS,

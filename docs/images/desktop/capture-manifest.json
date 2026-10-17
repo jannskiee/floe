@@ -1,7 +1,7 @@
 {
   "app": "Floe Desktop",
-  "version": "desktop-v0.3.1",
-  "captured": "2026-10-15",
+  "version": "desktop-v1.0.0",
+  "captured": "2026-10-17",
   "method": "wails dev of the release tree with the version injected, against a local signaling server with request links on, driven through its dev page in headless Chromium; each shot is the card (or the Settings column) plus a 14 px margin, never the whole window",
   "viewport": {
     "width": 1140,
@@ -23,7 +23,7 @@
         2202
       ],
       "scale": 3,
-      "bytes": 139851,
+      "bytes": 136751,
       "strings": [
         "Waiting for the receiver",
         "Hide QR",
@@ -36,7 +36,7 @@
     },
     {
       "name": "receive.png",
-      "note": "Receive card, Code selected, with the Code and Request link switch and its Beta tag",
+      "note": "Receive card, Code selected, with the Code and Request link switch",
       "css": [
         476,
         420
@@ -46,7 +46,7 @@
         1260
       ],
       "scale": 3,
-      "bytes": 83204,
+      "bytes": 81743,
       "strings": [
         "Enter a code or link, then click Receive",
         "Downloads (default)"
@@ -113,7 +113,7 @@
         1128
       ],
       "scale": 3,
-      "bytes": 87401,
+      "bytes": 87648,
       "strings": [
         "Show in folder",
         "Remove"
@@ -134,7 +134,7 @@
         1140
       ],
       "scale": 3,
-      "bytes": 87978,
+      "bytes": 85382,
       "strings": [
         "Waiting for files",
         "Copy link",
@@ -156,7 +156,7 @@
         1452
       ],
       "scale": 3,
-      "bytes": 120854,
+      "bytes": 118227,
       "strings": [
         "wants to send you files"
       ],
@@ -176,7 +176,7 @@
         1353
       ],
       "scale": 3,
-      "bytes": 97848,
+      "bytes": 96214,
       "strings": [
         "SHA-256 matched",
         "Show in folder",

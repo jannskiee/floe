@@ -23,19 +23,18 @@ import { formatBytes } from '../utils';
 import { formatETA, formatSpeed } from '../transferUtils';
 
 export const visitorCopy = {
-    /** C-01: the Ready eyebrow, drawn as a mono line with the chip at its right.
+    /** C-01: the Ready eyebrow, drawn as a mono line.
      *  Written in capitals rather than lowercased and transformed, so the DOM
      *  carries the approved string and a screen reader is not handed a
      *  differently-cased one. */
     readyEyebrow: 'SEND FILES THROUGH THIS LINK',
-    /** C-01: the chip beside the eyebrow. */
-    betaChip: 'Beta',
     /** C-02: where the files go, and that Floe cannot say whose computer that
      *  is. The wordmark, the heading and the help link say what the page is. */
     readyIntro:
         'Files go to the computer of whoever made this link, not to a Floe server. Floe does not know who that is.',
-    /** C-13: the support line, shown while request links are in Beta (the chip
-     *  beside the eyebrow carries "Beta"). */
+    /** C-13: the support line, a plain statement of where the page is
+     *  supported. Its key dates from the Beta label, which request links lost
+     *  at desktop-v1.0.0 along with the chip that sat beside the eyebrow. */
     betaSupport: 'Works in current Chrome and Edge on a computer.',
 
     /** C-20: V1, a link whose shape does not parse. Detected locally; no network

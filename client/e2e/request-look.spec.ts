@@ -152,11 +152,12 @@ test.describe('request look', () => {
         // and the support line, so it is held to AA as well (D-136 D5):
         // zinc-500 on the card measured 3.99:1.
         await expectReadableText(page.getByText(visitorCopy.ipNotice, { exact: true }), 'the IP notice');
-        await expectReadableText(page.getByText(visitorCopy.betaSupport, { exact: true }), 'the Beta line');
-        await expectReadableText(page.getByText(visitorCopy.betaChip, { exact: true }), 'the Beta chip');
+        await expectReadableText(page.getByText(visitorCopy.betaSupport, { exact: true }), 'the support line');
         await expectReadableText(page.getByRole('link', { name: visitorCopy.reportLink }), 'Report this link');
         // The page heading says what the page is now that the intro does not.
         await expectReadableText(page.getByRole('heading', { name: visitorCopy.readyEyebrow }), 'the page heading');
+        // Request links left Beta at desktop-v1.0.0: no tag beside the heading.
+        await expect(page.getByText(/\bbeta\b/i)).toHaveCount(0);
 
         await page
             .locator('input[type=file]:not([webkitdirectory])')

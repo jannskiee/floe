@@ -239,7 +239,10 @@ export const RE = Object.freeze({
  * the H10 records); lifetime24h and lifetime7d stay for existing callers.
  */
 export const REQUEST_STRINGS = Object.freeze({
-    choice: 'Request link, beta', // R3, the row choice's accessible name
+    choice: 'Request link', // R1, the row choice's accessible name since desktop-v1.0.0
+    // R3, its name on a build before desktop-v1.0.0 (the Beta tag), which an
+    // installed Store or GitHub build may still be: REQUEST_CHOICES holds both.
+    choiceBeta: 'Request link, beta',
     lifetime24h: 'In 24 hours', // R12, the default
     lifetime7d: 'In 7 days', // R13
     lifetimes: Object.freeze({
@@ -303,6 +306,27 @@ const REQUEST_VIEW_MARKS = Object.freeze([
     REQUEST_STRINGS.makeAnother,
     REQUEST_STRINGS.makeLink,
 ]);
+
+/**
+ * The REQUEST LINK choice's accessible name, on either side of
+ * desktop-v1.0.0: both drivers look for each, so a run against an installed
+ * 0.3.x build keeps working until the Store build is 1.0.0.
+ */
+const REQUEST_CHOICES = Object.freeze([REQUEST_STRINGS.choice, REQUEST_STRINGS.choiceBeta]);
+
+/**
+ * The choice's name once `driver` sees it, waiting up to `timeoutMs` (a
+ * click right after RECEIVE can come before the row draws); the current name
+ * when neither shows, whose click then fails as any missing button does.
+ */
+async function shownRequestChoice(driver, { now = Date.now, nap = sleep, pollMs = 250, timeoutMs = 5_000 } = {}) {
+    const start = now();
+    for (;;) {
+        const name = await driver._requestChoice();
+        if (name || now() - start >= timeoutMs) return name ?? REQUEST_STRINGS.choice;
+        await nap(pollMs);
+    }
+}
 
 /**
  * A lane code as the host sent it (a key into requestCopy.ts, never text),
@@ -2001,6 +2025,11 @@ export class UiaDriver {
     async _visible(name) {
         return hasButton(await this._items(), name);
     }
+    /** The name REQUEST_CHOICES finds showing, or null. */
+    async _requestChoice() {
+        const items = await this._items();
+        return REQUEST_CHOICES.find((n) => hasButton(items, n)) ?? null;
+    }
     async _waitShown(name, timeoutMs, { now = Date.now, nap = sleep } = {}) {
         const start = now();
         for (;;) {
@@ -2038,10 +2067,10 @@ export class UiaDriver {
      */
     async awaitRequestTab({ timeoutMs = 10_000, now = Date.now, nap = sleep } = {}) {
         const start = now();
-        if (!(await this._visible(REQUEST_STRINGS.choice)))
+        if (!(await this._requestChoice()))
             await this.click(STRINGS.tabReceive, { index: 0, controlType: 'Button' });
         for (;;) {
-            if (await this._visible(REQUEST_STRINGS.choice))
+            if (await this._requestChoice())
                 return { shown: true, via: 'uia', waitedMs: now() - start };
             if (now() - start >= timeoutMs)
                 return { shown: false, via: 'uia', waitedMs: now() - start };
@@ -2053,8 +2082,8 @@ export class UiaDriver {
         const items = await this._items();
         if (REQUEST_VIEW_MARKS.some((m) => hasButton(items, m))) return false;
         await this.click(STRINGS.tabReceive, { index: 0, controlType: 'Button' });
-        if (await this._visible(REQUEST_STRINGS.choice))
-            await this.click(REQUEST_STRINGS.choice, { controlType: 'Button' });
+        const choice = await this._requestChoice();
+        if (choice) await this.click(choice, { controlType: 'Button' });
         return true;
     }
     /**
@@ -2183,7 +2212,9 @@ export class UiaDriver {
                 { harness: true, reason: 'request-savedir' }
             );
         await this.click(STRINGS.tabReceive, { index: 0, controlType: 'Button' });
-        await this.click(REQUEST_STRINGS.choice, { controlType: 'Button' });
+        await this.click(await shownRequestChoice(this, { now, nap, pollMs: this.pollMs }), {
+            controlType: 'Button',
+        });
         if (await this._visible(REQUEST_STRINGS.makeAnother))
             await this.click(REQUEST_STRINGS.makeAnother, { controlType: 'Button' });
         // What the field holds, read before anything is set: a read never
@@ -2793,6 +2824,11 @@ export class PlaywrightDriver {
             return false;
         }
     }
+    /** The name REQUEST_CHOICES finds showing, or null. */
+    async _requestChoice() {
+        for (const name of REQUEST_CHOICES) if (await this._visible(name)) return name;
+        return null;
+    }
     /** Poll until the named button shows; resolves the time it was seen. */
     async _waitShown(name, timeoutMs, { now = Date.now, nap = sleep } = {}) {
         const start = now();
@@ -2853,10 +2889,10 @@ export class PlaywrightDriver {
      */
     async awaitRequestTab({ timeoutMs = 10_000, now = Date.now, nap = sleep } = {}) {
         const start = now();
-        if (!(await this._visible(REQUEST_STRINGS.choice)))
+        if (!(await this._requestChoice()))
             await this._button(STRINGS.tabReceive).first().click();
         for (;;) {
-            if (await this._visible(REQUEST_STRINGS.choice))
+            if (await this._requestChoice())
                 return { shown: true, via: 'playwright', waitedMs: now() - start };
             if (now() - start >= timeoutMs)
                 return { shown: false, via: 'playwright', waitedMs: now() - start };
@@ -2867,8 +2903,8 @@ export class PlaywrightDriver {
         for (const name of REQUEST_VIEW_MARKS)
             if (await this._visible(name)) return false;
         await this._button(STRINGS.tabReceive).first().click();
-        if (await this._visible(REQUEST_STRINGS.choice))
-            await this._button(REQUEST_STRINGS.choice).first().click();
+        const choice = await this._requestChoice();
+        if (choice) await this._button(choice).first().click();
         return true;
     }
     /** The host-authoritative snapshot (GetRequestLink), or null. */
@@ -2928,7 +2964,9 @@ export class PlaywrightDriver {
                 { harness: true, reason: 'request-savedir' }
             );
         await this._button(STRINGS.tabReceive).first().click();
-        await this._button(REQUEST_STRINGS.choice).first().click();
+        await this._button(await shownRequestChoice(this, { now, nap, pollMs: REQUEST_POLL_MS }))
+            .first()
+            .click();
         // A link the last cell closed leaves the ended view (X2 and X3),
         // which offers Make another link instead of the form.
         if (await this._visible(REQUEST_STRINGS.makeAnother))

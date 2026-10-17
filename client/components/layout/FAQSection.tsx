@@ -100,7 +100,7 @@ export const FAQSection = () => {
                     question="Is there a desktop app?"
                     answer={
                         <p>
-                            Yes, in Beta. Floe Desktop is a small native app for Windows that speaks
+                            Yes. Floe Desktop is a small native app for Windows that speaks
                             the same protocol as the web app and the CLI, so any two can transfer to
                             each other. It sends folders without zipping, pastes screenshots and
                             copied files straight from the clipboard, and shows a notification when
@@ -116,7 +116,7 @@ export const FAQSection = () => {
                     question="Can someone send files to me?"
                     answer={
                         <p>
-                            Yes, with a request link, which is in Beta. In Floe Desktop, open Receive,
+                            Yes, with a request link. In Floe Desktop, open Receive,
                             choose Request link, and make a link to send to the other person. They open
                             it in current Chrome or Edge on a computer and pick what to send, or run{' '}
                             <code className={ANSWER_CODE}>floe send --to</code>{' '}

@@ -138,7 +138,7 @@ for the two-hostname layout.
 
 ## Request links
 
-[Request links](https://www.floe.one/docs/desktop/request-links) (Beta) let one
+[Request links](https://www.floe.one/docs/desktop/request-links) let one
 person send files straight to a PC running Floe Desktop. Your server offers them
 only when a policy file says so. Without one they are off, and codes and share
 links work as usual.

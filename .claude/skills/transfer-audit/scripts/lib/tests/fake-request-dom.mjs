@@ -93,6 +93,9 @@ export function fakeRequestDom({
     // A build that does not show the REQUEST LINK tab at all (a pre-H7 build
     // with its Settings switch off).
     hideTab = false,
+    // The REQUEST LINK choice's accessible name: 'Request link' since
+    // desktop-v1.0.0, 'Request link, beta' on a build before it.
+    tabName = 'Request link',
     saveDirStuck = false,
     // A page that draws Link ends as something other than a <select>, so
     // the driver's select branch finds nothing and clicks the label.
@@ -254,7 +257,7 @@ export function fakeRequestDom({
         const out = ['Settings', 'Receive'];
         if (dom.settingsOpen || dom.closed) return dom.closed ? [] : out;
         if (dom.mode === 'receive' && !hideTab) {
-            out.push('Request link, beta');
+            out.push(tabName);
             if (dom.requestView) out.push(...(VIEW_BUTTONS[dom.state] || []));
         }
         return out;
@@ -312,7 +315,7 @@ export function fakeRequestDom({
             }
             return;
         }
-        if (name === 'Request link, beta') {
+        if (name === tabName) {
             dom.requestView = true;
             return;
         }
