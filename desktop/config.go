@@ -65,16 +65,21 @@ type appConfig struct {
 	Migrated bool `json:"migrated"`
 }
 
-// configPath returns the settings file, or "" if the OS config directory cannot
-// be determined. Mirrors the CLI's update-check cache, which already writes into
-// the same floe/ directory.
-func configPath() string {
+// floeConfigFile is name in the floe/ folder under the OS config directory, or
+// "" when that directory cannot be determined. desktop.json, the WebView2
+// profile, the quit record and the update cache all live there.
+func floeConfigFile(name string) string {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(dir, "floe", "desktop.json")
+	return filepath.Join(dir, "floe", name)
 }
+
+// configPath returns the settings file, or "" if the OS config directory cannot
+// be determined. Mirrors the CLI's update-check cache, which already writes into
+// the same floe/ directory.
+func configPath() string { return floeConfigFile("desktop.json") }
 
 // webviewDataPath returns the pinned WebView2 user-data directory, or "" if the
 // OS config directory cannot be determined ("" makes Wails fall back to its
@@ -84,13 +89,7 @@ func configPath() string {
 // renaming or moving the executable orphans everything in localStorage (history,
 // the save folder, the context-menu choice marker). Pinned, the portable build
 // can live anywhere under any name and keep its state.
-func webviewDataPath() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(dir, "floe", "webview")
-}
+func webviewDataPath() string { return floeConfigFile("webview") }
 
 // migrateWebviewProfile adopts a profile from the old exe-basename location the
 // first time the pinned path is used, so history and settings survive the

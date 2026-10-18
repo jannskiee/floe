@@ -52,13 +52,7 @@ type quitDrop struct {
 
 // quitDropPath is the record's file, beside desktop.json, or "" when the OS
 // config directory cannot be found (no record is written or read then).
-func quitDropPath() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(dir, "floe", "quit-drop.json")
-}
+func quitDropPath() string { return floeConfigFile("quit-drop.json") }
 
 // saveQuitDrop writes q to path through a temporary file and a rename, so a
 // process ended mid-write leaves the last whole record or none.
