@@ -131,7 +131,7 @@ func deviceStem(trimmed string) string {
 //     "_". Controls are never valid in a name, and a bare \r or \x1b inside one
 //     is only ever an attempt at the terminal or the file manager that shows it.
 //     The bidi controls are the spoofing vector:
-//     "photo‮gnp.exe" renders as "photoexe.png" in Explorer, Finder and
+//     "photo" + U+202E + "gnp.exe" renders as "photoexe.png" in Explorer, Finder and
 //     GNOME Files alike, so gating them to Windows would leave the other two
 //     exposed. Text that is inherently right-to-left (Arabic, Hebrew) needs no
 //     control character and is left alone.
