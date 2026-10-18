@@ -404,10 +404,18 @@ function App() {
     // queued, as a drop during a transfer always was.
     function addFiles(paths: string[]) {
         if (!paths || !paths.length || busyRef.current || modalOpenRef.current) return;
-        supersede('files');
         setSettingsOpen(false);
         setMode('send');
         setSendKind('files');
+        stageFiles(paths);
+    }
+
+    // stageFiles merges paths into the send selection, the part addFiles and
+    // both send pickers share. supersede, functional updates and stable setters
+    // only, so the once-registered closures that reach it through addFiles see
+    // nothing stale.
+    function stageFiles(paths: string[]) {
+        supersede('files');
         setFiles((prev) => mergePaths(prev, paths, isWindows));
         setSendDone(false);
         setSendStatus('');
@@ -1245,12 +1253,18 @@ function App() {
     async function pickFiles() {
         try {
             const picked = await SelectFiles();
-            if (picked && picked.length) {
-                supersede('files');
-                setFiles((prev) => mergePaths(prev, picked, isWindows));
-                setSendDone(false);
-                setSendStatus('');
-            }
+            if (picked && picked.length) stageFiles(picked);
+        } catch {
+            // dialog cancelled
+        }
+    }
+
+    // pickFolder opens the folder picker and hands a chosen folder on, for the
+    // send view, both Save to fields and the request link's Save to.
+    async function pickFolder(use: (dir: string) => void) {
+        try {
+            const dir = await SelectFolder();
+            if (dir) use(dir);
         } catch {
             // dialog cancelled
         }
@@ -1258,19 +1272,7 @@ function App() {
 
     // Folders merge like files. Known edge: picking a folder plus a file inside it
     // sends that file twice (the engine walks the folder); path dedupe cannot see it.
-    async function pickSendFolder() {
-        try {
-            const dir = await SelectFolder();
-            if (dir) {
-                supersede('files');
-                setFiles((prev) => mergePaths(prev, [dir], isWindows));
-                setSendDone(false);
-                setSendStatus('');
-            }
-        } catch {
-            // dialog cancelled
-        }
-    }
+    function pickSendFolder() { return pickFolder((dir) => stageFiles([dir])); }
 
     // No discard here, and not by oversight: an offer only ever stands over
     // an emptied tab, so there is no row left to remove from while one is up. If
@@ -1393,14 +1395,7 @@ function App() {
         return true;
     }
 
-    async function pickSaveFolder() {
-        try {
-            const dir = await SelectFolder();
-            if (dir) setOutput(dir);
-        } catch {
-            // dialog cancelled
-        }
-    }
+    function pickSaveFolder() { return pickFolder(setOutput); }
 
     async function send() {
         if (sendKind === 'text') {
@@ -1841,14 +1836,7 @@ function App() {
             else localStorage.removeItem('floe:requestSaveDir');
         } catch { /* storage unavailable */ }
     }
-    async function pickRequestFolder() {
-        try {
-            const dir = await SelectFolder();
-            if (dir) changeRequestSaveDir(dir);
-        } catch {
-            // dialog cancelled
-        }
-    }
+    function pickRequestFolder() { return pickFolder(changeRequestSaveDir); }
     // Make another link is one of the three focus moves the owner asks for.
     function makeAnotherLink() {
         dispatchReq({type: 'MAKE_ANOTHER'});

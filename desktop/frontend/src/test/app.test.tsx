@@ -917,6 +917,53 @@ describe('Settings > Check for updates', () => {
     });
 });
 
+// What each picker stages or fills, through its own binding (SelectFiles,
+// SelectFolder). The drop zone's Files button shares its name with the Send
+// tab's Files choice, so the two zone buttons are found inside the zone.
+describe('the pickers', () => {
+    const zone = () => within(screen.getByText('Select files to send').parentElement!);
+
+    it('Files stages what SelectFiles picked', async () => {
+        wails.go.SelectFiles.mockImplementation(async () => ['C:\\Users\\test\\a.txt', 'C:\\Users\\test\\b.txt']);
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(zone().getByRole('button', {name: 'Files'}));
+        expect(await screen.findByRole('button', {name: 'Send 2 items'})).toBeTruthy();
+        expect(screen.getByRole('button', {name: 'Remove a.txt'})).toBeTruthy();
+    });
+
+    it('Folder stages the folder SelectFolder picked', async () => {
+        wails.go.SelectFolder.mockImplementation(async () => 'C:\\Users\\test\\Photos');
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(zone().getByRole('button', {name: 'Folder'}));
+        expect(await screen.findByRole('button', {name: 'Send 1 item'})).toBeTruthy();
+        expect(screen.getByRole('button', {name: 'Remove Photos'})).toBeTruthy();
+    });
+
+    it('Receive > Browse fills Save to with the folder SelectFolder picked', async () => {
+        wails.go.SelectFolder.mockImplementation(async () => 'D:\\Incoming');
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
+        await user.click(screen.getByRole('button', {name: 'Browse'}));
+        await waitFor(() => expect((screen.getByPlaceholderText('Downloads (default)') as HTMLInputElement).value).toBe('D:\\Incoming'));
+    });
+
+    it('Settings > Browse fills Save received files to with the folder SelectFolder picked', async () => {
+        wails.go.SelectFolder.mockImplementation(async () => 'D:\\Incoming');
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getByRole('button', {name: 'Settings'}));
+        await user.click(await screen.findByRole('button', {name: 'Browse'}));
+        await waitFor(() => expect((screen.getByLabelText('Save received files to') as HTMLInputElement).value).toBe('D:\\Incoming'));
+    });
+});
+
 /**
  * A request link pasted into Receive > CODE (S1-DSK-07, VR3-D06). The link is
  * for a web browser; Floe must say so and must never start a code receive,
