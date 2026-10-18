@@ -30,7 +30,7 @@ const WINDOWS_RESERVED = /[<>:"|?*]/g;
 /**
  * The C0 and C1 control characters, DEL, and all four Unicode bidi controls.
  *
- * The bidi ones are the file name spoof: `photo‮gnp.exe` renders as
+ * The bidi ones are the file name spoof: photo + U+202E + gnp.exe renders as
  * `photoexe.png` in Explorer, Finder and GNOME Files alike. Right-to-left
  * scripts carry their own directionality and use none of these, so Arabic and
  * Hebrew names pass through untouched. U+061C is easy to miss: it is the fourth

@@ -25,7 +25,7 @@ describe('splitTail', () => {
     });
 
     it('never splits an emoji sequence, a flag or an accent', () => {
-        const family = '\u{1F468}‍\u{1F469}‍\u{1F467}';
+        const family = '\u{1F468}\u200d\u{1F469}\u200d\u{1F467}';
         const flag = '\u{1F1EF}\u{1F1F5}';
         const accent = 'é';
         const text = `${'a'.repeat(20)}${family}${flag}${accent}.jpg`;

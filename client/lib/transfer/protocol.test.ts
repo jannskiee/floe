@@ -342,12 +342,12 @@ describe('peer-supplied protocol numbers are display-safe', () => {
         type: 'incompatible' as const,
         reason: '',
         pvMin: 1,
-        pv: '‮' + 'A'.repeat(400),
+        pv: '\u202e' + 'A'.repeat(400),
     };
 
     it('never prints a peer-supplied protocol number verbatim', () => {
         const msg = compatErrorFromIncompatible(hostile as unknown as Incompatible);
-        expect(msg).not.toContain('‮');
+        expect(msg).not.toContain('\u202e');
         expect(msg).not.toContain('AAAA');
     });
 
@@ -363,9 +363,9 @@ describe('peer-supplied protocol numbers are display-safe', () => {
         const wire = peerCompatErrorMessage(
             false, '', 'v2.0.0',
             MIN_PROTOCOL_VERSION, PROTOCOL_VERSION,
-            'x‮' as unknown as number, 2
+            'x\u202e' as unknown as number, 2
         );
-        expect(wire).not.toContain('‮');
+        expect(wire).not.toContain('\u202e');
         expect(wire).toContain('protocol');
     });
 
