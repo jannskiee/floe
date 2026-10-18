@@ -1394,7 +1394,7 @@ func (a *App) openPrompt(rg uint64, p RequestPrompt) uint64 {
 		l.battery = battery
 		l.prompt = &p
 		l.setStateLocked("deciding", "")
-		quiet = l.pruneEndsLocked()
+		quiet = l.pruneEndsLocked(&l.promptEnds)
 		l.suggestClose = quiet
 	}) {
 		return 0
@@ -1414,7 +1414,7 @@ func (a *App) endPrompt(rg uint64) {
 	l.mu.Lock()
 	if rg == l.gen {
 		l.promptEnds = append(l.promptEnds, l.now())
-		l.suggestClose = l.pruneEndsLocked()
+		l.suggestClose = l.pruneEndsLocked(&l.promptEnds)
 	}
 	l.mu.Unlock()
 	a.attentionOff()
@@ -1487,18 +1487,20 @@ func (a *App) endDrop(rg uint64, state, code string, res *RequestResult) bool {
 // within it silence the toast for the next ones.
 const requestSpamWindow = 10 * time.Minute
 
-// pruneEndsLocked drops prompt ends older than the E-40 window and reports
-// whether two or more remain: then the toast stays quiet and the snapshot
-// suggests closing the link (the flash and the title still fire).
-func (l *requestLane) pruneEndsLocked() bool {
+// pruneEndsLocked drops the times in ends older than the E-40 window and
+// reports whether two or more remain. For prompt ends the toast then stays
+// quiet and the snapshot suggests closing the link (the flash and the title
+// still fire); for automatic Accepts a visitor abandoned, TO4 stays quiet
+// (onAutoAccept).
+func (l *requestLane) pruneEndsLocked(ends *[]time.Time) bool {
 	cut := l.now().Add(-requestSpamWindow)
-	kept := l.promptEnds[:0]
-	for _, t := range l.promptEnds {
+	kept := (*ends)[:0]
+	for _, t := range *ends {
 		if t.After(cut) {
 			kept = append(kept, t)
 		}
 	}
-	l.promptEnds = kept
+	*ends = kept
 	return len(kept) >= 2
 }
 
@@ -1613,15 +1615,7 @@ func (a *App) onPrompt(rg uint64, quiet bool) {
 func (a *App) onAutoAccept(rg uint64) {
 	l := a.lane()
 	l.mu.Lock()
-	cut := l.now().Add(-requestSpamWindow)
-	kept := l.autoEnds[:0]
-	for _, t := range l.autoEnds {
-		if t.After(cut) {
-			kept = append(kept, t)
-		}
-	}
-	l.autoEnds = kept
-	quiet := len(kept) >= 2
+	quiet := l.pruneEndsLocked(&l.autoEnds)
 	l.mu.Unlock()
 	if quiet {
 		return
