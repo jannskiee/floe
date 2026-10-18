@@ -517,7 +517,7 @@ func TestSenderIncompatibleTextIsDisplaySafe(t *testing.T) {
 	hugePayload, _ := json.Marshal(incompatibleMsg{Type: "incompatible", Reason: strings.Repeat("evil ", 2048), Pv: 1, PvMin: 1})
 	// A coded frame: the code is what a current sender acts on, and nothing
 	// else on the frame may reach the person, however it is dressed.
-	hostileText := "\x1b[2K‮$(calc)]]><" + strings.Repeat("⁦x", 40)
+	hostileText := "\x1b[2K\u202e$(calc)]]><" + strings.Repeat("\u2066x", 40)
 	one := 1
 	codedPayload, _ := json.Marshal(incompatibleMsg{Type: "incompatible", Reason: hostileText, Pv: 1, PvMin: 1, Ver: "v" + hostileText, Code: string(CodeWriteFailed), Saved: &one})
 	for _, p := range [][]byte{escPayload, bidiPayload, codedPayload} {
@@ -589,7 +589,7 @@ func TestSenderIncompatibleTextIsDisplaySafe(t *testing.T) {
 			if s := err.Error(); s != "Their computer could not save a file." {
 				t.Errorf("the wrapped error is %q, want exactly the fixed sentence", s)
 			}
-			for _, bad := range []string{"\x1b", "‮", "⁦", "calc", "]]>"} {
+			for _, bad := range []string{"\x1b", "\u202e", "\u2066", "calc", "]]>"} {
 				if strings.Contains(err.Error(), bad) {
 					t.Errorf("%q from the peer reached the error: %q", bad, err.Error())
 				}

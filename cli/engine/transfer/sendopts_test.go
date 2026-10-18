@@ -27,7 +27,7 @@ import (
 // the frame always produced, and each counts as from the peer.
 func TestAbortFromPeerTypesItsErrors(t *testing.T) {
 	const total = 3
-	prose := "old peer prose\x1b[2K‮ $(calc)"
+	prose := "old peer prose\x1b[2K\u202e $(calc)"
 	reason, _ := json.Marshal(prose)
 	frame := func(pv, fields string) []byte {
 		return []byte(`{"type":"incompatible","reason":` + string(reason) + `,` + pv + fields + `}`)

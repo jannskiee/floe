@@ -1019,7 +1019,7 @@ func TestEveryRefusalCodeReachesGoSenderWithin2s(t *testing.T) {
 // it did before code existed: the peer's reason through displayText, or the
 // rebuilt version mismatch. Nothing became mandatory.
 func TestSenderUnknownCodeKeepsReasonText(t *testing.T) {
-	prose := "old peer prose\x1b[2K‮ tail"
+	prose := "old peer prose\x1b[2K\u202e tail"
 	want := displayText(prose, maxDisplayReason)
 	if want == prose || strings.Contains(want, "\x1b") {
 		t.Fatalf("fixture is not hostile enough: %q", want)
