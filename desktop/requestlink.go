@@ -11,11 +11,13 @@ package main
 // never run under l.mu. The close guard reads l.live, an atomic, and never
 // waits on l.mu (S1-DSK-04).
 //
-// Privacy: the host token, the link, the link id and the room id live in this
-// struct only, in memory. The link reaches the screen through the snapshot's
-// Link field and nothing else; the token reaches nothing but the one join
-// frame the engine writes. None of them is logged, persisted or put in an
-// error. Every snapshot code is a key the frontend maps to fixed copy.
+// Privacy: the host token, the link, the link id and the room id live in
+// memory only: the link, which carries the link id and the room id, in this
+// struct, and the token in the lane goroutine's own variables. The link reaches
+// the screen through the snapshot's Link field and nothing else; the token
+// reaches nothing but the one join frame the engine writes. None of them is
+// logged, persisted or put in an error. Every snapshot code is a key the
+// frontend maps to fixed copy.
 //
 // RequestLinkSupport lives in serverprobe.go, with its concern (S1-DSK-02).
 // No Settings switch stands before the lane (H7 S-1): Make link is the
@@ -220,22 +222,16 @@ type requestLane struct {
 	// is the per-process counter; only ever read and bumped under mu.
 	seq uint64
 
-	// The link's secrets, in memory only; endLocked forgets them. hostToken
-	// is kept for the lane's shape (spec 06 4.2) but nothing reads it: the
-	// lane goroutine joins with its own copy. Never print the lane (a %v of
-	// it would show the token) and never copy the field into a snapshot
-	// (TestRequestSnapshotNeverCarriesToken).
-	roomID    string
-	linkID    string
-	hostToken string
-	link      string
+	// The link, in memory only; endLocked forgets it. It carries the link id
+	// and the room id, so never print the lane (a %v of it would show them).
+	// The host token is not kept here: the lane goroutine joins with its own
+	// copy, and no snapshot carries it (TestRequestSnapshotNeverCarriesToken).
+	link string
 
 	label     string // display label: trimmed, at most requestLabelMax runes
 	saveDir   string
 	expiresAt time.Time
 	server    string
-	web       string
-	hideIP    bool
 
 	// autoAccept is this link's Auto-accept switch: set by every Make link
 	// from its own argument, never read from a setting or a previous link,
@@ -417,11 +413,11 @@ func (l *requestLane) setStateLocked(state, code string) {
 	l.holdsClose.Store(liveState(state) && state != "making")
 }
 
-// endLocked moves the lane to a terminal state and forgets the link's
-// secrets: the token dies with the link.
+// endLocked moves the lane to a terminal state and forgets the link; the token
+// dies with the lane goroutine this wakes.
 func (l *requestLane) endLocked(state, code string) {
 	l.setStateLocked(state, code)
-	l.hostToken, l.roomID, l.linkID, l.link = "", "", "", ""
+	l.link = ""
 	l.prompt = nil
 	l.reconnectUntil = time.Time{}
 	// A link that ended needs no goroutine: wake it, so it lets go of its
@@ -869,8 +865,7 @@ func (a *App) runRequestLink(rg uint64, stop <-chan struct{}, hideIP bool, lifet
 	}
 	expiresAt := time.Now().Add(life)
 	if !a.reqUpdate(rg, func(l *requestLane) {
-		l.hostToken, l.roomID, l.linkID = hostToken, roomID, linkID
-		l.server, l.web, l.hideIP = server, web, hideIP
+		l.server = server
 		l.expiresAt = expiresAt
 	}) {
 		return
