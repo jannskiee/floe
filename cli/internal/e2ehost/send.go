@@ -6,9 +6,9 @@ package main
 // exists only here, in a binary that no release builds.
 //
 // The loop is the protocol's own order, written out by hand rather than called
-// through transfer.SendFiles, because SendFiles has no way to lie and must not
-// gain one: TEXT metadata, the ack read off the early channel, BINARY chunks
-// with a buffered-amount wait, then a TEXT end frame.
+// through transfer.SendFilesWithOptions, because the engine sender has no way
+// to lie and must not gain one: TEXT metadata, the ack read off the early
+// channel, BINARY chunks with a buffered-amount wait, then a TEXT end frame.
 
 import (
 	"crypto/sha256"

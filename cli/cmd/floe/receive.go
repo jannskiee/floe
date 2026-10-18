@@ -222,8 +222,9 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	if flagNoReport || os.Getenv("FLOE_NO_STATS") == "1" {
 		statsURL = "" // reportBytesToServer no-ops on empty URL
 	}
-	// The pump comes from the connection, not from ReceiveFiles: see peer.Early.
-	// This is the side that was actually losing the sender's first message.
+	// The pump comes from the connection, not from ReceiveFilesWithOptions: see
+	// peer.Early. This is the side that was actually losing the sender's first
+	// message.
 	early := conn.Early()
 	err = transfer.ReceiveFilesWithOptions(dc, absOutput, flagAutoAccept, version, statsURL, transfer.ReceiveOptions{
 		Messages: early.Msgs,

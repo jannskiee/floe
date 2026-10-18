@@ -76,7 +76,8 @@ func runSend(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Pre-compute file summary for the share box (same walk as SendFiles).
+	// Pre-compute file summary for the share box (same walk as
+	// SendFilesWithOptions).
 	summary, err := transfer.Summarize(args)
 	if err != nil {
 		return err
@@ -194,10 +195,11 @@ func runSend(cmd *cobra.Command, args []string) error {
 	fmt.Println(connectedLine(conn.ConnectionType()))
 	fmt.Println()
 
-	// 9. Send files. The pump comes from the connection, not from SendFiles: see
-	// peer.Early for why registering it later can silently lose a message. A Go
-	// receiver's word after the last file has no deadline, so an ICE failure
-	// closes the connection and ends the wait (connfailed.go).
+	// 9. Send files. The pump comes from the connection, not from
+	// SendFilesWithOptions: see peer.Early for why registering it later can
+	// silently lose a message. A Go receiver's word after the last file has no
+	// deadline, so an ICE failure closes the connection and ends the wait
+	// (connfailed.go).
 	quit := make(chan struct{})
 	defer close(quit)
 	closeOnFailed(conn, quit)
