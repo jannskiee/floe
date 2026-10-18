@@ -32,15 +32,19 @@ var ErrRelayOverLimit = errors.New("relay connections are capped at 2 GB")
 // "relay" when either side of the selected candidate pair is a TURN relay,
 // "direct" otherwise. Only meaningful once the connection is established;
 // before that it returns an error.
-//
-// ConnectionType in engine/peer is the same walk started from the
-// PeerConnection rather than the data channel; a change here is a change there
-// too.
 func pathTypeOf(dc *webrtc.DataChannel) (string, error) {
 	if dc == nil {
 		return "", fmt.Errorf("no data channel")
 	}
-	sctp := dc.Transport()
+	return SelectedPath(dc.Transport())
+}
+
+// SelectedPath is the one walk from a connection's SCTP transport to its
+// selected candidate pair: "relay" when either side of the pair is a TURN
+// relay, "direct" otherwise, and an error until a pair is selected.
+// pathTypeOf starts it from the data channel, peer.Connection.ConnectionType
+// from the PeerConnection.
+func SelectedPath(sctp *webrtc.SCTPTransport) (string, error) {
 	if sctp == nil {
 		return "", fmt.Errorf("no SCTP transport")
 	}

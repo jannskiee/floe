@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jannskiee/floe/cli/engine/signaling"
+	"github.com/jannskiee/floe/cli/engine/transfer"
 	"github.com/pion/webrtc/v4"
 )
 
@@ -540,34 +541,10 @@ func (conn *Connection) Fingerprints() (local, remote string, err error) {
 // ConnectionType reports the selected ICE path: "relay" when either side of the
 // selected candidate pair is a TURN relay, "direct" otherwise. Only meaningful
 // once the connection is established (call after SetupAsSender/SetupAsReceiver
-// returns); before that it returns an error.
-//
-// pathTypeOf in engine/transfer is the same walk started from the data channel
-// rather than the PeerConnection; a change here is a change there too.
+// returns); before that it returns an error. The walk is transfer.SelectedPath,
+// which the send's relay gate takes too.
 func (conn *Connection) ConnectionType() (string, error) {
-	sctp := conn.pc.SCTP()
-	if sctp == nil {
-		return "", fmt.Errorf("no SCTP transport")
-	}
-	dtls := sctp.Transport()
-	if dtls == nil {
-		return "", fmt.Errorf("no DTLS transport")
-	}
-	ice := dtls.ICETransport()
-	if ice == nil {
-		return "", fmt.Errorf("no ICE transport")
-	}
-	pair, err := ice.GetSelectedCandidatePair()
-	if err != nil {
-		return "", err
-	}
-	if pair == nil || pair.Local == nil || pair.Remote == nil {
-		return "", fmt.Errorf("no candidate pair selected")
-	}
-	if pair.Local.Typ == webrtc.ICECandidateTypeRelay || pair.Remote.Typ == webrtc.ICECandidateTypeRelay {
-		return "relay", nil
-	}
-	return "direct", nil
+	return transfer.SelectedPath(conn.pc.SCTP())
 }
 
 // setRemoteDesc sets the remote SDP and flushes any buffered ICE candidates.
