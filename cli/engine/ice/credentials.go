@@ -203,7 +203,6 @@ func Fetch(serverURL string) ([]webrtc.ICEServer, error) {
 func FetchDetail(serverURL string) (servers []webrtc.ICEServer, degraded bool, err error) {
 	resp, err := client.Get(serverURL + "/api/turn-credentials")
 	if err != nil {
-		// Server unreachable — use public Google STUN as fallback
 		fmt.Println("  Warning: could not reach signaling server for TURN credentials. Using STUN only.")
 		return defaults(), true, nil
 	}

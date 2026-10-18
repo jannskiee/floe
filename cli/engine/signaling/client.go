@@ -168,7 +168,6 @@ func Connect(serverURL string, opts ...Option) (*Client, error) {
 
 	c := newClient(conn, cfg)
 
-	// The read loop runs in the background and dispatches messages to channels.
 	go c.readLoop()
 	if cfg.ping > 0 {
 		go c.pingLoop(cfg.ping)

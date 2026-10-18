@@ -248,7 +248,6 @@ func New(iceServers []webrtc.ICEServer, sc *signaling.Client, opts ...Option) (*
 		sc.SendSignal(map[string]interface{}{"candidate": init})
 	})
 
-	// Track when the connection becomes live (or fails).
 	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
 		conn.noteFailed(s)
 		switch s {
@@ -267,12 +266,8 @@ func New(iceServers []webrtc.ICEServer, sc *signaling.Client, opts ...Option) (*
 		}
 	})
 
-	// The dispatcher goroutine reads raw signals from the signaling channel
-	// and routes them to the typed offer/answer/candidate channels.
 	go conn.dispatchSignals()
 
-	// The candidate goroutine continuously adds remote ICE candidates,
-	// buffering them if the remote description is not yet set.
 	go conn.handleCandidates()
 
 	return conn, nil
@@ -310,7 +305,6 @@ func (conn *Connection) SetupAsSender() (*webrtc.DataChannel, error) {
 		go conn.Close()
 	})
 
-	// Create the SDP offer describing our capabilities
 	offer, err := conn.pc.CreateOffer(nil)
 	if err != nil {
 		return nil, &SetupError{Stage: StageOffer, Err: fmt.Errorf("failed to create offer: %w", err)}
@@ -323,7 +317,6 @@ func (conn *Connection) SetupAsSender() (*webrtc.DataChannel, error) {
 	// When the CLI is the sender, the browser reads its OWN answer SDP (not
 	// our offer) to determine max-message-size.  No patching needed here.
 
-	// Send the offer to the receiver via the signaling server
 	if err := conn.sc.SendSignal(signalPayload{Type: "offer", SDP: offer.SDP}); err != nil {
 		return nil, &SetupError{Stage: StageOffer, Err: fmt.Errorf("failed to send offer: %w", err)}
 	}
@@ -389,7 +382,6 @@ func (conn *Connection) SetupAsSender() (*webrtc.DataChannel, error) {
 // and returns the open data channel ready for file transfer. Every failure
 // is a *SetupError naming its stage, with the text each site always had.
 func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
-	// The receiver waits for a data channel from the sender.
 	dcChan := make(chan *webrtc.DataChannel, 1)
 	// No Floe offerer opens more than one data channel: SetupAsSender creates
 	// only "floe", and the browser, as simple-peer's initiator, creates one in
@@ -455,7 +447,6 @@ func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 	// the original. See patchMaxMessageSize.
 	patchedSDP := patchMaxMessageSize(answer.SDP)
 
-	// Send the answer to the sender
 	if err := conn.sc.SendSignal(signalPayload{Type: "answer", SDP: patchedSDP}); err != nil {
 		return nil, &SetupError{Stage: StageAnswer, Err: fmt.Errorf("failed to send answer: %w", err)}
 	}

@@ -316,9 +316,10 @@ var interruptHook atomic.Pointer[func() (line string, stop func())]
 //
 // The step reports whether the command has its outcome and ends on its own:
 // floe receive's does once the receive has finished, the engine having queued
-// "received", and only its wait for the sender to read it is left (A4-B22). The handler then prints nothing, runs no cleanup and leaves the
-// exit code to the command, and a second signal exits 130 at once, as for a
-// hook's nil stop. A step that stalls past interruptStopBound reports false.
+// "received", and only its wait for the sender to read it is left (A4-B22).
+// The handler then prints nothing, runs no cleanup and leaves the exit code
+// to the command, and a second signal exits 130 at once, as for a hook's nil
+// stop. A step that stalls past interruptStopBound reports false.
 var interruptStop atomic.Pointer[func() (ended bool)]
 
 // interruptCleanupBound is the one deadline the step and the partial-file
