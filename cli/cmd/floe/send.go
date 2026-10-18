@@ -158,9 +158,8 @@ func runSend(cmd *cobra.Command, args []string) error {
 	fmt.Println("  Waiting for peer...")
 
 	// 7. Wait for the receiver to join
-	var peerId string
 	select {
-	case peerId = <-sc.PeerConnected:
+	case <-sc.PeerConnected:
 	case <-sc.PeerLeft:
 		// Two things push PeerLeft: the server reporting the other side gone,
 		// and the signaling client's read loop on its way out, when this
@@ -174,7 +173,6 @@ func runSend(cmd *cobra.Command, args []string) error {
 	case errMsg := <-sc.Errors:
 		return fmt.Errorf("server error: %s", errMsg)
 	}
-	_ = peerId // used internally by signaling routing
 
 	// 8. Set up WebRTC as the initiator (sender creates offer + data channel)
 	conn, err := peer.New(iceServers, sc, peerOptions()...)
