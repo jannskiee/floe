@@ -129,9 +129,6 @@ func reportBytesToServer(serverURL string, byteCount int64) {
 // so does a count of zero or less. Synchronous, with reportBytesToServer's
 // 5 s timeout, and errors are ignored.
 func ReportStats(serverURL string, byteCount int64) {
-	if byteCount <= 0 {
-		return
-	}
 	reportBytesToServer(serverURL, byteCount)
 }
 
