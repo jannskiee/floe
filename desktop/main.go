@@ -65,7 +65,6 @@ func main() {
 		}
 	}()
 
-	// Create an instance of the app structure
 	app := NewApp()
 
 	// Pin the WebView2 profile to a path that does not depend on the exe name,
@@ -78,7 +77,6 @@ func main() {
 			filepath.Join(appData, "desktop.exe"))
 	}
 
-	// Create application with options
 	err := wails.Run(&options.App{
 		Windows: &windows.Options{
 			WebviewUserDataPath: webviewData,

@@ -1,7 +1,7 @@
 package main
 
 // Which server and web app this build talks to, and the settings that decide
-// it. endpoints_test.go already tested this seam before the file existed.
+// it.
 
 import (
 	"github.com/jannskiee/floe/cli/engine/serverurl"

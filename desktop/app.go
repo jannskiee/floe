@@ -34,7 +34,6 @@ func filterFileArgs(args []string) []string {
 // the peer connection. An interface so unit tests can register recorders.
 type closer interface{ Close() }
 
-// App struct
 type App struct {
 	ctx context.Context
 
@@ -107,7 +106,6 @@ type App struct {
 	reqOnce sync.Once
 }
 
-// NewApp creates a new App application struct
 func NewApp() *App {
 	// Loaded here rather than in startup: startup runs on a goroutine after the
 	// window exists, which would leave a window where a transfer could begin

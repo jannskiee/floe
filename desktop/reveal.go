@@ -2,7 +2,6 @@ package main
 
 // Showing a received file to the user: the platform commands, and the name
 // and path checks that run before either of them is handed anything.
-// reveal_test.go already tested this seam before the file existed.
 
 import (
 	"fmt"

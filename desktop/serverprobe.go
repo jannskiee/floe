@@ -17,8 +17,10 @@ import (
 	"github.com/jannskiee/floe/cli/engine/signaling"
 )
 
-// probeTimeout bounds each stage separately. Long enough for a cold container to
-// answer, short enough that a wrong address does not feel like a hang.
+// probeTimeout bounds each HTTP stage separately. Long enough for a cold
+// container to answer, short enough that a wrong address does not feel like a
+// hang. The /ws stage is the engine's own dial, which keeps its dialer's 45 s
+// handshake bound (docs/desktop/settings.mdx says so).
 const probeTimeout = 6 * time.Second
 
 // ProbeResult is what the Settings screen shows after Test.

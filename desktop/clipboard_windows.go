@@ -13,11 +13,12 @@ import (
 // Explorer puts on the clipboard when you copy files).
 const cfHDROP = 15
 
-// This is the only raw-syscall code in the module. It mirrors the standard Go
-// clipboard read (Open -> Get -> GlobalLock -> copy out -> Unlock -> Close) and
-// stays confined to this file. Reads use RtlMoveMemory to copy the clipboard
-// bytes into a Go buffer so the foreign address is never converted to an
-// unsafe.Pointer (keeps `go vet`'s unsafeptr check clean).
+// The user32 and kernel32 lazy DLLs declared here are shared by the other
+// *_windows.go files that call Windows directly (attention, packaged, power,
+// wake). The clipboard read mirrors the standard Go one (Open -> Get ->
+// GlobalLock -> copy out -> Unlock -> Close). Reads use RtlMoveMemory to copy
+// the clipboard bytes into a Go buffer so the foreign address is never
+// converted to an unsafe.Pointer (keeps `go vet`'s unsafeptr check clean).
 var (
 	user32   = windows.NewLazySystemDLL("user32.dll")
 	kernel32 = windows.NewLazySystemDLL("kernel32.dll")
