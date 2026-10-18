@@ -312,11 +312,8 @@ export function createReceiver(
     }
 
     function stopWhilePending(message: string): void {
-        aborted = true;
+        release();
         queued = [];
-        partialDownloads.clear();
-        currentMetadata = null;
-        expectedSize = null;
         // The verdict of the check returns early after a stop, so it never
         // reaches its own reset.
         clearProgress();
@@ -380,12 +377,9 @@ export function createReceiver(
     // A file that failed its SHA-256: nothing of it is kept, the sender is told
     // why with a code and the count already handed over, and the transfer stops.
     function refuseHash(unreadable: boolean): void {
-        aborted = true;
+        release();
         closed = false; // reported now, as in fail(), so a later broken part stays quiet
         queued = [];
-        partialDownloads.clear();
-        currentMetadata = null;
-        expectedSize = null;
         cb.onProgress?.(0, 0, 0);
         cb.onSpeedReset?.();
         try {
@@ -611,10 +605,7 @@ export function createReceiver(
             // folder path does it).
             const textBytes = new TextEncoder().encode(text).byteLength;
             if (textBytes > CONTROL_MSG_MAX) {
-                aborted = true;
-                partialDownloads.clear();
-                currentMetadata = null;
-                expectedSize = null;
+                release();
                 clearProgress();
                 refuseOversize(textBytes);
                 cb.onError?.(
@@ -636,10 +627,7 @@ export function createReceiver(
                 // used to switch off the byte-count guard the SHA-256 check follows.
                 const problem = metadataProblem(msg);
                 if (problem !== null) {
-                    aborted = true;
-                    partialDownloads.clear();
-                    currentMetadata = null;
-                    expectedSize = null;
+                    release();
                     clearProgress();
                     try {
                         const enc = new TextEncoder().encode(incompatibleMessage(`receiver rejected the file description: ${problem}`));
@@ -754,12 +742,9 @@ export function createReceiver(
                 //
                 // Latched, because peer.destroy() raises "User-Initiated Abort"
                 // on this side a moment later and its handler would otherwise
-                // overwrite the real reason with connection advice.
-                aborted = true;
-                // Nothing more is coming, so let the buffered chunks go.
-                partialDownloads.clear();
-                currentMetadata = null;
-                expectedSize = null;
+                // overwrite the real reason with connection advice. Nothing
+                // more is coming, so let the buffered chunks go.
+                release();
                 clearProgress();
                 // Every announced file is already here, so the stop ended
                 // nothing: the latch above still drops whatever follows, and

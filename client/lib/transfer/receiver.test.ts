@@ -626,6 +626,14 @@ describe('receiver: truncation guard', () => {
         }
     });
 
+    it('stays stopped after refusing a file description: a later one is never acked', () => {
+        const sent: (string | Uint8Array)[] = [];
+        const rx = createReceiver({ send: (d) => sent.push(d), onError: () => {} });
+        rx.handleMessage(JSON.stringify({ type: 'metadata', id: 'a', fileName: 'a.bin', fileSize: -1, index: 1, total: 1, totalBytes: 0 }));
+        rx.handleMessage(metadataMessage('b', 'b.bin', 4, 1, 1, 4));
+        expect(sent.filter((s) => typeof s === 'string')).toEqual([]);
+    });
+
     it('refuses a file description Go refuses', () => {
         const base = { type: 'metadata', id: 'a', fileName: 'a.bin', fileSize: 4, index: 1, total: 1, totalBytes: 4, pv: 1, pvMin: 1 };
         const refused = [

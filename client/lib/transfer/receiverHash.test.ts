@@ -290,6 +290,15 @@ describe('receiver: per-file SHA-256', () => {
         expect(h.acks().map((m) => m.id)).toEqual(['a']);
     });
 
+    it('stays stopped after a refusal: a file description that comes later is never acked', async () => {
+        const h = harness();
+        feed(h, 'a', payload(100), 1, 2, endMessage(digestOf(payload(100, 5))));
+        await h.rx.settled();
+        expect(h.errors).toEqual([MISMATCH]);
+        h.rx.handleMessage(metadataMessage('b', 'b.bin', 20, 2, 2, 0));
+        expect(h.acks().map((m) => m.id)).toEqual(['a']);
+    });
+
     it('sends saved as the number of files already handed over', async () => {
         const h = harness();
         const a = payload(10, 1);
