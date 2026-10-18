@@ -49,7 +49,7 @@ jobs:
     env:
       # Must match desktop/go.mod (asserted in the install step below) and
       # ci.yml's desktop job; bump all three together.
-      WAILS_VERSION: v2.16.0
+      WAILS_VERSION: v2.17.0
       # Must match ci.yml's desktop job, which builds an installer with it on
       # every code PR, so a tag never builds with an NSIS no PR has used.
       # 3.13.0 is what desktop-v0.3.1 shipped with. Bump both together, by

@@ -26,7 +26,7 @@ wails build    # production build -> build/bin/floe-desktop.exe
 browser can call the bound Go methods from devtools. Note that `wails build`
 can exit 0 on a silent failure; check that the executable's timestamp changed.
 
-Install the Wails CLI at v2.16.0, the version `go.mod` links against. CI
+Install the Wails CLI at v2.17.0, the version `go.mod` links against. CI
 installs that same version and fails when its pin and `go.mod` drift apart.
 
 A build you run from here talks to Floe's live server, `api.floe.one`, until

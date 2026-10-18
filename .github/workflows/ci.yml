@@ -467,7 +467,7 @@ jobs:
       # Wails CLI pin for the packaging smoke below. Must match desktop/go.mod
       # (asserted in the install step) and desktop-release.yml's install step;
       # bump all three together.
-      WAILS_VERSION: v2.16.0
+      WAILS_VERSION: v2.17.0
       # The chocolatey nsis package for the installer smoke below, the version
       # desktop-v0.3.1 was built with. nsis 3.13.0 requires nsis.install at
       # exactly 3.13.0, which carries the NSIS installer inside the package.
