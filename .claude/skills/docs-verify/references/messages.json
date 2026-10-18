@@ -897,6 +897,20 @@
     },
     {
         "surface": "web",
+        "text": "This browser cannot receive files through Floe because WebRTC is missing or turned off. Open the link in a current version of Chrome, Edge, Firefox or Safari.",
+        "source": "client/components/P2PTransfer.tsx",
+        "anchor": "/faq#which-browsers-work",
+        "why_no_home": null
+    },
+    {
+        "surface": "web",
+        "text": "This browser cannot send files through Floe because WebRTC is missing or turned off. Use a current version of Chrome, Edge, Firefox or Safari.",
+        "source": "client/components/P2PTransfer.tsx",
+        "anchor": "/faq#which-browsers-work",
+        "why_no_home": null
+    },
+    {
+        "surface": "web",
         "text": "This browser ran out of memory while receiving, so the transfer was stopped. Receive large files on a computer with Floe Desktop (Windows) or the Floe CLI, which save straight to disk.",
         "source": "client/lib/transfer/receiver.ts",
         "anchor": "/troubleshooting#this-browser-ran-out-of-memory",
