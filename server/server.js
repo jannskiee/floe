@@ -961,7 +961,7 @@ function leaveRequestRoom(peer, meta, now = Date.now()) {
     peer.roomId = null;
 }
 
-// The leave-first step of a join, for the request handlers.
+// The leave-first step of every join.
 function leaveCurrentRoom(peer, now = Date.now()) {
     if (!peer.roomId) return;
     const current = roomMeta.get(peer.roomId);
@@ -1487,24 +1487,10 @@ function handleJoinRoom(peer, roomId) {
         return;
     }
 
-    // A request-room member leaves through the request rules (a host's
-    // departure starts the grace); that clears peer.roomId, so the ordinary
-    // block below is skipped.
-    if (peer.roomId) {
-        const current = roomMeta.get(peer.roomId);
-        if (current && current.kind === 'request') leaveRequestRoom(peer, current);
-    }
-
-    // If already in a room, leave it first
-    if (peer.roomId) {
-        const oldRoom = rooms.get(peer.roomId);
-        if (oldRoom) {
-            const remaining = oldRoom.filter(p => p.id !== peer.id);
-            if (remaining.length === 0) destroyRoom(peer.roomId);
-            else rooms.set(peer.roomId, remaining);
-        }
-        peer.roomId = null;
-    }
+    // If already in a room, leave it first, a request-room member through the
+    // request rules (a host's departure starts the grace). Here, before the
+    // seal and the full-room refusals below; the request handlers leave last.
+    leaveCurrentRoom(peer);
 
     // The seal. Once two distinct keys have routed signals in a room, a third
     // key is refused for as long as the room exists, so a stranger holding the

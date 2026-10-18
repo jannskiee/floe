@@ -560,6 +560,19 @@ describe('handleJoinRoom', () => {
         handleJoinRoom(p, null);
         assert.equal(p.msgs[0].type, 'error');
     });
+
+    it('a peer that joins another room leaves its old one, and its partner keeps the seat', () => {
+        const other = '11111111-2222-4333-8444-555555555555';
+        const pA = makePeer('peer-A');
+        const pB = makePeer('peer-B');
+        handleJoinRoom(pA, ROOM_ID);
+        handleJoinRoom(pB, ROOM_ID);
+        handleJoinRoom(pB, other);
+        assert.deepEqual(rooms.get(ROOM_ID), [pA]);
+        assert.equal(pA.roomId, ROOM_ID);
+        assert.deepEqual(rooms.get(other), [pB]);
+        assert.equal(pB.roomId, other);
+    });
 });
 
 // ---------------------------------------------------------------------------
