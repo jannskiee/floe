@@ -6721,6 +6721,13 @@
     },
     {
         "surface": "server",
+        "text": "TRUSTED_PROXY_COUNT is not a whole number, so the default of 0 is in use. Set it to the number of reverse proxies in front of this server, or 0 if there are none.",
+        "source": "server/server.js",
+        "anchor": "/self-hosting/operations#the-server-logs-very-little",
+        "why_no_home": null
+    },
+    {
+        "surface": "server",
         "text": "TRUSTED_PROXY_COUNT is not set, so the default of {n} is in use. Set it to the number of reverse proxies in front of this server, or 0 if there are none.",
         "source": "server/server.js",
         "anchor": "/self-hosting/operations#the-server-logs-very-little",

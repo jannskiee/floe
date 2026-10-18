@@ -1721,3 +1721,36 @@ test('a server given a TRUSTED_PROXY_COUNT says nothing about it', async (t) => 
         assert.deepEqual(proxyCountLines(srv), [], `TRUSTED_PROXY_COUNT=${count}`);
     }
 });
+
+// Whole, like the line above: a value that cannot be a count acts as 0.
+const PROXY_COUNT_INVALID_LINE =
+    'TRUSTED_PROXY_COUNT is not a whole number, so the default of 0 is in use. ' +
+    'Set it to the number of reverse proxies in front of this server, or 0 if there are none.';
+
+test('a server given a TRUSTED_PROXY_COUNT that cannot be a count says once that 0 is in use', async (t) => {
+    // A word and a negative number: parseInt reads them as NaN and -1, and
+    // both trust no proxy. The value itself never reaches the log.
+    for (const value of ['two', '-1']) {
+        const srv = await startServer({ TRUSTED_PROXY_COUNT: value });
+        t.after(() => srv.stop());
+        await assertSurvived(srv, `a start with TRUSTED_PROXY_COUNT=${value}`);
+        assert.deepEqual(proxyCountLines(srv), [PROXY_COUNT_INVALID_LINE], `TRUSTED_PROXY_COUNT=${value}`);
+        assertLogsCarryNone(srv, [value], `TRUSTED_PROXY_COUNT=${value}`);
+    }
+});
+
+test('a TRUSTED_PROXY_COUNT that cannot be a count trusts no proxy', async (t) => {
+    // What "0 is in use" promises: X-Forwarded-For is ignored, so two
+    // connections naming different addresses through it share the one place
+    // MAX_CONNECTIONS_PER_IP=1 leaves the socket's own address.
+    const srv = await startServer({ TRUSTED_PROXY_COUNT: 'two', MAX_CONNECTIONS_PER_IP: '1' });
+    t.after(() => srv.stop());
+    await openAs(srv, '198.51.100.1');
+    const second = track(new WebSocket(`ws://127.0.0.1:${srv.port}/ws`, { headers: { 'X-Forwarded-For': '198.51.100.2' } }));
+    const closedWith = await new Promise((resolve, reject) => {
+        second.once('close', (code) => resolve(code));
+        second.once('error', reject);
+    });
+    assert.equal(closedWith, 1008);
+    await assertSurvived(srv, 'two connections under a TRUSTED_PROXY_COUNT that cannot be a count');
+});

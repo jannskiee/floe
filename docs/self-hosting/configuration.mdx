@@ -166,8 +166,11 @@ Unraid template pass `0` when you set nothing, because publishing container port
 their default, so raise it when you put a proxy in front. A server started with Node directly
 uses `1` when the variable is unset or empty. It then logs one line at startup:
 `TRUSTED_PROXY_COUNT is not set, so the default of 1 is in use. Set it to the number of reverse proxies in front of this server, or 0 if there are none.`
-`server/.env.example` sets `0`, so a server started with that file logs nothing. A value that is
-not a number counts as `0`.
+`server/.env.example` sets `0`, so a server started with that file logs nothing. A value that
+cannot be a count, such as a word or a negative number, counts as `0`, and the server logs one
+line at startup:
+`TRUSTED_PROXY_COUNT is not a whole number, so the default of 0 is in use. Set it to the number of reverse proxies in front of this server, or 0 if there are none.`
+The line never repeats the value.
 
 Set it too high, and clients can write their own `X-Forwarded-For` and pick the address every
 limit counts them under. Set it too low behind a proxy, and every visitor arrives as the proxy's
