@@ -1,8 +1,7 @@
 package peer
 
 // ICE candidate gathering filters. Both are consulted by New when it builds
-// the pion SettingEngine; icefilter_test.go has covered them since before this
-// file existed.
+// the pion SettingEngine.
 
 import (
 	"net"

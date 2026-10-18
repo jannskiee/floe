@@ -1,8 +1,8 @@
 package code
 
 // The link-host rules: whether a pasted link was made on the server this run
-// is pointed at. Moved here from cli/cmd/floe/sendto.go so the request-link
-// send, floe receive and Floe Desktop decide by one rule.
+// is pointed at, in one place so the request-link send, floe receive and Floe
+// Desktop decide by one rule.
 
 import (
 	"net/url"

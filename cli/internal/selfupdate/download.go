@@ -174,5 +174,3 @@ func writeFile(r io.Reader, destPath string) error {
 	}
 	return closeErr
 }
-
-// --- binary installation ---

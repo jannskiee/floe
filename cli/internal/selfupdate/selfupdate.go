@@ -127,5 +127,3 @@ func Apply(version string) error {
 
 	return installBinary(exe, binaryTmpPath)
 }
-
-// --- cache ---
