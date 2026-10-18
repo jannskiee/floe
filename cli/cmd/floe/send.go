@@ -149,7 +149,12 @@ func runSend(cmd *cobra.Command, args []string) error {
 		webURL = serverurl.Web(flagServer)
 	}
 	// The room id goes in the URL fragment (#room=) so it never reaches the
-	// web server or its analytics when a browser opens this link.
+	// web server or its analytics when a browser opens this link. Unlike the
+	// desktop's and the web app's links it has no ?s= nonce: a tab with Floe
+	// already open reloads into the new room when only the fragment changes
+	// (P2PTransfer's hashchange reload), and one that still holds a transfer or
+	// an unsaved file asks first or waits for it, where a new document would
+	// drop the file.
 	link := webURL + "/#room=" + roomId
 
 	fmt.Printf("  Sending   %s\n", summary.Label)
