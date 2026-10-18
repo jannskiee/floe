@@ -1,7 +1,7 @@
 package transfer
 
 // The short entry points the tests in this package call. They live in a test
-// file, not in the package, because each passes options with no Messages and
+// file, not in product code, because each passes options with no Messages and
 // Closed pump, and a channel from peer.SetupAsSender or SetupAsReceiver needs
 // that pump (see SendOptions and ReceiveOptions): in product code the short
 // form opens the window the pump exists to close. These tests own their

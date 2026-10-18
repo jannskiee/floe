@@ -202,9 +202,10 @@ type ReceiveOptions struct {
 
 // ReceiveFilesWithOptions handles the full receiving side of the Floe
 // protocol. It blocks until all files are received. Files are written to
-// outputDir. If autoAccept is false, the user is prompted before receiving
-// begins. localVer is the human release string (e.g. "v1.5.5") embedded in
-// the ack for the optional peer-version note; pass "" for dev builds or tests.
+// outputDir. If autoAccept is false and opts.Decide is nil, the user is
+// prompted before receiving begins. localVer is the human release string
+// (e.g. "v1.5.5") embedded in the ack for the optional peer-version note;
+// pass "" for dev builds or tests.
 // serverURL is the signaling server base URL used to report transfer stats;
 // pass "" to skip reporting (e.g. in tests). opts.OnIncoming, when set, fires
 // exactly once as the first metadata arrives, after the protocol compatibility
