@@ -158,6 +158,13 @@ func trimICEServers(servers []webrtc.ICEServer) []webrtc.ICEServer {
 	return out
 }
 
+// maxCredentialsBody bounds the /api/turn-credentials body ParseServers reads.
+// A real one is under 1 KiB, and a JSON decoder holds a whole value before it
+// unmarshals: unbounded, a valid 64 MiB list was taken whole and allocated
+// 1,356 MiB on the way, so a server could end floe or Floe Desktop by memory.
+// The same bound as the desktop's /health read (desktop/serverprobe.go).
+const maxCredentialsBody = 64 << 10
+
 // iceServerJSON is the raw JSON shape returned by /api/turn-credentials.
 // The "urls" field can be either a single string or an array of strings.
 type iceServerJSON struct {
@@ -235,10 +242,11 @@ func FetchDetail(serverURL string) (servers []webrtc.ICEServer, degraded bool, e
 // implementation of that rule is a second thing to get wrong.
 //
 // Entries carrying no usable "urls" are dropped, so an empty result means the
-// body parsed but held nothing to connect with.
+// body parsed but held nothing to connect with. At most maxCredentialsBody
+// bytes are read: a list that does not end within them is an error.
 func ParseServers(r io.Reader) ([]webrtc.ICEServer, error) {
 	var raw []iceServerJSON
-	if err := json.NewDecoder(r).Decode(&raw); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r, maxCredentialsBody)).Decode(&raw); err != nil {
 		return nil, err
 	}
 
