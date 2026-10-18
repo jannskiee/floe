@@ -7,6 +7,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -780,6 +781,44 @@ func TestMakeRequestLinkHideIPWithoutRelay(t *testing.T) {
 			}
 			if f.count("join-room") != 0 {
 				t.Fatal("a join was sent without a relay")
+			}
+		})
+	}
+}
+
+// TestMakeRequestLinkHideIPNeedsAKnownRelay: with Hide my IP on, Make link ends
+// before any join when the relay probe cannot vouch for a relay: relay-unknown
+// when the probe failed or the list fell back to STUN, no-relay when the server
+// answered with none. The probe and the request-1 check are seams here, so no
+// server is asked.
+func TestMakeRequestLinkHideIPNeedsAKnownRelay(t *testing.T) {
+	for _, c := range []struct {
+		name               string
+		hasRelay, degraded bool
+		err                error
+		want               string
+	}{
+		{"probe failed", false, false, errors.New("the probe failed"), "relay-unknown"},
+		{"stun fallback", false, true, nil, "relay-unknown"},
+		{"no relay", false, false, nil, "no-relay"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			saveDir := t.TempDir()
+			a := &App{notifyFn: func(string, string) {}, wake: &wakeGuard{onBlock: func() {}, onAllow: func() {}}}
+			a.cfg = appConfig{Server: "http://127.0.0.1:9", HideIP: true}
+			l := a.lane()
+			l.emitFn = func(string, any) {}
+			l.supportFn = func(string) FeatureResult {
+				return FeatureResult{Reachable: true, RequestLinks: true, FeatureList: true}
+			}
+			l.relayFn = func(string) (bool, bool, error) { return c.hasRelay, c.degraded, c.err }
+			t.Cleanup(func() {
+				a.CloseRequestLink()
+				l.wg.Wait()
+			})
+			a.MakeRequestLink("x", saveDir, "24h", false)
+			if s := waitState(t, a, 10*time.Second, "error"); s.Code != c.want {
+				t.Fatalf("code %q, want %q", s.Code, c.want)
 			}
 		})
 	}
