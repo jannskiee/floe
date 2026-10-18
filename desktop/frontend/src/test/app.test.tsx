@@ -504,6 +504,34 @@ describe('the history store', () => {
         expect(screen.getByPlaceholderText('amber-otter-cloud')).toBeTruthy();
         expect(screen.getByRole('button', {name: 'Start over'})).toBeTruthy();
     });
+
+    // A code receive's row keeps the first 200 names, as a request row does
+    // (REQUEST_NAMES_CAP), and the real count: every name of a large folder
+    // filled the one localStorage value the whole History shares.
+    it('a 300-file code receive stores 200 names', async () => {
+        let finish!: (dir: string) => void;
+        wails.go.ReceiveByCode.mockImplementation(() => new Promise<string>((resolve) => { finish = resolve; }));
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
+        await user.type(screen.getByPlaceholderText('amber-otter-cloud'), 'amber-otter-cloud');
+        await user.click(screen.getAllByRole('button', {name: 'Receive'}).find((b) => b.className.includes('w-full'))!);
+        act(() => {
+            for (let i = 1; i <= 300; i++) {
+                wails.emit('recv:progress', {fileName: `f${i}.bin`, fileIndex: i, fileCount: 300, fileBytes: 1, fileSize: 1, totalBytes: i, grandTotal: 300, savedName: `f${i}.bin`});
+            }
+        });
+        await act(async () => { finish('C:\\dl'); });
+        await waitFor(() => expect(JSON.parse(localStorage.getItem('floe:history') || '[]')).toHaveLength(1));
+        const [row] = JSON.parse(localStorage.getItem('floe:history')!);
+        expect(row.names).toHaveLength(200);
+        expect([row.names[0], row.names[199]]).toEqual(['f1.bin', 'f200.bin']);
+        expect(row.count).toBe(300);
+        // The row is still titled by the real count.
+        await user.click(screen.getByRole('button', {name: 'History'}));
+        expect(screen.getByText('300 files')).toBeTruthy();
+    });
 });
 
 describe('the progress label', () => {

@@ -74,9 +74,10 @@ export function histKey(h: {at: number; names: string[]; count: number}): string
     return `${h.at}-${h.names[0] ?? ''}-${h.count}`;
 }
 
-/** REQUEST_NAMES_CAP bounds the names one request row stores: a drop can hold
- *  10,000 files, and this store is one localStorage value shared by the whole
- *  profile. count keeps the real number. */
+/** REQUEST_NAMES_CAP bounds the names one request row stores, and a code
+ *  receive's row too (App.tsx receive): a drop can hold 10,000 files and a
+ *  folder received by code any number, and this store is one localStorage
+ *  value shared by the whole profile. count keeps the real number. */
 export const REQUEST_NAMES_CAP = 200;
 
 /** requestHistoryEntry is the one History row a finished request drop adds

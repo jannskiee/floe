@@ -105,7 +105,7 @@ import {
 import {formatIncoming, type IncomingPreview} from './incoming';
 import {track, type Marker, type Prog} from './progress';
 import {baseName, mergePaths, normPath} from './paths';
-import {HISTORY_CAP, loadHistory, requestHistoryEntry, type HistEntry} from './history';
+import {HISTORY_CAP, loadHistory, REQUEST_NAMES_CAP, requestHistoryEntry, type HistEntry} from './history';
 import {DOWNLOAD_URL, bareVersion, isNewerDesktopVersion} from './update';
 import TitleBar from './components/TitleBar';
 import {Tooltip} from './components/Tooltip';
@@ -1508,7 +1508,8 @@ function App() {
             setRecvDone(true);
             setRecvStatus('');
             const names = [...recvNamesRef.current.values()];
-            setHistory((prev) => [{kind: 'recv' as const, names, count: names.length, dir, bytes: recvBytesRef.current || undefined, at: Date.now()}, ...prev].slice(0, HISTORY_CAP));
+            // The first REQUEST_NAMES_CAP names, as a request row keeps, and the real count.
+            setHistory((prev) => [{kind: 'recv' as const, names: names.slice(0, REQUEST_NAMES_CAP), count: names.length, dir, bytes: recvBytesRef.current || undefined, at: Date.now()}, ...prev].slice(0, HISTORY_CAP));
         } catch (e: any) {
             if (recvAttempt.current !== attempt) return;
             setRecvStatus(recvCancel.current ? 'Canceled' : friendlyError(e) + serverNote());
