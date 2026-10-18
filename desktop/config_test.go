@@ -574,3 +574,58 @@ func TestSetToastsAndSoundPersistAndKeepEverythingElse(t *testing.T) {
 		t.Errorf("SetToasts(true) = %+v, want notifications back on and sound still off", got)
 	}
 }
+
+// TestSetCheckUpdatesPersistsAndKeepsEverythingElse drives the update-check
+// setter against the test home the same way: it writes NoUpdateCheck alone, in
+// memory and in desktop.json, and a later SetSettings carries it through.
+func TestSetCheckUpdatesPersistsAndKeepsEverythingElse(t *testing.T) {
+	a := &App{cfg: appConfig{Server: "https://x.test", HideIP: true, ReportStats: true, NoToasts: true, SilentToasts: true, Migrated: true}}
+	if err := a.SetCheckUpdates(false); err != nil {
+		t.Fatalf("SetCheckUpdates(false): %v", err)
+	}
+	want := appConfig{Server: "https://x.test", HideIP: true, ReportStats: true, NoUpdateCheck: true, NoToasts: true, SilentToasts: true, Migrated: true}
+	if got := a.GetSettings(); got != want {
+		t.Fatalf("settings after SetCheckUpdates(false) = %+v, want %+v", got, want)
+	}
+	if got := loadConfig(); got != want {
+		t.Fatalf("persisted settings = %+v, want %+v", got, want)
+	}
+	if err := a.SetSettings("https://y.test", "", false, true); err != nil {
+		t.Fatalf("SetSettings: %v", err)
+	}
+	if got := loadConfig(); !got.NoUpdateCheck || got.Server != "https://y.test" {
+		t.Errorf("a whole-record save lost the update-check choice: %+v", got)
+	}
+	if err := a.SetCheckUpdates(true); err != nil {
+		t.Fatalf("SetCheckUpdates(true): %v", err)
+	}
+	if got := a.GetSettings(); got.NoUpdateCheck || !got.NoToasts || !got.SilentToasts {
+		t.Errorf("SetCheckUpdates(true) = %+v, want checking back on and both toast choices kept", got)
+	}
+}
+
+// TestConcurrentSettersKeepEachOthersField: Wails runs every bound call on its
+// own goroutine and the Settings screen fires unawaited saves on quick toggle
+// flips, so two setters can run at once. Neither may write back a record read
+// before the other's write and so bring back the field the other just changed,
+// in memory or in desktop.json.
+func TestConcurrentSettersKeepEachOthersField(t *testing.T) {
+	a := &App{cfg: appConfig{ReportStats: true, Migrated: true}}
+	for i := 0; i < 50; i++ {
+		toasts, checks := i%2 == 0, i%3 == 0
+		start, errs := make(chan struct{}), make(chan error, 2)
+		go func() { <-start; errs <- a.SetToasts(toasts) }()
+		go func() { <-start; errs <- a.SetCheckUpdates(checks) }()
+		close(start)
+		for j := 0; j < 2; j++ {
+			if err := <-errs; err != nil {
+				t.Fatalf("round %d: %v", i, err)
+			}
+		}
+		for where, got := range map[string]appConfig{"in memory": a.GetSettings(), "in desktop.json": loadConfig()} {
+			if got.NoToasts != !toasts || got.NoUpdateCheck != !checks {
+				t.Fatalf("round %d, %s: NoToasts %v and NoUpdateCheck %v, want %v and %v", i, where, got.NoToasts, got.NoUpdateCheck, !toasts, !checks)
+			}
+		}
+	}
+}
