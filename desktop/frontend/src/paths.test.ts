@@ -120,7 +120,7 @@ describe('displayCols (R5-11)', () => {
         expect(displayCols('é')).toBe(1); // e and a combining acute
         expect(displayCols('❤')).toBe(1); // a text-style heart
         expect(displayCols('❤️')).toBe(2); // the same heart asked for as emoji
-        expect(displayCols('a‍b')).toBe(2);
+        expect(displayCols('a\u200Db')).toBe(2);
         expect(displayCols('')).toBe(0);
         // A keycap is drawn as an emoji: two, never the one cell of its digit.
         expect(displayCols('1️⃣')).toBe(2);
@@ -167,7 +167,7 @@ describe('shortDropFolder (R5-11)', () => {
         const leaf = ' 2026-10-08 1405';
         for (const label of [
             '🇯🇵🇺🇸🇫🇷🇩🇪🇮🇹🇪🇸🇬🇧🇨🇦🇧🇷🇲🇽', // flags: two regional indicators each
-            '👨‍👩‍👧👨‍👩‍👧👨‍👩‍👧👨‍👩‍👧', // family sequences joined by U+200D
+            '👨\u200D👩\u200D👧👨\u200D👩\u200D👧👨\u200D👩\u200D👧👨\u200D👩\u200D👧', // family sequences joined by U+200D
             '👍🏽'.repeat(10), // a skin tone modifier after its hand
             '1️⃣2️⃣3️⃣'.repeat(5), // keycaps
             'Café résumé déjà vu encore', // letters with combining accents
@@ -192,7 +192,7 @@ describe('shortDropFolder (R5-11)', () => {
     });
 
     it('never passes the column budget, and keeps the whole ending whenever a label fits beside it', () => {
-        const labels = ['Acme footage', '日本語のフォルダ名', '📁🎬📷🎵📁🎬', '👨‍👩‍👧 family', 'Ｆｕｌｌｗｉｄｔｈ', 'x'.repeat(200), '漢'.repeat(120)];
+        const labels = ['Acme footage', '日本語のフォルダ名', '📁🎬📷🎵📁🎬', '👨\u200D👩\u200D👧 family', 'Ｆｕｌｌｗｉｄｔｈ', 'x'.repeat(200), '漢'.repeat(120)];
         for (const label of labels) {
             for (const leaf of [' 2026-10-08 1405', ' 2026-10-08 1405 (2)', ' 2026-10-08 1405 (99)']) {
                 for (let max = 22; max <= 60; max++) {
