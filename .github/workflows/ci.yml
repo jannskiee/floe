@@ -457,7 +457,8 @@ jobs:
     # published. The mirroring is no longer one-way: the vet step, the Wails
     # pin assertion and the NSIS retry below were copied INTO
     # desktop-release.yml, because the tag path is the one that cannot be
-    # re-run cheaply and it had been the weaker of the two.
+    # re-run cheaply and it had been the weaker of the two. The NSIS cache is
+    # the one step kept out of the release on purpose (see Restore NSIS).
     runs-on: windows-latest
     timeout-minutes: 15
     needs: [changes]
@@ -528,16 +529,37 @@ jobs:
             || { echo "WAILS_VERSION ${WAILS_VERSION} does not match desktop/go.mod" >&2; exit 1; }
           GOWORK=off go install "github.com/wailsapp/wails/v2/cmd/wails@${WAILS_VERSION}"
 
+      - name: Restore NSIS
+        id: nsis
+        # The pinned NSIS install, cached by version, so the Chocolatey feed is
+        # on this required check's path only when the cache is cold. On
+        # 2026-10-14 the feed answered HTTP 504 for hours and failed five main
+        # runs at the install below, which its one retry cannot ride out. The
+        # key carries the pin, so a hit is always NSIS_VERSION, and
+        # actions/cache saves only when the job succeeds, so an install that
+        # failed is never cached. CI's alone: desktop-release.yml installs from
+        # Chocolatey, so a tag never builds its installer from a restored copy.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: C:\Program Files (x86)\NSIS
+          key: nsis-${{ env.NSIS_VERSION }}-${{ runner.os }}-${{ runner.arch }}
+
       - name: Install NSIS
+        if: steps.nsis.outputs.cache-hit != 'true'
         shell: bash
-        # windows-latest does not ship NSIS. One retry: this puts the
-        # chocolatey CDN on the path of a required check on every code PR,
-        # and a transient failure should cost seconds, not a manual re-run.
+        # windows-latest does not ship NSIS. One retry: on a cold cache this
+        # puts the chocolatey CDN on the path of a required check, and a
+        # transient failure should cost seconds, not a manual re-run.
         run: |
           choco install nsis --version "$NSIS_VERSION" -y --no-progress \
             || { echo "choco install failed once; retrying" >&2; sleep 10; choco install nsis --version "$NSIS_VERSION" -y --no-progress; }
-          # wails build -nsis silently skips the installer when makensis is
-          # missing (it warns and returns success), so resolve it now or fail.
+
+      - name: Check NSIS
+        shell: bash
+        # wails build -nsis silently skips the installer when makensis is
+        # missing (it warns and returns success), so resolve it now or fail,
+        # whether it was restored or installed.
+        run: |
           export PATH="$PATH:/c/Program Files (x86)/NSIS"
           command -v makensis || { echo "makensis not resolvable after install" >&2; exit 1; }
 
