@@ -198,6 +198,29 @@ describe('the settings screen', () => {
         expect(screen.getByLabelText('Share link address')).toBe(web);
         expect(document.activeElement).toBe(web);
     });
+
+    // Copied lasts 1.5 s from the copy that set it, as Copy link on a request
+    // link does: a second copy inside the window keeps its own 1.5 s.
+    it('About Copy: a second copy keeps Copied for 1.5 s', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getByRole('button', {name: 'Settings'}));
+        const copy = await screen.findByRole('button', {name: 'Copy'});
+        vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']});
+        try {
+            await act(async () => { copy.click(); });
+            expect(copy.textContent).toBe('Copied');
+            act(() => { vi.advanceTimersByTime(1000); });
+            await act(async () => { copy.click(); });
+            act(() => { vi.advanceTimersByTime(600); });
+            expect(copy.textContent).toBe('Copied');
+            act(() => { vi.advanceTimersByTime(900); });
+            expect(copy.textContent).toBe('Copy');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });
 
 describe('the close guard', () => {

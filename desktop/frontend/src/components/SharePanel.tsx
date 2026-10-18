@@ -1,6 +1,6 @@
 // The receiver-facing half of a send: the code, the link and the QR.
 
-import {useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {Check, Copy, QrCode, Share2} from 'lucide-react';
 import QRCode from 'react-qr-code';
 import {Eyebrow, cn} from './ui';
@@ -15,11 +15,16 @@ import {Tooltip} from './Tooltip';
 export default function SharePanel({code, link}: {code: string; link: string}) {
     const [copied, setCopied] = useState<'code' | 'link' | null>(null);
     const [qrOpen, setQrOpen] = useState(false);
+    // One timer for both marks, cleared before each copy and on unmount (the
+    // panel goes when the receiver joins), so a mark lasts 1.5 s from its copy.
+    const timer = useRef<number | null>(null);
+    useEffect(() => () => { if (timer.current !== null) clearTimeout(timer.current); }, []);
     async function copy(kind: 'code' | 'link', text: string) {
         try {
             await navigator.clipboard.writeText(text);
             setCopied(kind);
-            setTimeout(() => setCopied(null), 1500);
+            if (timer.current !== null) clearTimeout(timer.current);
+            timer.current = window.setTimeout(() => setCopied(null), 1500);
         } catch {
             // clipboard unavailable
         }

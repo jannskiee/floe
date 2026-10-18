@@ -212,6 +212,7 @@ function App() {
     const [testing, setTesting] = useState(false);
     // Transient label flip on the About Copy button.
     const [aboutCopied, setAboutCopied] = useState(false);
+    const aboutTimer = useRef<number | null>(null);
 
     // Whether the Advanced section is open. null means "not touched this visit",
     // which is what lets a configured server force it open without preventing the
@@ -531,7 +532,8 @@ function App() {
         try {
             await navigator.clipboard.writeText(lines.join('\n'));
             setAboutCopied(true);
-            setTimeout(() => setAboutCopied(false), 1500);
+            if (aboutTimer.current !== null) clearTimeout(aboutTimer.current);
+            aboutTimer.current = window.setTimeout(() => setAboutCopied(false), 1500);
         } catch {
             // clipboard unavailable
         }
