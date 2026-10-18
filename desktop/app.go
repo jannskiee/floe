@@ -153,7 +153,7 @@ func (a *App) startup(ctx context.Context) {
 	// record and exit with it. The emit reaches a frontend that pulled
 	// GetRequestLink before this ran; one that pulls later reads it there.
 	if q, ok := takeQuitDrop(quitDropPath()); ok {
-		a.lane().restoreQuitDrop(q, ok)
+		a.lane().restoreQuitDrop(q)
 		a.emitCurrent()
 	}
 

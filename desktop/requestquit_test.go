@@ -433,7 +433,7 @@ func TestRestoredDropIsTheStoppedDrop(t *testing.T) {
 	at := time.Now().Add(-26 * time.Hour).UnixMilli()
 	a.lane().restoreQuitDrop(quitDrop{Label: "Acme", At: at, Result: RequestResult{
 		Files: 12, Saved: 4, Bytes: 40, Folder: `D:\Floe\Acme`, Names: []string{"a"}, Sizes: []int64{10}, NoNamedStreams: true,
-	}}, true)
+	}})
 	s := a.GetRequestLink()
 	if s.State != "stopped" || s.Code != "app-closed" || s.Gen != 0 || s.Label != "Acme" || s.Link != "" {
 		t.Fatalf("restored snapshot = %+v, want stopped app-closed at gen 0", s)
@@ -443,10 +443,6 @@ func TestRestoredDropIsTheStoppedDrop(t *testing.T) {
 	}
 	if a.lane().closeGuardNow() || a.lane().live.Load() {
 		t.Fatal("a restored drop holds the close guard or the one-link rule")
-	}
-	a.lane().restoreQuitDrop(quitDrop{}, false)
-	if s := a.GetRequestLink(); s.State != "stopped" {
-		t.Fatalf("no record changed the lane: %+v", s)
 	}
 	s = a.MakeRequestLink("x", saveDir, "24h", false)
 	if s.State != "making" || s.Result != nil || s.Code != "" {

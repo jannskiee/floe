@@ -249,13 +249,9 @@ func (r *dropRecord) stopOwedLocked() {
 // restoreQuitDrop shows the record a launch read (takeQuitDrop) as the lane's
 // state: stopped with app-closed, generation 0, the record's label and result,
 // and the time it was written as EndedAt, so History dates the row by the
-// drop, not by the launch. ok false changes nothing. The lane holds no link,
-// so the close guard and the one-link rule stay off, and Make link moves on
-// from it like from any result.
-func (l *requestLane) restoreQuitDrop(q quitDrop, ok bool) {
-	if !ok {
-		return
-	}
+// drop, not by the launch. The lane holds no link, so the close guard and the
+// one-link rule stay off, and Make link moves on from it like from any result.
+func (l *requestLane) restoreQuitDrop(q quitDrop) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	res := q.Result
