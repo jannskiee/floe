@@ -158,7 +158,7 @@ func runSendOneFile(t *testing.T, mode hashMode, data []byte) (error, string, st
 	select {
 	case err = <-recvErr:
 	case <-time.After(30 * time.Second):
-		t.Fatal("ReceiveFiles did not return")
+		t.Fatal("ReceiveFilesWithOptions did not return")
 	}
 	return err, dir, code
 }
@@ -172,7 +172,7 @@ func TestSendCorruptHashIsRefused(t *testing.T) {
 	}
 	err, dir, code := runSendOneFile(t, hashCorrupt, data)
 	if err == nil {
-		t.Fatal("ReceiveFiles returned nil for a file whose digest did not match")
+		t.Fatal("ReceiveFilesWithOptions returned nil for a file whose digest did not match")
 	}
 	if code != "hash-mismatch" {
 		t.Fatalf("refusal code = %q, want hash-mismatch", code)
@@ -189,7 +189,7 @@ func TestSendMalformedHashIsRefused(t *testing.T) {
 	}
 	err, dir, code := runSendOneFile(t, hashMalformed, data)
 	if err == nil {
-		t.Fatal("ReceiveFiles returned nil for a malformed digest")
+		t.Fatal("ReceiveFilesWithOptions returned nil for a malformed digest")
 	}
 	if code != "hash-mismatch" {
 		t.Fatalf("refusal code = %q, want hash-mismatch", code)
@@ -207,7 +207,7 @@ func TestSendRealHashIsAccepted(t *testing.T) {
 	}
 	err, dir, _ := runSendOneFile(t, hashReal, data)
 	if err != nil {
-		t.Fatalf("ReceiveFiles: %v", err)
+		t.Fatalf("ReceiveFilesWithOptions: %v", err)
 	}
 	onDisk, readErr := os.ReadFile(filepath.Join(dir, "payload.bin"))
 	if readErr != nil {
