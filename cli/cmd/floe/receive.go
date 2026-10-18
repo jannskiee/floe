@@ -213,7 +213,7 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	}
 
 	if !r.connected(dc, conn) {
-		return r.park()
+		return park()
 	}
 	fmt.Println(connectedLine(conn.ConnectionType()))
 
@@ -234,7 +234,7 @@ func runReceive(cmd *cobra.Command, args []string) error {
 		OnReceivedSent: r.receivedSent,
 	})
 	if !r.finish() {
-		return r.park()
+		return park()
 	}
 	return err
 }
@@ -404,13 +404,4 @@ func (r *receiveRun) finish() bool {
 	}
 	r.over = true
 	return true
-}
-
-// park ends the command once Ctrl+C has its ending: in the binary never
-// (parkUntilExit), so main's os.Exit(1) cannot race the handler's exit 130 or
-// print a line after "Canceled." (FU-54 review 1 M2). A test that lets it
-// return gets the error execute prints nothing for.
-func (r *receiveRun) park() error {
-	parkUntilExit()
-	return errSendToEnded
 }

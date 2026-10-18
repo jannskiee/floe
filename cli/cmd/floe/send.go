@@ -190,7 +190,7 @@ func runSend(cmd *cobra.Command, args []string) error {
 	}
 
 	if !r.connected(dc, conn) {
-		return r.park()
+		return park()
 	}
 	fmt.Println(connectedLine(conn.ConnectionType()))
 	fmt.Println()
@@ -211,7 +211,7 @@ func runSend(cmd *cobra.Command, args []string) error {
 		Stop: r.halt,
 	})
 	if !r.finish(err == nil) {
-		return r.park()
+		return park()
 	}
 	return plainSendEnd(err)
 }
@@ -345,16 +345,6 @@ func (r *sendRun) finish(delivered bool) bool {
 	}
 	r.over = true
 	return true
-}
-
-// park ends the command once Ctrl+C has its ending, as the receive's does: in
-// the binary never (parkUntilExit), so main's os.Exit(1) cannot race the
-// handler's exit 130 or print "Error: the send was stopped" after
-// "Canceled.". A test that lets it return gets the error execute prints
-// nothing for.
-func (r *sendRun) park() error {
-	parkUntilExit()
-	return errSendToEnded
 }
 
 // errTheyStopped is the plain send's line when the receiver ended the
