@@ -15,7 +15,6 @@ import (
 	"github.com/jannskiee/floe/cli/engine/ice"
 	"github.com/jannskiee/floe/cli/engine/peer"
 	"github.com/jannskiee/floe/cli/engine/serverurl"
-	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/jannskiee/floe/cli/engine/transfer"
 	"github.com/pion/webrtc/v4"
 	"github.com/spf13/cobra"
@@ -89,7 +88,7 @@ func runSend(cmd *cobra.Command, args []string) error {
 	roomId := uuid.New().String()
 
 	// 2. Fetch ICE (STUN/TURN) server credentials
-	iceServers, degraded, err := ice.FetchDetail(flagServer)
+	iceServers, degraded, err := fetchICE(flagServer)
 	if err != nil {
 		return fmt.Errorf("failed to fetch ICE credentials: %w", err)
 	}
@@ -103,7 +102,7 @@ func runSend(cmd *cobra.Command, args []string) error {
 	}
 
 	// 3. Connect to the signaling server via WebSocket
-	sc, err := signaling.Connect(flagServer)
+	sc, err := connectSignaling(flagServer)
 	if err != nil {
 		return signalingConnectError(err)
 	}

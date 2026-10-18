@@ -47,8 +47,8 @@ var sendToAckTimeout = transfer.VisitorAckTimeout + transfer.VisitorAckGrace
 // shrink it, and whichever ends first ends the join.
 var sendToJoinTimeout = 10 * time.Second
 
-// fetchICE and connectSignaling are the first two network calls of the
-// request-link send and of receive, as vars so a test can count them and
+// fetchICE and connectSignaling are the first two network calls of floe send,
+// the request-link send and floe receive, as vars so a test can count them and
 // refuse every server but its own fake: a guard that a mutation removes must
 // never reach api.floe.one from a test.
 var (
