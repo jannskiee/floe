@@ -57,10 +57,10 @@ floe-server)
     ;;
 
 floe-client)
-    # The client's /api/config echoes SOCKET_URL (plus a commit field that is null
-    # signaling server. Two runs with DIFFERENT values is the real proof that the
-    # address is resolved at runtime and not baked, which is the whole premise of
-    # shipping one image to everyone.
+    # The client's /api/config echoes SOCKET_URL (plus a commit field, null in
+    # this image), so this leg needs no signaling server. Two runs with
+    # DIFFERENT values is the real proof that the address is resolved at runtime
+    # and not baked, which is the whole premise of shipping one image to everyone.
     run smoke-client 3000 -e SOCKET_URL=http://localhost:3001
     wait_for http://localhost:3000/ || fail "client never served /"
     echo "OK  / -> 200"
