@@ -21,8 +21,6 @@ import { writeFileSync, mkdirSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { spawn, type ChildProcess } from 'child_process';
 
-export { CLI_BUILD_DIR, CLI_BUILD_BINARY } from './cli-binary';
-
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
