@@ -298,6 +298,39 @@ func TestCloseBlockedDoesNotWaitOnLaneMutex(t *testing.T) {
 	}
 }
 
+// TestCloseBlockedDoesNotWaitOnASettingsWrite: the close hook takes a.mu on the
+// Windows message-pump thread, so a settings setter must not hold a.mu across
+// its desktop.json write; on a slow or redirected AppData the window would
+// stop answering until the write ends. Here the write stalls until released.
+func TestCloseBlockedDoesNotWaitOnASettingsWrite(t *testing.T) {
+	writing, release := make(chan struct{}), make(chan struct{})
+	a := &App{saveConfigFn: func(appConfig) error {
+		close(writing)
+		<-release
+		return nil
+	}}
+	saved := make(chan error, 1)
+	go func() { saved <- a.SetToasts(false) }()
+	<-writing
+	done := make(chan bool, 1)
+	go func() { done <- a.closeBlocked() }()
+	select {
+	case blocked := <-done:
+		if blocked {
+			t.Error("an idle app blocks close")
+		}
+	case <-time.After(50 * time.Millisecond):
+		t.Error("closeBlocked waited on the desktop.json write")
+	}
+	close(release)
+	if err := <-saved; err != nil {
+		t.Fatal(err)
+	}
+	if !a.GetSettings().NoToasts {
+		t.Fatal("the saved setting is not in the record")
+	}
+}
+
 // TestConfirmCloseClosesRequestLane: Close anyway ends the lane and quits at
 // once, without waiting for the request-close write, which here never ends.
 func TestConfirmCloseClosesRequestLane(t *testing.T) {

@@ -72,20 +72,29 @@ func (a *App) SetSettings(server, web string, hideIP, reportStats bool) error {
 
 // saveSettings is the read-modify-write every setter goes through: change gets
 // the current record, the result is written to desktop.json, and it replaces
-// the record only when the write succeeded. The whole read-modify-write holds
-// the lock. Wails dispatches every bound call on its own goroutine, and the
-// setters race when the Settings screen fires unawaited saves on quick toggle
-// flips; a snapshot taken before another writer's write-back would silently
-// resurrect the stale record. saveConfig is a small atomic write, cheap to
-// hold across.
+// the record only when the write succeeded. cfgMu holds the whole
+// read-modify-write. Wails dispatches every bound call on its own goroutine,
+// and the setters race when the Settings screen fires unawaited saves on quick
+// toggle flips; a snapshot taken before another writer's write-back would
+// silently resurrect the stale record. a.mu is held only to read the record
+// and to store the result, never across the write: the close hook takes a.mu
+// on the Windows message-pump thread (closeBlocked), and a write to a slow or
+// redirected AppData would stop the window answering.
 func (a *App) saveSettings(change func(appConfig) appConfig) error {
+	a.cfgMu.Lock()
+	defer a.cfgMu.Unlock()
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	cfg := change(a.cfg)
-	if err := saveConfig(cfg); err != nil {
+	cfg, save := change(a.cfg), a.saveConfigFn
+	a.mu.Unlock()
+	if save == nil {
+		save = saveConfig
+	}
+	if err := save(cfg); err != nil {
 		return err
 	}
+	a.mu.Lock()
 	a.cfg = cfg
+	a.mu.Unlock()
 	return nil
 }
 

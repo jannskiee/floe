@@ -80,6 +80,15 @@ type App struct {
 	// from the transfer goroutine, so it is guarded by mu like everything else here.
 	cfg appConfig
 
+	// cfgMu serializes the settings writers (saveSettings, endpoints.go), so mu
+	// is never held across their desktop.json write. It is taken before mu,
+	// never while mu is held.
+	cfgMu sync.Mutex
+
+	// saveConfigFn is the test seam for the desktop.json write saveSettings
+	// makes; nil means saveConfig.
+	saveConfigFn func(appConfig) error
+
 	// notifyFn is the test seam for OS notifications; nil means the real
 	// delivery: pushFn, or pushToast when that is nil too (see notify).
 	notifyFn func(title, body string)
