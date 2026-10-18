@@ -639,15 +639,10 @@ func stopRequested(stop <-chan struct{}) bool {
 	}
 }
 
-// SendFiles sends all given file paths over the open data channel, rendering a
-// terminal progress bar. Folders are walked recursively. localVer is the human
-// release string (e.g. "v1.5.5") embedded in metadata; pass "" for dev/tests.
-func SendFiles(dc *webrtc.DataChannel, paths []string, localVer string) error {
-	return SendFilesWithOptions(dc, paths, localVer, SendOptions{})
-}
-
-// SendFilesWithOptions is the full-featured send entry point; SendFiles
-// delegates here.
+// SendFilesWithOptions sends all given file paths over the open data channel.
+// Folders are walked recursively. localVer is the human release string (e.g.
+// "v1.5.5") embedded in metadata; pass "" for dev/tests. The zero SendOptions
+// renders a terminal progress bar.
 func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer string, opts SendOptions) error {
 	onProgress := opts.OnProgress
 	// Expand paths: collect all files (walk directories)
@@ -671,7 +666,7 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 	}
 
 	// Relay size cap: decide before wiring acks or sending any metadata. The
-	// connection is already established by the time SendFiles runs, so the
+	// connection is already established by the time this send runs, so the
 	// selected ICE pair is known. Mirrors the browser's relay gate.
 	if err := relayGate(dc, totalBytes); err != nil {
 		// Tell the receiver, or all it sees is a close. Its own diagnosis for

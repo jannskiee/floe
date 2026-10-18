@@ -214,15 +214,8 @@ func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, loc
 	return ReceiveFilesWithOptions(dc, outputDir, autoAccept, localVer, serverURL, ReceiveOptions{})
 }
 
-// ReceiveFilesWithProgress is ReceiveFiles with a progress callback for GUI
-// clients. When onProgress is non-nil, per-chunk progress is reported through it
-// and the terminal progress bar is suppressed.
-func ReceiveFilesWithProgress(dc *webrtc.DataChannel, outputDir string, autoAccept bool, localVer string, serverURL string, onProgress ProgressFunc) error {
-	return ReceiveFilesWithOptions(dc, outputDir, autoAccept, localVer, serverURL, ReceiveOptions{OnProgress: onProgress})
-}
-
-// ReceiveFilesWithOptions is the full-featured receive entry point; the other
-// two delegate here. opts.OnIncoming, when set, fires exactly once as the
+// ReceiveFilesWithOptions is the full-featured receive entry point; ReceiveFiles
+// delegates here. opts.OnIncoming, when set, fires exactly once as the
 // first metadata arrives, after the protocol compatibility check and before
 // any file is created or acked, and opts.Decide is asked at that same point
 // whether the transfer happens at all.

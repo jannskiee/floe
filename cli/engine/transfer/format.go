@@ -208,7 +208,7 @@ type Summary struct {
 	Label      string // e.g. "report.pdf · 2.1 MB" or "5 files · 127.3 MB"
 }
 
-// Summarize walks paths (same logic as SendFiles) and returns a Summary for
+// Summarize walks paths as a send does and returns a Summary for
 // pre-transfer display. Single files show their name; multiple files show the
 // count.
 func Summarize(paths []string) (Summary, error) {
