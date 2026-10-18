@@ -1,8 +1,8 @@
 package transfer
 
 // The lane exports (lane.go): the volume questions, the 24-hour cap and the
-// open-channel deadline, the last two driven the way the desktop lane drives
-// them around a real receive loop.
+// open-channel deadline, the last driven the way the desktop lane drives it
+// around a real receive loop.
 
 import (
 	"encoding/json"
@@ -15,26 +15,9 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
-// TestDropTimeLimitReached: 24 hours from the start and later is reached, any
-// moment before is not.
-func TestDropTimeLimitReached(t *testing.T) {
-	start := time.Date(2026, 9, 23, 2, 14, 0, 0, time.UTC)
-	rows := []struct {
-		after time.Duration
-		want  bool
-	}{
-		{0, false},
-		{23*time.Hour + 59*time.Minute, false},
-		{24*time.Hour - time.Nanosecond, false},
-		{24 * time.Hour, true},
-		{25 * time.Hour, true},
-		{-time.Hour, false},
-	}
-	for _, r := range rows {
-		if got := DropTimeLimitReached(start, start.Add(r.after)); got != r.want {
-			t.Errorf("DropTimeLimitReached(start, start+%v) = %v, want %v", r.after, got, r.want)
-		}
-	}
+// TestDropTimeLimitIs24Hours: the cap the desktop lane arms for each drop
+// (requestDropCap in desktop/transfer.go) is 24 hours.
+func TestDropTimeLimitIs24Hours(t *testing.T) {
 	if DropTimeLimit != 24*time.Hour {
 		t.Fatalf("DropTimeLimit = %v, want 24h", DropTimeLimit)
 	}

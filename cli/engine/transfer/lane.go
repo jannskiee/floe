@@ -35,14 +35,6 @@ func VolumeNamedStreams(dir string) (bool, error) { return volumeNamedStreams(di
 // that is merely slow runs until this cap or the 60 s stall watchdog.
 const DropTimeLimit = 24 * time.Hour
 
-// DropTimeLimitReached reports whether a drop that started at startedAt has
-// run for DropTimeLimit or longer at now. The lane stops such a drop with
-// AbortWithCode(CodeTimeLimit) and closes the connection. Pure, so a test can
-// hand it any clock.
-func DropTimeLimitReached(startedAt, now time.Time) bool {
-	return now.Sub(startedAt) >= DropTimeLimit
-}
-
 // StartIncomingDeadline arms the open-channel deadline (E-35, spec 06 4.5
 // step 9): onExpire runs on its own goroutine once d has passed, unless cancel
 // ran first. The lane starts it when the data channel opens and cancels it
