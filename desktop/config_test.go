@@ -678,6 +678,42 @@ func TestSetCheckUpdatesPersistsAndKeepsEverythingElse(t *testing.T) {
 	}
 }
 
+// TestSettersKeepTheRecordWhenTheWriteFails: when desktop.json cannot be
+// written (here a file stands where its folder goes), each of the four setters
+// returns the error and leaves the record in memory as it was, so the screen
+// never shows a setting that was not saved.
+func TestSettersKeepTheRecordWhenTheWriteFails(t *testing.T) {
+	home := t.TempDir()
+	for _, k := range []string{"APPDATA", "XDG_CONFIG_HOME", "HOME"} {
+		t.Setenv(k, home)
+	}
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "floe"), []byte("not a folder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cur := appConfig{Server: "https://x.test", ReportStats: true, Migrated: true}
+	a := &App{cfg: cur}
+	for name, set := range map[string]func() error{
+		"SetSettings":     func() error { return a.SetSettings("https://y.test", "", true, false) },
+		"SetCheckUpdates": func() error { return a.SetCheckUpdates(false) },
+		"SetToasts":       func() error { return a.SetToasts(false) },
+		"SetToastSound":   func() error { return a.SetToastSound(false) },
+	} {
+		if err := set(); err == nil {
+			t.Errorf("%s: no error for a desktop.json that could not be written", name)
+		}
+		if got := a.GetSettings(); got != cur {
+			t.Errorf("%s: the record changed to %+v without being saved", name, got)
+		}
+	}
+}
+
 // TestConcurrentSettersKeepEachOthersField: Wails runs every bound call on its
 // own goroutine and the Settings screen fires unawaited saves on quick toggle
 // flips, so two setters can run at once. Neither may write back a record read
