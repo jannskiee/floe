@@ -170,17 +170,6 @@ func TestSetupErrorWrapsEveryStage(t *testing.T) {
 			_, err = conn.SetupAsSender()
 			return err
 		}},
-		{"sender: signaling closed before the answer", StageAnswer, "signaling closed before answer was received", false, func(t *testing.T) error {
-			sc, _ := signalSink(t)
-			conn, err := New(nil, sc)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer conn.Close()
-			close(conn.answers)
-			_, err = conn.SetupAsSender()
-			return err
-		}},
 		{"sender: bad answer", StageRemoteDescription, "failed to set remote description: ", false, func(t *testing.T) error {
 			sc, _ := signalSink(t)
 			conn, err := New(nil, sc)
@@ -232,17 +221,6 @@ func TestSetupErrorWrapsEveryStage(t *testing.T) {
 				t.Fatal("SetupAsSender did not return")
 			}
 			return nil
-		}},
-		{"receiver: signaling closed before the offer", StageOffer, "signaling closed before offer was received", false, func(t *testing.T) error {
-			sc, _ := signalSink(t)
-			conn, err := New(nil, sc)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer conn.Close()
-			close(conn.offers)
-			_, err = conn.SetupAsReceiver()
-			return err
 		}},
 		{"receiver: bad offer", StageRemoteDescription, "failed to set remote description: ", false, func(t *testing.T) error {
 			sc, _ := signalSink(t)

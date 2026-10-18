@@ -329,10 +329,7 @@ func (conn *Connection) SetupAsSender() (*webrtc.DataChannel, error) {
 	// Wait for the receiver's SDP answer (bounded so a vanished peer fails fast).
 	var answer webrtc.SessionDescription
 	select {
-	case a, ok := <-conn.answers:
-		if !ok {
-			return nil, &SetupError{Stage: StageAnswer, Err: fmt.Errorf("signaling closed before answer was received")}
-		}
+	case a := <-conn.answers:
 		answer = a
 	// The peer leaving, the server going away and a local Close end every
 	// setup wait at once, instead of costing the full timeout and reading as
@@ -432,10 +429,7 @@ func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 	// Wait for the sender's SDP offer (bounded so a vanished peer fails fast).
 	var offer webrtc.SessionDescription
 	select {
-	case o, ok := <-conn.offers:
-		if !ok {
-			return nil, &SetupError{Stage: StageOffer, Err: fmt.Errorf("signaling closed before offer was received")}
-		}
+	case o := <-conn.offers:
 		offer = o
 	case <-conn.sc.PeerLeft:
 		if conn.signalingLost() {
@@ -720,10 +714,7 @@ func (conn *Connection) dispatchSignals() {
 		select {
 		case <-conn.done:
 			return
-		case raw, ok := <-conn.sc.Signal:
-			if !ok {
-				return
-			}
+		case raw := <-conn.sc.Signal:
 			rawSignal = raw
 		}
 
@@ -758,10 +749,7 @@ func (conn *Connection) handleCandidates() {
 		select {
 		case <-conn.done:
 			return
-		case c, ok := <-conn.candidates:
-			if !ok {
-				return
-			}
+		case c := <-conn.candidates:
 			conn.addRemoteCandidate(c)
 		}
 	}
