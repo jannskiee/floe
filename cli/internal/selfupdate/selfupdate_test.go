@@ -2,6 +2,9 @@ package selfupdate
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -352,3 +355,35 @@ func TestChecksumMismatchKeepsItsLines(t *testing.T) {
 		t.Errorf("the checksum mismatch has %d newlines, want 2: %q", n, err)
 	}
 }
+
+// TestDownloadTempLeavesNoFileWhenTheBodyFails: a download whose body fails
+// partway removes its temp file. Windows refuses to delete a file this process
+// still has open, and downloadTemp used to try before its deferred Close, so
+// every failed `floe update` download there left a partial floe-update-* file
+// in the temp directory. The transport is in memory: no network.
+func TestDownloadTempLeavesNoFileWhenTheBodyFails(t *testing.T) {
+	prev := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = prev })
+	http.DefaultTransport = roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		body := io.MultiReader(strings.NewReader("the first bytes of a release"), failingReader{})
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(body), Request: r}, nil
+	})
+	pattern := filepath.Join(os.TempDir(), "floe-update-*")
+	before, _ := filepath.Glob(pattern)
+	if _, err := downloadTemp("https://download.invalid/floe.zip"); err == nil {
+		t.Fatal("downloadTemp succeeded on a body that failed partway")
+	}
+	if after, _ := filepath.Glob(pattern); len(after) != len(before) {
+		t.Fatalf("the failed download left a temp file behind: %v", after)
+	}
+}
+
+// roundTripperFunc is an http.RoundTripper made of a function.
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// failingReader is a body that breaks, as a connection that drops mid-download.
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) { return 0, errors.New("connection reset mid-download") }

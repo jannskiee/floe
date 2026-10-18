@@ -53,6 +53,9 @@ func downloadTemp(url string) (string, error) {
 	defer f.Close()
 
 	if _, err := io.Copy(f, resp.Body); err != nil {
+		// Closed first: Windows refuses to delete a file this process still
+		// holds open, and the deferred Close runs only after this return.
+		f.Close()
 		os.Remove(f.Name())
 		return "", err
 	}
