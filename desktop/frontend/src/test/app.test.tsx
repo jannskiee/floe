@@ -894,6 +894,29 @@ describe('Settings > Notifications (S-11)', () => {
     });
 });
 
+// Check for updates is Go-owned like the two notification switches: set at
+// once, its own setter called, and put back if the setter throws.
+describe('Settings > Check for updates', () => {
+    it('calls SetCheckUpdates(false), and a refusal flips the switch back', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getByRole('button', {name: 'Settings'}));
+        const box = () => screen.getByRole('checkbox', {name: /^Check for updates/}) as HTMLInputElement;
+        expect(box().checked).toBe(true);
+        await user.click(box());
+        await waitFor(() => expect(wails.go.SetCheckUpdates).toHaveBeenCalledWith(false));
+        expect(box().checked).toBe(false);
+
+        wails.go.SetCheckUpdates.mockRejectedValueOnce(new Error('disk full'));
+        await user.click(box());
+        await waitFor(() => expect(wails.go.SetCheckUpdates).toHaveBeenCalledWith(true));
+        await waitFor(() => expect(box().checked).toBe(false));
+        // Its own setter only: the whole-record save is not this switch's.
+        expect(wails.go.SetSettings).not.toHaveBeenCalled();
+    });
+});
+
 /**
  * A request link pasted into Receive > CODE (S1-DSK-07, VR3-D06). The link is
  * for a web browser; Floe must say so and must never start a code receive,

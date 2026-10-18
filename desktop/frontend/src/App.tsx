@@ -424,36 +424,19 @@ function App() {
         }
     }
 
-    // Not routed through saveSettings: the field is owned by its own Go setter
-    // so the Settings screen's whole-record save can never clobber it.
-    async function toggleCheckUpdates(v: boolean) {
-        setCheckUpdates(v);
-        try {
-            await SetCheckUpdates(v);
-        } catch {
-            setCheckUpdates(!v); // revert on failure, the toggleCtxMenu pattern
-        }
+    // Check for updates and the two notification switches are not routed
+    // through saveSettings: each field is owned by its own Go setter, so the
+    // whole-record save below can never clobber it. Each is set at once and put
+    // back if its setter throws, the toggleCtxMenu pattern.
+    function optimistic(set: (v: boolean) => void, persist: (v: boolean) => Promise<void>) {
+        return async (v: boolean) => {
+            set(v);
+            try { await persist(v); } catch { set(!v); }
+        };
     }
-
-    // The same pattern for the two notification switches: each has its own Go
-    // setter, so the whole-record save below can never clobber them.
-    async function toggleNotifications(v: boolean) {
-        setNotificationsOn(v);
-        try {
-            await SetToasts(v);
-        } catch {
-            setNotificationsOn(!v);
-        }
-    }
-
-    async function toggleNotificationSound(v: boolean) {
-        setNotificationSound(v);
-        try {
-            await SetToastSound(v);
-        } catch {
-            setNotificationSound(!v);
-        }
-    }
+    const toggleCheckUpdates = optimistic(setCheckUpdates, SetCheckUpdates);
+    const toggleNotifications = optimistic(setNotificationsOn, SetToasts);
+    const toggleNotificationSound = optimistic(setNotificationSound, SetToastSound);
 
     // saveSettings writes the whole record, because Go persists it as one file.
     //
