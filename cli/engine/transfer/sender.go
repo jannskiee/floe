@@ -644,7 +644,6 @@ func stopRequested(stop <-chan struct{}) bool {
 // "v1.5.5") embedded in metadata; pass "" for dev/tests. The zero SendOptions
 // renders a terminal progress bar.
 func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer string, opts SendOptions) error {
-	onProgress := opts.OnProgress
 	// Expand paths: collect all files (walk directories)
 	files, err := collectFiles(paths)
 	if err != nil {
@@ -807,7 +806,7 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 	var confirms bool
 	var sentSoFar int64
 	for i, entry := range files {
-		if err := sendFile(dc, ackCh, sendMore, done, flushed, entry, i+1, len(files), totalBytes, localVer, onProgress, onAck, opts.UpdateHint, ackTimeoutOrDefault(opts.AckTimeout), sentSoFar, chunk, &confirms, opts.Stop, opts.EndBarLine, opts.PeerVersionReleaseOnly); err != nil {
+		if err := sendFile(dc, ackCh, sendMore, done, flushed, entry, i+1, len(files), totalBytes, localVer, onAck, sentSoFar, chunk, &confirms, opts); err != nil {
 			// A refusal the PEER sent is returned as it came. The wrap named
 			// entry.displayName, which is the file the sender had already moved
 			// on to: a receiver refuses file N after its end marker, and the
@@ -981,10 +980,12 @@ drainLoop:
 
 // sendFile handles the full send sequence for a single file. confirms is set
 // from the first file's ack only (parseAckConfirms) and left alone after.
-// stop is SendOptions.Stop: seen before every write and in every wait.
-// endBarLine is SendOptions.EndBarLine, and peerVerReleaseOnly is
-// SendOptions.PeerVersionReleaseOnly.
-func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, done <-chan struct{}, flushed <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onProgress ProgressFunc, onAck func(int), updateHint string, ackTimeout time.Duration, baseTotal int64, chunk int, confirms *bool, stop <-chan struct{}, endBarLine, peerVerReleaseOnly bool) (err error) {
+// onAck is SendFilesWithOptions' wrapper of opts.OnAck, which also restarts
+// the summary clock, so this calls onAck and never opts.OnAck. stop is
+// opts.Stop: seen before every write and in every wait.
+func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, done <-chan struct{}, flushed <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onAck func(int), baseTotal int64, chunk int, confirms *bool, opts SendOptions) (err error) {
+	onProgress, updateHint, stop := opts.OnProgress, opts.UpdateHint, opts.Stop
+	ackTimeout := ackTimeoutOrDefault(opts.AckTimeout)
 	if stopRequested(stop) {
 		return ErrSendStopped
 	}
@@ -1084,7 +1085,7 @@ ackLoop:
 							return &CompatError{LocalTooOld: localTooOld, text: compatErrorMessage(localTooOld, localVer, ack.Ver,
 								MinProtocolVersion, ProtocolVersion, ack.PvMin, ack.Pv, updateHint)}
 						}
-						if ack.Ver != "" && localVer != "" && ack.Ver != localVer && (!peerVerReleaseOnly || releaseShapedVer(ack.Ver)) {
+						if ack.Ver != "" && localVer != "" && ack.Ver != localVer && (!opts.PeerVersionReleaseOnly || releaseShapedVer(ack.Ver)) {
 							fmt.Printf("  Peer version: %s\n", displayText(ack.Ver, maxDisplayVer))
 						}
 						// The receiver's promise of a final word, read by its
@@ -1146,7 +1147,7 @@ ackLoop:
 	// stop has closed, whatever it returns: its caller opens its Ctrl+C line
 	// with one, also when a refusal or a close won the race with the stop.
 	barEnded := false
-	if bar != nil && endBarLine {
+	if bar != nil && opts.EndBarLine {
 		defer func() {
 			if !barEnded && bar.IsStarted() && !stopRequested(stop) {
 				fmt.Println()
