@@ -570,7 +570,7 @@ const cleanupInterval = setInterval(() => cleanupTick(), 60000).unref();
 //
 // Both Socket.IO (browser) and WebSocket (CLI and Floe Desktop) peers share this registry.
 // Each "peer" is a plain object with:
-//   { id, type, key, roomId, send(type, data) }
+//   { id, key, roomId, send(type, data) }
 // where key is the rateKey of the address the connection was admitted under.
 //
 // This means a browser and a CLI can be in the same room and exchange
@@ -1398,7 +1398,6 @@ function sioSendBacklogOver(socket) {
 function createSocketIOPeer(socket, key) {
     return {
         id: socket.id,
-        type: 'socketio',
         key,
         roomId: null,
         send(type, data) {
@@ -1443,7 +1442,6 @@ const WS_SEND_BUFFER_CEILING = 1e6;
 function createWSPeer(ws, key) {
     return {
         id: ws.peerId,
-        type: 'ws',
         key,
         roomId: null,
         send(type, data) {
