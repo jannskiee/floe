@@ -67,8 +67,9 @@ function getClientIp(xffHeader, socketAddr) {
     return hops[idx] || socketAddr || 'unknown';
 }
 
-// A room id must be a UUID. handleJoinRoom and POST /api/code both check it,
-// and client/lib/roomLink.ts mirrors the pattern, so keep the two in step.
+// A room id must be a UUID. Every socket join (rejectBadRoomId below) and POST
+// /api/code check it, and client/lib/roomLink.ts mirrors the pattern, so keep
+// the two in step.
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // The first check of each socket join: anything but a UUID string is answered
