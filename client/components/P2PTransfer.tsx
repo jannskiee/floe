@@ -1579,6 +1579,7 @@ export function P2PTransfer() {
                             </div>
                             <Button
                                 variant="outline"
+                                // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- a full load on purpose: the main page starts over as a document of its own
                                 onClick={() => (window.location.href = '/')}
                                 className="mt-4 border-zinc-700 bg-transparent hover:bg-zinc-800 text-zinc-300"
                             >

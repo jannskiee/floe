@@ -118,6 +118,7 @@ export const Navbar = () => {
                        While a transfer or received files depend on the tab, P2PTransfer
                        holds the browser's leave prompt, and this reload goes through it. */
                     <button
+                        // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- the full reload is the point (see above)
                         onClick={() => { window.location.href = '/'; }}
                         // Without this the button's accessible name is computed from the
                         // status text, so screen readers announced it as "Connected"
