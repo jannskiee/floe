@@ -10,6 +10,7 @@
 // does not start.
 
 import { REQUEST_ACK_TIMEOUT_MS, REQUEST_ACK_GRACE_MS } from '../transfer/protocol';
+import { STUN_DEFAULTS } from '../iceList';
 
 /** Files per drop. Over this the pick is refused and Send stays off. */
 export const MAX_REQUEST_FILES = 10_000;
@@ -106,10 +107,7 @@ export const ROOM_FULL_SEALED_RETRIES = Math.ceil(ROOM_FULL_SEALED_WINDOW_MS / R
 
 /** The STUN servers the page keeps when the TURN answer is missing or
  *  malformed: the same two the main page starts from. */
-export const DEFAULT_STUN_SERVERS: readonly RTCIceServer[] = [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-];
+export const DEFAULT_STUN_SERVERS: readonly RTCIceServer[] = STUN_DEFAULTS;
 
 /** The abort text the visitor sends when the route turns out to be a relay and
  *  the drop is over the cap. Byte for byte the main page's relay block text,

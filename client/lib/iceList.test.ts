@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { ICE_LIST_MAX_AGE_MS, STUN_DEFAULTS, createIceList, iceListStale, freshenWithin } from './iceList';
+import { DEFAULT_STUN_SERVERS } from './request/constants';
 
 const TURN = [{ urls: 'stun:stun.example:3478' }, { urls: 'turn:turn.example:3478', username: 'u', credential: 'c' }];
 
@@ -35,6 +36,12 @@ describe('iceListStale', () => {
 
     it('is stale when the clock went backwards', () => {
         expect(iceListStale(100, 50)).toBe(true);
+    });
+});
+
+describe('STUN_DEFAULTS', () => {
+    it('are the two the /r page keeps when its TURN answer is missing or malformed', () => {
+        expect(DEFAULT_STUN_SERVERS).toEqual(STUN_DEFAULTS);
     });
 });
 
