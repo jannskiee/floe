@@ -166,10 +166,10 @@ func TestQuietPeerConnectionLogKeepsTheHostsChannelLabelOff(t *testing.T) {
 	}
 	ch := make(chan accepted, 1)
 	go func() {
-		a, err := sctp.Server(sctp.Config{NetConn: visitorConn, LoggerFactory: f})
+		a, err := sctp.ServerWithOptions(sctp.Config{NetConn: visitorConn, LoggerFactory: f})
 		ch <- accepted{a, err}
 	}()
-	host, err := sctp.Client(sctp.Config{NetConn: hostConn, LoggerFactory: f})
+	host, err := sctp.ClientWithOptions(sctp.Config{NetConn: hostConn, LoggerFactory: f})
 	if err != nil {
 		t.Fatalf("host association: %v", err)
 	}
