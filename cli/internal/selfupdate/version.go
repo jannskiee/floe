@@ -6,7 +6,6 @@ package selfupdate
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -149,20 +148,4 @@ func writeCache(latest string) {
 	_ = os.MkdirAll(filepath.Dir(p), 0755)
 	data, _ := json.Marshal(cacheEntry{CheckedAt: time.Now(), Latest: latest})
 	_ = os.WriteFile(p, data, 0644)
-}
-
-// --- download & verify ---
-
-func fetchText(url string) (string, error) {
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Get(url)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("HTTP %d fetching %s", resp.StatusCode, url)
-	}
-	b, err := io.ReadAll(resp.Body)
-	return string(b), err
 }
