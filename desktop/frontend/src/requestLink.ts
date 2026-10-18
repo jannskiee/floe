@@ -23,15 +23,6 @@ import {
 const REQUEST_PATH = /(^|\/)r\/[A-Za-z0-9_-]{11}\/?$/;
 const DROP_PATH = /(^|\/)(d|drop)\/[A-Za-z0-9_-]+\/?$/;
 
-/** requestLinkKind says whether a pasted Receive input is a request or drop
- *  link, which Floe Desktop cannot receive from: it is for a web browser. Only
- *  http and https URLs qualify, which is also what makes the parsed href safe
- *  to hand to BrowserOpenURL (a file: or custom-scheme string never gets that
- *  far). */
-export function requestLinkKind(input: string): 'request' | 'drop' | null {
-    return parsePastedLink(input)?.kind ?? null;
-}
-
 /** unwrapPaste is the engine's unwrapPaste (cli/engine/code/client.go): one
  *  pair of angle brackets or quotes around a paste, and the space just inside
  *  it, come off. A mail client hands a link over as <link>, and a link copied
@@ -46,11 +37,16 @@ function unwrapPaste(s: string): string {
     return s;
 }
 
-/** parsePastedLink is requestLinkKind plus the normalized href to open. The
- *  paste is read as the engine's LinkHost reads one (A3-B7): trimmed, out of
- *  one pair of brackets or quotes, and as https when it has a slash or a hash
- *  and no scheme. A start the URL parser already reads (https:/host, //host
- *  after the prefix) needs nothing more, and a link that names http keeps it. */
+/** parsePastedLink says whether a pasted Receive input is a request or drop
+ *  link, which Floe Desktop cannot receive from: it is for a web browser. It
+ *  gives the link's kind and the normalized href to open, or null. Only http
+ *  and https URLs qualify, which is also what makes the parsed href safe to
+ *  hand to BrowserOpenURL (a file: or custom-scheme string never gets that
+ *  far). The paste is read as the engine's LinkHost reads one (A3-B7): trimmed,
+ *  out of one pair of brackets or quotes, and as https when it has a slash or a
+ *  hash and no scheme. A start the URL parser already reads (https:/host,
+ *  //host after the prefix) needs nothing more, and a link that names http
+ *  keeps it. */
 export function parsePastedLink(input: string): {kind: 'request' | 'drop'; href: string} | null {
     let s = unwrapPaste(input.trim());
     if (!s.includes('://') && /[/#]/.test(s) && !/^https?:/i.test(s)) s = 'https://' + s;
