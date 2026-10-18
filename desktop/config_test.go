@@ -403,6 +403,29 @@ func TestResetWritesDefaults(t *testing.T) {
 	}
 }
 
+// TestConfigPathsAreEmptyWithoutAConfigDir: with no OS config folder to name
+// (APPDATA unset on Windows, XDG_CONFIG_HOME and HOME unset elsewhere), each of
+// the four files under floe/ resolves to "", the value every caller checks
+// before it reads or writes one.
+func TestConfigPathsAreEmptyWithoutAConfigDir(t *testing.T) {
+	for _, k := range []string{"APPDATA", "XDG_CONFIG_HOME", "HOME"} {
+		t.Setenv(k, "")
+	}
+	if _, err := os.UserConfigDir(); err == nil {
+		t.Skip("this platform names a config folder with these unset")
+	}
+	for name, p := range map[string]string{
+		"configPath":      configPath(),
+		"webviewDataPath": webviewDataPath(),
+		"quitDropPath":    quitDropPath(),
+		"updateCachePath": updateCachePath(),
+	} {
+		if p != "" {
+			t.Errorf("%s = %q with no config folder, want \"\"", name, p)
+		}
+	}
+}
+
 func TestWebviewDataPathIsStable(t *testing.T) {
 	p := webviewDataPath()
 	if p == "" {
