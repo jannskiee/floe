@@ -18,9 +18,8 @@ const unitIndex = (bytes: number) => {
 };
 
 export const formatBytes = (bytes: number) => {
-    if (!Number.isFinite(bytes) || bytes <= 0) return '0 Bytes';
-    const i = unitIndex(bytes);
-    return parseFloat((bytes / Math.pow(1024, i)).toFixed(2)) + ' ' + BYTE_UNITS[i];
+    const { value, unit } = splitBytes(bytes);
+    return `${value} ${unit}`;
 };
 
 // splitBytes returns the numeric value and unit separately so NumberFlow can
