@@ -494,33 +494,23 @@ function releaseSocket(key) {
     else openSocketsByKey.delete(key);
 }
 
+// One limiter map's sweep: the timestamps past its window go, and an entry
+// with none left goes with them.
+function sweepWindow(map, windowMs, now) {
+    for (const [key, timestamps] of map) {
+        const valid = timestamps.filter(t => now - t < windowMs);
+        if (valid.length === 0) map.delete(key);
+        else map.set(key, valid);
+    }
+}
+
 // Periodic cleanup of old rate limit entries and expired codes
 function cleanupTick(now = Date.now()) {
-    for (const [ip, timestamps] of connectionCounts.entries()) {
-        const valid = timestamps.filter(t => now - t < RATE_LIMIT_WINDOW);
-        if (valid.length === 0) connectionCounts.delete(ip);
-        else connectionCounts.set(ip, valid);
-    }
-    for (const [ip, timestamps] of turnRateLimits.entries()) {
-        const valid = timestamps.filter(t => now - t < TURN_RATE_WINDOW);
-        if (valid.length === 0) turnRateLimits.delete(ip);
-        else turnRateLimits.set(ip, valid);
-    }
-    for (const [ip, timestamps] of statsRateLimits.entries()) {
-        const valid = timestamps.filter(t => now - t < STATS_RATE_WINDOW);
-        if (valid.length === 0) statsRateLimits.delete(ip);
-        else statsRateLimits.set(ip, valid);
-    }
-    for (const [ip, timestamps] of codeRateLimits.entries()) {
-        const valid = timestamps.filter(t => now - t < CODE_RATE_WINDOW);
-        if (valid.length === 0) codeRateLimits.delete(ip);
-        else codeRateLimits.set(ip, valid);
-    }
-    for (const [key, timestamps] of codeFailures.entries()) {
-        const valid = timestamps.filter(t => now - t < CODE_RATE_WINDOW);
-        if (valid.length === 0) codeFailures.delete(key);
-        else codeFailures.set(key, valid);
-    }
+    sweepWindow(connectionCounts, RATE_LIMIT_WINDOW, now);
+    sweepWindow(turnRateLimits, TURN_RATE_WINDOW, now);
+    sweepWindow(statsRateLimits, STATS_RATE_WINDOW, now);
+    sweepWindow(codeRateLimits, CODE_RATE_WINDOW, now);
+    sweepWindow(codeFailures, CODE_RATE_WINDOW, now);
     // dropCode, not codeToRoom.delete: the reverse index has to go in step.
     for (const [code, entry] of codeToRoom.entries()) {
         if (now > entry.expires) dropCode(code, entry.roomId);

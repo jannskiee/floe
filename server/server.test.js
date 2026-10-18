@@ -1891,6 +1891,33 @@ describe('checkRateLimit', () => {
 });
 
 // ---------------------------------------------------------------------------
+// cleanupTick: the five limiter windows
+// ---------------------------------------------------------------------------
+
+describe('cleanupTick limiter windows', () => {
+    it('drops every timestamp past its 60 s window, and an entry once none is left', () => {
+        // turn.js's map is read from turn.js itself, as turn-fallback.test.js does:
+        // server.js keeps it for its own sweep and does not export it.
+        const { turnRateLimits } = require('./turn');
+        const maps = { connectionCounts, turnRateLimits, statsRateLimits, codeRateLimits, codeFailures };
+        const now = 10_000_000;
+        for (const map of Object.values(maps)) {
+            map.clear();
+            map.set('stale', [now - 120_000, now - 60_000]);
+            map.set('mixed', [now - 90_000, now - 1_000]);
+            map.set('fresh', [now - 59_999]);
+        }
+        cleanupTick(now);
+        for (const [name, map] of Object.entries(maps)) {
+            assert.equal(map.has('stale'), false, `${name} kept an entry with nothing inside the window`);
+            assert.deepEqual(map.get('mixed'), [now - 1_000], `${name} kept a timestamp past the window`);
+            assert.deepEqual(map.get('fresh'), [now - 59_999], `${name} dropped a timestamp inside the window`);
+            map.clear();
+        }
+    });
+});
+
+// ---------------------------------------------------------------------------
 // Generic per-IP rate limiter middleware — makeRateLimiter
 // ---------------------------------------------------------------------------
 
