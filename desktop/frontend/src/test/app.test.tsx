@@ -2176,10 +2176,7 @@ describe('the File Explorer entry at launch', () => {
         await user.click(screen.getByRole('button', {name: 'Settings'}));
         return (await screen.findByRole('checkbox', {name: /^Show in right-click menu/}) as HTMLInputElement).checked;
     };
-    // ContextMenuEnabled answers false in every case, as the Go method does
-    // for an entry that is missing or another copy's.
     const launch = async (state: string, marker: string | null, installed: boolean) => {
-        wails.go.ContextMenuEnabled.mockImplementation(async () => false);
         wails.go.ContextMenuState.mockImplementation(async () => state);
         wails.go.IsInstalled.mockImplementation(async () => installed);
         if (marker !== null) localStorage.setItem('floe:ctx-menu', marker);
