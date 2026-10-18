@@ -97,6 +97,18 @@ export interface LinkClick {
     download: boolean;
 }
 
+/** Both URLs of a plain left click on a link that opens in this tab, or null
+ *  for any other click, or when either URL does not parse. */
+function plainClickUrls(click: LinkClick, here: string): { to: URL; from: URL } | null {
+    if (click.defaultPrevented || click.button !== 0 || click.modified || click.download) return null;
+    if (click.target !== '' && click.target.toLowerCase() !== '_self') return null;
+    try {
+        return { to: new URL(click.href, here), from: new URL(here) };
+    } catch {
+        return null;
+    }
+}
+
 /**
  * The address to load in full for a click on a link while the leave prompt is
  * held, or null to leave the click to the browser and to Next.js. Only a plain
@@ -106,16 +118,9 @@ export interface LinkClick {
  * ends this page, or unloads it the browser's own way.
  */
 export function fullLoadTarget(click: LinkClick, here: string): string | null {
-    if (click.defaultPrevented || click.button !== 0 || click.modified || click.download) return null;
-    if (click.target !== '' && click.target.toLowerCase() !== '_self') return null;
-    let to: URL;
-    let from: URL;
-    try {
-        to = new URL(click.href, here);
-        from = new URL(here);
-    } catch {
-        return null;
-    }
+    const urls = plainClickUrls(click, here);
+    if (!urls) return null;
+    const { to, from } = urls;
     if (to.protocol !== 'http:' && to.protocol !== 'https:') return null;
     if (to.origin !== from.origin) return null;
     if (to.pathname === from.pathname && to.search === from.search) return null;
@@ -130,16 +135,9 @@ export function fullLoadTarget(click: LinkClick, here: string): string | null {
  * before Create. The main page keeps the old behavior for these.
  */
 export function samePageTop(click: LinkClick, here: string): boolean {
-    if (click.defaultPrevented || click.button !== 0 || click.modified || click.download) return false;
-    if (click.target !== '' && click.target.toLowerCase() !== '_self') return false;
-    let to: URL;
-    let from: URL;
-    try {
-        to = new URL(click.href, here);
-        from = new URL(here);
-    } catch {
-        return false;
-    }
+    const urls = plainClickUrls(click, here);
+    if (!urls) return false;
+    const { to, from } = urls;
     if (to.origin !== from.origin) return false;
     return to.pathname === from.pathname && to.search === from.search && to.hash === '';
 }
