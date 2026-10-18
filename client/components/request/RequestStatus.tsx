@@ -1,4 +1,3 @@
-import React from 'react';
 import { Button } from '@/components/ui/button';
 import { visitorCopy, type StatusCopy } from '@/lib/request/visitorCopy';
 import { ArrivedList, type PathRow } from '@/components/request/ArrivedList';

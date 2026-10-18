@@ -1,4 +1,3 @@
-import React from 'react';
 import type { Metadata } from 'next';
 import { ArrowUpRight } from 'lucide-react';
 import { Navbar } from '@/components/layout/Navbar';

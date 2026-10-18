@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import { memo } from 'react';
 import { formatBytes } from '@/lib/utils';
 import { displayPath, visitorCopy } from '@/lib/request/visitorCopy';
 import { PATH_TEXT_MAX, isRtl, splitTail } from '@/lib/request/pathTail';

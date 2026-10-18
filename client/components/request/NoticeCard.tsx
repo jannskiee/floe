@@ -1,4 +1,3 @@
-import React from 'react';
 import { Marker } from '@/components/request/RequestStatus';
 
 /** V1 and V2. Both are terminal, both were decided locally, and neither offers a

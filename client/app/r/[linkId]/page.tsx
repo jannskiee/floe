@@ -1,4 +1,3 @@
-import React from 'react';
 import type { Metadata } from 'next';
 import { InAppBrowserGuard } from '@/components/InAppBrowserGuard';
 import { RequestShell } from '@/components/request/RequestShell';

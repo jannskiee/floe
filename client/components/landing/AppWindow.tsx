@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import Image from 'next/image';
 import { RotateCcw } from 'lucide-react';
 import { DESKTOP_VERSION } from '@/lib/desktopRelease';

@@ -1,4 +1,3 @@
-import React from 'react';
 import { countLine, visitorCopy } from '@/lib/request/visitorCopy';
 import { PathRows, type PathRow } from '@/components/request/ArrivedList';
 

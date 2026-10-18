@@ -1,4 +1,4 @@
-import React, { ReactNode } from 'react';
+import { ReactNode } from 'react';
 
 /**
  * Shared rhythm for every landing section below the hero:

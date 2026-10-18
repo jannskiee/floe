@@ -1,4 +1,3 @@
-import React from 'react';
 import { Navbar } from '@/components/layout/Navbar';
 import { HowItWorksSection } from '@/components/landing/HowItWorksSection';
 import { PrivacySection } from '@/components/landing/PrivacySection';

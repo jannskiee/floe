@@ -1,4 +1,3 @@
-import React from 'react';
 import { visitorCopy } from '@/lib/request/visitorCopy';
 
 /** C-55: Direct or Relay, from the connection-type poll. The green and amber

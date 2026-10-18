@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { RotateCcw } from 'lucide-react';
 
 // Mirrors the real `floe send` output format: the status lines come from

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { pickActiveSection } from '@/lib/legalToc';
 import { EYEBROW, FOCUS_RING } from './styles';

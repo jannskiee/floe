@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { visitorCopy } from '@/lib/request/visitorCopy';
 import { ArrivedList, PathText, type PathRow } from '@/components/request/ArrivedList';

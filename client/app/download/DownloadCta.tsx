@@ -1,4 +1,3 @@
-import React from 'react';
 import Image from 'next/image';
 import { DESKTOP_STORE_URL } from '@/lib/desktopRelease';
 

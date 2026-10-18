@@ -1,4 +1,3 @@
-import React from 'react';
 import { ArrowUpRight } from 'lucide-react';
 import { SectionHeader, sectionClass } from './SectionHeader';
 import { CliTerminal } from './CliTerminal';

@@ -1,4 +1,3 @@
-import React from 'react';
 import { SectionHeader, sectionClass } from './SectionHeader';
 import { AppWindow } from './AppWindow';
 import { DESKTOP_VERSION } from '@/lib/desktopRelease';

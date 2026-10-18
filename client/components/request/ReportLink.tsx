@@ -1,4 +1,3 @@
-import React from 'react';
 import { visitorCopy } from '@/lib/request/visitorCopy';
 
 /** C-12: the right side of the Ready footer (W1), and only there (D-091

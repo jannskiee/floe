@@ -1,4 +1,3 @@
-import React from 'react';
 import { visitorCopy } from '@/lib/request/visitorCopy';
 import { REQUEST_LINK_DOCS_PATH } from '@/lib/request/constants';
 

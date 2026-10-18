@@ -1,4 +1,3 @@
-import React from 'react';
 import { ROUTE_NARROW, ROUTE_WIDE, routeGeometry, type RouteGeometry } from '@/lib/routeFigure';
 import { RELAY_CAP } from '@/lib/howItWorksStrings';
 

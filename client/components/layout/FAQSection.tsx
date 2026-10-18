@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, ReactNode } from 'react';
+import { useState, ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { SectionHeader, sectionClass } from '@/components/landing/SectionHeader';
 

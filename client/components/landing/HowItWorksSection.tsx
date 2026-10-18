@@ -1,4 +1,4 @@
-import React, { ReactNode } from 'react';
+import { ReactNode } from 'react';
 import { ArrowRight } from 'lucide-react';
 import { SectionHeader, sectionClass } from './SectionHeader';
 

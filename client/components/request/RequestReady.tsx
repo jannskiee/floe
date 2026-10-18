@@ -1,4 +1,4 @@
-import React, { type ChangeEvent, type DragEvent, type ReactNode } from 'react';
+import { type ChangeEvent, type DragEvent, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { sendLabel, visitorCopy } from '@/lib/request/visitorCopy';
 import type { SendBlock } from '@/lib/request/visitorState';

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { AnimatedByteCount } from '@/components/AnimatedByteCount';
 import { splitBytes } from '@/lib/utils';
 import { resolveSocketUrl } from '@/lib/socketUrl';

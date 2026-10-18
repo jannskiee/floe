@@ -1,4 +1,3 @@
-import React from 'react';
 import { visitorCopy } from '@/lib/request/visitorCopy';
 
 /** C-08: a real checkbox with a visible label. Session only, off by default,
