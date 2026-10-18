@@ -661,7 +661,19 @@ async function sendSingleFile(
     }
     try {
         send(endMessage(sha256));
-    } catch { }
+    } catch {
+        // A channel that left 'open' after the last chunk throws here (the
+        // receiver closed its side during the digest wait). Swallowed, it
+        // counted the file as sent and the page said "All Files Sent!" for an
+        // end the receiver never got; the Go sender returns the error. A
+        // destroyed peer is this page's own teardown, and a refusal already
+        // reported is the account that stands.
+        if (destroyed()) return true;
+        if (session.reportStop()) return false;
+        cb.onError?.('Connection lost. The other device may have closed the tab.');
+        cb.onFailed?.({ kind: 'closed', index });
+        return false;
+    }
 
     return true;
 }

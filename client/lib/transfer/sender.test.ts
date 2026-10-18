@@ -414,7 +414,7 @@ describe('sender: session control listener', () => {
     // react to later frames. `deliver` pushes a receiver-to-sender frame the
     // way a Go receiver sends it (binary).
     function sessionDeps(opts: {
-        onEnd?: (deliver: (frame: string) => void) => void;
+        onEnd?: (deliver: (frame: string) => void, deliverNow: (frame: string) => void) => void;
         onChunk?: (n: number, deliver: (frame: string) => void) => void;
         ack?: boolean;
     } = {}) {
@@ -423,6 +423,9 @@ describe('sender: session control listener', () => {
         const closeHandlers: Array<() => void> = [];
         const sent = { strings: [] as string[], chunks: 0 };
         const deliver = (frame: string) => queueMicrotask(() => handler?.(enc.encode(frame)));
+        // The same frame handed to the session at once, inside the send that
+        // is running, for a test that needs nothing to run between the two.
+        const deliverNow = (frame: string) => handler?.(enc.encode(frame));
         const channel = {
             bufferedAmount: 0,
             bufferedAmountLowThreshold: 0,
@@ -442,7 +445,7 @@ describe('sender: session control listener', () => {
                 sent.strings.push(d);
                 const parsed = JSON.parse(d) as { type: string; id?: string };
                 if (parsed.type === 'metadata' && parsed.id && opts.ack !== false) deliver(ackMessage(parsed.id, 0));
-                if (parsed.type === 'end') opts.onEnd?.(deliver);
+                if (parsed.type === 'end') opts.onEnd?.(deliver, deliverNow);
             },
             onData: (h) => {
                 handler = h;
@@ -641,6 +644,101 @@ describe('sender: session control listener', () => {
         await settleTick();
         expect(stops).toEqual([{ code: 'hash-mismatch', saved: 0, rangeOverlaps: true }]);
         expect(errors).toEqual(['receiver stopped']);
+    });
+
+    // A channel that left 'open' after the last chunk (the receiver closed its
+    // side while the digest was worked out) throws on the end frame. The throw
+    // used to be swallowed and the file counted as sent, so the page said "All
+    // Files Sent!" for a file whose end never reached the receiver. The Go
+    // sender returns that error (cli/engine/transfer/sender.go).
+    const endFails = () => {
+        throw new DOMException("RTCDataChannel.readyState is not 'open'", 'InvalidStateError');
+    };
+
+    it('an end frame that cannot be sent is a closed channel, never a delivered send', async () => {
+        const errors: string[] = [];
+        const failures: Array<{ kind: string; index: number }> = [];
+        let allSent = false;
+        const s = sessionDeps({ onEnd: endFails });
+        await sendFiles(s.deps, [{ id: 'a', file: makeFile(16, 'a.bin') }], {
+            onError: (m) => errors.push(m),
+            onFailed: (f) => failures.push(f),
+            onAllSent: () => { allSent = true; },
+        });
+        expect(allSent).toBe(false);
+        expect(failures).toEqual([{ kind: 'closed', index: 1 }]);
+        expect(errors).toEqual(['Connection lost. The other device may have closed the tab.']);
+    });
+
+    it('under requireReceived a failed end frame ends the send without waiting for the close', async () => {
+        const errors: string[] = [];
+        const failures: Array<{ kind: string; index: number }> = [];
+        let allSent = false;
+        const s = sessionDeps({ onEnd: endFails });
+        const send = sendFiles(s.deps, [{ id: 'a', file: makeFile(16, 'a.bin') }], {
+            isDestroyed: () => false,
+            onError: (m) => errors.push(m),
+            onFailed: (f) => failures.push(f),
+            onAllSent: () => { allSent = true; },
+        }, { requireReceived: true });
+        const early = await Promise.race([
+            send.then(() => 'settled'),
+            new Promise((r) => setTimeout(() => r('pending'), 500)),
+        ]);
+        // The close the channel ends on comes later, and must not report the
+        // same failure a second time.
+        s.close();
+        await send;
+        expect(early).toBe('settled');
+        expect(allSent).toBe(false);
+        expect(failures).toEqual([{ kind: 'closed', index: 1 }]);
+        expect(errors).toEqual(['Connection lost. The other device may have closed the tab.']);
+    });
+
+    it('a refusal reported before the end frame failed is the account that stands', async () => {
+        // The refusal reaches the session inside the failing send, so it is
+        // reported at receipt and the throw comes after it. A browser runs
+        // each frame as its own task and a checkpoint follows every await, so
+        // this pins the order of the checks rather than a race a page can
+        // hit: a refusal first, as at every other exit and in the Go sender.
+        const errors: string[] = [];
+        const seen: string[] = [];
+        const s = sessionDeps({
+            onEnd: (_deliver, deliverNow) => {
+                deliverNow(refusal({ code: 'disk-full', saved: 0 }));
+                endFails();
+            },
+        });
+        await sendFiles(s.deps, [{ id: 'a', file: makeFile(16, 'a.bin') }], {
+            onError: (m) => errors.push(m),
+            onStopped: ({ code }) => seen.push(`stopped:${code}`),
+            onFailed: ({ kind }) => seen.push(`failed:${kind}`),
+            onAllSent: () => seen.push('allSent'),
+        });
+        expect(seen).toEqual(['stopped:disk-full']);
+        expect(errors).toEqual(['receiver stopped']);
+    });
+
+    it('a peer destroyed during the file reports nothing when its end frame fails', async () => {
+        // Cancel, or simple-peer tearing itself down: the chunk loop stops,
+        // the end frame still goes out, and simple-peer throws on it
+        // (ERR_DESTROYED). That is this page's own teardown, not a failure.
+        const seen: string[] = [];
+        let gone = false;
+        const s = sessionDeps({
+            onChunk: () => { gone = true; },
+            onEnd: () => {
+                throw new Error('cannot send after peer is destroyed');
+            },
+        });
+        await sendFiles(s.deps, [{ id: 'a', file: makeFile(16, 'a.bin') }], {
+            isDestroyed: () => gone,
+            onError: (m) => seen.push(`error:${m}`),
+            onFailed: ({ kind }) => seen.push(`failed:${kind}`),
+            onAllSent: () => seen.push('allSent'),
+        });
+        expect(s.sent.strings.some((f) => JSON.parse(f).type === 'end')).toBe(true);
+        expect(seen).toEqual([]);
     });
 });
 
