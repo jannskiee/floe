@@ -63,22 +63,11 @@ func quitDropPath() string {
 // saveQuitDrop writes q to path through a temporary file and a rename, so a
 // process ended mid-write leaves the last whole record or none.
 func saveQuitDrop(path string, q quitDrop) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
 	body, err := json.Marshal(q)
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, body, 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
+	return writeFileAtomic(path, body)
 }
 
 // takeQuitDrop reads the record at path and removes the file, so the drop

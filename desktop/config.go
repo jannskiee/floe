@@ -191,15 +191,23 @@ func saveConfigTo(path string, c appConfig) error {
 	if path == "" {
 		return errors.New("cannot locate the user configuration directory")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
 	body, err := json.MarshalIndent(normalizeConfig(c), "", "  ")
 	if err != nil {
 		return err
 	}
 	body = append(body, '\n')
+	return writeFileAtomic(path, body)
+}
 
+// writeFileAtomic writes body to path through path.tmp and a rename, so a crash
+// or a second writer mid-write leaves the previous file or none, never a
+// truncated one: the folder is made first, and the temporary file is removed
+// when the rename fails. desktop.json, the quit record and the update cache
+// all go through it.
+func writeFileAtomic(path string, body []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, body, 0o600); err != nil {
 		return err
