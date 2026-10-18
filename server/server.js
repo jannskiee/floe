@@ -347,7 +347,7 @@ function registerCodeHandler(req, res) {
     }
     // A request room is seated by its host token and request-join, never by a
     // code, so no phrase may ever alias one. Same answer as a malformed id.
-    const reserved = typeof roomId === 'string' ? roomMeta.get(roomId.toLowerCase()) : undefined;
+    const reserved = roomMeta.get(roomId.toLowerCase());
     if (reserved && reserved.kind === 'request') {
         return res.status(400).json({ error: 'Invalid room ID' });
     }
@@ -1461,7 +1461,7 @@ function createWSPeer(ws, key) {
 }
 
 function handleJoinRoom(peer, roomId) {
-    if (!roomId || typeof roomId !== 'string' || !UUID_REGEX.test(roomId)) {
+    if (typeof roomId !== 'string' || !UUID_REGEX.test(roomId)) {
         peer.send('error', { message: 'Invalid room ID' });
         return;
     }
