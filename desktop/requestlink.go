@@ -34,7 +34,6 @@ import (
 
 	"github.com/jannskiee/floe/cli/engine/ice"
 	"github.com/jannskiee/floe/cli/engine/signaling"
-	"github.com/jannskiee/floe/cli/engine/transfer"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -609,43 +608,6 @@ func displayLabel(label string) string {
 		s = string([]rune(s)[:requestLabelMax])
 	}
 	return strings.TrimSpace(s)
-}
-
-// sanitizeRequestLabel turns the owner's label into one Windows-valid path
-// component for the drop's subfolder (spec 06 4.7): the engine's
-// single-component sanitizer (separators, controls, bidi marks, and on Windows
-// the reserved characters, trailing dots and spaces, device names), then the
-// rules that must hold on every OS: trailing dots and spaces trimmed, capped at
-// requestLabelMax runes, a bare device name suffixed with "_", and "Request"
-// when nothing is left.
-func sanitizeRequestLabel(label string) string {
-	s := transfer.SafeFolderName(strings.TrimSpace(label))
-	s = strings.TrimRight(s, " .")
-	if utf8.RuneCountInString(s) > requestLabelMax {
-		s = string([]rune(s)[:requestLabelMax])
-		s = strings.TrimRight(s, " .")
-	}
-	if isDeviceName(s) {
-		s += "_"
-	}
-	if s == "" || s == "." || s == ".." {
-		return "Request"
-	}
-	return s
-}
-
-// isDeviceName reports whether s is a Win32 device name, case-insensitively
-// and as the whole name.
-func isDeviceName(s string) bool {
-	u := strings.ToUpper(s)
-	switch u {
-	case "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$":
-		return true
-	}
-	if len(u) == 4 && (strings.HasPrefix(u, "COM") || strings.HasPrefix(u, "LPT")) && u[3] >= '1' && u[3] <= '9' {
-		return true
-	}
-	return false
 }
 
 // requestLinkFor builds the link: web + "/r/" + linkID + "#" + roomID. The room

@@ -1340,42 +1340,6 @@ func TestLinkShapeAndDerivedRoomID(t *testing.T) {
 	}
 }
 
-func TestSanitizeRequestLabel(t *testing.T) {
-	long := strings.Repeat("a", 200)
-	cases := []string{
-		`a<b>c:d"e/f\g|h?i*j`, "tab\there", "bell\x07x", "photo\u202egnp", "a\u2066b",
-		"CON", "com1", "LPT9", "nul", "name...  ", "  ", "", ".", "..", long, "Acme footage",
-	}
-	for _, in := range cases {
-		got := sanitizeRequestLabel(in)
-		if got == "" {
-			t.Errorf("%q: empty folder name", in)
-		}
-		if strings.ContainsAny(got, "<>:\"/\\|?*") {
-			t.Errorf("%q -> %q keeps a reserved character", in, got)
-		}
-		for _, r := range got {
-			if r < 0x20 || r == 0x7f || (r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069) {
-				t.Errorf("%q -> %q keeps a control or bidi character", in, got)
-			}
-		}
-		if strings.HasSuffix(got, ".") || strings.HasSuffix(got, " ") {
-			t.Errorf("%q -> %q ends in a dot or space", in, got)
-		}
-		if isDeviceName(got) {
-			t.Errorf("%q -> %q is a device name", in, got)
-		}
-		if n := len([]rune(got)); n > requestLabelMax {
-			t.Errorf("%q -> %d runes, want at most %d", in, n, requestLabelMax)
-		}
-	}
-	for in, want := range map[string]string{"": "Request", "  ": "Request", "..": "Request", "Acme footage": "Acme footage", long: strings.Repeat("a", 64)} {
-		if got := sanitizeRequestLabel(in); got != want {
-			t.Errorf("sanitizeRequestLabel(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func TestGetRequestLinkDoesNotWaitOnAppMutex(t *testing.T) {
 	a := &App{}
 	a.mu.Lock()
