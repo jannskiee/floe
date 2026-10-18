@@ -375,7 +375,7 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 		return r.fail(cmd, lineCouldNotConnect)
 	}
 
-	files, err := transfer.PrecheckDrop(args, version)
+	files, totalBytes, err := transfer.PrecheckDrop(args, version)
 	switch {
 	case errors.Is(err, transfer.ErrTooManyFiles):
 		return r.fail(cmd, lineTooManyFiles)
@@ -385,11 +385,7 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 		return r.keep(cmd, err)
 	}
 	r.files.Store(int64(files))
-	summary, err := transfer.Summarize(args)
-	if err != nil {
-		return r.keep(cmd, err)
-	}
-	r.say("  Sending   " + sendToLabel(args, files, summary.TotalBytes))
+	r.say("  Sending   " + sendToLabel(args, files, totalBytes))
 
 	iceServers, degraded, err := fetchICE(flagServer)
 	if err != nil {
@@ -466,7 +462,7 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 	// TL-11: a relayed drop over the cap ends here, before WAIT, on today's
 	// sentence, and the host is told why exactly as the send's own gate tells
 	// it (a text abort with the gate's words, then the flush).
-	if err := relayGateFor(dc, summary.TotalBytes); err != nil {
+	if err := relayGateFor(dc, totalBytes); err != nil {
 		transfer.AbortSend(dc, version, err.Error())
 		return r.keep(cmd, err)
 	}
@@ -501,7 +497,7 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 	if acceptedAt.IsZero() {
 		acceptedAt = time.Now()
 	}
-	lines := []string{arrivedLine(delivered.Files, summary.TotalBytes, time.Since(acceptedAt), routeOf(conn))}
+	lines := []string{arrivedLine(delivered.Files, totalBytes, time.Since(acceptedAt), routeOf(conn))}
 	// The host's report, not a proof made here, and only when it says every
 	// file matched (verified is the received frame's count, which the engine
 	// accepts only from 0 to the file count).

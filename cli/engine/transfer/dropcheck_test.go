@@ -135,19 +135,20 @@ func TestPrecheckDropWalksLikeTheSend(t *testing.T) {
 	if err := os.WriteFile(single, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if n, err := PrecheckDrop([]string{shoot, single}, "1.10.11"); err != nil || n != 4 {
-		t.Fatalf("PrecheckDrop = (%d, %v), want (4, nil)", n, err)
+	// The four files hold their own names: 5, 5 and 11 bytes, and "x".
+	if n, total, err := PrecheckDrop([]string{shoot, single}, "1.10.11"); err != nil || n != 4 || total != 22 {
+		t.Fatalf("PrecheckDrop = (%d, %d, %v), want (4, 22, nil)", n, total, err)
 	}
 
 	var pathErr *fs.PathError
-	if _, err := PrecheckDrop([]string{filepath.Join(dir, "missing.mov")}, "1.10.11"); !errors.As(err, &pathErr) {
+	if _, _, err := PrecheckDrop([]string{filepath.Join(dir, "missing.mov")}, "1.10.11"); !errors.As(err, &pathErr) {
 		t.Fatalf("a missing path gave %v, want the walk's *fs.PathError", err)
 	}
 	empty := filepath.Join(dir, "empty")
 	if err := os.Mkdir(empty, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := PrecheckDrop([]string{empty}, "1.10.11"); !errors.Is(err, ErrNoFiles) || err.Error() != "no files to send" {
+	if _, _, err := PrecheckDrop([]string{empty}, "1.10.11"); !errors.Is(err, ErrNoFiles) || err.Error() != "no files to send" {
 		t.Fatalf("an empty folder gave %v, want the send's own \"no files to send\"", err)
 	}
 }
@@ -159,7 +160,7 @@ func TestPrecheckDropWalksLikeTheSend(t *testing.T) {
 // before it touches the channel, so none is needed here.
 func TestTheThreeWalksNameAnEmptyTreeAlike(t *testing.T) {
 	empty := t.TempDir()
-	_, pre := PrecheckDrop([]string{empty}, "1.10.11")
+	_, _, pre := PrecheckDrop([]string{empty}, "1.10.11")
 	_, sum := Summarize([]string{empty})
 	send := SendFilesWithOptions(nil, []string{empty}, "1.10.11", SendOptions{})
 	for name, err := range map[string]error{"PrecheckDrop": pre, "Summarize": sum, "SendFilesWithOptions": send} {
