@@ -24,9 +24,6 @@ func TestSummarizeSingleFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Summarize error: %v", err)
 	}
-	if s.Files != 1 {
-		t.Errorf("Files = %d, want 1", s.Files)
-	}
 	if s.TotalBytes != 1024*512 {
 		t.Errorf("TotalBytes = %d, want %d", s.TotalBytes, 1024*512)
 	}
@@ -51,9 +48,6 @@ func TestSummarizeMultiFile(t *testing.T) {
 	s, err := Summarize([]string{filepath.Join(dir, "a.txt"), filepath.Join(dir, "b.txt")})
 	if err != nil {
 		t.Fatalf("Summarize error: %v", err)
-	}
-	if s.Files != 2 {
-		t.Errorf("Files = %d, want 2", s.Files)
 	}
 	if !strings.Contains(s.Label, "2 files") {
 		t.Errorf("Label %q does not contain '2 files'", s.Label)

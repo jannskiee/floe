@@ -203,7 +203,6 @@ func printSummary(rows [][2]string) {
 
 // Summary holds pre-computed file-list metadata for display before a send.
 type Summary struct {
-	Files      int
 	TotalBytes int64
 	Label      string // e.g. "report.pdf · 2.1 MB" or "5 files · 127.3 MB"
 }
@@ -229,7 +228,7 @@ func Summarize(paths []string) (Summary, error) {
 	} else {
 		label = pluralize(len(files), "file") + " · " + formatBytes(total)
 	}
-	return Summary{Files: len(files), TotalBytes: total, Label: label}, nil
+	return Summary{TotalBytes: total, Label: label}, nil
 }
 
 func isFinitePositive(f float64) bool {
