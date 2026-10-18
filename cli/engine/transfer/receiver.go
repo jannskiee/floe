@@ -203,22 +203,16 @@ type ReceiveOptions struct {
 	Closed   <-chan struct{}
 }
 
-// ReceiveFiles handles the full receiving side of the Floe protocol.
-// It blocks until all files are received. Files are written to outputDir.
-// If autoAccept is false, the user is prompted before receiving begins.
-// localVer is the human release string (e.g. "v1.5.5") embedded in the ack
-// for the optional peer-version note; pass "" for dev builds or tests.
+// ReceiveFilesWithOptions handles the full receiving side of the Floe
+// protocol. It blocks until all files are received. Files are written to
+// outputDir. If autoAccept is false, the user is prompted before receiving
+// begins. localVer is the human release string (e.g. "v1.5.5") embedded in
+// the ack for the optional peer-version note; pass "" for dev builds or tests.
 // serverURL is the signaling server base URL used to report transfer stats;
-// pass "" to skip reporting (e.g. in tests).
-func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, localVer string, serverURL string) error {
-	return ReceiveFilesWithOptions(dc, outputDir, autoAccept, localVer, serverURL, ReceiveOptions{})
-}
-
-// ReceiveFilesWithOptions is the full-featured receive entry point; ReceiveFiles
-// delegates here. opts.OnIncoming, when set, fires exactly once as the
-// first metadata arrives, after the protocol compatibility check and before
-// any file is created or acked, and opts.Decide is asked at that same point
-// whether the transfer happens at all.
+// pass "" to skip reporting (e.g. in tests). opts.OnIncoming, when set, fires
+// exactly once as the first metadata arrives, after the protocol compatibility
+// check and before any file is created or acked, and opts.Decide is asked at
+// that same point whether the transfer happens at all.
 func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccept bool, localVer string, serverURL string, opts ReceiveOptions) error {
 	onProgress := opts.OnProgress
 	// Where this receive claims, reports and saves: outputDir until a Decide

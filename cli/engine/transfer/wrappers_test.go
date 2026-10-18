@@ -16,6 +16,12 @@ func SendFiles(dc *webrtc.DataChannel, paths []string, localVer string) error {
 	return SendFilesWithOptions(dc, paths, localVer, SendOptions{})
 }
 
+// ReceiveFiles is ReceiveFilesWithOptions with the zero ReceiveOptions, which
+// renders a terminal progress bar.
+func ReceiveFiles(dc *webrtc.DataChannel, outputDir string, autoAccept bool, localVer string, serverURL string) error {
+	return ReceiveFilesWithOptions(dc, outputDir, autoAccept, localVer, serverURL, ReceiveOptions{})
+}
+
 // ReceiveFilesWithProgress is ReceiveFilesWithOptions with a progress callback
 // only. When onProgress is non-nil, per-chunk progress is reported through it
 // and the terminal progress bar is suppressed.

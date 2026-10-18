@@ -32,9 +32,9 @@ const controlFlushTimeout = 2 * time.Second
 // toReceiver picks the framing, and that is not a style choice. Receiver to
 // sender carries no file data, so binary is safe and is what every shipped
 // receiver already sends. Sender to receiver MUST be text: on that path a
-// binary frame is file data by definition (see the ReceiveFiles message loop),
-// and shipped Go receivers from v1.1.0 to v1.5.5 would write a binary one
-// straight into somebody's file.
+// binary frame is file data by definition (see the ReceiveFilesWithOptions
+// message loop), and shipped Go receivers from v1.1.0 to v1.5.5 would write a
+// binary one straight into somebody's file.
 //
 // Best effort. A failed send changes nothing, because the caller's deferred
 // Close reaches the peer either way.
@@ -100,8 +100,8 @@ const controlMsgMax = 1000
 // classifyControl reports whether a frame's BYTES are a Floe control message
 // and, if so, its type. It answers a question about content only; whether a
 // frame is eligible to be control at all is the caller's to answer, and on the
-// receive path the answer is framing: see the ReceiveFiles message loop, which
-// calls this for string frames only.
+// receive path the answer is framing: see the ReceiveFilesWithOptions message
+// loop, which calls this for string frames only.
 //
 // Control messages are JSON objects and are capped at controlMsgMax. The cap
 // applies here regardless of framing, because without it a peer could hand

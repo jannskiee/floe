@@ -126,10 +126,10 @@ func runSendOneFile(t *testing.T, mode hashMode, data []byte) (error, string, st
 	dir := t.TempDir()
 	recvErr := make(chan error, 1)
 	go func() {
-		recvErr <- transfer.ReceiveFiles(rdc, dir, true, "test-ver", "")
+		recvErr <- transfer.ReceiveFilesWithOptions(rdc, dir, true, "test-ver", "", transfer.ReceiveOptions{})
 	}()
-	// The receiver registers its handler inside ReceiveFiles; the harness must
-	// not send its metadata before that.
+	// The receiver registers its handler inside ReceiveFilesWithOptions; the
+	// harness must not send its metadata before that.
 	time.Sleep(300 * time.Millisecond)
 
 	src := filepath.Join(t.TempDir(), "payload.bin")
