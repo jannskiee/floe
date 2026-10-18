@@ -1,7 +1,5 @@
 'use client';
 
-import 'buffer';
-
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // simple-peer's browser build reads Node's `global` and `process`; the same
 // shim the main page's transfer component installs.

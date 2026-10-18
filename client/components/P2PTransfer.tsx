@@ -1,7 +1,5 @@
 'use client';
 
-import 'buffer';
-
 /* eslint-disable @typescript-eslint/no-explicit-any */
 if (typeof window !== 'undefined') {
     if (!(window as any).global) (window as any).global = window;
