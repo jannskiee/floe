@@ -617,10 +617,10 @@ function App() {
     // wrong anywhere else. It was briefly used as a general fallback, which was a
     // no-op on every screen but Settings.
     //
-    // Looked up by id rather than by ref because Button is a plain React 18
-    // function component shared with the transfer screen: accepting a ref would
-    // mean wrapping it in forwardRef, and this is not worth widening that surface.
-    // The rAF waits for the dialog to unmount before moving focus.
+    // Looked up by id rather than by ref because Button is a plain function
+    // component shared with the transfer screen, whose props take no ref, and
+    // this is not worth widening that surface. The rAF waits for the dialog to
+    // unmount before moving focus.
     function focusResetTrigger() {
         requestAnimationFrame(() => document.getElementById('floe-reset-trigger')?.focus());
     }
@@ -1152,11 +1152,10 @@ function App() {
     //
     // preventDefault is belt and braces, not the mechanism. Wails disables the
     // webview's browser accelerator keys outright during setup
-    // (PutAreBrowserAcceleratorKeysEnabled(false), frontend.go:589, ungated and
-    // fatal on failure), and Ctrl+R is on that list, so this key has never been
-    // able to reload the app. An earlier comment here claimed otherwise. It is
-    // kept because it costs nothing and would still be right if Wails ever
-    // stopped doing that.
+    // (PutAreBrowserAcceleratorKeysEnabled(false) in its windows frontend.go,
+    // ungated and fatal on failure), and Ctrl+R is on that list, so this key has
+    // never been able to reload the app. It is kept because it costs nothing and
+    // would still be right if Wails ever stopped doing that.
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if ((e.ctrlKey || e.metaKey) && (e.key === 'r' || e.key === 'R')) {
@@ -1903,9 +1902,8 @@ function App() {
     );
 
     // Receive > CODE | REQUEST LINK (R1): two aria-pressed words like the
-    // History toggle, each named by its own word. The Beta chip beside REQUEST
-    // LINK (R2) and the name that carried it (R3) went at desktop-v1.0.0.
-    // Plain elements, not components, so nothing remounts.
+    // History toggle, each named by its own word. Plain elements, not
+    // components, so nothing remounts.
     const choiceButton = (k: 'code' | 'request') => (
         <button
             type="button"

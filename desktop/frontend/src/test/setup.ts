@@ -165,8 +165,9 @@ function installDomShims() {
         return realMatches.call(this, sel);
     } as typeof Element.prototype.matches;
 
-    // SharePanel and copyAbout both use it; jsdom ships none. Both call sites
-    // are try/catch, so this only matters to the tests that assert on a copy.
+    // SharePanel, copyAbout and the request link's Copy link use it; jsdom
+    // ships none. Every call site is try/catch, so this only matters to the
+    // tests that assert on a copy.
     Object.defineProperty(navigator, 'clipboard', {
         configurable: true,
         value: {writeText: vi.fn(async () => {})},
