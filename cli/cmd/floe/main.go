@@ -578,26 +578,20 @@ func linkAsCommand(a string) error {
 
 // looksLikeRoomLink reports whether arg is a room link, whole or cut short:
 // "room=" after a # or a ? or an &, in any letter case, in arg as typed or
-// with its percent escapes decoded, up to three times over, as
-// looksLikeRequestLink decodes. A room id is not required after it, so a
-// link cut short is caught too; a file name with "room=" in it is a command
-// cobra would refuse anyway, and only the words of that refusal change.
+// with its percent escapes decoded, up to three times over (inAnyDecoding).
+// A room id is not required after it, so a link cut short is caught too; a
+// file name with "room=" in it is a command cobra would refuse anyway, and
+// only the words of that refusal change.
 func looksLikeRoomLink(arg string) bool {
-	s := arg
-	for range 4 {
+	return inAnyDecoding(arg, func(s string) bool {
 		l := strings.ToLower(s)
 		for _, mark := range []string{"#room=", "?room=", "&room="} {
 			if strings.Contains(l, mark) {
 				return true
 			}
 		}
-		decoded := percentDecodeLoose(s)
-		if decoded == s {
-			return false
-		}
-		s = decoded
-	}
-	return false
+		return false
+	})
 }
 
 // outcomeError is an error that is an outcome, not a failure (TL-33's link

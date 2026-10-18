@@ -778,9 +778,16 @@ var roomIDLead = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0
 //
 // A room link spells its fragment #room=, so none matches.
 func looksLikeRequestLink(arg string) bool {
+	return inAnyDecoding(arg, hashBeforeRoomID)
+}
+
+// inAnyDecoding reports whether match holds for arg as typed or with its
+// percent escapes decoded, up to three times over: the decoding both link
+// matchers apply (looksLikeRequestLink, looksLikeRoomLink).
+func inAnyDecoding(arg string, match func(string) bool) bool {
 	s := arg
 	for range 4 {
-		if hashBeforeRoomID(s) {
+		if match(s) {
 			return true
 		}
 		decoded := percentDecodeLoose(s)
