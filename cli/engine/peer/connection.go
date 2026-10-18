@@ -488,25 +488,11 @@ func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 	}
 }
 
-// signalingLost tells a PeerLeft push that came from the socket closing from
-// one the server sent: the signaling client closes Down before it pushes
-// PeerLeft on the way out of its read loop, so a closed Down here means the
-// server is gone, not the peer. A client built without Connect has a nil
-// Down, which reads as open.
-func (conn *Connection) signalingLost() bool {
-	select {
-	case <-conn.sc.Down:
-		return true
-	default:
-		return false
-	}
-}
-
 // leftError is the setup error for a PeerLeft push at any of the setup waits:
-// the server gone when the push came from the socket closing (signalingLost),
-// the other side gone when the server reported it.
+// the server gone when the push came from the socket closing (signaling's
+// IsDown), the other side gone when the server reported it.
 func (conn *Connection) leftError() error {
-	if conn.signalingLost() {
+	if conn.sc.IsDown() {
 		return &SetupError{Stage: StageSignalingLost, Err: ErrSignalingLost}
 	}
 	return &SetupError{Stage: StagePeerLeft, Err: ErrPeerLeft}

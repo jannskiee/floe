@@ -166,7 +166,7 @@ func runSend(cmd *cobra.Command, args []string) error {
 		// side's own connection to the server is lost. One line for both
 		// named the peer either way. Each now prints the sentence the setup
 		// below prints for the same cause (setupFailureLine).
-		if signalingDown(sc) {
+		if sc.IsDown() {
 			return peer.ErrSignalingLost
 		}
 		return peer.ErrPeerLeft
@@ -355,20 +355,6 @@ func (r *sendRun) finish(delivered bool) bool {
 func (r *sendRun) park() error {
 	parkUntilExit()
 	return errSendToEnded
-}
-
-// signalingDown reports whether sc's socket to the signaling server is gone.
-// The client closes Down before the PeerLeft push it sends on the way out of
-// its read loop, so a reader woken by PeerLeft can tell a lost server from a
-// peer the server reported gone; peer.Connection reads it the same way during
-// setup. A client built without Connect has a nil Down, which reads as open.
-func signalingDown(sc *signaling.Client) bool {
-	select {
-	case <-sc.Down:
-		return true
-	default:
-		return false
-	}
 }
 
 // errTheyStopped is the plain send's line when the receiver ended the

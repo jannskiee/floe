@@ -596,10 +596,8 @@ func (h *requestHost) stall(step decideStep) visitOutcome {
 		// A lost host socket closes Down before it pushes PeerLeft
 		// (signaling/client.go), so this reads as the visitor leaving only
 		// when the socket is still up (review 1, N3).
-		select {
-		case <-h.sc.Down:
+		if h.sc.IsDown() {
 			h.ev.fail("signaling")
-		default:
 		}
 		h.emit("refused", map[string]interface{}{"code": "peer-left"})
 		return visitRefused

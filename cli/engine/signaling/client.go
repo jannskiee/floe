@@ -591,6 +591,20 @@ func (c *Client) CloseCode() int {
 	}
 }
 
+// IsDown reports, without waiting, whether the socket is gone: Down has
+// closed. Down closes before the read loop's last PeerLeft push, so a reader
+// woken by PeerLeft tells with this a lost server from a peer the server
+// reported gone. A Client built without Connect has a nil Down, which reads
+// as up.
+func (c *Client) IsDown() bool {
+	select {
+	case <-c.Down:
+		return true
+	default:
+		return false
+	}
+}
+
 // pingLoop writes {"type":"ping"} every interval until Close or until the
 // read loop has ended. A failed write needs no handling here: the read loop
 // sees the same dead socket and closes Down.

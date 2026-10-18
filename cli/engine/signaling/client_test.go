@@ -199,6 +199,23 @@ func TestReadLoopSignalsPeerLeftOnClose(t *testing.T) {
 	}
 }
 
+// TestIsDownReadsDownWithoutWaiting: IsDown answers at once in each state of
+// Down. A Client built without Connect (a nil Down) and an open Down read as
+// up, a closed Down as down. No socket: newClient takes a nil conn.
+func TestIsDownReadsDownWithoutWaiting(t *testing.T) {
+	if (&Client{}).IsDown() {
+		t.Fatal("a Client with no Down read as down")
+	}
+	c := newClient(nil, config{})
+	if c.IsDown() {
+		t.Fatal("an open Down read as down")
+	}
+	close(c.Down)
+	if !c.IsDown() {
+		t.Fatal("a closed Down read as up")
+	}
+}
+
 // Malformed JSON is skipped, not fatal: one bad frame from a misbehaving proxy
 // must not cost the rest of the session.
 func TestReadLoopSkipsMalformedFrames(t *testing.T) {
