@@ -18,7 +18,9 @@ permissions: {}
 jobs:
   goreleaser:
     name: GoReleaser
-    runs-on: ubuntu-latest
+    # Pinned, as images.yml is: a v* tag is permanent and its run cannot pick
+    # up a changed workflow, so a release does not ride a runner-image move.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       # Create the GitHub Release and upload its assets.
