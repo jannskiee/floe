@@ -146,6 +146,10 @@ const cardClass = 'overflow-hidden rounded-lg border border-white/[0.06] bg-whit
 // collapsed Advanced disclosure (v4 divide-y compiles to :not(:last-child)
 // border-bottom with no hidden/collapsed escape).
 const insetHairline = '[&>*+*]:relative [&>*+*]:before:absolute [&>*+*]:before:inset-x-3.5 [&>*+*]:before:top-0 [&>*+*]:before:h-px [&>*+*]:before:bg-white/[0.05]';
+// The words of a console's sub-tab row (Send > FILES | TEXT, Receive > CODE |
+// REQUEST LINK), the chosen one underlined in white.
+const subTabClass = (on: boolean) => cn('border-b pb-0.5 font-mono text-[10px] uppercase tracking-[0.2em] transition-colors',
+    on ? 'border-white text-zinc-200' : 'border-transparent text-zinc-400 hover:text-zinc-300');
 
 function App() {
     // Only the transfer tabs are ever persisted; anything else in the store
@@ -1880,10 +1884,7 @@ function App() {
             type="button"
             aria-pressed={receiveKind === k}
             onClick={() => setReceiveKind(k)}
-            className={cn(
-                'border-b pb-0.5 font-mono text-[10px] uppercase tracking-[0.2em] transition-colors',
-                receiveKind === k ? 'border-white text-zinc-200' : 'border-transparent text-zinc-400 hover:text-zinc-300',
-            )}
+            className={subTabClass(receiveKind === k)}
         >
             {k === 'code' ? CODE_TAB : REQUEST_TAB}
         </button>
@@ -2464,10 +2465,7 @@ function App() {
                                                         // in the box, and it has to survive one when it sits
                                                         // in an offer, or Clear would be a trap.
                                                         onClick={() => setSendKind(k)}
-                                                        className={cn(
-                                                            'border-b pb-0.5 font-mono text-[10px] uppercase tracking-[0.2em] transition-colors',
-                                                            sendKind === k ? 'border-white text-zinc-200' : 'border-transparent text-zinc-400 hover:text-zinc-300',
-                                                        )}
+                                                        className={subTabClass(sendKind === k)}
                                                     >
                                                         {k === 'files' ? 'Files' : 'Text'}
                                                     </button>
