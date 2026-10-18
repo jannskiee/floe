@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestConfigRoundTrip proves a saved address comes back verbatim, which is the
@@ -154,6 +155,79 @@ func TestSaveConfigIsAtomic(t *testing.T) {
 	}
 	if got := loadConfigFrom(path); got.Server != "https://other.example.com" {
 		t.Errorf("server = %q, want the overwritten value", got.Server)
+	}
+}
+
+// TestAtomicWritesLeaveNoTempOnAFailedRename pins the failure half of the three
+// temp-then-rename writers (desktop.json, the quit record, the update cache).
+// When the rename cannot replace the target (a folder in its place) the target
+// stays as it was and the temporary file goes. When the folder cannot be made
+// (a file in its place) or the temporary file cannot be written (a folder under
+// its name) nothing is written and that folder is left alone. In each case the
+// two writers that return an error return one.
+func TestAtomicWritesLeaveNoTempOnAFailedRename(t *testing.T) {
+	writers := []struct {
+		name  string
+		write func(path string) error
+	}{
+		{"desktop.json", func(p string) error { return saveConfigTo(p, appConfig{Server: "https://x.test", Migrated: true}) }},
+		{"quit record", func(p string) error {
+			return saveQuitDrop(p, quitDrop{At: 1, Result: RequestResult{Files: 1, Saved: 1}})
+		}},
+		{"update cache", func(p string) error { writeUpdateCache(p, "desktop-v1.0.0", time.Now()); return nil }},
+	}
+	mustFolder := func(t *testing.T, p string, keep bool) {
+		t.Helper()
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if keep {
+			if err := os.WriteFile(filepath.Join(p, "keep.txt"), []byte("kept"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for _, w := range writers {
+		reportsErrors := w.name != "update cache"
+		t.Run(w.name+"/rename", func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "target.json")
+			mustFolder(t, p, true)
+			if err := w.write(p); reportsErrors && err == nil {
+				t.Error("no error for a rename that failed")
+			}
+			if _, err := os.Stat(p + ".tmp"); !os.IsNotExist(err) {
+				t.Errorf("the temporary file outlived the failed rename (%v)", err)
+			}
+			if b, err := os.ReadFile(filepath.Join(p, "keep.txt")); err != nil || string(b) != "kept" {
+				t.Errorf("the target changed: %q, %v", b, err)
+			}
+		})
+		t.Run(w.name+"/write", func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "target.json")
+			mustFolder(t, p+".tmp", false)
+			if err := w.write(p); reportsErrors && err == nil {
+				t.Error("no error for a temporary file that could not be written")
+			}
+			if _, err := os.Stat(p); !os.IsNotExist(err) {
+				t.Errorf("a target was written (%v)", err)
+			}
+			if fi, err := os.Stat(p + ".tmp"); err != nil || !fi.IsDir() {
+				t.Errorf("the folder under the temporary name was touched (%v)", err)
+			}
+		})
+		t.Run(w.name+"/mkdir", func(t *testing.T) {
+			parent := filepath.Join(t.TempDir(), "floe")
+			if err := os.WriteFile(parent, []byte("a file"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			p := filepath.Join(parent, "target.json")
+			if err := w.write(p); reportsErrors && err == nil {
+				t.Error("no error for a folder that could not be made")
+			}
+			if b, err := os.ReadFile(parent); err != nil || string(b) != "a file" {
+				t.Errorf("the file in the folder's place changed: %q, %v", b, err)
+			}
+		})
 	}
 }
 
