@@ -397,12 +397,21 @@ func (h *testHost) receive(out string, decide func(transfer.IncomingInfo) transf
 	})
 }
 
-// frame reads the visitor's next frame, or fails at the bound.
+// frame reads the visitor's next frame, or fails at the bound. A frame and the
+// close can be ready at once, and pion delivers a frame before the close, so
+// what is queued at the close is read first, as heardFromSender.listen does:
+// select picks between ready cases at random, and the visitor's last frame
+// (its abort, CI run 38435460858) used to lose that pick.
 func (h *testHost) frame(bound time.Duration) (webrtc.DataChannelMessage, error) {
 	select {
 	case m := <-h.early.Msgs:
 		return m, nil
 	case <-h.early.Closed:
+		select {
+		case m := <-h.early.Msgs:
+			return m, nil
+		default:
+		}
 		return webrtc.DataChannelMessage{}, errors.New("the visitor closed")
 	case <-h.quit:
 		return webrtc.DataChannelMessage{}, errors.New("the test ended")

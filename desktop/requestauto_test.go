@@ -26,9 +26,12 @@ import (
 
 // autoLaneApp is a bare App whose probe answers unreachable at once, so a
 // Make link ends in error without asking any server and the next Make link is
-// allowed. Cleanup closes the link and waits out the lane goroutine.
+// allowed. Cleanup closes the link and waits out the lane goroutine. The
+// t.TempDir() before it keeps every folder the test makes until the lane has
+// ended, as in laneApp.
 func autoLaneApp(t *testing.T) *App {
 	t.Helper()
+	t.TempDir()
 	a := &App{notifyFn: func(string, string) {}, wake: &wakeGuard{onBlock: func() {}, onAllow: func() {}}}
 	a.cfg = appConfig{Server: "http://127.0.0.1:9"}
 	l := a.lane()

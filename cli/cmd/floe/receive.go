@@ -299,7 +299,15 @@ func (r *receiveRun) receivedSent() {
 	r.mu.Lock()
 	r.finished = true
 	r.mu.Unlock()
+	receiveFinished()
 }
+
+// receiveFinished runs once receivedSent has recorded the finish: from then on
+// Ctrl+C leaves the command its ending. A no-op; a var only so a test can wait
+// for that moment, since the sender can read "received" before it (the engine
+// queues the frame, pion sends it on its own goroutine, and only then does the
+// engine call OnReceivedSent).
+var receiveFinished = func() {}
 
 // stop is the receive's Ctrl+C step, run by main's handler before "Canceled."
 // and the partial-file cleanup (FU-54). From the signal goroutine, so it

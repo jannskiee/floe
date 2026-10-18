@@ -421,12 +421,19 @@ func waitFor(t *testing.T, d time.Duration, what string, cond func() bool) {
 
 // laneApp is a bare App wired to the fake server, and a recorder for every
 // emitted snapshot. Cleanup closes the link and waits for the lane goroutine,
-// so no test leaks one into the next. Cleanups run last in, first out, so a
-// save folder a test hands to Make link and does not wait on must come from a
-// t.TempDir() made before laneApp; one made after it is removed while the lane
-// may still be probing it.
+// so no test leaks one into the next.
+//
+// It takes a t.TempDir() before registering that cleanup. A test's TempDirs
+// share one removal, registered at its first call, and cleanups run last in,
+// first out, so the removal runs after the lane has ended, wherever the test
+// makes its folders. A folder made after laneApp used to be removed while the
+// lane could still be probing it (canMakeFolderIn's .floe-check- folder), and
+// on Windows that removal failed with "The directory is not empty", which Go's
+// TempDir cleanup does not retry: #646 for a folder handed to Make link, then
+// again for one handed in through requestDefaultDirFn.
 func laneApp(t *testing.T, f *fakeSignalServer) (*App, *snapRecorder) {
 	t.Helper()
+	t.TempDir()
 	a := &App{notifyFn: func(string, string) {}, wake: &wakeGuard{onBlock: func() {}, onAllow: func() {}}}
 	if f != nil {
 		a.cfg = appConfig{Server: f.url()}

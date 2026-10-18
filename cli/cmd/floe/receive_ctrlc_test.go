@@ -616,6 +616,11 @@ func TestReceiveCtrlCAfterTheLastCommitEndsAsASuccess(t *testing.T) {
 	prevTell := tellStopped
 	tellStopped = func(*webrtc.DataChannel, *peer.Connection, int) { told.Add(1) }
 	t.Cleanup(func() { tellStopped = prevTell })
+	finished := make(chan struct{})
+	var finishedOnce sync.Once
+	prevFinished := receiveFinished
+	receiveFinished = func() { finishedOnce.Do(func() { close(finished) }) }
+	t.Cleanup(func() { receiveFinished = prevFinished })
 	url, _, posts := plainRoomWithStats(t)
 	src := filepath.Join(t.TempDir(), "only.txt")
 	if err := os.WriteFile(src, []byte("only file"), 0o600); err != nil {
@@ -632,6 +637,15 @@ func TestReceiveCtrlCAfterTheLastCommitEndsAsASuccess(t *testing.T) {
 		}
 	case <-time.After(30 * time.Second):
 		t.Fatal("the send never ended")
+	}
+	// The send's return is not yet the moment: the sender read "received",
+	// which the engine queues before it calls OnReceivedSent, so a Ctrl+C here
+	// could still land before the receive records its finish and be a stop
+	// (exit 130, CI run 38609284723). Press once the finish is recorded.
+	select {
+	case <-finished:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the receive never recorded its finish (OnReceivedSent)")
 	}
 	// The sender holds its connection, so the receive is in its linger, which
 	// would end on its own 5 s from now (the engine's receivedGrace).
