@@ -167,6 +167,5 @@ module.exports = {
     DEFAULT_POLICY,
     POLICY_MAX_BYTES,
     parsePolicy,
-    readPolicyFile,
     createPolicyStore,
 };

@@ -51,5 +51,4 @@ module.exports = {
     HOST_TOKEN_REGEX,
     hostTokenHash,
     roomIdFromToken,
-    uuidFormat,
 };
