@@ -512,7 +512,8 @@ function sweepWindow(map, windowMs, now) {
     }
 }
 
-// Periodic cleanup of old rate limit entries and expired codes
+// The 60 s sweep: the limiter windows, expired codes, the policy file, request
+// reservations, the create log and ended links.
 function cleanupTick(now = Date.now()) {
     sweepWindow(connectionCounts, RATE_LIMIT_WINDOW, now);
     sweepWindow(turnRateLimits, TURN_RATE_WINDOW, now);
