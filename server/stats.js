@@ -136,8 +136,7 @@ function statsReportHandler(req, res) {
     const ip = rateKey(req.ip);
     const now = Date.now();
 
-    if (!statsRateLimits.has(ip)) statsRateLimits.set(ip, []);
-    const timestamps = statsRateLimits.get(ip).filter(t => now - t < STATS_RATE_WINDOW);
+    const timestamps = (statsRateLimits.get(ip) || []).filter(t => now - t < STATS_RATE_WINDOW);
     if (timestamps.length >= STATS_MAX_REPORTS) {
         return res.status(429).json({ error: 'Too many reports' });
     }

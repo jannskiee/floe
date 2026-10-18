@@ -261,8 +261,7 @@ async function turnCredentialsHandler(req, res) {
     const ip = rateKey(req.ip);  // req.ip is resolved via trust proxy; the key masks it
     const now = Date.now();
 
-    if (!turnRateLimits.has(ip)) turnRateLimits.set(ip, []);
-    const timestamps = turnRateLimits.get(ip).filter(t => now - t < TURN_RATE_WINDOW);
+    const timestamps = (turnRateLimits.get(ip) || []).filter(t => now - t < TURN_RATE_WINDOW);
     if (timestamps.length >= TURN_MAX_REQUESTS) return res.status(429).json({ error: 'Too many requests' });
     timestamps.push(now);
     turnRateLimits.set(ip, timestamps);
