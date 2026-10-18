@@ -303,12 +303,10 @@ export function createReceiver(
     // 120 s ack deadline and reported a timeout. Best effort: a peer that is
     // already gone gets the close and nothing else.
     function refuseOversize(bytes: number): void {
-        try {
+        tell(() => {
             const reason = `receiver rejected the file description: control message is ${bytes} bytes, limit ${CONTROL_MSG_MAX}`;
-            cb.send(new Uint8Array(new TextEncoder().encode(incompatibleMessage(reason, 'path-too-long', filesHanded))));
-        } catch {
-            // The peer is gone; the close is all it will get.
-        }
+            return incompatibleMessage(reason, 'path-too-long', filesHanded);
+        });
     }
 
     function stopWhilePending(message: string): void {
@@ -367,11 +365,8 @@ export function createReceiver(
     // connection has nobody to tell.
     function confirmBatch(verified: number): void {
         if (!confirms || closed) return;
-        try {
-            cb.send(new Uint8Array(new TextEncoder().encode(receivedMessage(verified))));
-        } catch {
-            // The peer is gone; a sender that promised to wait hears the close.
-        }
+        // If the peer is gone, a sender that promised to wait hears the close.
+        tell(() => receivedMessage(verified));
     }
 
     // A file that failed its SHA-256: nothing of it is kept, the sender is told
@@ -382,14 +377,7 @@ export function createReceiver(
         queued = [];
         cb.onProgress?.(0, 0, 0);
         cb.onSpeedReset?.();
-        try {
-            const enc = new TextEncoder().encode(
-                incompatibleMessage(unreadable ? HASH_UNREADABLE_REASON : HASH_MISMATCH_REASON, 'hash-mismatch', filesHanded)
-            );
-            cb.send(new Uint8Array(enc));
-        } catch {
-            // The peer is gone; the close is all it will get.
-        }
+        tell(() => incompatibleMessage(unreadable ? HASH_UNREADABLE_REASON : HASH_MISMATCH_REASON, 'hash-mismatch', filesHanded));
         cb.onError?.(
             unreadable
                 ? "The sender's SHA-256 for a file could not be read, so the file was discarded. Ask the sender to try again."
@@ -453,16 +441,14 @@ export function createReceiver(
         // keep a file, which is what both causes come to here; `saved` is the
         // count already handed over, as a hash refusal sends it. The reason
         // stays for peers that predate the code and print it verbatim.
-        try {
+        tell(() => {
             const of = expected === null ? '' : ` of ${expected}`;
             const reason =
                 code === 'out-of-memory'
                     ? `receiver ran out of memory after receiving ${received}${of} bytes`
                     : 'receiver stopped because of an internal error';
-            cb.send(new Uint8Array(new TextEncoder().encode(incompatibleMessage(reason, 'write-failed', filesHanded))));
-        } catch {
-            // The peer is gone, or even this did not fit; the close is all it gets.
-        }
+            return incompatibleMessage(reason, 'write-failed', filesHanded);
+        });
         // Clear the progress line, as the discard path does. Best effort, so
         // a throw here cannot cost the person the only explanation.
         try {
@@ -589,6 +575,18 @@ export function createReceiver(
         expectedSize = null;
     }
 
+    // A frame the sender should hear, best effort. Built inside the try, with
+    // its own encoder, so a frame that does not fit in what memory is left
+    // fails here too, and a peer that is already gone gets the close and
+    // nothing else. Binary, as the Go receiver sends these.
+    function tell(frame: () => string): void {
+        try {
+            cb.send(new Uint8Array(new TextEncoder().encode(frame())));
+        } catch {
+            // The peer is gone; the close is all it will get.
+        }
+    }
+
     function processMessage(data: string | Uint8Array | ArrayBuffer): void {
         if (aborted) return;
 
@@ -629,12 +627,7 @@ export function createReceiver(
                 if (problem !== null) {
                     release();
                     clearProgress();
-                    try {
-                        const enc = new TextEncoder().encode(incompatibleMessage(`receiver rejected the file description: ${problem}`));
-                        cb.send(new Uint8Array(enc));
-                    } catch {
-                        // The peer is gone; the close is all it will get.
-                    }
+                    tell(() => incompatibleMessage(`receiver rejected the file description: ${problem}`));
                     cb.onError?.('The sender described a file in a way Floe could not read, so the transfer was stopped. Ask the sender to try again.');
                     return;
                 }
@@ -802,14 +795,7 @@ export function createReceiver(
                     // Best effort, and after nothing that matters locally: a
                     // throw from a peer already torn down must not swallow the
                     // only explanation this side ever shows.
-                    try {
-                        const enc = new TextEncoder().encode(
-                            incompatibleMessage(`receiver discarded a file: ${detail}`)
-                        );
-                        cb.send(new Uint8Array(enc));
-                    } catch {
-                        // The peer is gone; the close is all it will get.
-                    }
+                    tell(() => incompatibleMessage(`receiver discarded a file: ${detail}`));
                     // Over-count is not truncation: it means a frame boundary
                     // was wrong, so say that rather than blaming the sender for
                     // stopping early.
