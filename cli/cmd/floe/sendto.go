@@ -183,7 +183,7 @@ type sendToRun struct {
 }
 
 func newSendToRun() *sendToRun {
-	return &sendToRun{stop: make(chan struct{}), settled: make(chan struct{})}
+	return &sendToRun{phase: phaseSetup, stop: make(chan struct{}), settled: make(chan struct{})}
 }
 
 // interrupt is the send's Ctrl+C (TL-28, TL-29), on the signal goroutine.
