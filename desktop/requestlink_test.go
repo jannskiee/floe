@@ -1343,7 +1343,7 @@ func TestLinkShapeAndDerivedRoomID(t *testing.T) {
 func TestSanitizeRequestLabel(t *testing.T) {
 	long := strings.Repeat("a", 200)
 	cases := []string{
-		`a<b>c:d"e/f\g|h?i*j`, "tab\there", "bell\x07x", "photo‮gnp", "a⁦b",
+		`a<b>c:d"e/f\g|h?i*j`, "tab\there", "bell\x07x", "photo\u202egnp", "a\u2066b",
 		"CON", "com1", "LPT9", "nul", "name...  ", "  ", "", ".", "..", long, "Acme footage",
 	}
 	for _, in := range cases {
