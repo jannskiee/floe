@@ -2,6 +2,7 @@ package code
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -187,6 +188,54 @@ func TestResolveFoldsCaseBeforeLookup(t *testing.T) {
 		t.Fatalf("server saw %q, want olive-tiger-castle", got)
 	}
 }
+
+// TestCodeAPIBodiesAreBounded: Register and Resolve read at most 64 KiB of an
+// /api/code answer, and one that does not end within them ends on the fixed
+// "invalid response from code API". A JSON decoder holds a whole value before
+// it unmarshals, so the unbounded read handed back a code or a room id as long
+// as the server sent. The transport is in memory: no port.
+func TestCodeAPIBodiesAreBounded(t *testing.T) {
+	const bound = 64 << 10
+	huge := strings.Repeat("a", 1<<20)
+	var read atomic.Int64
+	orig := client
+	t.Cleanup(func() { client = orig })
+	client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		key := "code"
+		if r.Method == http.MethodGet {
+			key = "roomId"
+		}
+		body := &countingBody{r: strings.NewReader(`{"` + key + `":"` + huge + `"}`), n: &read}
+		return &http.Response{StatusCode: http.StatusOK, Body: body, Request: r}, nil
+	})}
+
+	if code, err := Register("http://code.invalid", "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"); err == nil || err.Error() != "invalid response from code API" {
+		t.Fatalf("Register answered a %d-byte code and %v, want \"invalid response from code API\"", len(code), err)
+	}
+	if n := read.Swap(0); n > bound {
+		t.Fatalf("Register read %d bytes of the answer, want at most %d", n, bound)
+	}
+	if room, err := Resolve("http://code.invalid", "olive-tiger-castle"); err == nil || err.Error() != "invalid response from code API" {
+		t.Fatalf("Resolve answered a %d-byte room id and %v, want \"invalid response from code API\"", len(room), err)
+	}
+	if n := read.Load(); n > bound {
+		t.Fatalf("Resolve read %d bytes of the answer, want at most %d", n, bound)
+	}
+}
+
+// countingBody is a response body that counts the bytes it hands out.
+type countingBody struct {
+	r io.Reader
+	n *atomic.Int64
+}
+
+func (b *countingBody) Read(p []byte) (int, error) {
+	n, err := b.r.Read(p)
+	b.n.Add(int64(n))
+	return n, err
+}
+
+func (b *countingBody) Close() error { return nil }
 
 // A link that belongs in a web browser gets a sentinel, before the room-id
 // lookup, so a caller can print the one approved sentence instead of the raw

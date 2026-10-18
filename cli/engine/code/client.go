@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -20,6 +21,12 @@ import (
 // error is fatal to `floe receive`, so this is generous: a slow link that
 // resolves today must keep resolving.
 var client = &http.Client{Timeout: 30 * time.Second}
+
+// maxResponseBody bounds the /api/code answer Register and Resolve read. A
+// real one is under 100 bytes, and a JSON decoder holds a whole value before
+// it unmarshals, so unbounded a server could grow this process by whatever it
+// sent. The bound ice.ParseServers puts on /api/turn-credentials.
+const maxResponseBody = 64 << 10
 
 // Register calls POST /api/code on the signaling server to get a short code
 // that resolves to the given roomId. Returns the code phrase e.g. "olive-tiger-castle".
@@ -38,7 +45,7 @@ func Register(serverURL, roomId string) (string, error) {
 	var result struct {
 		Code string `json:"code"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil || result.Code == "" {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBody)).Decode(&result); err != nil || result.Code == "" {
 		return "", fmt.Errorf("invalid response from code API")
 	}
 	return result.Code, nil
@@ -258,7 +265,7 @@ func Resolve(serverURL, input string) (string, error) {
 	var result struct {
 		RoomID string `json:"roomId"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil || result.RoomID == "" {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBody)).Decode(&result); err != nil || result.RoomID == "" {
 		return "", fmt.Errorf("invalid response from code API")
 	}
 	return result.RoomID, nil
