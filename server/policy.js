@@ -131,7 +131,6 @@ function createPolicyStore({ path = '', onChange = () => {}, log = (line) => con
     }
 
     return {
-        current: () => current,
         requestLinks: () => current.requestLinks === true,
         // Returns the outcome kind, for tests. Never throws on anything the
         // file can contain; the cleanup tick still wraps it.
