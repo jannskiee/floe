@@ -254,7 +254,6 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 		msgCh, done = ch, d
 	}
 
-	// Process messages sequentially
 	var currentFile *os.File // the .part staging file the bytes are written to
 	var currentInfo FileInfo
 	var currentDisplayName string // displayText(currentInfo.FileName): every print, callback and error uses this, never the raw name
@@ -432,7 +431,6 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				return &CompatError{LocalTooOld: localTooOld, text: compatErrorFromIncompatible(localVer, opts.UpdateHint, incompat)}
 
 			case "metadata":
-				// A new file is starting
 				info, err := parseMetadata(string(msg.Data))
 				if err != nil {
 					// classifyControl already proved this is a metadata object, so a failure
@@ -782,7 +780,6 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				dc.Send([]byte(ackJSON))
 
 			case "end":
-				// Current file is complete
 				if currentFile != nil {
 					staged := currentFile
 					partPath := staged.Name()
@@ -1003,7 +1000,6 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 			continue
 		}
 
-		// Binary chunk — write directly to disk
 		if currentFile == nil {
 			continue // no file open yet; shouldn't happen in normal flow
 		}

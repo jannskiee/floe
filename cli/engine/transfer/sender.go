@@ -641,7 +641,6 @@ func stopRequested(stop <-chan struct{}) bool {
 // "v1.5.5") embedded in metadata; pass "" for dev/tests. The zero SendOptions
 // renders a terminal progress bar.
 func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer string, opts SendOptions) error {
-	// Expand paths: collect all files (walk directories)
 	files, err := collectFiles(paths)
 	if err != nil {
 		return err
