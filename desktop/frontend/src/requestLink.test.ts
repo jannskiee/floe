@@ -4,7 +4,6 @@ import {
     OFF_SNAPSHOT,
     acceptedPrompt,
     acceptStale,
-    canMake,
     DEFAULT_LIFETIME,
     errorCode,
     etaLines,
@@ -422,12 +421,6 @@ describe('the request lane selectors', () => {
         expect(noticeVisible(deciding.snap, true, false)).toBe(true);
         expect(noticeVisible(deciding.snap, false, true)).toBe(true);
         expect(noticeVisible(waiting.snap, false, false)).toBe(false);
-    });
-
-    it('Make link is offered only with nothing open', () => {
-        expect(canMake('ready')).toBe(true);
-        expect(canMake('error')).toBe(true);
-        for (const p of ['making', 'waiting', 'deciding', 'receiving', 'done'] as const) expect(canMake(p)).toBe(false);
     });
 
     it('normalizeSnapshot reads the battery fact as a boolean and nothing else as true', () => {

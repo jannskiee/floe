@@ -429,12 +429,6 @@ export function noticeVisible(snap: RequestLinkSnapshot, onRequestView: boolean,
     return snap.state === 'deciding' && !(onRequestView && promptInView);
 }
 
-/** canMake: Make link is offered only with nothing open and nothing being
- *  made (one link at a time, OD-05). */
-export function canMake(p: Phase): boolean {
-    return p === 'ready' || p === 'error';
-}
-
 /** How long after Retry now a phase change still counts as its outcome for
  *  focus (R2-07). Retry only nudges the lane's reconnect loop, and an attempt
  *  that fails leaves the phase as it was, so the next change may come long
