@@ -41,6 +41,10 @@ const MAX_REPORT_BYTES = envLimit('MAX_REPORT_BYTES', 5 * 1024 * 1024 * 1024 * 1
 const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const STATS_KEY = 'floe:bytes_total';
+// Node's global fetch has no timeout of its own. Without one, a hung Upstash
+// holds every accepted report's INCRBY open, with nothing bounding how many
+// pile up; turn.js gives the Cloudflare mint the same 10 s.
+const UPSTASH_FETCH_TIMEOUT_MS = 10_000;
 
 let cachedTotal = 0;
 
@@ -54,6 +58,7 @@ async function upstashPost(command) {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify(command),
+            signal: AbortSignal.timeout(UPSTASH_FETCH_TIMEOUT_MS),
         });
         if (!resp.ok) return null;
         const { result } = await resp.json();

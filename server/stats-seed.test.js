@@ -65,3 +65,33 @@ describe('initStats', () => {
         assert.equal(total(), 1100, 'the seed overwrote a report it had not seen');
     });
 });
+
+describe('the Upstash call', () => {
+    it('carries a 10 s timeout, as the Cloudflare mint in turn.js does', async () => {
+        // Node's global fetch has no timeout of its own, so without a signal a
+        // hung Upstash holds every report's INCRBY open. A plain controller's
+        // signal stands in for the timer, so nothing here waits on one.
+        const realFetch = globalThis.fetch;
+        const realTimeout = AbortSignal.timeout;
+        let requestedMs = null;
+        let sawSignal = null;
+        AbortSignal.timeout = (ms) => {
+            requestedMs = ms;
+            return new AbortController().signal;
+        };
+        globalThis.fetch = async (_url, init) => {
+            sawSignal = Boolean(init && init.signal);
+            return { ok: true, json: async () => ({ result: 0 }) };
+        };
+        try {
+            statsRateLimits.clear();
+            statsReportHandler({ ip: '5.6.7.8', body: { bytes: 1 } }, fakeRes());
+            await settle();
+        } finally {
+            globalThis.fetch = realFetch;
+            AbortSignal.timeout = realTimeout;
+        }
+        assert.equal(sawSignal, true, 'the INCRBY call carried no abort signal');
+        assert.equal(requestedMs, 10_000);
+    });
+});
