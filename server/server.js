@@ -71,6 +71,14 @@ function getClientIp(xffHeader, socketAddr) {
 // and client/lib/roomLink.ts mirrors the pattern, so keep the two in step.
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// The first check of each socket join: anything but a UUID string is answered
+// 'Invalid room ID' and goes no further.
+function rejectBadRoomId(peer, roomId) {
+    if (typeof roomId === 'string' && UUID_REGEX.test(roomId)) return false;
+    peer.send('error', { message: 'Invalid room ID' });
+    return true;
+}
+
 const allowedOrigins = [
     // One trailing slash dropped: a browser's Origin never ends with one, so
     // an address copied from the location bar (https://app.example.com/)
@@ -1068,10 +1076,7 @@ function recordSeating(meta, now) {
 // host's address is seated.
 function handleRequestJoin(peer, roomId, now = Date.now()) {
     if (!requestJoinAllowed(peer, now)) return;
-    if (typeof roomId !== 'string' || !UUID_REGEX.test(roomId)) {
-        peer.send('error', { message: 'Invalid room ID' });
-        return;
-    }
+    if (rejectBadRoomId(peer, roomId)) return;
     if (!policyStore.requestLinks()) {
         peer.send('disabled', {});
         return;
@@ -1198,10 +1203,7 @@ function handleRequestControl(peer, type, roomId, now = Date.now()) {
 // is created. Replies are server constants only. endsIn, the link's remaining
 // life, is read only by a create (linkEndsAt); a reclaim keeps the end it has.
 function handleHostJoin(peer, roomId, hostToken, now = Date.now(), endsIn = undefined) {
-    if (typeof roomId !== 'string' || !UUID_REGEX.test(roomId)) {
-        peer.send('error', { message: 'Invalid room ID' });
-        return;
-    }
+    if (rejectBadRoomId(peer, roomId)) return;
     if (typeof hostToken !== 'string' || !HOST_TOKEN_REGEX.test(hostToken)) {
         peer.send('error', { message: 'Invalid host token' });
         return;
@@ -1461,10 +1463,7 @@ function createWSPeer(ws, key) {
 }
 
 function handleJoinRoom(peer, roomId) {
-    if (typeof roomId !== 'string' || !UUID_REGEX.test(roomId)) {
-        peer.send('error', { message: 'Invalid room ID' });
-        return;
-    }
+    if (rejectBadRoomId(peer, roomId)) return;
 
     // Never seat by join order in a request room, host present or in grace:
     // without this, a plain join-room into a reservation whose room array is
