@@ -336,10 +336,7 @@ func (conn *Connection) SetupAsSender() (*webrtc.DataChannel, error) {
 	// a failure to connect. PeerLeft is read here and in the three waits
 	// below only: the join waits that also read it all finish before New.
 	case <-conn.sc.PeerLeft:
-		if conn.signalingLost() {
-			return nil, &SetupError{Stage: StageSignalingLost, Err: ErrSignalingLost}
-		}
-		return nil, &SetupError{Stage: StagePeerLeft, Err: ErrPeerLeft}
+		return nil, conn.leftError()
 	case <-conn.done:
 		return nil, &SetupError{Stage: StageClosed, Err: ErrClosed}
 	case <-time.After(signalWait):
@@ -370,20 +367,14 @@ func (conn *Connection) SetupAsSender() (*webrtc.DataChannel, error) {
 		case <-dcOpen:
 			return dc, nil
 		case <-conn.sc.PeerLeft:
-			if conn.signalingLost() {
-				return nil, &SetupError{Stage: StageSignalingLost, Err: ErrSignalingLost}
-			}
-			return nil, &SetupError{Stage: StagePeerLeft, Err: ErrPeerLeft}
+			return nil, conn.leftError()
 		case <-conn.done:
 			return nil, &SetupError{Stage: StageClosed, Err: ErrClosed}
 		case <-time.After(connectGrace):
 			return nil, &SetupError{Stage: StageChannel, Err: fmt.Errorf("connected but the data channel did not open")}
 		}
 	case <-conn.sc.PeerLeft:
-		if conn.signalingLost() {
-			return nil, &SetupError{Stage: StageSignalingLost, Err: ErrSignalingLost}
-		}
-		return nil, &SetupError{Stage: StagePeerLeft, Err: ErrPeerLeft}
+		return nil, conn.leftError()
 	case <-conn.done:
 		return nil, &SetupError{Stage: StageClosed, Err: ErrClosed}
 	case <-time.After(connectTimeout):
@@ -432,10 +423,7 @@ func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 	case o := <-conn.offers:
 		offer = o
 	case <-conn.sc.PeerLeft:
-		if conn.signalingLost() {
-			return nil, &SetupError{Stage: StageSignalingLost, Err: ErrSignalingLost}
-		}
-		return nil, &SetupError{Stage: StagePeerLeft, Err: ErrPeerLeft}
+		return nil, conn.leftError()
 	case <-conn.done:
 		return nil, &SetupError{Stage: StageClosed, Err: ErrClosed}
 	case <-time.After(signalWait):
@@ -485,20 +473,14 @@ func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 		case dc := <-dcChan:
 			return dc, nil
 		case <-conn.sc.PeerLeft:
-			if conn.signalingLost() {
-				return nil, &SetupError{Stage: StageSignalingLost, Err: ErrSignalingLost}
-			}
-			return nil, &SetupError{Stage: StagePeerLeft, Err: ErrPeerLeft}
+			return nil, conn.leftError()
 		case <-conn.done:
 			return nil, &SetupError{Stage: StageClosed, Err: ErrClosed}
 		case <-time.After(connectGrace):
 			return nil, &SetupError{Stage: StageChannel, Err: fmt.Errorf("connected but the data channel did not open")}
 		}
 	case <-conn.sc.PeerLeft:
-		if conn.signalingLost() {
-			return nil, &SetupError{Stage: StageSignalingLost, Err: ErrSignalingLost}
-		}
-		return nil, &SetupError{Stage: StagePeerLeft, Err: ErrPeerLeft}
+		return nil, conn.leftError()
 	case <-conn.done:
 		return nil, &SetupError{Stage: StageClosed, Err: ErrClosed}
 	case <-time.After(connectTimeout):
@@ -518,6 +500,16 @@ func (conn *Connection) signalingLost() bool {
 	default:
 		return false
 	}
+}
+
+// leftError is the setup error for a PeerLeft push at any of the setup waits:
+// the server gone when the push came from the socket closing (signalingLost),
+// the other side gone when the server reported it.
+func (conn *Connection) leftError() error {
+	if conn.signalingLost() {
+		return &SetupError{Stage: StageSignalingLost, Err: ErrSignalingLost}
+	}
+	return &SetupError{Stage: StagePeerLeft, Err: ErrPeerLeft}
 }
 
 // Failed is closed when the peer connection reaches the failed state: ICE (or

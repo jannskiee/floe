@@ -9,7 +9,9 @@ package peer
 // signaling lost, closed), which the setup tests in connection_test.go drive,
 // and review A R2 six more, the same three in each of the two grace waits.
 // Two of the original nineteen, for an offer or answer channel that closed,
-// are gone: nothing closes those channels.
+// are gone: nothing closes those channels. The peer-left and signaling-lost
+// pair of each of the six waits is one return of leftError, so the six waits
+// count one site each for it, and leftError's own returns are checked too.
 
 import (
 	"os"
@@ -41,12 +43,13 @@ func setupReturnSites(src string) (sites [][2]string) {
 	return sites
 }
 
-// untypedSetupReturns is every site that is neither a *SetupError literal nor
-// the bare passthrough of the error setRemoteDesc built on the line before.
+// untypedSetupReturns is every site that is neither a *SetupError literal,
+// leftError's answer, nor the bare passthrough of the error setRemoteDesc
+// built on the line before.
 func untypedSetupReturns(sites [][2]string) (bad []string) {
 	for _, s := range sites {
 		line := strings.TrimSpace(s[1])
-		if strings.Contains(line, "&SetupError{") {
+		if strings.Contains(line, "&SetupError{") || line == "return nil, conn.leftError()" {
 			continue
 		}
 		if line == "return nil, err" && strings.Contains(s[0], "setRemoteDesc(") {
@@ -63,11 +66,21 @@ func TestEverySetupReturnIsTyped(t *testing.T) {
 		t.Fatal(err)
 	}
 	sites := setupReturnSites(string(src))
-	if len(sites) != 35 {
-		t.Fatalf("expected 35 return sites across SetupAsSender and SetupAsReceiver, found %d: a new site needs its SetupError and this count", len(sites))
+	if len(sites) != 29 {
+		t.Fatalf("expected 29 return sites across SetupAsSender and SetupAsReceiver, found %d: a new site needs its SetupError and this count", len(sites))
 	}
 	if bad := untypedSetupReturns(sites); len(bad) != 0 {
 		t.Fatalf("setup return sites that are neither a *SetupError nor the setRemoteDesc passthrough: %q", bad)
+	}
+	// leftError, the answer at every PeerLeft, returns only *SetupError literals.
+	start := strings.Index(string(src), "func (conn *Connection) leftError() error {")
+	if start < 0 {
+		t.Fatal("leftError is gone, and the six PeerLeft sites return it")
+	}
+	body := string(src)[start:]
+	body = body[:strings.Index(body, "\n}\n")]
+	if n := strings.Count(body, "return "); n == 0 || n != strings.Count(body, "return &SetupError{") {
+		t.Fatalf("leftError must return only *SetupError literals:\n%s", body)
 	}
 
 	// The rule itself catches a dropped wrap: over a snippet with one bare
