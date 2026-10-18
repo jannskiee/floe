@@ -317,8 +317,8 @@ const MAX_VER = 64;
  * Shared by both message builders so the two cannot drift, and the single
  * place a version is made display-safe. Every caller passes at least one
  * peer-supplied string, and peerCompatErrorMessage swaps the arguments, so
- * treating the argument position as trusted is what Go warns against at
- * protocol.go:67-71.
+ * treating the argument position as trusted is what Go warns against in
+ * compatErrorMessage (protocol.go).
  */
 function versionSummary(ver: string, min: number, max: number): string {
     const lo = protocolNumber(min);

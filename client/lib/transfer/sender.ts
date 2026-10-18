@@ -1,5 +1,4 @@
 // Floe sender engine — framework-agnostic, no React or simple-peer imports.
-// Extracted from P2PTransfer.tsx sendAllFiles/sendSingleFile.
 import {
     incompatibleMessage,
     HIGH_WATER,

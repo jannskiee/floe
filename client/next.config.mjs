@@ -13,8 +13,7 @@ const nextConfig = {
     // .next/next-server.js.nft.json (vercel/next.js#93684) while the standalone
     // copy step still reads it unguarded, so the build dies with ENOENT after
     // compiling successfully. Vercel ignores the standalone directory anyway.
-    // See vercel/next.js#96646. The previous comment here claimed Vercel ignored
-    // the flag entirely, which was true until 16.3.0 and is what let this ship.
+    // See vercel/next.js#96646.
     output: process.env.VERCEL ? undefined : 'standalone',
 
     // React Strict Mode intentionally double-mounts components in development

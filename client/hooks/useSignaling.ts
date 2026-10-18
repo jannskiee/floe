@@ -5,7 +5,7 @@ import { createReconnectBackoff } from '@/lib/reconnectBackoff';
 
 // Module-level singleton, created lazily on first use rather than at import.
 // Keep getSocket() the ONLY io() call in the app so the whole client shares one
-// socket. P2PTransfer (the only importer) therefore holds no direct reference.
+// socket. P2PTransfer therefore holds no direct reference.
 //
 // Lazy because the server URL is now resolved at runtime, which is async. A happy
 // side effect: importing this module no longer opens a socket during SSR and

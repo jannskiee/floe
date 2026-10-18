@@ -769,7 +769,6 @@ export function P2PTransfer() {
                         Sentry.captureMessage(report.message, 'error');
                     });
                 }
-                // Track failed connection attempt
                 track('transfer-failed', { reason, role: 'receiver' });
                 setStatus('Connection failed');
             });
@@ -987,9 +986,10 @@ export function P2PTransfer() {
     // existing tab changes the hash without reloading, so the mount effect
     // above never re-runs and the tab stays stuck on the previous transfer.
     // Detect that here and reload so the receiver joins the new room from a
-    // clean slate. A link this page makes carries its own ?s= nonce and so
-    // loads as a new document (buildShareLink); the links `floe` and Floe
-    // Desktop print (/#room=<id>) differ only in the fragment and come here.
+    // clean slate. A link this page makes (buildShareLink) or Floe Desktop
+    // makes carries its own ?s= nonce and so loads as a new document; the
+    // links `floe` prints (/#room=<id>) differ only in the fragment and come
+    // here.
     // Through the reload gate: while this page holds the tab (a link out or a
     // send under way, a receive under way or a file not yet saved) the reload
     // goes ahead only where the browser will ask first, and otherwise waits

@@ -1,5 +1,4 @@
-// Pure relay-policy helpers, shared by the sender flow in P2PTransfer and the
-// useRelayConfiguration hook. Kept side-effect free so the relay gate (which the
+// Pure relay-policy helpers. Kept side-effect free so the relay gate (which the
 // e2e suite does not exercise) can be unit-tested directly.
 
 // Mirrors RelaySizeLimit in cli/engine/transfer/relay.go; keep the two in
