@@ -15,6 +15,13 @@ on:
 # it needs, and any job added later starts from zero permissions.
 permissions: {}
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Never cancel a publish, as in images.yml and desktop-release.yml: a second
+  # run on the same tag queues behind the first instead of racing it to the
+  # GitHub release and the shared package-manager repositories.
+  cancel-in-progress: false
+
 jobs:
   goreleaser:
     name: GoReleaser
