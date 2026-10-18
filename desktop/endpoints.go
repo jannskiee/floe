@@ -65,14 +65,23 @@ func (a *App) GetSettings() appConfig {
 // Writing always marks the record migrated, so the one-time localStorage import
 // cannot run twice and re-resurrect a preference the user has since changed.
 func (a *App) SetSettings(server, web string, hideIP, reportStats bool) error {
-	// The whole read-modify-write holds the lock. Wails dispatches every bound
-	// call on its own goroutine, and this method races SetCheckUpdates when the
-	// Settings screen fires unawaited saves on quick toggle flips; a snapshot
-	// taken before the other writer's write-back would silently resurrect the
-	// stale record. saveConfig is a small atomic write, cheap to hold across.
+	return a.saveSettings(func(cur appConfig) appConfig {
+		return settingsFromArgs(cur, server, web, hideIP, reportStats)
+	})
+}
+
+// saveSettings is the read-modify-write every setter goes through: change gets
+// the current record, the result is written to desktop.json, and it replaces
+// the record only when the write succeeded. The whole read-modify-write holds
+// the lock. Wails dispatches every bound call on its own goroutine, and the
+// setters race when the Settings screen fires unawaited saves on quick toggle
+// flips; a snapshot taken before another writer's write-back would silently
+// resurrect the stale record. saveConfig is a small atomic write, cheap to
+// hold across.
+func (a *App) saveSettings(change func(appConfig) appConfig) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	cfg := settingsFromArgs(a.cfg, server, web, hideIP, reportStats)
+	cfg := change(a.cfg)
 	if err := saveConfig(cfg); err != nil {
 		return err
 	}
@@ -101,18 +110,11 @@ func settingsFromArgs(cur appConfig, server, web string, hideIP, reportStats boo
 
 // SetCheckUpdates persists the update-check toggle alone, leaving every other
 // setting untouched. enabled=true is the shipped default (NoUpdateCheck=false).
-// Holds the lock across the whole read-modify-write for the same reason
-// SetSettings does: the two setters race on quick toggle flips.
 func (a *App) SetCheckUpdates(enabled bool) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	cfg := a.cfg
-	cfg.NoUpdateCheck = !enabled
-	if err := saveConfig(cfg); err != nil {
-		return err
-	}
-	a.cfg = cfg
-	return nil
+	return a.saveSettings(func(cfg appConfig) appConfig {
+		cfg.NoUpdateCheck = !enabled
+		return cfg
+	})
 }
 
 // withToasts and withToastSound are the pure halves of SetToasts and
@@ -129,30 +131,13 @@ func withToastSound(cfg appConfig, enabled bool) appConfig {
 	return cfg
 }
 
-// SetToasts persists Show notifications alone. Holds the lock across the whole
-// read-modify-write, like SetCheckUpdates: the setters race on quick toggle
-// flips, and a snapshot taken before another writer's write-back would
-// resurrect the stale record.
+// SetToasts persists Show notifications alone.
 func (a *App) SetToasts(enabled bool) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	cfg := withToasts(a.cfg, enabled)
-	if err := saveConfig(cfg); err != nil {
-		return err
-	}
-	a.cfg = cfg
-	return nil
+	return a.saveSettings(func(cfg appConfig) appConfig { return withToasts(cfg, enabled) })
 }
 
 // SetToastSound persists Play sound alone, the same way. The sound is kept when
 // notifications are off: the switch is dimmed in Settings, not cleared.
 func (a *App) SetToastSound(enabled bool) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	cfg := withToastSound(a.cfg, enabled)
-	if err := saveConfig(cfg); err != nil {
-		return err
-	}
-	a.cfg = cfg
-	return nil
+	return a.saveSettings(func(cfg appConfig) appConfig { return withToastSound(cfg, enabled) })
 }
