@@ -825,14 +825,11 @@ func (a *App) runRequestLink(rg uint64, stop <-chan struct{}, hideIP bool, lifet
 		if !a.requestActive(rg) {
 			return
 		}
-		switch {
-		case err != nil:
+		switch relayErr := requireRelay(true, hasRelay, degraded); {
+		case err != nil, relayErr == errRelayUnknown:
 			a.reqFail(rg, "relay-unknown")
 			return
-		case requireRelay(true, hasRelay, degraded) == errRelayUnknown:
-			a.reqFail(rg, "relay-unknown")
-			return
-		case requireRelay(true, hasRelay, degraded) == errNoRelay:
+		case relayErr == errNoRelay:
 			a.reqFail(rg, "no-relay")
 			return
 		}
