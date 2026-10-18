@@ -1,4 +1,4 @@
-import type {ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SVGProps} from 'react';
+import type {ButtonHTMLAttributes, InputHTMLAttributes, KeyboardEventHandler, ReactNode, SVGProps} from 'react';
 
 /** cn joins truthy class strings. A one-liner replaces clsx/tailwind-merge for this small app. */
 export const cn = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ');
@@ -129,6 +129,30 @@ export function Input({className, ...props}: InputHTMLAttributes<HTMLInputElemen
                 className,
             )}
         />
+    );
+}
+
+/** DialogShell is the frame every confirm dialog shares: the dimmed scrim, which
+ *  starts under the title bar so the window controls stay reachable, and the
+ *  role=dialog panel, named by the dialog's own heading. Each dialog keeps its
+ *  place, and with it the paint order, at its call site. */
+export function DialogShell({labelledBy, onKeyDown, children}: {
+    labelledBy: string;
+    onKeyDown?: KeyboardEventHandler<HTMLDivElement>;
+    children: ReactNode;
+}) {
+    return (
+        <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/70">
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={labelledBy}
+                onKeyDown={onKeyDown}
+                className="animate-floe-in mx-4 w-full max-w-sm rounded-xl border border-white/10 bg-zinc-900 p-5 shadow-2xl"
+            >
+                {children}
+            </div>
+        </div>
     );
 }
 

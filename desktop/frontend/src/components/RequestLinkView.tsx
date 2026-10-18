@@ -10,7 +10,7 @@
 
 import {useEffect, useRef, useState, type KeyboardEvent, type MouseEvent} from 'react';
 import {AlertCircle, Check, ChevronDown, Folder, FolderOpen, Info, Loader2, X} from 'lucide-react';
-import {Button, cn, Eyebrow, Input} from './ui';
+import {Button, cn, DialogShell, Eyebrow, Input} from './ui';
 import {Tooltip} from './Tooltip';
 import * as copy from '../requestCopy';
 import {
@@ -712,21 +712,13 @@ function Result({phase, snap, onMakeAnother, onShowInFolder}: RequestLinkViewPro
  *  which asks the same question from a request row. */
 export function RenamedConfirm({onCancel, onConfirm}: {onCancel: () => void; onConfirm: () => void}) {
     return (
-        <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/70">
-            <div
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="floe-renamed-title"
-                onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancel(); } }}
-                className="animate-floe-in mx-4 w-full max-w-sm rounded-xl border border-white/10 bg-zinc-900 p-5 shadow-2xl"
-            >
+        <DialogShell labelledBy="floe-renamed-title" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancel(); } }}>
                 <h2 id="floe-renamed-title" className="text-sm font-semibold text-white">{copy.RENAMED_CONFIRM_TITLE}</h2>
                 <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">{copy.RENAMED_CONFIRM_QUESTION}</p>
                 <div className="mt-4 flex justify-end gap-2">
                     <Button variant="outline" autoFocus onClick={onCancel}>{copy.CANCEL}</Button>
                     <Button onClick={onConfirm}>{copy.SHOW_IN_FOLDER}</Button>
                 </div>
-            </div>
-        </div>
+        </DialogShell>
     );
 }

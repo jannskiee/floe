@@ -46,7 +46,7 @@ import {
     SquareArrowOutUpRight,
     X,
 } from 'lucide-react';
-import {BoltMark, Button, cn, Eyebrow, Input, rowDescClass, rowLabelClass, StatusDot} from './components/ui';
+import {BoltMark, Button, cn, DialogShell, Eyebrow, Input, rowDescClass, rowLabelClass, StatusDot} from './components/ui';
 import {
     NOTIFICATION_SETTINGS_URI,
     NOTIFICATIONS_HEADING,
@@ -2755,13 +2755,7 @@ function App() {
                 it must sit on top and be dismissed first, and a preferences dialog
                 must never occlude it. */}
             {confirmDefaults && (
-                <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/70">
-                    <div
-                        role="dialog"
-                        aria-modal="true"
-                        aria-labelledby="floe-reset-title"
-                        className="animate-floe-in mx-4 w-full max-w-sm rounded-xl border border-white/10 bg-zinc-900 p-5 shadow-2xl"
-                    >
+                <DialogShell labelledBy="floe-reset-title">
                         <h2 id="floe-reset-title" className="text-sm font-semibold text-white">Reset all settings?</h2>
                         <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">
                             Save folder, notifications, privacy and server settings go back to defaults
@@ -2790,8 +2784,7 @@ function App() {
                             <Button variant="outline" onClick={() => { setConfirmDefaults(false); focusResetTrigger(); }}>Cancel</Button>
                             <Button onClick={resetAllSettings}>Reset all settings</Button>
                         </div>
-                    </div>
-                </div>
+                </DialogShell>
             )}
 
             {/* start-over guard: shown only when the reset would destroy moving
@@ -2800,13 +2793,7 @@ function App() {
                 states earn a prompt and which deliberately do not. Sits below
                 the titlebar so the window controls remain reachable. */}
             {confirmReset && (
-                <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/70">
-                    <div
-                        role="dialog"
-                        aria-modal="true"
-                        aria-labelledby="floe-startover-title"
-                        className="animate-floe-in mx-4 w-full max-w-sm rounded-xl border border-white/10 bg-zinc-900 p-5 shadow-2xl"
-                    >
+                <DialogShell labelledBy="floe-startover-title">
                         <h2 id="floe-startover-title" className="text-sm font-semibold text-white">Start over?</h2>
                         {/* resetWarning decided to open this dialog, so it also
                             supplies the sentence. One source, so the guard and
@@ -2829,17 +2816,10 @@ function App() {
                                 an unasked-for jump. */}
                             <Button onClick={() => { doReset(); focusLockup(); }}>Start over</Button>
                         </div>
-                    </div>
-                </div>
+                </DialogShell>
             )}
             {closeGuard && (
-                <div className="fixed inset-x-0 bottom-0 top-9 z-50 grid place-items-center bg-black/70">
-                    <div
-                        role="dialog"
-                        aria-modal="true"
-                        aria-labelledby="floe-close-title"
-                        className="animate-floe-in mx-4 w-full max-w-sm rounded-xl border border-white/10 bg-zinc-900 p-5 shadow-2xl"
-                    >
+                <DialogShell labelledBy="floe-close-title">
                         <h2 id="floe-close-title" className="text-sm font-semibold text-white">Close Floe?</h2>
                         <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">
                             {sending
@@ -2867,8 +2847,7 @@ function App() {
                                 {CLOSE_FLOE}
                             </Button>
                         </div>
-                    </div>
-                </div>
+                </DialogShell>
             )}
         </div>
     );
