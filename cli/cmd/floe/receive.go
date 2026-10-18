@@ -273,9 +273,8 @@ func checkOutputDir(dir string) error {
 }
 
 // receiveStopFlush bounds the wait for the stop frame to leave before the
-// close, inside the handler's interruptStopBound. A var only so a test can
-// shrink it.
-var receiveStopFlush = 750 * time.Millisecond
+// close, inside the handler's interruptStopBound.
+const receiveStopFlush = 750 * time.Millisecond
 
 // receiveRun is what one receive shares with its Ctrl+C step, which runs on
 // the signal goroutine (interruptStop). Exactly one of the two ends the

@@ -58,7 +58,9 @@ type Connection struct {
 	pendingCandidates []webrtc.ICECandidateInit
 	remoteCandidates  int
 
-	// connected is sent once when the PeerConnection reaches "connected" state
+	// connected receives the connection's outcome: nil when the PeerConnection
+	// reaches "connected", the error when it fails, disconnects or closes. A
+	// state that finds it full is dropped.
 	connected chan error
 
 	// early is the data channel's message pump, wired the instant the channel

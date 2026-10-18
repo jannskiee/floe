@@ -53,7 +53,9 @@ type Client struct {
 	// Signal receives raw JSON signal payloads (SDP or ICE) from the remote peer.
 	Signal chan json.RawMessage
 
-	// PeerLeft is closed/sent when the remote peer disconnects.
+	// PeerLeft receives a push, and is never closed, when the server reports
+	// the remote peer gone (peer-disconnected) and when the read loop ends
+	// (after Down closes).
 	PeerLeft chan struct{}
 
 	// RoomFull is sent when the room already has two peers.
