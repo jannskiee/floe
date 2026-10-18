@@ -332,18 +332,15 @@ func (e *PeerStoppedError) Error() string {
 // CommitError is the receive-side error for a file that arrived in full and
 // verified but could not be moved from its .part to its final name. The
 // staging file is left in place on purpose (deleting complete bytes over a
-// transient lock would be data loss), and the fields say where it is so a
+// transient lock would be data loss), and PartPath says where it is so a
 // caller can retry the move or point at it.
 //
 // The receive loop returns it when a commit still fails after its retries
 // (ReceiveLimits.CommitRetry, or five attempts), right after sending
-// save-blocked. Error() prints no path and no cause: PartPath, Dest and Base
-// carry the sender's file name after sanitizing, and Err can carry the OS's
-// own words.
+// save-blocked. Error() prints no path and no cause: PartPath carries the
+// sender's file name after sanitizing, and Err can carry the OS's own words.
 type CommitError struct {
 	PartPath string // the .part still on disk, complete and verified
-	Dest     string // the final name this receive had claimed
-	Base     string // the sanitized path the claim started from
 	Err      error
 }
 

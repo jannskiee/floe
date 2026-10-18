@@ -891,7 +891,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					finalPath, commitErr := commitPart(partPath, currentDest, currentBase, commitRetry)
 					if commitErr != nil {
 						AbortWithCode(dc, localVer, CodeSaveBlocked, CodeSaveBlocked.WireReason(), filesReceived)
-						return &CommitError{PartPath: partPath, Dest: currentDest, Base: currentBase, Err: commitErr}
+						return &CommitError{PartPath: partPath, Err: commitErr}
 					}
 
 					// External interference only: something claimed the final name

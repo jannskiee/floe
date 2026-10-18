@@ -263,7 +263,7 @@ func TestRefusedErrorSentencesAreFixed(t *testing.T) {
 // no cause, although every field it carries holds one.
 func TestCommitErrorSentenceIsFixed(t *testing.T) {
 	cause := errors.New("rename C:\\Users\\someone\\secret.part: The process cannot access the file because it is being used by another process.")
-	commit := &CommitError{PartPath: "C:\\x\\secret.part", Dest: "C:\\x\\secret", Base: "C:\\x\\secret", Err: cause}
+	commit := &CommitError{PartPath: "C:\\x\\secret.part", Err: cause}
 	const rx10 = "received a file in full but could not finish saving it; the complete file was kept in the save folder with a .part ending"
 	got := commit.Error()
 	if got != rx10 {
