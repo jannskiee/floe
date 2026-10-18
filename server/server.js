@@ -72,7 +72,10 @@ function getClientIp(xffHeader, socketAddr) {
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const allowedOrigins = [
-    process.env.CLIENT_URL,
+    // One trailing slash dropped: a browser's Origin never ends with one, so
+    // an address copied from the location bar (https://app.example.com/)
+    // matched nothing and refused the operator's own web app.
+    process.env.CLIENT_URL && process.env.CLIENT_URL.replace(/\/$/, ''),
     'https://www.floe.one',
     'https://floe.one',
     'http://localhost:3000',

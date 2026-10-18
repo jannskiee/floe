@@ -1754,3 +1754,24 @@ test('a TRUSTED_PROXY_COUNT that cannot be a count trusts no proxy', async (t) =
     assert.equal(closedWith, 1008);
     await assertSurvived(srv, 'two connections under a TRUSTED_PROXY_COUNT that cannot be a count');
 });
+
+// --- CLIENT_URL -----------------------------------------------------------------
+
+test('a CLIENT_URL written with a trailing slash still lets its own web app in', async (t) => {
+    // A browser's Origin never ends with a slash, so an address copied from the
+    // location bar used to match nothing: the operator's own page got a 403
+    // over HTTP, and a refused /ws on a host name of its own.
+    const srv = await startServer({ CLIENT_URL: 'https://app.example.test/' });
+    t.after(() => srv.stop());
+
+    const answer = await get(srv, '/health', { Origin: 'https://app.example.test' });
+    assert.equal(answer.status, 200, "the web app's own origin was refused over HTTP");
+
+    // The two-hostname layout: the page on app., the server on api., so the
+    // same-host rule cannot let it in and only CLIENT_URL can.
+    const upgrade = await rawUpgrade(srv, '/ws', 'Origin: https://app.example.test\r\n', 'api.example.test');
+    assert.match(upgrade.head, /^HTTP\/1\.1 101 /, `the web app's own origin was refused on /ws: ${upgrade.head.split('\r\n')[0]}`);
+    upgrade.socket.destroy();
+
+    await assertSurvived(srv, 'a CLIENT_URL with a trailing slash');
+});
