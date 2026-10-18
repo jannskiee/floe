@@ -57,6 +57,9 @@ export const MAX_QUEUED_WHILE_PENDING = 8;
 
 const HASH_MISMATCH_REASON = 'receiver discarded a file because its SHA-256 did not match';
 const HASH_UNREADABLE_REASON = "receiver discarded a file because the sender's SHA-256 was not readable";
+const OVERSIZE_MESSAGE =
+    'The sender sent a control message larger than ' +
+    `${CONTROL_MSG_MAX} bytes, so the transfer was stopped.`;
 
 export interface ReceiverCallbacks {
     send: (data: string | Uint8Array) => void;
@@ -277,10 +280,7 @@ export function createReceiver(
         const bytes = new TextEncoder().encode(data).byteLength;
         if (bytes > CONTROL_MSG_MAX) {
             refuseOversize(bytes);
-            stopWhilePending(
-                'The sender sent a control message larger than ' +
-                    `${CONTROL_MSG_MAX} bytes, so the transfer was stopped.`
-            );
+            stopWhilePending(OVERSIZE_MESSAGE);
             return;
         }
         if (queued.length >= MAX_QUEUED_WHILE_PENDING) {
@@ -606,10 +606,7 @@ export function createReceiver(
                 release();
                 clearProgress();
                 refuseOversize(textBytes);
-                cb.onError?.(
-                    'The sender sent a control message larger than ' +
-                        `${CONTROL_MSG_MAX} bytes, so the transfer was stopped.`
-                );
+                cb.onError?.(OVERSIZE_MESSAGE);
                 return;
             }
             const msg = classifyControl(text);
