@@ -335,11 +335,11 @@ jobs:
       # One leg failing says which Node broke; the other still reports.
       fail-fast: false
       matrix:
-        # 20 is the oldest version anything tests, which
+        # 22 is the oldest version anything tests, which
         # docs/self-hosting/without-docker.mdx tells self-hosters; 24 is what
         # server/Dockerfile runs, so it is what floe.one's signaling server and
-        # every published image run. Until 2026-10-13 only 20 was tested.
-        node: [20, 24]
+        # every published image run. 20 left the matrix past its end of life.
+        node: [22, 24]
 
     steps:
       - name: Checkout

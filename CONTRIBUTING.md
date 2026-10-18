@@ -22,7 +22,7 @@ For UI work (pages, components) that never receives a file, you only need to run
 
 - **Node.js 22.13 or newer.**
   - The client needs it: pnpm 11 requires at least Node.js 22.13, and CI builds and tests the client on Node 22.
-  - CI tests the signaling server on Node 20 and on Node 24, and the published container images run both services on Node 24.
+  - CI tests the signaling server on Node 22 and on Node 24, and the published container images run both services on Node 24.
   - No `package.json` in the repository declares an `engines` range, so an older Node is not refused up front. It fails later, when something needs a newer one.
 - **pnpm 11** for the client. The repo pins `pnpm@11.1.2` through the `packageManager` field. Install it in one of two ways:
   - Directly, with `npm install -g pnpm@11`.
@@ -345,7 +345,7 @@ A first job, `Detect changed paths`, decides which of the jobs below run, and `C
 |--------|-----------|----------------|
 | `Repo guardrails` | Every PR | That every file reading a value the other peer chose is listed in the peer-data consumer map, and the docs pre-flight: links and anchors, tables, headings MDX cannot compile, documented server defaults, em and en dashes, the docs page standard, the message list and the screenshot manifests |
 | `Build & Lint` | Code changed | Client lint, unit tests, production build and page titles, plus a check that the desktop release named in `client/lib/desktopRelease.ts` has its assets on GitHub |
-| `Server (Node.js 20)`, `Server (Node.js 24)` | Code changed | Server tests, once on each Node version |
+| `Server (Node.js 22)`, `Server (Node.js 24)` | Code changed | Server tests, once on each Node version |
 | `CLI (Go, <os>)` | Code changed | Vet, tests and build, on Linux, Windows and macOS |
 | `Go formatting` | Code changed | `gofmt -l` over every tracked `.go` file |
 | `Desktop (Wails, windows-latest)` | Code changed | Frontend tests and build, Go vet and tests, then a packaging smoke that builds the NSIS installer and packs the MSIX |
