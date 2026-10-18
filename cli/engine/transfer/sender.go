@@ -166,12 +166,13 @@ type endMsg struct {
 }
 
 // controlFields reads a receiver's frame as a JSON object and its "type" by
-// EXACT key, the way parseReceived does and the browser's classifyControl
-// does. A struct tag would match "TYPE" too, so a frame the browser ignores
-// used to be honored here. An absent key is a nil RawMessage, which fails to
-// decode, so absent and mistyped both read as "not this frame"; a duplicate
-// key keeps its last value on both sides. Over the control cap is never
-// parsed: that is file data or prose where a control message belongs.
+// EXACT key, the way the browser's classifyControl does; parseReceived and
+// parseAckConfirms read through it. A struct tag would match "TYPE" too, so a
+// frame the browser ignores used to be honored here. An absent key is a nil
+// RawMessage, which fails to decode, so absent and mistyped both read as "not
+// this frame"; a duplicate key keeps its last value on both sides. Over the
+// control cap is never parsed: that is file data or prose where a control
+// message belongs.
 func controlFields(raw []byte) (fields map[string]json.RawMessage, typ string, ok bool) {
 	if len(raw) > controlMsgMax {
 		return nil, "", false
@@ -431,17 +432,13 @@ func savedCountIn(fields map[string]json.RawMessage, total int) int {
 // "all matched". The count is the receiver's claim, used only for equality
 // with the file count.
 //
-// The type is read by its exact key too. A struct tag matches keys without
-// regard to case, so {"TYPE":"received"} used to count as a delivery
-// confirmation here while the browser twin ignores it (found by
+// The type is read by its exact key too, through controlFields. A struct tag
+// matches keys without regard to case, so {"TYPE":"received"} used to count
+// as a delivery confirmation here while the browser twin ignores it (found by
 // FuzzParseReceived, CP-0 campaign, 2026-09-18).
 func parseReceived(raw []byte, files int) (ok bool, verified int, hasVerified bool) {
-	if len(raw) > controlMsgMax {
-		return false, 0, false
-	}
-	var fields map[string]json.RawMessage
-	var typ string
-	if json.Unmarshal(raw, &fields) != nil || json.Unmarshal(fields["type"], &typ) != nil || typ != "received" {
+	fields, typ, ok := controlFields(raw)
+	if !ok || typ != "received" {
 		return false, 0, false
 	}
 	lit := fields["verified"]
