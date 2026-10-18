@@ -11,7 +11,7 @@ import { copyText } from '@/lib/clipboard';
 // the desktop app ships on today, so it matches where the rest of the site
 // points. The first entry is also what every visitor sees before touching a
 // tab, since the active tab defaults to index 0.
-export const CLI_INSTALL_TABS = [
+const CLI_INSTALL_TABS = [
     { label: 'Windows', prompt: '>', command: 'winget install jannskiee.floe' },
     { label: 'macOS', prompt: '$', command: 'brew install --cask jannskiee/tap/floe' },
     { label: 'Linux', prompt: '$', command: 'curl -fsSL https://floe.one/install.sh | sh' },

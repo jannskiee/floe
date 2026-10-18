@@ -10,13 +10,13 @@
 // minutes adds nothing.
 
 /** Sending time before any whole-drop estimate is shown. */
-export const ETA_WARMUP_MS = 60_000;
+const ETA_WARMUP_MS = 60_000;
 /** Over this, C-95 (plugged in and awake, pin the tab). */
-export const ETA_PLUGGED_IN_S = 20 * 60;
+const ETA_PLUGGED_IN_S = 20 * 60;
 /** Over this, C-96 (a dropped connection restarts the moving file). */
-export const ETA_STARTS_OVER_S = 2 * 3600;
+const ETA_STARTS_OVER_S = 2 * 3600;
 /** Over this, C-97: the host's 24-hour cap would stop the drop. */
-export const ETA_WILL_STOP_S = 24 * 3600;
+const ETA_WILL_STOP_S = 24 * 3600;
 
 /** Bytes of the drop delivered so far, from the visitor's own file sizes:
  *  after the ack of file `ackIndex` (1-based), files before it are whole and

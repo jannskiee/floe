@@ -12,7 +12,7 @@
 // session. A wall clock set backwards, or any reading that is not a number, is
 // not sleep: this only ever adds a caution line, so it must not guess.
 
-export const SLEEP_GAP_MS = 30_000;
+const SLEEP_GAP_MS = 30_000;
 
 export function sleptWhileHidden(input: { dateDeltaMs: number; perfDeltaMs: number }): boolean {
     const gap = input.dateDeltaMs - input.perfDeltaMs;

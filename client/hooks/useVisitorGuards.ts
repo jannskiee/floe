@@ -6,7 +6,7 @@ import { sleptWhileHidden } from '@/lib/request/sleepCheck';
 import type { VisitorState } from '@/lib/request/visitorState';
 
 /** The hidden-tab title is refreshed at most this often (spec 07 4.14.3). */
-export const TITLE_UPDATE_MS = 5_000;
+const TITLE_UPDATE_MS = 5_000;
 
 /**
  * The request link visitor's tab durability guards (spec 07 4.14), keyed on the

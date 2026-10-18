@@ -18,7 +18,7 @@ export const ICE_LIST_MAX_AGE_MS = 60 * 60 * 1000;
 /** How long a connection waits for that read before it goes on with the list
  *  it has. A hung read must not hold the transfer: the receiver is waiting
  *  for an offer the whole time. */
-export const ICE_LIST_READ_WAIT_MS = 5_000;
+const ICE_LIST_READ_WAIT_MS = 5_000;
 
 /** What a page connects with before any read succeeds. */
 export const STUN_DEFAULTS: readonly RTCIceServer[] = [

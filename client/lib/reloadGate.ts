@@ -35,7 +35,7 @@
  *  never meets its own prompt. */
 export const RELEASE_SETTLE_MS = 1_000;
 
-export type ReloadKind = 'stale-bundle' | 'room-link';
+type ReloadKind = 'stale-bundle' | 'room-link';
 
 export interface ReloadGate {
     /** Holds the tab until the returned function is called. Calling it

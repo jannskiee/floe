@@ -21,7 +21,7 @@
 // If type or zoom makes rows taller, a list of four is a little over 300 px
 // before it scrolls at five, which is harmless.
 
-export const FILE_LIST_ROWS_BEFORE_SCROLL = 4;
+const FILE_LIST_ROWS_BEFORE_SCROLL = 4;
 
 export function fileListScrolls(rows: number): boolean {
     return rows > FILE_LIST_ROWS_BEFORE_SCROLL;

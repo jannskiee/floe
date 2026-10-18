@@ -210,7 +210,7 @@ export interface NameSet {
  * review of the streamed ZIP, 2026-10-16). Names keep their own case; only
  * the comparison folds.
  */
-export function foldedNames(): NameSet {
+function foldedNames(): NameSet {
     const taken = new Set<string>();
     const fold = (name: string) => name.normalize('NFC').toLowerCase();
     return {

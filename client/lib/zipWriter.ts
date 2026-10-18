@@ -46,10 +46,10 @@ export const ZIP_MAX_ENTRIES = 0xfffe;
  * How much of a file is read into the tab at once. Large enough that the
  * per-read overhead is noise, small next to any device's memory.
  */
-export const ZIP_SLICE_BYTES = 4 * 1024 * 1024;
+const ZIP_SLICE_BYTES = 4 * 1024 * 1024;
 
 /** Archive bytes gathered in the tab before they become one Blob part. */
-export const ZIP_PART_BYTES = SPILL_BYTES;
+const ZIP_PART_BYTES = SPILL_BYTES;
 
 // The fixed parts of a stored entry as fflate's streaming Zip writes them:
 // a local header with no sizes (general purpose bit 3), the 16-byte data
