@@ -1456,7 +1456,7 @@ func TestRequestWakeAcquiredOnAcceptReleasedOnEnd(t *testing.T) {
 			if requestHeld(w) || *allows != 1 {
 				t.Fatalf("%s left the request hold (allows %d)", name, *allows)
 			}
-			if a.lane().liveNow() {
+			if a.lane().live.Load() {
 				t.Fatalf("%s left the lane live", name)
 			}
 		})

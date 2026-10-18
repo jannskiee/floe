@@ -441,7 +441,7 @@ func TestRestoredDropIsTheStoppedDrop(t *testing.T) {
 	if s.Result == nil || s.Result.Saved != 4 || s.Result.Files != 12 || s.Result.EndedAt != at || s.Result.Folder != `D:\Floe\Acme` {
 		t.Fatalf("restored result = %+v", s.Result)
 	}
-	if a.lane().closeGuardNow() || a.lane().liveNow() {
+	if a.lane().closeGuardNow() || a.lane().live.Load() {
 		t.Fatal("a restored drop holds the close guard or the one-link rule")
 	}
 	a.lane().restoreQuitDrop(quitDrop{}, false)

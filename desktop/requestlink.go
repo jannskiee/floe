@@ -387,20 +387,12 @@ func liveState(state string) bool {
 	return false
 }
 
-// liveNow reports whether a link is being made, is open, or a drop runs. It
-// reads the atomic only and never takes the lane mutex. The close guard reads
-// closeGuardNow since 0ce8486, and the one-link rule reads l.live under the
-// lane mutex, so only tests call this now. Nil-safe.
-func (l *requestLane) liveNow() bool {
-	return l != nil && l.live.Load()
-}
-
 // closeGuardNow reports whether the lane must hold a close for the Close Floe?
 // question: a link is open or a drop runs. A link still being made is not
 // one: nothing has been shared yet, closeForQuit ends the making, and the
 // question had no sentence for it, so it said "Closing Floe stops the
 // transfer" where there was none (deep QA A5-03). The one-link rule still
-// counts making (liveNow). Atomic only, like liveNow. Nil-safe.
+// counts making (l.live). Atomic only, never the lane mutex. Nil-safe.
 func (l *requestLane) closeGuardNow() bool {
 	return l != nil && l.holdsClose.Load()
 }

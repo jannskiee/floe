@@ -244,7 +244,7 @@ func TestCloseNotBlockedWhileMaking(t *testing.T) {
 	if a.closeBlocked() {
 		t.Fatal("a link being made blocks close")
 	}
-	if !a.lane().liveNow() {
+	if !a.lane().live.Load() {
 		t.Fatal("a link being made no longer counts for the one-link rule")
 	}
 	for _, s := range []string{"waiting", "reconnecting", "connecting", "deciding", "declined", "receiving"} {
@@ -324,7 +324,7 @@ func TestConfirmCloseClosesRequestLane(t *testing.T) {
 	if s := stateOf(a); s.State != "ended" || s.Code != "app-closed" || s.Link != "" {
 		t.Fatalf("lane after ConfirmClose: %+v", s)
 	}
-	if a.closeBlocked() || l.liveNow() {
+	if a.closeBlocked() || l.live.Load() {
 		t.Fatal("the lane is still live after ConfirmClose")
 	}
 	waitFor(t, 5*time.Second, "the socket to close", func() bool {
