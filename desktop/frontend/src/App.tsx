@@ -985,8 +985,12 @@ function App() {
         }
     }, [reqUI.snap.state, reqUI.snap.promptGen, reqUI.snap.gen]);
 
+    // A full store makes setItem throw QuotaExceededError, and an effect that
+    // throws unmounts the whole app (there is no error boundary), title bar
+    // and Close included, so these three writes are guarded: a refused write
+    // is dropped and the screen stays.
     // Persist only the transfer tabs; relaunching into History would be odd.
-    useEffect(() => { if (mode !== 'history') localStorage.setItem('floe:mode', mode); }, [mode]);
+    useEffect(() => { try { if (mode !== 'history') localStorage.setItem('floe:mode', mode); } catch { /* storage unavailable */ } }, [mode]);
     // Persists only what the app changed. loadHistory swallows a parse error
     // and returns [], and this effect used to fire on mount, so a corrupt or
     // hand-edited store was overwritten with "[]" before anything could report
@@ -1001,9 +1005,9 @@ function App() {
     const loadedHistory = useRef(history);
     useEffect(() => {
         if (history === loadedHistory.current) return;
-        localStorage.setItem('floe:history', JSON.stringify(history));
+        try { localStorage.setItem('floe:history', JSON.stringify(history)); } catch { /* storage unavailable */ }
     }, [history]);
-    useEffect(() => { localStorage.setItem('floe:saveDir', output); }, [output]);
+    useEffect(() => { try { localStorage.setItem('floe:saveDir', output); } catch { /* storage unavailable */ } }, [output]);
 
     // Per-visit settings-screen state, forgotten when Settings closes by ANY route.
     // Collapsing Advanced is a per-visit choice, so reopening Settings with a

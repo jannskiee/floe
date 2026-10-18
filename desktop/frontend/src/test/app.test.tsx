@@ -431,6 +431,56 @@ describe('the history store', () => {
         // recoverable right up until that ran.
         expect(localStorage.getItem('floe:history')).toBe('{not json');
     });
+
+    // A store the origin's quota has filled: jsdom's is 5,000,000 code units
+    // (jsdom/lib/api.js), the order of Chromium's. One old receive row fills
+    // it, the state a few large folder receives leave behind, since a code
+    // receive keeps every saved name. The next persist then threw
+    // QuotaExceededError inside an effect, and with no error boundary React
+    // unmounted the root: the window went blank, its title bar and Close
+    // included.
+    const QUOTA = 5_000_000;
+    function fillStore(room: number) {
+        // App writes floe:mode = 'send' and floe:saveDir = '' at mount.
+        const mountKeys = 'floe:mode'.length + 'send'.length + 'floe:saveDir'.length;
+        const row = (name: string) => [{kind: 'recv', names: [name], count: 1, dir: 'C:\\dl', at: 1_700_000_000_000, bytes: 1}];
+        const base = 'floe:history'.length + JSON.stringify(row('')).length + mountKeys;
+        localStorage.setItem('floe:history', JSON.stringify(row('x'.repeat(QUOTA - room - base))));
+    }
+
+    it('a finished code receive keeps the window up when floe:history has no room left', async () => {
+        fillStore(40);
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
+        await user.type(screen.getByPlaceholderText('amber-otter-cloud'), 'amber-otter-cloud');
+        await user.click(screen.getAllByRole('button', {name: 'Receive'}).find((b) => b.className.includes('w-full'))!);
+        expect(await screen.findByText('Saved to C:\\Users\\test\\Downloads')).toBeTruthy();
+        expect(screen.getByRole('button', {name: 'Start over'})).toBeTruthy();
+    });
+
+    it('typing a Save to folder keeps the window up when floe:saveDir has no room left', async () => {
+        fillStore(6);
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
+        await user.type(screen.getByPlaceholderText('Downloads (default)'), 'D:\\Floe\\inbox');
+        expect((screen.getByPlaceholderText('Downloads (default)') as HTMLInputElement).value).toBe('D:\\Floe\\inbox');
+        expect(screen.getByRole('button', {name: 'Start over'})).toBeTruthy();
+    });
+
+    it('switching to Receive keeps the window up when floe:mode has no room left', async () => {
+        // 'receive' is three code units longer than 'send'.
+        fillStore(2);
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
+        expect(screen.getByPlaceholderText('amber-otter-cloud')).toBeTruthy();
+        expect(screen.getByRole('button', {name: 'Start over'})).toBeTruthy();
+    });
 });
 
 describe('the progress label', () => {
