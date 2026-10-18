@@ -137,22 +137,6 @@ var sendToStopWait = 500 * time.Millisecond
 // it.
 var sendToStopBound = 3 * time.Second
 
-// parkUntilExit is where the command waits once Ctrl+C has taken its ending.
-// main's handler prints the one line and exits 130, so the command must print
-// nothing more and never return, or main's os.Exit(1) races the handler's
-// exit (review lens A finding 1, lens B M1). A var only so a test can let the
-// command return once the handler has exited.
-var parkUntilExit = func() { select {} }
-
-// park ends a plain send or a receive once Ctrl+C has its ending: in the
-// binary never (parkUntilExit), so main's os.Exit(1) cannot race the
-// handler's exit 130 or print a line after "Canceled." (FU-54 review 1 M2).
-// A test that lets it return gets the error execute prints nothing for.
-func park() error {
-	parkUntilExit()
-	return errSendToEnded
-}
-
 // sendToPhase is where one send stands, for its Ctrl+C.
 type sendToPhase int
 
