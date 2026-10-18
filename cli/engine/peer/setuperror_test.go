@@ -321,7 +321,7 @@ func forbiddenRune(r rune) bool {
 // the test would be proving nothing about a sink.
 func TestSetupErrorIsDisplaySafe(t *testing.T) {
 	marker := "$(calc)]]><"
-	hostile := "‮\x1b[2K" + marker + strings.Repeat("A", 5000)
+	hostile := "\u202e\x1b[2K" + marker + strings.Repeat("A", 5000)
 	fixtures := map[string]string{
 		"invalid line":   "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n" + hostile + "\r\n",
 		"invalid value":  "v=" + hostile + "\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n",
@@ -352,7 +352,7 @@ func TestSetupErrorIsDisplaySafe(t *testing.T) {
 					break
 				}
 			}
-			if strings.Contains(shown, "‮") || strings.Contains(shown, "\x1b") {
+			if strings.Contains(shown, "\u202e") || strings.Contains(shown, "\x1b") {
 				t.Errorf("a raw bidi override or escape reached Error(): %q", shown)
 			}
 			if !errors.Is(err, se.Err) {

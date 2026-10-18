@@ -132,7 +132,7 @@ func FuzzParseRequestLink(f *testing.F) {
 		"word code":                  "olive-tiger-castle",
 		"empty":                      "",
 		"missing fragment":           "https://floe.one/r/" + id,
-		"bidi override in the id":    "https://floe.one/r/Xk3p9Q0‮aB1c#" + room,
+		"bidi override in the id":    "https://floe.one/r/Xk3p9Q0\u202eaB1c#" + room,
 		"nul in the fragment":        "https://floe.one/r/" + id + "#" + room[:8] + "\x00" + room[9:],
 		"percent-encoded fragment":   "https://floe.one/r/" + id + "#%36f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f",
 		"javascript scheme":          "javascript:alert(1)//r/" + id + "#" + room,

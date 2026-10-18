@@ -179,7 +179,7 @@ func TestBadSDPSignalIsAWellFormedEnvelopeWithBadSDP(t *testing.T) {
 	// The SDP carries the hostile marker on its m= line (a shell substitution,
 	// markup and a bidi override), so a host that leaked the parse error would
 	// put it on screen.
-	for _, sub := range []string{"$(calc)]]><img", "<img src=x>", "‮"} {
+	for _, sub := range []string{"$(calc)]]><img", "<img src=x>", "\u202e"} {
 		if !strings.Contains(sdp, sub) {
 			t.Errorf("bad-sdp SDP missing marker %q", sub)
 		}

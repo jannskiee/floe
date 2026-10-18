@@ -1934,7 +1934,7 @@ func TestSendToRelayOverCapEndsBeforeWait(t *testing.T) {
 // over the control cap; nor after the last file, in the wait for received.
 func TestSendToHostileReasonNeverPrinted(t *testing.T) {
 	const marker = "zqx-hostile-reason"
-	hostile := marker + " $(calc) ‮\x1b[2J `whoami` ;rm -rf ~"
+	hostile := marker + " $(calc) \u202e\x1b[2J `whoami` ;rm -rf ~"
 	enc := func(s string) string {
 		b, _ := json.Marshal(s)
 		return string(b)
@@ -2039,7 +2039,7 @@ func TestSendToHostileReasonNeverPrinted(t *testing.T) {
 			}
 			wantOutcome(t, r, c.lines...)
 			both := r.stdout + r.stderr
-			for _, bad := range []string{marker, "$(calc)", "‮", "\x1b", "whoami", "rm -rf", "protocol 9"} {
+			for _, bad := range []string{marker, "$(calc)", "\u202e", "\x1b", "whoami", "rm -rf", "protocol 9"} {
 				if strings.Contains(both, bad) {
 					t.Fatalf("%q reached the terminal:\nstdout:\n%s\nstderr:\n%s", bad, r.stdout, r.stderr)
 				}
