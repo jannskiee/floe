@@ -116,6 +116,7 @@ import SharePanel from './components/SharePanel';
 import HistoryView from './components/HistoryView';
 import RequestLinkView, {DECLINED_LINE_ID, LABEL_INPUT_ID, PROMPT_ACTIONS_ID, PROMPT_HEADING_ID} from './components/RequestLinkView';
 import {useCardPin} from './cardPin';
+import {useCopied} from './copied';
 
 type Mode = 'send' | 'receive' | 'history';
 
@@ -215,8 +216,7 @@ function App() {
     const [testStatus, setTestStatus] = useState('');
     const [testing, setTesting] = useState(false);
     // Transient label flip on the About Copy button.
-    const [aboutCopied, setAboutCopied] = useState(false);
-    const aboutTimer = useRef<number | null>(null);
+    const {copied: aboutCopied, copyText} = useCopied<true>();
 
     // Whether the Advanced section is open. null means "not touched this visit",
     // which is what lets a configured server force it open without preventing the
@@ -510,8 +510,8 @@ function App() {
         return s ? ` · Both people must use ${hostOf(s)}` : '';
     }
 
-    // Copies the About rows for pasting into a bug report. Mirrors SharePanel's
-    // copy handler, including the 1500ms label flip.
+    // Copies the About rows for pasting into a bug report, with the Copied mark
+    // every copy button shares (useCopied).
     //
     // The server line is the whole reason this button is worth having: almost every
     // confusing report about a transfer that will not connect comes down to the two
@@ -524,14 +524,7 @@ function App() {
             `Server: ${serverAddrRef.current.trim() || 'api.floe.one (default)'}`,
         ];
         if (webAddrRef.current.trim()) lines.push(`Share links: ${webAddrRef.current.trim()}`);
-        try {
-            await navigator.clipboard.writeText(lines.join('\n'));
-            setAboutCopied(true);
-            if (aboutTimer.current !== null) clearTimeout(aboutTimer.current);
-            aboutTimer.current = window.setTimeout(() => setAboutCopied(false), 1500);
-        } catch {
-            // clipboard unavailable
-        }
+        await copyText(true, lines.join('\n'));
     }
 
     // Clears both addresses and persists immediately. It cannot rely on the blur

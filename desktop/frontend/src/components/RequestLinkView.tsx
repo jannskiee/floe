@@ -28,6 +28,7 @@ import {
 } from '../requestLink';
 import {fmtEta, fmtSpeed, type Prog} from '../progress';
 import {shortDropFolder, shortPath} from '../paths';
+import {useCopied} from '../copied';
 import {VerifiedMark} from './TransferBits';
 
 /** The link block and the activity slot below it: the phases in which a link
@@ -322,19 +323,8 @@ function ReadyForm({phase, errorCode, hideIP, saveDir, onSaveDirChange, onMake, 
 
 // ---- The link block (DW-01): the fixed geometry of every link phase --------
 function LinkBlock({phase, snap, onClose}: {phase: Phase; snap: RequestLinkSnapshot; onClose: () => void}) {
-    const [copied, setCopied] = useState(false);
-    const timer = useRef<number | null>(null);
-    useEffect(() => () => { if (timer.current !== null) clearTimeout(timer.current); }, []);
-    async function copyLink() {
-        try {
-            await navigator.clipboard.writeText(snap.link);
-            setCopied(true);
-            if (timer.current !== null) clearTimeout(timer.current);
-            timer.current = window.setTimeout(() => setCopied(false), 1500);
-        } catch {
-            // clipboard unavailable
-        }
-    }
+    const {copied, copyText} = useCopied<true>();
+    function copyLink() { return copyText(true, snap.link); }
     return (
         <div className="space-y-2">
             {/* With no label the heading is for screen readers only; it still

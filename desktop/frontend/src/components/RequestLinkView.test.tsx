@@ -273,6 +273,30 @@ describe('the Accept guard', () => {
     });
 });
 
+// Copy link's mark lasts 1.5 s from the copy that set it, as the share
+// panel's and About's do: a second copy inside the window keeps its own 1.5 s.
+describe('Copy link', () => {
+    beforeEach(() => { vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']}); });
+    afterEach(() => { vi.useRealTimers(); });
+    // The copy awaits the clipboard; two microtask turns let it finish.
+    const flush = () => act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    it('reads Copied for 1.5 s from each copy, then Copy link again', async () => {
+        render(<RequestLinkView {...at('waiting')}/>);
+        const button = screen.getByRole('button', {name: 'Copy link'});
+        fireEvent.click(button);
+        await flush();
+        expect(button.textContent).toBe('Copied');
+        act(() => { vi.advanceTimersByTime(1000); });
+        fireEvent.click(button);
+        await flush();
+        act(() => { vi.advanceTimersByTime(600); });
+        expect(button.textContent).toBe('Copied');
+        act(() => { vi.advanceTimersByTime(900); });
+        expect(button.textContent).toBe('Copy link');
+    });
+});
+
 describe('the fixed Close link box', () => {
     it('close link box does not move', () => {
         const p = at('waiting');

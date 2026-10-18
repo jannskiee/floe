@@ -1,10 +1,11 @@
 // The receiver-facing half of a send: the code, the link and the QR.
 
-import {useEffect, useRef, useState} from 'react';
+import {useState} from 'react';
 import {Check, Copy, QrCode, Share2} from 'lucide-react';
 import QRCode from 'react-qr-code';
 import {Eyebrow, cn} from './ui';
 import {Tooltip} from './Tooltip';
+import {useCopied} from '../copied';
 
 /** SharePanel is the single share surface, mirroring the browser's ShareLinkPanel:
  *  code hero + a [Copy link] [Show QR] [Share] action row. Shown only while
@@ -13,22 +14,8 @@ import {Tooltip} from './Tooltip';
  *  link because code registration can fail while the link is always valid; the
  *  code hero simply drops out when the code is empty. */
 export default function SharePanel({code, link}: {code: string; link: string}) {
-    const [copied, setCopied] = useState<'code' | 'link' | null>(null);
+    const {copied, copyText: copy} = useCopied<'code' | 'link'>();
     const [qrOpen, setQrOpen] = useState(false);
-    // One timer for both marks, cleared before each copy and on unmount (the
-    // panel goes when the receiver joins), so a mark lasts 1.5 s from its copy.
-    const timer = useRef<number | null>(null);
-    useEffect(() => () => { if (timer.current !== null) clearTimeout(timer.current); }, []);
-    async function copy(kind: 'code' | 'link', text: string) {
-        try {
-            await navigator.clipboard.writeText(text);
-            setCopied(kind);
-            if (timer.current !== null) clearTimeout(timer.current);
-            timer.current = window.setTimeout(() => setCopied(null), 1500);
-        } catch {
-            // clipboard unavailable
-        }
-    }
     // Mirrors the browser's share handler: user-cancel is not an error; anything
     // else falls back to copying the link.
     async function share() {
