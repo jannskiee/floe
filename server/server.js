@@ -523,8 +523,8 @@ function cleanupTick(now = Date.now()) {
     for (const [code, entry] of codeToRoom.entries()) {
         if (now > entry.expires) dropCode(code, entry.roomId);
     }
-    // Last, and in its own try/catch: a throw inside a setInterval callback
-    // reaches the process backstop (crashguard.test.js fails on that line).
+    // In its own try/catch: a throw inside a setInterval callback reaches the
+    // process backstop (crashguard.test.js fails on that line).
     try { policyStore.reload(); } catch { /* keep the last good policy */ }
     // A reservation ends here when its host has been gone for longer than the
     // grace, so the effective grace is 10 to 11 minutes (exactly 10 on a
