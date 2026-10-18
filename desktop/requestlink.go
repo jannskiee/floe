@@ -726,7 +726,7 @@ func (a *App) MakeRequestLink(label string, saveDir string, lifetime string, aut
 	}
 	// A socket an ended link's goroutine has not let go of yet is taken here
 	// and torn down below, so the new link's registration can never orphan
-	// it (finishRequestSocket leaves a socket it no longer owns alone).
+	// it (releaseRequestSocket leaves a socket it no longer owns alone).
 	leftover := l.sc
 	l.sc = nil
 	// The same for a peer connection and a drop cancel an ended drop did not
@@ -889,7 +889,9 @@ func (a *App) runRequestLink(rg uint64, stop <-chan struct{}, hideIP bool, lifet
 	for {
 		switch a.waitRequest(rg, stop, sc, expiresAt) {
 		case waitEnded:
-			a.finishRequestSocket(sc)
+			// Request-close best effort: a used-up or ended link frees its
+			// reservation now.
+			a.releaseRequestSocket(sc, true)
 			return
 		case waitDown:
 			a.releaseRequestSocket(sc, false)
@@ -1026,16 +1028,6 @@ func (a *App) waitRequest(rg uint64, stop <-chan struct{}, sc *signaling.Client,
 			}
 		}
 	}
-}
-
-// finishRequestSocket lets go of the lane goroutine's socket when its link
-// has ended. A socket still registered with the lane is the goroutine's to
-// end: request-close best effort (a used-up or ended link frees its
-// reservation now), then closed. One that Close link, a quit or a new Make
-// link already took is theirs, and it is left alone: closing it here would
-// race their request-close write and drop it (the 20x stress caught that).
-func (a *App) finishRequestSocket(sc *signaling.Client) {
-	a.releaseRequestSocket(sc, true)
 }
 
 // requestInState reports whether generation rg still owns the lane and the
