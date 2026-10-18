@@ -170,7 +170,7 @@ func TestLimitFlagsPlumb(t *testing.T) {
 		files int
 		shell bool
 	}{
-		{[]string{"-block-shell-types"}, requestMaxFiles, true},
+		{[]string{"-block-shell-types"}, transfer.MaxDropFiles, true},
 		{[]string{"-max-files", "2"}, 2, false},
 		{[]string{"-max-files", "3", "-block-shell-types"}, 3, true},
 	} {

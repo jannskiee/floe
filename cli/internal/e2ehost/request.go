@@ -192,12 +192,6 @@ type requestConfig struct {
 	stopReason string
 }
 
-// requestMaxFiles is the request lane's file cap (spec 05 8.3), kept when
-// only -block-shell-types turns the limits on: a zero MaxFiles refuses every
-// drop. The lane's free-space reserve is left out so no test depends on this
-// disk, and -commit-retry stays dropped (FT-12).
-const requestMaxFiles = 10000
-
 // parseRequestFlags reads request mode's flags. It never reads FLOE_SERVER:
 // the server is -server or the local default, so a harness can never be
 // pointed at production by the environment it runs in.
@@ -259,7 +253,11 @@ func parseRequestFlags(args []string) (requestConfig, error) {
 	}
 	var limits *transfer.ReceiveLimits
 	if maxFilesSet || *blockShell {
-		limits = &transfer.ReceiveLimits{MaxFiles: requestMaxFiles, BlockShellTypes: *blockShell}
+		// The request lane's file cap (spec 05 8.3), kept when only
+		// -block-shell-types turns the limits on: a zero MaxFiles refuses
+		// every drop. The lane's free-space reserve is left out so no test
+		// depends on this disk, and -commit-retry stays dropped (FT-12).
+		limits = &transfer.ReceiveLimits{MaxFiles: transfer.MaxDropFiles, BlockShellTypes: *blockShell}
 		if maxFilesSet {
 			limits.MaxFiles = *maxFiles
 		}
