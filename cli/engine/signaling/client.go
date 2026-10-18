@@ -641,8 +641,9 @@ func (c *Client) dispatch(raw []byte) {
 	// dropped and rejoined twice filled the buffer and then wedged this loop
 	// for good. readLoop is the only reader of the socket, so a wedge here
 	// silently stops trickle ICE and the transfer dies at the 30s connect
-	// timeout with nothing to diagnose from.
-	case "room-joined":
+	// timeout with nothing to diagnose from. A request-joined carries the
+	// visitor's role the way room-joined carries the others.
+	case "room-joined", "request-joined":
 		select {
 		case c.Role <- msg.Role:
 		default:
@@ -681,15 +682,8 @@ func (c *Client) dispatch(raw []byte) {
 		default:
 		}
 
-	// The reserved-room answers (spec 04 5.5). A request-joined carries the
-	// visitor's role the way room-joined carries the others; the rest are
-	// signals with at most a code. Non-blocking like the cases above.
-	case "request-joined":
-		select {
-		case c.Role <- msg.Role:
-		default:
-		}
-
+	// The other reserved-room answers (spec 04 5.5): signals with at most a
+	// code. Non-blocking like the cases above.
 	case "refused":
 		select {
 		case c.Refused <- msg.Code:
