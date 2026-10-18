@@ -23,16 +23,16 @@ func TestDropTimeLimitIs24Hours(t *testing.T) {
 	}
 }
 
-// TestDiskFreeAndVolumeMaxOnThisPlatform: the exports answer for a real
-// folder on Windows (free space positive, a maximum of 0 or FAT32's) and
-// "unknown" everywhere else.
+// TestDiskFreeAndVolumeMaxOnThisPlatform: DiskFree and the volume's largest
+// file (layer 1's volumeMaxFileSize) answer for a real folder on Windows (free
+// space positive, a maximum of 0 or FAT32's) and "unknown" everywhere else.
 func TestDiskFreeAndVolumeMaxOnThisPlatform(t *testing.T) {
 	dir := t.TempDir()
 	free, freeErr := DiskFree(dir)
-	max, maxErr := VolumeMaxFileSize(dir)
+	max, maxErr := volumeMaxFileSize(dir)
 	if runtime.GOOS != "windows" {
 		if free != -1 || freeErr != nil || max != 0 || maxErr != nil {
-			t.Fatalf("DiskFree = %d, %v; VolumeMaxFileSize = %d, %v; want -1, nil and 0, nil", free, freeErr, max, maxErr)
+			t.Fatalf("DiskFree = %d, %v; volumeMaxFileSize = %d, %v; want -1, nil and 0, nil", free, freeErr, max, maxErr)
 		}
 		return
 	}
@@ -40,7 +40,7 @@ func TestDiskFreeAndVolumeMaxOnThisPlatform(t *testing.T) {
 		t.Fatalf("DiskFree(%s) = %d, %v; want a positive count", dir, free, freeErr)
 	}
 	if maxErr != nil || (max != 0 && max != 4294967295) {
-		t.Fatalf("VolumeMaxFileSize(%s) = %d, %v; want 0 or 4294967295", dir, max, maxErr)
+		t.Fatalf("volumeMaxFileSize(%s) = %d, %v; want 0 or 4294967295", dir, max, maxErr)
 	}
 }
 

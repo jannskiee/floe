@@ -16,12 +16,6 @@ import (
 // the same answer (ReceiveLimits.FreeReserve).
 func DiskFree(dir string) (int64, error) { return diskFree(dir) }
 
-// VolumeMaxFileSize reports the largest single file the volume under dir can
-// hold: 4294967295 on FAT and FAT32, 0 when there is no limit this code knows
-// of or the platform cannot say. The lane reads it for the prompt's
-// drive-limit warning; layer 1 refuses a larger file on its own.
-func VolumeMaxFileSize(dir string) (int64, error) { return volumeMaxFileSize(dir) }
-
 // VolumeNamedStreams reports whether the volume under dir can carry the
 // Windows downloaded-file mark, the Zone.Identifier stream applyMOTW writes:
 // false on FAT32, exFAT and many network shares, where Windows then has
