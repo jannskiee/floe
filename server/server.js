@@ -2007,8 +2007,6 @@ function handlePong(ws, data) {
 
 const heartbeat = setInterval(() => heartbeatTick(wss.clients), HEARTBEAT_MS).unref();
 
-wss.on('close', () => clearInterval(heartbeat));
-
 // ---------------------------------------------------------------------------
 // Graceful shutdown (SIGTERM from platform, SIGINT from Ctrl-C)
 // ---------------------------------------------------------------------------
