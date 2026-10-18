@@ -12,6 +12,7 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jannskiee/floe/cli/engine/transfer"
@@ -77,22 +78,10 @@ const (
 )
 
 // f2Name is the 40-level path fixture: "d/" forty times then "deep.txt".
-func f2Name() string {
-	name := ""
-	for i := 0; i < f2Depth; i++ {
-		name += "d/"
-	}
-	return name + "deep.txt"
-}
+func f2Name() string { return strings.Repeat("d/", f2Depth) + "deep.txt" }
 
 // f6Name is the 704-byte single-component name fixture.
-func f6Name() string {
-	b := make([]byte, f6NameLen)
-	for i := range b {
-		b[i] = 'a'
-	}
-	return string(b)
-}
+func f6Name() string { return strings.Repeat("a", f6NameLen) }
 
 // hostileMetaFrame builds the crafted metadata frame for one fixture kind, or
 // reports an unknown kind so a typo fails at start. A tiny real size is used
