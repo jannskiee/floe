@@ -45,15 +45,6 @@ var sendToAckTimeout = transfer.VisitorAckTimeout + transfer.VisitorAckGrace
 // shrink it, and whichever ends first ends the join.
 var sendToJoinTimeout = 10 * time.Second
 
-// fetchICE and connectSignaling are the first two network calls of floe send,
-// the request-link send and floe receive, as vars so a test can count them and
-// refuse every server but its own fake: a guard that a mutation removes must
-// never reach api.floe.one from a test.
-var (
-	fetchICE         = ice.FetchDetail
-	connectSignaling = signaling.Connect
-)
-
 // relayGateFor is transfer.RelayGate, the send's own relay cap, as a var so a
 // test can stand in a relayed path, which a loopback pairing never selects.
 var relayGateFor = transfer.RelayGate
@@ -739,10 +730,4 @@ func routeOf(conn *peer.Connection) string {
 		return ""
 	}
 	return route
-}
-
-// serverChosen reports whether this run names its server: --server typed, or
-// FLOE_SERVER set (applyEnv has already copied it into flagServer).
-func serverChosen(cmd *cobra.Command, getenv func(string) string) bool {
-	return cmd.Flags().Changed("server") || getenv("FLOE_SERVER") != ""
 }

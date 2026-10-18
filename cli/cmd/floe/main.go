@@ -26,6 +26,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
+	"github.com/jannskiee/floe/cli/engine/ice"
 	"github.com/jannskiee/floe/cli/engine/peer"
 	"github.com/jannskiee/floe/cli/engine/serverurl"
 	"github.com/jannskiee/floe/cli/engine/signaling"
@@ -112,6 +113,12 @@ func applyEnv(cmd *cobra.Command, getenv func(string) string) {
 	}
 }
 
+// serverChosen reports whether this run names its server: --server typed, or
+// FLOE_SERVER set (applyEnv has already copied it into flagServer).
+func serverChosen(cmd *cobra.Command, getenv func(string) string) bool {
+	return cmd.Flags().Changed("server") || getenv("FLOE_SERVER") != ""
+}
+
 func init() {
 	// Persistent flags are available on all subcommands
 	rootCmd.PersistentFlags().StringVar(&flagServer, "server", "https://api.floe.one",
@@ -148,6 +155,15 @@ func peerOptions() []peer.Option {
 	}
 	return opts
 }
+
+// fetchICE and connectSignaling are the first two network calls of floe send,
+// the request-link send and floe receive, as vars so a test can count them and
+// refuse every server but its own fake: a guard that a mutation removes must
+// never reach api.floe.one from a test.
+var (
+	fetchICE         = ice.FetchDetail
+	connectSignaling = signaling.Connect
+)
 
 // requireRelay refuses a --relay-only transfer that has nowhere to relay
 // through, before it spends thirty seconds finding that out.
