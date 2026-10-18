@@ -1,8 +1,8 @@
 'use strict';
 
 // The files a self-hoster installs from, read as text: docker-compose.yml and
-// its .env example, server/.env.example, and the two Unraid templates. Nothing
-// here runs Docker or Unraid. Each test pins one way these files have shipped
+// its .env example, server/.env.example, the two Unraid templates and the
+// coturn example. Nothing here runs Docker, Unraid or coturn. Each test pins one way these files have shipped
 // a stack that loads and never connects, or a setting that could not take
 // effect, and each of those passed every other check in the repository: the
 // server's own tests never read these files, and `docker compose config`
@@ -24,6 +24,7 @@ const DOCKER_ENV_EXAMPLE = read('.env.docker.example');
 const SERVER_ENV_EXAMPLE = read('server/.env.example');
 const UNRAID_SERVER = read('unraid/floe-server.xml');
 const UNRAID_CLIENT = read('unraid/floe-client.xml');
+const COTURN_EXAMPLE = read('coturn/turnserver.conf.example');
 
 // ---------------------------------------------------------------------------
 // Readers
@@ -358,5 +359,42 @@ describe('Unraid templates', () => {
             assert.equal(field.value, '', `${name} ships a value`);
         }
         assert.equal(byTarget(serverConfigs, 'TURN_SECRET').Mask, 'true');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// coturn/turnserver.conf.example
+// ---------------------------------------------------------------------------
+
+describe('coturn/turnserver.conf.example', () => {
+    const lines = COTURN_EXAMPLE.split('\n').map((line) => line.trim());
+    const active = lines.filter((line) => line && !line.startsWith('#'));
+
+    it('refuses to relay to private, loopback, link-local and multicast addresses', () => {
+        // The relay runs with host networking and anyone under the TURN limit
+        // is handed credentials, so without these lines it is a path into the
+        // network it runs on.
+        assert.ok(active.includes('no-multicast-peers'), 'no-multicast-peers is not set');
+        for (const range of [
+            '0.0.0.0-0.255.255.255',
+            '10.0.0.0-10.255.255.255',
+            '100.64.0.0-100.127.255.255',
+            '127.0.0.0-127.255.255.255',
+            '169.254.0.0-169.254.255.255',
+            '172.16.0.0-172.31.255.255',
+            '192.168.0.0-192.168.255.255',
+            '::1',
+            'fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
+            'fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
+        ]) {
+            assert.ok(active.includes(`denied-peer-ip=${range}`), `denied-peer-ip=${range} is not set`);
+        }
+    });
+
+    it('ships the exception for a relay on a private network commented out', () => {
+        // allowed-peer-ip wins over denied-peer-ip, so an active one reopens
+        // whatever range it names on every install.
+        assert.ok(!active.some((line) => line.startsWith('allowed-peer-ip')), 'allowed-peer-ip is active');
+        assert.ok(lines.some((line) => /^#\s*allowed-peer-ip=/.test(line)), 'the commented allowed-peer-ip example is gone');
     });
 });
