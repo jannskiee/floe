@@ -92,8 +92,12 @@ func writeImageTemp(png []byte) (string, error) {
 // means no transfer is in flight yet, so every floe-paste-* directory is an
 // orphan safe to delete. The text-send staging (floe-text-*) has its own
 // sweep, sweepTextTemps, which the shutdown hook runs too.
-func sweepPasteTemps() {
-	matches, err := filepath.Glob(filepath.Join(os.TempDir(), "floe-paste-*"))
+func sweepPasteTemps() { removeTempDirs("floe-paste-*") }
+
+// removeTempDirs removes everything in the temp folder whose name matches
+// pattern, best effort: the one body of sweepPasteTemps and sweepTextTemps.
+func removeTempDirs(pattern string) {
+	matches, err := filepath.Glob(filepath.Join(os.TempDir(), pattern))
 	if err != nil {
 		return
 	}

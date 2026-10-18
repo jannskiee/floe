@@ -265,15 +265,7 @@ func writeTextTemp(text string) (string, func(), error) {
 // plain text in the temp folder. Run by the shutdown hook, where any such
 // folder belongs to a send that is ending with the process, and at startup
 // (sweepStagingTemps), where the single-instance lock means none is in use.
-func sweepTextTemps() {
-	matches, err := filepath.Glob(filepath.Join(os.TempDir(), "floe-text-*"))
-	if err != nil {
-		return
-	}
-	for _, m := range matches {
-		_ = os.RemoveAll(m)
-	}
-}
+func sweepTextTemps() { removeTempDirs("floe-text-*") }
 
 // sweepStagingTemps is the startup sweep of both staging kinds a previous run
 // can leave: pasted images (sweepPasteTemps) and text notes (sweepTextTemps).
