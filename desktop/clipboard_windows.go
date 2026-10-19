@@ -14,8 +14,8 @@ import (
 const cfHDROP = 15
 
 // The user32 and kernel32 lazy DLLs declared here are shared by the other
-// *_windows.go files that call Windows directly (attention, packaged, power,
-// wake). The clipboard read mirrors the standard Go one (Open -> Get ->
+// *_windows.go files that make raw proc calls through them (attention,
+// packaged, power, wake). The clipboard read mirrors the standard Go one (Open -> Get ->
 // GlobalLock -> copy out -> Unlock -> Close). Reads use RtlMoveMemory to copy
 // the clipboard bytes into a Go buffer so the foreign address is never
 // converted to an unsafe.Pointer (keeps `go vet`'s unsafeptr check clean).

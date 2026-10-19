@@ -199,10 +199,10 @@ func saveConfigTo(path string, c appConfig) error {
 }
 
 // writeFileAtomic writes body to path through path.tmp and a rename, so a crash
-// or a second writer mid-write leaves the previous file or none, never a
-// truncated one: the folder is made first, and the temporary file is removed
-// when the rename fails. desktop.json, the quit record and the update cache
-// all go through it.
+// mid-write leaves the previous file or none, never a truncated one: the folder
+// is made first, and the temporary file is removed when the rename fails. Two
+// writers at once would share path.tmp, so each caller serializes its own
+// writes. desktop.json, the quit record and the update cache all go through it.
 func writeFileAtomic(path string, body []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
