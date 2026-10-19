@@ -90,4 +90,18 @@ export const IGNORED_ERROR_PATTERNS: (string | RegExp)[] = [
     // default text starts with a space, so its version reads
     // "NetworkError:  A network error occurred." with two, and none has arrived.
     /^NetworkError: A network error occurred\.$/,
+    // A Safari Web Extension's content script calling its own extension after
+    // the tab it runs in is gone (FLOE-R, Safari on iPhone). WebKit rejects
+    // browser.runtime.sendMessage() with "Invalid call to runtime.sendMessage().
+    // Tab not found." (WebKit bug 246620 tracks one way to get there), the
+    // script leaves the rejection unhandled, and FLOE-R reached us through the
+    // page's unhandledrejection handler. It came with no stack and no
+    // breadcrumbs, so denyUrls has no safari-web-extension: frame to match, and
+    // the words are all there is.
+    //
+    // A web page has no browser.runtime, and nothing in this repo calls
+    // runtime.sendMessage, so no failure of ours can carry these words. Narrow
+    // to the one call that has arrived: the same prefix naming another API
+    // keeps reaching us until one of those does.
+    'Invalid call to runtime.sendMessage()',
 ];

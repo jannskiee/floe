@@ -16,6 +16,9 @@ const FLOE_H = 'Error invoking postMessage: Java object is gone';
 // FLOE-K exactly as Sentry stored both event.message and the exception value.
 const FLOE_K = 'NetworkError: A network error occurred.';
 
+// FLOE-R exactly as Sentry stored the exception value.
+const FLOE_R = 'Invalid call to runtime.sendMessage(). Tab not found.';
+
 describe('IGNORED_ERROR_PATTERNS', () => {
     it('matches the Facebook Android WebView bridge error (FLOE-H)', () => {
         expect(isIgnored(FLOE_H)).toBe(true);
@@ -119,6 +122,19 @@ describe('IGNORED_ERROR_PATTERNS', () => {
         ]) {
             expect(isIgnored(message), JSON.stringify(message)).toBe(false);
         }
+    });
+
+    it('matches the Safari Web Extension messaging rejection (FLOE-R)', () => {
+        expect(isIgnored(FLOE_R)).toBe(true);
+        expect(isIgnored(`Error: ${FLOE_R}`)).toBe(true);
+    });
+
+    it('covers only the runtime.sendMessage call', () => {
+        // Narrow on purpose: the same prefix naming another API has not
+        // arrived, and keeps reaching us until it does.
+        expect(isIgnored('Invalid call to runtime.connect(). No runtime.onConnect listeners found.')).toBe(false);
+        expect(isIgnored('Invalid call to tabs.sendMessage(). Tab not found.')).toBe(false);
+        expect(isIgnored('invalid call to runtime.sendmessage(). tab not found.')).toBe(false);
     });
 
     it('carries no stateful regex flags (Sentry reuses these instances)', () => {

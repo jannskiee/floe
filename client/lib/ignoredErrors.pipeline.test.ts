@@ -147,6 +147,21 @@ function makeFloeKEvent(value: string = FLOE_K_VALUE): ErrorEvent {
     };
 }
 
+// FLOE-R as Sentry stored it: an Error from a Safari Web Extension's content
+// script, rejected unhandled, with no stacktrace and no event.message.
+const FLOE_R_VALUE = 'Invalid call to runtime.sendMessage(). Tab not found.';
+
+function makeFloeREvent(): ErrorEvent {
+    const values: Exception[] = [
+        {
+            type: 'Error',
+            value: FLOE_R_VALUE,
+            mechanism: { type: 'auto.browser.global_handlers.onunhandledrejection', handled: false },
+        },
+    ];
+    return { type: undefined, level: 'error', platform: 'javascript', exception: { values } };
+}
+
 describe('ignoreErrors in the Sentry event pipeline', () => {
     it('drops the Facebook WebView bridge error (FLOE-H)', () => {
         expect(runEventFilters(makeFloeHEvent(), { ignoreErrors: IGNORED_ERROR_PATTERNS })).toBeNull();
@@ -274,6 +289,34 @@ describe('ignoreErrors in the Sentry event pipeline', () => {
                 value
             ).not.toBeNull();
         }
+    });
+
+    it('drops the Safari Web Extension messaging rejection (FLOE-R)', () => {
+        expect(runEventFilters(makeFloeREvent(), { ignoreErrors: IGNORED_ERROR_PATTERNS })).toBeNull();
+    });
+
+    it('keeps FLOE-R without our entry and drops it with ours alone (guards a false pass)', () => {
+        // The two halves of the FLOE-H control, for the same reason. With the
+        // defaults off and no entry of ours the event is kept (_isUselessError
+        // keeps an exception that has a value), so it is OUR entry that drops it.
+        expect(runEventFilters(makeFloeREvent(), { disableErrorDefaults: true })).not.toBeNull();
+        expect(
+            runEventFilters(makeFloeREvent(), {
+                ignoreErrors: IGNORED_ERROR_PATTERNS,
+                disableErrorDefaults: true,
+            })
+        ).toBeNull();
+    });
+
+    it('is not something denyUrls could have done for FLOE-R', () => {
+        // The event has no frames at all, so there is no URL for
+        // BROWSER_EXTENSION_URL_PATTERNS to match.
+        expect(
+            runEventFilters(makeFloeREvent(), {
+                denyUrls: BROWSER_EXTENSION_URL_PATTERNS,
+                disableErrorDefaults: true,
+            })
+        ).not.toBeNull();
     });
 
     it('keeps the NumberFlow commit-phase error a real browser reports', () => {
