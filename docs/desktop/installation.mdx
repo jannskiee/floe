@@ -121,7 +121,7 @@ behind a filtering proxy, the runtime cannot install and Floe cannot start. It s
 Every GitHub release ships `SHA256SUMS.txt`. To check a file you downloaded:
 
 ```powershell PowerShell
-Get-FileHash floe-desktop-setup-1.0.0.exe -Algorithm SHA256
+Get-FileHash floe-desktop-setup-1.0.1.exe -Algorithm SHA256
 ```
 
 Compare the result with the matching line in `SHA256SUMS.txt`. PowerShell prints the hash in capital letters
@@ -131,7 +131,7 @@ check: the Store verifies the package signature itself.
 ## Check the version
 
 Open **Settings** (the gear in the title bar, or `Ctrl` `,`) and look at the **About** section. **App version**
-reads the release tag, for example `desktop-v1.0.0`. A build you compiled yourself reads `dev`.
+reads the release tag, for example `desktop-v1.0.1`. A build you compiled yourself reads `dev`.
 
 That section also shows the transfer protocol version and which [signaling server](/glossary#signaling-server)
 the app is using, and a **Copy** button that puts all of it on the clipboard. Those are the details worth
@@ -139,8 +139,8 @@ including in a bug report.
 
 Windows shows the Microsoft Store build under a different number, in **Apps** in Windows Settings and in
 `winget list`. The Store needs a version that does not start with 0, so the first number is one higher and a
-fourth number is added: Floe Desktop 1.0.0 is `2.0.0.0` there. The version Floe itself shows, and the
-changelog, use `desktop-v1.0.0`.
+fourth number is added: Floe Desktop 1.0.1 is `2.0.1.0` there. The version Floe itself shows, and the
+changelog, use `desktop-v1.0.1`.
 
 ## Update
 

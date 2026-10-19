@@ -1,7 +1,7 @@
 {
     "refs": {
-        "cli": "c40ce56",
-        "desktop": "c40ce56"
+        "cli": "v1.11.4",
+        "desktop": "desktop-v1.0.1"
     },
     "cli": {
         "cli/cmd/floe/interrupt.go": [
