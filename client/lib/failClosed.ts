@@ -1,22 +1,24 @@
 // Every Sentry send hook fails closed (C1-04 (b)).
 //
-// A hook that throws does not stop a report. @sentry/core's Client catches the
-// throw in _processEvent and captures it as a new exception marked
-// data.__sentry__, and an event so marked never reaches beforeSend
-// (isInternalException). It still gets the page address: the browser's
-// HttpContext integration writes request.url in preprocessEvent, which the
-// client emits for that event too, and on a receiving page that address is
-// the whole share link, room id and all. Read in @sentry/core 10.76.2
-// (build/esm/client.js _processEvent and _prepareEvent) and proved against the
-// real client in failClosed.test.ts. Floe's scrub hooks are written never to
-// throw (scrubUrl.ts, W3 R5-01); this is the floor under them.
+// A span hook that throws does not stop its span. @sentry/core catches the
+// throw and sends the span unmodified (applyBeforeSendSpanCallback), and on a
+// receiving page that span carries the whole share link, room id and all, in
+// its name and url.full. The other three hooks the SDK now catches itself
+// (safeCallback in processBeforeSend and addBreadcrumb), dropping the event or
+// the breadcrumb; up to 10.x the client captured a throw from beforeSend or
+// beforeSendTransaction as a new exception that skipped beforeSend and left
+// with the page address. Read in @sentry/core 11.8.0 (build/esm/client.js
+// processBeforeSend, tracing/spans/beforeSendSpan.js, breadcrumbs.js) and
+// proved against the real client in failClosed.test.ts. Floe's scrub hooks
+// are written never to throw (scrubUrl.ts, W3 R5-01); this is the floor under
+// them.
 //
 // So each hook runs inside a try. An error event or a transaction whose hook
 // threw is dropped, and so is a breadcrumb. A span cannot be dropped: null
-// from beforeSendSpan keeps the span exactly as it was (processBeforeSend and
-// createSpanEnvelope in @sentry/core), so a span whose hook threw is cut down
-// to its ids and times, with no name and no attributes. Inside a transaction
-// the transaction hook still runs after it and has the last word.
+// from beforeSendSpan keeps the span exactly as it was
+// (applyBeforeSendSpanCallback in @sentry/core), so a span whose hook threw is
+// cut down to its ids and times, with no name and no attributes. Inside a
+// transaction the transaction hook still runs after it and has the last word.
 //
 // Every runtime: the three Sentry configs pass their options through
 // failClosedHooks. Shapes are declared here rather than imported, so this

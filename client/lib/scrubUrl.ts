@@ -254,11 +254,12 @@ function scrubRequestReferer(request: unknown): void {
 
 // Server and edge events carry what a browser event never does: the request's
 // headers and query string, and on an error from captureRequestError,
-// contexts.nextjs.request_path, the raw path and query. sendDefaultPii false
-// drops only the headers that carry an IP address. Every other header stays,
-// Cookie included, and @sentry/core 10.72.0 also parses that header into
-// request.cookies, unfiltered, and attaches any body the scope holds as
-// request.data. Next's RSC requests name the page they were made from in
+// contexts.nextjs.request_path, the raw path and query. The SDK's own filter
+// (lib/sentryDataCollection.ts) only blanks, by name, the headers, cookies and
+// query keys that can carry an address or a credential. Every other header
+// stays, and @sentry/core 11.8.0 also parses the Cookie header into
+// request.cookies and attaches any body the scope holds as request.data
+// (integrations/requestdata.js). Next's RSC requests name the page they were made from in
 // Next-Url and Next-Router-State-Tree, so from /r they name /r/<linkId>: five
 // prefetch transactions per /r view on a production build (CP-QA F3-01), and a
 // render fault on /r sent the path in request_path (F3-03). A legacy ?room=
@@ -339,9 +340,11 @@ function scrubServerRequest(event: ScrubbableServerRequest): void {
 // passes now cover them, because the two places a breadcrumb is seen hold
 // different things.
 //
-// beforeBreadcrumb (the browser) gets the breadcrumb as it is made, and
-// @sentry/browser 10.72.0 puts the page's own console arguments in its data,
-// live, before the real console call: a logged object there is the app's own
+// beforeBreadcrumb (the browser) gets the breadcrumb as it is made, and the
+// Console integration (@sentry/core 11.8.0, a browser default since 11; the
+// Breadcrumbs integration made it in 10.x) puts the page's own console
+// arguments in its data, live, before the real console call: a logged object
+// there is the app's own
 // state. Walking it took a share link in state down to its path and a deep
 // object's leaves to undefined, threw on a frozen object or a getter, and in a
 // probe left the page's React tree dead after one console.log(button) (W3
