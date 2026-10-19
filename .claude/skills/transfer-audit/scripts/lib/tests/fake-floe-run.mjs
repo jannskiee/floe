@@ -4,8 +4,9 @@
  * ensureStack / stopStack without binding :3001. It speaks floe-run's
  * contract: `check --json` prints the report with the exit code taken from
  * FAKE_FLOE_RUN_CHECK (2 clear, 0 owned, 1 refuse), `start` prints the
- * READY block (floe-run.mjs:478-500) and then waits until the file named by
- * FAKE_FLOE_RUN_STOPFILE appears, `stop` creates that file.
+ * READY block (floe-run.mjs's, from READY through stop:) and then waits
+ * until the file named by FAKE_FLOE_RUN_STOPFILE appears, `stop` creates
+ * that file.
  */
 import { existsSync, writeFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';

@@ -114,7 +114,7 @@ export const EXE_NAME = 'floe-desktop.exe';
 // The app `wails dev` builds and runs; it holds the same single-instance
 // lock, so the second-instance refusal counts it too (FU-26).
 export const DEV_EXE_NAME = 'floe-desktop-dev.exe';
-export const WINDOW_CLASS = 'wailsWindow'; // wails v2.16.0 window.go:81
+export const WINDOW_CLASS = 'wailsWindow'; // wails v2.17.0 window.go:81
 export const WINDOW_TITLE = 'Floe'; // desktop/main.go, the wails.Run Title option
 export const SINGLE_INSTANCE_ID = 'one.floe.desktop'; // desktop/main.go, the wails.Run SingleInstanceLock.UniqueId option
 export const WAILSDEV_URL = 'http://localhost:34115';
@@ -2678,7 +2678,7 @@ export class PlaywrightDriver {
      * very button the cell exists to exercise, so neither is usable here.
      *
      * The event is delivered with window.wails.EventsNotify, which runs
-     * this page's own listeners and nothing else (Wails v2.16.0
+     * this page's own listeners and nothing else (Wails v2.17.0
      * runtime/desktop/events.js; the dev IPC calls it for every event it
      * receives, runtime/dev/main.js). Never runtime.EventsEmit: after its
      * local listeners it sends 'EE' to the dev server, whose

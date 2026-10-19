@@ -71,8 +71,9 @@ export function corepackEnv(base = process.env) {
 }
 
 /**
- * Parse the READY block (floe-run.mjs:478-500). Null until the READY line
- * is present; fields are null until their line arrives.
+ * Parse the READY block (what floe-run.mjs's start prints from its READY
+ * line through its stop: line). Null until the READY line is present;
+ * fields are null until their line arrives.
  */
 export function parseReady(text) {
     const lines = String(text).split(/\r?\n/);
