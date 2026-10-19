@@ -714,11 +714,11 @@ describe('floe-run start --client on Windows', () => {
 
     // start --client up to READY (or its exit), then the wrapper is ended:
     // the fake server and client children exit once it is gone.
-    async function client(name, where) {
+    async function client(name, where, env = {}) {
         const dir = freshDir(name);
         const start = launch(['start', '--client'], {
             dir,
-            env: { FLOE_RUN_FAKE_WHERE: where },
+            env: { FLOE_RUN_FAKE_WHERE: where, ...env },
         });
         const ready = await waitForReady(start);
         if (start.code === null) start.child.kill();
@@ -757,6 +757,25 @@ describe('floe-run start --client on Windows', () => {
                 `no READY: ${r.start.stdout}\n${r.start.stderr}`
             );
             assert.match(r.start.stdout, /\(corepack pnpm dev, /);
+        }
+    );
+
+    // An installer that appends to PATHEXT can leave an empty entry (a
+    // trailing ; or ;;), and path.extname of the sh script is '' too.
+    test(
+        'an empty PATHEXT entry does not let the extensionless pnpm back in',
+        { skip },
+        async () => {
+            const r = await client(
+                'client-pathext-trailing',
+                'C:\\fake\\npm\\pnpm|C:\\fake\\npm\\pnpm.cmd',
+                { PATHEXT: '.COM;.EXE;.BAT;.CMD;' }
+            );
+            assert.match(r.log, /^client pnpm shell=true$/m, r.log);
+            assert.ok(
+                r.ready,
+                `no READY: ${r.start.stdout}\n${r.start.stderr}`
+            );
         }
     );
 });

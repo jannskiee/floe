@@ -387,9 +387,12 @@ function pnpmLauncher() {
     const found = run(WIN ? 'where' : 'which', ['pnpm'])
         .split(/\r?\n/)
         .filter(Boolean);
+    // filter(Boolean): an empty entry (a trailing ;) would match the sh
+    // script, whose extname is '' too.
     const runnable = (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD')
         .toLowerCase()
-        .split(';');
+        .split(';')
+        .filter(Boolean);
     const resolved =
         (WIN
             ? found.find((p) =>
