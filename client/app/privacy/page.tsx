@@ -91,6 +91,11 @@ export const metadata: Metadata = {
 // Interaction timings are off for a different reason: every stored one held
 // the address it arrived from. The section makes no claim about what Sentry
 // keeps of an address, only about what the page sends.
+// Rechecked on 2026-10-19, for @sentry/nextjs 11.8.0: "no cookies and no IP
+// address" now rests on the dataCollection block all three configs pass
+// (lib/sentryDataCollection.ts, equal to what 10.x made of sendDefaultPii
+// false), and the reports of base and head production builds, compared field
+// by field, held nothing the section does not cover (the owner kept the text).
 // When a flag, label, hostname or number changes, this page changes with it.
 const toc = [
     { id: 'transfer', label: 'How the transfer works' },
