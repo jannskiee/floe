@@ -149,16 +149,35 @@ describe('stripDeviceHints', () => {
         const fromNext = createRequire(fromHere.resolve('@sentry/nextjs'));
         const fromReact = createRequire(fromNext.resolve('@sentry/react'));
         const fromBrowser = createRequire(fromReact.resolve('@sentry/browser'));
-        const utils = dirname(fromBrowser.resolve('@sentry/browser-utils'));
-        const source = readFileSync(join(utils, 'metrics/browserMetrics.js'), 'utf8');
+        const utilsEntry = fromBrowser.resolve('@sentry/browser-utils');
+        // performance/entries.js since 11.0; metrics/browserMetrics.js before.
+        const source = readFileSync(
+            join(dirname(utilsEntry), 'performance/entries.js'),
+            'utf8'
+        );
 
         const body = /\nfunction _trackNavigator\([^)]*\) \{\n([\s\S]*?)\n\}\n/.exec(source)?.[1];
         expect(body, '_trackNavigator was not found in the installed SDK').toBeTruthy();
 
-        // Every quoted string in the function is an attribute name, a
-        // measurement name, or one of two words that are neither.
-        const NOT_A_NAME = ['pageload', 'millisecond'];
-        const named = [...new Set([...body!.matchAll(/"([^"]+)"/g)].map((m) => m[1]))].filter((s) => !NOT_A_NAME.includes(s));
+        // Since 11.0 the span-streaming names are constants of
+        // @sentry/conventions, read here through the module the function
+        // itself requires.
+        const conventions: Record<string, unknown> = createRequire(utilsEntry)(
+            '@sentry/conventions/attributes'
+        );
+        const constants = [...body!.matchAll(/\battributes\.([A-Z_]+)\b/g)].map(
+            (m) => conventions[m[1]]
+        );
+        expect(constants.every((name) => typeof name === 'string')).toBe(true);
+
+        // Every quoted string and every such constant in the function is an
+        // attribute name, a measurement name, or one of three words that are
+        // neither: sentry.op is read off the span, not attached to it.
+        const NOT_A_NAME = ['pageload', 'millisecond', 'sentry.op'];
+        const quoted = [...body!.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+        const named = [
+            ...new Set([...quoted, ...constants.map(String)]),
+        ].filter((s) => !NOT_A_NAME.includes(s));
         expect(named.sort()).toEqual([...DEVICE_HINT_ATTRIBUTES, DEVICE_HINT_MEASUREMENT].sort());
     });
 

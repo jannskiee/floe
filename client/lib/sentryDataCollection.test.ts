@@ -5,9 +5,11 @@ import { describe, expect, it } from 'vitest';
 import { NodeClient, createTransport } from '@sentry/nextjs';
 import { DATA_COLLECTION } from './sentryDataCollection';
 
-// What @sentry/core 10.76.2 resolves sendDefaultPii false to
-// (defaultPiiToCollectionOptions.js), as getDataCollectionOptions() hands it
-// back: the block the configs pass has to resolve to exactly this.
+// What @sentry/core 10.76.2 resolved sendDefaultPii false to
+// (defaultPiiToCollectionOptions.js), as getDataCollectionOptions() handed it
+// back. The commit that added the block showed, on real 10.76.2 clients, that
+// the block resolved to exactly this; 11.8.0 has no sendDefaultPii, and adds
+// queues, which the block sets false.
 const D = ['forwarded', '-ip', 'remote-', 'via', '-user'];
 const SEND_DEFAULT_PII_FALSE = {
     userInfo: false,
@@ -62,37 +64,48 @@ function browserSdk(): BrowserSdk {
 }
 
 describe('the data collection block', () => {
-    it('resolves on the installed SDK exactly as sendDefaultPii false did', async () => {
-        expect(await resolvedBy({ sendDefaultPii: false })).toEqual(
-            SEND_DEFAULT_PII_FALSE
-        );
-        expect(await resolvedBy({ dataCollection: DATA_COLLECTION })).toEqual(
-            SEND_DEFAULT_PII_FALSE
-        );
-        expect(
-            await resolvedBy({
-                dataCollection: DATA_COLLECTION,
-                sendDefaultPii: false,
-            })
-        ).toEqual(SEND_DEFAULT_PII_FALSE);
+    it('resolves on the installed SDK to what sendDefaultPii false resolved to on 10.76.2', async () => {
+        expect(await resolvedBy({ dataCollection: DATA_COLLECTION })).toEqual({
+            ...SEND_DEFAULT_PII_FALSE,
+            queues: false,
+        });
+    });
+
+    // Why the block is there: with no dataCollection the installed SDK
+    // collects the address, every cookie and header, and the bodies, and a
+    // sendDefaultPii left in a config changes none of it.
+    it('is what stands between the installed SDK and its defaults', async () => {
+        const defaults = await resolvedBy({});
+        expect(defaults.userInfo).toBe(true);
+        expect(defaults.cookies).toBe(true);
+        expect(defaults.httpHeaders).toEqual({ request: true, response: true });
+        expect(defaults.httpBodies).toHaveLength(4);
+        expect(await resolvedBy({ sendDefaultPii: false })).toEqual(defaults);
     });
 
     // The one place a browser report says whether Sentry may work out the
     // visitor's address: the browser client writes it from userInfo.
     it('has the browser client tell Sentry never to infer the address', async () => {
         const { BrowserClient } = browserSdk();
-        const client = new BrowserClient({
-            dsn: 'https://public@o0.ingest.sentry.io/0',
-            integrations: [],
-            sendClientReports: false,
-            stackParser: () => [],
-            transport,
-            dataCollection: DATA_COLLECTION,
-        });
+        const make = (options: Record<string, unknown>) =>
+            new BrowserClient({
+                dsn: 'https://public@o0.ingest.sentry.io/0',
+                integrations: [],
+                sendClientReports: false,
+                stackParser: () => [],
+                transport,
+                ...options,
+            });
+        const client = make({ dataCollection: DATA_COLLECTION });
         expect(client.getOptions()._metadata?.sdk?.settings?.infer_ip).toBe(
             'never'
         );
         await client.close(0);
+        const unset = make({});
+        expect(unset.getOptions()._metadata?.sdk?.settings?.infer_ip).toBe(
+            'auto'
+        );
+        await unset.close(0);
     });
 });
 
@@ -113,5 +126,8 @@ describe('every Sentry config passes the block and keeps transactions', () => {
         // Whole code lines, so a commented-out one fails.
         expect(src).toMatch(/^\s+dataCollection: DATA_COLLECTION,\r?$/m);
         expect(src).toMatch(/^\s+traceLifecycle: 'static',\r?$/m);
+        // A key the installed SDK no longer reads, which would only look
+        // like a setting.
+        expect(src).not.toMatch(/^\s*sendDefaultPii\b/m);
     });
 });

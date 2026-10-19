@@ -98,24 +98,34 @@ describe('withoutServerSessions', () => {
     // loading it: the Node SDK pulls in OpenTelemetry, and none of it is needed
     // to read three names and one call. If a release renames an integration or
     // changes how @sentry/nextjs builds its Http integration, these fail here
-    // instead of the server quietly sending session counts again.
-    const sdkFile = (pkg: 'nextjs' | 'node' | 'node-core', rel: string) => {
+    // instead of the server quietly sending session counts again. Since 11.0
+    // @sentry/node holds what @sentry/node-core held, both integrations
+    // included.
+    const sdkFile = (pkg: 'nextjs' | 'node', rel: string) => {
         const nextEntry = createRequire(import.meta.url).resolve('@sentry/nextjs');
         const nodeEntry = createRequire(nextEntry).resolve('@sentry/node');
-        const coreEntry = createRequire(nodeEntry).resolve('@sentry/node-core');
-        const entry = pkg === 'nextjs' ? nextEntry : pkg === 'node' ? nodeEntry : coreEntry;
+        const entry = pkg === 'nextjs' ? nextEntry : nodeEntry;
         return readFileSync(join(dirname(entry), rel), 'utf8');
     };
 
     it('names the two integrations as the installed SDK does', () => {
-        expect(sdkFile('node', 'integrations/http.js')).toContain(`const INTEGRATION_NAME = "${HTTP_INTEGRATION}";`);
-        expect(sdkFile('node-core', 'integrations/processSession.js')).toContain(
+        expect(sdkFile('node', 'integrations/http/index.js')).toContain(
+            `const INTEGRATION_NAME = "${HTTP_INTEGRATION}";`
+        );
+        expect(sdkFile('node', 'integrations/processSession.js')).toContain(
             `const INTEGRATION_NAME = "${PROCESS_SESSION_INTEGRATION}";`,
         );
     });
 
+    // The Http integration hands its options to the server half, which
+    // counts request sessions unless sessions is false.
     it('the installed SDK still reads the option that turns request sessions off', () => {
-        expect(sdkFile('node', 'integrations/http.js')).toContain('sessions: options.trackIncomingRequestsAsSessions');
+        expect(sdkFile('node', 'integrations/http/index.js')).toContain(
+            'httpServerIntegration.httpServerIntegration(options);'
+        );
+        expect(
+            sdkFile('node', 'integrations/http/httpServerIntegration.js')
+        ).toContain('sessions: options.sessions ?? true,');
     });
 
     it('sentry.server.config.ts keeps the Http options @sentry/nextjs passes, and adds sessions off', () => {
@@ -127,7 +137,9 @@ describe('withoutServerSessions', () => {
         const src = readFileSync(fileURLToPath(new URL('../sentry.server.config.ts', import.meta.url)), 'utf8');
         expect(src).toMatch(/import \{ withoutServerSessions \} from '\.\/lib\/sentryIntegrations';/);
         expect(src).toMatch(/^\s+integrations: \(defaults\) =>$/m);
-        expect(src).toMatch(/Sentry\.httpIntegration\(\{\s*disableIncomingRequestSpans: true,\s*trackIncomingRequestsAsSessions: false,?\s*\}\)/);
+        expect(src).toMatch(
+            /Sentry\.httpIntegration\(\{\s*disableIncomingRequestSpans: true,\s*sessions: false,?\s*\}\)/
+        );
         expect(src).not.toMatch(/^\s*integrations:\s*\[/m);
     });
 });
@@ -142,14 +154,12 @@ describe('withoutServerSessions', () => {
 describe('client reports are off', () => {
     const config = (name: string) => readFileSync(fileURLToPath(new URL(`../${name}`, import.meta.url)), 'utf8');
 
-    const installed = (pkg: 'core' | 'browser' | 'node-core' | 'vercel-edge', rel: string) => {
+    const installed = (pkg: 'core' | 'browser' | 'node' | 'vercel-edge', rel: string) => {
         const fromNext = createRequire(createRequire(import.meta.url).resolve('@sentry/nextjs'));
         const entry =
             pkg === 'browser'
                 ? createRequire(fromNext.resolve('@sentry/react')).resolve('@sentry/browser')
-                : pkg === 'node-core'
-                  ? createRequire(fromNext.resolve('@sentry/node')).resolve('@sentry/node-core')
-                  : fromNext.resolve(`@sentry/${pkg}`);
+                : fromNext.resolve(`@sentry/${pkg}`);
         return readFileSync(join(dirname(entry), rel), 'utf8');
     };
 
@@ -172,8 +182,8 @@ describe('client reports are off', () => {
     });
 
     it('the installed Node SDK still keeps an explicit false, and starts its flush timer only when it is set', () => {
-        expect(installed('node-core', 'sdk/index.js')).toContain('sendClientReports: options.sendClientReports ?? true,');
-        const client = installed('node-core', 'sdk/client.js');
+        expect(installed('node', 'sdk/index.js')).toContain('sendClientReports: options.sendClientReports ?? true,');
+        const client = installed('node', 'sdk/client.js');
         expect(client).toContain('if (this.getOptions().sendClientReports) {');
         expect(client).toContain('if (clientOptions.sendClientReports) {');
     });
@@ -186,7 +196,7 @@ describe('client reports are off', () => {
 // Interaction timings (INP) are the one thing the browser SDK sends on its
 // own, outside any page-load trace: a "standalone span" per timed click or key
 // press. Sentry's servers store the address such a span arrives from as
-// client.address, whatever sendDefaultPii says, which they do not do for an
+// client.address, whatever the SDK is told to collect, which they do not do for an
 // error report or a page-load trace. Measured in Sentry on 2026-10-12: all 24
 // stored interaction spans of the last 30 days held one. So the tracing
 // integration is rebuilt with them off, and nothing standalone leaves the page.
@@ -230,11 +240,18 @@ describe('withoutInteractionSpans', () => {
 
     // On by default, and off only through this option: if a release renames it
     // or stops reading it here, the config line below would go on passing while
-    // the spans, and the addresses, came back.
+    // the spans, and the addresses, came back. Since 11.0 the timings come from
+    // a WebVitals integration that browserTracing adds, and enableInp false
+    // reaches it as "inp" in its ignore list.
     it('the installed SDK still sends interaction spans unless enableInp is false', () => {
         const tracing = sdk('browser', 'tracing/browserTracingIntegration.js');
         expect(tracing).toContain('enableInp: true,');
-        expect(tracing).toContain('ignore: enableInp ? [] : ["inp"],');
+        expect(tracing).toContain(
+            'ignore: enableInp || ignore.includes("inp") ? ignore : [...ignore, "inp"]'
+        );
+        expect(sdk('browser', 'integrations/webVitals.js')).toMatch(
+            /if \(!ignored\.has\("inp"\)\) \{\s*browserUtils\.trackInpAsSpan\(/
+        );
     });
 
     it('@sentry/nextjs still builds its own with no options, so it has to be replaced', () => {
@@ -244,13 +261,23 @@ describe('withoutInteractionSpans', () => {
     });
 
     // The two other standalone spans the SDK can send (layout shift and
-    // largest paint) are experiments, off unless a config asks for them.
+    // largest paint) were experiments in 10.x, off unless a config asked for
+    // them. In 11.x they are sent as spans of their own only when spans
+    // stream; under traceLifecycle 'static' they stay on the page-load span.
     it('sentry.client.config.ts rebuilds it with interaction spans off and turns no experiment on', () => {
         const src = config();
         expect(src).toContain('Sentry.browserTracingIntegration({ enableInp: false })');
         expect(src).not.toContain('_experiments');
-        const tracing = sdk('browser', 'tracing/browserTracingIntegration.js');
-        expect(tracing).toContain('enableStandaloneClsSpans');
-        expect(tracing).toContain('enableStandaloneLcpSpans');
+        expect(src).toMatch(/^\s+traceLifecycle: 'static',\r?$/m);
+        const vitals = sdk('browser', 'integrations/webVitals.js');
+        expect(vitals).toContain(
+            'const trackClsOnPageloadSpan = !spanStreamingEnabled && !ignored.has("cls");'
+        );
+        expect(vitals).toContain(
+            'const trackLcpOnPageloadSpan = !spanStreamingEnabled && !ignored.has("lcp");'
+        );
+        expect(vitals).toMatch(
+            /if \(spanStreamingEnabled\) \{\s*if \(!ignored\.has\("lcp"\)\) \{\s*browserUtils\.trackLcpAsSpan\([^)]*\);\s*\}\s*if \(!ignored\.has\("cls"\)\) \{\s*browserUtils\.trackClsAsSpan\(/
+        );
     });
 });
