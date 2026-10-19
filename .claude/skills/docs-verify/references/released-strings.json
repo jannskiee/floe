@@ -1,11 +1,16 @@
 {
     "refs": {
-        "cli": "v1.11.3",
-        "desktop": "desktop-v1.0.0"
+        "cli": "c40ce56",
+        "desktop": "c40ce56"
     },
     "cli": {
+        "cli/cmd/floe/interrupt.go": [
+            "Canceled."
+        ],
+        "cli/cmd/floe/links.go": [
+            "That looks like a link to receive from. To receive, use: floe receive <link>"
+        ],
         "cli/cmd/floe/main.go": [
-            "Canceled.",
             "Connected",
             "Error: --relay-only needs a TURN relay and {server} offers none; drop the flag, or configure a relay on the server",
             "Error: --relay-only needs a TURN relay, and the connection details from {server} could not be read; check --server, or drop the flag",
@@ -14,7 +19,6 @@
             "Error: failed to connect to signaling server: cannot connect to signaling server at {wss address}/ws: {reason}",
             "Files are encrypted end-to-end. Nothing is stored on any server.",
             "Floe transfers files directly between devices using WebRTC.",
-            "That looks like a link to receive from. To receive, use: floe receive <link>",
             "connection closed before the server assigned a role",
             "the server is limiting connections from this network. Wait a minute and try again."
         ],
@@ -111,7 +115,6 @@
             "Error: WebRTC setup failed: connected but the data channel did not open",
             "Error: WebRTC setup failed: failed to create data channel",
             "Error: WebRTC setup failed: failed to set remote description: {text from the WebRTC library}",
-            "Error: WebRTC setup failed: signaling closed before offer was received",
             "Error: WebRTC setup failed: timed out establishing a connection",
             "Error: WebRTC setup failed: timed out waiting for the peer to answer",
             "Error: WebRTC setup failed: timed out waiting for the peer's offer",
@@ -119,9 +122,7 @@
             "failed to create offer",
             "failed to send answer",
             "failed to send offer",
-            "failed to set local description",
-            "signaling closed before answer was received",
-            "signaling closed before offer was received"
+            "failed to set local description"
         ],
         "cli/engine/peer/setuperror.go": [
             "closed before the connection was established",

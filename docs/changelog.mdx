@@ -43,7 +43,16 @@ Floe ships on two version lines. `vX.Y.Z` releases the `floe` CLI and the contai
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
-<Update label="Unreleased" tags={["Web", "Desktop", "CLI", "Self-hosting"]}>
+<Update label="desktop-v1.0.1" description="2026-10-19" tags={["Desktop"]}>
+  **A very large receive no longer fills the storage History is kept in, and closing Floe while a setting is saved no longer freezes the window**
+
+  - The window no longer goes blank when the storage it keeps History in is full. A receive by code now keeps the first 200 file names in its History row, as a request link drop already does, so a very large folder no longer fills that storage, and an expanded History row lists at most its first 200 names, older rows included. The row still counts every file.
+  - Closing the window while a setting is being saved no longer leaves the window not responding when your AppData folder is on a slow or network drive, and the setting is still saved.
+  - After a second copy within a moment of the first, the check mark of Copy code and Copy link, and the "Copied" of Settings > About, now stay for their full time instead of going early.
+  - Floe Desktop reads at most 64 KiB of the server's answer for connection details or a short code, so a server that answers with far more can no longer make it use gigabytes of memory. A Floe server's answer is under 1 KiB. A longer one now counts as unreadable: a transfer goes on with STUN only, **Test** in Settings says the server didn't return usable connection details, and **Send** shows the link without a code.
+</Update>
+
+<Update label="v1.11.4" description="2026-10-19" tags={["Web", "CLI", "Self-hosting"]}>
   **The web app shows a green check mark in place of the words "SHA-256 matched"**
 
   - When every file's SHA-256 matched, the check marks in front of "3 files received" on the receiving page and beside "All Files Sent!" on the Send page are green, as in Floe Desktop. The line "SHA-256 matched" that sat under them is gone; a screen reader still reads it. When a file could be checked by its size only, the check mark is gray, where it was green every time.
@@ -51,10 +60,6 @@ Each entry lists the parts it changed. Filter on the right to see only the ones 
   - A request link's page still says "Their app reports every file's SHA-256 matched.", and `floe send` and `floe receive` still print `Verified   SHA-256 matched`.
   - In a browser without WebRTC, such as Tor Browser or Firefox with WebRTC turned off, a receiving page now says so in its red banner and does not join the room, so the link still works when opened in another browser. A sending page says so as soon as it loads. The sentence stays up through a reconnect.
   - A send whose connection closed just as its last file finished now says "Connection lost. The other device may have closed the tab." instead of "All Files Sent!", because the end of that file never reached the receiver.
-  - Floe Desktop: the window no longer goes blank when the storage it keeps History in is full. A receive by code now keeps the first 200 file names in its History row, as a request link drop already does, so a very large folder no longer fills that storage, and an expanded History row lists at most its first 200 names, older rows included. The row still counts every file.
-  - Floe Desktop: closing the window while a setting is being saved no longer leaves the window not responding when your AppData folder is on a slow or network drive, and the setting is still saved.
-  - Floe Desktop: after a second copy within a moment of the first, the check mark of Copy code and Copy link, and the "Copied" of Settings > About, now stay for their full time instead of going early.
-  - Floe Desktop: the app reads at most 64 KiB of the server's answer for connection details or a short code, so a server that answers with far more can no longer make it use gigabytes of memory. A Floe server's answer is under 1 KiB. A longer one now counts as unreadable: a transfer goes on with STUN only, **Test** in Settings says the server didn't return usable connection details, and **Send** shows the link without a code.
   - CLI: `floe` reads at most 64 KiB of the server's answer for connection details or a short code, so a server that answers with far more can no longer make it use gigabytes of memory. A longer answer counts as unreadable: the transfer goes on with STUN only and the usual warning, `floe send` shares the link without a code, and `floe receive` says it could not resolve the code.
   - CLI: on Windows, a `floe update` whose download failed partway no longer leaves the partial download in your temp folder.
   - Self-hosting: a `TRUSTED_PROXY_COUNT` that is a word or a negative number still counts as 0, and the server now says so in one line at startup.
@@ -62,6 +67,7 @@ Each entry lists the parts it changed. Filter on the right to see only the ones 
   - Self-hosting: the example coturn configuration refuses to relay to private, loopback, link-local and other reserved addresses. A `turnserver.conf` you already made does not change: copy the new lines in from the example. If a device that uses the relay can be on the relay's own private network, such as a relay at home that you also use from home, also uncomment the example's `allowed-peer-ip` line for that network, as the TURN relay page explains.
   - Self-hosting: the signaling server sends the stats counter's bytes to Upstash Redis one call at a time, adding the bytes reported in the meantime to the next call, so a stalled Upstash no longer holds an open call for every report.
   - Self-hosting: the signaling server now disconnects a browser connection that has stopped reading once about 1 MB is waiting for it, as it already did for the CLI and Floe Desktop, so a flood aimed at such a connection no longer piles up in the server's memory until the connection times out. A page cut off this way stays disconnected until it is reloaded.
+  - Self-hosting: the published images are rebuilt as `1.11.4`, with the web app and server changes above. If you pinned `FLOE_IMAGE_TAG=1.11.3`, move to `1.11.4`.
 </Update>
 
 <Update label="desktop-v1.0.0" description="2026-10-17" tags={["Desktop"]}>

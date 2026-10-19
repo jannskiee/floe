@@ -4888,7 +4888,7 @@
     {
         "surface": "cli",
         "text": "Canceled.",
-        "source": "cli/cmd/floe/main.go",
+        "source": "cli/cmd/floe/interrupt.go",
         "anchor": "/cli/send#notes",
         "why_no_home": null
     },
@@ -5573,13 +5573,6 @@
     },
     {
         "surface": "cli",
-        "text": "Error: WebRTC setup failed: signaling closed before offer was received",
-        "source": "cli/engine/peer/connection.go",
-        "anchor": null,
-        "why_no_home": "A guard that no released build can reach: the connection details it waits for arrive on a channel that is never closed, so a lost server connection ends the setup with \"the connection to the server was lost before the peer connected\" instead, which has its own row."
-    },
-    {
-        "surface": "cli",
         "text": "Error: WebRTC setup failed: timed out establishing a connection",
         "source": "cli/engine/peer/connection.go",
         "anchor": "/troubleshooting#timed-out-establishing-a-connection",
@@ -6000,20 +5993,6 @@
     },
     {
         "surface": "cli",
-        "text": "signaling closed before answer was received",
-        "source": "cli/engine/peer/connection.go",
-        "anchor": null,
-        "why_no_home": "A guard that no released build can reach: the connection details it waits for arrive on a channel that is never closed, so a lost server connection ends the setup with \"the connection to the server was lost before the peer connected\" instead, which has its own row."
-    },
-    {
-        "surface": "cli",
-        "text": "signaling closed before offer was received",
-        "source": "cli/engine/peer/connection.go",
-        "anchor": null,
-        "why_no_home": "A guard that no released build can reach: the connection details it waits for arrive on a channel that is never closed, so a lost server connection ends the setup with \"the connection to the server was lost before the peer connected\" instead, which has its own row."
-    },
-    {
-        "surface": "cli",
         "text": "That is a request link for sending files to someone. Open it in a web browser.",
         "source": "cli/engine/code/client.go",
         "anchor": "/cli/receive#links-floe-receive-refuses",
@@ -6036,7 +6015,7 @@
     {
         "surface": "cli",
         "text": "That looks like a link to receive from. To receive, use: floe receive <link>",
-        "source": "cli/cmd/floe/main.go",
+        "source": "cli/cmd/floe/links.go",
         "anchor": "/cli/receive#links-floe-receive-refuses",
         "why_no_home": null
     },
