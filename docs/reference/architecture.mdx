@@ -496,8 +496,9 @@ resets to zero on restart. With it, the total lives in Upstash Redis under the k
 `floe:bytes_total`:
 
 - At startup the server reads the key once and seeds the in-memory value from it.
-- Each accepted report adds to the in-memory value at once, then sends `INCRBY` for the key over
-  Upstash's REST API without waiting for the answer.
+- Each accepted report adds to the in-memory value at once, and its bytes go to the key in an
+  `INCRBY` over Upstash's REST API, without the report waiting for the answer. One `INCRBY` is on
+  its way at a time: the bytes of reports that arrive meanwhile are added up and sent in the next.
 - Each answer to `INCRBY` is the stored total, and raises the in-memory value to it.
 
 The in-memory value only ever rises. If the startup read fails, the homepage shows a lower total
