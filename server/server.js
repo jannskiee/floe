@@ -1340,6 +1340,49 @@ function endRequestRoomOff(roomId, meta, now) {
     else if (typeof endsAt === 'number') noteEndedLink(roomId, endsAt);
 }
 
+// The Socket.IO twin of WS_SEND_BUFFER_CEILING below: one full inbound packet
+// (maxHttpBufferSize). engine.io queues a session's packets in its writeBuffer
+// while the transport is still writing the last batch, and a websocket
+// transport's ws holds what the kernel has not taken, so everything aimed at a
+// browser peer that stopped reading stays in this process until engine.io's
+// ping timeout ends the session, about 45 s in (pingInterval 25 s plus
+// pingTimeout 20 s, the defaults, since neither is set here). Measured before
+// this bound (median of three, one flooder and a partner that paused its
+// socket, 60 KB signals): the server's resident memory grew 185 MiB in the 42 s
+// before the ping timeout closed the target, for 154 MiB offered and all of it
+// accepted, and only that close freed it. With the bound the target was cut
+// off 0.34 s in, after 1.4 MiB, and the server peaked 4 MiB above where it
+// started.
+const SIO_SEND_BUFFER_CEILING = 1e6;
+// A reading peer's queue holds a few packets at most (a whole signaling
+// exchange is a few dozen), so more than this many means it is not reading
+// whatever their size. It also bounds the walk below: without it a flood of
+// tiny signals would cost every send a walk the length of the queue, about
+// 20,000 packets before a megabyte of them adds up.
+const SIO_SEND_QUEUE_CEILING = 1000;
+
+// Whether one Socket.IO connection holds more unsent than the ceilings allow:
+// the packets in its engine.io writeBuffer, plus what its websocket has handed
+// to ws that the kernel has not taken. These are engine.io 6 internals
+// (Socket.writeBuffer, a packet's data, the transport's socket), so every read
+// is guarded: a field that is not there counts as nothing queued, and an
+// upgrade of either library can only switch the bound off, never cut off a
+// peer that reads. A packet's data is the encoded string Socket.IO wrote, or a
+// Buffer for a binary attachment; characters and bytes are summed alike.
+function sioSendBacklogOver(socket) {
+    const conn = socket.conn;
+    if (!conn) return false;
+    const queue = Array.isArray(conn.writeBuffer) ? conn.writeBuffer : [];
+    if (queue.length > SIO_SEND_QUEUE_CEILING) return true;
+    const ws = conn.transport && conn.transport.socket;
+    let held = ws && typeof ws.bufferedAmount === 'number' ? ws.bufferedAmount : 0;
+    for (const packet of queue) {
+        const data = packet && packet.data;
+        if (data && typeof data.length === 'number') held += data.length;
+    }
+    return held > SIO_SEND_BUFFER_CEILING;
+}
+
 function createSocketIOPeer(socket, key) {
     return {
         id: socket.id,
@@ -1347,6 +1390,16 @@ function createSocketIOPeer(socket, key) {
         key,
         roomId: null,
         send(type, data) {
+            // Checked before every send, as createWSPeer does, and cut off the
+            // same way: a peer this far behind has stopped being a peer.
+            // disconnect(true) closes the session as well as the namespace, so
+            // handleDisconnect frees the seat and tells the partner, and engine.io
+            // queues nothing more for it. Silent, as on /ws: the branch can fire
+            // only while the socket is connected, so once per socket.
+            if (socket.connected && sioSendBacklogOver(socket)) {
+                socket.disconnect(true);
+                return;
+            }
             // 'user-connected' historically sent just the peer ID string in the
             // Socket.IO version. Keep this for browser backward compatibility.
             if (type === 'user-connected') {
@@ -2015,9 +2068,12 @@ module.exports = {
     handleSignal,
     handleDisconnect,
     createWSPeer,
+    createSocketIOPeer,
     heartbeatTick,
     handlePong,
     WS_SEND_BUFFER_CEILING,
+    SIO_SEND_BUFFER_CEILING,
+    SIO_SEND_QUEUE_CEILING,
     rooms,
     roomMeta,
     codeToRoom,

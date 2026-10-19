@@ -589,6 +589,62 @@ test('a peer flooding a non-reading peer is cut off, not buffered', async (t) =>
     await assertSurvived(srv, 'a flood aimed at a peer that is not reading');
 });
 
+test('a Socket.IO peer flooding a non-reading peer is cut off, not buffered', async (t) => {
+    const srv = await startServer();
+    t.after(() => srv.stop());
+
+    // The /ws case above over Socket.IO, the browser's transport: two peers in
+    // one ordinary room. Before the bound, engine.io held every packet aimed at
+    // the paused peer until its ping timeout, about 45 s in.
+    const roomId = randomUUID();
+    const a = await openSocketIO(srv);
+    const b = await openSocketIO(srv);
+    a.send(`42["join-room","${roomId}"]`);
+    assert.match((await a.events(1))[0] || '', /^42\["room-joined"/);
+    b.send(`42["join-room","${roomId}"]`);
+    assert.match((await b.events(1))[0] || '', /^42\["room-joined"/);
+    assert.match((await a.events(2))[1] || '', /^42\["user-connected"/);
+
+    // As on /ws, the cut-off is asserted on A, which is reading: handleDisconnect
+    // tells the peer that stayed.
+    b.ws.pause();
+    let cutOff = false;
+    const sawCutOff = new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(false), 20000);
+        a.ws.on('message', (raw) => {
+            if (!raw.toString().startsWith('42["peer-disconnected"')) return;
+            clearTimeout(timer);
+            cutOff = true;
+            resolve(true);
+        });
+    });
+
+    // 60 KB a signal, under SIGNAL_MAX_CHARS, and at most 32 MB offered, as on
+    // /ws. With no target the server routes it to the other seat.
+    const frame = `42["signal",{"signal":"${'x'.repeat(60 * 1024)}"}]`;
+    const cap = Math.floor((32 * 1024 * 1024) / frame.length);
+    let frames = 0;
+    while (frames < cap && !cutOff) {
+        a.send(frame);
+        frames++;
+        await new Promise((r) => setTimeout(r, 4));
+    }
+
+    assert.equal(
+        await sawCutOff,
+        true,
+        `the server queued ${frames} frames of 60 KB for a Socket.IO peer that never read one`
+    );
+    assert.ok(frames < cap, `expected the cut-off before the 32 MB cap, offered all ${frames} frames`);
+
+    // A is untouched: it can still join a room and hear back.
+    a.send(`42["join-room","${randomUUID()}"]`);
+    const seen = await a.events(4);
+    assert.match(seen[3] || '', /^42\["room-joined"/, seen.join('\n').slice(0, 500));
+
+    await assertSurvived(srv, 'a Socket.IO flood aimed at a peer that is not reading');
+});
+
 // --- request-link helpers -----------------------------------------------------
 
 function newToken() {
@@ -1441,7 +1497,8 @@ test('a Go client\'s handshake passes the same-host rule directly and through a 
 // A Socket.IO v4 client over a bare engine.io websocket, no client library,
 // with the same handshake the Socket.IO request-join fuzz above drives inline.
 // Resolves once the default namespace is connected, with send() and events(n),
-// which waits up to ms for the first n '42' event frames.
+// which waits up to ms for the first n '42' event frames, and the WebSocket
+// itself, for a test that pauses it.
 function openSocketIO(srv) {
     const ws = track(new WebSocket(`ws://127.0.0.1:${srv.port}/socket.io/?EIO=4&transport=websocket`, {
         headers: { Origin: 'http://localhost:3000' },
@@ -1458,6 +1515,7 @@ function openSocketIO(srv) {
             else if (text.startsWith('40')) {
                 clearTimeout(timer);
                 resolve({
+                    ws,
                     send: (frame) => ws.send(frame),
                     events: async (n, ms = 5000) => {
                         const deadline = Date.now() + ms;

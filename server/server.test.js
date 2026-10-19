@@ -69,9 +69,12 @@ const {
     codeRateLimits,
     selectMinimalIceUrls,
     createWSPeer,
+    createSocketIOPeer,
     heartbeatTick,
     handlePong,
     WS_SEND_BUFFER_CEILING,
+    SIO_SEND_BUFFER_CEILING,
+    SIO_SEND_QUEUE_CEILING,
     server,
     healthHandler,
     policyStore,
@@ -2370,6 +2373,89 @@ describe('createWSPeer backpressure', () => {
 
         const source = require('node:fs').readFileSync(require.resolve('./server.js'), 'utf8');
         assert.match(source, /maxPayload: 1e6/, 'maxPayload must still be the 1 MB the ceiling mirrors');
+    });
+});
+
+// The parts of a Socket.IO server socket createSocketIOPeer().send touches:
+// connected, emit, disconnect, and engine.io's session under conn.
+function fakeSocketIO({ writeBuffer = [], bufferedAmount = 0, ...overrides } = {}) {
+    return {
+        id: 'sio-1',
+        connected: true,
+        emitted: [],
+        disconnects: [],
+        conn: { writeBuffer, transport: { socket: { bufferedAmount } } },
+        emit(type, data) {
+            this.emitted.push([type, data]);
+        },
+        disconnect(close) {
+            this.disconnects.push(close);
+            this.connected = false;
+        },
+        ...overrides,
+    };
+}
+
+describe('createSocketIOPeer backpressure', () => {
+    const queued = (n, size = 1) => Array.from({ length: n }, () => ({ type: 'message', data: 'x'.repeat(size) }));
+
+    it('send over the ceiling closes the session and drops', () => {
+        const socket = fakeSocketIO({ writeBuffer: queued(1, SIO_SEND_BUFFER_CEILING + 1) });
+        const peer = createSocketIOPeer(socket);
+
+        peer.send('signal', { signal: 'x', sender: 'peer-2' });
+
+        assert.equal(socket.emitted.length, 0, 'nothing may be queued behind the ceiling');
+        assert.deepEqual(socket.disconnects, [true], 'disconnect(true) closes the session too');
+    });
+
+    it("the websocket's unflushed bytes count toward the ceiling", () => {
+        const socket = fakeSocketIO({ writeBuffer: queued(1), bufferedAmount: SIO_SEND_BUFFER_CEILING });
+        createSocketIOPeer(socket).send('signal', { signal: 'x' });
+        assert.deepEqual(socket.disconnects, [true]);
+    });
+
+    it('send at the ceiling still delivers', () => {
+        // Strictly greater-than, as on /ws.
+        const socket = fakeSocketIO({ writeBuffer: queued(1, SIO_SEND_BUFFER_CEILING) });
+        createSocketIOPeer(socket).send('signal', { signal: 'x', sender: 'peer-2' });
+        assert.deepEqual(socket.disconnects, []);
+        assert.deepEqual(socket.emitted, [['signal', { signal: 'x', sender: 'peer-2' }]]);
+    });
+
+    it('more packets than the queue ceiling close the session whatever their size', () => {
+        const over = fakeSocketIO({ writeBuffer: queued(SIO_SEND_QUEUE_CEILING + 1) });
+        createSocketIOPeer(over).send('signal', { signal: 'x' });
+        assert.deepEqual(over.disconnects, [true]);
+
+        const at = fakeSocketIO({ writeBuffer: queued(SIO_SEND_QUEUE_CEILING) });
+        createSocketIOPeer(at).send('signal', { signal: 'x' });
+        assert.deepEqual(at.disconnects, []);
+        assert.equal(at.emitted.length, 1);
+    });
+
+    it('a session whose engine.io fields are missing is never cut off', () => {
+        // A future engine.io may move these; the bound then switches off rather
+        // than refuse a peer that reads.
+        for (const conn of [undefined, {}, { writeBuffer: 'not an array', transport: null }]) {
+            const socket = fakeSocketIO({ conn });
+            createSocketIOPeer(socket).send('signal', { signal: 'x' });
+            assert.deepEqual(socket.disconnects, [], JSON.stringify(conn));
+            assert.equal(socket.emitted.length, 1, JSON.stringify(conn));
+        }
+    });
+
+    it('a socket already disconnected is not disconnected again', () => {
+        const socket = fakeSocketIO({ connected: false, writeBuffer: queued(1, SIO_SEND_BUFFER_CEILING + 1) });
+        createSocketIOPeer(socket).send('signal', { signal: 'x' });
+        assert.deepEqual(socket.disconnects, []);
+    });
+
+    it('the ceiling is one maxHttpBufferSize packet', () => {
+        // The same coupling as WS_SEND_BUFFER_CEILING and maxPayload above.
+        assert.equal(SIO_SEND_BUFFER_CEILING, 1e6);
+        const source = require('node:fs').readFileSync(require.resolve('./server.js'), 'utf8');
+        assert.match(source, /maxHttpBufferSize: 1e6/, 'maxHttpBufferSize must still be the 1 MB the ceiling mirrors');
     });
 });
 
