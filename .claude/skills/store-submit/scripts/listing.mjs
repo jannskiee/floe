@@ -21,7 +21,7 @@
  *        2 usage
  */
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { djb2 } from './release-notes.mjs';
@@ -216,5 +216,18 @@ export function main(argv) {
     return hard.length ? 1 : 0;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url))
-    process.exit(main(process.argv.slice(2)));
+// Both sides through realpath: node keeps a symlink in argv[1] and resolves it
+// in import.meta.url, so from a checkout under a symlinked directory (or a
+// Windows junction) the two differed, nothing ran, and the exit was 0.
+function realPath(p) {
+    try {
+        return realpathSync(p);
+    } catch {
+        return p;
+    }
+}
+const invokedDirectly =
+    process.argv[1] &&
+    realPath(path.resolve(process.argv[1])).toLowerCase() ===
+        realPath(fileURLToPath(import.meta.url)).toLowerCase();
+if (invokedDirectly) process.exit(main(process.argv.slice(2)));

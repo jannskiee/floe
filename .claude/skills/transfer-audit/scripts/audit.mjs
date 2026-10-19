@@ -53,6 +53,7 @@ import {
     mkdirSync,
     readdirSync,
     readFileSync,
+    realpathSync,
     rmSync,
     statSync,
     statfsSync,
@@ -3100,10 +3101,20 @@ export async function main(argv, io = {}) {
 
 export { parseWslList, probeWsl, selfTest, DEFAULT_ROOT, PROD, LOCAL };
 
+// Both sides through realpath: node keeps a symlink in argv[1] and resolves it
+// in import.meta.url, so from a checkout under a symlinked directory (or a
+// Windows junction) the two differed, nothing ran, and the exit was 0.
+function realPath(p) {
+    try {
+        return realpathSync(p);
+    } catch {
+        return p;
+    }
+}
 const invokedDirectly =
     process.argv[1] &&
-    path.resolve(process.argv[1]).toLowerCase() ===
-        fileURLToPath(import.meta.url).toLowerCase();
+    realPath(path.resolve(process.argv[1])).toLowerCase() ===
+        realPath(fileURLToPath(import.meta.url)).toLowerCase();
 if (invokedDirectly) {
     main(process.argv.slice(2)).then(
         (code) => process.exit(code),

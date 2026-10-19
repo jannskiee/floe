@@ -1,8 +1,12 @@
 // launch-detached.mjs on fixtures (FU-26): an injected detach and lister,
 // so nothing starts and no process list is read.
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, symlinkSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { SPEC_VAR, SW, logWrapped } from './lib/detached.mjs';
 import { main, parseArgs, startsFloe } from './launch-detached.mjs';
 
@@ -94,4 +98,39 @@ test('main refuses a second Floe instance (exit 3) and names what runs; a refuse
     assert.match(b.err.join('\n'), /returned 9 \(path not found\)/);
     assert.equal(await main(['nope'], { detach: a.detach, out: () => {}, err: () => {} }), 2);
     assert.equal(await main(['--log', 'C:\\l.log', '--', 'wails', 'dev', 'a&b'], { detach: a.detach, lister: async () => [], out: () => {}, err: () => {} }), 2);
+});
+
+// node keeps a junction (or a symlinked folder) in argv[1] and resolves it in
+// import.meta.url. A guard that compared the two unresolved skipped main and
+// exited 0, as if the launch had succeeded. A usage error starts nothing.
+test('launch-detached.mjs run through a junction still runs main (usage, exit 2)', (t) => {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const dir = mkdtempSync(path.join(tmpdir(), 'launch-detached-link-'));
+    const link = path.join(dir, 'scripts');
+    try {
+        try {
+            symlinkSync(
+                here,
+                link,
+                process.platform === 'win32' ? 'junction' : 'dir'
+            );
+        } catch {
+            t.skip('cannot make a directory link here');
+            return;
+        }
+        const r = spawnSync(
+            process.execPath,
+            [path.join(link, 'launch-detached.mjs'), '--nope'],
+            { encoding: 'utf8', windowsHide: true }
+        );
+        assert.equal(r.status, 2, r.stdout + r.stderr);
+        assert.match(r.stderr, /^launch-detached: unknown argument --nope/m);
+    } finally {
+        try {
+            unlinkSync(link);
+        } catch {
+            // never made
+        }
+        rmSync(dir, { recursive: true, force: true });
+    }
 });

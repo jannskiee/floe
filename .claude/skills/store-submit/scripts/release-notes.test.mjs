@@ -19,6 +19,8 @@ import {
     mkdtempSync,
     readFileSync,
     rmSync,
+    symlinkSync,
+    unlinkSync,
     writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -577,4 +579,38 @@ test('findEntry, render, check and djb2 as units', () => {
     assert.equal(a.root, REPO);
     assert.throws(() => parseArgs([]), /--desktop/);
     assert.throws(() => parseArgs(['--desktop', 'v1']), /desktop-vX\.Y\.Z/);
+});
+
+// node keeps a junction (or a symlinked folder) in argv[1] and resolves it in
+// import.meta.url. A guard that compared the two unresolved skipped main and
+// exited 0, which is release-notes.mjs's "no HARD finding".
+test('release-notes.mjs run through a junction still runs main (usage, exit 2)', (t) => {
+    const dir = mkdtempSync(join(tmpdir(), 'release-notes-link-'));
+    const link = join(dir, 'scripts');
+    try {
+        try {
+            symlinkSync(
+                dirname(SCRIPT),
+                link,
+                process.platform === 'win32' ? 'junction' : 'dir'
+            );
+        } catch {
+            t.skip('cannot make a directory link here');
+            return;
+        }
+        const r = spawnSync(
+            process.execPath,
+            [join(link, 'release-notes.mjs'), '--nope'],
+            { encoding: 'utf8', windowsHide: true }
+        );
+        assert.equal(r.status, 2, r.stdout + r.stderr);
+        assert.match(r.stderr, /^release-notes: unknown argument --nope/m);
+    } finally {
+        try {
+            unlinkSync(link);
+        } catch {
+            // never made
+        }
+        rmSync(dir, { recursive: true, force: true });
+    }
 });

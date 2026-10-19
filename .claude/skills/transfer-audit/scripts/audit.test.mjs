@@ -13,6 +13,8 @@ import {
     readFileSync,
     readdirSync,
     rmSync,
+    symlinkSync,
+    unlinkSync,
     writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -3009,4 +3011,38 @@ test('the desktop probes get a manifest of their own, which the start check read
     assert.equal(JSON.parse(readFileSync(file, 'utf8')).desktop.restored, true);
     assert.ok(existsSync(bak), 'the probe evidence is kept');
     assert.deepEqual(unrestoredDesktopRuns(outDir), []);
+});
+
+// node keeps a junction (or a symlinked folder) in argv[1] and resolves it in
+// import.meta.url. A guard that compared the two unresolved skipped main and
+// exited 0, which is the audit's "clean".
+test('audit.mjs run through a junction still runs main (usage, exit 2)', (t) => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'lta-link-'));
+    const link = path.join(dir, 'scripts');
+    try {
+        try {
+            symlinkSync(
+                path.dirname(SCRIPT),
+                link,
+                process.platform === 'win32' ? 'junction' : 'dir'
+            );
+        } catch {
+            t.skip('cannot make a directory link here');
+            return;
+        }
+        const r = spawnSync(
+            process.execPath,
+            [path.join(link, 'audit.mjs'), 'nope'],
+            { encoding: 'utf8', windowsHide: true }
+        );
+        assert.equal(r.status, 2, r.stdout + r.stderr);
+        assert.match(r.stderr, /^transfer-audit: unknown subcommand nope/m);
+    } finally {
+        try {
+            unlinkSync(link);
+        } catch {
+            // never made
+        }
+        rmSync(dir, { recursive: true, force: true });
+    }
 });
