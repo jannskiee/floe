@@ -532,6 +532,25 @@ describe('the history store', () => {
         await user.click(screen.getByRole('button', {name: 'History'}));
         expect(screen.getByText('300 files')).toBeTruthy();
     });
+
+    it('an expanded stored 300-name receive row lists 200 names', async () => {
+        // A row stored before the cap still holds every name. Expanded, it
+        // shows the first 200, as a new row does, so an old 100,000-name row
+        // cannot freeze the window; the stored row itself is left alone.
+        const names = Array.from({length: 300}, (_, i) => `f${i + 1}.bin`);
+        localStorage.setItem('floe:history', JSON.stringify([
+            {kind: 'recv', names, count: 300, dir: 'C:\\dl', at: 1_700_000_000_000, bytes: 300},
+        ]));
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getByRole('button', {name: 'History'}));
+        await user.click(screen.getByText('300 files'));
+        const listed = screen.getAllByRole('listitem').filter((li) => /^f\d+\.bin$/.test(li.textContent || ''));
+        expect(listed).toHaveLength(200);
+        expect([listed[0].textContent, listed[199].textContent]).toEqual(['f1.bin', 'f200.bin']);
+        expect(JSON.parse(localStorage.getItem('floe:history')!)[0].names).toHaveLength(300);
+    });
 });
 
 describe('the progress label', () => {

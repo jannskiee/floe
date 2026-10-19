@@ -2,7 +2,7 @@ import {useState, type Dispatch, type SetStateAction} from 'react';
 import {ArrowDownLeft, ArrowUpRight, ChevronDown} from 'lucide-react';
 import {OpenFolder, RevealFile} from '../../wailsjs/go/main/App';
 import {cn, Eyebrow} from './ui';
-import {fmtWhen, histKey, type HistEntry} from '../history';
+import {fmtWhen, histKey, REQUEST_NAMES_CAP, type HistEntry} from '../history';
 import {fmtBytes} from '../incoming';
 import {shortPath} from '../paths';
 import {ACCEPTED_AUTOMATICALLY_LINE, keptPartLine, NOTHING_SAVED, stoppedFull, verifiedAll} from '../requestCopy';
@@ -116,7 +116,8 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
                                     <div id={panelId} className="animate-floe-in space-y-2 px-3.5 pb-2.5 motion-reduce:animate-none">
                                         {multi ? (
                                             <ul className="custom-scrollbar max-h-32 space-y-1 overflow-y-auto pl-7">
-                                                {h.names.map((n, j) => (
+                                                {/* At most the cap, for a row stored before it too. */}
+                                                {h.names.slice(0, REQUEST_NAMES_CAP).map((n, j) => (
                                                     <li key={`${key}-${j}`} className="truncate text-xs text-zinc-500">{n}</li>
                                                 ))}
                                             </ul>
