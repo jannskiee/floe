@@ -53,7 +53,7 @@ Each entry lists the parts it changed. Filter on the right to see only the ones 
 </Update>
 
 <Update label="v1.11.4" description="2026-10-19" tags={["Web", "CLI", "Self-hosting"]}>
-  **The web app marks every SHA-256 match with a green check mark, and `floe` and the signaling server hold firmer limits**
+  **The web app shows a green check mark when every file's SHA-256 matched, and `floe` and the signaling server hold firmer limits**
 
   - When every file's SHA-256 matched, the check marks in front of "3 files received" on the receiving page and beside "All Files Sent!" on the Send page are green, as in Floe Desktop. The line "SHA-256 matched" that sat under them is gone; a screen reader still reads it. When a file could be checked by its size only, the check mark is gray, where it was green every time.
   - On the Send page "All Files Sent!" turns green with its check mark when the receiving app reports that every file matched, usually a moment after the last byte leaves. Until then, and for good with a receiver that sends no such report, both stay gray.
