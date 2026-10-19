@@ -918,6 +918,13 @@
     },
     {
         "surface": "web",
+        "text": "This browser ran out of room for the files it is receiving, so the transfer was stopped. A private or Incognito window holds much less than a normal one, so receive in a normal window, or receive large files on a computer with Floe Desktop (Windows) or the Floe CLI, which save straight to disk.",
+        "source": "client/lib/transfer/receiver.ts",
+        "anchor": "/troubleshooting#this-browser-ran-out-of-room",
+        "why_no_home": null
+    },
+    {
+        "surface": "web",
         "text": "This in-app browser has limited support for file transfers. Open Floe in Chrome or Safari for the best experience.",
         "source": "client/components/InAppBrowserGuard.tsx",
         "anchor": "/web-app/receiving#if-floe-says-open-in-your-browser",

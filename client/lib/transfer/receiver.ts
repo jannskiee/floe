@@ -89,7 +89,11 @@ export interface ReceiverCallbacks {
 }
 
 export interface ReceiveFailure {
-    /** 'out-of-memory' is the tab running out; 'internal' is anything else (see receiveFailure.ts). */
+    /**
+     * 'out-of-memory' is the tab running out; 'storage-full' is Chromium's blob
+     * storage, where the parts of a file go, filling up; 'internal' is anything
+     * else (see receiveFailure.ts).
+     */
     code: Exclude<ReceiveFailureCode, 'channel-closed'>;
     /** What was thrown. For an error report only, never for the screen. */
     cause: unknown;
@@ -108,6 +112,11 @@ export interface ReceiveFailure {
 export const OUT_OF_MEMORY_MESSAGE =
     'This browser ran out of memory while receiving, so the transfer was stopped. ' +
     'Receive large files on a computer with Floe Desktop (Windows) or the Floe CLI, which save straight to disk.';
+
+export const STORAGE_FULL_MESSAGE =
+    'This browser ran out of room for the files it is receiving, so the transfer was stopped. ' +
+    'A private or Incognito window holds much less than a normal one, so receive in a normal window, ' +
+    'or receive large files on a computer with Floe Desktop (Windows) or the Floe CLI, which save straight to disk.';
 
 export const INTERNAL_ERROR_MESSAGE =
     'Something went wrong while receiving, so the transfer was stopped. Ask the sender to try again.';
@@ -437,15 +446,17 @@ export function createReceiver(
         // Tell the sender, or it keeps sending into a receiver that drops it
         // all. Binary, like every receiver-to-sender frame, and best effort.
         // write-failed is the closed set's code for a receiver that could not
-        // keep a file, which is what both causes come to here; `saved` is the
+        // keep a file, which is what every cause comes to here; `saved` is the
         // count already handed over, as a hash refusal sends it. The reason
-        // stays for peers that predate the code and print it verbatim.
+        // stays for peers that predate the code and print it verbatim, and a
+        // full blob storage keeps the memory wording those peers have always
+        // printed for it.
         tell(() => {
             const of = expected === null ? '' : ` of ${expected}`;
             const reason =
-                code === 'out-of-memory'
-                    ? `receiver ran out of memory after receiving ${received}${of} bytes`
-                    : 'receiver stopped because of an internal error';
+                code === 'internal'
+                    ? 'receiver stopped because of an internal error'
+                    : `receiver ran out of memory after receiving ${received}${of} bytes`;
             return incompatibleMessage(reason, 'write-failed', filesHanded);
         });
         // Clear the progress line, as the discard path does. Best effort, so
@@ -457,7 +468,11 @@ export function createReceiver(
             // Nothing to add: onError below is what matters.
         }
         cb.onError?.(
-            code === 'out-of-memory' ? OUT_OF_MEMORY_MESSAGE : INTERNAL_ERROR_MESSAGE,
+            code === 'out-of-memory'
+                ? OUT_OF_MEMORY_MESSAGE
+                : code === 'storage-full'
+                  ? STORAGE_FULL_MESSAGE
+                  : INTERNAL_ERROR_MESSAGE,
             { code, cause: err, received, expected, senderSentVersion }
         );
     }
@@ -497,6 +512,9 @@ export function createReceiver(
     // turns out broken after its file was handed over, or after the
     // connection closed (a Go sender closes as soon as its last bytes are
     // out), is still reported; only a failure already reported keeps it quiet.
+    // It stops as storage-full, not out-of-memory: FLOE-Q stopped at 2032 and
+    // 2048 MiB on a computer with 16 GB, and the memory message sent its
+    // visitor back to try the same window again (see receiveFailure.ts).
     //
     // The returned promise settles once the read-back has, and never rejects
     // for a broken part (that is fail's to report). Every hand-over waits for
@@ -508,7 +526,7 @@ export function createReceiver(
         return part.slice(part.size - 1).arrayBuffer().then(
             () => {},
             (err: unknown) => {
-                if (!aborted || closed) fail(err, 'out-of-memory', sizes);
+                if (!aborted || closed) fail(err, 'storage-full', sizes);
             }
         );
     }

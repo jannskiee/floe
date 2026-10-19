@@ -65,6 +65,7 @@ differently: see [What an older web app shows](/self-hosting/operations#older-we
 | [“Incomplete file”](#a-file-did-not-appear-at-all), page you receive on | A file arrived shorter or longer than announced and was discarded. | Ask the sender to send it again. |
 | [“A file did not match what was sent”](#a-file-did-not-match-what-was-sent), either page | A file failed its SHA-256 check and was discarded. | Save what arrived, then ask for the rest. |
 | [“This browser ran out of memory while receiving”](#this-browser-ran-out-of-memory), page you receive on | The browser could not hold any more. | Receive with Floe Desktop or `floe receive`. |
+| [“This browser ran out of room for the files it is receiving”](#this-browser-ran-out-of-room), page you receive on | Chrome or Edge had nowhere left to keep what arrived, most often in a private window. | Close the tab, then open the same link in a normal window. |
 | [“Something went wrong while receiving”](#something-went-wrong-while-receiving), page you receive on | An error Floe did not expect. | Ask for a new transfer. Report it if it repeats. |
 | [“Something went wrong while sending”](#something-went-wrong-while-sending), page you send from | An error Floe did not expect. | Reload and send again. Report it if it repeats. |
 | [A banner that starts with “receiver”](#a-banner-that-starts-with-receiver), page you send from | The receiving app stopped on purpose and said why. | Deal with the cause it names, then send again. |
@@ -471,11 +472,36 @@ The browser could not hold any more of the transfer, so Floe stopped it and let 
 was arriving. Files that had already finished stay in the list. How much a browser can hold depends
 on the browser and the device: see
 [Known limitations](/how-it-works/known-limitations#a-browser-receiver-is-limited-by-what-the-browser-can-hold).
+This is the message of Firefox, Safari and every browser on iPhone and iPad, which keep every file
+in memory. In Chrome and Edge the limit that comes first is their own storage, and the page says
+[it ran out of room](#this-browser-ran-out-of-room) instead. A self-hosted web app of version
+1.11.4 or earlier shows this message there too.
 
 Save the files that finished, then receive the rest with Floe Desktop or `floe receive`, which
 write to disk as the bytes arrive. On a phone, where neither runs, ask the sender for the rest in
 smaller separate transfers. A single file that is too large for the phone has to go to a computer:
 see [Known limitations](/how-it-works/known-limitations#a-browser-receiver-is-limited-by-what-the-browser-can-hold).
+
+### "This browser ran out of room for the files it is receiving" {#this-browser-ran-out-of-room}
+
+On the page you receive on, in Chrome, Edge, or another browser built on Chromium: "This browser
+ran out of room for the files it is receiving, so the transfer was stopped. A private or Incognito
+window holds much less than a normal one, so receive in a normal window, or receive large files on
+a computer with Floe Desktop (Windows) or the Floe CLI, which save straight to disk."
+
+These browsers keep what arrives in storage of their own, outside the tab: part of it in memory,
+about 2 GB on a computer, and the rest on disk. A private or Incognito window puts nothing on disk,
+so everything received in private windows shares the memory part alone. A normal window goes on
+until a limit the browser sets from the size of the disk, or until the disk is nearly full. Floe
+stopped when the browser had no room for the next part, and let go of the file that was arriving.
+Files that had already finished stay in the list. See
+[Known limitations](/how-it-works/known-limitations#a-browser-receiver-is-limited-by-what-the-browser-can-hold).
+
+Save the files that finished, close this tab, then open the same link in a normal window on the
+same network. A sender's Floe page that is still open starts again by itself and sends every file
+from the start. If they sent with `floe send` or Floe Desktop, the transfer ended on their side:
+ask them to send again. If a normal window stops the same way, free some disk space, or receive
+with Floe Desktop or `floe receive`, which write to disk as the bytes arrive.
 
 ### "Something went wrong while receiving" {#something-went-wrong-while-receiving}
 

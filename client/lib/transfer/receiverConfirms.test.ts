@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createHash } from 'node:crypto';
 import {
     createReceiver,
-    OUT_OF_MEMORY_MESSAGE,
+    STORAGE_FULL_MESSAGE,
     SPILL_BYTES,
     type ReceivedFile,
     type ReceiverDeps,
@@ -215,7 +215,7 @@ describe('receiver: confirms delivery to the sender', () => {
         feed(h, 'a', a, 1, 1, endMessage(want));
         await h.rx.settled();
         expect(h.completed).toEqual([]);
-        expect(h.errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
+        expect(h.errors).toEqual([STORAGE_FULL_MESSAGE]);
         expect(h.received()).toEqual([]);
         expect(h.frames().map((f) => [f.type, f.code])).toEqual([['ack', undefined], ['incompatible', 'write-failed']]);
     });
@@ -230,7 +230,7 @@ describe('receiver: confirms delivery to the sender', () => {
         expect(h.completed).toEqual([]);
         await h.rx.settled();
         expect(h.completed).toEqual([]);
-        expect(h.errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
+        expect(h.errors).toEqual([STORAGE_FULL_MESSAGE]);
         expect(h.received()).toEqual([]);
         expect(h.allComplete).toEqual([]);
     });

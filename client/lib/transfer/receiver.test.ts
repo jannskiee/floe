@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { setFlagsFromString } from 'node:v8';
 import { runInNewContext } from 'node:vm';
-import { createReceiver, OUT_OF_MEMORY_MESSAGE, INTERNAL_ERROR_MESSAGE, SPILL_BYTES, type ReceiveFailure } from './receiver';
+import { createReceiver, OUT_OF_MEMORY_MESSAGE, STORAGE_FULL_MESSAGE, INTERNAL_ERROR_MESSAGE, SPILL_BYTES, type ReceiveFailure } from './receiver';
 import { metadataMessage, endMessage, incompatibleMessage, CONTROL_MSG_MAX, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, checkCompat } from './protocol';
 
 const enc = new TextEncoder();
@@ -1235,8 +1235,8 @@ describe('receiver: holds a bounded amount of a file in the tab', () => {
         h.rx.handleMessage(endMessage());
         await h.rx.settled();
         expect(h.completed).toEqual([]);
-        expect(h.errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
-        expect(h.failures[0]).toMatchObject({ code: 'out-of-memory', received: 3, expected: 3 });
+        expect(h.errors).toEqual([STORAGE_FULL_MESSAGE]);
+        expect(h.failures[0]).toMatchObject({ code: 'storage-full', received: 3, expected: 3 });
         const abort = JSON.parse(new TextDecoder().decode(h.sent[h.sent.length - 1] as Uint8Array));
         expect(abort.reason).toBe('receiver ran out of memory after receiving 3 of 3 bytes');
     });
@@ -1251,7 +1251,7 @@ describe('receiver: holds a bounded amount of a file in the tab', () => {
         h.rx.handleMessage(endMessage());
         h.rx.dispose();
         await tick();
-        expect(h.errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
+        expect(h.errors).toEqual([STORAGE_FULL_MESSAGE]);
     });
 
     it('stays quiet about a broken part once a failure was reported', async () => {
@@ -1268,7 +1268,7 @@ describe('receiver: holds a bounded amount of a file in the tab', () => {
         expect(h.errors[0]).toContain('Incomplete file');
     });
 
-    it('stops with the out-of-memory message when a part cannot be read back', async () => {
+    it('stops with the storage-full message when a part cannot be read back', async () => {
         // Chromium's shape when its blob storage is full: the constructor
         // returns, the size is right, and only a read fails.
         vi.stubGlobal(
@@ -1293,14 +1293,23 @@ describe('receiver: holds a bounded amount of a file in the tab', () => {
         rx.handleMessage(pattern(SPILL_BYTES));
         await new Promise((r) => setTimeout(r, 0));
 
-        expect(errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
-        expect(failures[0]).toMatchObject({ code: 'out-of-memory', received: SPILL_BYTES, expected: SPILL_BYTES * 2 });
+        expect(errors).toEqual([STORAGE_FULL_MESSAGE]);
+        expect(failures[0]).toMatchObject({ code: 'storage-full', received: SPILL_BYTES, expected: SPILL_BYTES * 2 });
         const abort = JSON.parse(new TextDecoder().decode(sent[sent.length - 1] as Uint8Array));
-        expect(abort.reason).toContain('ran out of memory');
+        // The wire reason keeps the memory wording older peers print.
+        expect(abort.reason).toBe(`receiver ran out of memory after receiving ${SPILL_BYTES} of ${SPILL_BYTES * 2} bytes`);
         // And nothing after it reopens the transfer.
         rx.handleMessage(pattern(SPILL_BYTES));
         await new Promise((r) => setTimeout(r, 0));
         expect(errors).toHaveLength(1);
+    });
+
+    it('sends a full blob storage to a normal window, and a full tab to a computer', () => {
+        // FLOE-Q: the memory message on a full blob storage sent its visitor
+        // back to the same private window. The two stops keep different words.
+        expect(STORAGE_FULL_MESSAGE).toContain('private or Incognito window');
+        expect(STORAGE_FULL_MESSAGE).toContain('normal window');
+        expect(OUT_OF_MEMORY_MESSAGE).not.toContain('window');
     });
 });
 
