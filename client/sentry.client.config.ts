@@ -10,6 +10,7 @@ import { isNonBrowserRuntimeError } from './lib/nonBrowserRuntimes';
 import { isStaleBundleError } from './lib/staleBundle';
 import { isWebKitDomDesync } from './lib/webkitDomDesync';
 import { scrubBreadcrumb, scrubErrorEvent, scrubSpanJson, scrubTransactionEvent } from './lib/scrubUrl';
+import { DATA_COLLECTION } from './lib/sentryDataCollection';
 import { withoutBrowserSession, withoutInteractionSpans } from './lib/sentryIntegrations';
 import { tracesSampler } from './lib/traceSampling';
 
@@ -29,6 +30,17 @@ Sentry.init(failClosedHooks({
     // Never attach cookies/headers/user IP by default. The room secret travels
     // in the URL, which we additionally scrub below.
     sendDefaultPii: false,
+
+    // The same, stated in full: no IP address, and no cookie, header or query
+    // key whose name can carry one. It is what sendDefaultPii false resolves
+    // to in SDK 10, and SDK 11 removes that option and collects all of it
+    // unless this is set. See lib/sentryDataCollection.ts.
+    dataCollection: DATA_COLLECTION,
+
+    // Transactions, not streamed spans. The send hooks below are written for
+    // transaction events and the static span shape. 'static' is SDK 10's
+    // default; SDK 11 streams spans unless this is set.
+    traceLifecycle: 'static',
 
     // No client reports. By default the SDK counts every event it does not
     // send (an unsampled trace, a filtered error, a request made outside a
