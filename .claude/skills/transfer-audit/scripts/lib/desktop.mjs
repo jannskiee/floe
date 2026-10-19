@@ -88,7 +88,6 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
-    createReadStream,
     existsSync,
     mkdirSync,
     readFileSync,
@@ -807,16 +806,6 @@ export function xpathLiteral(value) {
 
 export function sha256(buf) {
     return createHash('sha256').update(buf).digest('hex');
-}
-
-export function sha256File(file) {
-    return new Promise((resolve, reject) => {
-        const hash = createHash('sha256');
-        createReadStream(file)
-            .on('data', (chunk) => hash.update(chunk))
-            .on('error', reject)
-            .on('end', () => resolve(hash.digest('hex')));
-    });
 }
 
 /** %APPDATA%\floe\desktop.json (desktop/config.go configPath). */
@@ -4605,7 +4594,7 @@ export class DesktopLeg extends Leg {
             );
         }
         files.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
-        for (const f of files) f.sha256 = await sha256File(f.path);
+        for (const f of files) f.sha256 = await sha256OfFile(f.path);
         return files;
     }
 

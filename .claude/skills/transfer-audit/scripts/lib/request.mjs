@@ -39,6 +39,7 @@ import {
     describeError,
     recordDesktopConfig,
     runAttempt,
+    safeEvidence,
     statsProofCheck,
 } from './cell.mjs';
 import {
@@ -211,14 +212,6 @@ function clockOf(ctx) {
         now: c.now || Date.now,
         nap: c.nap || ctx.sleep || defaultSleep,
     };
-}
-
-function safeEvidence(x) {
-    try {
-        return x ? x.evidence() : null;
-    } catch (e) {
-        return { error: e.message, notes: [] };
-    }
 }
 
 // ------------------------------------------------------------- the host

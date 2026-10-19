@@ -188,7 +188,7 @@ async function recordDoneTimeout(cell, legs, rec, outDir) {
     rec.notes.push(summary);
 }
 
-function safeEvidence(leg) {
+export function safeEvidence(leg) {
     try {
         return leg ? leg.evidence() : null;
     } catch (e) {

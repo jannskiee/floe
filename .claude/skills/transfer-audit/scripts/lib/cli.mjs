@@ -50,9 +50,9 @@
  * on it as on every receiver, though a sender has no stats path at all.
  */
 import { execFile, execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { createReadStream, existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, sep } from 'node:path';
+import { sha256OfFile } from './fixtures.mjs';
 import { Leg, PhaseError } from './surfaces.mjs';
 import {
     classifyExit,
@@ -317,16 +317,6 @@ function rephase(err, phase) {
         innerPhase: err && err.phase,
     });
     return wrapped;
-}
-
-export function sha256File(path) {
-    return new Promise((resolve, reject) => {
-        const hash = createHash('sha256');
-        createReadStream(path)
-            .on('data', (chunk) => hash.update(chunk))
-            .on('error', reject)
-            .on('end', () => resolve(hash.digest('hex')));
-    });
 }
 
 function walk(dir, visit) {
@@ -677,7 +667,7 @@ export class CliLeg extends Leg {
             );
         }
         files.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
-        for (const f of files) f.sha256 = await sha256File(f.path);
+        for (const f of files) f.sha256 = await sha256OfFile(f.path);
         return files;
     }
 
