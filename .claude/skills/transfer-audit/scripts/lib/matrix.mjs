@@ -554,10 +554,6 @@ function buildCell(id, { cliHasRelayOnly }) {
             ? NA_REASONS[reason] || SKIP_REASONS[reason] || reason
             : null,
         cost: null,
-        capabilities: {
-            sender: CAPABILITIES[sender.surface],
-            receiver: CAPABILITIES[receiver.surface],
-        },
     };
     cell.cost = cellCost(cell);
     return cell;

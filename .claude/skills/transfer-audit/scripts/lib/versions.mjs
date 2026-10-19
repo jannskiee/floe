@@ -518,10 +518,7 @@ export async function collectVersions(opts = {}) {
                 : null,
             latest: latestCli,
             oracle: 'floe --version; gh release view',
-            status: (() => {
-                const s = versionStatus(onPath.version, latestCli);
-                return s === 'CURRENT' || s === 'STALE' ? s : s;
-            })(),
+            status: versionStatus(onPath.version, latestCli),
             gate: false,
             suggest:
                 versionStatus(onPath.version, latestCli) === 'STALE'
