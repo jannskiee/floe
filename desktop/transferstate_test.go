@@ -5,6 +5,7 @@ package main
 // a close request may proceed.
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -328,6 +329,75 @@ func TestCloseBlockedDoesNotWaitOnASettingsWrite(t *testing.T) {
 	}
 	if !a.GetSettings().NoToasts {
 		t.Fatal("the saved setting is not in the record")
+	}
+}
+
+// TestShutdownLetsASettingsWriteLand: the close no longer waits for a settings
+// write, and main returns right after OnShutdown, so shutdown is the last place
+// a write still in flight can land. What it guarantees is sampled the moment it
+// returns: the write's own last step and the record.
+func TestShutdownLetsASettingsWriteLand(t *testing.T) {
+	writing, release, wrote := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	a := &App{wake: &wakeGuard{}, notifyFn: func(string, string) {}, saveConfigFn: func(appConfig) error {
+		close(writing)
+		<-release
+		close(wrote)
+		return nil
+	}}
+	saved := make(chan error, 1)
+	go func() { saved <- a.SetToasts(false) }()
+	<-writing
+	if a.closeBlocked() {
+		t.Fatal("an idle app blocks close")
+	}
+	type atReturn struct{ wrote, inRecord bool }
+	quit := make(chan atReturn, 1)
+	go func() {
+		a.shutdown(context.Background())
+		r := atReturn{inRecord: a.GetSettings().NoToasts}
+		select {
+		case <-wrote:
+			r.wrote = true
+		default:
+		}
+		quit <- r
+	}()
+	time.AfterFunc(200*time.Millisecond, func() { close(release) })
+	r := <-quit
+	if err := <-saved; err != nil {
+		t.Fatal(err)
+	}
+	if !r.wrote || !r.inRecord {
+		t.Fatalf("shutdown returned with the settings write in flight (written %v, in the record %v)", r.wrote, r.inRecord)
+	}
+}
+
+// TestShutdownBoundsAHungSettingsWrite: a write that never returns (a hung
+// network share) cannot hold the quit past its bound.
+func TestShutdownBoundsAHungSettingsWrite(t *testing.T) {
+	writing, release := make(chan struct{}), make(chan struct{})
+	a := &App{wake: &wakeGuard{}, notifyFn: func(string, string) {}, shutdownWait: 100 * time.Millisecond,
+		saveConfigFn: func(appConfig) error {
+			close(writing)
+			<-release
+			return nil
+		}}
+	saved := make(chan error, 1)
+	go func() { saved <- a.SetToasts(false) }()
+	t.Cleanup(func() {
+		close(release)
+		<-saved
+	})
+	<-writing
+	quit := make(chan struct{})
+	go func() {
+		a.shutdown(context.Background())
+		close(quit)
+	}()
+	select {
+	case <-quit:
+	case <-time.After(3 * time.Second):
+		t.Fatal("shutdown waited past its bound for a settings write that never ends")
 	}
 }
 
