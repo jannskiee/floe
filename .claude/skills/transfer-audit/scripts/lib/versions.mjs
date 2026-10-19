@@ -98,7 +98,6 @@ export function pickLatestDesktop(releases) {
     return best;
 }
 
-/** Get-AppxPackage ... | ConvertTo-Json -> { name, version, installLocation, pfn } | null. */
 /** Numeric compare of dotted versions of any length (missing parts are 0). */
 export function compareQuad(a, b) {
     const parts = (v) =>
@@ -115,6 +114,7 @@ export function compareQuad(a, b) {
     return 0;
 }
 
+/** Get-AppxPackage ... | ConvertTo-Json -> { name, version, installLocation, pfn } | null. */
 export function parseAppx(json) {
     if (json === null || json === undefined) return null;
     let data = json;

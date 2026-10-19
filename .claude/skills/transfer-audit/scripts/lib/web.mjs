@@ -329,6 +329,13 @@ export async function shutdown() {
 }
 
 /**
+ * The TURN credential endpoint on any origin the audit points a page at
+ * (production, a self-host, the local stack), with or without a query. The
+ * leg records the STATUS of each answer, never the body.
+ */
+export const TURN_FETCH_RE = /\/api\/turn-credentials(?:\?|$)/;
+
+/**
  * Page-side init script as source text. The relay branch exists in the
  * text only when relayOnly is true. Every data channel the page opens or
  * receives is tracked by message and by send, so bytesMoved() counts what
@@ -336,13 +343,6 @@ export async function shutdown() {
  * DTLS and SCTP handshake and are never zero on a connected peer, which
  * would trip the refusal cells' zero-byte guard on every run.
  */
-/**
- * The TURN credential endpoint on any origin the audit points a page at
- * (production, a self-host, the local stack), with or without a query. The
- * leg records the STATUS of each answer, never the body.
- */
-export const TURN_FETCH_RE = /\/api\/turn-credentials(?:\?|$)/;
-
 export function AUDIT_INIT({ relayOnly = false } = {}) {
     const force = relayOnly
         ? "            cfg.iceTransportPolicy = 'relay';\n"

@@ -1010,11 +1010,6 @@ async function runProbes({ opts, io, ledger, fence, log, builds, versions }) {
 }
 
 /**
- * The first line of run and probe output. The default profile is shipped,
- * which drives production floe.one and api.floe.one (P3 is a production
- * browser receive), so the profile in effect is said before anything runs.
- */
-/**
  * The probe record for P3 from web.mjs probeRelay's result. `ok: false` means
  * the relay forcer did not take, and matrix.mjs gateCell then SKIPs every
  * browser-forced relay cell as browser-relay-na for as long as probe.json is
@@ -1045,6 +1040,11 @@ export function webHeadRow(h) {
     };
 }
 
+/**
+ * The first line of run and probe output. The default profile is shipped,
+ * which drives production floe.one and api.floe.one (P3 is a production
+ * browser receive), so the profile in effect is said before anything runs.
+ */
 export function profileLine(opts) {
     const defaulted = opts.profile === 'shipped' && !opts.profileGiven;
     return `profile: ${opts.profile}${defaulted ? ' (default)' : ''}`;
@@ -1591,12 +1591,6 @@ export async function prepareWslBuild({
 }
 
 /**
- * Delete the bytes a run moved, once every cell that moved them has been
- * verified: the fixtures it generated and the files each receiver saved.
- * Never touches a report, a transcript, a capture or attempt.json, and
- * never looks outside the run directory it is given.
- */
-/**
  * Build the test-only sender that can lie about a digest (cli/internal/e2ehost)
  * into the run's bin dir and record it as builds.harness, or turn the cells
  * that need it into SKIP harness-build. Only a cell whose CLI-shaped sender must
@@ -1655,6 +1649,12 @@ export async function prepareHarnessBuild({
     }
 }
 
+/**
+ * Delete the bytes a run moved, once every cell that moved them has been
+ * verified: the fixtures it generated and the files each receiver saved.
+ * Never touches a report, a transcript, a capture or attempt.json, and
+ * never looks outside the run directory it is given.
+ */
 export function purgeRunData(
     runDir,
     { keepData = false, log = () => {} } = {}

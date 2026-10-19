@@ -769,11 +769,6 @@ export function sendButtonName(n) {
 }
 
 /**
- * An XPath 1.0 string literal for an arbitrary value. XPath 1.0 has no
- * escape sequence, so a value carrying both quote characters can only be
- * written as concat() of its pieces.
- */
-/**
  * A share link the receiver can be driven with: an http(s) URL carrying a
  * `#room=` fragment. The wailsdev page's read used to hand the whole page
  * text to the web receiver, which failed as
@@ -794,6 +789,11 @@ export function isRoomLink(value) {
     );
 }
 
+/**
+ * An XPath 1.0 string literal for an arbitrary value. XPath 1.0 has no
+ * escape sequence, so a value carrying both quote characters can only be
+ * written as concat() of its pieces.
+ */
 export function xpathLiteral(value) {
     const v = String(value);
     if (!v.includes("'")) return `'${v}'`;
@@ -2312,19 +2312,6 @@ export class UiaDriver {
         return { made: true, lifetime, autoAccept, saveDir, waitingAt };
     }
     /**
-     * B2: put the Make link form's Save to field back to what it read before
-     * this driver first set it. The frontend keeps that field between
-     * launches (App.tsx writes localStorage floe:requestSaveDir on every
-     * change, and SetValue is a change), so on the Store app, the one exe
-     * that runs on the owner's own profile, a cell would otherwise leave its
-     * run folder there for the owner to find. Called once the link is closed
-     * or its result put away (lib/request.mjs releaseHost, Store lane only):
-     * the ended view's Make another link brings the form back, then the
-     * value is set and read back. An empty `before` is the owner never
-     * having chosen a folder (INFERRED: that SetValue('') clears the field
-     * on the app; the read-back decides). Nothing was set, nothing is done.
-     */
-    /**
      * Keep what the Save to field read before this driver first set it. An
      * earlier audit's own folder is not the owner's value (isAuditFolder):
      * the field then goes back to the owner's folder as an earlier command
@@ -2342,6 +2329,19 @@ export class UiaDriver {
         this._saveToRecalled = own.recalled;
         this._saveToBefore = own.before;
     }
+    /**
+     * B2: put the Make link form's Save to field back to what it read before
+     * this driver first set it. The frontend keeps that field between
+     * launches (App.tsx writes localStorage floe:requestSaveDir on every
+     * change, and SetValue is a change), so on the Store app, the one exe
+     * that runs on the owner's own profile, a cell would otherwise leave its
+     * run folder there for the owner to find. Called once the link is closed
+     * or its result put away (lib/request.mjs releaseHost, Store lane only):
+     * the ended view's Make another link brings the form back, then the
+     * value is set and read back. An empty `before` is the owner never
+     * having chosen a folder (INFERRED: that SetValue('') clears the field
+     * on the app; the read-back decides). Nothing was set, nothing is done.
+     */
     async restoreRequestSaveDir() {
         if (this._saveToBefore === undefined)
             return {
@@ -2843,16 +2843,6 @@ export class PlaywrightDriver {
         }
     }
     /**
-     * Back to Receive > REQUEST LINK when the page is not showing it, before
-     * a request verb clicks; returns whether it had to move. The page can
-     * leave on its own terms (another leg's files:open rebroadcast moved it
-     * to Send in the first live TA-17 run, 2026-09-24, and the release then
-     * timed out on Close link), so no verb assumes it. The view is showing
-     * when one of its state buttons is (REQUEST_VIEW_MARKS); otherwise the
-     * RECEIVE tab (the first button of that name, in the card header) and
-     * the REQUEST LINK choice, the same two clicks Make link starts with.
-     */
-    /**
      * The receive view is two sub-views behind a Code | Request link choice
      * (always, since H7), and it keeps the last one: after a request cell it
      * reopens on Request link, where neither the code field nor the receive
@@ -2887,6 +2877,16 @@ export class PlaywrightDriver {
             await nap(REQUEST_POLL_MS);
         }
     }
+    /**
+     * Back to Receive > REQUEST LINK when the page is not showing it, before
+     * a request verb clicks; returns whether it had to move. The page can
+     * leave on its own terms (another leg's files:open rebroadcast moved it
+     * to Send in the first live TA-17 run, 2026-09-24, and the release then
+     * timed out on Close link), so no verb assumes it. The view is showing
+     * when one of its state buttons is (REQUEST_VIEW_MARKS); otherwise the
+     * RECEIVE tab (the first button of that name, in the card header) and
+     * the REQUEST LINK choice, the same two clicks Make link starts with.
+     */
     async _toRequestView() {
         for (const name of REQUEST_VIEW_MARKS)
             if (await this._visible(name)) return false;
