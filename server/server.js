@@ -1394,10 +1394,14 @@ function createSocketIOPeer(socket, key) {
             // same way: a peer this far behind has stopped being a peer.
             // disconnect(true) closes the session as well as the namespace, so
             // handleDisconnect frees the seat and tells the partner, and engine.io
-            // queues nothing more for it. Silent, as on /ws: the branch can fire
-            // only while the socket is connected, so once per socket.
+            // queues nothing more for it. Silent, as on /ws. On the next tick,
+            // never inside send: socket.io runs handleDisconnect inside
+            // disconnect(true), and a send can come from inside the partner's
+            // handleDisconnect, which would then seat this peer again after its
+            // own disconnect had run. A send before that tick drops here too, and
+            // disconnect does nothing to a socket that has already closed.
             if (socket.connected && sioSendBacklogOver(socket)) {
-                socket.disconnect(true);
+                process.nextTick(() => socket.disconnect(true));
                 return;
             }
             // 'user-connected' historically sent just the peer ID string in the

@@ -2398,21 +2398,58 @@ function fakeSocketIO({ writeBuffer = [], bufferedAmount = 0, ...overrides } = {
 
 describe('createSocketIOPeer backpressure', () => {
     const queued = (n, size = 1) => Array.from({ length: n }, () => ({ type: 'message', data: 'x'.repeat(size) }));
+    const tick = () => new Promise((resolve) => process.nextTick(resolve));
 
-    it('send over the ceiling closes the session and drops', () => {
+    it('send over the ceiling closes the session and drops', async () => {
         const socket = fakeSocketIO({ writeBuffer: queued(1, SIO_SEND_BUFFER_CEILING + 1) });
         const peer = createSocketIOPeer(socket);
 
         peer.send('signal', { signal: 'x', sender: 'peer-2' });
 
         assert.equal(socket.emitted.length, 0, 'nothing may be queued behind the ceiling');
+        assert.deepEqual(socket.disconnects, [], 'never inside send: the disconnect handlers would run inside it');
+        await tick();
         assert.deepEqual(socket.disconnects, [true], 'disconnect(true) closes the session too');
     });
 
-    it("the websocket's unflushed bytes count toward the ceiling", () => {
+    it("the websocket's unflushed bytes count toward the ceiling", async () => {
         const socket = fakeSocketIO({ writeBuffer: queued(1), bufferedAmount: SIO_SEND_BUFFER_CEILING });
         createSocketIOPeer(socket).send('signal', { signal: 'x' });
+        await tick();
         assert.deepEqual(socket.disconnects, [true]);
+    });
+
+    it('a peer that leaves while its partner is over the ceiling leaves no seat behind', async () => {
+        // socket.io 4.8 runs the 'disconnecting' listener (handleDisconnect)
+        // inside disconnect(true). Cut off inside send, the partner's own
+        // handleDisconnect ran inside the leaver's, and the outer one then put
+        // the partner back in the room it had just left: a dead seat and its
+        // roomMeta for the life of the process.
+        const peers = {};
+        const leaving = (id) => fakeSocketIO({
+            id,
+            disconnect(close) {
+                if (!this.connected) return;
+                this.disconnects.push(close);
+                handleDisconnect(peers[id]);
+                this.connected = false;
+            },
+        });
+        const a = leaving('sio-a');
+        const b = leaving('sio-b');
+        peers['sio-a'] = createSocketIOPeer(a, 'key-a');
+        peers['sio-b'] = createSocketIOPeer(b, 'key-b');
+        const roomId = randomUUID();
+        handleJoinRoom(peers['sio-a'], roomId);
+        handleJoinRoom(peers['sio-b'], roomId);
+        b.conn.writeBuffer = queued(SIO_SEND_QUEUE_CEILING + 1);
+
+        a.disconnect(true);
+        await tick();
+
+        assert.deepEqual(b.disconnects, [true], 'the partner over the ceiling is cut off');
+        assert.equal(rooms.has(roomId), false, 'no seat may outlive its disconnect');
+        assert.equal(roomMeta.has(roomId), false);
     });
 
     it('send at the ceiling still delivers', () => {
@@ -2423,9 +2460,10 @@ describe('createSocketIOPeer backpressure', () => {
         assert.deepEqual(socket.emitted, [['signal', { signal: 'x', sender: 'peer-2' }]]);
     });
 
-    it('more packets than the queue ceiling close the session whatever their size', () => {
+    it('more packets than the queue ceiling close the session whatever their size', async () => {
         const over = fakeSocketIO({ writeBuffer: queued(SIO_SEND_QUEUE_CEILING + 1) });
         createSocketIOPeer(over).send('signal', { signal: 'x' });
+        await tick();
         assert.deepEqual(over.disconnects, [true]);
 
         const at = fakeSocketIO({ writeBuffer: queued(SIO_SEND_QUEUE_CEILING) });
