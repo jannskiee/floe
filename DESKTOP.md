@@ -306,10 +306,10 @@ receiver, which is deliberate (share a link and wait) and cancelable.
 
 Current release: `desktop-v1.0.1` (Microsoft Store 9NBQ8ZQ1065L + GitHub
 pre-release), shipped 2026-10-19. Paired with CLI `v1.11.4`, because the engine
-changes they both carry (at most 64 KiB read from the server's answer for
-connection details or a short code, and the refactor run's receiver changes) live
-in `cli/engine`, which reaches a desktop user only through a desktop tag, and the
-CLI half of the same change only reaches a `floe` user through a CLI tag.
+change they both carry (at most 64 KiB read from the server's answer for
+connection details or a short code) lives in `cli/engine`, which reaches a
+desktop user only through a desktop tag, and the CLI half of the same change
+only reaches a `floe` user through a CLI tag.
 
 The list below is the verified order the first public release (0.1.0 Beta)
 actually followed. Steps 1-3 shipped the GitHub Beta; the plan then pivoted
