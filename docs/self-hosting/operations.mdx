@@ -177,7 +177,7 @@ access log, no request log, and no startup banner, not even a line saying which 
 `docker compose logs server` on a healthy instance is usually empty, or holds the one line
 `request links: on`, and that is expected rather than a symptom. A server run with Node directly
 and no `TRUSTED_PROXY_COUNT` writes one line about that at startup, and so does a server given a
-value that cannot be a count; see the table.
+word or a negative number for it; see the table.
 
 It never logs an accepted connection, a room, a code, a rate-limit refusal, or a request-link event,
 and no line is built from a client's address. These are all the lines it can write:
@@ -189,7 +189,7 @@ and no line is built from a client's address. These are all the lines it can wri
 | `policy file unreadable, keeping previous policy` | The policy file is there but cannot be used, so the last good setting stays. Written once, until the file reads cleanly again. | Fix the file, or let the user `node` read it. See [how the server reads it](/self-hosting/request-links#how-the-server-reads-the-file). |
 | `MAX_CONNECTIONS_PER_IP is not a whole number of at least 1. Using the default, 30.` | A `MAX_*` variable holds something other than a whole number of at least 1. The line names the variable and the default now in use, never the value. Written once at startup for each such variable. | Fix the value, or remove it to keep the default. See [Configuration](/self-hosting/configuration#two-things-about-the-limits). |
 | `TRUSTED_PROXY_COUNT is not set, so the default of 1 is in use. Set it to the number of reverse proxies in front of this server, or 0 if there are none.` | The server was started without `TRUSTED_PROXY_COUNT`. Written once at startup. Compose and the Unraid template always pass a value, so it shows only on a server started another way, such as with Node directly, without the variable. | Set the variable. See [Configuration](/self-hosting/configuration#trusted-proxy-count). |
-| `TRUSTED_PROXY_COUNT is not a whole number, so the default of 0 is in use. Set it to the number of reverse proxies in front of this server, or 0 if there are none.` | `TRUSTED_PROXY_COUNT` holds something that cannot be a count, such as a word or a negative number, so the server trusts no proxy. The line names the variable, never the value. Written once at startup. | Set the number of proxies in front of the server, or `0`. See [Configuration](/self-hosting/configuration#trusted-proxy-count). |
+| `TRUSTED_PROXY_COUNT is not a whole number, so the default of 0 is in use. Set it to the number of reverse proxies in front of this server, or 0 if there are none.` | `TRUSTED_PROXY_COUNT` holds a negative number or a value that does not start with a number, such as a word, so the server trusts no proxy. A value that starts with a number is read up to its first other character (`1.5` is `1`) and gets no line. The line names the variable, never the value. Written once at startup. | Set the number of proxies in front of the server, or `0`. See [Configuration](/self-hosting/configuration#trusted-proxy-count). |
 | `Refused a request with 403.` | The error handler refused one HTTP request with that status: `403` for a browser origin the server does not allow, or another status under 500. | An occasional one is some page or client sending a bad request, not a fault. If `403` lines show up each time someone uses your own web client, check `CLIENT_URL`. |
 | `Refused a connection on /ws from Origin "..." (Host "..."): not CLIENT_URL, a floe.one origin, or this server's own host. Further refusals on /ws are not logged.` | A WebSocket came from an origin the server does not accept. Written once for `/ws` and once for `/socket.io` until the next restart, however many connections are refused. | If the `Origin` is your own server and the `Host` is not, your proxy rewrites `Host`. See [Production deployment](/self-hosting/production#cors-note). |
 | `Cloudflare TURN mint failed (...)` | A request to Cloudflare for relay credentials failed. The parentheses hold the reason: `status` and an HTTP status, `no-ice-servers`, an error name such as `TimeoutError`, or the word `error`. At most one line every 5 minutes. | See [TURN relay](/self-hosting/turn-relay#verify). |
@@ -200,8 +200,8 @@ and no line is built from a client's address. These are all the lines it can wri
 The `Refused a request with` line carries the status and nothing else, never the origin, the path,
 or any of the request's text. Besides `403`, it shows `400` for malformed JSON and `413` for a body
 over the size limit. A server image of version 1.11.0 or earlier never writes the `MAX_*` and
-`TRUSTED_PROXY_COUNT` lines, and one of version 1.11.3 or earlier never writes the line about a
-value that is not a whole number.
+`TRUSTED_PROXY_COUNT` lines, and one of version 1.11.3 or earlier never writes the
+`TRUSTED_PROXY_COUNT` line about a value that is not a whole number.
 
 To confirm the server is alive, or that a restart actually landed, use the health endpoint below
 rather than the logs.

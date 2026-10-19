@@ -287,14 +287,17 @@ firewall instead, and plan on what they already hold lasting up to 24 hours.
 The compose file pins coturn to `coturn/coturn:4.15`, so pulling the stack keeps you on that
 version. Moving to a newer coturn means changing the `image` line of the `coturn` service.
 
-The example file refuses to relay to private, loopback, and link-local addresses, and to
-multicast (its `denied-peer-ip` and `no-multicast-peers` lines), so nobody can use your relay to
-reach the network it runs on. A `coturn/turnserver.conf` made from an older copy of the example
-lacks those lines: copy them in from the current example.
+The example file refuses to relay to private, loopback, link-local and other reserved addresses,
+and to multicast (its `denied-peer-ip` and `no-multicast-peers` lines). A
+`coturn/turnserver.conf` made from an older copy of the example lacks those lines: copy them in
+from the current example.
 
-If the relay and every peer that uses it are on one private network, uncomment the example's
-`allowed-peer-ip` line and set it to that network's range, or relayed connections between them
-fail. Leave it commented out on a relay with a public address.
+If any device that uses the relay can be on the relay's own private network (for example, the
+relay runs at home and you send or receive from a device in the same home), relayed connections to
+that device fail unless you uncomment the example's `allowed-peer-ip` line and set it to that
+network's IPv4 range. That line also lets everyone who gets credentials from your server reach that
+range through the relay, so prefer running the relay on a network of its own. Leave the line
+commented out when no device that uses the relay is on its network.
 
 ## If something goes wrong
 

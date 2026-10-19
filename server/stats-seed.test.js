@@ -68,33 +68,56 @@ describe('initStats', () => {
 });
 
 describe('the Upstash call', () => {
-    it('carries a 10 s timeout, as the Cloudflare mint in turn.js does', async () => {
+    it('carries a 10 s timeout, as the Cloudflare mint in turn.js does', { timeout: 2000 }, async () => {
         // Node's global fetch gives up only at undici's 300 s defaults, so
         // without a signal a hung Upstash holds the one INCRBY in flight that
-        // long. A plain controller's signal stands in for the timer, so
-        // nothing here waits on one.
+        // long. One controller per call stands in for its timer, and the fake
+        // settles only when that signal fires, as turn.test.js's does, so the
+        // test sees the abort end the call, on the report path and at
+        // startup, with nothing left unhandled.
         const realFetch = globalThis.fetch;
         const realTimeout = AbortSignal.timeout;
-        let requestedMs = null;
-        let sawSignal = null;
+        const requestedMs = [];
+        const timers = [];
+        const signals = [];
         AbortSignal.timeout = (ms) => {
-            requestedMs = ms;
-            return new AbortController().signal;
+            requestedMs.push(ms);
+            const controller = new AbortController();
+            timers.push(controller);
+            return controller.signal;
         };
-        globalThis.fetch = async (_url, init) => {
-            sawSignal = Boolean(init && init.signal);
-            return { ok: true, json: async () => ({ result: 0 }) };
-        };
+        globalThis.fetch = (_url, init) =>
+            new Promise((_resolve, reject) => {
+                // Without a signal a hung upstream would never settle; fail fast
+                // instead, so a missing timeout reads as an assertion failure.
+                if (!init || !init.signal) return reject(new Error('fetch called without an abort signal'));
+                signals.push(init.signal);
+                init.signal.addEventListener('abort', () => reject(init.signal.reason));
+            });
+        const timeUp = (n) => timers[n].abort(new DOMException('timed out', 'TimeoutError'));
         try {
             statsRateLimits.clear();
             statsReportHandler({ ip: '5.6.7.8', body: { bytes: 1 } }, fakeRes());
+            assert.equal(signals.length, 1, 'the INCRBY call carried no abort signal');
+            assert.equal(signals[0], timers[0].signal, 'the INCRBY call carried a signal other than its timer');
+            timeUp(0);
             await settle();
+            // The abort ended the call, so the next report gets a call of its own.
+            statsReportHandler({ ip: '5.6.7.8', body: { bytes: 1 } }, fakeRes());
+            assert.equal(signals.length, 2, 'an aborted INCRBY still held the slot');
+            timeUp(1);
+            await settle();
+            // The startup read carries a timer of its own, and its abort lets
+            // initStats resolve.
+            const seeding = initStats();
+            assert.equal(signals[2], timers[2].signal, 'the startup read carried no timer of its own');
+            timeUp(2);
+            await seeding;
         } finally {
             globalThis.fetch = realFetch;
             AbortSignal.timeout = realTimeout;
         }
-        assert.equal(sawSignal, true, 'the INCRBY call carried no abort signal');
-        assert.equal(requestedMs, 10_000);
+        assert.deepEqual(requestedMs, [10_000, 10_000, 10_000]);
     });
 });
 

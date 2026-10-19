@@ -54,11 +54,18 @@ denied-peer-ip=198.51.100.0-198.51.100.255
 denied-peer-ip=203.0.113.0-203.0.113.255
 denied-peer-ip=240.0.0.0-255.255.255.255
 denied-peer-ip=::1
+denied-peer-ip=64:ff9b::-64:ff9b::ffff:ffff
 denied-peer-ip=::ffff:0.0.0.0-::ffff:255.255.255.255
+denied-peer-ip=100::-100::ffff:ffff:ffff:ffff
+denied-peer-ip=2001::-2001:1ff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=2002::-2002:ffff:ffff:ffff:ffff:ffff:ffff:ffff
 denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
 denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
 
-# Only when this relay and every peer that uses it share one private network
-# (a LAN-only setup): allow that range again. allowed-peer-ip wins over
-# denied-peer-ip. Leave it commented out on a relay with a public address.
+# Only when a device that uses this relay can be on the relay's own private
+# network (a LAN-only setup, or a relay at home used from the same home): allow
+# that range again, or relayed connections to that device fail. allowed-peer-ip
+# wins over denied-peer-ip, and it also lets everyone who gets credentials from
+# your server reach that range. Leave it commented out when no device that uses
+# the relay is on its network.
 # allowed-peer-ip=192.168.1.0-192.168.1.255

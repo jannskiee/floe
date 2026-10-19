@@ -1714,7 +1714,9 @@ test('a server started without TRUSTED_PROXY_COUNT says once which count is in u
 test('a server given a TRUSTED_PROXY_COUNT says nothing about it', async (t) => {
     // 0 is what Compose, the Unraid template and server/.env.example pass; 1
     // and 2 are a deployment behind one proxy, or behind a proxy and a CDN.
-    for (const count of ['0', '1', '2']) {
+    // 1.5 is read up to its first other character, as 1, and gets no line,
+    // as the configuration page says.
+    for (const count of ['0', '1', '2', '1.5']) {
         const srv = await startServer({ TRUSTED_PROXY_COUNT: count });
         t.after(() => srv.stop());
         await assertSurvived(srv, `a start with TRUSTED_PROXY_COUNT=${count}`);
@@ -1772,6 +1774,15 @@ test('a CLIENT_URL written with a trailing slash still lets its own web app in',
     const upgrade = await rawUpgrade(srv, '/ws', 'Origin: https://app.example.test\r\n', 'api.example.test');
     assert.match(upgrade.head, /^HTTP\/1\.1 101 /, `the web app's own origin was refused on /ws: ${upgrade.head.split('\r\n')[0]}`);
     upgrade.socket.destroy();
+
+    // Socket.IO, the browser's own path: its polling handshake, on the same
+    // two host names, goes through allowRequest.
+    const handshake = await get(srv, '/socket.io/?EIO=4&transport=polling', {
+        Origin: 'https://app.example.test',
+        Host: 'api.example.test',
+    });
+    assert.equal(handshake.status, 200, "the web app's own origin was refused on Socket.IO");
+    assert.match(handshake.body, /"sid"/);
 
     await assertSurvived(srv, 'a CLIENT_URL with a trailing slash');
 });

@@ -42,10 +42,12 @@ const MAX_REPORT_BYTES = envLimit('MAX_REPORT_BYTES', 5 * 1024 * 1024 * 1024 * 1
 const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const STATS_KEY = 'floe:bytes_total';
-// Node's global fetch gives up on a silent server only at undici's 300 s
-// defaults. Without a shorter limit, a hung Upstash holds the one INCRBY in
-// flight (sendPendingBytes) that long, and every report waits behind it;
-// turn.js gives the Cloudflare mint the same 10 s.
+// Every Upstash call ends at 10 s, the startup read included, as turn.js ends
+// the Cloudflare mint. Node's global fetch gives up on a silent server only at
+// undici's 300 s defaults, and a hung Upstash would hold the one INCRBY in
+// flight (sendPendingBytes) that long, with every report waiting behind it. A
+// startup read slower than 10 s counts as failed, so the total waits for the
+// first INCRBY's answer.
 const UPSTASH_FETCH_TIMEOUT_MS = 10_000;
 
 let cachedTotal = 0;

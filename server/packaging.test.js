@@ -2,11 +2,11 @@
 
 // The files a self-hoster installs from, read as text: docker-compose.yml and
 // its .env example, server/.env.example, the two Unraid templates and the
-// coturn example. Nothing here runs Docker, Unraid or coturn. Each test pins one way these files have shipped
-// a stack that loads and never connects, or a setting that could not take
-// effect, and each of those passed every other check in the repository: the
-// server's own tests never read these files, and `docker compose config`
-// accepts a default that points at the wrong port.
+// coturn example. Nothing here runs Docker, Unraid or coturn. Each test pins
+// one way these files have shipped a stack that loads and never connects, or a
+// setting that could not take effect, and each of those passed every other
+// check in the repository: the server's own tests never read these files, and
+// `docker compose config` accepts a default that points at the wrong port.
 //
 // It lives in server/ because these files are how the server's settings reach
 // it, and because `npm test` here is the suite every change to them runs.
@@ -375,20 +375,39 @@ describe('coturn/turnserver.conf.example', () => {
         // is handed credentials, so without these lines it is a path into the
         // network it runs on.
         assert.ok(active.includes('no-multicast-peers'), 'no-multicast-peers is not set');
-        for (const range of [
+        // The whole standard list (Synapse's coturn guide, line for line), and
+        // nothing else, so dropping any one range fails.
+        const expected = [
             '0.0.0.0-0.255.255.255',
             '10.0.0.0-10.255.255.255',
             '100.64.0.0-100.127.255.255',
             '127.0.0.0-127.255.255.255',
             '169.254.0.0-169.254.255.255',
             '172.16.0.0-172.31.255.255',
+            '192.0.0.0-192.0.0.255',
+            '192.0.2.0-192.0.2.255',
+            '192.88.99.0-192.88.99.255',
             '192.168.0.0-192.168.255.255',
+            '198.18.0.0-198.19.255.255',
+            '198.51.100.0-198.51.100.255',
+            '203.0.113.0-203.0.113.255',
+            '240.0.0.0-255.255.255.255',
             '::1',
+            '64:ff9b::-64:ff9b::ffff:ffff',
+            '::ffff:0.0.0.0-::ffff:255.255.255.255',
+            '100::-100::ffff:ffff:ffff:ffff',
+            '2001::-2001:1ff:ffff:ffff:ffff:ffff:ffff:ffff',
+            '2002::-2002:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
             'fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
             'fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
-        ]) {
-            assert.ok(active.includes(`denied-peer-ip=${range}`), `denied-peer-ip=${range} is not set`);
+        ];
+        const denied = active
+            .filter((line) => line.startsWith('denied-peer-ip='))
+            .map((line) => line.slice('denied-peer-ip='.length));
+        for (const range of expected) {
+            assert.ok(denied.includes(range), `denied-peer-ip=${range} is not set`);
         }
+        assert.deepEqual([...denied].sort(), [...expected].sort(), 'a denied-peer-ip line outside the standard list');
     });
 
     it('ships the exception for a relay on a private network commented out', () => {

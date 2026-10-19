@@ -2139,8 +2139,9 @@ See [Operations](/self-hosting/operations#the-server-logs-very-little).
 A few startup lines can appear. `request links: on` means the policy file turned
 [request links](/self-hosting/request-links) on, and a line saying the policy file was not found
 or is unreadable means they stayed off. A server started with Node directly and without
-`TRUSTED_PROXY_COUNT` writes one line saying which proxy count is in use. A `MAX_*` variable that
-is not a whole number of at least 1 gets one line naming it and the default now in use.
+`TRUSTED_PROXY_COUNT` writes one line saying which proxy count is in use. A server given a word or
+a negative number for it writes one line saying 0 is in use. A `MAX_*` variable that is not a
+whole number of at least 1 gets one line naming it and the default now in use.
 
 Use `GET /health`, which returns `{"status":"healthy","uptime":<seconds>,"features":[...]}`, to
 confirm the server is alive and to see whether a restart landed.
