@@ -67,6 +67,7 @@ Each entry lists the parts it changed. Filter on the right to see only the ones 
   - Self-hosting: the example coturn configuration refuses to relay to private, loopback, link-local and other reserved addresses. A `turnserver.conf` you already made does not change: copy the new lines in from the example. If a device that uses the relay can be on the relay's own private network, such as a relay at home that you also use from home, also uncomment the example's `allowed-peer-ip` line for that network, as the TURN relay page explains.
   - Self-hosting: the signaling server sends the stats counter's bytes to Upstash Redis one call at a time, adding the bytes reported in the meantime to the next call, so a stalled Upstash no longer holds an open call for every report.
   - Self-hosting: the signaling server now disconnects a browser connection that has stopped reading once about 1 MB is waiting for it, as it already did for the CLI and Floe Desktop, so a flood aimed at such a connection no longer piles up in the server's memory until the connection times out. A page cut off this way stays disconnected until it is reloaded.
+  - Self-hosting: building the web app yourself, as an image or with `pnpm build`, no longer sends the Sentry build plugin a report about the build: a session, and sometimes a timing sample, never any visitor data. `NEXT_TELEMETRY_DISABLED` did not turn it off.
   - Self-hosting: the published images are rebuilt as `1.11.4`, with the web app and server changes above. If you pinned `FLOE_IMAGE_TAG=1.11.3`, move to `1.11.4`.
 </Update>
 
