@@ -23,6 +23,8 @@ import {
     readFileSync,
     realpathSync,
     rmSync,
+    symlinkSync,
+    unlinkSync,
     writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -1886,6 +1888,44 @@ test('parseCompose reads a nested default whole, and the default inside it too',
         // "-" without the colon is not a default the checks compare.
         assert.equal(defaults.has('NEXT_PUBLIC_SOCKET_URL'), false);
     } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+// A guard that compared argv[1] with import.meta.url unresolved once skipped
+// main through a junction or a symlinked folder and exited 0 (#528).
+test('docs-check.mjs answers a usage error through a junction as it does by its real path', (t) => {
+    const dir = mkdtempSync(join(tmpdir(), 'docs-check-link-'));
+    const link = join(dir, 'scripts');
+    const usageRun = (scripts) =>
+        spawnSync(process.execPath, [join(scripts, 'docs-check.mjs'), 'nope'], {
+            encoding: 'utf8',
+            windowsHide: true,
+        });
+    try {
+        try {
+            symlinkSync(
+                dirname(SCRIPT),
+                link,
+                process.platform === 'win32' ? 'junction' : 'dir'
+            );
+        } catch {
+            t.skip('cannot make a directory link here');
+            return;
+        }
+        const real = usageRun(dirname(SCRIPT));
+        assert.equal(real.status, 2, real.stdout + real.stderr);
+        assert.match(real.stderr, /^usage: node docs-check\.mjs /m);
+        const linked = usageRun(link);
+        assert.equal(linked.status, real.status, linked.stdout + linked.stderr);
+        assert.equal(linked.stdout, real.stdout);
+        assert.equal(linked.stderr, real.stderr);
+    } finally {
+        try {
+            unlinkSync(link);
+        } catch {
+            // never made
+        }
         rmSync(dir, { recursive: true, force: true });
     }
 });
