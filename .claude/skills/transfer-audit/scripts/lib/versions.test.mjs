@@ -381,8 +381,9 @@ test('a gh failure names APPDATA and GH_CONFIG_DIR when APPDATA points away from
     assert.match(s, /\bGH_CONFIG_DIR\b/);
     assert.ok(!/scratch|Users\\x/.test(s), `a value was printed: ${s}`);
     // The profile's own folder in another letter case or with a trailing
-    // separator is not a redirect; GH_CONFIG_DIR, another OS or no APPDATA
-    // leaves the plain hint.
+    // separator is not a redirect; GH_CONFIG_DIR, XDG_CONFIG_HOME (gh reads
+    // its gh folder before %AppData%), another OS or no APPDATA leaves the
+    // plain hint.
     for (const [env, platform] of [
         [
             {
@@ -392,6 +393,7 @@ test('a gh failure names APPDATA and GH_CONFIG_DIR when APPDATA points away from
             'win32',
         ],
         [{ ...away, GH_CONFIG_DIR: 'C:\\gh' }, 'win32'],
+        [{ ...away, XDG_CONFIG_HOME: 'C:\\xdg' }, 'win32'],
         [away, 'linux'],
         [{}, 'win32'],
     ])

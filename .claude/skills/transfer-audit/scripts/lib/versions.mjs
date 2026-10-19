@@ -274,13 +274,15 @@ export function makeGh(exec = defaultExec) {
 
 /**
  * What a gh failure line adds on Windows when APPDATA points away from the
- * profile's Roaming folder and GH_CONFIG_DIR is unset: gh then reads its
+ * profile's Roaming folder and neither GH_CONFIG_DIR nor XDG_CONFIG_HOME is
+ * set (gh reads those two first, `gh help environment`): gh then reads its
  * login from the redirected APPDATA (an isolated run's own folder) and says
  * it is logged out while the owner's shell is logged in. The clause names the
  * variables only; it prints no value and reads nothing of gh's. '' otherwise.
  */
 export function ghConfigNote(env = process.env, platform = process.platform) {
-    if (platform !== 'win32' || env.GH_CONFIG_DIR) return '';
+    if (platform !== 'win32' || env.GH_CONFIG_DIR || env.XDG_CONFIG_HOME)
+        return '';
     if (!env.APPDATA || !env.USERPROFILE) return '';
     const norm = (p) =>
         path.win32
