@@ -77,8 +77,13 @@ func TestEverySetupReturnIsTyped(t *testing.T) {
 	if start < 0 {
 		t.Fatal("leftError is gone, and the six PeerLeft sites return it")
 	}
-	body := string(src)[start:]
-	body = body[:strings.Index(body, "\n}\n")]
+	// A Windows checkout with core.autocrlf (CI's windows-latest) reads CRLF.
+	body := strings.ReplaceAll(string(src)[start:], "\r\n", "\n")
+	end := strings.Index(body, "\n}\n")
+	if end < 0 {
+		t.Fatal("leftError has no closing brace at the start of a line")
+	}
+	body = body[:end]
 	if n := strings.Count(body, "return "); n == 0 || n != strings.Count(body, "return &SetupError{") {
 		t.Fatalf("leftError must return only *SetupError literals:\n%s", body)
 	}
