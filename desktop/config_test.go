@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -734,6 +735,49 @@ func TestSettersKeepTheRecordWhenTheWriteFails(t *testing.T) {
 		if got := a.GetSettings(); got != cur {
 			t.Errorf("%s: the record changed to %+v without being saved", name, got)
 		}
+	}
+}
+
+// TestSettersWaitForEachOthersWrite: the first setter stalls inside its
+// desktop.json write; a second must wait for it (cfgMu) and then build on its
+// record, so neither brings back the other's field. Deterministic, where
+// TestConcurrentSettersKeepEachOthersField below leans on the scheduler and the
+// file system: its 50 ms wait is a negative one, so load can only let a broken
+// cfgMu escape, never fail a sound one.
+func TestSettersWaitForEachOthersWrite(t *testing.T) {
+	writing, release := make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	a := &App{cfg: appConfig{ReportStats: true, Migrated: true}, saveConfigFn: func(appConfig) error {
+		if calls.Add(1) == 1 {
+			close(writing)
+			<-release
+		}
+		return nil
+	}}
+	first, second := make(chan error, 1), make(chan error, 1)
+	go func() { first <- a.SetToasts(false) }()
+	<-writing
+	go func() { second <- a.SetCheckUpdates(false) }()
+	var secondErr error
+	secondDone := false
+	select {
+	case secondErr = <-second:
+		secondDone = true
+		t.Error("a second setter finished while the first was still writing")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	if !secondDone {
+		secondErr = <-second
+	}
+	if secondErr != nil {
+		t.Fatal(secondErr)
+	}
+	if got := a.GetSettings(); !got.NoToasts || !got.NoUpdateCheck {
+		t.Fatalf("NoToasts %v and NoUpdateCheck %v, want both true", got.NoToasts, got.NoUpdateCheck)
 	}
 }
 
