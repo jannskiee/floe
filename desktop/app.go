@@ -80,9 +80,10 @@ type App struct {
 	// from the transfer goroutine, so it is guarded by mu like everything else here.
 	cfg appConfig
 
-	// cfgMu serializes the settings writers and the transfers' reads
-	// (saveSettings and endpoints, endpoints.go), so mu is never held across
-	// their desktop.json write. It is taken before mu, never while mu is held.
+	// cfgMu serializes the settings writers (saveSettings, endpoints.go), so mu
+	// is never held across their desktop.json write; endpoints takes it too, so
+	// a read waits for a write in flight. It is taken before mu, never while mu
+	// is held.
 	cfgMu sync.Mutex
 
 	// saveConfigFn is the test seam for the desktop.json write saveSettings
