@@ -29,9 +29,14 @@ func shareLink(base, nonce, roomID string) string {
 // Callers take a single snapshot and pass it down, so changing the setting while
 // a transfer is running cannot split that transfer across two servers.
 func (a *App) endpoints() (server, web string) {
+	// cfgMu first, as saveSettings takes it: a transfer that starts while a
+	// setting is being written uses the record being saved, as before L4-01.
+	// Never on the message pump: closeBlocked reads a.mu only.
+	a.cfgMu.Lock()
 	a.mu.Lock()
 	cfg := a.cfg
 	a.mu.Unlock()
+	a.cfgMu.Unlock()
 
 	server = cfg.Server
 	if server == "" {
