@@ -1711,11 +1711,14 @@ describe('the entry point', () => {
     // node keeps a junction (or a symlinked folder) in argv[1] and resolves it
     // in import.meta.url. A guard that compared the two unresolved skipped
     // main and exited 0, which is deep-clean's "nothing to do".
-    it('runs main when started through a junction (usage error, exit 2)', () => {
+    it('runs main when started through a junction (usage error, exit 2)', (t) => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dc-entry-'));
         const link = path.join(dir, 'scripts');
         try {
-            if (!tryLink(path.dirname(SCRIPT), link)) return; // no link rights
+            if (!tryLink(path.dirname(SCRIPT), link)) {
+                t.skip('cannot make a directory link here');
+                return;
+            }
             const r = spawnSync(
                 process.execPath,
                 [path.join(link, 'deep-clean.mjs'), '--age-minutes'],
