@@ -19,9 +19,9 @@ import { tracesSampler } from './lib/traceSampling';
 // See lib/eventBudget.ts.
 const eventBudget = createEventBudget();
 
-// Every send hook below fails closed: a hook that threw would have the SDK
-// report the throw itself, past beforeSend and with the page address on it.
-// See lib/failClosed.ts.
+// Every send hook below fails closed. SDK 11 drops an event or breadcrumb whose
+// hook threw, but sends a span unmodified when beforeSendSpan throws, so
+// failClosedHooks (lib/failClosed.ts) is the floor under the span hook in particular.
 Sentry.init(failClosedHooks({
     // Set NEXT_PUBLIC_SENTRY_DSN in your environment to enable error tracking.
     // Leave empty (or omit) to disable Sentry — safe for local development and forks.
