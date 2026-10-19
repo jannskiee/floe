@@ -205,7 +205,7 @@ All under `cli/engine/`, imported by both the CLI (`cli/cmd/floe`) and the deskt
 - `serverurl/` - normalizes user-supplied server URLs (`Normalize`: whitespace, trailing slashes, the case of the scheme and host, a default port) and maps a server origin to the web app origin that share and request links point at (`Web`)
 - `verify/` - short authentication string for out-of-band MITM verification; retained and tested but unwired, since the user-facing code left every surface (CLI, browser, desktop) and its last callers went with it. Nothing imports it today. PAKE is the intended replacement; see DESKTOP.md, Phase 3a
 
-The CLI itself is `cli/cmd/floe/`: `main.go` (the root command, the shared flags with their environment twins, the network seams `fetchICE` and `connectSignaling`, the first two network calls of every transfer, and error printing), `interrupt.go` (the Ctrl+C and SIGTERM handler, and where a command waits once the handler has its ending), `links.go` (telling a link typed where it does not belong, in a command's place, as a path or as a receive input, without printing it back), `send.go` and `receive.go` (the two plain flows), `sendto.go` (`floe send --to <request link>`: the CLI as a request-link visitor, with fixed lines of its own), `connfailed.go` (closes the connection when ICE gives up, which is what ends a wait for `received` that can never come), `pionlog.go` (which pion log scopes are silenced) and `update.go` (`floe version` and `floe update`).
+The CLI itself is `cli/cmd/floe/`: `main.go` (the root command, the shared flags with their environment twins, the network seams `fetchICE` and `connectSignaling`, vars a test replaces with its own fake, and error printing), `interrupt.go` (the Ctrl+C and SIGTERM handler, and where a command waits once the handler has its ending), `links.go` (telling a link typed where it does not belong, in a command's place, as a path or as a receive input, without printing it back), `send.go` and `receive.go` (the two plain flows), `sendto.go` (`floe send --to <request link>`: the CLI as a request-link visitor, with fixed lines of its own), `connfailed.go` (closes the connection when ICE gives up, which is what ends a wait for `received` that can never come), `pionlog.go` (which pion log scopes are silenced) and `update.go` (`floe version` and `floe update`).
 
 `cli/internal/` holds `selfupdate/`, which stays private to the CLI on purpose (`floe update` has no meaning for the desktop app), `e2ehost/`, a test-only Go peer that `client/e2e/global-setup.ts` builds (modes `host`, `send` and `request`; `request` is the request-link host the Playwright specs drive), and `rlvisitor/`, a test-only hostile request-link visitor for the desktop QA cells that refuses any server that is not local or private; GoReleaser builds only `./cmd/floe`, so neither ships.
 
@@ -298,9 +298,9 @@ proofs are cheap:
 - Go: `diff <(cd <base>/cli && go doc -all -u ./pkg) <(cd cli && go doc -all -u ./pkg)`
   must be empty, or hold only whole `const` and `var` groups in another place.
   The `-u` includes unexported symbols, and `go doc` sorts by name within
-  CONSTANTS, FUNCTIONS and TYPES rather than by file, except a parenthesized
-  group of more than one spec, which it lists in the order it reads the files
-  (`sortingName` in go/doc). A pure move that carries such a group to another
+  CONSTANTS, VARIABLES, FUNCTIONS and TYPES rather than by file, except a
+  parenthesized `const` or `var` group of more than one spec, which it lists
+  in the order it reads the files (`sortingName` in go/doc). A pure move that carries such a group to another
   file can therefore move it in the raw output: compare the two outputs
   sorted, which is empty for a pure move, then read the raw diff to see that
   each group moved whole. `go doc` cannot see `init()` ordering or cobra flag
