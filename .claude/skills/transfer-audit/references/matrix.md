@@ -238,8 +238,8 @@ Hide my IP is still flipped through a Settings label click (TA-12).
 | L sender   | none                                                                                                                                   | as C                                                                                                                                                                                                                                                                                                                                                                                                               | as C                                                                          | n/a                                                                                                                                                                                  | the WSL2 harness in memory `project_release_1_10_3_and_0_2_6`                                                                                   |
 
 Which side's evidence counts. Both classifiers OR over the pair
-(`cli/engine/peer/connection.go` `ConnectionType`, `client/lib/relay.ts` `isRelayPair`), so one
-relay-only side relays the pair.
+(`cli/engine/peer/connection.go` `ConnectionType`, through `transfer.SelectedPath`, and
+`client/lib/relay.ts` `isRelayPair`), so one relay-only side relays the pair.
 
 | Pair        | REL forcer     | REL evidence required                                                                   | DIR evidence required                                                                                           |
 | ----------- | -------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |

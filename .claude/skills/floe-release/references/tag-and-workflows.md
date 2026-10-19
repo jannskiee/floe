@@ -20,7 +20,7 @@ Read from the workflow files on `main` on 2026-10-12 (2a6e273); the Go, NSIS and
 - The release body is the list GoReleaser writes from commit subjects, then `release.footer`: a "What changed" line linking `changelog#<tag with the dots as hyphens>`. The list drops every `docs`, `test`, `chore`, `style`, `refactor` and `ci` subject, with or without a scope, and merge commits; a breaking subject (`chore!:`) still shows. What changed for a user is only in the hand-written changelog.
 - The release is the repository's Latest. `/releases/latest` must keep resolving to a CLI release: the install scripts, `floe update` and the back-compat CI job depend on it, which is why the desktop series is a pre-release.
 - The same run publishes the Homebrew cask (`jannskiee/homebrew-tap`), the Scoop manifest (`jannskiee/scoop-bucket`) and a PR to `microsoft/winget-pkgs` from the `jannskiee/winget-pkgs` fork, all through `TAP_GITHUB_TOKEN`.
-- The `release-tags` ruleset forbids deletion, update and non-fast-forward on `refs/tags/v*`. A pushed `v*` tag is permanent, so confirm the push with the user first; a failed run is rerun in place with `gh run rerun <id> --failed`. release.yml has no `concurrency` block.
+- The `release-tags` ruleset forbids deletion, update and non-fast-forward on `refs/tags/v*`. A pushed `v*` tag is permanent, so confirm the push with the user first; a failed run is rerun in place with `gh run rerun <id> --failed`. release.yml has a `concurrency` group per tag with `cancel-in-progress: false`, as images.yml and desktop-release.yml do, so a second run on the same tag queues behind the first instead of racing it to the release and the shared package-manager repositories.
 
 ## `v*` and images.yml
 
