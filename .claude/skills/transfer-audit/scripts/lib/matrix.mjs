@@ -921,9 +921,3 @@ export function countsForExit(cell) {
         return false;
     return true;
 }
-
-export function describeCell(cell) {
-    const snd = `${cell.sender.letter}${cell.sender.relayOnly ? '*' : ''}`;
-    const rcv = `${cell.receiver.letter}${cell.receiver.relayOnly ? '*' : ''}`;
-    return `${cell.id} ${snd}->${rcv} ${cell.path} ${cell.receiver.input} ${cell.fixture.kind}`;
-}

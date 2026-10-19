@@ -110,7 +110,6 @@ import { defaultExec } from './versions.mjs';
 
 export const AUMID = 'JanCarloParedes.FloeDesktop_r1y5w9chaxnzc!FloeDesktop';
 export const PACKAGE_NAME = 'JanCarloParedes.FloeDesktop';
-export const PACKAGE_FAMILY = 'JanCarloParedes.FloeDesktop_r1y5w9chaxnzc';
 export const WINDOWS_APPS = 'C:\\Program Files\\WindowsApps\\';
 export const EXE_NAME = 'floe-desktop.exe';
 // The app `wails dev` builds and runs; it holds the same single-instance

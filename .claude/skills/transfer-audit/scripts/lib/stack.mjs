@@ -17,10 +17,11 @@
  * any pid this run did not start. floe-run's own server child is stopped by
  * `floe-run stop`, which checks the pidfile and the image itself.
  *
- * Every corepack or pnpm shell-out from here runs with cwd client/ and
+ * Every child started from here (floe-run, and next dev through it) gets
  * COREPACK_ENABLE_AUTO_PIN=0: from the repo root corepack resolves pnpm
  * 11.7.0 and can write a packageManager field into root package.json, which
- * is a write to the shared tree (journal, pnpm/floe-run answer).
+ * is a write to the shared tree (journal, pnpm/floe-run answer). floe-run
+ * runs pnpm from client/; nothing here shells out to pnpm itself.
  */
 import { execFile, execFileSync } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
@@ -30,7 +31,6 @@ import { dirname, join, resolve } from 'node:path';
 import { PhaseError } from './surfaces.mjs';
 import { killTree, spawnFloe } from './proc.mjs';
 
-const WIN = process.platform === 'win32';
 export const FLOE_RUN_REL = '.claude/skills/floe-run/scripts/floe-run.mjs';
 export const SERVER_URL = 'http://localhost:3001';
 export const WEB_URL = 'http://localhost:3000';
@@ -68,23 +68,6 @@ export function corepackEnv(base = process.env) {
         COREPACK_ENABLE_AUTO_PIN: '0',
         COREPACK_ENABLE_DOWNLOAD_PROMPT: '0',
     };
-}
-
-/**
- * Run `corepack pnpm <args>` from <root>/client. Args are constants from
- * the caller, never user input, which is why shell: true (needed for the
- * .cmd shim on Windows) adds no injection surface.
- */
-export function runPnpm(root, args, { timeoutMs = 600_000 } = {}) {
-    return execFileSync('corepack', ['pnpm', ...args], {
-        cwd: join(root, 'client'),
-        env: corepackEnv(),
-        encoding: 'utf8',
-        shell: WIN,
-        windowsHide: true,
-        timeout: timeoutMs,
-        stdio: ['ignore', 'pipe', 'pipe'],
-    });
 }
 
 /**

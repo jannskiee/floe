@@ -8,7 +8,7 @@
 // a managed install by looking at those substrings, and a side-loaded
 // binary under such a path would misreport itself.
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -34,9 +34,6 @@ const WIN = process.platform === 'win32';
 
 export function cliZipName(version) {
     return `floe_${version}_windows_amd64.zip`;
-}
-export function cliTarName(version) {
-    return `floe_${version}_linux_amd64.tar.gz`;
 }
 export function desktopZipName(version) {
     return `floe-desktop-${version}-windows-amd64.zip`;
@@ -310,26 +307,6 @@ export function findStagedDesktop(binDir, tag) {
     return null;
 }
 
-/** Download the Linux tarball for the WSL cell (extraction happens in WSL). */
-export function downloadLinuxCli({ tag, dest, gh = makeGh() }) {
-    const version = versionOfTag(tag);
-    const dir = path.join(dest, `floe-${version}-linux`);
-    const tarName = cliTarName(version);
-    downloadRelease({ tag, dir, patterns: [tarName, 'checksums.txt'], gh });
-    const sha256 = verifyAsset({
-        dir,
-        assetName: tarName,
-        checksumFile: 'checksums.txt',
-    });
-    return {
-        tag,
-        version,
-        tar: path.join(dir, tarName),
-        checksums: path.join(dir, 'checksums.txt'),
-        sha256,
-    };
-}
-
 export function gitSha7(root, { exec = defaultExec } = {}) {
     return exec('git', ['rev-parse', '--short=7', 'HEAD'], { cwd: root });
 }
@@ -437,9 +414,4 @@ export function headDesktopCommands({ root, sha7, wails = wailsPath() }) {
             path.join(root, 'desktop', 'build', 'bin'),
         ],
     };
-}
-
-export function removeSideloads(binDir) {
-    if (binDir && existsSync(binDir))
-        rmSync(binDir, { recursive: true, force: true, maxRetries: 3 });
 }

@@ -18,15 +18,6 @@ export const REPO = 'jannskiee/floe';
 export const STORE_PACKAGE = 'JanCarloParedes.FloeDesktop';
 export const CLI_TAG_RE = /^v(\d+)\.(\d+)\.(\d+)$/;
 export const DESKTOP_TAG_RE = /^desktop-v(\d+)\.(\d+)\.(\d+)$/;
-export const STATUSES = Object.freeze([
-    'CURRENT',
-    'STALE',
-    'UNKNOWN',
-    'NOT_INSTALLED',
-    'PARITY',
-    'DRIFT',
-    'INFO',
-]);
 export const DRIFT_STATUSES = new Set(['STALE', 'DRIFT', 'UNKNOWN']);
 
 // ---------------------------------------------------------------------------
@@ -61,8 +52,6 @@ export function inverseIdentity(identity) {
     if (first < 1) return null;
     return `${first - 1}.${m[2]}.${m[3]}`;
 }
-
-export const productFromIdentity = inverseIdentity;
 
 /** Numeric triple of 'v3.4.5', 'desktop-v3.4.5', '3.4.5'; null otherwise. */
 export function versionTriple(v) {
@@ -220,12 +209,6 @@ export function commitCurrency({ deployed, main, touched }) {
     if (touched === true) return 'STALE';
     return 'UNKNOWN';
 }
-
-export const compareWebSha = (deployed, main, touched) => ({
-    current: commitCurrency({ deployed, main, touched }) === 'CURRENT',
-    deployed,
-    main,
-});
 
 /** The gating rows that carry a drift status. */
 export function gatingDrift(rows) {

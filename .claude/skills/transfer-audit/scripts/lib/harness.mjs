@@ -28,10 +28,6 @@ import { buildEnv } from './cli.mjs';
 
 export const LINK_EVENT_RE = /"event"\s*:\s*"link"/;
 export const OPEN_EVENT_RE = /"event"\s*:\s*"channel-open"/;
-export const ROUTE_EVENT_RE = /"event"\s*:\s*"route"/;
-export const REFUSED_EVENT_RE = /"event"\s*:\s*"peer-refused"/;
-export const DONE_EVENT_RE = /"event"\s*:\s*"done"/;
-export const ERROR_EVENT_RE = /"event"\s*:\s*"error"/;
 
 // The route event follows channel-open in the same goroutine with nothing in
 // between but one selected-pair read, so a harness that has not printed it this
