@@ -177,6 +177,12 @@ export default withSentryConfig(nextConfig, {
     // Suppress non-error logs during build
     silent: !process.env.CI,
 
+    // Off: otherwise every build (Vercel, CI, local, a self-hosted image build)
+    // sends Sentry a session and a sampled transaction about the build itself,
+    // whatever NEXT_TELEMETRY_DISABLED says. It carries no visitor data; error
+    // reports are unaffected.
+    telemetry: false,
+
     // Annotate React components with their names, so Sentry breadcrumbs, UI
     // click spans and Session Replay show component names instead of raw DOM
     // nodes. The Babel transform writes data-sentry-component /
