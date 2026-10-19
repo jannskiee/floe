@@ -223,6 +223,35 @@ func TestCodeAPIBodiesAreBounded(t *testing.T) {
 	}
 }
 
+// TestCodeAPIBodiesAtTheBoundDecode: an answer that ends exactly at 64 KiB is
+// read whole, so the bound refuses nothing a server can fit in it.
+func TestCodeAPIBodiesAtTheBoundDecode(t *testing.T) {
+	const bound = 64 << 10
+	answer := func(key string) string {
+		frame := `{"` + key + `":""}`
+		return `{"` + key + `":"` + strings.Repeat("a", bound-len(frame)) + `"}`
+	}
+	orig := client
+	t.Cleanup(func() { client = orig })
+	client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		key := "code"
+		if r.Method == http.MethodGet {
+			key = "roomId"
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(answer(key))), Request: r}, nil
+	})}
+
+	if len(answer("code")) != bound || len(answer("roomId")) != bound {
+		t.Fatalf("the test answers are not %d bytes", bound)
+	}
+	if code, err := Register("http://code.invalid", "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"); err != nil || len(code) != bound-len(`{"code":""}`) {
+		t.Fatalf("Register on an answer of exactly %d bytes = a %d-byte code and %v", bound, len(code), err)
+	}
+	if room, err := Resolve("http://code.invalid", "olive-tiger-castle"); err != nil || len(room) != bound-len(`{"roomId":""}`) {
+		t.Fatalf("Resolve on an answer of exactly %d bytes = a %d-byte room id and %v", bound, len(room), err)
+	}
+}
+
 // countingBody is a response body that counts the bytes it hands out.
 type countingBody struct {
 	r io.Reader

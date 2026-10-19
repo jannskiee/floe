@@ -194,6 +194,22 @@ func TestParseServersStopsAtTheBodyBound(t *testing.T) {
 	}
 }
 
+// TestParseServersTakesAListAtTheBound: a list that ends exactly at 64 KiB is
+// read whole and parsed, so the bound refuses nothing a server can fit in it.
+func TestParseServersTakesAListAtTheBound(t *testing.T) {
+	const bound = 64 << 10
+	entry := `{"urls":"stun:stun.example.invalid:3478"},`
+	head := "[" + strings.Repeat(entry, (bound-200)/len(entry)) + `{"urls":"stun:`
+	tail := `"}]`
+	body := head + strings.Repeat("a", bound-len(head)-len(tail)) + tail
+	if len(body) != bound {
+		t.Fatalf("the test list is %d bytes, want %d", len(body), bound)
+	}
+	if _, err := ParseServers(strings.NewReader(body)); err != nil {
+		t.Fatalf("ParseServers refused a list of exactly %d bytes: %v", bound, err)
+	}
+}
+
 // countingReader counts the bytes its reader hands out.
 type countingReader struct {
 	r io.Reader
