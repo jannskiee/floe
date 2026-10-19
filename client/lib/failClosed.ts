@@ -73,13 +73,26 @@ export function failClosedHooks<T extends object>(options: T): T {
     }
     const spanHook = out.beforeSendSpan;
     if (typeof spanHook === 'function') {
-        out.beforeSendSpan = (span: SpanIdentity) => {
+        const wrapped = (span: SpanIdentity) => {
             try {
                 return (spanHook as AnyHook)(span);
             } catch {
                 return bareSpan(span);
             }
         };
+        // Under traceLifecycle 'static', @sentry/core 11 calls beforeSendSpan
+        // only when withStaticSpan has marked it with a non-enumerable _static
+        // property (isStaticBeforeSendSpanCallback). A new function carries no
+        // such mark, so it is copied as the SDK sets it, or the SDK would skip
+        // the wrapper and send every span unscrubbed.
+        if ('_static' in spanHook) {
+            Object.defineProperty(wrapped, '_static', {
+                value: spanHook._static,
+                writable: true,
+                configurable: true,
+            });
+        }
+        out.beforeSendSpan = wrapped;
     }
     return out as T;
 }

@@ -184,23 +184,18 @@ export default withSentryConfig(nextConfig, {
     // it still pays off with `sourcemaps.disable` set below: it annotates the
     // DOM rather than symbolicating stack traces.
     //
-    // This MUST be the _experimental key. Production builds use Turbopack (Next
-    // 16 defaults to it, and Next sets TURBOPACK=auto before this config is even
-    // loaded), and the `webpack.reactComponentAnnotation` equivalent is inert
-    // there: the webpack config is never constructed, and getBuildPluginOptions
-    // separately forces the option to undefined. It was configured under
-    // `webpack` here until 2026-07 and silently annotated nothing.
+    // This MUST be the top-level key (@sentry/nextjs 11 and later), which
+    // reaches Turbopack as well as webpack; on Turbopack it needs Next 16+.
+    // Production builds use Turbopack (Next 16 defaults to it, and Next sets
+    // TURBOPACK=auto before this config is even loaded), and the
+    // `webpack.reactComponentAnnotation` equivalent is inert there. It was
+    // configured under `webpack` here until 2026-07 and silently annotated
+    // nothing.
     //
     // Turbopack has no equivalent for `webpack.treeshake.removeDebugLogging`,
-    // so Sentry's debug logging stays in the production bundle. That was already
-    // true; the old comment claiming otherwise was wrong.
-    //
-    // _experimental options may be renamed without notice, so re-check on any
-    // @sentry/nextjs upgrade. Requires Next 16+.
-    _experimental: {
-        turbopackReactComponentAnnotation: {
-            enabled: true,
-        },
+    // so Sentry's debug logging stays in the production bundle.
+    reactComponentAnnotation: {
+        enabled: true,
     },
 
     // Source map uploads require SENTRY_AUTH_TOKEN env var.

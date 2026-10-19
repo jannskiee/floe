@@ -92,9 +92,22 @@ export function scrubUrl(url: string | undefined | null): string | undefined {
 
 // The URL-bearing attributes the SDK writes onto spans: url.full and http.url
 // on http.client spans and on the segment span (the HttpContext integration
-// backfills url.full there from location.href), plus the http.query and
-// http.fragment the fetch and XHR instrumentation split out of a request URL.
-const URL_ATTRIBUTES = ['url.full', 'http.url', 'http.query', 'http.fragment'] as const;
+// backfills url.full there from location.href), plus the query and the
+// fragment the fetch, XHR and server instrumentation split out of a request
+// URL. SDK 10 wrote them as http.query and http.fragment, which keep their '?'
+// and '#'. SDK 11 writes the OpenTelemetry url.query and url.fragment, which
+// keep neither ("sid=<id>", "room=<id>"), so the rule for every other
+// attribute below cannot see either secret in them. url.path is the bare
+// path, /r/<linkId> included.
+const URL_ATTRIBUTES = [
+    'url.full',
+    'http.url',
+    'http.query',
+    'http.fragment',
+    'url.query',
+    'url.fragment',
+    'url.path',
+] as const;
 
 // Structural shapes for Sentry's TransactionEvent and SpanJSON, declared here
 // rather than imported so this module and its vitest never load the SDK.
@@ -535,12 +548,18 @@ function scrubAttributes(data: Record<string, unknown> | undefined): void {
     for (const key of URL_ATTRIBUTES) {
         const value = data[key];
         if (typeof value !== 'string' || value === '') continue;
-        if (key === 'http.fragment') {
+        if (key === 'http.fragment' || key === 'url.fragment') {
             // A fragment is never useful telemetry, and it is where every
             // current link keeps the room id.
             delete data[key];
         } else if (key === 'http.query') {
             data[key] = scrubQuery(value);
+        } else if (key === 'url.query') {
+            // Handed back as it came: with no leading '?' when it had none.
+            const query = scrubQuery(value);
+            data[key] = value.startsWith('?')
+                ? query
+                : query.replace(/^\?/, '');
         } else {
             data[key] = scrubUrl(value);
         }

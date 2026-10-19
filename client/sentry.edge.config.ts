@@ -14,10 +14,9 @@ Sentry.init(failClosedHooks({
     tracesSampler,
     debug: false,
 
-    // Scrub any room secret out of request URLs (covers old ?room= links).
-    sendDefaultPii: false,
-    // The same, stated in full, and transactions rather than streamed spans,
-    // as in sentry.client.config.ts. See lib/sentryDataCollection.ts.
+    // No IP address collected and transactions rather than streamed spans, as
+    // in the other two configs; the room secret is scrubbed out of request
+    // URLs below (covers old ?room= links). See lib/sentryDataCollection.ts.
     dataCollection: DATA_COLLECTION,
     traceLifecycle: 'static',
     // No client reports, as in the other two configs. The edge SDK has no

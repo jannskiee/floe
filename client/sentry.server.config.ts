@@ -32,15 +32,13 @@ Sentry.init(failClosedHooks({
     // that changes either fails there. See lib/sentryIntegrations.ts.
     integrations: (defaults) =>
         withoutServerSessions(defaults, () =>
-            Sentry.httpIntegration({ disableIncomingRequestSpans: true, trackIncomingRequestsAsSessions: false }),
+            Sentry.httpIntegration({ disableIncomingRequestSpans: true, sessions: false }),
         ),
 
     // The server never sees the URL fragment, but an old-style ?room= link can
-    // still land in a request URL. Scrub it (and disable default PII) so the
-    // room secret never reaches Sentry.
-    sendDefaultPii: false,
-    // The same, stated in full, and transactions rather than streamed spans,
-    // as in sentry.client.config.ts. See lib/sentryDataCollection.ts.
+    // still land in a request URL. It is scrubbed below, and the SDK collects
+    // no IP address, as in the browser. Transactions rather than streamed
+    // spans, as in sentry.client.config.ts. See lib/sentryDataCollection.ts.
     dataCollection: DATA_COLLECTION,
     traceLifecycle: 'static',
     // No client reports: the Node SDK would otherwise post, about once a

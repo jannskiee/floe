@@ -26,8 +26,8 @@ export function withoutBrowserSession<T extends { name: string }>(defaults: T[])
 // key press (INP) and sends every timing as a span of its own, outside any
 // page-load trace. Sentry's servers treat those standalone spans differently
 // from everything else the page sends: they store the address the span arrives
-// from on it, as client.address, although sendDefaultPii is false and the SDK
-// sends none. Measured in Sentry on 2026-10-12: all 24 stored interaction
+// from on it, as client.address, although the configs collect no address
+// (lib/sentryDataCollection.ts) and the SDK sends none. Measured in Sentry on 2026-10-12: all 24 stored interaction
 // spans of the last 30 days held one, and no error report or page-load trace
 // did. So the integration is rebuilt with those timings off.
 export const BROWSER_TRACING_INTEGRATION = 'BrowserTracing';
@@ -47,7 +47,7 @@ export function withoutInteractionSpans<T extends { name: string }>(defaults: T[
 //   - Http counts every incoming request into a per-minute total (how many
 //     ended, errored or crashed, with the release and environment; no address,
 //     no user agent) and sends it about a minute later, unless it is built
-//     with trackIncomingRequestsAsSessions false.
+//     with sessions false.
 //
 // Measured on a local production build with a loopback DSN before this was
 // added: 120 page requests produced session items; after, none. The edge

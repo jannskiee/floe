@@ -27,14 +27,11 @@ Sentry.init(failClosedHooks({
     // Leave empty (or omit) to disable Sentry — safe for local development and forks.
     dsn: process.env.NEXT_PUBLIC_SENTRY_DSN || '',
 
-    // Never attach cookies/headers/user IP by default. The room secret travels
-    // in the URL, which we additionally scrub below.
-    sendDefaultPii: false,
-
-    // The same, stated in full: no IP address, and no cookie, header or query
-    // key whose name can carry one. It is what sendDefaultPii false resolves
-    // to in SDK 10, and SDK 11 removes that option and collects all of it
-    // unless this is set. See lib/sentryDataCollection.ts.
+    // No IP address, and no cookie, header or query key whose name can carry
+    // one. The room secret travels in the URL, which is scrubbed below. This
+    // is what sendDefaultPii false resolved to in SDK 10; SDK 11 removed that
+    // option and collects all of it unless this is set. See
+    // lib/sentryDataCollection.ts.
     dataCollection: DATA_COLLECTION,
 
     // Transactions, not streamed spans. The send hooks below are written for
@@ -188,11 +185,16 @@ Sentry.init(failClosedHooks({
     // sends them through this hook instead. It also runs, before
     // beforeSendTransaction, over a transaction's root span and every child
     // span, so each transaction is scrubbed twice: scrubSpanJson must stay
-    // idempotent. The span-streaming lifecycle (traceLifecycle 'stream') does
-    // not call a plain beforeSendSpan at all and is not enabled here.
-    beforeSendSpan(span) {
+    // idempotent.
+    //
+    // Under traceLifecycle 'static' (set above) SDK 11 calls this hook only
+    // when withStaticSpan has marked it, and then hands it the static span
+    // shape (description and data). An unmarked hook is skipped without a
+    // word, and every span would leave unscrubbed. failClosedHooks carries the
+    // mark onto the function it wraps this one in.
+    beforeSendSpan: Sentry.withStaticSpan((span) => {
         return stripDeviceHints(scrubSpanJson(span));
-    },
+    }),
 
     // Session Replay is deliberately absent, and must not be added back.
     //

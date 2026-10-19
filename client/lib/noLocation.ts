@@ -1,8 +1,8 @@
 // Keeps Sentry from working out a location for a report.
 //
 // No line of Floe sends a location, and the SDK is told to attach no IP
-// address (sendDefaultPii false, which also sends sdk.settings.infer_ip
-// "never"). Sentry's servers still see the address a report arrives from, as
+// address (userInfo false in lib/sentryDataCollection.ts, which also sends
+// sdk.settings.infer_ip "never"). Sentry's servers still see the address a report arrives from, as
 // any server does, and looked it up: stored page-load traces and error reports
 // held a country, a region and a city (measured in Sentry on 2026-10-12).
 //
