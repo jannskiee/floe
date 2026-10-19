@@ -120,6 +120,24 @@ func TestEndpointsWaitForASettingsWrite(t *testing.T) {
 	}
 }
 
+// TestSettingsChangePanicLeavesMuFree: Wails recovers a panic in a bound call,
+// so a settings change that panicked must not leave a.mu held, or the next
+// close would wait forever on the message pump (closeBlocked).
+func TestSettingsChangePanicLeavesMuFree(t *testing.T) {
+	a := &App{}
+	func() {
+		defer func() { _ = recover() }()
+		_ = a.saveSettings(func(appConfig) appConfig { panic("boom") })
+	}()
+	done := make(chan bool, 1)
+	go func() { done <- a.closeBlocked() }()
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("a.mu is still held after a recovered panic in a settings change: closeBlocked waits")
+	}
+}
+
 // TestShareLink guards the property that matters: the room id is the transfer's
 // only secret, so it must live in the URL fragment, which browsers never send to
 // a server. Anything before the '#' does reach the server, so the room id

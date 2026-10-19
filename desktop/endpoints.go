@@ -84,13 +84,15 @@ func (a *App) SetSettings(server, web string, hideIP, reportStats bool) error {
 // silently resurrect the stale record. a.mu is held only to read the record
 // and to store the result, never across the write: the close hook takes a.mu
 // on the Windows message-pump thread (closeBlocked), and a write to a slow or
-// redirected AppData would stop the window answering.
+// redirected AppData would stop the window answering. change runs outside it
+// too, so a change that panics (Wails recovers bound calls) cannot leave it held.
 func (a *App) saveSettings(change func(appConfig) appConfig) error {
 	a.cfgMu.Lock()
 	defer a.cfgMu.Unlock()
 	a.mu.Lock()
-	cfg, save := change(a.cfg), a.saveConfigFn
+	cur, save := a.cfg, a.saveConfigFn
 	a.mu.Unlock()
+	cfg := change(cur)
 	if save == nil {
 		save = saveConfig
 	}
