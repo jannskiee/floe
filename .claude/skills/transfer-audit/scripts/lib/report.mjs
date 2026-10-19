@@ -383,11 +383,7 @@ export function safetyRows(s) {
             'working tree',
             s.workingTreeUnchanged === false
                 ? 'CHANGED'
-                : ok(
-                      s.workingTreeUnchanged === undefined
-                          ? 'unchanged'
-                          : 'unchanged'
-                  ),
+                : ok(s.workingTreeUnchanged === true ? 'unchanged' : null),
         ],
         [
             'desktop floe:saveDir restored',

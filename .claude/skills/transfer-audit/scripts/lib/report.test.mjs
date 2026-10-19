@@ -753,3 +753,20 @@ test('the Safety table counts window activations and says whether the desktop ap
     // The row that was a constant is gone.
     assert.equal(safetyRows(s).some(([k]) => k === 'forced foreground'), false);
 });
+
+// audit.mjs leaves workingTreeUnchanged null when `git status` could not be
+// read before or after the run: that is not a measured "unchanged".
+test('the Safety working tree row says n/a when git status could not be read', () => {
+    const row = (s) => safetyRows(s).find(([k]) => k === 'working tree')[1];
+    assert.equal(newSafety().workingTreeUnchanged, null);
+    assert.equal(row(newSafety()), 'n/a');
+    assert.equal(row({}), 'n/a');
+    assert.equal(
+        row({ ...newSafety(), workingTreeUnchanged: true }),
+        'unchanged'
+    );
+    assert.equal(
+        row({ ...newSafety(), workingTreeUnchanged: false }),
+        'CHANGED'
+    );
+});
