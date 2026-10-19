@@ -3779,7 +3779,7 @@ test('DesktopConfigGuard refuses a desktop.json that already names the probe sen
         const file = path.join(dir, 'desktop.json');
         // The exact file found on the owner's PC.
         const leaked = `{"server":"${PROBE_SENTINEL_URL}","web":"${PROBE_SENTINEL_URL}","hideIP":false,"reportStats":false,"noUpdateCheck":true,"migrated":true}`;
-        for (const bytes of [leaked, `﻿${leaked}\n`, JSON.stringify({ server: '', web: PROBE_SENTINEL_URL })]) {
+        for (const bytes of [leaked, `\uFEFF${leaked}\n`, JSON.stringify({ server: '', web: PROBE_SENTINEL_URL })]) {
             writeFileSync(file, bytes);
             const g = new DesktopConfigGuard({
                 configPath: file,

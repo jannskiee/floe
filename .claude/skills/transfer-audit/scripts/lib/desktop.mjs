@@ -1114,7 +1114,7 @@ export const PROBE_SENTINEL_URL = 'http://127.0.0.1:9';
 export function holdsProbeSentinel(bytes) {
     let cfg;
     try {
-        cfg = JSON.parse(String(bytes ?? '').replace(/^﻿/, '').trim() || '{}');
+        cfg = JSON.parse(String(bytes ?? '').replace(/^\uFEFF/, '').trim() || '{}');
     } catch {
         return false;
     }
