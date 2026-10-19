@@ -1254,8 +1254,9 @@ receiver's opt-out, and the versions that did it.
   (every Request link string), `desktop/frontend/src/errors.ts` (the error
   lines), `desktop/app.go`, `desktop/transfer.go`, `desktop/config.go`,
   `cli/cmd/floe/main.go`, `cli/cmd/floe/send.go`, `cli/cmd/floe/receive.go`,
-  `cli/cmd/floe/sendto.go` (`floe send --to`),
-  `cli/engine/transfer/sender.go`,
+  `cli/cmd/floe/sendto.go` (`floe send --to`), `cli/cmd/floe/interrupt.go`
+  (the Ctrl+C and SIGTERM handler), `cli/cmd/floe/links.go` (a link typed
+  where it does not belong), `cli/engine/transfer/sender.go`,
   `cli/engine/transfer/receiver.go`, `cli/engine/peer/connection.go`,
   `server/server.js` (the connection and code limiters), `server/stats.js`
   (the stats limiter), `server/turn.js` (the TURN limiter and

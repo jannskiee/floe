@@ -1543,7 +1543,7 @@ export class WebLeg extends Leg {
         );
     }
 
-    /** Receiver: every a[download] hashed in-page (helpers.ts:85-93). */
+    /** Receiver: every a[download] hashed in-page (helpers.ts sha256OfBlobUrl). */
     async outputs() {
         if (this.role !== 'receiver' || !this.page) return [];
         const anchors = await this.page
