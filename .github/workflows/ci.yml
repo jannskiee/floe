@@ -392,6 +392,13 @@ jobs:
         run: go vet ./...
         working-directory: cli
 
+      - name: Dead code (staticcheck U1000)
+        # U1000 only: staticcheck's default set (ST1005 among them) would push
+        # against error strings that are frozen. Pinned, so a staticcheck
+        # release cannot turn a PR red on its own.
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 -checks U1000 ./...
+        working-directory: cli
+
       - name: Test
         # -count=1 bypasses Go's test-result cache so stability re-runs always execute
         run: go test -count=1 ./...
@@ -510,6 +517,12 @@ jobs:
 
       - name: Vet
         run: go vet ./...
+        working-directory: desktop
+
+      - name: Dead code (staticcheck U1000)
+        # As in the cli job. Windows only, like the rest of this job: a const
+        # only the Windows build reads (contextMenuMultiSelect) is unused elsewhere.
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 -checks U1000 ./...
         working-directory: desktop
 
       - name: Test
