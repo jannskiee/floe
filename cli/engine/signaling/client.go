@@ -51,6 +51,7 @@ type Client struct {
 	PeerConnected chan string
 
 	// Signal receives raw JSON signal payloads (SDP or ICE) from the remote peer.
+	// It is never closed, which peer's dispatchSignals relies on.
 	Signal chan json.RawMessage
 
 	// PeerLeft receives a push, and is never closed, when the server reports

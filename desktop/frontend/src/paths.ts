@@ -153,7 +153,7 @@ function middleCut(s: string, max: number): string {
 }
 
 // A drop folder's own name ends in this PC's date and time and, when that
-// name was taken, a number (desktop/transfer.go dropFolderName and
+// name was taken, a number (desktop/dropfolder.go dropFolderName and
 // makeDropFolder): "Acme footage 2026-09-14 1405 (2)".
 const DROP_STAMP = /^(.*?)( \d{4}-\d{2}-\d{2} \d{4}(?: \(\d+\))?)$/su;
 
