@@ -325,7 +325,6 @@ export function mainSha({ gh }) {
     return gh(['api', `repos/${REPO}/commits/main`, '--jq', '.sha']).trim();
 }
 
-/** true, false, or null on a 4xx compare (unknown sha, unrelated). */
 /**
  * The compare API caps its `files` array at this many entries, with no
  * truncation flag. Measured 2026-08-30: `5dedc94...7590ddb` (119 commits)
@@ -353,7 +352,8 @@ export function treeShaFor({ gh, ref, dir }) {
  * the report actually asks (does the deployed code differ) rather than
  * whether some commit touched the path. compare stays as the fallback and
  * refuses to answer once it is at the cap, so a truncated answer can never
- * read as CURRENT.
+ * read as CURRENT. Returns true, false, or null on a 4xx compare (unknown
+ * sha, unrelated).
  */
 export function compareTouches({ gh, base, head, dir }) {
     try {
