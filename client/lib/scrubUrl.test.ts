@@ -1490,3 +1490,39 @@ describe('the OpenTelemetry URL attributes of SDK 11', () => {
         });
     });
 });
+
+describe('breadcrumb url.query and url.fragment (SDK 11)', () => {
+    // SDK 11's Node outgoing-request breadcrumb and the edge runtime's fetch
+    // breadcrumb write url.query and url.fragment beside url, with no leading
+    // '?' or '#'. Nothing in Floe makes one today (browser breadcrumbs carry
+    // neither key, and the Next server and edge make no outgoing request), so
+    // this is for the path nobody has found yet, as on spans.
+    const ID = '0b8e7c2d-4a1f-4e6b-9c3d-5f7a2e1b8c90';
+    const crumb = () => ({
+        category: 'http',
+        data: { url: 'https://floe.one/', method: 'GET', 'url.query': `room=${ID}&s=n0nce`, 'url.fragment': `room=${ID}` },
+    });
+
+    it('the browser breadcrumb hook drops the fragment and scrubs the query, keeping its shape', () => {
+        const out = scrubBreadcrumb(crumb()) as { data: Record<string, unknown> };
+        expect(JSON.stringify(out)).not.toContain(ID);
+        expect(out.data['url.fragment']).toBeUndefined();
+        expect(String(out.data['url.query']).startsWith('?')).toBe(false);
+        expect(out.data.method).toBe('GET');
+    });
+
+    it('so do the event hooks, browser and server, errors and transactions', () => {
+        const events = [
+            scrubErrorEvent({ breadcrumbs: [crumb()] }),
+            scrubTransactionEvent({ breadcrumbs: [crumb()] }),
+            scrubServerErrorEvent({ breadcrumbs: [crumb()] }),
+            scrubServerTransactionEvent({ breadcrumbs: [crumb()] }),
+        ];
+        for (const event of events) {
+            expect(JSON.stringify(event)).not.toContain(ID);
+            const data = (event.breadcrumbs as { data: Record<string, unknown> }[])[0].data;
+            expect(data['url.fragment']).toBeUndefined();
+            expect(String(data['url.query']).startsWith('?')).toBe(false);
+        }
+    });
+});

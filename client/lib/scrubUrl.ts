@@ -371,10 +371,7 @@ export function scrubBreadcrumb<T>(crumb: T): T {
         if (typeof c.message === 'string') c.message = scrubText(c.message);
         const data = c.data;
         if (isObject(data) && !Array.isArray(data)) {
-            for (const key of BREADCRUMB_URL_KEYS) {
-                const value = data[key];
-                if (typeof value === 'string') data[key] = scrubUrl(value);
-            }
+            scrubBreadcrumbUrls(data, data);
             const args = data.arguments;
             if (Array.isArray(args)) {
                 data.arguments = args.map((arg: unknown) => (typeof arg === 'string' ? scrubText(arg) : arg));
@@ -394,12 +391,24 @@ function scrubEventBreadcrumb(crumb: unknown): unknown {
     const data = isObject(crumb) ? crumb.data : undefined;
     const copied = isObject(out) ? out.data : undefined;
     if (isObject(data) && !Array.isArray(data) && isObject(copied) && !Array.isArray(copied)) {
-        for (const key of BREADCRUMB_URL_KEYS) {
-            const value = data[key];
-            if (typeof value === 'string') copied[key] = scrubUrl(value);
-        }
+        scrubBreadcrumbUrls(data, copied);
     }
     return out;
+}
+
+// The URLs of a breadcrumb's data, read from data and written into into (the
+// same object, or the event hook's copy): url, to and from take request.url's
+// rule, and the url.query and url.fragment that SDK 11's Node and edge request
+// breadcrumbs write beside url, with no leading '?' or '#', the span
+// attributes' rule.
+function scrubBreadcrumbUrls(data: Record<string, unknown>, into: Record<string, unknown>): void {
+    for (const key of BREADCRUMB_URL_KEYS) {
+        const value = data[key];
+        if (typeof value === 'string') into[key] = scrubUrl(value);
+    }
+    if (typeof data['url.fragment'] === 'string') delete into['url.fragment'];
+    const query = data['url.query'];
+    if (typeof query === 'string' && query !== '') into['url.query'] = scrubQueryKeepingShape(query);
 }
 
 function scrubBreadcrumbs(event: ScrubbableServerRequest): void {
@@ -558,11 +567,7 @@ function scrubAttributes(data: Record<string, unknown> | undefined): void {
         } else if (key === 'http.query') {
             data[key] = scrubQuery(value);
         } else if (key === 'url.query') {
-            // Handed back as it came: with no leading '?' when it had none.
-            const query = scrubQuery(value);
-            data[key] = value.startsWith('?')
-                ? query
-                : query.replace(/^\?/, '');
+            data[key] = scrubQueryKeepingShape(value);
         } else {
             data[key] = scrubUrl(value);
         }
@@ -590,4 +595,11 @@ function scrubQuery(query: string): string {
     const scrubbed = scrubUrl('/' + (query.startsWith('?') ? query : '?' + query)) ?? '';
     const i = scrubbed.indexOf('?');
     return i >= 0 ? scrubbed.slice(i) : '';
+}
+
+// url.query, scrubbed and handed back as it came: with no leading '?' when it
+// had none.
+function scrubQueryKeepingShape(query: string): string {
+    const scrubbed = scrubQuery(query);
+    return query.startsWith('?') ? scrubbed : scrubbed.replace(/^\?/, '');
 }
