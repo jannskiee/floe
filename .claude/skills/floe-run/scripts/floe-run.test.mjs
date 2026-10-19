@@ -67,9 +67,36 @@ function installFakes({
         }
     };
 
+    // FLOE_RUN_FAKE_WHERE, '|'-separated, is what `where pnpm` prints; empty
+    // means it found nothing. Unset, every execFileSync is the real one.
+    const where = process.env.FLOE_RUN_FAKE_WHERE;
+    const realExecFileSync = cp.execFileSync;
+    cp.execFileSync = (cmd, args, opts) => {
+        if (where === undefined || !/^(where|which)$/.test(cmd))
+            return realExecFileSync(cmd, args, opts);
+        note(`${cmd} ${args.join(' ')}`);
+        if (!where) throw new Error('INFO: Could not find files');
+        return where.split('|').join('\r\n') + '\r\n';
+    };
+
     const realSpawn = cp.spawn;
     cp.spawn = (cmd, args, opts) => {
         note(`spawn ${args.join(' ')}`);
+        if (where !== undefined && args.includes('dev')) {
+            note(`client ${cmd} shell=${Boolean(opts.shell)}`);
+            // Without a shell libuv runs only a .exe or .com, so a bare name
+            // fails with ENOENT there, as the real spawn did.
+            if (!opts.shell && !/\.(exe|com)$/i.test(cmd))
+                return realSpawn(path.join(dir, 'no-such-pnpm.exe'), [], {
+                    stdio: opts.stdio,
+                    windowsHide: true,
+                });
+            const idle = `setInterval(() => { try { process.kill(${process.pid}, 0); } catch { process.exit(0); } }, 500);`;
+            return realSpawn(process.execPath, ['-e', idle], {
+                stdio: opts.stdio,
+                windowsHide: true,
+            });
+        }
         if (args[0] !== 'server.js') throw new Error(`unexpected spawn ${cmd}`);
         const env = opts.env || {};
         const seen = {
@@ -117,6 +144,8 @@ function installFakes({
             };
         }
         if (pathname === '/api/stats') return { totalBytes: 0 };
+        // next dev's home page, only for the --client cases.
+        if (pathname === '/' && where !== undefined) return {};
         if (pathname === '/api/turn-credentials') {
             if (!(env.TURN_DOMAIN && env.TURN_SECRET)) {
                 return [
@@ -676,4 +705,58 @@ describe('floe-run start switches', () => {
             assert.equal(run.start.code, 0, run.start.stderr);
         }
     });
+});
+
+describe('floe-run start --client on Windows', () => {
+    const skip =
+        process.platform !== 'win32' &&
+        'the where/PATHEXT rule is Windows only';
+
+    // start --client up to READY (or its exit), then the wrapper is ended:
+    // the fake server and client children exit once it is gone.
+    async function client(name, where) {
+        const dir = freshDir(name);
+        const start = launch(['start', '--client'], {
+            dir,
+            env: { FLOE_RUN_FAKE_WHERE: where },
+        });
+        const ready = await waitForReady(start);
+        if (start.code === null) start.child.kill();
+        await reap(start);
+        return { dir, start, ready, log: calls(dir) };
+    }
+
+    test(
+        'takes the pnpm.cmd that where lists after an extensionless pnpm',
+        { skip },
+        async () => {
+            const r = await client(
+                'client-npm-pnpm',
+                'C:\\fake\\npm\\pnpm|C:\\fake\\npm\\pnpm.cmd'
+            );
+            assert.match(r.log, /^client pnpm shell=true$/m, r.log);
+            assert.ok(
+                r.ready,
+                `no READY: ${r.start.stdout}\n${r.start.stderr}`
+            );
+            assert.match(
+                r.start.stdout,
+                /^web: http:\/\/localhost:3000 {2}\(pnpm dev \(C:\\fake\\npm\\pnpm\.cmd\), /m
+            );
+        }
+    );
+
+    test(
+        'falls back to corepack when where lists only an extensionless pnpm',
+        { skip },
+        async () => {
+            const r = await client('client-sh-only', 'C:\\fake\\npm\\pnpm');
+            assert.match(r.log, /^client corepack shell=true$/m, r.log);
+            assert.ok(
+                r.ready,
+                `no READY: ${r.start.stdout}\n${r.start.stderr}`
+            );
+            assert.match(r.start.stdout, /\(corepack pnpm dev, /);
+        }
+    );
 });

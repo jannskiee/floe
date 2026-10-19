@@ -379,12 +379,23 @@ function ownership() {
 // pnpm from PATH when it is there (corepack is gone from Node 25), corepack
 // otherwise. On Windows both are .cmd shims, and spawn has refused those
 // without a shell since Node 18.20 / 20.12; the args are constants, never
-// user input, so shell: true adds no injection surface.
+// user input, so shell: true adds no injection surface. A global npm install
+// of pnpm also leaves an extensionless sh script beside pnpm.cmd, and `where`
+// lists it first; Windows cannot run it (spawn fails with ENOENT), so there
+// only a match whose extension is in PATHEXT counts.
 function pnpmLauncher() {
+    const found = run(WIN ? 'where' : 'which', ['pnpm'])
+        .split(/\r?\n/)
+        .filter(Boolean);
+    const runnable = (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD')
+        .toLowerCase()
+        .split(';');
     const resolved =
-        run(WIN ? 'where' : 'which', ['pnpm'])
-            .split(/\r?\n/)
-            .find(Boolean) || null;
+        (WIN
+            ? found.find((p) =>
+                  runnable.includes(path.extname(p).toLowerCase())
+              )
+            : found[0]) || null;
     const shell = WIN && (!resolved || /\.(cmd|bat)$/i.test(resolved));
     return {
         cmd: resolved ? 'pnpm' : 'corepack',

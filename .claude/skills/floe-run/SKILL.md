@@ -109,9 +109,11 @@ picks pnpm 11.7.0, which refuses client's 11.1.2 pin. Plain `pnpm` works the
 same where it is on PATH; pnpm 11's dependency check fails on a stale tree.
 
 The script spawns `pnpm dev` when pnpm is on PATH and `corepack pnpm dev`
-otherwise. On the maintainer's Windows box pnpm is not on PATH, so the script
-falls back to corepack there; on Node 25 or newer corepack is gone, so install
-pnpm directly (memory `project_pnpm_via_corepack`).
+otherwise. On Windows it takes the first `where pnpm` match whose extension is
+in PATHEXT: a global npm install of pnpm puts an extensionless sh script beside
+`pnpm.cmd`, `where` lists the script first, and Windows cannot run it (spawning
+it ended `start --client` with ENOENT before READY). On Node 25 or newer
+corepack is gone, so install pnpm directly (memory `project_pnpm_via_corepack`).
 
 `--client` makes next dev rewrite `client/next-env.d.ts` and generate
 `client/AGENTS.md` and `client/CLAUDE.md`. The two generated files are
