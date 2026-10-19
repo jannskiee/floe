@@ -2419,14 +2419,12 @@ describe('createSocketIOPeer backpressure', () => {
         assert.deepEqual(socket.disconnects, [true]);
     });
 
-    it('a peer that leaves while its partner is over the ceiling leaves no seat behind', async () => {
-        // socket.io 4.8 runs the 'disconnecting' listener (handleDisconnect)
-        // inside disconnect(true). Cut off inside send, the partner's own
-        // handleDisconnect ran inside the leaver's, and the outer one then put
-        // the partner back in the room it had just left: a dead seat and its
-        // roomMeta for the life of the process.
+    // Two peers seated in one ordinary room over fake sockets whose
+    // disconnect(true) runs the 'disconnecting' listener (handleDisconnect)
+    // inside itself, as socket.io 4.8 does.
+    const seatedPair = () => {
         const peers = {};
-        const leaving = (id) => fakeSocketIO({
+        const fake = (id) => fakeSocketIO({
             id,
             disconnect(close) {
                 if (!this.connected) return;
@@ -2435,13 +2433,22 @@ describe('createSocketIOPeer backpressure', () => {
                 this.connected = false;
             },
         });
-        const a = leaving('sio-a');
-        const b = leaving('sio-b');
+        const a = fake('sio-a');
+        const b = fake('sio-b');
         peers['sio-a'] = createSocketIOPeer(a, 'key-a');
         peers['sio-b'] = createSocketIOPeer(b, 'key-b');
         const roomId = randomUUID();
         handleJoinRoom(peers['sio-a'], roomId);
         handleJoinRoom(peers['sio-b'], roomId);
+        return { a, b, peers, roomId };
+    };
+
+    it('a peer that leaves while its partner is over the ceiling leaves no seat behind', async () => {
+        // Cut off inside send, the partner's own handleDisconnect ran inside
+        // the leaver's, and the outer one then put the partner back in the room
+        // it had just left: a dead seat and its roomMeta for the life of the
+        // process.
+        const { a, b, roomId } = seatedPair();
         b.conn.writeBuffer = queued(SIO_SEND_QUEUE_CEILING + 1);
 
         a.disconnect(true);
@@ -2450,6 +2457,23 @@ describe('createSocketIOPeer backpressure', () => {
         assert.deepEqual(b.disconnects, [true], 'the partner over the ceiling is cut off');
         assert.equal(rooms.has(roomId), false, 'no seat may outlive its disconnect');
         assert.equal(roomMeta.has(roomId), false);
+    });
+
+    it('two peers both over the ceiling are each cut off once', async () => {
+        // Cut off inside send, each cut-off told the other peer, whose own
+        // cut-off ran inside it, and so on until the stack ran out: neither
+        // was cut off, and both stayed seated.
+        const { a, b, peers, roomId } = seatedPair();
+        a.conn.writeBuffer = queued(SIO_SEND_QUEUE_CEILING + 1);
+        b.conn.writeBuffer = queued(SIO_SEND_QUEUE_CEILING + 1);
+
+        handleSignal(peers['sio-a'], { candidate: 'c' }, 'sio-b');
+        await tick();
+        await tick();
+
+        assert.deepEqual(a.disconnects, [true]);
+        assert.deepEqual(b.disconnects, [true]);
+        assert.equal(rooms.has(roomId), false);
     });
 
     it('send at the ceiling still delivers', () => {

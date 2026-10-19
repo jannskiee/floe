@@ -1392,9 +1392,12 @@ function createSocketIOPeer(socket, key) {
         send(type, data) {
             // Checked before every send, as createWSPeer does, and cut off the
             // same way: a peer this far behind has stopped being a peer.
-            // disconnect(true) closes the session as well as the namespace, so
-            // handleDisconnect frees the seat and tells the partner, and engine.io
-            // queues nothing more for it. Silent, as on /ws. On the next tick,
+            // disconnect(true) leaves the namespace and closes the engine.io
+            // session too (which first drains what it already holds, for at most
+            // the ping timeout), so handleDisconnect frees the seat and tells the
+            // partner, and nothing more is queued for it. The page is told
+            // "io server disconnect" and does not reconnect by itself. Silent, as
+            // on /ws. On the next tick,
             // never inside send: socket.io runs handleDisconnect inside
             // disconnect(true), and a send can come from inside the partner's
             // handleDisconnect, which would then seat this peer again after its
