@@ -48,9 +48,11 @@ export const metadata: Metadata = {
 // destroyRoom), the relay credential window (turn.js CF_CACHE_MS), the room
 // seal (server.js sealDigest, roomMeta.keys), the address a peer object holds
 // while its socket is open (createSocketIOPeer, createWSPeer), the Sentry
-// relayEnabled context, the eight Umami reason labels (lib/peerErrors.ts,
+// relayEnabled context, the Umami reason labels (lib/peerErrors.ts,
 // lib/transfer/receiver.ts ReceiveFailure, P2PTransfer.tsx 'peer-reason') and
 // the request link save folder (desktop/requestlink.go requestDefaultDirFn).
+// Rechecked on 2026-10-19: nine reason labels, since ReceiveFailure gained
+// 'storage-full' (lib/transfer/receiveFailure.ts).
 // Rechecked on 2026-10-14: the browser's Sentry reports carry breadcrumbs
 // (the SDK's default clicks, navigations, fetch and XHR addresses and console
 // lines), each scrubbed of the room link by beforeBreadcrumb
@@ -464,7 +466,7 @@ export default function PrivacyPolicy() {
                 </p>
                 <LegalList
                     items={[
-                        'Transfer outcomes: for a completed transfer, the number of files, the total size in bytes, whether you were sending or receiving, and whether the connection was direct or relayed; for a failure, your role, one of eight fixed labels (for example "ice-failed" or "out-of-memory"), and, when you were sending, the file count and total size',
+                        'Transfer outcomes: for a completed transfer, the number of files, the total size in bytes, whether you were sending or receiving, and whether the connection was direct or relayed; for a failure, your role, one of nine fixed labels (for example "ice-failed" or "out-of-memory"), and, when you were sending, the file count and total size',
                         "Which download button you clicked on the download page, the homepage, or the navigation bar, and, when Floe opens inside another app's built-in browser (such as Facebook or Instagram), the name of that app and whether it was Android or iOS",
                         'Standard page view data: the page path, referring site, browser, operating system, device type, screen size, and language',
                         'Your approximate location (country, region, and city), derived from your IP address by Umami, which does not store the address',

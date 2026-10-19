@@ -878,13 +878,17 @@ export function P2PTransfer() {
                                 expectedBytes: failure.expected,
                                 filesReceived: receivedFilesRef.current.length,
                                 connectionType: routeLabel(routeOf(peer)),
-                                // Chromium only, rounded and capped at 8 by the browser.
+                                // Chromium only, rounded by the browser, and no
+                                // longer capped at 8: Edge 155 sent 16 (FLOE-Q).
                                 deviceMemoryGiB: (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? null,
                             });
-                            if (failure.code === 'out-of-memory') {
+                            if (failure.code !== 'internal') {
                                 // The documented ceiling of a browser receiver,
                                 // not a bug: one warning-level issue that counts
-                                // how often people reach it.
+                                // how often people reach it, with the tag saying
+                                // which limit it was (the tab's memory, or
+                                // Chromium's blob storage).
+                                scope.setTag('receive.limit', failure.code);
                                 scope.setFingerprint(['receiver-out-of-memory']);
                                 Sentry.captureMessage('Receiver ran out of memory', 'warning');
                             } else {

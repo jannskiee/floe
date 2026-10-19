@@ -5,6 +5,7 @@ import {
     MAX_QUEUED_WHILE_PENDING,
     INTERNAL_ERROR_MESSAGE,
     OUT_OF_MEMORY_MESSAGE,
+    STORAGE_FULL_MESSAGE,
     SPILL_BYTES,
     type ReceiveFailure,
     type ReceivedFile,
@@ -738,7 +739,7 @@ describe('receiver: per-file SHA-256', () => {
             return { rx, errors, failures, completed };
         }
 
-        it('stops with the out-of-memory message instead of handing the file over unverified', async () => {
+        it('stops with the storage-full message instead of handing the file over unverified', async () => {
             brokenLate();
             const h = failing({ hashBlob: async () => null });
             const a = payload(500);
@@ -747,12 +748,12 @@ describe('receiver: per-file SHA-256', () => {
             h.rx.handleMessage(endMessage(digestOf(a)));
             await h.rx.settled();
             expect(h.completed).toEqual([]);
-            expect(h.errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
-            expect(h.failures[0]).toMatchObject({ code: 'out-of-memory', received: 500, expected: 500 });
+            expect(h.errors).toEqual([STORAGE_FULL_MESSAGE]);
+            expect(h.failures[0]).toMatchObject({ code: 'storage-full', received: 500, expected: 500 });
         });
 
         it('still stops on it when the connection closed during the check', async () => {
-            // #500's out-of-memory stop survives the close: the file is not
+            // #500's stop for a broken part survives the close: the file is not
             // handed over just because the close let its check finish.
             brokenLate();
             const held = heldHash();
@@ -766,7 +767,7 @@ describe('receiver: per-file SHA-256', () => {
             held.release(null);
             await closed;
             expect(h.completed).toEqual([]);
-            expect(h.errors).toEqual([OUT_OF_MEMORY_MESSAGE]);
+            expect(h.errors).toEqual([STORAGE_FULL_MESSAGE]);
         });
 
         it('cannot leave the check pending when the read-back never settles', async () => {
