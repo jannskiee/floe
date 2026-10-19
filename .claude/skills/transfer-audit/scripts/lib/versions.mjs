@@ -272,6 +272,26 @@ export function makeGh(exec = defaultExec) {
     return (args, opts) => exec('gh', args, opts);
 }
 
+/**
+ * What a gh failure line adds on Windows when APPDATA points away from the
+ * profile's Roaming folder and GH_CONFIG_DIR is unset: gh then reads its
+ * login from the redirected APPDATA (an isolated run's own folder) and says
+ * it is logged out while the owner's shell is logged in. The clause names the
+ * variables only; it prints no value and reads nothing of gh's. '' otherwise.
+ */
+export function ghConfigNote(env = process.env, platform = process.platform) {
+    if (platform !== 'win32' || env.GH_CONFIG_DIR) return '';
+    if (!env.APPDATA || !env.USERPROFILE) return '';
+    const norm = (p) =>
+        path.win32
+            .resolve(p)
+            .replace(/[\\/]+$/, '')
+            .toLowerCase();
+    const roaming = path.win32.join(env.USERPROFILE, 'AppData', 'Roaming');
+    if (norm(env.APPDATA) === norm(roaming)) return '';
+    return '; APPDATA points away from the profile and GH_CONFIG_DIR is unset, so gh reads its login from the redirected APPDATA: set GH_CONFIG_DIR to %USERPROFILE%\\AppData\\Roaming\\GitHub CLI for this run';
+}
+
 const PS_BASE = [
     '-NoProfile',
     '-NonInteractive',
@@ -501,9 +521,10 @@ function row(surface, fields) {
  *   protocol, localCommit }
  * opts: { root, gh, exec, fetchImpl, webSha, webShaFile, serverSha, webUrl,
  *   serverUrl, cliUnderTest, desktopUnderTest, storeUsed, pin, profile,
- *   localSha7, webLocalSha7, log }
+ *   localSha7, webLocalSha7, env, platform, log }
  * localSha7 is --root's HEAD; webLocalSha7 the HEAD of the checkout that
- * serves the web tree (--client-dir/..) on the head profile.
+ * serves the web tree (--client-dir/..) on the head profile. env and
+ * platform (process.env and process.platform by default) feed ghConfigNote.
  */
 export async function collectVersions(opts = {}) {
     const exec = opts.exec || defaultExec;
@@ -523,7 +544,9 @@ export async function collectVersions(opts = {}) {
     if (!latestCli) ghOk = false;
     const latestDesktop = ghOk ? safe(() => latestDesktopTag({ gh })) : null;
     const main = ghOk ? safe(() => mainSha({ gh })) : null;
-    const ghSuggest = ghOk ? null : 'gh auth login';
+    const ghSuggest = ghOk
+        ? null
+        : `gh auth login${ghConfigNote(opts.env, opts.platform)}`;
 
     // 1. CLI on PATH (INFO only).
     const onPath = safe(() => pathCli({ exec }), { path: null, version: null });

@@ -44,7 +44,11 @@ a peer.
 
 - `gh auth status` prints a logged-in account (release downloads, the
   latest-tag lookup, the commit compare). Without it a shipped `run` and a
-  `probe` exit 3.
+  `probe` exit 3. gh reads its login from `%APPDATA%\GitHub CLI` unless
+  `GH_CONFIG_DIR` is set, so a run with APPDATA redirected (the isolated
+  APPDATA a session uses for node runs) looks logged out: set `GH_CONFIG_DIR`
+  to `%USERPROFILE%\AppData\Roaming\GitHub CLI` for it. The failure line says
+  so when it sees that case.
 - Playwright: `client/node_modules/@playwright/test` resolves and its
   chromium revision is installed under `%LOCALAPPDATA%\ms-playwright`. The
   driver resolves it from `--client-dir`, whose default is `<root>/client`.

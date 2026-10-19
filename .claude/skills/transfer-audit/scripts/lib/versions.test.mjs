@@ -336,6 +336,8 @@ test('collectVersions with injected gh, exec and fetch', async () => {
         exec,
         fetchImpl,
         profile: 'shipped',
+        // No APPDATA: the hint is the plain one whatever this machine's is.
+        env: {},
         log: () => {},
     });
     assert.equal(v3.ghOk, false);
@@ -347,6 +349,57 @@ test('collectVersions with injected gh, exec and fetch', async () => {
         v3.rows.find((r) => r.surface === 'CLI under test').suggest,
         'gh auth login'
     );
+});
+
+// gh reads its login from %APPDATA%\GitHub CLI unless GH_CONFIG_DIR is set, so
+// under the isolated APPDATA every node run here uses it says logged out.
+test('a gh failure names APPDATA and GH_CONFIG_DIR when APPDATA points away from the profile', async () => {
+    const suggest = async (env, platform = 'win32') =>
+        (
+            await collectVersions({
+                root,
+                gh: () => {
+                    throw new Error('gh auth');
+                },
+                exec: () => '',
+                fetchImpl: async () => {
+                    throw new Error('offline');
+                },
+                profile: 'shipped',
+                env,
+                platform,
+                log: () => {},
+            })
+        ).rows.find((r) => r.surface === 'CLI under test').suggest;
+    const away = {
+        APPDATA: 'C:\\scratch\\appdata',
+        USERPROFILE: 'C:\\Users\\x',
+    };
+    const s = await suggest(away);
+    assert.match(s, /^gh auth login; /);
+    assert.match(s, /\bAPPDATA\b/);
+    assert.match(s, /\bGH_CONFIG_DIR\b/);
+    assert.ok(!/scratch|Users\\x/.test(s), `a value was printed: ${s}`);
+    // The profile's own folder in another letter case or with a trailing
+    // separator is not a redirect; GH_CONFIG_DIR, another OS or no APPDATA
+    // leaves the plain hint.
+    for (const [env, platform] of [
+        [
+            {
+                APPDATA: 'c:\\users\\X\\AppData\\Roaming\\',
+                USERPROFILE: 'C:\\Users\\x',
+            },
+            'win32',
+        ],
+        [{ ...away, GH_CONFIG_DIR: 'C:\\gh' }, 'win32'],
+        [away, 'linux'],
+        [{}, 'win32'],
+    ])
+        assert.equal(
+            await suggest(env, platform),
+            'gh auth login',
+            JSON.stringify(env)
+        );
 });
 
 test('parseAppx picks the highest Version when several packages match', () => {

@@ -114,6 +114,7 @@ import {
     collectVersions,
     defaultExec,
     gatingDrift,
+    ghConfigNote,
     identityVersion,
     inverseIdentity,
     makeGh,
@@ -1219,7 +1220,7 @@ async function resolveBuilds({ opts, io, versions, log, fence, manifest }) {
         const tag = versions.latest.cli;
         if (!tag)
             throw new Precondition(
-                'cannot resolve the latest CLI release (gh release view failed); run gh auth status'
+                `cannot resolve the latest CLI release (gh release view failed); run gh auth status${ghConfigNote()}`
             );
         const pick = selectCli({
             pathVersion: versions.pathCli.version,
@@ -2166,7 +2167,7 @@ export async function runCmd(opts, io = {}) {
             ok: versions.ghOk !== false,
             detail:
                 versions.ghOk === false
-                    ? 'gh release view failed; run gh auth login'
+                    ? `gh release view failed; run gh auth login${ghConfigNote()}`
                     : 'ok',
         });
 
@@ -2622,7 +2623,7 @@ export async function probeCmd(opts, io = {}) {
           }
         : null;
     if (versions && versions.ghOk === false) {
-        probe.pending.push('gh auth (gh release view failed)');
+        probe.pending.push(`gh auth (gh release view failed)${ghConfigNote()}`);
         code = EXIT.precondition;
     }
     if (
