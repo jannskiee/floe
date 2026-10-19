@@ -1706,3 +1706,33 @@ describe('Y2-5: the listeners note names an owner only when floe-run left a pidf
         }
     });
 });
+
+describe('the entry point', () => {
+    // node keeps a junction (or a symlinked folder) in argv[1] and resolves it
+    // in import.meta.url. A guard that compared the two unresolved skipped
+    // main and exited 0, which is deep-clean's "nothing to do".
+    it('runs main when started through a junction (usage error, exit 2)', () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dc-entry-'));
+        const link = path.join(dir, 'scripts');
+        try {
+            if (!tryLink(path.dirname(SCRIPT), link)) return; // no link rights
+            const r = spawnSync(
+                process.execPath,
+                [path.join(link, 'deep-clean.mjs'), '--age-minutes'],
+                { encoding: 'utf8', windowsHide: true }
+            );
+            assert.equal(r.status, 2, r.stdout + r.stderr);
+            assert.match(
+                r.stderr,
+                /^usage error: --age-minutes needs a value/m
+            );
+        } finally {
+            try {
+                fs.unlinkSync(link);
+            } catch {
+                // never made
+            }
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+});

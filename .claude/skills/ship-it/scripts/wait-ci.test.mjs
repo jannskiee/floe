@@ -9,7 +9,12 @@
  * Run: node --test .claude/skills/ship-it/scripts/wait-ci.test.mjs
  */
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, symlinkSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { decide, parseArgs, recoveryRef } from './wait-ci.mjs';
 
 const opts = { graceMin: 3, timeoutMin: 9 };
@@ -168,4 +173,42 @@ test('parseArgs: defaults, overrides, and rejects', () => {
         () => parseArgs(['1', '--repo', '--grace-min', '1']),
         /--repo needs a value/
     );
+});
+
+// node keeps a junction (or a symlinked folder) in argv[1] and resolves it in
+// import.meta.url. A guard that compared the two unresolved skipped main and
+// exited 0, which is wait-ci's "green".
+test('wait-ci.mjs run through a junction still runs main (usage, exit 4)', (t) => {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const dir = mkdtempSync(path.join(tmpdir(), 'wait-ci-link-'));
+    const link = path.join(dir, 'scripts');
+    try {
+        try {
+            symlinkSync(
+                here,
+                link,
+                process.platform === 'win32' ? 'junction' : 'dir'
+            );
+        } catch {
+            t.skip('cannot make a directory link here');
+            return;
+        }
+        const r = spawnSync(
+            process.execPath,
+            [path.join(link, 'wait-ci.mjs')],
+            {
+                encoding: 'utf8',
+                windowsHide: true,
+            }
+        );
+        assert.equal(r.status, 4, r.stdout + r.stderr);
+        assert.match(r.stderr, /^usage: wait-ci\.mjs /m);
+    } finally {
+        try {
+            unlinkSync(link);
+        } catch {
+            // never made
+        }
+        rmSync(dir, { recursive: true, force: true });
+    }
 });

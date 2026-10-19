@@ -1788,9 +1788,20 @@ function main() {
         : 0;
 }
 
+// Both sides through realpath: node keeps a symlink in argv[1] and resolves it
+// in import.meta.url, so from a checkout under a symlinked directory (or a
+// Windows junction) the two differed, nothing ran, and the exit was 0.
+function realPath(p) {
+    try {
+        return fs.realpathSync(p);
+    } catch {
+        return p;
+    }
+}
 if (
-    import.meta.url === `file://${process.argv[1]}` ||
-    process.argv[1] === fileURLToPath(import.meta.url)
+    process.argv[1] &&
+    realPath(path.resolve(process.argv[1])).toLowerCase() ===
+        realPath(fileURLToPath(import.meta.url)).toLowerCase()
 ) {
     process.exit(main());
 }
