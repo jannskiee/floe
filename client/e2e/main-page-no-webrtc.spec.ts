@@ -1,5 +1,9 @@
 import { test, expect, type Page } from '@playwright/test';
 import { randomUUID } from 'crypto';
+import { rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { browserSenderSetup, createFixture } from './helpers';
 import { forwardSocketFrames, framesFor } from './request-helpers';
 
 // ---------------------------------------------------------------------------
@@ -57,4 +61,30 @@ test('a sending page without WebRTC says why on load', async ({ page }) => {
 
     await expect(page.getByText(SENDING)).toBeVisible({ timeout: 15_000 });
     expect(errors).toEqual([]);
+});
+
+const FIXTURE_DIR = join(tmpdir(), 'floe-e2e-no-webrtc');
+
+test.afterAll(() => {
+    try { rmSync(FIXTURE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+});
+
+test('a sending page without WebRTC keeps its sentence when a receiver joins', async ({ page, browser }) => {
+    // Its errors are not asserted: the peer it then tries to build still
+    // throws there, and the sentence is what says why.
+    await withoutWebRtc(page);
+    const { path } = createFixture(FIXTURE_DIR, 1024);
+    const link = await browserSenderSetup(page, path);
+    await expect(page.getByText(SENDING)).toBeVisible();
+
+    const ctx = await browser.newContext();
+    try {
+        const receiver = await ctx.newPage();
+        await receiver.goto(link);
+        // The reset for a new recipient used to take the sentence down here.
+        await expect(page.getByText('Peer joined. Starting transfer')).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByText(SENDING), 'the sentence was lost when a receiver joined').toBeVisible();
+    } finally {
+        await ctx.close();
+    }
 });

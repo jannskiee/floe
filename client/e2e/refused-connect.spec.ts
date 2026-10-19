@@ -16,6 +16,7 @@
  */
 
 import { test, expect, type Page } from '@playwright/test';
+import { randomUUID } from 'crypto';
 import { rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -182,3 +183,62 @@ test('an incomplete link keeps its Link Invalid card through a reconnect and a r
         await ctx.close();
     }
 });
+
+// A page in a browser with no WebRTC says so in the banner, and that sentence
+// is its whole account (main-page-no-webrtc.spec.ts). It has to outlast the
+// socket as the card above does: a reconnect cleared it, and a refusal wrote
+// its own banner over it that the admitted retry then took down, so the page
+// ended up saying nothing at all.
+const NO_WEBRTC = [
+    {
+        page: 'receiving',
+        path: () => `/#room=${randomUUID()}`,
+        sentence:
+            'This browser cannot receive files through Floe because WebRTC is missing or turned off. Open the link in a current version of Chrome, Edge, Firefox or Safari.',
+    },
+    {
+        page: 'sending',
+        path: () => '/',
+        sentence:
+            'This browser cannot send files through Floe because WebRTC is missing or turned off. Use a current version of Chrome, Edge, Firefox or Safari.',
+    },
+];
+
+for (const c of NO_WEBRTC) {
+    test(`a ${c.page} page without WebRTC keeps its sentence through a reconnect and a refusal`, async ({ browser }) => {
+        const ctx = await browser.newContext();
+        const page = await ctx.newPage();
+        const sentence = page.getByText(c.sentence);
+
+        try {
+            await page.addInitScript(() => {
+                delete (window as unknown as Record<string, unknown>).RTCPeerConnection;
+            });
+            const wire = await onTheWire(page);
+            await page.goto(c.path());
+            await expect(sentence).toBeVisible({ timeout: 15_000 });
+            await expect(page.getByText('Ready', { exact: true })).toBeVisible({ timeout: 15_000 });
+
+            // A plain blip. The reconnect handler used to clear the sentence here.
+            await ctx.setOffline(true);
+            await expect(page.getByText('Offline', { exact: true })).toBeVisible({ timeout: 15_000 });
+            await ctx.setOffline(false);
+            await expect(page.getByText('Ready', { exact: true })).toBeVisible({ timeout: 20_000 });
+            await expect(sentence, 'the sentence was lost to a reconnect').toBeVisible();
+            expect(eventFrames(wire.sentSinceArmed(), 'join-room')).toHaveLength(0);
+
+            // And a reconnect the server refuses, then admits.
+            wire.refuseNextConnect();
+            await ctx.setOffline(true);
+            await expect(page.getByText('Offline', { exact: true })).toBeVisible({ timeout: 15_000 });
+            await ctx.setOffline(false);
+            await expect.poll(() => wire.refused(), { timeout: 30_000 }).toBe(1);
+            await expect(page.getByText('Ready', { exact: true })).toBeVisible({ timeout: 20_000 });
+            await expect(sentence, 'the sentence was lost to a refused reconnect').toBeVisible();
+            await expect(page.getByText(BANNER)).toHaveCount(0);
+            expect(eventFrames(wire.sentSinceArmed(), 'join-room')).toHaveLength(0);
+        } finally {
+            await ctx.close();
+        }
+    });
+}
