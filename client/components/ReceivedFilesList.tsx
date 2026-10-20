@@ -76,7 +76,10 @@ const ReceivedFileRow = memo(function ReceivedFileRow({
                     <span className="text-sm font-medium text-white truncate max-w-[140px] sm:max-w-[250px] cursor-help">
                         {safeName}
                     </span>
-                    <div className="absolute top-full left-0 mt-1 opacity-0 group-hover/fname:opacity-100 z-[9999] w-max max-w-[min(240px,calc(100vw-8rem))] px-3 py-2 text-xs font-medium text-white bg-zinc-950 rounded-lg border border-zinc-800 shadow-2xl break-all pointer-events-none">
+                    <div
+                        aria-hidden="true"
+                        className="absolute top-full left-0 mt-1 opacity-0 group-hover/fname:opacity-100 z-[9999] w-max max-w-[min(240px,calc(100vw-8rem))] px-3 py-2 text-xs font-medium text-white bg-zinc-950 rounded-lg border border-zinc-800 shadow-2xl break-all pointer-events-none"
+                    >
                         {safeName}
                         <div className="absolute bottom-full left-4 h-0 w-0 border-l-[7px] border-r-[7px] border-b-[7px] border-l-transparent border-r-transparent border-b-zinc-800"></div>
                         <div className="absolute bottom-full left-[17px] mt-[1px] h-0 w-0 border-l-[6px] border-r-[6px] border-b-[6px] border-l-transparent border-r-transparent border-b-zinc-950"></div>
@@ -96,6 +99,7 @@ const ReceivedFileRow = memo(function ReceivedFileRow({
                 <a
                     href={file.downloadUrl}
                     download={safeName}
+                    aria-label={`Download ${safeName}`}
                     onClick={() => onSaved([file.id])}
                 >
                     <Download className="h-4 w-4" />

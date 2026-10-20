@@ -125,7 +125,7 @@ const FileRow = memo(function FileRow({ item, mark, moving, filesLocked, onDelet
                     >
                         <X className="h-4 w-4" strokeWidth={3} />
                     </button>
-                ) : mark === 'sent' ? (
+                        ) : mark === 'sent' ? (
                     <CheckCircle2 className="h-4 w-4 text-green-500" />
                 ) : mark === 'sending' ? (
                     <Loader2 className="h-4 w-4 animate-spin text-white" />

@@ -362,3 +362,24 @@ test('the in-app browser card shows the link and says when Copy fails', async ({
         await ctx.close();
     }
 });
+
+test('each selected file has a named remove button', async ({ page }) => {
+    const { path: firstPath } = createFixture(FIXTURE_DIR, 16 * 1024);
+    const { path: secondPath } = createFixture(FIXTURE_DIR, 32 * 1024);
+
+    await page.goto('/');
+    await page.locator('input[type="file"]').setInputFiles([
+        firstPath,
+        secondPath,
+    ]);
+
+    await expect(page.getByText('fixture-16384.bin').first()).toBeVisible();
+    await expect(page.getByText('fixture-32768.bin').first()).toBeVisible();
+
+    await page.getByRole('button', {
+        name: 'Remove fixture-16384.bin',
+    }).click();
+
+    await expect(page.getByText('fixture-16384.bin')).toHaveCount(0);
+    await expect(page.getByText('fixture-32768.bin').first()).toBeVisible();
+});
