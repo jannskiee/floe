@@ -6802,19 +6802,5 @@
         "source": "client/components/SelectedFilesList.tsx",
         "anchor": "/web-app/sending#add-your-files",
         "why_no_home": null
-    },
-    {
-        "surface": "web",
-        "text": "Download {name}",
-        "source": "client/components/ReceivedFilesList.tsx",
-        "anchor": "/web-app/receiving#saving-what-arrives",
-        "why_no_home": null
-    },
-    {
-        "surface": "web",
-        "text": "Remove {name}",
-        "source": "client/components/SelectedFilesList.tsx",
-        "anchor": "/web-app/sending#add-your-files",
-        "why_no_home": null
     }
 ]
