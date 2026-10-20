@@ -1,5 +1,9 @@
-
- // @vitest-environment jsdom
+// @vitest-environment jsdom
+/**
+ * FileIcon reads its extension table by own key only. A name ending in
+ * .constructor or .__proto__ used to return an Object.prototype member, and
+ * rendering it blanked the whole window (#693).
+ */
 import {render} from '@testing-library/react';
 import {describe, expect, it} from 'vitest';
 import FileIcon from './FileIcon';

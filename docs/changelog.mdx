@@ -43,6 +43,12 @@ Floe ships on two version lines. `vX.Y.Z` releases the `floe` CLI and the contai
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
+<Update label="Unreleased" tags={["Desktop"]}>
+  **A file named like `notes.constructor` no longer blanks the window**
+
+  - Picking, dropping or pasting a file or folder whose name ends in `.constructor` or `.__proto__`, in any letter case, no longer leaves the window blank until Floe is restarted. Its row now shows the plain file icon. Contributed by [@Ulaganathan0709](https://github.com/Ulaganathan0709).
+</Update>
+
 <Update label="desktop-v1.0.1" description="2026-10-19" tags={["Desktop"]}>
   **A very large receive no longer fills the storage History is kept in, and closing Floe while a setting is saved no longer freezes the window**
 
