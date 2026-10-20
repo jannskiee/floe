@@ -101,7 +101,10 @@ const FileRow = memo(function FileRow({ item, mark, moving, filesLocked, onDelet
                 >
                     {item.file.name}
                 </span>
-                <div className="absolute top-full left-0 mt-1 opacity-0 peer-hover:opacity-100 z-[9999] w-max max-w-[min(240px,calc(100vw-8rem))] px-3 py-2 text-xs font-medium text-white bg-zinc-950 rounded-lg border border-zinc-800 shadow-2xl break-all pointer-events-none">
+                <div
+                    aria-hidden="true"
+                    className="absolute top-full left-0 mt-1 opacity-0 peer-hover:opacity-100 z-[9999] w-max max-w-[min(240px,calc(100vw-8rem))] px-3 py-2 text-xs font-medium text-white bg-zinc-950 rounded-lg border border-zinc-800 shadow-2xl break-all pointer-events-none"
+                >
                     {item.file.name}
                     <div className="absolute bottom-full left-4 h-0 w-0 border-l-[7px] border-r-[7px] border-b-[7px] border-l-transparent border-r-transparent border-b-zinc-800"></div>
                     <div className="absolute bottom-full left-[17px] mt-[1px] h-0 w-0 border-l-[6px] border-r-[6px] border-b-[6px] border-l-transparent border-r-transparent border-b-zinc-950"></div>
@@ -115,6 +118,8 @@ const FileRow = memo(function FileRow({ item, mark, moving, filesLocked, onDelet
             <div className="ml-auto flex items-center gap-2">
                 {!filesLocked ? (
                     <button
+                        type="button"
+                        aria-label={`Remove ${item.file.name}`}
                         onClick={() => onDelete(item.id)}
                         className="relative before:absolute before:-inset-2 p-1.5 rounded-md hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition-all"
                     >
