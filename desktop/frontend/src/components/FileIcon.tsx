@@ -15,6 +15,8 @@ const byExt: Record<string, LucideIcon> = {
 export default function FileIcon({name}: {name: string}) {
     const base = name.split(/[\\/]/).pop() ?? '';
     const ext = base.includes('.') ? (base.split('.').pop() ?? '').toLowerCase() : '';
-    const Icon = byExt[ext] ?? FileText;
+    // Own keys only: `constructor` and `__proto__` would otherwise return an
+    // Object.prototype member, which React cannot render (#693).
+    const Icon = Object.prototype.hasOwnProperty.call(byExt, ext) ? byExt[ext] : FileText;
     return <Icon className="h-4 w-4 text-zinc-300"/>;
 }
