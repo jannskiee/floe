@@ -364,6 +364,8 @@ test('the in-app browser card shows the link and says when Copy fails', async ({
 });
 
 test('each selected file has a named remove button', async ({ page }) => {
+    // The button holds only an X icon, which lucide hides from screen readers,
+    // so without aria-label every row was announced as just "button" (#691).
     const { path: firstPath } = createFixture(FIXTURE_DIR, 16 * 1024);
     const { path: secondPath } = createFixture(FIXTURE_DIR, 32 * 1024);
 

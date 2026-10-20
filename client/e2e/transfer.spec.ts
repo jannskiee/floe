@@ -124,6 +124,8 @@ test('transfers a 0-byte empty file', async ({ browser }) => {
 
         const downloadLink = receiverPage.locator('a[download]').first();
         await expect(downloadLink).toBeVisible({ timeout: 30_000 });
+        // The link holds only an icon, so its name comes from aria-label (#691).
+        await expect(receiverPage.getByRole('link', { name: 'Download fixture-0.bin' })).toBeVisible();
 
         const blobUrl = (await downloadLink.getAttribute('href'))!;
         const byteLength = await byteLengthOfBlobUrl(receiverPage, blobUrl);

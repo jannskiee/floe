@@ -267,6 +267,13 @@
     },
     {
         "surface": "web",
+        "text": "Download {name}",
+        "source": "client/components/ReceivedFilesList.tsx",
+        "anchor": "/web-app/receiving#saving-what-arrives",
+        "why_no_home": null
+    },
+    {
+        "surface": "web",
         "text": "Downloading...",
         "source": "client/components/ReceiverPanel.tsx",
         "anchor": "/web-app/receiving#saving-what-arrives",
@@ -682,6 +689,13 @@
         "surface": "web",
         "text": "Release to add files",
         "source": "client/components/P2PTransfer.tsx",
+        "anchor": "/web-app/sending#add-your-files",
+        "why_no_home": null
+    },
+    {
+        "surface": "web",
+        "text": "Remove {name}",
+        "source": "client/components/SelectedFilesList.tsx",
         "anchor": "/web-app/sending#add-your-files",
         "why_no_home": null
     },
@@ -6787,20 +6801,6 @@
         "text": "{NAME} is not a whole number of at least 1. Using the default, {n}.",
         "source": "server/envlimit.js",
         "anchor": "/self-hosting/operations#the-server-logs-very-little",
-        "why_no_home": null
-    },
-        {
-        "surface": "web",
-        "text": "Download {name}",
-        "source": "client/components/ReceivedFilesList.tsx",
-        "anchor": "/web-app/receiving#saving-what-arrives",
-        "why_no_home": null
-    },
-    {
-        "surface": "web",
-        "text": "Remove {name}",
-        "source": "client/components/SelectedFilesList.tsx",
-        "anchor": "/web-app/sending#add-your-files",
         "why_no_home": null
     }
 ]
