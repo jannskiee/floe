@@ -43,10 +43,11 @@ Floe ships on two version lines. `vX.Y.Z` releases the `floe` CLI and the contai
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
-<Update label="Unreleased" tags={["Desktop"]}>
+<Update label="Unreleased" tags={["Desktop", "Web"]}>
   **A file named like `notes.constructor` no longer blanks the window**
 
   - Picking, dropping or pasting a file or folder whose name ends in `.constructor` or `.__proto__`, in any letter case, no longer leaves the window blank until Floe is restarted. Its row now shows the plain file icon. Contributed by [@Ulaganathan0709](https://github.com/Ulaganathan0709).
+  - Web app: in Chrome, Edge and other browsers built on Chromium, a receive that stops because the browser had nowhere left to keep the files, most often in a private window, now says "This browser ran out of room for the files it is receiving" and suggests a normal window. It used to say the browser ran out of memory and pointed only at Floe Desktop and the CLI. [Troubleshooting](/troubleshooting#this-browser-ran-out-of-room) has the steps. Usage analytics records this stop as `storage-full`, a ninth fixed reason label, as [Security and privacy](/security-privacy#error-monitoring-and-analytics) lists.
 </Update>
 
 <Update label="desktop-v1.0.1" description="2026-10-19" tags={["Desktop"]}>
