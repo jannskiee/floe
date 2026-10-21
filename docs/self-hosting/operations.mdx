@@ -210,8 +210,8 @@ rather than the logs.
 The client container writes Next.js's own lines when it starts. Once it is listening it also warms
 its picture cache, and writes one line only if that does not finish:
 `Floe: the image warm-up did not finish; pictures are resized on first request instead.` The web
-app works either way. `docker compose ps` has a blank of its own: the client image ships no
-healthcheck, so it never reports a health state. Only the server does.
+app works either way. Both images report a health state in `docker compose ps`; the client checks
+`/api/config` from inside the container.
 
 When Docker stops the server, the server closes every connection and exits within 10 seconds, and
 logs nothing on the way out. In detail: on `SIGTERM` or `SIGINT` it closes every `/ws` connection
