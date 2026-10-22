@@ -7,7 +7,7 @@
  * bindings and the runtime, so no module mock is needed.
  */
 import {type ReactNode, useEffect} from 'react';
-import {fireEvent, render, screen} from '@testing-library/react';
+import {fireEvent, render, screen, within} from '@testing-library/react';
 import {describe, expect, it, vi} from 'vitest';
 import ErrorBoundary from './ErrorBoundary';
 
@@ -37,8 +37,9 @@ describe('ErrorBoundary', () => {
 
         const alert = screen.getByRole('alert');
         expect(screen.getByRole('heading', {name: 'Something went wrong'})).toBeTruthy();
-        expect(alert.textContent).toContain('Reload the window to try again');
-        expect(alert.textContent).toContain('Closing Floe stops any transfer in progress and any open request link');
+        // Exact matches, so a closing period or added words fail.
+        expect(within(alert).getByText('Reload the window to try again')).toBeTruthy();
+        expect(within(alert).getByText('Closing Floe stops any transfer in progress and any open request link')).toBeTruthy();
         expect(screen.getByRole('button', {name: 'Reload window'})).toBeTruthy();
         expect(screen.getByRole('button', {name: 'Close Floe'})).toBeTruthy();
         expect(screen.queryByText(/private path|secret\.txt/)).toBeNull();

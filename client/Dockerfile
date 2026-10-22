@@ -90,10 +90,12 @@ USER node
 EXPOSE 3000
 
 # The health state docker compose ps shows. It asks /api/config, which is
-# cheap, force-dynamic and touches nothing: / renders a page, and /_next/image
-# would resize a picture ahead of start.mjs's warm-up, while the image smoke
-# test expects its own first picture request to be a cache hit. node, because
-# the alpine image has no curl. PORT is read the way start.mjs reads it.
+# cheap, force-dynamic and touches nothing. / would answer with the whole
+# prerendered home page, and /_next/image would write the picture cache that
+# start.mjs's warm-up fills, so the image smoke test, which proves the warm-up
+# ran by finding cache entries it never asked for, could pass without it.
+# node, because the alpine image has no curl. PORT is read the way start.mjs
+# reads it.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD node -e "require('http').get('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/config',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
 

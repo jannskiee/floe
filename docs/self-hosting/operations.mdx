@@ -226,6 +226,9 @@ The signaling server exposes two status endpoints:
 | `GET /health` | Liveness check | `{ "status": "healthy", "uptime": <seconds>, "features": [...] }` |
 | `GET /` | Status and timestamp | `{ "status": "ok", "timestamp": "..." }` |
 
+`features` is `["request-1"]` while request links are on and `[]` while they are off. See
+[HTTP API](/reference/http-api#get-health).
+
 Point a monitor at `/health`. It is the only one of the two that survives a
 [one-domain deployment](/self-hosting/reverse-proxy), where `/` belongs to the
 web client and returns a page rather than JSON. `GET /` on the signaling server
@@ -244,9 +247,6 @@ the server unhealthy.
 The client image checks itself the same way, every 30 seconds, by asking its own `/api/config`, so
 `docker compose ps` shows a health state for the client too. A client image of version 1.11.4 or
 earlier has no such check and shows none.
-
-`features` is `["request-1"]` while request links are on and `[]` while they are off. See
-[HTTP API](/reference/http-api#get-health).
 
 ## Request links on your server {#request-links}
 
