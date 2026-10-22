@@ -1,9 +1,20 @@
 import {Component, type CSSProperties, type ErrorInfo, type ReactNode} from 'react';
-import {Quit, WindowReload} from '../wailsjs/runtime';
+import {ConfirmClose} from '../wailsjs/go/main/App';
+import {WindowReload} from '../wailsjs/runtime/runtime';
+import {Button} from './components/ui';
 
 // The fallback is the only chrome left when the app tree is gone, so it owns a
 // drag strip of its own and never reads App state.
 const drag = {['--wails-draggable' as never]: 'drag'} as CSSProperties;
+
+// The fallback's words (#695), approved by the owner. Desktop lines carry no
+// closing period. Fixed text only: the error's message and stack never reach
+// the screen.
+const CRASH_HEADING = 'Something went wrong';
+const CRASH_RELOAD_LINE = 'Reload the window to try again';
+const CRASH_CLOSE_LINE = 'Closing Floe stops any transfer in progress and any open request link';
+const CRASH_RELOAD = 'Reload window';
+const CRASH_CLOSE = 'Close Floe';
 
 interface Props {
     children: ReactNode;
@@ -39,26 +50,26 @@ export default class ErrorBoundary extends Component<Props, State> {
                 >
                     Floe
                 </div>
-                <div role="alert" className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
-                    <h1 className="text-lg font-medium text-zinc-100">Something went wrong</h1>
-                    <p className="max-w-md text-sm text-zinc-400">
-                        Floe could not draw this window. Reload to try again, or close Floe.
-                    </p>
+                <div className="flex flex-1 flex-col items-center justify-center gap-5 px-6 text-center">
+                    <div role="alert" className="space-y-2">
+                        <h1 className="text-lg font-medium text-zinc-100">{CRASH_HEADING}</h1>
+                        <p className="max-w-md text-sm text-zinc-400">{CRASH_RELOAD_LINE}</p>
+                        <p className="max-w-md text-sm text-zinc-400">{CRASH_CLOSE_LINE}</p>
+                    </div>
                     <div className="flex gap-2">
-                        <button
-                            type="button"
-                            onClick={() => WindowReload()}
-                            className="rounded-lg border border-white/15 bg-white/[0.04] px-4 py-2 text-sm text-zinc-200 transition-colors hover:bg-white/[0.08]"
-                        >
-                            Reload
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => Quit()}
-                            className="rounded-lg border border-white/15 bg-white/[0.02] px-4 py-2 text-sm text-zinc-400 transition-colors hover:bg-white/[0.06] hover:text-zinc-200"
-                        >
-                            Close Floe
-                        </button>
+                        {/* The gentler way out takes focus: Go keeps a running
+                            transfer going across a reload. */}
+                        <Button autoFocus onClick={() => WindowReload()}>{CRASH_RELOAD}</Button>
+                        {/* ConfirmClose, never Quit(). Quit goes through
+                            onBeforeClose, which keeps the window open and emits
+                            close:blocked while a send, a receive or a request
+                            link is live, and the only listener for that event
+                            was in App, which is gone. The button would do
+                            nothing exactly when it matters. ConfirmClose ends
+                            what is in progress and quits. */}
+                        <Button variant="outline" onClick={() => { ConfirmClose().catch(() => {}); }}>
+                            {CRASH_CLOSE}
+                        </Button>
                     </div>
                 </div>
             </div>

@@ -140,6 +140,8 @@ function installWails() {
         Quit: vi.fn(),
         WindowMinimise: vi.fn(),
         WindowToggleMaximise: vi.fn(),
+        // The error boundary's Reload window button (ErrorBoundary.tsx).
+        WindowReload: vi.fn(),
         LogPrint() {},
         LogError() {},
         LogWarning() {},
