@@ -4,11 +4,12 @@ Thank you for your interest in contributing! All contributions are welcome. This
 
 ## Getting Started
 
-1. Fork the repository on GitHub
-2. Clone your fork locally
-3. Follow the setup below
-4. Make your changes on a new branch
-5. Submit a pull request with a clear description
+1. If your change is for an open issue, comment on the issue first to have it assigned to you, so nobody else starts the same work. A pull request for an issue that is assigned to someone else is closed.
+2. Fork the repository on GitHub
+3. Clone your fork locally
+4. Follow the setup below
+5. Make your changes on a new branch
+6. Submit a pull request with a clear description
 
 ---
 

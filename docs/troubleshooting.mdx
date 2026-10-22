@@ -1986,7 +1986,6 @@ restarted.
 | [The TURN relay is not working](#the-turn-relay-is-not-working) | Its variables are missing or wrong, or Cloudflare cannot be reached. | Fix the variables, then restart. |
 | [coturn logs `Default realm: localdomain`](#coturn-logs-default-realm-localdomain), coturn log | Docker made a folder where the config file should be. | Remove the folder, fetch the config, restart. |
 | [The server logs nothing at all](#the-server-logs-nothing-at-all) | That is normal. | Use `/health` to check it. |
-| [`docker compose ps` shows no client health](#docker-compose-ps-never-shows-the-client-as-healthy) | The client image has no healthcheck. | Open the client in a browser. |
 
 ### The browser cannot connect to my signaling server {#the-browser-cannot-connect-to-my-signaling-server}
 
@@ -2171,13 +2170,6 @@ whole number of at least 1 gets one line naming it and the default now in use.
 
 Use `GET /health`, which returns `{"status":"healthy","uptime":<seconds>,"features":[...]}`, to
 confirm the server is alive and to see whether a restart landed.
-
-### `docker compose ps` never shows the client as healthy {#docker-compose-ps-never-shows-the-client-as-healthy}
-
-In the output of `docker compose ps`: the server shows a health state and the client never does.
-The client image ships no healthcheck, so it has no health state to report.
-
-Open the client in a browser, or request `/api/config` from it, to confirm it is up.
 
 ## Still stuck {#still-stuck}
 
