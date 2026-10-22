@@ -145,13 +145,21 @@ export function FileList({files, onRemove}: {files: string[]; onRemove: (path: s
     );
 }
 
+/** The id the summary row's aria-controls points at. FileSummary is rendered in
+ *  one place only, so a fixed id cannot collide. */
+const SUMMARY_LIST_ID = 'floe-send-summary-list';
+
 /** FileSummary collapses the selection to one row while a transfer is in flight;
- *  the chevron expands a read-only list. */
+ *  the chevron expands a read-only list. The row is a disclosure button, the
+ *  idiom of a History row: aria-controls is set only while the list exists. */
 export function FileSummary({files, open, onToggle}: {files: string[]; open: boolean; onToggle: () => void}) {
     return (
         <div className="space-y-1.5">
             <button
+                type="button"
                 onClick={onToggle}
+                aria-expanded={open}
+                aria-controls={open ? SUMMARY_LIST_ID : undefined}
                 className="flex w-full items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-left transition-colors hover:bg-white/[0.04]"
             >
                 <span className="flex items-center gap-2.5">
@@ -161,7 +169,7 @@ export function FileSummary({files, open, onToggle}: {files: string[]; open: boo
                 <ChevronDown className={cn('size-4 text-zinc-500 transition-transform', open && 'rotate-180')}/>
             </button>
             {open && (
-                <ul className="custom-scrollbar max-h-32 space-y-1.5 overflow-y-auto">
+                <ul id={SUMMARY_LIST_ID} className="custom-scrollbar max-h-32 space-y-1.5 overflow-y-auto">
                     {files.map((f) => (
                         <li key={f} className="flex items-center gap-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2 py-1.5">
                             <FileIcon name={f}/>
