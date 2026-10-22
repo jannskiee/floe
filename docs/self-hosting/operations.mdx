@@ -210,8 +210,7 @@ rather than the logs.
 The client container writes Next.js's own lines when it starts. Once it is listening it also warms
 its picture cache, and writes one line only if that does not finish:
 `Floe: the image warm-up did not finish; pictures are resized on first request instead.` The web
-app works either way. Both images report a health state in `docker compose ps`; the client checks
-`/api/config` from inside the container.
+app works either way.
 
 When Docker stops the server, the server closes every connection and exits within 10 seconds, and
 logs nothing on the way out. In detail: on `SIGTERM` or `SIGINT` it closes every `/ws` connection
@@ -241,6 +240,10 @@ the server is healthy.
 The server image runs the same check on itself every 30 seconds, which is the health state
 `docker compose ps` shows. Each check gets 3 seconds to answer, and 3 failed checks in a row mark
 the server unhealthy.
+
+The client image checks itself the same way, every 30 seconds, by asking its own `/api/config`, so
+`docker compose ps` shows a health state for the client too. A client image of version 1.11.4 or
+earlier has no such check and shows none.
 
 `features` is `["request-1"]` while request links are on and `[]` while they are off. See
 [HTTP API](/reference/http-api#get-health).
