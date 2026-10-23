@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { Progress } from '@/components/ui/progress';
 import { sendProgressLabel, type SendEnd } from '@/lib/sendSummary';
 
@@ -29,10 +30,11 @@ export function TransferProgressBar({
     estimatedTime,
     progress,
 }: TransferProgressBarProps) {
+    const labelId = useId();
     return (
         <div className="space-y-2">
             <div className="flex justify-between text-xs text-zinc-400 font-mono">
-                <span>
+                <span id={labelId}>
                     {/* A refusal that lands after the last byte leaves this row
                         on screen, and "Sending file X of N..." would then be a
                         false claim about a transfer that stopped. A failed send
@@ -59,6 +61,7 @@ export function TransferProgressBar({
             </div>
             <Progress
                 value={progress}
+                aria-labelledby={labelId}
                 className="h-1 bg-white/10 [&>div]:bg-white"
             />
         </div>
