@@ -248,8 +248,9 @@ describe('the verified line follows the send, not the status sentence', () => {
         expect(panel).toContain('const verified = verifiedLineShown({ verifiedLine, end: sendEnd });');
         expect(panel).not.toContain('verifiedLine && isComplete');
         // The same answer picks the status check and the status color, so a
-        // green "All Files Sent!" never sits beside the gray check.
-        expect(panel).toContain("isComplete ? (\n                    verified ? (");
+        // green "All Files Sent!" never sits beside the gray check. \r? because a
+        // Windows checkout with core.autocrlf has CRLF endings.
+        expect(panel).toMatch(/isComplete \? \(\r?\n {20}verified \? \(/);
         expect(panel).toContain("verified ? 'text-green-400 font-medium' : 'text-zinc-300 font-medium'");
         const page = read('../components/P2PTransfer.tsx');
         expect(page).toMatch(/<ShareLinkPanel[\s\S]*?sendEnd=\{sendEnd\}/);
