@@ -49,3 +49,10 @@ overrides:
   fast-uri@3: ^3.1.7
   # A build-time advisory in source-map-js 1.2.1, fixed in 1.2.2. Never in the bundle.
   source-map-js: ^1.2.2
+  # GHSA-587h-7wmj-h5pm, GHSA-698v-4r3x-3vcv, GHSA-r825-w8mm-5pxw (its bundled
+  # launch-editor), GHSA-9jrq-w75r-8gcw and GHSA-rq7h-c2jc-7f22: Vite's dev
+  # server, fixed in 7.3.7. Vite reaches us only through vitest and as an
+  # optional peer of @sentry/cloudflare; Next never runs it, so it is dev
+  # tooling that never ships. Both declare ranges 7.3.7 satisfies, so only the
+  # frozen lockfile was holding it back. Scoped to 7.x so a move to 8 is free.
+  vite@7: ^7.3.7
