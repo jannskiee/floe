@@ -137,3 +137,45 @@ func TestCollectFilesNamesFilesAsBefore(t *testing.T) {
 		}
 	}
 }
+
+// TestCollectFilesKeepsOneEntryPerListedFile: the same file spelled twice
+// (`a.txt a.txt`, `./a.txt a.txt`) and a glob that also matches a named file
+// (its expansion repeats one path) list one file's data once, not under the
+// receiver's duplicate slot (`a (1).txt`). A folder named twice is one walk
+// under two spellings, and the same rule holds there.
+func TestCollectFilesKeepsOneEntryPerListedFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "report.pdf"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "album"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "album", "a.txt"), []byte("y"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	alt := dir + string(os.PathSeparator) + "." + string(os.PathSeparator) + "a.txt"            // a different spelling of one path
+	altReport := dir + string(os.PathSeparator) + "." + string(os.PathSeparator) + "report.pdf" // a glob expansion repeating report.pdf
+	for name, paths := range map[string][]string{
+		"the same literal path twice":      {filepath.Join(dir, "a.txt"), filepath.Join(dir, "a.txt")},
+		"the same path via two spellings":  {filepath.Join(dir, "a.txt"), alt},
+		"a glob repeating a named file":    {filepath.Join(dir, "report.pdf"), altReport},
+		"a folder named twice identically": {filepath.Join(dir, "album"), filepath.Join(dir, "album")},
+	} {
+		entries, err := collectFiles(paths)
+		if err != nil {
+			t.Fatalf("%s: collectFiles(%q) = %v", name, paths, err)
+		}
+		want := 1
+		if strings.Contains(name, "folder") {
+			want = 1 // album/a.txt once
+		}
+		if len(entries) != want {
+			t.Errorf("%s: collectFiles(%q) listed %d entries (%+v), want %d", name, paths, len(entries), entries, want)
+		}
+	}
+}

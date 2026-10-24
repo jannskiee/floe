@@ -18,8 +18,35 @@ type fileEntry struct {
 
 // collectFiles expands all paths: plain files are added directly,
 // directories are walked and each file inside is added with its relative path.
+// A file listed more than once carries its data once: the same path spelled
+// two ways (`a.txt a.txt`, `./a.txt a.txt`) and a glob that also matches a
+// named file (`*.pdf report.pdf`) repeat one entry, and the receiver used to
+// keep the repeats under its duplicate slot (`a (1).txt`). A folder listed
+// twice walks once under each spelling, whose files land under identical
+// names on identical paths, so one dedup covers all of them.
 func collectFiles(paths []string) ([]fileEntry, error) {
 	var entries []fileEntry
+	// The key keeps the resolved path and the display name. Both spellings
+	// of one path share both, while a folder reached under two listings
+	// names its files differently on purpose (the folder and the trailing
+	// separator spellings differ: album/sub/a.txt vs sub/a.txt), and the
+	// receiver keeps one entry per name — so different names stay.
+	seen := make(map[string]bool)
+	list := func(absPath, displayName string, size int64) {
+		key := displayName + "\x00" + absPath
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		entries = append(entries, fileEntry{absPath: absPath, displayName: displayName, size: size})
+	}
+	// Paths that spell one file differently map to one key.
+	canonical := func(p string) string {
+		if cleaned, err := filepath.Abs(filepath.Clean(p)); err == nil {
+			return cleaned
+		}
+		return p
+	}
 	for _, p := range paths {
 		info, err := os.Stat(p)
 		if err != nil {
@@ -27,11 +54,7 @@ func collectFiles(paths []string) ([]fileEntry, error) {
 		}
 
 		if !info.IsDir() {
-			entries = append(entries, fileEntry{
-				absPath:     p,
-				displayName: filepath.Base(p),
-				size:        info.Size(),
-			})
+			list(canonical(p), filepath.Base(p), info.Size())
 			continue
 		}
 
@@ -69,11 +92,7 @@ func collectFiles(paths []string) ([]fileEntry, error) {
 			// under root, seen from the folder that holds p.
 			under, _ := filepath.Rel(root, path)
 			rel, _ := filepath.Rel(filepath.Dir(p), filepath.Join(p, under))
-			entries = append(entries, fileEntry{
-				absPath:     path,
-				displayName: filepath.ToSlash(rel), // use forward slashes in metadata
-				size:        fi.Size(),
-			})
+			list(canonical(path), filepath.ToSlash(rel), fi.Size())
 			return nil
 		})
 		if walkErr != nil {
