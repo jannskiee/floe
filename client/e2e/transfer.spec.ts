@@ -166,3 +166,35 @@ test('transfers a 512-byte file (framing guard: chunk fits under 1 KB threshold)
         await receiverCtx.close();
     }
 });
+
+test('shows the connection tooltip while its Learn more link has focus', async ({ browser }) => {
+    const { path: fixturePath } = createFixture(512);
+
+    const senderCtx = await browser.newContext();
+    const receiverCtx = await browser.newContext();
+    const senderPage = await senderCtx.newPage();
+    const receiverPage = await receiverCtx.newPage();
+
+    try {
+        const link = await senderSetup(senderPage, fixturePath);
+        await receiverPage.goto(link);
+
+        await expect(senderPage.getByText('All Files Sent!').first()).toBeVisible({ timeout: 30_000 });
+
+        // Two pages on one machine connect direct, and the connection stays
+        // open after the send, so the badge still shows its Info icon.
+        await expect(senderPage.getByText('Direct', { exact: true })).toBeVisible();
+
+        const learnMore = senderPage.getByRole('link', { name: 'Learn more' });
+        const tooltip = learnMore.locator('xpath=ancestor::div[contains(@class, "transition-opacity")][1]');
+
+        await expect(tooltip).toHaveCSS('opacity', '0');
+        await learnMore.focus();
+        await expect(tooltip).toHaveCSS('opacity', '1');
+        await learnMore.blur();
+        await expect(tooltip).toHaveCSS('opacity', '0');
+    } finally {
+        await senderCtx.close();
+        await receiverCtx.close();
+    }
+});
