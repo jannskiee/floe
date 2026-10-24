@@ -263,7 +263,7 @@ test('sender flow stays inside the viewport at 320 and 390 wide', async ({ page 
         await assertNavbarFits(page, label, true);
 
         // QR panel open is the share card's widest state.
-        await page.getByRole('button', { name: 'Toggle QR code' }).click();
+        await page.getByRole('button', { name: 'Show QR' }).click();
         await expect(page.getByText('Scan to receive files')).toBeVisible();
         await assertNoHorizontalOverflow(page, `${label} (QR open)`);
 

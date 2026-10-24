@@ -974,13 +974,6 @@
     },
     {
         "surface": "web",
-        "text": "Toggle QR code",
-        "source": "client/components/ShareLinkPanel.tsx",
-        "anchor": "/web-app/sending#create-the-link",
-        "why_no_home": null
-    },
-    {
-        "surface": "web",
         "text": "Too many refreshes. Reconnecting",
         "source": "client/lib/refusalBanner.ts",
         "anchor": "/troubleshooting#too-many-refreshes-reconnecting",

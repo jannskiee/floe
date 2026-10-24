@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Check, CheckCircle2, Copy, Loader2, QrCode, Share2 } from 'lucide-react';
 import { shareStatusComplete, shareStatusEnded, verifiedLineShown, type SendEnd } from '@/lib/sendSummary';
@@ -49,6 +50,10 @@ export function ShareLinkPanel({
     // render on. Not gated on the status sentence either: see
     // verifiedLineShown.
     const verified = verifiedLineShown({ verifiedLine, end: sendEnd });
+    // The QR button is a disclosure: its words, Show QR or Hide QR, are its
+    // name (WCAG 2.5.3, Label in Name), aria-expanded says whether the QR is
+    // open, and aria-controls points at this id while the QR block exists.
+    const qrId = useId();
 
     return (
         <div className="rounded-xl bg-black/40 p-4 border border-white/[0.08] mb-4">
@@ -79,12 +84,14 @@ export function ShareLinkPanel({
                             )}
                         </button>
                         <button
+                            type="button"
                             onClick={onToggleQr}
+                            aria-expanded={showQr}
+                            aria-controls={showQr ? qrId : undefined}
                             className={`relative before:absolute before:-inset-y-2 before:-inset-x-1 w-24 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-md border text-xs font-medium transition-all focus-visible:outline-2 focus-visible:outline-ice ${showQr
                                     ? 'bg-white/10 border-white/20 text-zinc-100'
                                     : 'bg-white/[0.04] hover:bg-white/10 border-white/10 text-zinc-400 hover:text-zinc-100'
                                 }`}
-                            aria-label="Toggle QR code"
                         >
                             <QrCode className="h-3.5 w-3.5" />
                             {showQr ? 'Hide QR' : 'Show QR'}
@@ -104,7 +111,7 @@ export function ShareLinkPanel({
             </div>
 
             {showQr && (
-                <div className="mt-3 flex flex-col items-center gap-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                <div id={qrId} className="mt-3 flex flex-col items-center gap-2 animate-in fade-in slide-in-from-top-2 duration-200">
                     <div className="rounded-2xl bg-white p-4 shadow-lg ring-1 ring-white/10">
                         <QRCodeSVG
                             value={generatedLink}

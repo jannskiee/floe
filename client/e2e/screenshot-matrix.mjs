@@ -142,7 +142,7 @@ const run = async () => {
     await page.locator('input[type="file"]').setInputFiles(fixture);
     await page.locator('button', { hasText: /create secure link/i }).click();
     await page.locator('code').filter({ hasText: '#room=' }).waitFor({ timeout: 10_000 });
-    await page.getByRole('button', { name: 'Toggle QR code' }).click();
+    await page.getByRole('button', { name: 'Show QR' }).click();
     await page.getByText('Scan to receive files').waitFor();
     for (const vp of VIEWPORTS.filter((v) => SUBSET.includes(KEY(v)))) await capture(page, 'sender-qr', vp);
 
