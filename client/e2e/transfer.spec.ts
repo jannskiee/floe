@@ -156,6 +156,11 @@ test('transfers a 512-byte file (framing guard: chunk fits under 1 KB threshold)
         expect(receivedHash).toBe(expectedHash);
         // With a sender there, the footer still says what closing the tab costs.
         await expect(receiverPage.getByText(/closing it interrupts the download/i)).toBeVisible();
+        // The sender's bar reports its value, and is named by the label beside it.
+        await expect(senderPage.getByText('All Files Sent!').first()).toBeVisible({ timeout: 10_000 });
+        const bar = senderPage.getByRole('progressbar');
+        await expect(bar).toHaveAttribute('aria-valuenow', '100');
+        await expect(bar).toHaveAccessibleName('Sent 1 file');
     } finally {
         await senderCtx.close();
         await receiverCtx.close();
