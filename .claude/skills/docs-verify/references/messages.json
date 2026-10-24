@@ -253,6 +253,13 @@
     },
     {
         "surface": "web",
+        "text": "Dismiss",
+        "source": "client/components/P2PTransfer.tsx",
+        "anchor": null,
+        "why_no_home": "The accessible name of the X that closes the red banner on the main page; a label, not a message."
+    },
+    {
+        "surface": "web",
         "text": "Download All",
         "source": "client/components/ReceiverPanel.tsx",
         "anchor": "/web-app/receiving#saving-what-arrives",

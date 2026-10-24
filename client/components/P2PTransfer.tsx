@@ -1593,10 +1593,12 @@ export function P2PTransfer() {
                     ) : (
                         <>
                             {error && !isLinkInvalid(error) && (
-                                <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 flex items-start gap-3">
+                                <div role="alert" className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 flex items-start gap-3">
                                     <AlertCircle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
                                     <div className="flex-1 text-sm text-red-300">{error}</div>
                                     <button
+                                        type="button"
+                                        aria-label="Dismiss"
                                         onClick={() => setError('')}
                                         className="relative before:absolute before:-inset-3.5 text-red-400 hover:text-red-300"
                                     >

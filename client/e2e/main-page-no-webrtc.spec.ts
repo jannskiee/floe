@@ -59,7 +59,14 @@ test('a sending page without WebRTC says why on load', async ({ page }) => {
 
     await page.goto('/');
 
-    await expect(page.getByText(SENDING)).toBeVisible({ timeout: 15_000 });
+    // The banner is an alert, so a screen reader says the sentence without
+    // the user hunting for it, and its X is named instead of a bare
+    // "button". Filter by the sentence: Next.js's route announcer is a
+    // second alert on the page.
+    const banner = page.getByRole('alert').filter({ hasText: SENDING });
+    await expect(banner).toBeVisible({ timeout: 15_000 });
+    await banner.getByRole('button', { name: 'Dismiss', exact: true }).click();
+    await expect(page.getByText(SENDING)).toHaveCount(0);
     expect(errors).toEqual([]);
 });
 
