@@ -173,6 +173,41 @@ describe('Clear', () => {
         expect(screen.getByRole('group', {name: 'Clear all?'})).toBeTruthy();
         expect(document.activeElement).toBe(document.body);
     });
+
+    it('keeps keyboard focus with the question: No when it opens, Clear after No, the empty line after Yes', async () => {
+        const user = userEvent.setup();
+        mount([received, sent]);
+
+        await user.tab();
+        expect(document.activeElement).toBe(screen.getByRole('button', {name: 'Clear'}));
+        await user.keyboard('{Enter}');
+        // The safe answer takes focus, inside a group the question names.
+        expect(document.activeElement).toBe(screen.getByRole('button', {name: 'No'}));
+        expect(screen.getByRole('group', {name: 'Clear all?'}).contains(document.activeElement)).toBe(true);
+
+        await user.keyboard('{Enter}');
+        expect(document.activeElement).toBe(screen.getByRole('button', {name: 'Clear'}));
+        expect(screen.getAllByRole('listitem')).toHaveLength(2);
+
+        await user.keyboard('{Enter}');
+        await user.tab({shift: true});
+        expect(document.activeElement).toBe(screen.getByRole('button', {name: 'Yes'}));
+        await user.keyboard('{Enter}');
+        const empty = screen.getByText('No transfers yet');
+        expect(document.activeElement).toBe(empty);
+        expect(empty.getAttribute('tabindex')).toBe('-1');
+    });
+
+    it('moves nothing when the view mounts with the question already up', () => {
+        // Settings unmounts History and keeps confirmClear, so closing Settings
+        // mounts this view with the question showing. A stand-in for the title
+        // bar's Settings button keeps focus.
+        const gear = document.body.appendChild(document.createElement('button'));
+        gear.focus();
+        render(<Harness initial={[received, sent]} asking />);
+        expect(screen.getByText('Clear all?')).toBeTruthy();
+        expect(document.activeElement).toBe(gear);
+    });
 });
 
 /**
