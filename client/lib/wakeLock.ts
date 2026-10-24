@@ -12,6 +12,11 @@
 //   re-acquire sees there is nothing held, and a stale event never clears a
 //   newer lock (S1-WEB-04, spec 07 4.14.1).
 //
+// The wish to hold the lock is kept even where the page may not ask. A sender
+// whose recipient joins while the tab is hidden gets the lock from resume()
+// when the tab comes back, and a page that wants no lock, idle or finished,
+// asks for nothing on its return (#730).
+//
 // Best effort throughout: a request that fails holds nothing and says nothing.
 
 export interface SentinelLike {

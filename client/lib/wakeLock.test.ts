@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createWakeLockHolder, type SentinelLike } from './wakeLock';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 // The screen wake lock's bookkeeping, pure so it can be tested (WP-W1 review
 // F6, and the S1-WEB-04 release listener). A fake sentinel stands in for
@@ -130,56 +132,69 @@ describe('wake lock holder', () => {
     });
 });
 
-describe('wake lock resume (issue #730)', () => {
-    it('a wish made from a hidden tab is honoured by resume()', async () => {
+/** A holder whose every request lands at once with a new fake sentinel. */
+function countingHolder(canRequest: () => boolean) {
+    const sentinels: Array<ReturnType<typeof fakeSentinel>> = [];
+    const h = createWakeLockHolder({
+        request: async () => {
+            const s = fakeSentinel();
+            sentinels.push(s);
+            return s;
+        },
+        canRequest,
+    });
+    return { h, sentinels };
+}
+
+describe('coming back to the tab', () => {
+    it('asks for nothing when nothing wants the lock (an idle page)', async () => {
+        const { h, sentinels } = countingHolder(() => true);
+        await h.resume();
+        expect(sentinels).toHaveLength(0);
+        expect(h.held()).toBeNull();
+    });
+
+    it('asks for a lock that was wanted while the tab was hidden', async () => {
+        // The recipient joined while the sender was in another app.
         let visible = false;
-        let requests = 0;
-        const holder = createWakeLockHolder({
-            request: async () => {
-                requests++;
-                return fakeSentinel();
-            },
-            canRequest: () => visible,
-        });
-        // The sender is in the chat app when the recipient joins: acquire is
-        // called while the page may not ask.
-        await holder.acquire();
-        expect(requests).toBe(0);
-
+        const { h, sentinels } = countingHolder(() => visible);
+        await h.acquire();
+        expect(sentinels).toHaveLength(0);
         visible = true;
-        await holder.resume();
-        expect(requests).toBe(1);
-        expect(holder.held()).not.toBeNull();
+        await h.resume();
+        expect(sentinels).toHaveLength(1);
+        expect(h.held()).toBe(sentinels[0]);
     });
 
-    it('resume is a no-op when nothing wants a lock', async () => {
-        let requests = 0;
-        const holder = createWakeLockHolder({
-            request: async () => {
-                requests++;
-                return fakeSentinel();
-            },
-            canRequest: () => true,
-        });
-        await holder.resume();
-        expect(requests).toBe(0);
-        expect(holder.held()).toBeNull();
+    it('asks again after the browser let the lock go on hide', async () => {
+        const { h, sentinels } = countingHolder(() => true);
+        await h.acquire();
+        sentinels[0].browserRelease();
+        expect(h.held()).toBeNull();
+        await h.resume();
+        expect(sentinels).toHaveLength(2);
+        expect(h.held()).toBe(sentinels[1]);
     });
 
-    it('resume does nothing after release', async () => {
-        let requests = 0;
-        const holder = createWakeLockHolder({
-            request: async () => {
-                requests++;
-                return fakeSentinel();
-            },
-            canRequest: () => true,
-        });
-        await holder.acquire();
-        expect(holder.held()).not.toBeNull();
-        await holder.release();
-        await holder.resume();
-        expect(requests).toBe(1);
-        expect(holder.held()).toBeNull();
+    it('asks for nothing once the lock was released, even while hidden', async () => {
+        let visible = true;
+        const { h, sentinels } = countingHolder(() => visible);
+        await h.acquire();
+        h.release();
+        await h.resume();
+        expect(sentinels).toHaveLength(1);
+        visible = false;
+        await h.acquire();
+        h.release();
+        visible = true;
+        await h.resume();
+        expect(sentinels).toHaveLength(1);
+        expect(h.held()).toBeNull();
+    });
+
+    it('is what the main page calls on coming back, not a socket check', () => {
+        const page = readFileSync(fileURLToPath(new URL('../components/P2PTransfer.tsx', import.meta.url)), 'utf8');
+        expect(page).not.toContain("visibilityState === 'visible' && isConnected");
+        expect(page).toMatch(/visibilityState === 'visible'\)\s*\{?\s*resumeWakeLock\(\)/);
     });
 });
