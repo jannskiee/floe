@@ -9,6 +9,8 @@
 // file runs in its own process.
 
 const { describe, it, beforeEach, afterEach } = require('node:test');
+const { readFileSync } = require('node:fs');
+const { join } = require('node:path');
 const assert = require('node:assert/strict');
 const crypto = require('crypto');
 
@@ -280,4 +282,17 @@ describe('turnCredentialsHandler — without Cloudflare', () => {
     it('no handler call above reached the network', () => {
         assert.equal(fetchCalls, 0);
     });
+});
+
+// issue #727: a half-set variable pair gets one startup line naming both
+// variables, and a full or empty pair gets none.
+it('names a half-set pair at startup, and interpolates no values', () => {
+  const src = readFileSync(join(__dirname, 'server.js'), 'utf8');
+  assert.match(src, /CLOUDFLARE_TURN_KEY_ID.*CLOUDFLARE_TURN_KEY_API_TOKEN/s);
+  assert.match(src, /TURN_SECRET.*TURN_DOMAIN/s);
+  assert.match(src, /UPSTASH_REDIS_REST_URL.*UPSTASH_REDIS_REST_TOKEN/s);
+  // the line names variables, never a value: it interpolates only env names
+  for (const m of src.matchAll(/`([^`]*disabled[^`]*)`/g)) {
+    assert.ok(!/\$\{[^}]*value/i.test(m[1]), 'must not interpolate values');
+  }
 });

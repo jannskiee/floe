@@ -55,6 +55,23 @@ const PROXY_COUNT_INVALID_LINE = process.env.TRUSTED_PROXY_COUNT && !(TRUSTED_PR
       'Set it to the number of reverse proxies in front of this server, or 0 if there are none.'
     : null;
 
+// One line per optional feature whose variable pair is half-set: one of the
+// two names given, the other missing. The feature stays off exactly as it
+// would have, but the operator learns why instead of reading an empty log.
+// Fixed text, variable names only, never a value: an operator can paste a
+// secret into the wrong field, like the TRUSTED_PROXY_COUNT lines above.
+const HALF_SET_PAIRS = [
+    ['Cloudflare TURN', 'CLOUDFLARE_TURN_KEY_ID', 'CLOUDFLARE_TURN_KEY_API_TOKEN'],
+    ['coturn relay', 'TURN_SECRET', 'TURN_DOMAIN'],
+    ['durable transfer counter', 'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN'],
+].flatMap(([feature, a, b]) => {
+    const hasA = !!process.env[a], hasB = !!process.env[b];
+    if (hasA === hasB) return [];
+    const [set, missing] = hasA ? [a, b] : [b, a];
+    return [`${feature} is disabled: ${set} is set but ${missing} is not. ` +
+        `Set both ${a} and ${b} to enable it.`];
+});
+
 // Extract the real client IP from an X-Forwarded-For header, discarding
 // client-supplied spoofed entries by only trusting the rightmost N hops.
 function getClientIp(xffHeader, socketAddr) {
@@ -2040,6 +2057,7 @@ if (require.main === module) {
 
     if (PROXY_COUNT_UNSET_LINE) console.warn(PROXY_COUNT_UNSET_LINE);
     if (PROXY_COUNT_INVALID_LINE) console.warn(PROXY_COUNT_INVALID_LINE);
+    for (const line of HALF_SET_PAIRS) console.warn(line);
 
     server.listen(PORT, () => server.off('error', failFastOnBindError));
     initStats().catch(() => {}); // seed cachedTotal from Redis on startup
