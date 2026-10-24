@@ -170,7 +170,14 @@ export const Navbar = () => {
                         // links back to the homepage anchors (middle-click friendly), plain
                         // anchors like the wordmark above.
                         return isHome ? (
-                            <button key={section.id} onClick={() => scrollToSection(section.id)} className={pillClass}>
+                            <button
+                                key={section.id}
+                                onClick={() => scrollToSection(section.id)}
+                                // The filled pill is visual only. aria-current says the same to a screen
+                                // reader: 'location', a place within this page, as LegalToc's list does.
+                                aria-current={activeSection === section.id ? 'location' : undefined}
+                                className={pillClass}
+                            >
                                 {section.label}
                             </button>
                         ) : (
