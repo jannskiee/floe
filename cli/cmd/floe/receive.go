@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -142,6 +143,10 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	//    because the sender's code is spent once this side takes its seat: an
 	//    -o that cannot be made must end the command while the same code can
 	//    still be tried again.
+	flagOutput, err = expandHome(flagOutput)
+	if err != nil {
+		return fmt.Errorf("cannot resolve output directory: %w", err)
+	}
 	if err := checkOutputDir(flagOutput); err != nil {
 		return fmt.Errorf("cannot create output directory %s: %w", flagOutput, err)
 	}
@@ -249,6 +254,28 @@ func runReceive(cmd *cobra.Command, args []string) error {
 // path is looked at again just before it goes, and only a plain folder is
 // removed: a file or a link that appeared there in between is left alone, and
 // a folder something was put into fails to go because it is not empty.
+// expandHome reads a leading ~ in an -o value as the home folder: ~ alone, or
+// ~ followed by a slash or a backslash. bash and zsh expand an unquoted ~
+// themselves, but Windows PowerShell 5.1, PowerShell 7.5 and earlier and
+// cmd.exe pass it on as typed, and so does every shell inside quotes or after
+// --output=. floe then made a folder named ~ in the current folder. The rule
+// is Floe Desktop's for its Save to field (expandSaveDir in
+// desktop/savedir.go); keep the two in step. ~user and %NAME% stay as typed:
+// a shell that has them expands them itself. The home folder is read only for
+// a value that starts with ~, so an unset HOME or USERPROFILE refuses no
+// other -o.
+func expandHome(dir string) (string, error) {
+	if dir != "~" && !strings.HasPrefix(dir, "~/") && !strings.HasPrefix(dir, `~\`) {
+		return dir, nil
+	}
+	rest := strings.TrimLeft(dir[1:], `/\`)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, filepath.FromSlash(rest)), nil
+}
+
 func checkOutputDir(dir string) error {
 	var missing []string
 	p := filepath.Clean(dir)
