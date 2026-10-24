@@ -137,3 +137,90 @@ func TestCollectFilesNamesFilesAsBefore(t *testing.T) {
 		}
 	}
 }
+
+// issue #729: the same file given twice is sent once. The key is the
+// resolved path plus the display name, because a folder typed as `album`
+// names its files album/sub/a.txt while `album/` names them sub/a.txt.
+func TestCollectDeduplicatesRepeats(t *testing.T) {
+	dir := t.TempDir()
+	for name, content := range map[string]string{
+		"a.txt": "hello", "report.pdf": "pdf", "album/sub/a.txt": "nested",
+	} {
+		if err := os.MkdirAll(filepath.Join(dir, filepath.Dir(name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "album", "sub", "a.txt"), []byte("nested"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("the same plain file twice", func(t *testing.T) {
+		entries, err := collectFiles([]string{
+			filepath.Join(dir, "a.txt"),
+			filepath.Join(dir, "a.txt"),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 1 {
+			t.Fatalf("got %d entries, want 1: %+v", len(entries), entries)
+		}
+	})
+
+	t.Run("one through a name and one through a glob", func(t *testing.T) {
+		glob := filepath.Join(dir, "*.pdf")
+		matches, err := filepath.Glob(glob)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries, err := collectFiles(append(matches, filepath.Join(dir, "report.pdf")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 1 {
+			t.Fatalf("got %d entries, want 1: %+v", len(entries), entries)
+		}
+	})
+
+	t.Run("the same folder typed two ways keeps each naming once", func(t *testing.T) {
+		entries, err := collectFiles([]string{
+			filepath.Join(dir, "album"),
+			filepath.Join(dir, "album") + string(filepath.Separator),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		names := map[string]bool{}
+		for _, e := range entries {
+			if names[e.displayName] {
+				t.Fatalf("display name %q sent twice: %+v", e.displayName, entries)
+			}
+			names[e.displayName] = true
+		}
+		if len(names) != 2 { // album/sub/a.txt and sub/a.txt
+			t.Fatalf("got %d distinct names, want 2: %+v", len(names), entries)
+		}
+	})
+
+	t.Run("distinct files that share a basename both survive", func(t *testing.T) {
+		if err := os.MkdirAll(filepath.Join(dir, "b"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "b", "a.txt"), []byte("other"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		entries, err := collectFiles([]string{
+			filepath.Join(dir, "a.txt"),
+			filepath.Join(dir, "b", "a.txt"),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 2 {
+			t.Fatalf("got %d entries, want 2: %+v", len(entries), entries)
+		}
+	})
+}

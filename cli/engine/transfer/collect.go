@@ -18,8 +18,23 @@ type fileEntry struct {
 
 // collectFiles expands all paths: plain files are added directly,
 // directories are walked and each file inside is added with its relative path.
+// A path seen before is skipped, keeping the first listing: the same file
+// given twice (a.txt a.txt, ./a.txt a.txt, a glob that also matches a named
+// file, a folder named twice) reached the receiver as two copies. The key is
+// the resolved path together with the display name, because the name depends
+// on how the folder was typed (album names its files album/sub/a.txt, album/
+// names them sub/a.txt) and the receiver keys its copies on the name.
 func collectFiles(paths []string) ([]fileEntry, error) {
 	var entries []fileEntry
+	seen := make(map[string]bool)
+	add := func(absPath, displayName string, size int64) {
+		key := absPath + "\x00" + displayName
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		entries = append(entries, fileEntry{absPath: absPath, displayName: displayName, size: size})
+	}
 	for _, p := range paths {
 		info, err := os.Stat(p)
 		if err != nil {
@@ -27,11 +42,11 @@ func collectFiles(paths []string) ([]fileEntry, error) {
 		}
 
 		if !info.IsDir() {
-			entries = append(entries, fileEntry{
-				absPath:     p,
-				displayName: filepath.Base(p),
-				size:        info.Size(),
-			})
+			resolved := p
+			if r, err := filepath.EvalSymlinks(p); err == nil {
+				resolved = r
+			}
+			add(resolved, filepath.Base(p), info.Size())
 			continue
 		}
 
@@ -69,11 +84,7 @@ func collectFiles(paths []string) ([]fileEntry, error) {
 			// under root, seen from the folder that holds p.
 			under, _ := filepath.Rel(root, path)
 			rel, _ := filepath.Rel(filepath.Dir(p), filepath.Join(p, under))
-			entries = append(entries, fileEntry{
-				absPath:     path,
-				displayName: filepath.ToSlash(rel), // use forward slashes in metadata
-				size:        fi.Size(),
-			})
+			add(path, filepath.ToSlash(rel), fi.Size()) // forward slashes in metadata
 			return nil
 		})
 		if walkErr != nil {
