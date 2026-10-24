@@ -1,7 +1,7 @@
 {
     "refs": {
         "cli": "v1.11.4",
-        "desktop": "desktop-v1.0.1"
+        "desktop": "92e713e374fb84640afcaf5d5afc87181f300438"
     },
     "cli": {
         "cli/cmd/floe/interrupt.go": [
@@ -367,6 +367,13 @@
             "Use default server",
             "Waiting for the receiver",
             "· Both people must use {host}"
+        ],
+        "desktop/frontend/src/ErrorBoundary.tsx": [
+            "Close Floe",
+            "Closing Floe stops any transfer in progress and any open request link",
+            "Reload the window to try again",
+            "Reload window",
+            "Something went wrong"
         ],
         "desktop/frontend/src/clear.ts": [
             "Clear",

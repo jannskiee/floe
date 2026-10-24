@@ -2787,6 +2787,13 @@
     },
     {
         "surface": "desktop",
+        "text": "Close Floe",
+        "source": "desktop/frontend/src/ErrorBoundary.tsx",
+        "anchor": null,
+        "why_no_home": "The button of Floe Desktop's own full-window error screen; the screen's own line says what closing ends, so it needs no explaining."
+    },
+    {
+        "surface": "desktop",
         "text": "Close Floe?",
         "source": "desktop/frontend/src/App.tsx",
         "anchor": "/desktop/request-links#how-a-link-ends",
@@ -2805,6 +2812,13 @@
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#messages-on-your-pc",
         "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Closing Floe stops any transfer in progress and any open request link",
+        "source": "desktop/frontend/src/ErrorBoundary.tsx",
+        "anchor": null,
+        "why_no_home": "The line of Floe Desktop's own full-window error screen that says what its Close Floe button ends; it is its own explanation."
     },
     {
         "surface": "desktop",
@@ -3837,6 +3851,20 @@
     },
     {
         "surface": "desktop",
+        "text": "Reload the window to try again",
+        "source": "desktop/frontend/src/ErrorBoundary.tsx",
+        "anchor": null,
+        "why_no_home": "Floe Desktop's own full-window error screen, drawn only when the window fails to render. It names no Floe condition, and its Reload window button is the whole remedy."
+    },
+    {
+        "surface": "desktop",
+        "text": "Reload window",
+        "source": "desktop/frontend/src/ErrorBoundary.tsx",
+        "anchor": null,
+        "why_no_home": "The button of Floe Desktop's own full-window error screen; it reloads the window and needs no explaining."
+    },
+    {
+        "surface": "desktop",
         "text": "Remove",
         "source": "desktop/frontend/src/components/HistoryView.tsx",
         "anchor": "/desktop/receiving#history",
@@ -4191,6 +4219,13 @@
         "source": "desktop/frontend/src/requestCopy.ts",
         "anchor": "/desktop/request-links#accept-or-decline",
         "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Something went wrong",
+        "source": "desktop/frontend/src/ErrorBoundary.tsx",
+        "anchor": null,
+        "why_no_home": "Floe Desktop's own full-window error screen, drawn only when the window fails to render. It names no Floe condition, and its Reload window button is the whole remedy."
     },
     {
         "surface": "desktop",

@@ -43,17 +43,23 @@ Floe ships on two version lines. `vX.Y.Z` releases the `floe` CLI and the contai
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
-<Update label="Unreleased" tags={["Desktop", "Web", "Self-hosting"]}>
-  **A file named like `notes.constructor` no longer blanks the window**
+<Update label="Unreleased" tags={["Web", "Self-hosting"]}>
+  **A browser receive that runs out of room for its files now says so, and a screen reader names the file buttons and the progress bar**
+
+  - In Chrome, Edge and other browsers built on Chromium, a receive that stops because the browser had nowhere left to keep the files, most often in a private window, now says "This browser ran out of room for the files it is receiving" and suggests a normal window. It used to say the browser ran out of memory and pointed only at Floe Desktop and the CLI. [Troubleshooting](/troubleshooting#this-browser-ran-out-of-room) has the steps. Usage analytics records this stop as `storage-full`, a ninth fixed reason label, as [Security and privacy](/security-privacy#error-monitoring-and-analytics) lists.
+  - A screen reader now names each file's remove and download button after its file, as "Remove report.pdf" or "Download report.pdf", where it used to say only "button" or "link", and it no longer reads a file's name twice. Contributed by [@Ulaganathan0709](https://github.com/Ulaganathan0709).
+  - While a transfer runs, a screen reader now names the progress bar by the words beside it, such as "Sending file 1 of 3...", and reads how far it has got, where it used to announce an unnamed progress bar with no value. Contributed by [@rootsiemen](https://github.com/rootsiemen).
+  - Self-hosting: the web client's image now checks its own health every 30 seconds, as the server's image already does, so `docker compose ps` and dashboards such as Portainer show whether it is healthy, and `docker compose up --wait` waits until the web app answers. Contributed by [@sonwCode](https://github.com/sonwCode).
+</Update>
+
+<Update label="desktop-v1.0.2" description="2026-10-24" tags={["Desktop"]}>
+  **The window no longer goes blank after an error or on a file named like `notes.constructor`, and a screen reader now gets three controls right**
 
   - Picking, dropping or pasting a file or folder whose name ends in `.constructor` or `.__proto__`, in any letter case, no longer leaves the window blank until Floe is restarted. Its row now shows the plain file icon. Contributed by [@Ulaganathan0709](https://github.com/Ulaganathan0709).
   - While a send is in progress, a screen reader now says that the "3 items" row expands and whether its list of files is open, where it used to say only "3 items, button". Contributed by [@boonstraworks](https://github.com/boonstraworks).
   - If something goes wrong while the window is drawn, Floe now shows "Something went wrong" with **Reload window** and **Close Floe**, where the whole window, title bar included, used to go blank until Floe was restarted. **Close Floe** also ends a transfer or request link still in progress. Contributed by [@sonwCode](https://github.com/sonwCode).
   - On Receive, a screen reader now names the two fields by their captions, "Code or link" and "Save to", where it used to name them by their placeholder text, "amber-otter-cloud" and "Downloads (default)". Contributed by [@carolinayumifujii](https://github.com/carolinayumifujii).
   - While a send waits for the receiver, a screen reader now names the QR button by the words on it, "Show QR" or "Hide QR", and says whether the QR code is open, where it used to call it "Toggle QR code", words that appear nowhere on screen. Contributed by [@Jah-yee](https://github.com/Jah-yee).
-  - Web app: in Chrome, Edge and other browsers built on Chromium, a receive that stops because the browser had nowhere left to keep the files, most often in a private window, now says "This browser ran out of room for the files it is receiving" and suggests a normal window. It used to say the browser ran out of memory and pointed only at Floe Desktop and the CLI. [Troubleshooting](/troubleshooting#this-browser-ran-out-of-room) has the steps. Usage analytics records this stop as `storage-full`, a ninth fixed reason label, as [Security and privacy](/security-privacy#error-monitoring-and-analytics) lists.
-  - Web app: a screen reader now names each file's remove and download button after its file, as "Remove report.pdf" or "Download report.pdf", where it used to say only "button" or "link", and it no longer reads a file's name twice. Contributed by [@Ulaganathan0709](https://github.com/Ulaganathan0709).
-  - Self-hosting: the web client's image now checks its own health every 30 seconds, as the server's image already does, so `docker compose ps` and dashboards such as Portainer show whether it is healthy, and `docker compose up --wait` waits until the web app answers. Contributed by [@sonwCode](https://github.com/sonwCode).
 </Update>
 
 <Update label="desktop-v1.0.1" description="2026-10-19" tags={["Desktop"]}>
