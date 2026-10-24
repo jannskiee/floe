@@ -43,6 +43,12 @@ Floe ships on two version lines. `vX.Y.Z` releases the `floe` CLI and the contai
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
+<Update label="Unreleased" tags={["Self-hosting"]}>
+  **A signaling server address set without `http://` now works for every request the web client makes, not only its live connection**
+
+  - When the web client's signaling server address is set without its scheme, such as `192.168.1.10:3001` in [`NEXT_PUBLIC_SOCKET_URL`](/self-hosting/configuration#next-public-socket-url) or in the Unraid template's Signaling Server URL, the page now gives it the page's own scheme, as its live connection already did. With such an address the relay list never loaded, so peers that need a relay could not connect, and the global counter and the receiver's byte report failed with nothing in the page or the logs to say why. Contributed by [@Detoy](https://github.com/Detoy).
+</Update>
+
 <Update label="v1.11.5" description="2026-10-24" tags={["Web", "Self-hosting"]}>
   **A browser receive that runs out of room for its files now says so, and a screen reader gets the file buttons, the progress bar and the red banner right**
 
