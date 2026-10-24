@@ -387,6 +387,9 @@ test('each selected file has a named remove button', async ({ page }) => {
 });
 
 test('the QR button is named by its words and says whether the QR is open', async ({ page }) => {
+    // Its name was an aria-label that replaced "Show QR" and "Hide QR", so a
+    // voice-control user who said the words on the button got no match
+    // (WCAG 2.5.3). The desktop's share panel has worked this way since #712.
     const { path: fixturePath } = createFixture(FIXTURE_DIR, 1024);
     await browserSenderSetup(page, fixturePath);
 
@@ -397,6 +400,7 @@ test('the QR button is named by its words and says whether the QR is open', asyn
 
     await show.click();
     const hide = page.getByRole('button', { name: 'Hide QR', exact: true });
+    await expect(hide).toHaveAttribute('aria-expanded', 'true');
     const qrId = await hide.getAttribute('aria-controls');
     expect(qrId).toBeTruthy();
     await expect(page.locator(`[id="${qrId}"]`)).toContainText('Scan to receive files');

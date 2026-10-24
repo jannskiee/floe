@@ -1925,30 +1925,31 @@ describe('the SEND and RECEIVE tabs (D-172)', () => {
         expect(send.className.split(' ')).toContain('border-b-transparent');
     });
     it('tell assistive technology which tab and which kind are selected', async () => {
-    const user = userEvent.setup();
-    mount();
-    await settled();
-    const send = screen.getAllByRole('button', {name: 'Send'})[0];
-    const receive = screen.getAllByRole('button', {name: 'Receive'})[0];
-    expect(send.getAttribute('aria-pressed')).toBe('true');
-    expect(receive.getAttribute('aria-pressed')).toBe('false');
-    // Files is selected at launch, so it carries the id.
-    const files = document.getElementById('floe-send-kind')!;
-    expect(files.textContent).toBe('Files');
-    expect(files.getAttribute('aria-pressed')).toBe('true');
-    await user.click(screen.getByRole('button', {name: 'Text'}));
-    expect(screen.getByRole('button', {name: 'Text'}).getAttribute('aria-pressed')).toBe('true');
-    // The drop zone is gone on the Text view, so only the tab is named Files.
-    expect(screen.getByRole('button', {name: 'Files'}).getAttribute('aria-pressed')).toBe('false');
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        const send = screen.getAllByRole('button', {name: 'Send'})[0];
+        const receive = screen.getAllByRole('button', {name: 'Receive'})[0];
+        expect(send.getAttribute('aria-pressed')).toBe('true');
+        expect(receive.getAttribute('aria-pressed')).toBe('false');
 
-    await user.click(receive);
-    expect(send.getAttribute('aria-pressed')).toBe('false');
-    expect(receive.getAttribute('aria-pressed')).toBe('true');
+        // Files is selected at launch, so it carries the id.
+        const files = document.getElementById('floe-send-kind')!;
+        expect(files.textContent).toBe('Files');
+        expect(files.getAttribute('aria-pressed')).toBe('true');
+        await user.click(screen.getByRole('button', {name: 'Text'}));
+        expect(screen.getByRole('button', {name: 'Text'}).getAttribute('aria-pressed')).toBe('true');
+        // The drop zone is gone on the Text view, so only the tab is named Files.
+        expect(screen.getByRole('button', {name: 'Files'}).getAttribute('aria-pressed')).toBe('false');
 
-    await user.click(screen.getByRole('button', {name: 'History'}));
-    expect(send.getAttribute('aria-pressed')).toBe('false');
-    expect(receive.getAttribute('aria-pressed')).toBe('false');
-});
+        await user.click(receive);
+        expect(send.getAttribute('aria-pressed')).toBe('false');
+        expect(receive.getAttribute('aria-pressed')).toBe('true');
+
+        await user.click(screen.getByRole('button', {name: 'History'}));
+        expect(send.getAttribute('aria-pressed')).toBe('false');
+        expect(receive.getAttribute('aria-pressed')).toBe('false');
+    });
 });
 
 describe('the rail', () => {
