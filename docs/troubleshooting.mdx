@@ -1419,6 +1419,7 @@ Request-link messages carry no prefix.
 | [No right-click menu setting](#there-is-no-right-click-menu-setting), Settings | This is the Microsoft Store build. | Install the build from GitHub if you need it. |
 | [The right-click menu switch turns itself off](#the-switch-for-the-right-click-menu-keeps-turning-itself-off), Settings | Windows refused the registry entry. | Send from the Floe window instead. |
 | [“Floe could not start.”](#floe-will-not-start), a dialog | WebView2 is missing, or something else failed at startup. | Install WebView2, or report the text. |
+| [“Something went wrong” and a **Reload window** button](#something-went-wrong-reload-window), the whole window | Floe's window itself failed. | Click **Reload window**. |
 
 ### "That code wasn't recognized" {#that-code-was-not-recognized}
 
@@ -1817,6 +1818,17 @@ Install [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) you
 Floe again. See [Install the desktop app](/desktop/installation).
 
 When the dialog names something else, or reads `unknown error`, copy its text and report it: see
+[Still stuck](#still-stuck).
+
+### "Something went wrong" with a Reload window button {#something-went-wrong-reload-window}
+
+The whole window is replaced by "Something went wrong", "Reload the window to try again" and
+"Closing Floe stops any transfer in progress and any open request link". Below them are a
+**Reload window** button and a **Close Floe** button. Floe's window itself failed. Transfers and
+request links run outside the window, so this screen does not stop one that is in progress.
+
+Click **Reload window**. **Close Floe** quits instead, and it first stops any transfer in progress
+and any open request link, as the screen says. If the screen comes back, see
 [Still stuck](#still-stuck).
 
 ## Request link messages {#request-links}

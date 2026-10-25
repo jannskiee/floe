@@ -2320,8 +2320,8 @@
         "surface": "site",
         "text": "Something went wrong",
         "source": "client/app/global-error.tsx",
-        "anchor": null,
-        "why_no_home": "The site's own full-page error screen, drawn only when a page fails to render. It names no Floe condition, and its Reload page button is the whole remedy."
+        "anchor": "/troubleshooting#something-went-wrong-reload-page",
+        "why_no_home": null
     },
     {
         "surface": "site",
@@ -4224,8 +4224,8 @@
         "surface": "desktop",
         "text": "Something went wrong",
         "source": "desktop/frontend/src/ErrorBoundary.tsx",
-        "anchor": null,
-        "why_no_home": "Floe Desktop's own full-window error screen, drawn only when the window fails to render. It names no Floe condition, and its Reload window button is the whole remedy."
+        "anchor": "/troubleshooting#something-went-wrong-reload-window",
+        "why_no_home": null
     },
     {
         "surface": "desktop",
