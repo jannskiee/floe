@@ -1,7 +1,7 @@
 {
     "refs": {
-        "cli": "de420adfda7633ad62abee623d6f9677fc7ce02b",
-        "desktop": "de420adfda7633ad62abee623d6f9677fc7ce02b"
+        "cli": "v1.11.6",
+        "desktop": "desktop-v1.0.3"
     },
     "cli": {
         "cli/cmd/floe/interrupt.go": [

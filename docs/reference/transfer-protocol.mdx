@@ -203,7 +203,7 @@ Sender to receiver, before each file.
 <ResponseField name="ver" type="string">
   The human release string, and its shape depends on the build. The CLI sends `1.11.6` with no
   leading `v`, because GoReleaser strips it. The desktop app sends the tag verbatim, as
-  `desktop-v1.0.2`. A build from source sends `dev`. Browser peers omit the field entirely. It is
+  `desktop-v1.0.3`. A build from source sends `dev`. Browser peers omit the field entirely. It is
   informational and never gates a transfer.
 </ResponseField>
 
@@ -472,16 +472,16 @@ because it does not close the connection afterward.
 ```
 
 No two released peers can produce a version mismatch, because every release speaks version 1. A
-Floe Desktop 1.0.2 receiver that was offered a file by a sender announcing only version 2 would
+Floe Desktop 1.0.3 receiver that was offered a file by a sender announcing only version 2 would
 answer with this:
 
 ```json incompatible for a version mismatch
 {
   "type": "incompatible",
-  "reason": "Cannot transfer: peer's floe is too old.\n  You: protocol 2  Peer: protocol 1 (desktop-v1.0.2)\n  Ask the other side to update Floe.",
+  "reason": "Cannot transfer: peer's floe is too old.\n  You: protocol 2  Peer: protocol 1 (desktop-v1.0.3)\n  Ask the other side to update Floe.",
   "pv": 1,
   "pvMin": 1,
-  "ver": "desktop-v1.0.2"
+  "ver": "desktop-v1.0.3"
 }
 ```
 
