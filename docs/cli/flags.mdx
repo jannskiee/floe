@@ -112,20 +112,23 @@ These come from the CLI framework rather than from Floe itself.
 
 ## Shell completion {#shell-completion}
 
-`floe completion` prints a tab-completion script for Bash, Zsh, fish or PowerShell. Run
-`floe completion --help`, or for example `floe completion powershell --help`, to see how to load
-it in your shell.
+`floe completion bash`, `floe completion zsh`, `floe completion fish` and
+`floe completion powershell` each print a tab-completion script for that shell. Run the same
+command with `--help`, for example `floe completion powershell --help`, to see how to load it.
 
 Once it is loaded, pressing Tab asks `floe` what fits where the cursor is:
 
-- `--iface` offers this computer's network interface names. What you have typed matches anywhere
-  in a name, in any letter case, the way the flag itself matches.
-- `-o` and `--output` offer folders only.
+- `--iface` offers this computer's network interface names. Bash, Zsh and PowerShell offer the
+  names that begin with what you have typed, PowerShell in any letter case, and fish also matches
+  the middle of a name. The flag itself matches any part of a name, in any letter case.
+- In Bash and Zsh, `-o` and `--output` offer folders only. In PowerShell and fish they offer files
+  and folders, as for any path.
 - The paths of `floe send` offer files and folders.
 - A code or link for `floe receive`, `--to`, `--server` and `--web` offer nothing, and neither do
   `floe version` and `floe update`.
 
-Before 1.11.6, completion offered file names for every argument.
+Before 1.11.6, completion offered file names for every flag's value and for the argument of
+`floe receive`, `floe version` and `floe update`.
 
 ## Environment variables
 
