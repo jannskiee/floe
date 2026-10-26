@@ -318,9 +318,16 @@ environment (since 2026-10-26), which opens only for a `v*` tag and only
 after the owner approves. Right after the `v*` push, its run shows
 `waiting`. The owner opens the run on GitHub, chooses Review deployments and
 approves `release`. Claude never approves on its own. Only when the owner
-says to approve that run does it use
-`gh api -X POST repos/jannskiee/floe/actions/runs/<id>/pending_deployments -F 'environment_ids[]=25355274339' -f state=approved -f comment='<tag>'`
-(Bash tool). Approve before pushing the `desktop-v*` tag.
+says to approve that run does it read the environment id from the run, then
+approve (Bash tool):
+
+```text
+gh api repos/jannskiee/floe/actions/runs/<id>/pending_deployments --jq '.[].environment.id'
+gh api -X POST repos/jannskiee/floe/actions/runs/<id>/pending_deployments -F 'environment_ids[]=<env id>' -f state=approved -f comment='<tag>'
+```
+
+Approve before pushing the `desktop-v*` tag.
+
 - A waiting run holds the tag's concurrency group, and `gh run rerun` asks
   for the approval again.
 - A run that fails with "not allowed to deploy to release" (the environment's
@@ -328,9 +335,14 @@ says to approve that run does it use
   Settings, Environments, then rerun it.
 - images.yml runs on the same tag without the gate, so `latest` moves without
   waiting for the approval.
-- Rolling back to a repository secret needs the owner to paste the token
-  again, because a secret's value cannot be read back, and then the removal
-  of `environment: release` from release.yml.
+- To roll back, the owner adds the token again as a repository secret (a
+  secret's value cannot be read back), then deletes the environment secret:
+  with none there, the job reads the repository secret. Keep the
+  environment and the `environment: release` line. A workflow that names a
+  missing environment makes GitHub create it again with no protection.
+- The approval is a policy, not a lock: any process holding the owner's gh
+  token can approve. It stops a tag nobody expected, not the owner's own
+  credentials.
 
 Across recent tag runs (read 2026-10-12): release.yml took under three
 minutes on each of the last six, images.yml a little over one minute on the
@@ -529,5 +541,6 @@ All eight steps with evidence in the report, step 1a included when
 `desktopRelease.ts` bump of step 6 (its snapshot paragraph still applies) and
 the four desktop URLs of step 5 do not apply, and its completion signals
 are the `release.yml` run (approved, then green), the green `images.yml` run,
-the release assets and the image digests. With a desktop half, green workflows and four 200s are
-necessary; step 8 and the certification email are the completion signals.
+the release assets and the image digests. With a desktop half, green
+workflows and four 200s are necessary; step 8 and the certification email are
+the completion signals.

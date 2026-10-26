@@ -2,10 +2,11 @@ name: Release
 
 # Publishes cross-platform CLI binaries to GitHub Releases when a version tag
 # (e.g. v1.0.0) is pushed. Build/archive/checksum config lives in .goreleaser.yml.
-# Package manager manifests (Homebrew Cask, Scoop, Winget) are also published
-# automatically on each tag using TAP_GITHUB_TOKEN (a PAT with write access to
-# the shared jannskiee/homebrew-tap, jannskiee/scoop-bucket, and the
-# jannskiee/winget-pkgs fork). These repos are reused across all projects.
+# Package manager manifests (Homebrew Cask, Scoop, Winget) are published by the
+# same run, once the owner has approved it (the release environment below),
+# using TAP_GITHUB_TOKEN (a PAT with write access to the shared
+# jannskiee/homebrew-tap, jannskiee/scoop-bucket, and the jannskiee/winget-pkgs
+# fork). These repos are reused across all projects.
 on:
   push:
     tags:
@@ -119,7 +120,8 @@ jobs:
           # access tokens (with an expiry), and store it as the TAP_GITHUB_TOKEN
           # secret of this repository's `release` environment, never as a
           # repository secret. Another project that publishes into these shared
-          # repos keeps its own copy in its own environment.
+          # repos holds the same token as its own secret, so regenerating the
+          # token means replacing every copy.
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
           # The range the release notes cover, from the step above. The tag being
           # released is named too: without it GoReleaser takes the first tag on
