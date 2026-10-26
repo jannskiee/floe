@@ -1,11 +1,11 @@
 import { useState, type ChangeEvent, type DragEvent } from 'react';
-import { v4 as uuidv4 } from 'uuid';
+import { mergeFiles, type FileWithId } from '@/lib/fileSelection';
+
+export type { FileWithId } from '@/lib/fileSelection';
+
 import { FOLDER_DROP_REFUSED, allReadable, dropHasFolder } from '@/lib/pageGuards';
 
-export interface FileWithId {
-    id: string;
-    file: File;
-}
+
 
 /**
  * Owns the sender's file-selection state: the chosen files, drag-and-drop
@@ -23,12 +23,10 @@ export function useFileManagement() {
     const totalBytes = files.reduce((sum, f) => sum + f.file.size, 0);
 
     const addFiles = (incoming: FileList | File[]) => {
-        const mapped = Array.from(incoming).map((file) => ({
-            id: uuidv4(),
-            file,
-        }));
+        const list = Array.from(incoming);
+
         setDropNotice(null);
-        setFiles((prev) => [...prev, ...mapped]);
+        setFiles((prev) => mergeFiles(prev, list));
     };
 
     const handleFileSelection = (e: ChangeEvent<HTMLInputElement>) => {
