@@ -355,7 +355,7 @@ A first job, `Detect changed paths`, decides which of the jobs below run, and `C
 | `E2E (browser + CLI interop, <os>)` | Code changed | The Playwright suite, on Linux, Windows and macOS |
 | `Back-compat (HEAD vs latest release)` | Code changed | The latest released CLI against your branch, in every pairing with the browser and the new CLI |
 | `Docker (self-hosting stack)` | Code changed | The compose files are valid, both images build from source and pass their smoke test, and the stack starts with no `.env` |
-| `Lint workflows` | `.github/workflows/` or `.github/scripts/` changed | actionlint over the workflows and shellcheck over the scripts |
+| `Lint workflows` | `.github/workflows/`, `.github/scripts/`, `.github/dependabot.yml` or `.github/zizmor.yml` changed | actionlint over the workflows, shellcheck over the scripts, and zizmor's security audit of the workflows and `dependabot.yml` |
 | `Skill test suites` | Every PR | The test files of the skills under `.claude/skills/`, on Windows. Some of them read product files, which is why a PR that touches no skill runs them too. |
 
 To run a job locally (commands are for a bash shell):
@@ -369,13 +369,13 @@ To run a job locally (commands are for a bash shell):
 - **`E2E`**, in `client/`: `pnpm test:e2e` (see [End-to-end tests](#end-to-end-tests)).
 - **`Back-compat`**, in `client/`: `FLOE_RELEASED_CLI=/path/to/released/floe pnpm exec playwright test e2e/back-compat.spec.ts`.
 - **`Docker`**, from the repository root: `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build --wait`, then `curl --fail http://localhost:3001/health`.
-- **`Lint workflows`**, from the repository root: `actionlint -color` and `shellcheck .github/scripts/*.sh`.
+- **`Lint workflows`**, from the repository root: `actionlint -color`, `shellcheck .github/scripts/*.sh` and `zizmor --offline .`. Install the zizmor version that `ZIZMOR_VERSION` in `ci.yml` names, because another version can report different findings. zizmor findings are fixed, not ignored: an exception goes in `.github/zizmor.yml` with a written reason, and the job refuses inline ignore comments.
 - **`Skill test suites`**, from the repository root: `node --test ".claude/skills/**/*.test.mjs"`.
 
-A change to `.github/workflows/` also meets two repository settings that no job checks in advance:
+A change to `.github/workflows/` also meets two repository settings:
 
-- Every `uses:` line names a full 40-character commit SHA, with the version as a comment after it, as the existing lines do (`uses: actions/checkout@<sha> # vX.Y.Z`).
-- Only GitHub's own actions and the six third-party ones the workflows already use may run: `pnpm/action-setup`, `goreleaser/goreleaser-action`, and `docker/setup-buildx-action`, `docker/login-action`, `docker/metadata-action` and `docker/build-push-action`.
+- Every `uses:` line names a full 40-character commit SHA, with the version as a comment after it, as the existing lines do (`uses: actions/checkout@<sha> # vX.Y.Z`). zizmor in `Lint workflows` checks this one in advance.
+- Only GitHub's own actions and the six third-party ones the workflows already use may run: `pnpm/action-setup`, `goreleaser/goreleaser-action`, and `docker/setup-buildx-action`, `docker/login-action`, `docker/metadata-action` and `docker/build-push-action`. No job checks this one in advance.
 
 A workflow that breaks either one fails to start, before any of its jobs run, and the run's page shows a message that names the rule. If your change needs another action, say so in the pull request, and the maintainer decides whether to allow it.
 

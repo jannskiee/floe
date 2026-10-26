@@ -110,6 +110,11 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
+          # No package cache in a release build, for the same reason as Go's
+          # cache: false above. Nothing is cached today (the root package.json,
+          # the only one setup-node reads, declares no packageManager), and this
+          # keeps it that way.
+          package-manager-cache: false
 
       - name: Frontend install, test, build
         # Must precede any Go command in desktop/: main.go embeds frontend/dist,
@@ -170,10 +175,17 @@ jobs:
         shell: pwsh
         # The tag is the source of truth for the exe's version resource and the
         # installer's VIProductVersion. Working-tree only, never committed.
+        # Step outputs reach every script below through env, never through
+        # ${{ }} pasted into the script (zizmor's template-injection audit), and
+        # an empty value stops the step: the dry run skips this step and the
+        # Publish step, so nothing else would catch it before a release is out.
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
+          if (-not $env:VERSION) { throw 'VERSION is empty' }
           $path = "desktop/wails.json"
           $json = Get-Content $path -Raw | ConvertFrom-Json
-          $json.info.productVersion = "${{ steps.ver.outputs.version }}"
+          $json.info.productVersion = $env:VERSION
           $json | ConvertTo-Json -Depth 10 | Set-Content $path -Encoding utf8
           Get-Content $path | Select-String productVersion
 
@@ -182,17 +194,23 @@ jobs:
         shell: bash
         # -s skips the frontend build: the npm ci output from the earlier step
         # is what ships, not a second `npm install` from wails.json.
+        env:
+          APPVER: ${{ steps.ver.outputs.appver }}
         run: |
+          : "${APPVER:?APPVER is empty}"
           # cygpath: go env prints a Windows path whose drive-letter colon
           # would split a bash PATH entry.
           gopath_bin="$(cygpath -u "$(go env GOPATH)")/bin"
           export PATH="$PATH:/c/Program Files (x86)/NSIS:$gopath_bin"
-          wails build -s -nsis -ldflags "-X main.version=${{ steps.ver.outputs.appver }}"
+          wails build -s -nsis -ldflags "-X main.version=$APPVER"
 
       - name: Verify build artifacts
         shell: pwsh
         # wails build can exit 0 on silent failure; trust nothing it printed.
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
+          if (-not $env:VERSION) { throw 'VERSION is empty' }
           $exe = "desktop/build/bin/floe-desktop.exe"
           $installer = "desktop/build/bin/floe-desktop-amd64-installer.exe"
           foreach ($f in @($exe, $installer)) {
@@ -225,7 +243,7 @@ jobs:
           }
           "@
           $got = [VerQ]::Q((Resolve-Path $exe), "ProductVersion")
-          $want = "${{ steps.ver.outputs.version }}"
+          $want = $env:VERSION
           if ($got -ne $want) { Write-Error "exe ProductVersion is '$got', want '$want'"; exit 1 }
           "verified: floe-desktop.exe ProductVersion $got"
 
@@ -236,8 +254,11 @@ jobs:
         # whose glob is attached to the GitHub release below) and ships only
         # as a workflow artifact: an unsigned exe-activation package cannot be
         # installed by end users, so its sole consumer is the Store upload.
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          desktop/build/msix/pack.ps1 -Version "${{ steps.ver.outputs.version }}" `
+          if (-not $env:VERSION) { throw 'VERSION is empty' }
+          desktop/build/msix/pack.ps1 -Version $env:VERSION `
             -ExePath desktop/build/bin/floe-desktop.exe -OutDir dist-msix
           Remove-Item dist-msix/layout -Recurse -Force
 
@@ -251,8 +272,11 @@ jobs:
       - name: Assemble assets
         id: assets
         shell: pwsh
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          $v = "${{ steps.ver.outputs.version }}"
+          if (-not $env:VERSION) { throw 'VERSION is empty' }
+          $v = $env:VERSION
           $stage = "dist-desktop"
           New-Item -ItemType Directory $stage | Out-Null
           Copy-Item desktop/build/bin/floe-desktop-amd64-installer.exe "$stage/floe-desktop-setup-$v.exe"
@@ -278,8 +302,10 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          v="${{ steps.ver.outputs.version }}"
+          : "${VERSION:?VERSION is empty}"
+          v="$VERSION"
           # The changelog entry for this release is anchored by its tag with
           # the dots as hyphens (desktop-v0.3.0 is #desktop-v0-3-0), so the
           # link can land on the entry instead of the top of the page. The URL

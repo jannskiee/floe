@@ -1,0 +1,13 @@
+# zizmor configuration, read by the "Audit workflows" step of ci.yml.
+#
+# Findings are fixed, not ignored. An entry here needs a written reason and a
+# condition for removing it, and inline ignore comments are refused by that
+# step.
+rules:
+  dependabot-cooldown:
+    # Temporary. dependabot.yml has no cooldown yet, so zizmor reports all four
+    # updaters. The 7-day cooldown is added right after the November 2026
+    # monthly Dependabot round has merged, because any edit to dependabot.yml
+    # starts every ecosystem at once (ship-it references/dependency-prs.md).
+    # That change deletes this entry in the same commit.
+    disable: true

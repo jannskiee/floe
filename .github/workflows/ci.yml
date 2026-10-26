@@ -12,9 +12,10 @@ on:
   # full-suite run, so no path skips apply here.
   workflow_dispatch:
 
-# Least-privilege default for the GITHUB_TOKEN in every job. Three steps pass it
-# to gh, each to read public releases: the actionlint download, the desktop
-# release asset check and back-compat's view/download. contents: read is enough.
+# Least-privilege default for the GITHUB_TOKEN in every job. Four steps pass it
+# to gh, each to read public releases: the actionlint and zizmor downloads, the
+# desktop release asset check and back-compat's view/download. contents: read
+# is enough.
 permissions:
   contents: read
 
@@ -36,8 +37,9 @@ jobs:
       # Negation-based on purpose: anything else counts as code, so a new
       # top-level file or directory can never silently skip CI.
       code: ${{ steps.filter.outputs.code }}
-      # 'true' when any changed file is under .github/workflows/ or .github/scripts/.
-      # Gates the actionlint job; push events always report true, same as code.
+      # 'true' when any changed file is under .github/workflows/ or .github/scripts/,
+      # or is .github/dependabot.yml or .github/zizmor.yml. Gates the actionlint
+      # job; push events always report true, same as code.
       workflows: ${{ steps.filter.outputs.workflows }}
     steps:
       - name: Checkout
@@ -100,7 +102,9 @@ jobs:
           # scripts/ counts too. images.yml calls .github/scripts/smoke-image.sh,
           # and a change to only that script would otherwise skip the lint job
           # entirely, leaving the shell CI actually runs completely unchecked.
-          workflow_files="$(printf '%s\n' "$changed" | grep -E '^\.github/(workflows|scripts)/' || true)"
+          # dependabot.yml and zizmor.yml count as well: zizmor audits the
+          # first and is configured by the second.
+          workflow_files="$(printf '%s\n' "$changed" | grep -E '^\.github/(workflows/|scripts/|dependabot\.yml$|zizmor\.yml$)' || true)"
           if [ -n "$workflow_files" ]; then
             echo "workflows=true" >> "$GITHUB_OUTPUT"
             echo "workflow changes:"
@@ -150,6 +154,35 @@ jobs:
         # below run scripts from .github/scripts/, so check every one directly.
         # shellcheck is preinstalled on ubuntu-latest.
         run: shellcheck .github/scripts/*.sh
+
+      - name: Download zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Same pin-and-digest pattern as actionlint above. Bump version and
+          # hash together, by hand: Dependabot does not track this download.
+          ZIZMOR_VERSION: v1.31.1
+          ZIZMOR_SHA256: d185f726bdaf92df78273217dfdd24ebcd6b0ef48cf3ce776ff5762b6e138c99
+        run: |
+          gh release download "$ZIZMOR_VERSION" --repo zizmorcore/zizmor \
+            --pattern 'zizmor-x86_64-unknown-linux-gnu.tar.gz'
+          echo "$ZIZMOR_SHA256  zizmor-x86_64-unknown-linux-gnu.tar.gz" | sha256sum --check
+          tar -xzf zizmor-x86_64-unknown-linux-gnu.tar.gz zizmor
+          chmod +x zizmor
+
+      - name: Audit workflows
+        # zizmor checks what actionlint does not: script injection, cache
+        # poisoning, permissions, triggers and pins, in the workflows and in
+        # dependabot.yml. --offline keeps it deterministic (no network, no
+        # GH_TOKEN on this step), so it gates like actionlint. Zero findings
+        # on purpose: an exception goes in .github/zizmor.yml with a written
+        # reason, never as an inline ignore comment, which the grep refuses.
+        run: |
+          # The pattern is a regex so that this line does not match itself.
+          if grep -rnE 'zizmor: *ignore\[' .github/; then
+            echo "Inline zizmor ignores are not allowed; use .github/zizmor.yml with a reason." >&2
+            exit 1
+          fi
+          ./zizmor --offline --format=github .
 
   guardrails:
     name: Repo guardrails
@@ -623,9 +656,13 @@ jobs:
         # pack.ps1 refuses to build a package whose resources.pri would not
         # index the unplated icon variants (the regression behind the plated
         # Store icon, #250). The .msix itself is discarded; an unsigned
-        # package has no consumer on a PR, so nothing is uploaded.
+        # package has no consumer on a PR, so nothing is uploaded. The version
+        # arrives through env, as in desktop-release.yml.
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          desktop/build/msix/pack.ps1 -Version "${{ steps.ver.outputs.version }}" `
+          if (-not $env:VERSION) { throw 'VERSION is empty' }
+          desktop/build/msix/pack.ps1 -Version $env:VERSION `
             -ExePath desktop/build/bin/floe-desktop.exe -OutDir dist-msix
 
   e2e:
