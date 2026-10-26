@@ -14,7 +14,7 @@
     - `BLOCKED`: the required `CI green` check is missing or failed (see 1 and 5).
     - `BEHIND`: mergeable; the ruleset does not require branches to be up to date.
     - `DIRTY`: conflicts. With a merge queued, run `gh pr merge <n> --disable-auto` first. Then `git fetch origin; git merge origin/main`, resolve, commit from PowerShell, and queue again at the new head. `gh pr update-branch` also works but produces a GitHub-signed merge commit on the branch.
-    - `UNSTABLE`: a check outside the gate is red, and GitHub will merge the PR anyway: a queued merge waits for `CI green` alone, and `gh pr merge --auto` on an `UNSTABLE` PR merges at once. Find out which check is red; SKILL.md step 7 says which ones hold a merge back (a red CodeQL does, the Vercel status on a fork PR does not). No ci.yml job is outside the gate (`Skill test suites` joined it on 2026-10-13, and a red there now reads `BLOCKED`), so this is a check from another app. A red Mintlify preview is item 3.
+    - `UNSTABLE`: a check outside the gate is red, and GitHub will merge the PR anyway: a queued merge waits for `CI green` alone, and `gh pr merge --auto` on an `UNSTABLE` PR merges at once. Find out which check is red; SKILL.md step 7 says which ones should make you stop the merge yourself with `--disable-auto` (a red CodeQL does, the Vercel status on a fork PR does not). No ci.yml job is outside the gate (`Skill test suites` joined it on 2026-10-13, and a red there now reads `BLOCKED`), so this is a check from another app. A red Mintlify preview is item 3.
     - `UNKNOWN`: just pushed; re-query.
     - `CLEAN`: merge.
 
@@ -32,7 +32,7 @@
 
 10. **wait-ci exits 3, or seems to exit 0 on a run that is not green.** Exit 3 is the script's own timeout, not a CI result: nothing failed, it stopped waiting (9 minutes by default, and most code runs take longer). Run it again, in the background with `--timeout-min 20` for a code PR. A wait-ci that "exited 0" while the run was red or still going was piped: `wait-ci.mjs ... | tail` reports the exit code of `tail`. Run it bare and read its last line.
 
-11. **`gh pr merge --match-head-commit` refuses.** The PR's head is no longer the commit you named: a bot rebased it, someone pushed, or the SHA was typed and is not the full 40 characters. Read it again with `gh pr view <n> --json headRefOid --jq .headRefOid`, read what changed, and queue again with that SHA. Never drop the flag to get past this.
+11. **`gh pr merge --match-head-commit` refuses.** With `--auto` on a PR that still waits for `CI green`, the refusal reads "expected head oid does not match the current head oid (enablePullRequestAutoMerge)", and nothing is queued; on one that can merge now, gh merges directly and GitHub refuses with its own head-mismatch message. The PR's head is no longer the commit you named: a bot rebased it, someone pushed, or the SHA was typed and is not the full 40 characters. Read it again with `gh pr view <n> --json headRefOid --jq .headRefOid`, read what changed, and queue again with that SHA. Never drop the flag to get past this.
 
 12. **The squash commit landed with the wrong body.** The body file was written in the same batch of tool calls as the merge, the write failed, and the merge ran with what was there (#526, 2026-10-12). A merged commit on main cannot be amended. Say so in the PR, and from then on write the body, read it back, and merge in a later step.
 

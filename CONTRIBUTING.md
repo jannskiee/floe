@@ -338,7 +338,7 @@ Run `go vet ./...` and `go test ./...` in `cli/`, and in `desktop/` once the fro
 7. If you touched `cli/`, vet and test it: `go vet ./...` and `go test ./...` (in `cli/`). The desktop app is built on `cli/engine/`, so a change there can break `desktop/` as well.
 8. If you touched `desktop/`, vet and test it too: `go vet ./...` and `go test ./...` (in `desktop/`, after building the frontend) and `npm test` (in `desktop/frontend/`)
 9. Write commit messages in the conventional style: a lowercase, imperative subject with an optional scope, for example `fix(client): keep the progress bar visible while verifying` or `docs: clarify the relay cap`. PRs are squash-merged, so the PR title follows the same convention.
-10. Submit a pull request. The template asks for a short summary and a test plan. CI runs automatically on the PR, and the `CI green` check must pass before it can merge (docs-only PRs skip the heavy jobs and go green in about three minutes). Once the maintainer has reviewed your PR, it may be queued to merge by itself as soon as `CI green` passes. If you push new changes after that, the queued merge is canceled until they have been reviewed, so say in the PR what you changed.
+10. Submit a pull request. The template asks for a short summary and a test plan. CI runs on the PR (on your first PR here it waits until the maintainer approves the run), and the `CI green` check must pass before it can merge (docs-only PRs skip the heavy jobs and go green in about three minutes). The maintainer merges the exact commit that was reviewed, once `CI green` has passed on it, so if you push again after a review, say in the PR what you changed.
 
 ### What CI runs, and how to run it locally
 
