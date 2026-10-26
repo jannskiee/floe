@@ -1,6 +1,6 @@
 ---
 name: floe-release
-description: 'Use when cutting a Floe release (a v* or desktop-v* tag): the changelog entry, the release version pins and DESKTOP_VERSION in client/lib/desktopRelease.ts, deploying main to the signaling server before the tag, getting a server fix to self-hosters (ghcr latest moves only on a v* tag), or verifying release assets. Gives the verified order, the paired-release decision and the UTC date rule; the wrong order points floe.one/download at a 404. Not for dependency, action or toolchain bumps, and not for the Microsoft Store (Partner Center) submission itself; that is store-submit.'
+description: 'Maintainer only. Use when cutting a Floe release (a v* or desktop-v* tag): the changelog entry, the release version pins and DESKTOP_VERSION in client/lib/desktopRelease.ts, deploying main to the signaling server before the tag, getting a server fix to self-hosters (ghcr latest moves only on a v* tag), or verifying release assets. Gives the verified order, the paired-release decision and the UTC date rule; the wrong order points floe.one/download at a 404. Not for dependency, action or toolchain bumps, and not for the Microsoft Store (Partner Center) submission itself; that is store-submit.'
 ---
 
 # Floe release runbook

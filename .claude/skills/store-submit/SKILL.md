@@ -1,6 +1,6 @@
 ---
 name: store-submit
-description: "Use when submitting a Floe Desktop release to the Microsoft Store: Partner Center, the MSIX artifact, Start update, a Store submission, certification, the What's new notes for 9NBQ8ZQ1065L, or changing the Store listing itself (description, features, screenshots, certification notes). Verifies the MSIX from the desktop-release.yml run, renders the changelog entry to plain text, and drives Partner Center through Submit for certification, or stops before it as a rehearsal. Not for writing the changelog entry, the tag, or the pin order; that is floe-release. Not for testing the installed Store app; that is transfer-audit. Not for localStorage, storing a file, the App Store, or winget."
+description: "Maintainer only. Use when submitting a Floe Desktop release to the Microsoft Store: Partner Center, the MSIX artifact, Start update, a Store submission, certification, the What's new notes for 9NBQ8ZQ1065L, or changing the Store listing itself (description, features, screenshots, certification notes). Verifies the MSIX from the desktop-release.yml run, renders the changelog entry to plain text, and drives Partner Center through Submit for certification, or stops before it as a rehearsal. Not for writing the changelog entry, the tag, or the pin order; that is floe-release. Not for testing the installed Store app; that is transfer-audit. Not for localStorage, storing a file, the App Store, or winget."
 ---
 
 # Store submission runbook

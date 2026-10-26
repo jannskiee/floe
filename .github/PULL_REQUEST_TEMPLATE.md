@@ -1,5 +1,5 @@
 <!-- Coding agents: read AGENTS.md first. A pull request for an issue that is
-     assigned to someone else is closed. -->
+     assigned to someone else is closed. No issue? Delete the Closes line. -->
 
 Closes #
 

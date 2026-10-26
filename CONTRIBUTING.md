@@ -9,7 +9,7 @@ Thank you for your interest in contributing! All contributions are welcome. This
 1. If your change is for an open issue, comment on the issue first to have it assigned to you, so nobody else starts the same work. A pull request for an issue that is assigned to someone else is closed.
 2. Wait to be assigned. The maintainer assigns whoever asks first. GitHub only lets the maintainer assign someone who has commented on the issue, so your comment is what makes the assignment possible.
 3. Fork the repository on GitHub, clone your fork, and follow [Development Setup](#development-setup) for the parts you will change.
-4. Make your change on a new branch, with the tests the issue names. They should fail on `main` and pass with your change.
+4. Make your change on a new branch, with the tests the issue names. A test that guards a fix should fail on `main` and pass with your change; a test that only pins what already works passes on both.
 5. Run the checks for what you touched: see [What CI runs, and how to run it locally](#what-ci-runs-and-how-to-run-it-locally).
 6. Open the pull request with a title in the style of [Pull Request Process](#pull-request-process) step 9, and fill in the template: `Closes #N`, a summary, your test plan and the changelog line.
 
@@ -19,11 +19,11 @@ You can have at most two open pull requests here at a time, drafts included. Unt
 
 ### What happens after you open it
 
-- **CI waits for approval at first.** GitHub holds the CI runs of a pull request from a fork until the maintainer approves them, and until your first pull request here is merged, each new push waits for approval again. Until then no checks appear, which is expected.
+- **CI waits for approval at first.** GitHub holds the CI runs of a pull request from a fork until the maintainer approves them, and until your first pull request here is merged, each new push waits for approval again. Until then the only check you see is Vercel's, and it fails, which is expected (see the next point).
 - **The Vercel check fails on forks.** It is expected to fail on a pull request from a fork and is not required: `CI green` is the only check that gates the merge.
 - **Review follows the issue.** The maintainer reviews your change against the issue's own tests and acceptance list, and runs those tests on your branch. Requested changes come as numbered steps.
 - **The first match wins.** When two pull requests target one unassigned issue, the first one that matches the issue is merged, and the other is closed with thanks.
-- **Keep "Allow edits by maintainers" on.** The maintainer may push a small fix to your branch instead of asking for another round, or land it in a follow-up pull request after yours is merged (for example the issue's tests or the changelog line).
+- **Keep "Allow edits and access to secrets by maintainers" ticked.** The maintainer may push a small fix to your branch instead of asking for another round, or land it in a follow-up pull request after yours is merged (for example the issue's tests or the changelog line).
 - **You stay the author.** Pull requests are squash-merged, and the squash commit names you as its author. When the maintainer added a commit to your branch, it also carries a `Co-authored-by` line for the maintainer.
 - **Changelog credit.** A changelog bullet that describes your change ends with `Contributed by [@your-handle](https://github.com/your-handle).` Writing it is optional: [Documentation](#documentation-only-needed-if-youre-changing-docs) says where it goes, or say in the pull request that it needs one.
 

@@ -1,6 +1,6 @@
 ---
 name: 'ship-it'
-description: 'Land a change end to end: classify the CI lane, run the local checks CI would run, sign the commit from PowerShell (git commit -F), open the PR from a body file, queue the squash-merge (auto-merge) with explicit subject, body and head SHA, wait for the CI green check by SHA, triage a stuck or red PR. Use for: commit this (even a checkpoint), open a PR, ship it, is CI green yet, the PR is stuck or red, merge it. Not for cutting a v* or desktop-v* release; that is floe-release.'
+description: 'Maintainer only. Land a change end to end: classify the CI lane, run the local checks CI would run, sign the commit from PowerShell (git commit -F), open the PR from a body file, queue the squash-merge (auto-merge) with explicit subject, body and head SHA, wait for the CI green check by SHA, triage a stuck or red PR. Use for: commit this (even a checkpoint), open a PR, ship it, is CI green yet, the PR is stuck or red, merge it. Not for cutting a v* or desktop-v* release; that is floe-release.'
 ---
 
 # ship-it
