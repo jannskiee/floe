@@ -29,6 +29,12 @@ jobs:
     # up a changed workflow, so a release does not ride a runner-image move.
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # TAP_GITHUB_TOKEN is a secret of this environment, not of the repository.
+    # The environment opens only for v* tags and only after the owner approves
+    # the run (one Approve per release; admins cannot bypass it), so neither a
+    # workflow on another ref nor a tag nobody expected can read the token.
+    # A waiting run holds this tag's concurrency group, and a rerun asks again.
+    environment: release
     permissions:
       # Create the GitHub Release and upload its assets.
       contents: write
@@ -107,10 +113,13 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # PAT with Contents write on the shared homebrew-tap, scoop-bucket, and the
-          # winget-pkgs fork. Create at Settings > Developer settings > Personal access
-          # tokens and add as repo secret TAP_GITHUB_TOKEN. The same PAT/secret pattern is
-          # reused by every project that publishes into these shared repos.
+          # Classic personal access token with only the public_repo scope, which
+          # covers the shared homebrew-tap, scoop-bucket, and the PR from the
+          # winget-pkgs fork. Create it at Settings > Developer settings > Personal
+          # access tokens (with an expiry), and store it as the TAP_GITHUB_TOKEN
+          # secret of this repository's `release` environment, never as a
+          # repository secret. Another project that publishes into these shared
+          # repos keeps its own copy in its own environment.
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
           # The range the release notes cover, from the step above. The tag being
           # released is named too: without it GoReleaser takes the first tag on

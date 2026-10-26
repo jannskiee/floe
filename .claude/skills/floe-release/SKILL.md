@@ -71,6 +71,22 @@ number the Store has accepted can never be reused or lowered either.
 
 All fix PRs merged, CI green. No code in the prep PR.
 
+Before a `v*` release, check the token release.yml publishes with. Names
+only, never a value:
+
+```text
+gh api repos/jannskiee/floe/environments/release/secrets --jq '.secrets[].name'    (must list TAP_GITHUB_TOKEN)
+gh secret list -R jannskiee/floe                                                   (must not)
+```
+
+It is a classic personal access token with an expiry, kept only as a secret
+of the `release` environment since 2026-10-26. The owner reads its expiry on
+github.com/settings/tokens, and GitHub emails before it runs out. If it
+expires within 14 days, the owner regenerates it and replaces the
+environment secret before the tag. A missing or expired token fails the
+Homebrew, Scoop and winget steps after the GitHub release is already
+published, and no rerun can finish that (step 4).
+
 ### 1a. The live server runs `main` before anything is tagged
 
 Skip this when `server/` is unchanged since the commit the signaling VM runs.
@@ -297,6 +313,25 @@ git for-each-ref --format='%(taggerdate:iso8601-strict)' refs/tags/desktop-vX.Y.
 
 ## 4. Watch (minutes, not seconds: read the run, never assume)
 
+**Approve release.yml first.** Its goreleaser job runs in the `release`
+environment (since 2026-10-26), which opens only for a `v*` tag and only
+after the owner approves. Right after the `v*` push, its run shows
+`waiting`. The owner opens the run on GitHub, chooses Review deployments and
+approves `release`. Claude never approves on its own. Only when the owner
+says to approve that run does it use
+`gh api -X POST repos/jannskiee/floe/actions/runs/<id>/pending_deployments -F 'environment_ids[]=25355274339' -f state=approved -f comment='<tag>'`
+(Bash tool). Approve before pushing the `desktop-v*` tag.
+- A waiting run holds the tag's concurrency group, and `gh run rerun` asks
+  for the approval again.
+- A run that fails with "not allowed to deploy to release" (the environment's
+  `v*` tag policy did not match) published nothing: fix the policy in
+  Settings, Environments, then rerun it.
+- images.yml runs on the same tag without the gate, so `latest` moves without
+  waiting for the approval.
+- Rolling back to a repository secret needs the owner to paste the token
+  again, because a secret's value cannot be read back, and then the removal
+  of `environment: release` from release.yml.
+
 Across recent tag runs (read 2026-10-12): release.yml took under three
 minutes on each of the last six, images.yml a little over one minute on the
 last three, and desktop-release.yml three to nine minutes (5 m 42 s for
@@ -493,6 +528,6 @@ All eight steps with evidence in the report, step 1a included when
 `server/` changed. A `v*`-only release has no desktop half: steps 7 and 8, the
 `desktopRelease.ts` bump of step 6 (its snapshot paragraph still applies) and
 the four desktop URLs of step 5 do not apply, and its completion signals
-are the green `release.yml` and `images.yml` runs, the release assets and the
-image digests. With a desktop half, green workflows and four 200s are
+are the `release.yml` run (approved, then green), the green `images.yml` run,
+the release assets and the image digests. With a desktop half, green workflows and four 200s are
 necessary; step 8 and the certification email are the completion signals.
