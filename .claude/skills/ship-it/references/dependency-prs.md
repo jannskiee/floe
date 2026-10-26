@@ -2,6 +2,8 @@
 
 Dependabot opens one grouped PR per ecosystem per month (github-actions weekly). An npm major arrives as a PR of its own; a Go, Docker or Actions major rides in its group, unless the file ignores it (.github/dependabot.yml). `CI green` is not enough for the cases below: each names something the suite cannot see. They were the standing items of issue 515, moved here on 2026-10-14 and closed on 2026-10-15, so that they sit where a dependency PR is handled.
 
+Queue the merge with SKILL.md step 7's command only once the checks below that apply are done, at the head you read: the queued merge waits for `CI green` alone. Dependabot rebases its own PR when a push to main leaves it in conflict, on its scheduled run, or when asked, and its rebase is not one of the pushes GitHub documents as canceling a queued merge (only those of users without write access are). So if `gh pr view <n> --json headRefOid,autoMergeRequest` shows a new head after you queued, run `gh pr merge <n> --disable-auto` while the queue is still set, read the new head, and queue again at it (references/blocked-pr.md item 13).
+
 ## Go modules (`go-deps`: cli/ and desktop/)
 
 - **Run a forced-relay transfer before merging.** CI never exercises a TURN relay: every e2e CLI leg runs `--no-relay`. The pion modules change relay behavior between patch releases (pion/ice gathers relay candidates over IPv6 from 4.4.3, with follow-ups through 4.4.7; pion/mdns 2.2.2 changes its query format for Chromium). #603 took both modules from pion/ice 4.4.0 and pion/mdns 2.1.0 to 4.4.7 and 2.2.2, and ran this gate first. Use the relay cells of the transfer-audit skill, in both directions between the CLI and a browser.
