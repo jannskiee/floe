@@ -96,3 +96,6 @@ client/CLAUDE.md
 # only because a global ~/.config/git/ignore covered it; on any fork it showed
 # up as untracked noise.
 .claude/settings.local.json
+# Claude Code worktrees: full copies of the tree. A local `zizmor --offline .`
+# walks unignored hidden folders, so it would audit every copy too.
+.claude/worktrees/

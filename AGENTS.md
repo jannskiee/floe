@@ -24,9 +24,9 @@ Rules for coding agents that work on Floe for an outside contributor, and for th
 
 You may also change these when your change needs it:
 
-- the row in `.claude/skills/docs-verify/references/messages.json` for a message you add or reword, then rewrite `docs/messages.mdx` with `node .claude/skills/docs-verify/scripts/messages-index.mjs --write`;
+- the row in `.claude/skills/docs-verify/references/messages.json` for a message of the web app, the website, the server or the install scripts that you add or reword, then rewrite `docs/messages.mdx` with `node .claude/skills/docs-verify/scripts/messages-index.mjs --write`. Leave the CLI and desktop rows alone: they are held to a release snapshot that only the maintainer moves;
 - a row in `.claude/skills/untrusted-peer-data/references/consumer-map.md` for new code that reads a value the other peer sent;
-- one bullet in the `Unreleased` entry of `docs/changelog.mdx`.
+- one bullet in the `Unreleased` entry of `docs/changelog.mdx` (start that entry, as CONTRIBUTING.md describes, if the newest entry already carries a release tag).
 
 Leave these alone unless the issue asks for a change in them:
 

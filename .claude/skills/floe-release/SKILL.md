@@ -290,7 +290,9 @@ One tag per push, on purpose. Pushing both refs in one `git push` (measured on
 2026-08-28, v1.10.5 + desktop-v0.2.8) fired release.yml, desktop-release.yml and
 images.yml TWICE each; the twin runs raced, and the ones that lost to a transient
 module-proxy error looked like failed releases while their twins had already
-published. Push one tag, wait for its runs to start, then push the other.
+published. Push one tag, wait for its runs to start, then push the other. Push
+the `v*` tag first: its release.yml run waits for the owner's Approve (step 4),
+and the `desktop-v*` tag goes after that approval.
 
 Today's UTC date, which the changelog `description` from step 2 must equal on
 the day you push:

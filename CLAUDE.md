@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 @AGENTS.md
 
-AGENTS.md, imported above, holds the rules for outside contributors and the coding agents they run. They do not apply to the maintainer (the GitHub account jannskiee) or to a session working for the maintainer on the maintainer's machine, including the subagents and workflows such a session starts. Those follow the rest of this file.
+AGENTS.md, imported above, holds the rules for outside contributors and the coding agents they run. They do not apply to the maintainer (the GitHub account jannskiee) or to a session the maintainer starts, on the maintainer's machine or in the cloud, including the subagents and workflows such a session starts. Those follow the rest of this file.
 
 ## Project Overview
 

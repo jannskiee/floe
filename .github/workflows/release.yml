@@ -119,9 +119,9 @@ jobs:
           # winget-pkgs fork. Create it at Settings > Developer settings > Personal
           # access tokens (with an expiry), and store it as the TAP_GITHUB_TOKEN
           # secret of this repository's `release` environment, never as a
-          # repository secret. Another project that publishes into these shared
-          # repos holds the same token as its own secret, so regenerating the
-          # token means replacing every copy.
+          # repository secret. Only floe publishes into these shared repos today;
+          # a project that joins later needs its own copy of the token, and then
+          # regenerating the token means replacing every copy.
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
           # The range the release notes cover, from the step above. The tag being
           # released is named too: without it GoReleaser takes the first tag on
