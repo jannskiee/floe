@@ -68,6 +68,26 @@ jobs:
           # from source costs a few minutes once per release.
           cache: false
 
+      # The previous v* tag, which starts the range the release notes cover.
+      # Left to itself, GoReleaser starts at the nearest earlier tag of either
+      # series, so a v* tag cut after a separately pushed desktop-v* tag listed
+      # only the commits since that desktop tag: v1.11.5's notes started at
+      # desktop-v1.0.2 and covered 5 of the 25 commits since v1.11.4, leaving
+      # out the pull requests of six outside contributors. --match keeps the
+      # desktop-v* tags out of the search, and the ^ starts it at the parent
+      # commit, so the tag being released never finds itself. Nor does a v* tag
+      # on the same commit: a next number cut on an unchanged commit counts from
+      # the v* tag before that one, as GoReleaser's own fallback would. Under
+      # bash -e a tag with no v* tag behind it stops the release here, rather
+      # than letting GoReleaser fall back to the old range.
+      - name: Find the previous v* tag
+        id: range
+        shell: bash
+        run: |
+          previous="$(git describe --tags --abbrev=0 --match 'v[0-9]*' "${GITHUB_REF_NAME}^")"
+          echo "Release notes cover ${previous}..${GITHUB_REF_NAME}"
+          echo "previous=${previous}" >> "$GITHUB_OUTPUT"
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
@@ -92,3 +112,9 @@ jobs:
           # tokens and add as repo secret TAP_GITHUB_TOKEN. The same PAT/secret pattern is
           # reused by every project that publishes into these shared repos.
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          # The range the release notes cover, from the step above. The tag being
+          # released is named too: without it GoReleaser takes the first tag on
+          # the commit in version order, and a paired release puts desktop-vX.Y.Z
+          # on the same commit (v1.11.6 came first only because v sorts after d).
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
+          GORELEASER_PREVIOUS_TAG: ${{ steps.range.outputs.previous }}

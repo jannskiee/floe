@@ -405,7 +405,12 @@ line (`gh release verify-asset <tag> <file> -R jannskiee/floe`) to the
 checksum section of docs/cli/installation.mdx. After the first immutable
 `desktop-v*` release, add one to docs/desktop/installation.mdx. Word each as
 a floor ("vX.Y.Z or later"), since older releases have no attestation. When
-both are in, delete this paragraph.
+both are in, delete this paragraph. v1.11.5 is immutable and attested
+without being the floor: editing an older release's notes locks it and
+attests its assets as they stand (its body was corrected on 2026-10-26),
+and v1.11.6, published later and never edited, is neither. So the floor is
+the first tag of each series published since immutable releases were turned
+on (2026-10-26, so a tag cut later that day counts).
 
 The link each release body carries: `gh release view <tag> --json body --jq
 .body` shows a "What changed" line (the footer of a `v*` body, a line near
@@ -414,6 +419,15 @@ for this tag, not at the top of the changelog. At the top means the entry is
 missing or still labeled `Unreleased` (step 2); with no entry on purpose
 (rule 7) the top is the expected landing. v1.11.0 predates the footer, so
 its body has no such line.
+
+The list above that line, on a `v*` body: the release.yml run's
+`Find the previous v* tag` step prints `Release notes cover vA..vB`, and vA
+must be the nearest `v*` tag on an earlier commit, never a `desktop-v*` tag.
+When the `v*` tag before this one sits on this tag's own commit (a next
+number cut on an unchanged commit, step 4), vA is the one before that, and
+the list repeats that release's commits. The list
+holds every subject of `git log --format=%s vA..vB` except the types
+`.goreleaser.yml` filters out (`references/tag-and-workflows.md`).
 
 Images, on a `v*` tag: a green images.yml is not the proof, the digests are.
 `latest` must be the image this tag built, for both images:
