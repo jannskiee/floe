@@ -361,9 +361,12 @@ func (r *receiveRun) stop() bool {
 // endLinger is stop's work once the receive has finished: a wait, bounded by
 // receiveStopFlush, for this side's send buffer to empty, so the "received"
 // frame the engine has already queued is not cut off behind the close, then
-// the close. A var only so a test can stand in one that records.
+// the close. The wait also ends once the channel has closed: a sender that
+// has gone never acknowledges the frame, so the count would not fall before
+// the bound (TestEndLingerReturnsOnceTheChannelHasClosed). A var only so a
+// test can stand in one that records.
 var endLinger = func(dc *webrtc.DataChannel, conn *peer.Connection) {
-	for wait := time.Now().Add(receiveStopFlush); dc.BufferedAmount() > 0 && time.Now().Before(wait); {
+	for wait := time.Now().Add(receiveStopFlush); dc.BufferedAmount() > 0 && dc.ReadyState() != webrtc.DataChannelStateClosed && time.Now().Before(wait); {
 		time.Sleep(10 * time.Millisecond)
 	}
 	conn.Close()

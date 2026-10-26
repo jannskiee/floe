@@ -305,15 +305,18 @@ func (r *sendRun) stop() {
 // connection. When the frame cannot leave in time behind what the send had
 // already queued, the receiver still hears the close. AbortSend's own flush
 // gives up after a fixed 2 s (controlFlushTimeout), so the wait for the
-// channel's buffer to drain continues here, and sendStopFlush alone bounds
-// it. A var only so a test can stand in one that records.
+// channel's buffer to drain continues here, bounded by sendStopFlush instead.
+// Both waits end once the channel has closed: pion releases buffered bytes
+// only on the receiver's acknowledgment, and a receiver that has gone sends
+// none (TestTellCanceledReturnsOnceTheChannelHasClosed). A var only so a test
+// can stand in one that records.
 var tellCanceled = func(dc *webrtc.DataChannel, conn *peer.Connection) {
 	sent := make(chan struct{})
 	quit := make(chan struct{})
 	go func() {
 		defer close(sent)
 		transfer.AbortSend(dc, version, transfer.VisitorCancelReason)
-		for dc.BufferedAmount() > 0 {
+		for dc.BufferedAmount() > 0 && dc.ReadyState() != webrtc.DataChannelStateClosed {
 			select {
 			case <-quit:
 				return
