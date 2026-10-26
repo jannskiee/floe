@@ -54,10 +54,18 @@ and 8 are for.
   the Store reviews it (step 1a).
 
 Never reuse a `v*` number: the `release-tags` ruleset blocks deletion and
-update of `refs/tags/v*`, so a pushed CLI tag is permanent, failed run or not.
-No ruleset covers `desktop-v*`: a desktop tag whose run failed can be deleted
-and re-cut with the same number ("If a workflow fails" under step 4), but a
-number the Store has accepted can never be reused or lowered.
+update of `refs/tags/v*` for everyone, so a pushed CLI tag is permanent,
+failed run or not. Since 2026-10-26 a second ruleset, `release-tag-writers`
+(25870867), restricts creating `v*` and `desktop-v*` tags, and moving or
+deleting `desktop-v*` ones, to its bypass, the repository admin role. So only
+the owner's own credentials can push a release tag: no installed app, and no
+workflow on its `GITHUB_TOKEN`, can. Nobody can move or delete a `v*` tag, the
+owner included. A `desktop-v*` tag
+whose run failed can still be deleted and re-cut with the same number ("If a
+workflow fails" under step 4), but only while the tag has no published
+release. Releases are immutable since the same day: once one is published its
+assets and tag are locked, and deleting it burns its tag name for good. A
+number the Store has accepted can never be reused or lowered either.
 
 ## 1. Code merges
 
@@ -242,8 +250,17 @@ the tag, so nobody has to look it up while something is wrong.
 
 ## 3. Tag (PowerShell tool; annotated, unsigned, deliberate)
 
-Confirm the push with the user first: a `v*` tag is permanent. `--no-sign`
+Confirm the push with the user first: a `v*` tag is permanent, and a
+`desktop-v*` tag becomes permanent the moment its release publishes. `--no-sign`
 keeps the tag unsigned whatever `tag.gpgSign` says.
+
+The owner's push of a release tag prints `remote: Bypassed rule violations
+for refs/tags/<tag>:` followed by `- Cannot create ref due to creations being
+restricted.` That pair reads like a refusal but is GitHub reporting the
+`release-tag-writers` bypass: the push succeeded, so never retry it. Confirm
+with `git ls-remote origin refs/tags/<tag>`. A push refused outright means the
+credentials are not the owner's admin ones, or the tag name is taken (a `v*`
+that exists, or the name of a deleted immutable release); stop and ask.
 
 ```text
 git fetch origin main
@@ -299,15 +316,16 @@ silently (memory `project_pnpm_via_corepack`).
 If a workflow fails, first check `gh run list --workflow <file> --limit 3` for a
 TWIN run on the same tag: a duplicate trigger that succeeded means the release
 is already published, so cancel the failed twin (`gh run cancel <id>`) and do not
-rerun it (a rerun would race the published release). Only when there is no
-successful twin does the following apply.
+rerun it (a rerun would race the published release, and fails against it
+anyway). Only when there is no successful twin does the following apply.
 
 If a workflow fails, read why before touching the tag (`gh run view <id>
 --log-failed`, which answers only once the whole run has ended).
 
 - A transient failure (a module proxy or checksum-database read, a
   chocolatey or registry blip, a runner that died): `gh run rerun <id>
---failed` on the SAME tag, for either series. Nothing is wrong with the tag
+--failed` on the SAME tag, for either series (for a `v*`, only before
+  GoReleaser published; see the next bullet). Nothing is wrong with the tag
   or the code. desktop-release.yml publishes only at its last step, so a
   failed run left no release and no partial state, and its `concurrency`
   block no longer cancels a run in progress (a second run on the tag queues
@@ -315,12 +333,37 @@ If a workflow fails, read why before touching the tag (`gh run view <id>
   carries the run NUMBER, not the attempt, so store-submit finds the rerun's
   artifact under the same name. desktop-v0.2.11 failed this way on
   2026-09-09 and the rerun shipped it.
+- A rerun completes a `v*` release only when GoReleaser failed before it
+  published (build, archive, or the upload to its draft). Once the GitHub
+  release is published, GoReleaser's rerun stops at the first asset upload
+  (the asset exists), before the Homebrew, Scoop and winget steps, and since
+  releases became immutable no asset can be deleted to get around it. So a failure in those three steps, which run after
+  the publish, is fixed by hand in jannskiee/homebrew-tap,
+  jannskiee/scoop-bucket or the winget-pkgs PR, or by the next number. A
+  rerun after a failure in the draft stage creates a fresh draft and leaves
+  the old one behind: delete that orphan draft by hand once the rerun has
+  shipped (drafts are not immutable).
 - A failure that needs new code: for `desktop-v*`, delete the tag
   (`git push origin :refs/tags/desktop-vX.Y.Z`, then `git tag -d` locally) and
-  re-cut the same number on the fixed merge commit; no ruleset covers it, and
-  any MSIX artifact the failed run uploaded is superseded by the re-cut
-  run's. For `v*` the fix goes out as the next number: the tag is permanent.
-  Never re-cut a `v*`.
+  re-cut the same number on the fixed merge commit. The owner's bypass on
+  `release-tag-writers` is what permits the delete, and it works only while
+  the tag has no published release; a failed desktop-release.yml run leaves
+  none. Any MSIX artifact the failed run uploaded is superseded by the re-cut
+  run's. Never delete a published release to re-cut it: the tag name is gone
+  for good. For `v*` the fix goes out as the next number: the tag is
+  permanent. Never re-cut a `v*`.
+- A run refused before any job started (it ends `startup_failure`, and its
+  page says "is not allowed in jannskiee/floe because...") hit the Actions
+  policy (CLAUDE.md, CI): an action missing from the allow list, or not
+  pinned to a full SHA. Nothing ran and nothing was published, and
+  `--log-failed` has nothing to show; `gh run view <id>` or the run's page
+  has the message. If the allow list was wrong, PUT the whole
+  `selected-actions` body (read
+  `gh api repos/jannskiee/floe/actions/permissions/selected-actions` first),
+  then try `gh run rerun <id>` once; a rerun of a run that never started has
+  not been tried here. If the workflow file was wrong, or GitHub refuses the
+  rerun, it is new code: a rerun reads the workflow at the tag's commit, so
+  follow the bullet above.
 
 ## 5. Verify assets (all four must answer 200 after redirects)
 
@@ -340,6 +383,29 @@ https://github.com/jannskiee/floe/releases/tag/desktop-v$V
 
 CLI: `gh release view vX.Y.Z --json assets --jq '.assets[].name'` lists six
 archives plus `checksums.txt`.
+
+Immutability and the tag rules, for every release published since 2026-10-26
+(Bash tool):
+
+```text
+gh release view <tag> -R jannskiee/floe --json isImmutable --jq .isImmutable     (must print true)
+gh release verify <tag> -R jannskiee/floe                                        (prints the release attestation)
+gh api "repos/jannskiee/floe/rulesets/rule-suites?ref=refs/tags/<tag>&time_period=week" --jq '.[] | "\(.id) \(.result)"'
+```
+
+The rule suite of the owner's tag push must read `bypass`. A `pass` means
+`release-tag-writers` did not apply: v1.11.6, pushed before it existed, reads
+`pass`. Without `time_period` the list covers only the last 24 hours.
+`gh api repos/jannskiee/floe/rulesets/rule-suites/<id>` lists the
+`release-tag-writers` rules, beside the `release-tags` ones on a `v*` tag only
+(`release-tags` covers `refs/tags/v*`, which no `desktop-v*` name matches).
+
+One-time item. After the first immutable `v*` release, add a "verify with gh"
+line (`gh release verify-asset <tag> <file> -R jannskiee/floe`) to the
+checksum section of docs/cli/installation.mdx. After the first immutable
+`desktop-v*` release, add one to docs/desktop/installation.mdx. Word each as
+a floor ("vX.Y.Z or later"), since older releases have no attestation. When
+both are in, delete this paragraph.
 
 The link each release body carries: `gh release view <tag> --json body --jq
 .body` shows a "What changed" line (the footer of a `v*` body, a line near

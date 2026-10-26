@@ -466,7 +466,9 @@ history shows what such a record covered.
   (`gh run rerun <id> --failed`, floe-release step 4); the artifact name
   carries the run number, not the attempt, so the preflight finds the
   rerun's artifact under the name it already looks for. Deleting the tag
-  and re-cutting it is only for a failure that needs new code.
+  and re-cutting it is only for a failure that needs new code, and only
+  while the tag has no published release (releases are immutable since
+  2026-10-26; floe-release step 4).
 - Identity mismatch (Name or Publisher) from the preflight: the artifact was
   not built from `desktop/build/msix/AppxManifest.xml` as committed. Never
   hand-edit the manifest and repack (the block map would no longer match);

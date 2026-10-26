@@ -11,6 +11,8 @@ Thank you for your interest in contributing! All contributions are welcome. This
 5. Make your changes on a new branch
 6. Submit a pull request with a clear description
 
+You can have at most two open pull requests here at a time, drafts included. Until one of them is merged or closed, GitHub refuses to open another. Its error may read like a permissions problem and not mention the limit, so if a new pull request is refused, count your open ones first.
+
 ---
 
 ## Development Setup
@@ -369,6 +371,13 @@ To run a job locally (commands are for a bash shell):
 - **`Docker`**, from the repository root: `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build --wait`, then `curl --fail http://localhost:3001/health`.
 - **`Lint workflows`**, from the repository root: `actionlint -color` and `shellcheck .github/scripts/*.sh`.
 - **`Skill test suites`**, from the repository root: `node --test ".claude/skills/**/*.test.mjs"`.
+
+A change to `.github/workflows/` also meets two repository settings that no job checks in advance:
+
+- Every `uses:` line names a full 40-character commit SHA, with the version as a comment after it, as the existing lines do (`uses: actions/checkout@<sha> # vX.Y.Z`).
+- Only GitHub's own actions and the six third-party ones the workflows already use may run: `pnpm/action-setup`, `goreleaser/goreleaser-action`, and `docker/setup-buildx-action`, `docker/login-action`, `docker/metadata-action` and `docker/build-push-action`.
+
+A workflow that breaks either one fails to start, before any of its jobs run, and the run's page shows a message that names the rule. If your change needs another action, say so in the pull request, and the maintainer decides whether to allow it.
 
 ---
 
