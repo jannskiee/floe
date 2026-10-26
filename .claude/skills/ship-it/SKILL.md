@@ -79,7 +79,8 @@ trailer (CLAUDE.md, Git Conventions).
 ## 5. Push and PR
 
 `git push -u origin <branch>` (either tool; no signing involved). Write the body file
-(## Summary, ## Test plan, no AI footer) with the Write tool, in a step of its own,
+(the sections of .github/PULL_REQUEST_TEMPLATE.md that apply, at least
+`## Summary` and `## Test plan`; no AI footer) with the Write tool, in a step of its own,
 and read it back before anything uses it. Then
 `gh pr create --title "<subject>" --body-file <file>`. Never put a file write and the
 command that consumes it in one batch of tool calls: on 2026-10-12 the write of a body

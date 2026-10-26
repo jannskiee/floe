@@ -129,6 +129,7 @@ export const SURFACES = [
     'SECURITY.md',
     'CODE_OF_CONDUCT.md',
     'CLAUDE.md',
+    'AGENTS.md',
     '.github',
     'client/app',
     'client/components',
@@ -617,6 +618,7 @@ function absoluteSources(root) {
         'CONTRIBUTING.md',
         'DESKTOP.md',
         'SECURITY.md',
+        'AGENTS.md',
         'docs/docs.json',
     ]) {
         if (existsSync(join(root, f))) files.push(join(root, f));

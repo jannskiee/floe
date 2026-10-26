@@ -2,16 +2,44 @@
 
 Thank you for your interest in contributing! All contributions are welcome. This project follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 
-## Getting Started
+<a id="getting-started"></a>
+
+## Your first Floe pull request
 
 1. If your change is for an open issue, comment on the issue first to have it assigned to you, so nobody else starts the same work. A pull request for an issue that is assigned to someone else is closed.
-2. Fork the repository on GitHub
-3. Clone your fork locally
-4. Follow the setup below
-5. Make your changes on a new branch
-6. Submit a pull request with a clear description
+2. Wait to be assigned. The maintainer assigns whoever asks first. GitHub only lets the maintainer assign someone who has commented on the issue, so your comment is what makes the assignment possible.
+3. Fork the repository on GitHub, clone your fork, and follow [Development Setup](#development-setup) for the parts you will change.
+4. Make your change on a new branch, with the tests the issue names. They should fail on `main` and pass with your change.
+5. Run the checks for what you touched: see [What CI runs, and how to run it locally](#what-ci-runs-and-how-to-run-it-locally).
+6. Open the pull request with a title in the style of [Pull Request Process](#pull-request-process) step 9, and fill in the template: `Closes #N`, a summary, your test plan and the changelog line.
+
+Good first issues are meant for a first pull request here. Once one of yours is merged, pick an issue labeled [help wanted](https://github.com/jannskiee/floe/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22help%20wanted%22) instead, so the next newcomer still has a first issue to take. An issue that was assigned to you, or a pull request you opened, before this rule was added is reviewed as before.
 
 You can have at most two open pull requests here at a time, drafts included. Until one of them is merged or closed, GitHub refuses to open another. Its error may read like a permissions problem and not mention the limit, so if a new pull request is refused, count your open ones first.
+
+### What happens after you open it
+
+- **CI waits for approval at first.** GitHub holds the CI runs of a pull request from a fork until the maintainer approves them, and until your first pull request here is merged, each new push waits for approval again. Until then no checks appear, which is expected.
+- **The Vercel check fails on forks.** It is expected to fail on a pull request from a fork and is not required: `CI green` is the only check that gates the merge.
+- **Review follows the issue.** The maintainer reviews your change against the issue's own tests and acceptance list, and runs those tests on your branch. Requested changes come as numbered steps.
+- **The first match wins.** When two pull requests target one unassigned issue, the first one that matches the issue is merged, and the other is closed with thanks.
+- **Keep "Allow edits by maintainers" on.** The maintainer may push a small fix to your branch instead of asking for another round, or land it in a follow-up pull request after yours is merged (for example the issue's tests or the changelog line).
+- **You stay the author.** Pull requests are squash-merged, and the squash commit names you as its author. When the maintainer added a commit to your branch, it also carries a `Co-authored-by` line for the maintainer.
+- **Changelog credit.** A changelog bullet that describes your change ends with `Contributed by [@your-handle](https://github.com/your-handle).` Writing it is optional: [Documentation](#documentation-only-needed-if-youre-changing-docs) says where it goes, or say in the pull request that it needs one.
+
+Contributions are accepted under the repository's [MIT License](LICENSE), as section D.6 of GitHub's Terms of Service describes, so there is no separate agreement to sign.
+
+## Using AI tools
+
+AI coding tools are welcome. You are responsible for every line of your pull request all the same:
+
+- Understand your change and be able to explain it in review in your own words.
+- Run the issue's tests and the checks for what you touched yourself, before you open the pull request.
+- An agent or an automated pipeline follows the same rules as a person: it claims the issue first, waits to be assigned, and counts toward the two-pull-request limit of the account that opens it.
+- Answer review comments in your own words.
+- Leave out AI credit lines: no `Co-authored-by` trailer for a tool and no "Generated with" footer, in commits or in the pull request. You do not need to say which tools you used.
+
+[AGENTS.md](AGENTS.md) states these house rules in the form coding agents read.
 
 ---
 
@@ -156,7 +184,7 @@ It checks links and anchors, the navigation, frontmatter, headings MDX cannot co
 
 `docs/changelog.mdx` is written by hand. When your change is one a user can see:
 
-1. Add a bullet to the `Unreleased` entry at the top of the timeline. Start one if the newest entry already carries a release tag.
+1. Add a bullet to the `Unreleased` entry at the top of the timeline. Start one if the newest entry already carries a release tag. A bullet that describes your own change ends with `Contributed by [@your-handle](https://github.com/your-handle).`
 2. Follow the authoring contract in the comment at the top of that file.
 3. If you would rather not write it, say in the PR that it needs one.
 
@@ -338,7 +366,7 @@ Run `go vet ./...` and `go test ./...` in `cli/`, and in `desktop/` once the fro
 7. If you touched `cli/`, vet and test it: `go vet ./...` and `go test ./...` (in `cli/`). The desktop app is built on `cli/engine/`, so a change there can break `desktop/` as well.
 8. If you touched `desktop/`, vet and test it too: `go vet ./...` and `go test ./...` (in `desktop/`, after building the frontend) and `npm test` (in `desktop/frontend/`)
 9. Write commit messages in the conventional style: a lowercase, imperative subject with an optional scope, for example `fix(client): keep the progress bar visible while verifying` or `docs: clarify the relay cap`. PRs are squash-merged, so the PR title follows the same convention.
-10. Submit a pull request. The template asks for a short summary and a test plan. CI runs on the PR (on your first PR here it waits until the maintainer approves the run), and the `CI green` check must pass before it can merge (docs-only PRs skip the heavy jobs and go green in about three minutes). The maintainer merges the exact commit that was reviewed, once `CI green` has passed on it, so if you push again after a review, say in the PR what you changed.
+10. Submit a pull request and fill in the template: `Closes #N`, a short summary, a test plan and the changelog line. CI runs on the PR (at first it waits for the maintainer to approve the run, as [What happens after you open it](#what-happens-after-you-open-it) explains), and the `CI green` check must pass before it can merge (docs-only PRs skip the heavy jobs and go green in about three minutes). The maintainer merges the exact commit that was reviewed, once `CI green` has passed on it, so if you push again after a review, say in the PR what you changed.
 
 ### What CI runs, and how to run it locally
 
