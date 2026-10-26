@@ -77,12 +77,23 @@ func rejectDescription(dc *webrtc.DataChannel, localVer, detail string) {
 //
 // Bounded and best effort: a peer that never acknowledges must not hold the
 // teardown open, and a reason lost at the deadline is no worse than today.
+//
+// A closed channel ends the wait at once. pion releases buffered bytes only on
+// the peer's acknowledgment, and a peer that has gone sends none, so the count
+// never falls. A peer that closed only its end still acknowledges, but it
+// discards what arrives (pion drops frames once its side is closing, and a
+// browser delivers a message only while the channel is open), so nothing still
+// buffered would be read. A request-link host's channel still counts its
+// 16-byte DCEP OPEN until the visitor's delayed SACK, about 200 ms after the
+// channel opens, so a visitor who left inside that window held the host's
+// refusal here for the whole controlFlushTimeout
+// (TestFlushControlReturnsOnceTheChannelHasClosed).
 func flushControl(dc *webrtc.DataChannel) {
 	if dc == nil {
 		return
 	}
 	deadline := time.After(controlFlushTimeout)
-	for dc.BufferedAmount() > 0 {
+	for dc.BufferedAmount() > 0 && dc.ReadyState() != webrtc.DataChannelStateClosed {
 		select {
 		case <-deadline:
 			return
