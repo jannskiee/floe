@@ -2001,7 +2001,9 @@ function checkDashes(ctx) {
         if (name.endsWith('.md') && statSync(join(root, name)).isFile())
             files.push(join(root, name));
     }
-    files.push(...walk(join(root, '.github'), ['.md']));
+    // .github's workflows and scripts as well as its Markdown: their comments
+    // are read like docs, and the claim bot's rules live in a .mjs there.
+    files.push(...walk(join(root, '.github'), ['.md', '.yml', '.mjs']));
     // Markdown and reader-facing config outside the two places above. The rule
     // in CLAUDE.md covers every Markdown file, and this check only ever looked
     // at the root and docs/: .goreleaser.yml carried two em dashes for months

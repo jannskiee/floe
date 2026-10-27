@@ -1,0 +1,1 @@
+@{{login}} this issue isn't open for claiming: `/take` works on good first issues only, which are kept for a first pull request. If you'd like to work on this one, ask here first and wait for the maintainer's answer.

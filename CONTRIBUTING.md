@@ -6,8 +6,8 @@ Thank you for your interest in contributing! All contributions are welcome. This
 
 ## Your first Floe pull request
 
-1. If your change is for an open issue, comment on the issue first to have it assigned to you, so nobody else starts the same work. A pull request for an issue that is assigned to someone else is closed.
-2. Wait to be assigned. The maintainer assigns whoever asks first. GitHub only lets the maintainer assign someone who has commented on the issue, so your comment is what makes the assignment possible.
+1. If your change is for an open issue, claim it first, so nobody else starts the same work. On a good first issue, start a new comment with `/take`: a bot assigns you, usually within a minute, or replies with the reason it can't (the issue is taken, another pull request already targets it, you already hold a good first issue, or you already have a commit here, since good first issues are for a first pull request). On any other issue, comment with your plan, and the maintainer assigns you. A pull request for an issue that is assigned to someone else is closed.
+2. Start once you are assigned. If you can't finish, comment `/untake` so someone else can take the issue. The [good first issues nobody holds yet](https://github.com/jannskiee/floe/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22%20no%3Aassignee%20-linked%3Apr) are the ones free to claim.
 3. Fork the repository on GitHub, clone your fork, and follow [Development Setup](#development-setup) for the parts you will change.
 4. Make your change on a new branch, with the tests the issue names. A test that guards a fix should fail on `main` and pass with your change; a test that only pins what already works passes on both.
 5. Run the checks for what you touched: see [What CI runs, and how to run it locally](#what-ci-runs-and-how-to-run-it-locally).
@@ -35,7 +35,7 @@ AI coding tools are welcome. You are responsible for every line of your pull req
 
 - Understand your change and be able to explain it in review in your own words.
 - Run the issue's tests and the checks for what you touched yourself, before you open the pull request.
-- An agent or an automated pipeline follows the same rules as a person: it claims the issue first, waits to be assigned, and counts toward the two-pull-request limit of the account that opens it.
+- An agent or an automated pipeline follows the same rules as a person: it claims the issue first (with `/take` on a good first issue), waits to be assigned, and counts toward the two-pull-request limit of the account that opens it.
 - Answer review comments in your own words.
 - Leave out AI credit lines: no `Co-authored-by` trailer for a tool and no "Generated with" footer, in commits or in the pull request. You do not need to say which tools you used.
 
@@ -374,7 +374,7 @@ A first job, `Detect changed paths`, decides which of the jobs below run, and `C
 
 | CI job | Runs when | What it checks |
 |--------|-----------|----------------|
-| `Repo guardrails` | Every PR | That every file reading a value the other peer chose is listed in the peer-data consumer map, and the docs pre-flight: links and anchors, tables, headings MDX cannot compile, documented server defaults, em and en dashes, the docs page standard, the message list and the screenshot manifests |
+| `Repo guardrails` | Every PR | That every file reading a value the other peer chose is listed in the peer-data consumer map; the docs pre-flight: links and anchors, tables, headings MDX cannot compile, documented server defaults, em and en dashes, the docs page standard, the message list and the screenshot manifests; and the tests of the `/take` claim bot, which also check that the setup headings its replies link to still exist in this file |
 | `Build & Lint` | Code changed | Client lint, unit tests, production build and page titles, plus a check that the desktop release named in `client/lib/desktopRelease.ts` has its assets on GitHub |
 | `Server (Node.js 22)`, `Server (Node.js 24)` | Code changed | Server tests, once on each Node version |
 | `CLI (Go, <os>)` | Code changed | Vet, tests and build, on Linux, Windows and macOS |
@@ -388,7 +388,7 @@ A first job, `Detect changed paths`, decides which of the jobs below run, and `C
 
 To run a job locally (commands are for a bash shell):
 
-- **`Repo guardrails`**, from the repository root: `node .claude/skills/untrusted-peer-data/scripts/check-consumers.mjs` and `node .claude/skills/docs-verify/scripts/docs-check.mjs all`.
+- **`Repo guardrails`**, from the repository root: `node .claude/skills/untrusted-peer-data/scripts/check-consumers.mjs`, `node .claude/skills/docs-verify/scripts/docs-check.mjs all` and `node --test ".github/scripts/*.test.mjs"`.
 - **`Build & Lint`**, in `client/`: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm test`, `pnpm build`, `node scripts/check-titles.mjs`.
 - **`Server`**, in `server/`: `npm ci`, `npm test`.
 - **`CLI`**, in `cli/`: `go vet ./...`, `go test -count=1 ./...`, `go build ./cmd/floe`.
@@ -415,7 +415,7 @@ A workflow that breaks either one fails to start, before any of its jobs run, an
 - Match the formatting of the surrounding code, and lint before pushing: `pnpm lint` (in `client/`)
 - Do not run `npm run format`. There is a root `.prettierrc`, but no CI job runs it and almost nothing in the repo is formatted to it: the config leaves `printWidth` at the default 80 against a codebase written to about 120, so it would reflow essentially every file in the repository. Formatting a file you are already editing is fine; reformatting one you are not is a diff nobody can review. (Measured on 2026-09-05: of 320 tracked files Prettier will parse, 315 are unformatted, and the 5 it accepts are lockfiles and generated JSON.)
 - Go code is formatted with `gofmt`, and CI fails a pull request that leaves any tracked `.go` file unformatted. Run `gofmt -w` on the Go files you changed, or let your editor format on save. On a Windows checkout with CRLF line endings, `gofmt -l` flags every file it reads, formatted or not, so it is not a usable check there.
-- Docs and Markdown are written in American English, with no em dashes and no en dashes. Inside `docs/`, a Vale check on Mintlify's side enforces both (`docs/.vale.ini` and the two rules in `docs/styles/Floe/`). Everywhere else it is a convention, and it covers the text a user can see in the product as well, with one check: the docs pre-flight above fails on an em or en dash in the root Markdown files, the Markdown under `.github/` and `unraid/`, `desktop/README.md`, `desktop/build/README.md` and `.goreleaser.yml`.
+- Docs and Markdown are written in American English, with no em dashes and no en dashes. Inside `docs/`, a Vale check on Mintlify's side enforces both (`docs/.vale.ini` and the two rules in `docs/styles/Floe/`). Everywhere else it is a convention, and it covers the text a user can see in the product as well, with one check: the docs pre-flight above fails on an em or en dash in the root Markdown files, the Markdown under `unraid/`, the `.md`, `.yml` and `.mjs` files under `.github/`, `desktop/README.md`, `desktop/build/README.md` and `.goreleaser.yml`.
 - Keep components focused and readable
 
 ---

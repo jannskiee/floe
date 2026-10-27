@@ -11,3 +11,16 @@ rules:
     # starts every ecosystem at once (ship-it references/dependency-prs.md).
     # That change deletes this entry in the same commit.
     disable: true
+  dangerous-triggers:
+    # claim.yml only, by its base name; every other workflow stays audited.
+    # The /take bot has to run on issue_comment: answering a comment is the
+    # whole point, so the trigger cannot be fixed, only contained. It holds no
+    # secret, checks out main's own .github folder and never a pull request,
+    # its token can change issues and nothing else of note, and it reads the
+    # comment only as data inside .github/scripts/claim.mjs. The ignore
+    # covers the whole file, so claim.test.mjs pins what it relies on: one
+    # trigger (issue_comment), a checkout with no ref or repository, no
+    # secret, and no expression in the script. Remove this entry when the
+    # bot is retired.
+    ignore:
+      - claim.yml

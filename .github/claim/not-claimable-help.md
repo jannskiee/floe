@@ -1,0 +1,1 @@
+@{{login}} `/take` claims good first issues only. Help wanted issues are assigned by the maintainer: comment here with your plan (the files you will change and how), and wait for the maintainer's answer.

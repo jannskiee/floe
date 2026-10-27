@@ -232,6 +232,19 @@ jobs:
         # as paragraphs of pipe text in #518 with every check green.
         run: node .claude/skills/docs-verify/scripts/docs-check.mjs all
 
+      - name: Claim bot tests
+        # The /take bot (claim.yml) runs only from main, on issue comments, so
+        # a pull request never runs it: these tests are the only check its
+        # rules get before they go live. Here rather than in Skill test suites
+        # because the bot is not a skill, and here rather than in a heavy job
+        # because it needs no install and takes under a second. Its tests also
+        # read CONTRIBUTING.md's headings, which the go-ahead reply links. A
+        # quoted glob (Node 22 refuses a directory argument), and a glob that
+        # matches nothing passes, so the file's presence is checked first.
+        run: |
+          test -f .github/scripts/claim.test.mjs || { echo 'claim.test.mjs is missing' >&2; exit 1; }
+          node --test ".github/scripts/*.test.mjs"
+
   skills:
     name: Skill test suites
     runs-on: windows-latest

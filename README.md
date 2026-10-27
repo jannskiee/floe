@@ -91,6 +91,8 @@ The [FAQ](https://www.floe.one/docs/faq) answers the questions that come up most
 
 Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, environment variables, and the pull request process. If you encounter a bug or have a feature suggestion, please open an [issue](https://github.com/jannskiee/floe/issues).
 
+Looking for a first issue? Start a comment with `/take` on one of the [good first issues nobody holds yet](https://github.com/jannskiee/floe/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22%20no%3Aassignee%20-linked%3Apr) to have it assigned to you.
+
 This project follows the [Code of Conduct](CODE_OF_CONDUCT.md). To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## Support

@@ -31,8 +31,8 @@ a page with no frontmatter block or missing title or description, two hyphens in
 sidebarTitle or description, a `<` in a heading that MDX cannot read as a closed tag, a table whose
 delimiter row and header differ in cell count, a straight double quote that opens a table
 cell or closes one after punctuation, an em or en dash (in the docs and docs/docs.json,
-the root, .github and unraid Markdown, the desktop READMEs, `.goreleaser.yml` and
-`docs/style.css`), a
+the root and unraid Markdown, every `.md`, `.yml` and `.mjs` file under .github,
+the desktop READMEs, `.goreleaser.yml` and `docs/style.css`), a
 documented server default that contradicts server/server.js, or one
 of the env self-checks failing (fewer keys than the server modules read, or a configuration
 page that yields no variable rows). And from the three promoted checks: a break of the page

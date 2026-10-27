@@ -1,0 +1,80 @@
+# Claim bot. A contributor starts a comment with /take on a good first issue
+# and is assigned, usually within a minute (a GitHub runner can take longer to
+# start), or gets one fixed reply saying why not; /untake gives the issue
+# back, and a plain "I'd like to work on this" on a good first issue gets one
+# reply: how to claim, or why it can't be claimed.
+# Every rule lives in .github/scripts/claim.mjs (tested in ci.yml's Repo
+# guardrails job) and every reply is a file in .github/claim/.
+#
+# issue_comment runs this file from main for any GitHub account, with no
+# approval step. So: no secrets, a token that can touch issues and nothing
+# else of note, a checkout of main's own .github folder and nothing from a pull
+# request, and the comment read only as data inside claim.mjs, never through a
+# ${{ }} expression in a script or a shell. zizmor's dangerous-triggers audit
+# flags the trigger itself; .github/zizmor.yml records why it is accepted.
+#
+# Not a CI job and not in CI green: no pull request runs it.
+# To stop it at once: gh workflow disable claim.yml (then a revert PR).
+# Any account can start this job by commenting, and every run spends a few
+# requests of the repository's GITHUB_TOKEN budget (1,000 an hour, shared with
+# every job that calls the API on it: in ci.yml Lint workflows, Build & Lint's
+# desktop release check and Back-compat, and the release jobs). Against a
+# flood: block the account, then disable the workflow.
+name: Claim bot
+
+on:
+  issue_comment:
+    types: [created]
+
+# No workflow-level grants; the job asks for what it uses.
+permissions: {}
+
+jobs:
+  claim:
+    name: Claim
+    # Open issues only (issue_comment also fires on pull request
+    # conversations), people only, never the owner (who assigns by hand), and
+    # never a fork. Off good first issues only a comment that names a command
+    # runs, so ordinary bug threads stay quiet. contains() reads the comment as
+    # a value, never as code.
+    if: >-
+      github.repository == 'jannskiee/floe' &&
+      !github.event.issue.pull_request &&
+      github.event.issue.state == 'open' &&
+      github.event.comment.user.type == 'User' &&
+      github.event.comment.author_association != 'OWNER' &&
+      (contains(github.event.issue.labels.*.name, 'good first issue') ||
+       contains(github.event.comment.body, '/take') ||
+       contains(github.event.comment.body, '/untake'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      # Assign and unassign, reply, and react to the command.
+      issues: write
+      # Read the pull requests that would close the issue (a GraphQL query).
+      pull-requests: read
+      # The checkout below, and the commit history the first-PR rule reads.
+      contents: read
+    # One run at a time per issue, never cancelled once it runs. A group keeps
+    # a single pending run, so in a burst a newer run replaces an older
+    # pending one; claim.mjs answers every unanswered command on the issue,
+    # oldest first, so that comment is still handled. actionlint 1.7.12
+    # rejects queue: max, which would keep them all. At job level on purpose:
+    # a job the if: above skips never joins the group, so it cannot replace a
+    # pending claim.
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    steps:
+      - name: Check out the bot's files from main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github
+
+      - name: Answer the comment
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { main } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/claim.mjs`);
+            await main({ github, context, core });

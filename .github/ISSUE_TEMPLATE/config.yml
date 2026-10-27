@@ -6,3 +6,6 @@ contact_links:
   - name: Questions and ideas
     url: https://github.com/jannskiee/floe/discussions
     about: Ask a question or float an idea in Discussions. Bug reports and concrete feature requests belong in issues.
+  - name: Looking for a first issue?
+    url: https://github.com/jannskiee/floe/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22%20no%3Aassignee%20-linked%3Apr
+    about: Good first issues nobody holds yet, for a first pull request here. Start a comment with /take on one to have it assigned to you.

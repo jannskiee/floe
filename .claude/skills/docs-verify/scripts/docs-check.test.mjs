@@ -614,6 +614,22 @@ test('an em dash in .goreleaser.yml, under unraid/ or desktop/, or in docs/style
     }
 });
 
+// .github's workflows and scripts are read like docs too, and the claim bot's
+// rules (.github/scripts/claim.mjs) sit among them.
+test('an em dash in a .github workflow, script or reply text is HARD', () => {
+    for (const file of [
+        '.github/workflows/claim.yml',
+        '.github/scripts/claim.mjs',
+        '.github/claim/assigned.md',
+    ]) {
+        const root = fresh();
+        const n = appendLine(root, file, `// A comment ${EM_DASH} with a dash.`);
+        const r = run(root);
+        assert.equal(r.status, 1, file);
+        assert.match(r.out, new RegExp(`HARD  dashes  ${file.replace(/[.]/g, '\\.')}:${n}:`), file);
+    }
+});
+
 // cli/self-hosted-server's description named `--server` on 2026-10-11 and the
 // rendered page showed an em dash followed by "server".
 test('two hyphens in a description are HARD', () => {
