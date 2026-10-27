@@ -2782,7 +2782,7 @@ function App() {
                         </p>
                         <StatusLine text={resetErr} busy={false}/>
                         <div className="mt-4 flex justify-end gap-2">
-                            <Button variant="outline" onClick={() => { setConfirmDefaults(false); focusResetTrigger(); }}>Cancel</Button>
+                            <Button variant="outline" autoFocus onClick={() => { setConfirmDefaults(false); focusResetTrigger(); }}>Cancel</Button>
                             <Button onClick={resetAllSettings}>Reset all settings</Button>
                         </div>
                 </DialogShell>

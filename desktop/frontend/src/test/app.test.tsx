@@ -221,6 +221,24 @@ describe('the settings screen', () => {
             vi.useRealTimers();
         }
     });
+
+    it('Reset all settings? opens with focus on Cancel, and Enter there resets nothing', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getByRole('button', {name: 'Settings'}));
+        const reset = await screen.findByRole('button', {name: 'Reset'});
+        await user.click(reset);
+        const dialog = await screen.findByRole('dialog');
+        expect(within(dialog).getByText('Reset all settings?')).toBeTruthy();
+        expect(document.activeElement?.textContent).toBe('Cancel');
+        expect(document.activeElement).toBe(within(dialog).getByRole('button', {name: 'Cancel'}));
+
+        await user.keyboard('{Enter}');
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        expect(wails.go.SetSettings).not.toHaveBeenCalled();
+        await waitFor(() => expect(document.activeElement).toBe(reset));
+    });
 });
 
 describe('the close guard', () => {
