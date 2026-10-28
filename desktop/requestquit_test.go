@@ -324,7 +324,10 @@ func TestDropRecordRetriesAFailedWrite(t *testing.T) {
 // TestDropRecordOwedWriteRuns is the same with the real timer: five files
 // in the first second, then none, and the record says five. Its poller can
 // hold the record open while the owed write renames over it, which the
-// retry above now covers.
+// retry above now covers. The race also runs the other way: a poll that
+// opens the record while that rename holds it fails on Windows with a
+// sharing violation (seen on windows-latest in CI, 2026-10-28), so a poll
+// that cannot read the record reads it again on the next tick.
 func TestDropRecordOwedWriteRuns(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "quit-drop.json")
 	tally := &dropTally{}
@@ -333,14 +336,23 @@ func TestDropRecordOwedWriteRuns(t *testing.T) {
 		tally.add(transfer.FileDone{SavedName: n, Bytes: 1})
 		rec.fileDone()
 	}
+	var q quitDrop
+	var readErr error
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		if q, ok := readQuitDrop(t, path); ok && q.Result.Saved == 5 {
+		var raw []byte
+		if raw, readErr = os.ReadFile(path); readErr != nil {
+			continue
+		}
+		q = quitDrop{}
+		if err := json.Unmarshal(raw, &q); err != nil {
+			t.Fatalf("the record is not JSON: %v", err)
+		}
+		if q.Result.Saved == 5 {
 			rec.clear()
 			return
 		}
 	}
-	q, _ := readQuitDrop(t, path)
-	t.Fatalf("10 s after five files saved in the first second, the record says %d saved", q.Result.Saved)
+	t.Fatalf("10 s after five files saved in the first second, the record says %d saved (last read error: %v)", q.Result.Saved, readErr)
 }
 
 // TestQuitMidDropKeepsTheRecord (deep QA A5-09): a quit during a drop ends the
