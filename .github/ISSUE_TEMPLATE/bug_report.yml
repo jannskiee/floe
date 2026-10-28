@@ -59,7 +59,7 @@ body:
     attributes:
       label: Version
       description: "Floe Desktop: Settings > About shows App version, and Copy there puts it on the clipboard with the server in use. CLI: `floe --version`. Self-hosted: the image tag you run. Skip for floe.one."
-      placeholder: desktop-v1.0.3 or floe 1.11.6
+      placeholder: desktop-v1.0.4 or floe 1.11.7
     validations:
       required: false
 

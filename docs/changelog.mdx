@@ -43,10 +43,20 @@ Floe ships on two version lines. `vX.Y.Z` releases the `floe` CLI and the contai
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
-<Update label="Unreleased" tags={["Web"]}>
-  **FAQ questions now support screen-reader heading navigation**
+<Update label="desktop-v1.0.4" description="2026-10-28" tags={["Desktop"]}>
+  **"Reset all settings?" now opens with keyboard focus on Cancel, so Enter there resets nothing**
 
+  - In Settings, **Reset** now opens **Reset all settings?** with keyboard focus on **Cancel**, as **Start over?** and **Close Floe?** already do, so a screen reader moves into the question and `Enter` closes it without resetting anything. Focus used to stay on **Reset** behind the question: the next `Tab` went to the Settings screen behind it, and `Enter` pressed **Reset** again. Contributed by [@hanshapd](https://github.com/hanshapd).
+</Update>
+
+<Update label="v1.11.7" description="2026-10-28" tags={["Web", "Self-hosting"]}>
+  **A file added twice on the main page is now listed and sent once, its FAQ questions are headings, and a self-hosted server given a port Node refuses now stops with an error**
+
+  - On the main page, a file you add again, by picking it again or by dropping it after picking it, is no longer listed a second time, so it is sent once and counted once in the count and total above the list. The page tells files apart by name, size and modified time: two files with the same name are both kept when either of the others differs, and two different files that match in all three are listed once. Such a file used to be listed and sent twice, and Floe Desktop and `floe` saved the second copy under a numbered name such as `report (1).pdf`. Contributed by [@dharamdan01](https://github.com/dharamdan01).
   - On the main page, FAQ questions are headings for screen-reader navigation, and each question button is linked to its answer. Contributed by [@Martin-e60](https://github.com/Martin-e60).
+  - Self-hosting: a signaling server given a [`PORT`](/self-hosting/configuration#port) that Node refuses, such as `70000` or `3001.5`, now writes `HTTP server error:` and exits with code 1, as it does when its port is taken, so a supervisor such as systemd with `Restart=on-failure` sees the failure. It used to log `Unhandled error (uncaughtException), server still serving:` while nothing was listening, then exit with code 0, which reads as a clean stop. Contributed by [@OKAN-SOFTWARE](https://github.com/OKAN-SOFTWARE).
+  - Self-hosting: the published images are rebuilt as `1.11.7`, with the web app and server changes above. If you pinned `FLOE_IMAGE_TAG=1.11.6`, move to `1.11.7`.
+  - CLI: `floe` has no visible changes in this release. Its version moves with the images, and it transfers with every other Floe version as before.
 </Update>
 
 <Update label="desktop-v1.0.3" description="2026-10-25" tags={["Desktop"]}>

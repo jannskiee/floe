@@ -19,7 +19,7 @@ Both are public, so `docker pull` needs no login. Both run as the unprivileged u
 | Tag | Points at | Use it when |
 |-----|-----------|-------------|
 | `latest` | The newest release | **The default.** What you get if you change nothing. |
-| `1.11.6` | One exact release | You want to control when you move between versions. |
+| `1.11.7` | One exact release | You want to control when you move between versions. |
 | `1.11` | The newest patch of a minor line | You want patches automatically but not minor bumps. |
 | `main` | The newest build from `main` | You want changes before they are released. |
 | `sha-<7 characters>` | One exact commit, named by the first 7 characters of its id | You want a build that can never move under you. |
@@ -38,10 +38,10 @@ merge to `main` that touched those folders. A commit that was never built has no
 Pin a tag with `FLOE_IMAGE_TAG`:
 
 ```dotenv .env
-FLOE_IMAGE_TAG=1.11.6
+FLOE_IMAGE_TAG=1.11.7
 ```
 
-The variable is `FLOE_IMAGE_TAG`, not `FLOE_VERSION`. `FLOE_VERSION` belongs to the [CLI](/glossary#cli)'s install script (see [Install the CLI](/cli/installation)) and is written with a leading `v`, as in `v1.11.6`. Image tags carry no `v`, so reusing that name would resolve to a tag that does not exist.
+The variable is `FLOE_IMAGE_TAG`, not `FLOE_VERSION`. `FLOE_VERSION` belongs to the [CLI](/glossary#cli)'s install script (see [Install the CLI](/cli/installation)) and is written with a leading `v`, as in `v1.11.7`. Image tags carry no `v`, so reusing that name would resolve to a tag that does not exist.
 
 ## Pinning a digest
 
@@ -49,8 +49,8 @@ A tag can be repointed. A digest cannot, so it is the strongest pin. Read the di
 for both images:
 
 ```bash Terminal
-docker buildx imagetools inspect ghcr.io/jannskiee/floe-server:1.11.6
-docker buildx imagetools inspect ghcr.io/jannskiee/floe-client:1.11.6
+docker buildx imagetools inspect ghcr.io/jannskiee/floe-server:1.11.7
+docker buildx imagetools inspect ghcr.io/jannskiee/floe-client:1.11.7
 ```
 
 Take the digest each one prints and pin both services with it, in place of their tags. Take both
