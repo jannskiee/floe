@@ -1,0 +1,1 @@
+- **Title.** Floe's pull request titles read `type(scope): subject`, lowercase and imperative, for example `fix(client): keep the progress bar visible while verifying` ([pull request process](https://github.com/jannskiee/floe/blob/main/CONTRIBUTING.md#pull-request-process), step 9). Editing the title is enough: the squash commit takes it.

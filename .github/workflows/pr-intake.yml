@@ -1,0 +1,70 @@
+# Pull request intake sweep. Every 30 minutes, after every push to main and on
+# a manual dispatch, it reads the open pull requests through the API and, for
+# each one from outside, plans one comment and up to three labels: who holds
+# the linked issue, whether another open pull request targets it, whether an
+# issue is linked at all, and notes for a first pull request. It never closes,
+# assigns or approves anything (owner decision D6), and it never runs a pull
+# request's code: the checkout below is this repository's own .github folder.
+# Every rule lives in .github/scripts/pr-intake.mjs (tested in ci.yml's Repo
+# guardrails job) and every text is a file in .github/intake/.
+#
+# A dry run until LIVE_SINCE in pr-intake.mjs is set by a reviewed pull
+# request: until then every run writes its plan to the job summary and the log
+# and nothing to GitHub, and the token below cannot write either. The go-live
+# pull request sets LIVE_SINCE and raises pull-requests to write together
+# (pr-intake.test.mjs keeps the two in step). After that only a schedule or
+# push run on main writes; a manual dispatch always previews.
+#
+# Not a CI job and not in CI green: moderation never gates a merge, and no pull
+# request runs this file. Scheduled runs drift (5-minute crons were measured 6
+# to 27 minutes apart), and GitHub disables the whole workflow after 60 days
+# without repository activity: gh workflow enable pr-intake.yml.
+# To stop it at once: gh workflow disable pr-intake.yml (and gh run cancel <id>
+# for a run in progress), then a revert pull request.
+name: PR intake
+
+on:
+  schedule:
+    # Off the hour, when GitHub's scheduler is busiest.
+    - cron: '7,37 * * * *'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# No workflow-level grants; the job asks for what it uses.
+permissions: {}
+
+jobs:
+  sweep:
+    name: Sweep
+    if: github.repository == 'jannskiee/floe'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      # Read the pull requests and their comments. Read-only for the dry run;
+      # live, write lets the sweep comment on them and set their labels.
+      pull-requests: read
+      # Read the linked issues' assignees and labels (a GraphQL query).
+      issues: read
+      # The checkout below, and the commit history the claim note reads.
+      contents: read
+    # One sweep at a time, never cancelled once it runs. A group keeps a single
+    # pending run, so a newer run can replace a pending one, which loses
+    # nothing: every run reads everything again. A manual dispatch only
+    # previews and has a group of its own, so the two never replace each other.
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && 'preview' || 'sweep' }}
+      cancel-in-progress: false
+    steps:
+      - name: Check out the sweep's files
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github
+
+      - name: Sweep the open pull requests
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { main } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/pr-intake.mjs`);
+            await main({ github, context, core });

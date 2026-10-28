@@ -1,0 +1,1 @@
+- **This is a good first issue.** Issue {{issue}} is a good first issue, and those are kept for a first pull request here; you already have a commit in Floe. The maintainer will decide on this one. Next time, pick an issue labeled [help wanted]({{help_url}}) and comment there with your plan to have it assigned.

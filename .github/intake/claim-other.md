@@ -1,0 +1,1 @@
+- **The issue is assigned to someone else.** Issue {{issue}} is assigned to someone else, and the contributing guide says a pull request for an issue assigned to someone else is closed ([your first Floe pull request](https://github.com/jannskiee/floe/blob/main/CONTRIBUTING.md#your-first-floe-pull-request), step 1). The maintainer will decide on this one.

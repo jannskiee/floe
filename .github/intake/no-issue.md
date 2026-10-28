@@ -1,0 +1,1 @@
+- **No linked issue.** This pull request doesn't link an issue. If it fixes one, put `Closes #N` at the top of the description, with that issue's number for N, so the issue closes when this is merged ([your first Floe pull request](https://github.com/jannskiee/floe/blob/main/CONTRIBUTING.md#your-first-floe-pull-request), step 6).

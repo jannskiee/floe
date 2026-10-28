@@ -374,7 +374,7 @@ A first job, `Detect changed paths`, decides which of the jobs below run, and `C
 
 | CI job | Runs when | What it checks |
 |--------|-----------|----------------|
-| `Repo guardrails` | Every PR | That every file reading a value the other peer chose is listed in the peer-data consumer map; the docs pre-flight: links and anchors, tables, headings MDX cannot compile, documented server defaults, em and en dashes, the docs page standard, the message list and the screenshot manifests; and the tests of the `/take` claim bot, which also check that the setup headings its replies link to still exist in this file |
+| `Repo guardrails` | Every PR | That every file reading a value the other peer chose is listed in the peer-data consumer map; the docs pre-flight: links and anchors, tables, headings MDX cannot compile, documented server defaults, em and en dashes, the docs page standard, the message list and the screenshot manifests; and the tests of the `/take` claim bot and of the pull request intake sweep, which also check that the headings their texts link to still exist in this file and pin the sentences of it their texts restate |
 | `Build & Lint` | Code changed | Client lint, unit tests, production build and page titles, plus a check that the desktop release named in `client/lib/desktopRelease.ts` has its assets on GitHub |
 | `Server (Node.js 22)`, `Server (Node.js 24)` | Code changed | Server tests, once on each Node version |
 | `CLI (Go, <os>)` | Code changed | Vet, tests and build, on Linux, Windows and macOS |

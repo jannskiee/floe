@@ -1,0 +1,1 @@
+- **All set.** Nothing from these notes is open now.

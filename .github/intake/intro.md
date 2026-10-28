@@ -1,0 +1,1 @@
+Thanks for the pull request! Floe's intake check keeps a few notes for it here and updates this one comment as things change. It never closes, assigns or approves anything; the maintainer reviews every pull request.

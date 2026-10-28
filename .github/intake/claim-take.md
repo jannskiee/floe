@@ -1,0 +1,1 @@
+- **Claim the issue first.** Issue {{issue}} isn't assigned to anyone yet. Start a new comment on issue {{issue}} with `/take`, and the claim bot assigns you or replies with the reason it can't ([your first Floe pull request](https://github.com/jannskiee/floe/blob/main/CONTRIBUTING.md#your-first-floe-pull-request), step 1).

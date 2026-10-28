@@ -1,0 +1,1 @@
+- **More than one pull request.** Issue {{issue}} has more than one open pull request: this one and {{others}}. Nobody is assigned to it, so the first pull request that matches the issue is merged and the others are closed with thanks ([what happens after you open it](https://github.com/jannskiee/floe/blob/main/CONTRIBUTING.md#what-happens-after-you-open-it)).

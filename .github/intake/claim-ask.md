@@ -1,0 +1,1 @@
+- **Ask for the issue.** Issue {{issue}} isn't assigned to anyone yet. Comment on issue {{issue}} with your plan and ask the maintainer to assign it to you ([your first Floe pull request](https://github.com/jannskiee/floe/blob/main/CONTRIBUTING.md#your-first-floe-pull-request), step 1).

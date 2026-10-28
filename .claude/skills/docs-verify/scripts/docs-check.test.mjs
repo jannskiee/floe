@@ -614,13 +614,16 @@ test('an em dash in .goreleaser.yml, under unraid/ or desktop/, or in docs/style
     }
 });
 
-// .github's workflows and scripts are read like docs too, and the claim bot's
-// rules (.github/scripts/claim.mjs) sit among them.
+// .github's workflows and scripts are read like docs too, and the rules of
+// the claim bot and the pull request intake sweep sit among them.
 test('an em dash in a .github workflow, script or reply text is HARD', () => {
     for (const file of [
         '.github/workflows/claim.yml',
         '.github/scripts/claim.mjs',
         '.github/claim/assigned.md',
+        '.github/workflows/pr-intake.yml',
+        '.github/scripts/pr-intake.mjs',
+        '.github/intake/intro.md',
     ]) {
         const root = fresh();
         const n = appendLine(root, file, `// A comment ${EM_DASH} with a dash.`);

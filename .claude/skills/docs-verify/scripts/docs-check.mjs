@@ -2002,7 +2002,7 @@ function checkDashes(ctx) {
             files.push(join(root, name));
     }
     // .github's workflows and scripts as well as its Markdown: their comments
-    // are read like docs, and the claim bot's rules live in a .mjs there.
+    // are read like docs, and the bots' rules live in .mjs files there.
     files.push(...walk(join(root, '.github'), ['.md', '.yml', '.mjs']));
     // Markdown and reader-facing config outside the two places above. The rule
     // in CLAUDE.md covers every Markdown file, and this check only ever looked
