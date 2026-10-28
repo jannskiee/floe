@@ -222,6 +222,8 @@ describe('the settings screen', () => {
         }
     });
 
+    // The safe choice takes focus, as Keep going and Keep open do. Without
+    // it focus stays on Reset behind the scrim, and Enter presses Reset again.
     it('Reset all settings? opens with focus on Cancel, and Enter there resets nothing', async () => {
         const user = userEvent.setup();
         mount();

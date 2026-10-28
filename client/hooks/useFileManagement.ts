@@ -1,11 +1,8 @@
 import { useState, type ChangeEvent, type DragEvent } from 'react';
 import { mergeFiles, type FileWithId } from '@/lib/fileSelection';
-
-export type { FileWithId } from '@/lib/fileSelection';
-
 import { FOLDER_DROP_REFUSED, allReadable, dropHasFolder } from '@/lib/pageGuards';
 
-
+export type { FileWithId } from '@/lib/fileSelection';
 
 /**
  * Owns the sender's file-selection state: the chosen files, drag-and-drop
@@ -17,14 +14,15 @@ import { FOLDER_DROP_REFUSED, allReadable, dropHasFolder } from '@/lib/pageGuard
 export function useFileManagement() {
     const [files, setFiles] = useState<FileWithId[]>([]);
     const [isDragging, setIsDragging] = useState(false);
-    // Why the last drop was refused, until the selection next changes.
+    // Why the last drop was refused, until the next add or removal.
     const [dropNotice, setDropNotice] = useState<string | null>(null);
 
     const totalBytes = files.reduce((sum, f) => sum + f.file.size, 0);
 
     const addFiles = (incoming: FileList | File[]) => {
+        // Read the list now, not inside the updater: handleFileSelection resets
+        // the input as soon as this returns, and the updater can run after that.
         const list = Array.from(incoming);
-
         setDropNotice(null);
         setFiles((prev) => mergeFiles(prev, list));
     };

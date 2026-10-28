@@ -1,7 +1,6 @@
 'use client';
 
 import { useId, useState, ReactNode } from 'react';
-
 import { ChevronDown } from 'lucide-react';
 import { SectionHeader, sectionClass } from '@/components/landing/SectionHeader';
 

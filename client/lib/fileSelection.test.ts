@@ -1,4 +1,3 @@
-
 import { describe, expect, it } from 'vitest';
 import { mergeFiles, type FileWithId } from './fileSelection';
 

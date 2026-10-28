@@ -330,8 +330,9 @@ function App() {
     // and from recv:file-done, which an empty file gets without any progress.
     // Both senders number files 1 to N in commit order, so the count of
     // recv:file-done events so far is the file's fileIndex. A Map, not an
-    // array: if the engine corrects a SavedName at commit time (a name collision surfaced by the final rename), the
-    // corrected event must REPLACE the entry, or one file would count twice in
+    // array: if the engine corrects a SavedName at commit time (a name
+    // collision surfaced by the final rename), the corrected event must
+    // REPLACE the entry, or one file would count twice in
     // history and the single-file Open/Reveal buttons would vanish.
     const recvNamesRef = useRef<Map<number, string>>(new Map());
     // Total bytes of the in-flight receive, for the history entry.

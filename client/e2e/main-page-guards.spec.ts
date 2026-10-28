@@ -386,6 +386,23 @@ test('each selected file has a named remove button', async ({ page }) => {
     await expect(page.getByText('fixture-32768.bin').first()).toBeVisible();
 });
 
+test('a file picked again is listed once', async ({ page }) => {
+    // The browser hands over a new File object on every pick, so the page keys
+    // each file on its name, size and modified time (#692). Real paths, because
+    // a buffer would get a new modified time on every call.
+    const { path: first } = createFixture(FIXTURE_DIR, 24 * 1024);
+    const { path: second } = createFixture(FIXTURE_DIR, 40 * 1024);
+    await page.goto('/');
+    await page.getByLabel('Choose files to send').setInputFiles(first);
+    await expect(page.getByRole('button', { name: `Remove ${basename(first)}` })).toHaveCount(1);
+
+    // The same file again, with a new one, through the strip's own input. Once
+    // the new one is listed, the whole pick has been merged.
+    await page.getByLabel('Add more files to send').setInputFiles([first, second]);
+    await expect(page.getByRole('button', { name: `Remove ${basename(second)}` })).toHaveCount(1);
+    await expect(page.getByRole('button', { name: `Remove ${basename(first)}` })).toHaveCount(1);
+});
+
 test('the QR button is named by its words and says whether the QR is open', async ({ page }) => {
     // Its name was an aria-label that replaced "Show QR" and "Hide QR", so a
     // voice-control user who said the words on the button got no match
