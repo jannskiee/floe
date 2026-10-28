@@ -449,18 +449,6 @@ The rule suite of the owner's tag push must read `bypass`. A `pass` means
 `release-tag-writers` rules, beside the `release-tags` ones on a `v*` tag only
 (`release-tags` covers `refs/tags/v*`, which no `desktop-v*` name matches).
 
-One-time item. After the first immutable `v*` release, add a "verify with gh"
-line (`gh release verify-asset <tag> <file> -R jannskiee/floe`) to the
-checksum section of docs/cli/installation.mdx. After the first immutable
-`desktop-v*` release, add one to docs/desktop/installation.mdx. Word each as
-a floor ("vX.Y.Z or later"), since older releases have no attestation. When
-both are in, delete this paragraph. v1.11.5 is immutable and attested
-without being the floor: editing an older release's notes locks it and
-attests its assets as they stand (its body was corrected on 2026-10-26),
-and v1.11.6, published later and never edited, is neither. So the floor is
-the first tag of each series published since immutable releases were turned
-on (2026-10-26, so a tag cut later that day counts).
-
 The link each release body carries: `gh release view <tag> --json body --jq
 .body` shows a "What changed" line (the footer of a `v*` body, a line near
 the end of a desktop one). Open that URL and confirm it lands on the entry

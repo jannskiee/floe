@@ -214,6 +214,15 @@ sha256sum --check --ignore-missing checksums.txt
 
 On Windows, `Get-FileHash <archive> -Algorithm SHA256` in PowerShell prints the hash to compare with the archive's line in `checksums.txt`.
 
+For a release of v1.11.7 or later, the GitHub CLI (`gh`) can also check an archive against the release's attestation, which
+GitHub records when the release is published:
+
+```bash Terminal
+gh release verify-asset vX.Y.Z floe_X.Y.Z_linux_amd64.tar.gz -R jannskiee/floe
+```
+
+Older releases have no attestation, so check them against `checksums.txt`.
+
 ## Verify the install
 
 ```bash Terminal

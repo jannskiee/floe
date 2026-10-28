@@ -121,17 +121,26 @@ behind a filtering proxy, the runtime cannot install and Floe cannot start. It s
 Every GitHub release ships `SHA256SUMS.txt`. To check a file you downloaded:
 
 ```powershell PowerShell
-Get-FileHash floe-desktop-setup-1.0.3.exe -Algorithm SHA256
+Get-FileHash floe-desktop-setup-1.0.4.exe -Algorithm SHA256
 ```
 
 Compare the result with the matching line in `SHA256SUMS.txt`. PowerShell prints the hash in capital letters
 and the file writes it in lowercase, so compare the characters and ignore their case. Store installs need no
 check: the Store verifies the package signature itself.
 
+For a release of desktop-v1.0.4 or later, the GitHub CLI (`gh`) can also check a download against the release's
+attestation, which GitHub records when the release is published:
+
+```powershell PowerShell
+gh release verify-asset desktop-vX.Y.Z floe-desktop-setup-X.Y.Z.exe -R jannskiee/floe
+```
+
+Older releases have no attestation, so check them against `SHA256SUMS.txt`.
+
 ## Check the version
 
 Open **Settings** (the gear in the title bar, or `Ctrl` `,`) and look at the **About** section. **App version**
-reads the release tag, for example `desktop-v1.0.3`. A build you compiled yourself reads `dev`.
+reads the release tag, for example `desktop-v1.0.4`. A build you compiled yourself reads `dev`.
 
 That section also shows the transfer protocol version and which [signaling server](/glossary#signaling-server)
 the app is using, and a **Copy** button that puts all of it on the clipboard. Those are the details worth
@@ -139,8 +148,8 @@ including in a bug report.
 
 Windows shows the Microsoft Store build under a different number, in **Apps** in Windows Settings and in
 `winget list`. The Store needs a version that does not start with 0, so the first number is one higher and a
-fourth number is added: Floe Desktop 1.0.3 is `2.0.3.0` there. The version Floe itself shows, and the
-changelog, use `desktop-v1.0.3`.
+fourth number is added: Floe Desktop 1.0.4 is `2.0.4.0` there. The version Floe itself shows, and the
+changelog, use `desktop-v1.0.4`.
 
 ## Update
 
