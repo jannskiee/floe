@@ -2,12 +2,15 @@ package main
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // okWS stands in for a signaling dial that succeeds, so a test can isolate the
@@ -230,18 +233,28 @@ func TestProbeServerRejectsNonFloeEndpoints(t *testing.T) {
 
 // TestProbeServerRejectsUnreachableHosts covers the transport failures, each with
 // its own message so the user knows whether to fix the address or the server.
+// Every row stays on loopback, which Go never sends through a proxy, so the
+// test passes behind HTTPS_PROXY too. Host not found and the timeout need the
+// network or a long wait here, so TestDescribeDialError pins those two.
 func TestProbeServerRejectsUnreachableHosts(t *testing.T) {
+	dead := httptest.NewServer(http.NotFoundHandler())
+	refused := dead.URL
+	dead.Close()
+
+	untrusted := httptest.NewTLSServer(http.NotFoundHandler())
+	defer untrusted.Close()
+
 	for _, tc := range []struct{ name, addr, want string }{
-		{"unresolvable host", "https://floe-probe-test.invalid", "Host not found"},
-		{"connection refused", "http://127.0.0.1:59999", "Couldn't connect"},
+		{"connection refused", refused, "Couldn't connect to that server"},
+		{"untrusted certificate", untrusted.URL, "Couldn't verify the server's certificate"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := probeServer(tc.addr, okWS)
 			if got.OK {
 				t.Fatalf("probeServer(%q) = %+v, want failure", tc.addr, got)
 			}
-			if !strings.Contains(got.Message, tc.want) {
-				t.Errorf("message = %q, want it to contain %q", got.Message, tc.want)
+			if got.Message != tc.want {
+				t.Errorf("message = %q, want %q", got.Message, tc.want)
 			}
 		})
 	}
@@ -543,5 +556,39 @@ func TestRequestLinkSupportUsesTheConfiguredServer(t *testing.T) {
 	a := &App{cfg: appConfig{Server: srv.URL}}
 	if got := a.RequestLinkSupport(); got != (FeatureResult{Reachable: true, RequestLinks: true, FeatureList: true}) {
 		t.Errorf("RequestLinkSupport = %+v, want reachable with request-1 from %s", got, srv.URL)
+	}
+}
+
+// TestDescribeDialError pins Host not found, built the way net/http returns a
+// failed lookup, and a real timeout from the probe's own client, cut to 50 ms.
+func TestDescribeDialError(t *testing.T) {
+	stop := make(chan struct{})
+	slow := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case <-stop:
+		case <-r.Context().Done():
+		}
+	}))
+	defer slow.Close()
+	defer close(stop)
+	client := probeClient()
+	client.Timeout = 50 * time.Millisecond
+	_, timedOut := client.Get(slow.URL + "/health")
+	if timedOut == nil {
+		t.Fatal("the slow server answered")
+	}
+	notFound := &url.Error{Op: "Get", URL: "https://floe.example.com/health", Err: &net.OpError{
+		Op: "dial", Net: "tcp", Err: &net.DNSError{Err: "no such host", Name: "floe.example.com", IsNotFound: true},
+	}}
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{notFound, "Host not found"},
+		{timedOut, "Timed out reaching that address"},
+	} {
+		if got := describeDialError(tc.err); got != tc.want {
+			t.Errorf("describeDialError(%v) = %q, want %q", tc.err, got, tc.want)
+		}
 	}
 }
