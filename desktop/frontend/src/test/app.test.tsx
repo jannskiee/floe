@@ -987,6 +987,47 @@ describe('Settings > Check for updates', () => {
     });
 });
 
+// Hide my IP address and Contribute to global stats go through the whole-record
+// save. A refused save puts the switch back, as a Go-owned switch's refusal does:
+// a request link reads the saved record, not this screen.
+describe('Settings > Hide my IP address and Contribute to global stats', () => {
+    async function openSettings() {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getByRole('button', {name: 'Settings'}));
+        return user;
+    }
+    const box = (name: RegExp) => screen.getByRole('checkbox', {name}) as HTMLInputElement;
+
+    it('a refused save puts Hide my IP address back', async () => {
+        const user = await openSettings();
+        expect(box(/^Hide my IP address/).checked).toBe(false);
+        wails.go.SetSettings.mockRejectedValueOnce(new Error('disk full'));
+        await user.click(box(/^Hide my IP address/));
+        await waitFor(() => expect(wails.go.SetSettings).toHaveBeenCalledWith('', '', true, true));
+        await waitFor(() => expect(box(/^Hide my IP address/).checked).toBe(false));
+        expect(screen.getByText('Error: could not save settings. Error: disk full')).toBeTruthy();
+    });
+
+    it('a refused save puts Contribute to global stats back', async () => {
+        const user = await openSettings();
+        expect(box(/^Contribute to global stats/).checked).toBe(true);
+        wails.go.SetSettings.mockRejectedValueOnce(new Error('disk full'));
+        await user.click(box(/^Contribute to global stats/));
+        await waitFor(() => expect(wails.go.SetSettings).toHaveBeenCalledWith('', '', false, false));
+        await waitFor(() => expect(box(/^Contribute to global stats/).checked).toBe(true));
+    });
+
+    it('a save that lands keeps the new value', async () => {
+        const user = await openSettings();
+        await user.click(box(/^Hide my IP address/));
+        await waitFor(() => expect(wails.go.SetSettings).toHaveBeenCalledWith('', '', true, true));
+        await act(async () => { await Promise.resolve(); });
+        expect(box(/^Hide my IP address/).checked).toBe(true);
+    });
+});
+
 // What each picker stages or fills, through its own binding (SelectFiles,
 // SelectFolder). The drop zone's Files button shares its name with the Send
 // tab's Files choice, so the two zone buttons are found inside the zone.

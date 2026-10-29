@@ -458,14 +458,33 @@ function App() {
     // changed value is passed in explicitly. React state updates are asynchronous,
     // so a handler that calls setHideIP(v) and then saves would otherwise persist
     // the value it just replaced.
-    function saveSettings(next?: {hideIP?: boolean; reportStats?: boolean}) {
+    //
+    // It resolves true once Go has saved the record and false when Go refused it
+    // (the status line then says so). It never rejects.
+    function saveSettings(next?: {hideIP?: boolean; reportStats?: boolean}): Promise<boolean> {
         return SetSettings(
             serverAddrRef.current.trim(),
             webAddrRef.current.trim(),
             next?.hideIP ?? hideIPRef.current,
             next?.reportStats ?? reportStatsRef.current,
-        ).catch((e) => { setTestStatus('Error: could not save settings. ' + e); });
+        ).then(
+            () => true,
+            (e) => { setTestStatus('Error: could not save settings. ' + e); return false; },
+        );
     }
+
+    // Hide my IP address and Contribute to global stats are saved with the whole
+    // record. A refused save puts the switch back, as optimistic() does for the
+    // Go-owned switches: a request link reads the saved record, so the screen
+    // must never show a value Go did not keep.
+    const toggleHideIP = (v: boolean) => {
+        setHideIP(v);
+        void saveSettings({hideIP: v}).then((saved) => { if (!saved) setHideIP(!v); });
+    };
+    const toggleReportStats = (v: boolean) => {
+        setReportStats(v);
+        void saveSettings({reportStats: v}).then((saved) => { if (!saved) setReportStats(!v); });
+    };
 
     // Addresses are saved on blur rather than per keystroke: a half-typed address
     // written to disk would be picked up by a transfer started before typing
@@ -2086,13 +2105,13 @@ function App() {
                                     <div className={cn(cardClass, insetHairline)}>
                                         <SettingRow
                                             checked={hideIP}
-                                            onChange={(v) => { setHideIP(v); void saveSettings({hideIP: v}); }}
+                                            onChange={toggleHideIP}
                                             label="Hide my IP address"
                                             description="Hides your IP with a relay, slower and capped at 2 GB"
                                         />
                                         <SettingRow
                                             checked={reportStats}
-                                            onChange={(v) => { setReportStats(v); void saveSettings({reportStats: v}); }}
+                                            onChange={toggleReportStats}
                                             label="Contribute to global stats"
                                             description="Adds the size of what you receive to a public total, never names or contents"
                                         />
