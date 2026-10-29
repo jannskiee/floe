@@ -438,3 +438,23 @@ Open an issue and describe what you'd like and why it would be useful.
 Ask in [Discussions](https://github.com/jannskiee/floe/discussions). For bugs and concrete feature requests, open an issue. We are happy to help.
 
 Thank you for contributing!
+
+### Server frame fuzzer
+
+The server frame fuzzer exercises both the `/ws` and Socket.IO interfaces to check that malformed or unexpected frames do not crash the server.
+
+Run the fuzzer from the repository root:
+
+```bash
+cd server
+node --test fuzz.test.js
+```
+
+To reproduce a run or increase the frame count, use the same seed and frame count:
+
+```bash
+cd server
+FLOE_SERVER_FUZZ_SEED=123 FLOE_SERVER_FUZZ_FRAMES=1000 node --test fuzz.test.js
+```
+
+The default seed is `42`, and the default frame count is `100`. Use the same seed and frame count to reproduce a run.
