@@ -499,7 +499,7 @@ test("today's open pull requests give the hand-checked plan, and a preview write
         780: 'none none none',
         798: 'create first-pr none',
     });
-    assert.deepEqual(f.s.commitCalls, [], 'returners are known by association here');
+    assert.deepEqual(f.s.commitCalls, ['user700', 'user752', 'user798'], 'returners by association need no call; the rest are asked once');
     assert.match(core.summary.text, /LIVE_SINCE is not set, so this run wrote nothing/);
     assert.match(core.summary.text, /Open pull requests read: 9\. From outside: 8\./);
     assert.match(core.summary.text, /Issue 729 has more than one open pull request: this one and pull request 752\./);
@@ -721,7 +721,9 @@ test('pull requests on one unassigned issue all get the competing note, owner, b
     const text900 = bodyText(f.s.created.find((c) => c.number === 900).body);
     assert.match(text900, /this one and pull requests 901, 902, 903 and 904\./);
     assert.deepEqual(f.s.added.find((a) => a.number === 900).labels, ['unclaimed', 'competing-pr']);
-    assert.deepEqual(f.s.commitCalls, [], 'no /take advice while another pull request targets the issue');
+    // No /take advice while another pull request targets the issue; the one
+    // call is the first-pull-request check of 900 (904 is a draft).
+    assert.deepEqual(f.s.commitCalls, ['user900']);
 });
 
 test('an issue assigned to someone else, the owner included, gets the conflict note; its holder gets none', async () => {
@@ -831,10 +833,10 @@ test('the claim note follows the claim bot: /take only for a newcomer on a free 
     const p = plans(await f.run());
     assert.equal(p[930].notes, 'claim-returner', 'a returner by association');
     assert.equal(p[931].notes, 'claim-returner', 'a returner by commit history, though NONE');
-    assert.equal(p[932].notes, 'claim-take');
-    assert.equal(p[933].notes, 'claim-take');
+    assert.equal(p[932].notes, 'claim-take,first-pr', 'a newcomer, though NONE: the workflow token reads first-timers so');
+    assert.equal(p[933].notes, 'claim-take,first-pr');
     assert.equal(p[934].notes, 'claim-ask,first-pr', 'help wanted is assigned by hand');
-    assert.deepEqual(f.s.commitCalls, ['user931', 'fresh'], 'asked once per login, never for a returner by association');
+    assert.deepEqual(f.s.commitCalls, ['user931', 'fresh', 'user934'], 'asked once per login, never for a returner by association');
     const returner = bodyText(f.s.created.find((c) => c.number === 930).body);
     assert.ok(returner.includes(`[help wanted](${HELP_URL})`), 'the same help wanted search the claim bot links');
 
@@ -904,7 +906,10 @@ test('a draft gets only the notes that keep two people off the same work', async
     assert.equal(plans(await f.run())[940].notes, 'claim-take');
 });
 
-test('the first-pull-request note is for a first-timer\'s fork only', async () => {
+// The workflow's token never sees FIRST_TIME_CONTRIBUTOR (measured on main's
+// first push run, 2026-10-29), so a first-timer reads as NONE there: the note
+// follows the commit history, as the fork approval policy does.
+test('the first-pull-request note is for an author with no commit here, whatever the association reads', async () => {
     const quiet = (n, association, fork = true) => pr(n, { association, fork });
     const f = fakeGitHub({
         prs: [
@@ -913,13 +918,22 @@ test('the first-pull-request note is for a first-timer\'s fork only', async () =
             quiet(952, 'CONTRIBUTOR'),
             quiet(953, 'NONE'),
             quiet(954, 'FIRST_TIME_CONTRIBUTOR', false),
+            quiet(955, 'NONE'),
         ],
+        commitsBy: ['user955'],
     });
     const p = plans(await f.run());
     assert.deepEqual(
-        [950, 951, 952, 953, 954].map((n) => p[n].notes),
-        ['first-pr', 'first-pr', 'none', 'none', 'none']
+        [950, 951, 952, 953, 954, 955].map((n) => p[n].notes),
+        ['first-pr', 'first-pr', 'none', 'first-pr', 'first-pr', 'none']
     );
+    assert.deepEqual(f.s.commitCalls, ['user950', 'user951', 'user953', 'user954', 'user955'], 'never for a returner by association');
+
+    // An unread history is not guessed here either.
+    const g = fakeGitHub({ prs: [quiet(956, 'NONE')], fail: { listCommits: httpError(502) } });
+    const unread = await g.run();
+    assert.equal(plans(unread)[956].would, 'commits-unread');
+    assert.equal(g.writes(), 0);
 });
 
 test('a title out of style, or the issue\'s own title, gets the title note; the changelog note follows its rule', async () => {

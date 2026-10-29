@@ -89,10 +89,6 @@ export const DEFAULTS = Object.freeze({
     maintainer: MAINTAINER,
     skipAssociations: ['OWNER', 'MEMBER', 'COLLABORATOR'],
     authorTypes: ['User'],
-    // Whose CI waits for approval: the repository's fork policy is
-    // first_time_contributors. NONE is left out on purpose: an author with a
-    // merged pull request can read NONE (see claim.mjs).
-    firstTimeAssociations: ['FIRST_TIME_CONTRIBUTOR', 'FIRST_TIMER'],
     // Closing keywords link only into the default branch.
     baseRef: 'main',
     liveRef: 'refs/heads/main',
@@ -415,7 +411,17 @@ export async function planFor(pr, { siblings, repoName, cfg, isReturner }) {
     // A draft is work in progress: only the notes that keep two people from
     // doing the same work.
     if (!pr.isDraft) {
-        if (pr.isFork && cfg.firstTimeAssociations.includes(pr.association)) sections.push({ id: 'first-pr' });
+        // A first pull request is one whose author has no commit here: what
+        // the repository's fork policy (first_time_contributors) holds runs
+        // for, and the claim bot's returner rule. Not the association: the
+        // workflow's token never sees FIRST_TIME_CONTRIBUTOR or FIRST_TIMER
+        // (2026-10-29: the owner's token read both open first-timer pull
+        // requests as FIRST_TIME_CONTRIBUTOR, and the first push run on main
+        // planned no first-pull-request note for either). Every outside pull
+        // request comes from a fork, so that needs no check either.
+        const returner = await isReturner(pr);
+        if (returner === null) return { sections: [], labels: new Set(), unread: true };
+        if (!returner) sections.push({ id: 'first-pr' });
         const sameTitle = linked.some((i) => lower(i.title.trim()) === lower(pr.title.trim()));
         if (!titleIsConventional(pr.title) || sameTitle) sections.push({ id: 'title' });
         if (needsChangelogNote(pr)) sections.push({ id: 'changelog' });
