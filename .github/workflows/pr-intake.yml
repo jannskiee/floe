@@ -46,7 +46,8 @@ jobs:
       pull-requests: read
       # Read the linked issues' assignees and labels (a GraphQL query).
       issues: read
-      # The checkout below, and the commit history the claim note reads.
+      # The checkout below, and the commit history the claim and
+      # first-pull-request notes read.
       contents: read
     # One sweep at a time, never cancelled once it runs. A group keeps a single
     # pending run, so a newer run can replace a pending one, which loses
