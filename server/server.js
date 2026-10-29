@@ -1696,6 +1696,10 @@ const io = new Server(server, {
         callback('Origin not allowed', false);
     },
     maxHttpBufferSize: 1e6, // Signaling only: SDP/ICE < 10 KB
+    // Nothing loads Socket.IO's own client files from this server: the web app
+    // bundles socket.io-client, and the e2e specs inject the copy in
+    // client/node_modules. With them off, /socket.io/ serves the transports only.
+    serveClient: false,
 });
 
 // Both limits refuse here, not in allowRequest. A middleware refusal reaches

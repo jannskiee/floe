@@ -2229,6 +2229,43 @@ describe('CORS refusal over HTTP', () => {
     });
 });
 
+describe('Socket.IO client files', () => {
+    // serveClient is off, so none of Socket.IO's client files is served from
+    // here: engine.io owns the whole /socket.io/ path, and a request that names
+    // no transport gets its 400. Asked for Brotli, as a browser asks.
+    let port;
+
+    before(async () => {
+        await new Promise((resolve, reject) => {
+            server.once('error', reject);
+            server.listen(0, '127.0.0.1', () => { server.off('error', reject); resolve(); });
+        });
+        port = server.address().port;
+    });
+
+    after(async () => {
+        await new Promise((resolve) => server.close(resolve));
+    });
+
+    function get(path) {
+        return new Promise((resolve, reject) => {
+            const req = http.get({ host: '127.0.0.1', port, path, headers: { 'Accept-Encoding': 'br' }, agent: false }, (res) => {
+                res.resume();
+                res.on('end', () => resolve({ status: res.statusCode, type: res.headers['content-type'] || '' }));
+            });
+            req.on('error', reject);
+        });
+    }
+
+    for (const file of ['socket.io.js', 'socket.io.min.js', 'socket.io.esm.min.js', 'socket.io.msgpack.min.js', 'socket.io.js.map']) {
+        it(`does not serve /socket.io/${file}`, async () => {
+            const answer = await get(`/socket.io/${file}`);
+            assert.equal(answer.status, 400);
+            assert.doesNotMatch(answer.type, /javascript/);
+        });
+    }
+});
+
 // ---------------------------------------------------------------------------
 // WebSocket liveness and backpressure
 // ---------------------------------------------------------------------------
