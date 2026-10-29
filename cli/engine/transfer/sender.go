@@ -643,6 +643,13 @@ func stopRequested(stop <-chan struct{}) bool {
 func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer string, opts SendOptions) error {
 	files, err := collectFiles(paths)
 	if err != nil {
+		// The walk failed: a path is already gone or unreadable. Tell the
+		// receiver why, or all it sees is a close it reads as a network
+		// fault. A Stop that has closed stays silent, as the caller's own
+		// abort is the one the peer reads.
+		if !stopRequested(opts.Stop) {
+			abortReason(dc, localVer, UnreadableFileReason, true)
+		}
 		return err
 	}
 	if len(files) == 0 {
@@ -987,12 +994,21 @@ func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struc
 	}
 	f, err := openForSend(entry.absPath)
 	if err != nil {
+		// The file is gone or unreadable by the time the send opens it. Say
+		// so, or the receiver reads a network fault. A Stop that has closed
+		// stays silent, as the caller's own abort is the one the peer reads.
+		if !stopRequested(stop) {
+			abortReason(dc, localVer, UnreadableFileReason, true)
+		}
 		return err
 	}
 	defer f.Close()
 
 	info, err := f.Stat()
 	if err != nil {
+		if !stopRequested(stop) {
+			abortReason(dc, localVer, UnreadableFileReason, true)
+		}
 		return err
 	}
 
@@ -1278,6 +1294,13 @@ ackLoop:
 			break
 		}
 		if err != nil {
+			// The read failed mid-file, where the receiver is mid-file too,
+			// with no idea why the bytes stopped. Tell it why, unless a Stop
+			// has closed and the caller's own abort is the one the peer
+			// reads.
+			if !stopRequested(stop) {
+				abortReason(dc, localVer, UnreadableFileReason, true)
+			}
 			return fmt.Errorf("error reading file: %w", err)
 		}
 	}

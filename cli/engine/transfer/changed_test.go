@@ -207,3 +207,66 @@ func TestSenderRefusesAZeroStatFileThatHasBytes(t *testing.T) {
 	}
 	assertNoEndMarker(t, frames)
 }
+
+// TestSendTellsTheReceiverAFileCouldNotBeRead: a file the sender cannot read
+// ends the send as before, and the receiver is told why in the browser's words.
+func TestSendTellsTheReceiverAFileCouldNotBeRead(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "browser-sender-stops.json"))
+	var rows []browserStopRow
+	if err != nil || json.Unmarshal(raw, &rows) != nil {
+		t.Fatalf("the fixture: %v", err)
+	}
+	var want string
+	for _, r := range rows {
+		if r.Name == "unreadable" {
+			want = r.Browser
+		}
+	}
+	// gone.bin is on disk at the walk and gone at the open; the test closes
+	// closed.bin once it is announced, so the read fails.
+	opened := make(chan *os.File, 1)
+	prev := openForSend
+	t.Cleanup(func() { openForSend = prev })
+	openForSend = func(name string) (*os.File, error) {
+		if filepath.Base(name) == "gone.bin" {
+			return nil, &os.PathError{Op: "open", Path: name, Err: os.ErrNotExist}
+		}
+		f, err := prev(name)
+		if filepath.Base(name) == "closed.bin" {
+			opened <- f
+		}
+		return f, err
+	}
+	for _, c := range []struct {
+		name        string
+		paths       []string
+		metas, ends int
+		fail        error
+	}{
+		{"gone at the walk", []string{filepath.Join(t.TempDir(), "missing.bin")}, 0, 0, os.ErrNotExist},
+		{"gone at the open", []string{stopFile(t, "a.bin", 9), stopFile(t, "gone.bin", 9)}, 1, 1, os.ErrNotExist},
+		{"failing at the read", []string{stopFile(t, "closed.bin", 9)}, 1, 0, os.ErrClosed},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			sender, rdc, l := stopPair(t)
+			errc := startStoppable(sender, c.paths, SendOptions{OnProgress: func(Progress) {}})
+			if c.metas > 0 {
+				l.await(t, "the metadata", 20*time.Second, func(f frames) bool { return len(f.ids) == 1 })
+				select {
+				case f := <-opened:
+					_ = f.Close()
+				default:
+				}
+				ackFile(t, rdc, l.snapshot().ids[0])
+			}
+			if err := <-errc; !errors.Is(err, c.fail) {
+				t.Fatalf("the send returned %v, want %v", err, c.fail)
+			}
+			l.await(t, "the sender's reason", 5*time.Second, func(f frames) bool { return f.abort != "" })
+			time.Sleep(300 * time.Millisecond)
+			if got := l.snapshot(); got.abort != want || len(got.ids) != c.metas || got.ends != c.ends || got.afterAbort != 0 {
+				t.Fatalf("got %+v, want the reason %q after %d metadata and %d ends", got, want, c.metas, c.ends)
+			}
+		})
+	}
+}
