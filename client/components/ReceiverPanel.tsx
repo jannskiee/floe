@@ -72,8 +72,12 @@ export function ReceiverPanel({
     // on screen for the length of the check.
     const busy = status.includes('Receiving') || status.includes('Verifying');
     const showBulk = bulkDownloadShown({ received: receivedFiles.length, busy });
+    const endText = summary.kind === 'short' || (summary.kind === 'complete' && !busy) ? summary.text : '';
     return (
         <div className="space-y-3 pt-2">
+            <span role="status" className="sr-only">
+                {endText}
+            </span>
             {/* Handshake pipeline: what has happened and what comes next, for
                 an attempt that is under way. Not after one that ended with
                 nothing, where the banner is the whole account. */}
@@ -193,7 +197,7 @@ export function ReceiverPanel({
                 check belongs to a full count alone. It used to follow the list,
                 so one file of three with the sender gone read as finished. */}
             {summary.kind === 'short' ? (
-                <div role="status" className="flex w-full items-start justify-center gap-2 text-xs leading-relaxed text-amber-300 pt-2">
+                <div className="flex w-full items-start justify-center gap-2 text-xs leading-relaxed text-amber-300 pt-2">
                     <AlertTriangle className="h-3 w-3 shrink-0 mt-[3px] text-amber-400" />
                     <span>{summary.text}</span>
                 </div>
