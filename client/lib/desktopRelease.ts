@@ -49,8 +49,14 @@ export const DESKTOP_SHA_URL = `${RELEASE_BASE}/SHA256SUMS.txt`;
  * labelled "Release notes" pointing at it was a promise the page could not
  * keep. The assets and checksums it also carries already have their own rows
  * on /download.
+ *
+ * The anchor lands on this release's own entry, not the top of the page:
+ * Mintlify builds each entry's anchor from its label, the git tag with dots
+ * as hyphens, so it is derived from DESKTOP_TAG and stays right when the
+ * version bumps. Without it, a newer entry sitting above would be the first
+ * thing a visitor reads.
  */
-export const DESKTOP_RELEASE_NOTES_URL = 'https://www.floe.one/docs/changelog';
+export const DESKTOP_RELEASE_NOTES_URL = `https://www.floe.one/docs/changelog#${DESKTOP_TAG.replaceAll('.', '-')}`;
 
 /** The GitHub release page for this tag, for anyone who wants the raw assets. */
 export const DESKTOP_RELEASE_PAGE_URL = `https://github.com/jannskiee/floe/releases/tag/${DESKTOP_TAG}`;
