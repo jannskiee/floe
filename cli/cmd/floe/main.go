@@ -144,6 +144,11 @@ func init() {
 		panic(err)
 	}
 
+	// PreRunE runs after the root's PersistentPreRunE, so this adds a check
+	// without replacing that hook (see the note on rootCmd).
+	sendCmd.PreRunE = checkIface
+	receiveCmd.PreRunE = checkIface
+
 	rootCmd.AddCommand(sendCmd)
 	rootCmd.AddCommand(receiveCmd)
 	rootCmd.AddCommand(versionCmd)

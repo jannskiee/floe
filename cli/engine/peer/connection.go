@@ -214,7 +214,7 @@ func New(iceServers []webrtc.ICEServer, sc *signaling.Client, opts ...Option) (*
 	// adapters (Hyper-V, WSL, Tailscale, APIPA) don't stall connection setup.
 	se.SetIPFilter(keepICEIP)
 	// Opt-in `--iface` override: pin ICE to specific interfaces by name.
-	if f := makeInterfaceAllowFilter(cfg.ifaceAllowlist); f != nil {
+	if f := MakeInterfaceAllowFilter(cfg.ifaceAllowlist); f != nil {
 		se.SetInterfaceFilter(f)
 	}
 	// pion's loggers write through newLoggerFactory, which escapes the
