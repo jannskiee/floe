@@ -2254,6 +2254,39 @@ describe('shortcuts behind a dialog', () => {
     });
 });
 
+describe('shortcuts while a switch has focus', () => {
+    async function focusIn(find: () => Promise<HTMLElement>) {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getByRole('button', {name: 'Settings'}));
+        const el = await find();
+        act(() => { el.focus(); });
+        return user;
+    }
+    const hideIP = () => screen.findByRole('checkbox', {name: /^Hide my IP address/});
+
+    it('Ctrl+H shows History', async () => {
+        const user = await focusIn(hideIP);
+        await user.keyboard('{Control>}h{/Control}');
+        expect(await screen.findByText('No transfers yet')).toBeTruthy();
+    });
+
+    it.each([['o', 'SelectFiles'], ['v', 'PasteFiles'], ['r', 'CancelTransfer']])('Ctrl+%s calls %s', async (key, binding) => {
+        const user = await focusIn(hideIP);
+        await user.keyboard(`{Control>}${key}{/Control}`);
+        await waitFor(() => expect(wails.go[binding]).toHaveBeenCalledTimes(1));
+    });
+
+    it('a text field still holds all four', async () => {
+        const user = await focusIn(() => screen.findByLabelText('Server address'));
+        for (const key of 'ovhr') await user.keyboard(`{Control>}${key}{/Control}`);
+        await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+        for (const b of ['SelectFiles', 'PasteFiles', 'CancelTransfer']) expect(wails.go[b]).not.toHaveBeenCalled();
+        expect(screen.queryByText('No transfers yet')).toBeNull();
+    });
+});
+
 /**
  * Start over while a note is still waiting to go out. doReset empties the box,
  * and a note that has not gone out is written to no file and no storage key,
