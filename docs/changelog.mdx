@@ -43,11 +43,12 @@ Floe ships on two version lines. `vX.Y.Z` releases the `floe` CLI and the contai
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
-<Update label="Unreleased" tags={["Desktop"]}>
+<Update label="Unreleased" tags={["Desktop", "Web"]}>
   **History now names the empty files of a receive by code**
 
   - In History, a receive by code now lists its empty files by name, where one empty file received alone used to read "0 files". Contributed by [@Detoy](https://github.com/Detoy).
   - In Settings, **Hide my IP address** and **Contribute to global stats** now switch back when Floe cannot save the change, as the other switches already do. They used to keep showing the new setting while a request link went on with the saved one.
+  - Web app: on the home page, the **Checked on arrival** tile now says browser, CLI and Floe Desktop receivers confirm delivery. It used to leave out the browser, which has confirmed delivery since v1.11.2.
 </Update>
 
 <Update label="desktop-v1.0.4" description="2026-10-28" tags={["Desktop"]}>

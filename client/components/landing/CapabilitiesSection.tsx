@@ -44,7 +44,7 @@ const items: {
     {
         icon: FileCheck,
         title: 'Checked on arrival',
-        body: 'Each file is checked against its announced size and, when the sender sends one, a fingerprint of its contents (SHA-256). A mismatched file is discarded. CLI and Floe Desktop receivers confirm delivery.',
+        body: 'Each file is checked against its announced size and, when the sender sends one, a fingerprint of its contents (SHA-256). A mismatched file is discarded. Browser, CLI, and Floe Desktop receivers confirm delivery.',
         href: 'https://www.floe.one/docs/how-it-works/file-checks',
     },
     {
