@@ -829,6 +829,7 @@ export function P2PTransfer() {
                 // only of the leave prompt's under-way half; an unsaved file
                 // still holds it.
                 setAllArrived(true);
+                releaseWakeLock();
                 track('transfer-received', {
                     files: fileCount,
                     bytes: totalBytes,
@@ -853,6 +854,7 @@ export function P2PTransfer() {
                 setError(peerBanner(msg, 'The sender stopped the transfer.'));
                 setStatus('Transfer failed');
                 setReceiveEnded(true);
+                releaseWakeLock();
                 if (failure && !failure.senderSentVersion) {
                     // The receiver told the sender why, but a browser sender
                     // reads nothing while it sends a file, so it would push the
@@ -1473,6 +1475,7 @@ export function P2PTransfer() {
                     setError(peerBanner(msg, 'The other side rejected the transfer.'));
                     setStatus('Transfer failed');
                     setSendEnd('failed');
+                    releaseWakeLock();
                 },
                 // An unreadable file or the ack wait: the engine has stopped
                 // and said so on this page only. A closed channel has no one
