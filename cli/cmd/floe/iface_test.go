@@ -19,16 +19,25 @@ func TestIfaceIsCheckedBeforeTheNetwork(t *testing.T) {
 		args    []string
 		listErr error
 		want    string
+		ifaces  []net.Interface // nil: an up Ethernet 2 and an up Wi-Fi
 	}{
-		{"send", []string{"send", file, "--iface", "wifi"}, nil, noMatch},
-		{"send --to", []string{"send", file, "--to", floeLinkFor(), "--iface", "wifi"}, nil, noMatch},
-		{"receive", []string{"receive", room, "--iface", "wifi"}, nil, noMatch},
-		{"any case", []string{"send", file, "--iface", "WI-FI"}, nil, goesOn},
-		{"any one name", []string{"send", file, "--iface", "wifi, Wi-Fi"}, nil, goesOn},
-		{"no list", []string{"send", file, "--iface", "wifi"}, errors.New("no list"), goesOn},
+		{"send", []string{"send", file, "--iface", "wifi"}, nil, noMatch, nil},
+		{"send --to", []string{"send", file, "--to", floeLinkFor(), "--iface", "wifi"}, nil, noMatch, nil},
+		{"receive", []string{"receive", room, "--iface", "wifi"}, nil, noMatch, nil},
+		{"any case", []string{"send", file, "--iface", "WI-FI"}, nil, goesOn, nil},
+		{"any one name", []string{"send", file, "--iface", "wifi, Wi-Fi"}, nil, goesOn, nil},
+		{"no list", []string{"send", file, "--iface", "wifi"}, errors.New("no list"), goesOn, nil},
+		{"down Wi-Fi", []string{"send", file, "--iface", "Wi-Fi"}, nil, noMatch,
+			[]net.Interface{{Name: "Ethernet 2", Flags: net.FlagUp}, {Name: "Wi-Fi"}}},
+		{"up loopback lo", []string{"send", file, "--iface", "lo"}, nil, noMatch,
+			[]net.Interface{{Name: "Ethernet 2", Flags: net.FlagUp}, {Name: "lo", Flags: net.FlagUp | net.FlagLoopback}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			stubCompletionInterfaces(t, []net.Interface{{Name: "Ethernet 2", Flags: net.FlagUp}, {Name: "Wi-Fi", Flags: net.FlagUp}}, tc.listErr)
+			ifaces := tc.ifaces
+			if ifaces == nil {
+				ifaces = []net.Interface{{Name: "Ethernet 2", Flags: net.FlagUp}, {Name: "Wi-Fi", Flags: net.FlagUp}}
+			}
+			stubCompletionInterfaces(t, ifaces, tc.listErr)
 			calls := stubNetwork(t, "")
 			t.Cleanup(func() {
 				// pflag appends to a slice flag it set before; cobra keeps --to.
