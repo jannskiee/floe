@@ -178,6 +178,16 @@ async function sendSteps(sender: Page, steps: Step[]): Promise<void> {
     }, { steps });
 }
 
+/** The line at the foot of the card, never its copy in the status region. */
+function footLine(page: Page, text: string | RegExp) {
+    return page.getByText(text).and(page.locator(':not([role="status"])'));
+}
+
+/** The card's one status region, which says how the receive ended. */
+function endRegion(page: Page) {
+    return page.getByRole('main').getByRole('status');
+}
+
 test('a sender that vanishes during file 2 of 3 does not leave the receiver looking finished', async ({ browser }) => {
     const rig = await openRig(browser, randomUUID());
     try {
@@ -191,13 +201,17 @@ test('a sender that vanishes during file 2 of 3 does not leave the receiver look
         // Mid-transfer: one file handed over, the second one arriving.
         await expect(rig.receiver.locator('a[download]')).toHaveCount(1);
         await expect(rig.receiver.getByRole('progressbar')).toBeVisible();
+        await expect(endRegion(rig.receiver)).toBeEmpty();
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await rig.sender.evaluate(() => (window as any).scripted.peer.destroy());
 
         await expect(
-            rig.receiver.getByText('Received 1 of 3 files. The transfer ended before the rest arrived.'),
+            footLine(rig.receiver, 'Received 1 of 3 files. The transfer ended before the rest arrived.'),
         ).toBeVisible();
+        await expect(endRegion(rig.receiver)).toHaveText(
+            'Received 1 of 3 files. The transfer ended before the rest arrived.',
+        );
         // No completion line, so no check of either kind: the two are one
         // element.
         await expect(rig.receiver.getByText(/^\d+ files? received$/)).toHaveCount(0);
@@ -221,7 +235,8 @@ test('a full receive still ends on the completion line, before and after the sen
             { announced: KIB, sent: KIB },
         ]);
 
-        await expect(rig.receiver.getByText(/^3 files received$/)).toBeVisible();
+        await expect(footLine(rig.receiver, /^3 files received$/)).toBeVisible();
+        await expect(endRegion(rig.receiver)).toHaveText('3 files received');
         // Every file matched: the green check in front of the count line,
         // and the words for screen readers only (the desktop's rule).
         await expect(rig.receiver.locator('[data-mark="verified"]')).toBeVisible();
@@ -236,7 +251,7 @@ test('a full receive still ends on the completion line, before and after the sen
         // shows the close has landed, so the checks below read the end state.
         await expect(rig.receiver.getByTitle('Not connected')).toBeVisible();
         await expect(rig.receiver.getByRole('progressbar')).toHaveCount(0);
-        await expect(rig.receiver.getByText(/^3 files received$/)).toBeVisible();
+        await expect(footLine(rig.receiver, /^3 files received$/)).toBeVisible();
         await expect(rig.receiver.getByText(/The transfer ended before the rest arrived/)).toHaveCount(0);
         expect(rig.statsReports(), 'the opted-out receiver reported stats').toBe(0);
     } finally {
@@ -254,7 +269,8 @@ test('a full receive with a file checked by size only ends on the gray check', a
 
         // Every file arrived, so the count line is the complete one, but one
         // came with no SHA-256: the gray plain check, and no words at all.
-        await expect(rig.receiver.getByText(/^2 files received$/)).toBeVisible();
+        await expect(footLine(rig.receiver, /^2 files received$/)).toBeVisible();
+        await expect(endRegion(rig.receiver)).toHaveText('2 files received');
         await expect(rig.receiver.locator('[data-mark="plain"]')).toBeVisible();
         await expect(rig.receiver.locator('[data-mark="verified"]')).toHaveCount(0);
         await expect(rig.receiver.getByText('SHA-256 matched', { exact: true })).toHaveCount(0);
