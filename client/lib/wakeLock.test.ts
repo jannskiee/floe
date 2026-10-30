@@ -198,3 +198,29 @@ describe('coming back to the tab', () => {
         expect(page).toMatch(/visibilityState === 'visible'\)\s*\{?\s*resumeWakeLock\(\)/);
     });
 });
+
+describe('a transfer that ends lets go of the lock', () => {
+    const page = readFileSync(fileURLToPath(new URL('../components/P2PTransfer.tsx', import.meta.url)), 'utf8');
+    const handler = (from: string, to: string) => {
+        const start = page.indexOf(from);
+        const end = page.indexOf(to, start);
+        expect(start, from).toBeGreaterThan(-1);
+        expect(end, to).toBeGreaterThan(start);
+        return page.slice(start, end);
+    };
+
+    it('on the receiver, once every file has arrived', () => {
+        expect(handler('onAllComplete: (totalBytes, fileCount) => {', 'onWaiting:')).toContain('releaseWakeLock();');
+    });
+
+    it('on the receiver, when its receive stops', () => {
+        expect(handler('onError: (msg, failure) => {', "peer.on('data', rx.handleMessage);")).toContain('releaseWakeLock();');
+    });
+
+    it('on the sender, below the replaced-session check', () => {
+        const onError = handler('onError: (msg) => {', 'onFailed:');
+        const guard = 'if (peerRef.current !== peer) return;';
+        expect(onError).toContain(guard);
+        expect(onError.slice(onError.indexOf(guard))).toContain('releaseWakeLock();');
+    });
+});
