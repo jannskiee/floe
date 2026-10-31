@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -16,16 +17,25 @@ import (
 
 func TestSanitizeRequestLabel(t *testing.T) {
 	long := strings.Repeat("a", 200)
+	reservedIn := `a<b>c:d"e/f\g|h?i*j`
 	cases := []string{
-		`a<b>c:d"e/f\g|h?i*j`, "tab\there", "bell\x07x", "photo\u202egnp", "a\u2066b",
+		reservedIn, "tab\there", "bell\x07x", "photo\u202egnp", "a\u2066b",
 		"CON", "com1", "LPT9", "nul", "name...  ", "  ", "", ".", "..", long, "Acme footage",
+	}
+	// Both separators become "_" on every OS. The characters Win32 reserves
+	// do only on Windows: elsewhere they are legal and the engine keeps them
+	// (transfer.SafeFolderName), so the check follows the OS it runs on and
+	// the first case is pinned on each side.
+	reserved, reservedOut := `/\`, `a<b>c:d"e_f_g|h?i*j`
+	if runtime.GOOS == "windows" {
+		reserved, reservedOut = `<>:"/\|?*`, "a_b_c_d_e_f_g_h_i_j"
 	}
 	for _, in := range cases {
 		got := sanitizeRequestLabel(in)
 		if got == "" {
 			t.Errorf("%q: empty folder name", in)
 		}
-		if strings.ContainsAny(got, "<>:\"/\\|?*") {
+		if strings.ContainsAny(got, reserved) {
 			t.Errorf("%q -> %q keeps a reserved character", in, got)
 		}
 		for _, r := range got {
@@ -43,7 +53,7 @@ func TestSanitizeRequestLabel(t *testing.T) {
 			t.Errorf("%q -> %d runes, want at most %d", in, n, requestLabelMax)
 		}
 	}
-	for in, want := range map[string]string{"": "Request", "  ": "Request", "..": "Request", "Acme footage": "Acme footage", long: strings.Repeat("a", 64)} {
+	for in, want := range map[string]string{"": "Request", "  ": "Request", "..": "Request", "Acme footage": "Acme footage", long: strings.Repeat("a", 64), reservedIn: reservedOut} {
 		if got := sanitizeRequestLabel(in); got != want {
 			t.Errorf("sanitizeRequestLabel(%q) = %q, want %q", in, got, want)
 		}
