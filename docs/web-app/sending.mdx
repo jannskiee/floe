@@ -166,9 +166,10 @@ connected".
 
 ## While it transfers
 
-The transfer begins on its own, about 2 seconds after the two devices actually connect. On a
-fast network that is a moment after they open the link. On a slow or relayed one the connection
-itself takes longer, and the 2 seconds start after it. There is nothing to click.
+The transfer begins on its own as soon as the two devices actually connect. On a fast network that
+is a moment after they open the link. On a slow or relayed one the connection itself takes longer.
+If you turned relay fallback off or queued more than 2 GB, the route decides whether the transfer
+may start, so it begins about 2 seconds after the connection instead. There is nothing to click.
 
 Before it sends anything, Floe checks whether the connection is direct or relayed. Two results stop
 the transfer before any file moves:
