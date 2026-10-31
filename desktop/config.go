@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/jannskiee/floe/cli/engine/serverurl"
 )
@@ -161,11 +164,30 @@ func loadConfigFrom(path string) appConfig {
 		return appConfig{}
 	}
 	var c appConfig
-	if err := json.Unmarshal(raw, &c); err != nil {
+	if err := json.Unmarshal(configText(raw), &c); err != nil {
 		keepUnreadableConfig(path, raw)
 		return appConfig{}
 	}
 	return normalizeConfig(c)
+}
+
+// configText turns the bytes of the settings file into plain UTF-8 by the rule
+// the server uses for its own JSON file (decodePolicyBytes and parsePolicy in
+// server/policy.js): a file that opens with FF FE is UTF-16 LE, anything else
+// is UTF-8, and exactly one leading byte-order mark is dropped. Windows
+// PowerShell 5.1 writes one of those two forms from Set-Content -Encoding utf8,
+// > and Out-File, and json.Unmarshal refuses both, which used to send a
+// hand-edited desktop.json back to the defaults. TrimPrefix, not TrimLeft: a
+// second mark is not one the server accepts either.
+func configText(raw []byte) []byte {
+	if len(raw) >= 2 && raw[0] == 0xff && raw[1] == 0xfe {
+		units := make([]uint16, 0, len(raw)/2)
+		for i := 2; i+1 < len(raw); i += 2 {
+			units = append(units, binary.LittleEndian.Uint16(raw[i:]))
+		}
+		return []byte(string(utf16.Decode(units)))
+	}
+	return bytes.TrimPrefix(raw, []byte("\xef\xbb\xbf"))
 }
 
 // keepUnreadableConfig copies a settings file that does not parse to
