@@ -128,6 +128,15 @@ func probeHealth(base string) (ProbeResult, []string, bool) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		baseURL, baseErr := url.Parse(base)
+		if baseErr == nil && strings.EqualFold(baseURL.Scheme, "http") &&
+			resp.StatusCode >= 300 && resp.StatusCode < 400 {
+			location, err := resp.Location()
+			if err == nil && strings.EqualFold(location.Scheme, "https") &&
+				strings.EqualFold(location.Hostname(), baseURL.Hostname()) {
+				return ProbeResult{Message: "That address redirects to https://. Start it with https:// and test again"}, nil, false
+			}
+		}
 		return ProbeResult{Message: fmt.Sprintf(
 			"That address answered HTTP %d (likely the web app, not the server)", resp.StatusCode)}, nil, false
 	}
