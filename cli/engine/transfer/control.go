@@ -50,6 +50,15 @@ func abortReason(dc *webrtc.DataChannel, localVer, reason string, toReceiver boo
 // it. TestVisitorCancelReasonMatchesTheWebPage pins the two together.
 const VisitorCancelReason = "The sender stopped."
 
+// UnreadableFileReason is what a Go sender tells its receiver when one of its
+// files can no longer be read: the walk, the open, the Stat or the read of it
+// failed. It is the Go twin of SELF_STOP_REASONS.unreadable in
+// client/lib/senderSelfStop.ts, the sentence the browser sender already sends
+// for this stop, and every receiver shows it as the sender's stop. Fixed copy
+// like VisitorCancelReason: it names no surface the receiver might not be on
+// and carries no file name or anything the peer sent.
+const UnreadableFileReason = "The sender stopped: a file could not be read on their device. Ask them to check it and send again."
+
 // AbortSend is abortReason for a sender that stops on purpose from outside
 // SendFilesWithOptions (Ctrl+C in floe send, TL-29 and CLI-02): one text
 // incompatible frame with an overlapping range and reason, then the bounded
