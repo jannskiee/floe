@@ -110,13 +110,14 @@ test('sender link survives a receiver closing its tab before the transfer finish
     });
 
     try {
-        const link = await browserSenderSetup(senderPage, fixturePath);
+        const link = await browserSenderSetup(senderPage, fixturePath, { relayFallback: false });
 
         // First receiver joins, then leaves before the transfer completes.
-        // 'Peer joined' appears on the plain socket join, and the sender only
-        // sends the first byte a fixed 2 s AFTER the WebRTC connect (the
-        // relay-detection window in handleCreateLink), so closing now is
-        // guaranteed to interrupt even with a small fixture.
+        // 'Peer joined' appears on the plain socket join, and with relay
+        // fallback off (set above) the sender only sends the first byte 2 s
+        // AFTER the WebRTC connect (the relay probe, lib/relay.ts
+        // relayProbeDelayMs), so closing now is guaranteed to interrupt even
+        // with a small fixture. With fallback on, a small send starts at once.
         const firstReceiverPage = await firstReceiverCtx.newPage();
         firstReceiverPage.on('websocket', (ws) => {
             if (!ws.url().includes('/socket.io/')) return;

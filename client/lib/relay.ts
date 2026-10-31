@@ -7,6 +7,11 @@
 // checkRelayGate there), so a payload of exactly 2 GB is allowed.
 export const RELAY_SIZE_LIMIT = 2 * 1024 * 1024 * 1024; // 2 GB
 
+/** How long after the channel opens the relay probe reads the selected ICE
+ *  pair: long enough for ICE to nominate a pair, so the gate below reads the
+ *  route the transfer will actually take. */
+export const RELAY_PROBE_DELAY_MS = 2_000;
+
 /**
  * The ICE server list to hand SimplePeer. When the user keeps relay fallback on
  * (the default), every server is offered. When they turn it off, TURN servers
@@ -54,6 +59,20 @@ export function evaluateRelayGate(opts: {
         return { action: 'block-over-limit', totalSize };
     }
     return { action: 'proceed' };
+}
+
+/**
+ * How long the main page's sender waits after the peers connect before it
+ * reads the route and runs evaluateRelayGate. The wait only matters where the
+ * route can change the verdict: with relay fallback on and the batch at most
+ * RELAY_SIZE_LIMIT (the gate's own comparison), a relayed and a direct route
+ * both proceed, so there is nothing to wait for and the send starts at once.
+ * Anywhere else the probe needs ICE to have nominated a pair first.
+ */
+export function relayProbeDelayMs(opts: { relayEnabled: boolean; totalSize: number }): number {
+    const { relayEnabled, totalSize } = opts;
+    if (relayEnabled && totalSize <= RELAY_SIZE_LIMIT) return 0;
+    return RELAY_PROBE_DELAY_MS;
 }
 
 /** probeIsRelay decides whether a live connection is running through the TURN

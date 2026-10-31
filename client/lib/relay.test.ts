@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, isRelayPair, probeIsRelay, readConnectionType, type RelayGateVerdict } from './relay';
+import { RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, isRelayPair, probeIsRelay, readConnectionType, relayProbeDelayMs, type RelayGateVerdict } from './relay';
 import { RELAY_BLOCK_REASON, RELAY_PROBE_DELAY_MS } from './request/constants';
 
 const STUN: RTCIceServer = { urls: 'stun:stun.l.google.com:19302' };
@@ -243,7 +243,7 @@ describe('relay gate verdict table shared by P2PTransfer and RequestVisitor', ()
         throw new Error('unbalanced branch');
     }
 
-    it('both callers probe after 2000 ms and await the TEXT abort before destroy', () => {
+    it('both callers probe the route and await the TEXT abort before destroy', () => {
         const main = source('components/P2PTransfer.tsx');
         const visitor = source('components/RequestVisitor.tsx');
         for (const [name, src] of [['main page', main], ['visitor', visitor]] as const) {
@@ -255,8 +255,10 @@ describe('relay gate verdict table shared by P2PTransfer and RequestVisitor', ()
             expect(abort, `${name}: abort`).toBeGreaterThan(-1);
             expect(destroy, `${name}: destroy`).toBeGreaterThan(abort);
         }
-        // The delay: a literal on the main page, the named constant on /r.
-        expect(main).toContain('}, 2000);');
+        // The delay: the main page waits only where the route can stop the send.
+        expect(main).not.toContain('}, 2000);');
+        expect(main).toContain('relayProbeDelayMs(');
+        expect(visitor).not.toContain('relayProbeDelayMs');
         expect(visitor).toContain('RELAY_PROBE_DELAY_MS');
         expect(RELAY_PROBE_DELAY_MS).toBe(2000);
         // The reason: the main page splits it into two concatenated literals;
@@ -313,5 +315,21 @@ describe('relay gate verdict table shared by P2PTransfer and RequestVisitor', ()
         expect(main).not.toContain("'Could not connect.");
         expect(main).toContain('Reload the page to send 2 GB or less, or to send from a network that supports a direct connection.');
         expect(main).not.toMatch(/fewer files/i);
+    });
+});
+
+describe('relayProbeDelayMs', () => {
+    it('is 0 exactly where the gate lets a relayed and a direct route through', () => {
+        const sizes = [0, 1, RELAY_SIZE_LIMIT - 1, RELAY_SIZE_LIMIT, RELAY_SIZE_LIMIT + 1, RELAY_SIZE_LIMIT * 10];
+        for (const relayEnabled of [true, false]) {
+            for (const totalSize of sizes) {
+                const bothProceed = [true, false].every(
+                    (isRelay) => evaluateRelayGate({ isRelay, relayEnabled, totalSize }).action === 'proceed',
+                );
+                expect(relayProbeDelayMs({ relayEnabled, totalSize }), `relay ${relayEnabled}, ${totalSize} bytes`)
+                    .toBe(bothProceed ? 0 : RELAY_PROBE_DELAY_MS);
+            }
+        }
+        expect(RELAY_PROBE_DELAY_MS).toBe(2000);
     });
 });

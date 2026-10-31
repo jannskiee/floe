@@ -34,7 +34,7 @@ import {useConnectionType} from '@/hooks/useConnectionType';
 import {useTransferAnalytics} from '@/hooks/useTransferAnalytics';
 import {useFullLoadLinks, useLeavePrompt, useStrayDropGuard} from '@/hooks/usePageGuards';
 import {useRelayConfiguration} from '@/hooks/useRelayConfiguration';
-import {RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, probeIsRelay} from '@/lib/relay';
+import {RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, probeIsRelay, readConnectionType, relayProbeDelayMs} from '@/lib/relay';
 import {buildShareLink, getRoomFromUrl, isValidRoomId} from '@/lib/roomLink';
 import {classifyPeerError, peerErrorBanner, peerErrorCodeOf, peerErrorReport, senderErrorBlamesRelay} from '@/lib/peerErrors';
 import {decideReceiverClose} from '@/lib/receiverClose';
@@ -1207,24 +1207,32 @@ export function P2PTransfer() {
                     data: { relayEnabled, filesCount: files.length, totalBytes },
                 });
 
+                // The route is read after a wait only where it can stop the
+                // send (lib/relay.ts relayProbeDelayMs): with relay fallback on
+                // and 2 GB or less, a relayed and a direct route both proceed.
+                const totalSize = files.reduce((s, f) => s + f.file.size, 0);
                 iceProbeRef.current = setTimeout(async () => {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     const pc = (peer as any)._pc as RTCPeerConnection | undefined;
                     let isRelay = false;
+                    let route: 'direct' | 'relay' | null = null;
                     if (pc) {
                         try {
-                            isRelay = probeIsRelay(await pc.getStats());
+                            const stats = await pc.getStats();
+                            isRelay = probeIsRelay(stats);
+                            route = readConnectionType(stats);
                         } catch { }
                     }
 
+                    // Without the wait ICE may not have nominated a pair yet,
+                    // and "direct" would then be a guess.
                     Sentry.addBreadcrumb({
                         category: 'webrtc',
-                        message: `ICE resolved: ${isRelay ? 'relay' : 'direct'}`,
+                        message: `ICE resolved: ${route ?? 'unknown'}`,
                         level: 'info',
                         data: { isRelay, totalBytes },
                     });
 
-                    const totalSize = files.reduce((s, f) => s + f.file.size, 0);
                     const verdict = evaluateRelayGate({ isRelay, relayEnabled, totalSize });
 
                     if (verdict.action === 'block-relay-disabled') {
@@ -1306,7 +1314,7 @@ export function P2PTransfer() {
                         }
                         throw cause;
                     });
-                }, 2000);
+                }, relayProbeDelayMs({ relayEnabled, totalSize }));
             });
             peer.on('close', () => {
                 releaseWakeLock();
