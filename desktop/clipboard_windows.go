@@ -3,6 +3,7 @@
 package main
 
 import (
+	"runtime"
 	"time"
 	"unsafe"
 
@@ -15,10 +16,11 @@ const cfHDROP = 15
 
 // The user32 and kernel32 lazy DLLs declared here are shared by the other
 // *_windows.go files that make raw proc calls through them (attention,
-// packaged, power, wake). The clipboard read mirrors the standard Go one (Open -> Get ->
-// GlobalLock -> copy out -> Unlock -> Close). Reads use RtlMoveMemory to copy
-// the clipboard bytes into a Go buffer so the foreign address is never
-// converted to an unsafe.Pointer (keeps `go vet`'s unsafeptr check clean).
+// packaged, power, wake). The clipboard read mirrors the standard Go one (LockOSThread ->
+// Open -> Get -> GlobalLock -> copy out -> Unlock -> Close -> UnlockOSThread).
+// Reads use RtlMoveMemory to copy the clipboard bytes into a Go buffer so the
+// foreign address is never converted to an unsafe.Pointer (keeps `go vet`'s
+// unsafeptr check clean).
 var (
 	user32   = windows.NewLazySystemDLL("user32.dll")
 	kernel32 = windows.NewLazySystemDLL("kernel32.dll")
@@ -33,6 +35,10 @@ var (
 	procGlobalUnlock  = kernel32.NewProc("GlobalUnlock")
 	procGlobalSize    = kernel32.NewProc("GlobalSize")
 	procRtlMoveMemory = kernel32.NewProc("RtlMoveMemory")
+
+	clipboardOpen  = openClipboardRetry
+	clipboardData  = clipboardGlobalBytes
+	clipboardClose = func() { procCloseClipboard.Call() }
 )
 
 // openClipboardRetry opens the clipboard, retrying briefly since another process
@@ -70,17 +76,26 @@ func clipboardGlobalBytes(format uintptr) []byte {
 	return buf
 }
 
+// readClipboard locks the goroutine to its current OS thread, opens the
+// clipboard, reads the bytes for format, closes the clipboard and unlocks the
+// OS thread. Windows requires the open and close to run on the same thread.
+func readClipboard(format uintptr) []byte {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	if !clipboardOpen() {
+		return nil
+	}
+	defer clipboardClose()
+	return clipboardData(format)
+}
+
 // clipboardFilePaths returns the file paths on the clipboard (files copied in
 // Explorer), or nil if there are none.
 func clipboardFilePaths() []string {
 	if r, _, _ := procIsClipboardFormatAvailable.Call(cfHDROP); r == 0 {
 		return nil
 	}
-	if !openClipboardRetry() {
-		return nil
-	}
-	defer procCloseClipboard.Call()
-	return parseDropFiles(clipboardGlobalBytes(cfHDROP))
+	return parseDropFiles(readClipboard(cfHDROP))
 }
 
 // clipboardImagePNG returns the bytes of a PNG-format image on the clipboard
@@ -93,9 +108,5 @@ func clipboardImagePNG() []byte {
 	if r, _, _ := procIsClipboardFormatAvailable.Call(fmtID); r == 0 {
 		return nil
 	}
-	if !openClipboardRetry() {
-		return nil
-	}
-	defer procCloseClipboard.Call()
-	return clipboardGlobalBytes(fmtID)
+	return readClipboard(fmtID)
 }
