@@ -218,7 +218,10 @@ test('a second recipient who stops mid-file is reported the same way', async ({ 
     const senderPage = await senderCtx.newPage();
 
     try {
-        const link = await browserSenderSetup(senderPage, fixturePath);
+        // Relay fallback off keeps the 2 s between the second recipient's
+        // connect and its first byte (lib/relay.ts relayProbeDelayMs), the
+        // window in which the first send's 100% row is seen to go.
+        const link = await browserSenderSetup(senderPage, fixturePath, { relayFallback: false });
 
         const firstPage = await firstCtx.newPage();
         await firstPage.goto(link);

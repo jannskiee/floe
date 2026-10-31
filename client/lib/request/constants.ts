@@ -85,8 +85,8 @@ export const FIRST_ACK_TIMEOUT_MS = REQUEST_ACK_TIMEOUT_MS + REQUEST_ACK_GRACE_M
 export const ANSWER_WINDOW_MS = REQUEST_ACK_TIMEOUT_MS - REQUEST_ACK_GRACE_MS;
 
 /** How long after the channel opens the relay probe reads the selected ICE
- *  pair. The same delay the main page's sender uses. */
-export const RELAY_PROBE_DELAY_MS = 2_000;
+ *  pair. Defined in lib/relay.ts beside the gate it serves. */
+export { RELAY_PROBE_DELAY_MS } from '../relay';
 
 /** A room-full answer this soon after this page's previous attempt ended is
  *  most likely this page's own old seat, not yet released; one retry after a

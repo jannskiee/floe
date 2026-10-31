@@ -81,7 +81,11 @@ test('a sending page without WebRTC keeps its sentence when a receiver joins', a
     // throws there, and the sentence is what says why.
     await withoutWebRtc(page);
     const { path } = createFixture(FIXTURE_DIR, 1024);
-    const link = await browserSenderSetup(page, path);
+    // Relay fallback off keeps the 2 s before the first byte (lib/relay.ts
+    // relayProbeDelayMs). Chromium keeps webkitRTCPeerConnection, which
+    // simple-peer falls back to, so the peer still connects here, and with
+    // fallback on this 1 KB is sent before 'Peer joined' can be read.
+    const link = await browserSenderSetup(page, path, { relayFallback: false });
     await expect(page.getByText(SENDING)).toBeVisible();
 
     const ctx = await browser.newContext();
