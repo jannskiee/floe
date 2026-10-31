@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"errors"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf16"
 )
 
 // TestConfigRoundTrip proves a saved address comes back verbatim, which is the
@@ -804,5 +806,43 @@ func TestConcurrentSettersKeepEachOthersField(t *testing.T) {
 				t.Fatalf("round %d, %s: NoToasts %v and NoUpdateCheck %v, want %v and %v", i, where, got.NoToasts, got.NoUpdateCheck, !toasts, !checks)
 			}
 		}
+	}
+}
+
+// TestLoadConfigReadsAByteOrderMark: Windows PowerShell 5.1 writes UTF-8 and
+// UTF-16 LE with a byte-order mark. Both read, by server/policy.js's rule.
+func TestLoadConfigReadsAByteOrderMark(t *testing.T) {
+	const body = `{"server":"https://floe.example.com","hideIP":true,"migrated":true}`
+	utf16le := func(mark, s string) []byte {
+		b := []byte(mark)
+		for _, u := range utf16.Encode([]rune(s)) {
+			b = binary.LittleEndian.AppendUint16(b, u)
+		}
+		return b
+	}
+	for _, tc := range []struct {
+		name     string
+		raw      []byte
+		readable bool
+	}{
+		{"UTF-8 with a mark", []byte("\xef\xbb\xbf" + body), true},
+		{"UTF-16 LE with a mark", utf16le("\xff\xfe", body+"\r\n"), true},
+		{"two marks", []byte("\xef\xbb\xbf\xef\xbb\xbf" + body), false},
+		{"UTF-16 LE without its mark", utf16le("", body), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "desktop.json")
+			if err := os.WriteFile(path, tc.raw, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			got, want := loadConfigFrom(path), appConfig{}
+			if tc.readable {
+				want = appConfig{Server: "https://floe.example.com", HideIP: true, Migrated: true}
+			}
+			_, err := os.Stat(path + ".bad")
+			if got != want || errors.Is(err, os.ErrNotExist) != tc.readable {
+				t.Errorf("loadConfigFrom = %+v, want %+v; desktop.json.bad: %v", got, want, err)
+			}
+		})
 	}
 }
