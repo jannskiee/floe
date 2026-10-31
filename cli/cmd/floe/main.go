@@ -159,6 +159,30 @@ func init() {
 	rootCmd.SetVersionTemplate("floe {{.Version}}\n")
 }
 
+var errIfaceNoMatch = errors.New("--iface matches no network interface on this computer; check the name, or drop the flag")
+
+// checkIface fails before any network call when --iface names nothing on this
+// computer. pion would otherwise gather no candidate, and floe would find out
+// only after pairing, which retires the code. It matches names with the
+// engine's own filter, peer.MakeInterfaceAllowFilter; no names, or no
+// readable list, goes ahead as before.
+func checkIface(_ *cobra.Command, _ []string) error {
+	allow := peer.MakeInterfaceAllowFilter(flagIface)
+	if allow == nil {
+		return nil
+	}
+	interfaces, err := listInterfaces()
+	if err != nil {
+		return nil
+	}
+	for _, iface := range interfaces {
+		if allow(iface.Name) {
+			return nil
+		}
+	}
+	return errIfaceNoMatch
+}
+
 // peerOptions translates the shared flags into the engine's connection
 // options. Both send and receive build their peer from the same flags, so this
 // is the one place the mapping lives.
