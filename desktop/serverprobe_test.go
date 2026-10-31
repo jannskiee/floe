@@ -592,3 +592,28 @@ func TestDescribeDialError(t *testing.T) {
 		}
 	}
 }
+
+// TestProbeServerNamesARedirectToHTTPS: an http:// address that a proxy sends
+// on to https:// on the same host gets its own line; other redirects do not.
+func TestProbeServerNamesARedirectToHTTPS(t *testing.T) {
+	const httpsLine = "That address redirects to https://. Start it with https:// and test again"
+	for _, tc := range []struct {
+		status   int
+		location string
+		want     string
+	}{
+		// nginx's sample, Caddy's 308 to another port, and a sign-in page.
+		{http.StatusMovedPermanently, "https://127.0.0.1/health", httpsLine},
+		{http.StatusPermanentRedirect, "https://127.0.0.1:8443/health", httpsLine},
+		{http.StatusFound, "https://portal.example.net/login", "That address answered HTTP 302 (likely the web app, not the server)"},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, tc.location, tc.status)
+		}))
+		got := probeServer(srv.URL, okWS)
+		srv.Close()
+		if got.OK || got.Message != tc.want {
+			t.Errorf("HTTP %d to %s: probeServer = %+v, want the message %q", tc.status, tc.location, got, tc.want)
+		}
+	}
+}
