@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url';
 import {
     FOLDER_DROP_REFUSED,
     allReadable,
-    dropHasFolder,
     fullLoadTarget,
     mainPageHoldsTab,
     opensMainPage,
@@ -414,30 +413,9 @@ export const G = () => <Link href="/download">g</Link>;`;
     });
 });
 
-describe('dropHasFolder', () => {
-    const file = { kind: 'file', webkitGetAsEntry: () => ({ isDirectory: false }) };
-    const folder = { kind: 'file', webkitGetAsEntry: () => ({ isDirectory: true }) };
-
-    it('finds a folder among the dropped entries', () => {
-        expect(dropHasFolder([file, folder])).toBe(true);
-    });
-
-    it('says no when every entry is a file', () => {
-        expect(dropHasFolder([file, file])).toBe(false);
-    });
-
-    it('cannot tell without the entries API', () => {
-        expect(dropHasFolder([{ kind: 'file' }])).toBeNull();
-        expect(dropHasFolder(undefined)).toBeNull();
-    });
-
-    it('ignores items that are not files, and an entry the browser could not give', () => {
-        expect(dropHasFolder([{ kind: 'string', webkitGetAsEntry: () => ({ isDirectory: true }) }, file])).toBe(false);
-        expect(dropHasFolder([{ kind: 'file', webkitGetAsEntry: () => null }, file])).toBe(false);
-    });
-
-    it('says what the page does with one, in fixed words', () => {
-        expect(FOLDER_DROP_REFUSED).toBe('Folders cannot be sent from this page. Add the files inside it, or zip it first.');
+describe('FOLDER_DROP_REFUSED', () => {
+    it('says what the page does with a folder it cannot walk, in fixed words', () => {
+        expect(FOLDER_DROP_REFUSED).toBe('This browser cannot send a folder. Add the files inside it, or zip it first.');
     });
 });
 

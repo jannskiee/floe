@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeFiles, type FileWithId } from './fileSelection';
+import { mergeFiles, selectionPath, type FileWithId } from './fileSelection';
 
 function fileOf(name: string, size: number, lastModified: number): File {
     return new File([new Uint8Array(size)], name, { lastModified });
@@ -130,5 +130,33 @@ describe('mergeFiles', () => {
 
         expect(mergeFiles([], [])).toEqual([]);
         expect(mergeFiles(previous, [])).toEqual(previous);
+    });
+});
+
+describe('mergeFiles with folder paths', () => {
+    it('keeps two files of the same name in different folders', () => {
+        const merged = mergeFiles([], [
+            { file: fileOf('readme.txt', 3, 1), relativePath: 'a/readme.txt' },
+            { file: fileOf('readme.txt', 3, 1), relativePath: 'b/readme.txt' },
+        ]);
+
+        expect(merged.map((f) => f.relativePath)).toEqual(['a/readme.txt', 'b/readme.txt']);
+    });
+
+    it('ignores the same folder dropped twice', () => {
+        const first = mergeFiles([], [{ file: fileOf('readme.txt', 3, 1), relativePath: 'a/readme.txt' }]);
+        const second = mergeFiles(first, [{ file: fileOf('readme.txt', 3, 1), relativePath: 'a/readme.txt' }]);
+
+        expect(second).toEqual(first);
+    });
+
+    it('keeps a file added on its own beside the same file inside a folder', () => {
+        const merged = mergeFiles([], [
+            fileOf('readme.txt', 3, 1),
+            { file: fileOf('readme.txt', 3, 1), relativePath: 'a/readme.txt' },
+        ]);
+
+        expect(merged.map((f) => selectionPath(f))).toEqual(['readme.txt', 'a/readme.txt']);
+        expect(merged[0].relativePath).toBeUndefined();
     });
 });

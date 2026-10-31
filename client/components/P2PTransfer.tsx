@@ -142,6 +142,7 @@ export function P2PTransfer() {
         files,
         isDragging,
         dropNotice,
+        reading,
         totalBytes,
         handleFileSelection,
         handleDeleteFile,
@@ -1450,7 +1451,7 @@ export function P2PTransfer() {
                 channel,
                 sctpMaxMessageSize: pc?.sctp?.maxMessageSize,
             },
-            fileList.map((f) => ({ id: f.id, file: f.file })),
+            fileList.map((f) => ({ id: f.id, file: f.file, relativePath: f.relativePath })),
             {
                 isDestroyed: () => peer.destroyed,
                 onFileStart: (i, _total, name) => {
@@ -1653,6 +1654,7 @@ export function P2PTransfer() {
                                     onDragOver={handleDragOver}
                                     onDragLeave={handleDragLeave}
                                     onDrop={handleDrop}
+                                    aria-busy={reading}
                                     // text-center, not just items-center: items-center
                                     // centres each <p> as a box, but its text still sets
                                     // to the start edge, so the moment the hint wraps the
@@ -1661,7 +1663,7 @@ export function P2PTransfer() {
                                     className={`group relative mt-2 flex flex-col items-center justify-center rounded-xl border border-dashed p-10 text-center transition-all sm:p-14 ${isDragging
                                         ? 'border-ice bg-ice/[0.04]'
                                         : 'border-white/15 hover:border-white/35 hover:bg-white/[0.02]'
-                                        }`}
+                                        } ${reading ? 'opacity-60' : ''}`}
                                 >
                                     <div className={`mb-4 flex h-12 w-12 items-center justify-center rounded-full border transition ${isDragging
                                         ? 'border-ice/60 bg-ice/10'
@@ -1698,10 +1700,11 @@ export function P2PTransfer() {
                                     onDragOver={handleDragOver}
                                     onDragLeave={handleDragLeave}
                                     onDrop={handleDrop}
+                                    aria-busy={reading}
                                     className={`group relative mt-2 flex items-center justify-center gap-2 rounded-lg border border-dashed py-3 transition-all ${isDragging
                                         ? 'border-ice bg-ice/[0.04]'
                                         : 'border-white/15 hover:border-white/35 hover:bg-white/[0.02]'
-                                        }`}
+                                        } ${reading ? 'opacity-60' : ''}`}
                                 >
                                     <Plus className={`h-3.5 w-3.5 transition ${isDragging ? 'text-ice' : 'text-zinc-500 group-hover:text-zinc-300'}`} />
                                     <span className="text-xs font-medium text-zinc-400 transition group-hover:text-zinc-200">
@@ -1770,6 +1773,7 @@ export function P2PTransfer() {
 
                                                 <Button
                                                     onClick={handleCreateLink}
+                                                    disabled={reading}
                                                     className="w-full bg-white text-black hover:bg-zinc-200 font-bold text-xs sm:text-sm"
                                                 >
                                                     Create secure link ({files.length} {files.length === 1 ? 'file' : 'files'})
