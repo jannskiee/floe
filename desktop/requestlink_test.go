@@ -737,9 +737,11 @@ func TestMakeRequestLinkRefusesSecondLink(t *testing.T) {
 // alone), never anything the server sends.
 func TestMakeRequestLinkAllowsOneDomainSelfHost(t *testing.T) {
 	f := newFakeSignalServer(t)
-	// "localhost." reaches the fake on this machine and reads as a
-	// self-hosted origin, not a local one: the case E-21 used to refuse.
-	origin := strings.Replace(f.url(), "127.0.0.1", "localhost.", 1)
+	// "localhost" reaches the fake on this machine and never through a proxy:
+	// Go sends neither localhost nor a loopback address to one. It reads as a
+	// self-hosted origin, not a local one (the case E-21 used to refuse):
+	// serverurl maps only http://localhost:3001, a port no test server gets.
+	origin := strings.Replace(f.url(), "127.0.0.1", "localhost", 1)
 	for _, c := range []struct{ name, web, want string }{
 		{"no Share link address", "", origin},
 		{"Share link address on the same origin", origin, origin},
