@@ -76,9 +76,10 @@ The [badge](/glossary#badge) at the top right means what it does on the sending 
 There is no ping beside it. And it turns **Offline** once the connection to the sender has closed,
 which is how a finished transfer from `floe send` or Floe Desktop ends.
 
-The transfer starts by itself, usually a couple of seconds after the connection is established.
-A sender in the browser checks the route first. When it goes through a [relay](/glossary#relay) and
-they turned relay fallback off or queued more than 2 GB, their page stops before any file moves.
+The transfer starts by itself once the connection is established. A sender in the browser checks
+the route first, and when they turned relay fallback off or queued more than 2 GB, that takes about
+2 seconds. When the route goes through a [relay](/glossary#relay) in either case, their page stops
+before any file moves.
 Your page then shows a red banner with their reason. Ask them to do what it says, then open the new link they send.
 
 ### Contribute to global stats

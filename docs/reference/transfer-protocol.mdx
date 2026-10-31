@@ -648,8 +648,11 @@ Floe Desktop uses the same 20 seconds.
 
 ### Waits of the browser {#waits-of-the-browser}
 
-A browser sender waits 2 seconds after the peers connect before it checks the route and sends the
-first byte. When the sender does not close the connection, as a browser sender does not, a
+A browser sender on the main page checks the route and sends the first byte as soon as the peers
+connect when relay fallback is on and 2 GB or less is queued. With fallback off or more than 2 GB
+queued, and always on a request link's page, it waits 2 seconds after the peers connect before it
+checks the route and sends the first byte. When the sender does not close the connection, as a
+browser sender does not, a
 `floe receive` can linger for up to about 10 seconds after printing its summary. That is the
 teardown grace plus the report, and it can reach about 40 seconds when its `received` frame is
 slow to reach the sender.
