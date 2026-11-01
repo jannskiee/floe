@@ -206,6 +206,22 @@ describe('generateCoturnCredentials', () => {
             );
         }
     });
+
+    it('returns null when TURN_DOMAIN holds more than a host name', () => {
+        process.env.TURN_SECRET = 'test-secret';
+        for (const domain of ['https://turn.example.test', 'turn.example.test:3478', '[2001:db8::1]:3478', '2001:db8::1', 'turn.example.test/', '"turn.example.test"']) {
+            process.env.TURN_DOMAIN = domain;
+            assert.equal(generateCoturnCredentials(), null, domain);
+        }
+    });
+
+    it('keeps the list for a host name alone', () => {
+        process.env.TURN_SECRET = 'test-secret';
+        for (const host of ['turn.example.test', 'TURN.Example.test', '203.0.113.10', '[2001:db8::1]', 'turn_1.example.test', 'turn.example.test.', 'türn.example.test']) {
+            process.env.TURN_DOMAIN = host;
+            assert.equal(generateCoturnCredentials()?.length, 3, host);
+        }
+    });
 });
 
 // ---------------------------------------------------------------------------

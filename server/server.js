@@ -188,7 +188,15 @@ const {
     TURN_RATE_WINDOW,
     selectMinimalIceUrls,
     turnCredentialsHandler,
+    coturnDomainOk,
 } = require('./turn');
+
+// A TURN_DOMAIN with a scheme, a port or a path turns the coturn relay off
+// (generateCoturnCredentials returns null). Say so at startup, never the value.
+const TURN_DOMAIN_INVALID_LINE = process.env.TURN_SECRET && process.env.TURN_DOMAIN && !coturnDomainOk(process.env.TURN_DOMAIN)
+    ? 'TURN_DOMAIN holds more than a host name, so the coturn relay is off. ' +
+      'Set it to the host name alone, such as turn.example.com.'
+    : null;
 
 app.get('/api/turn-credentials', turnCredentialsHandler);
 
@@ -2044,6 +2052,7 @@ if (require.main === module) {
 
     if (PROXY_COUNT_UNSET_LINE) console.warn(PROXY_COUNT_UNSET_LINE);
     if (PROXY_COUNT_INVALID_LINE) console.warn(PROXY_COUNT_INVALID_LINE);
+    if (TURN_DOMAIN_INVALID_LINE) console.warn(TURN_DOMAIN_INVALID_LINE);
 
     // Invalid ports throw synchronously, before an 'error' event can fire.
     // Handle that throw through the same fail-fast path as other bind errors.
