@@ -1,4 +1,4 @@
-// What the Sentry SDK may collect on its own, stated in full (L5-17).
+// What the Sentry SDK may collect on its own, stated in full (L5-19).
 //
 // @sentry/nextjs 10 worked this out from sendDefaultPii, which all three
 // configs set to false. Version 11 removes that option and reads
@@ -14,7 +14,9 @@
 // 10.76.2 resolved sendDefaultPii false to (defaultPiiToCollectionOptions.js),
 // with the deny list it used (PII_HEADER_SNIPPETS) written out, because 11 no
 // longer exports it. queues is new in 11 and false here: 10 sent no queue
-// data. sentryDataCollection.test.ts resolves it on the installed SDK.
+// data. mcp is new in 11.9.0 and false here, as genAI is: Floe runs no MCP
+// server, and until 12 the SDK falls back on genAI for it.
+// sentryDataCollection.test.ts resolves it on the installed SDK.
 //
 // The deny list filters only the cookies, headers and query keys whose names
 // can carry an address. The server scrub (scrubUrl.ts) then removes every
@@ -36,6 +38,7 @@ export interface DataCollectionBlock {
     urlQueryParams: Collect;
     graphQL: { document: boolean; variables: boolean };
     genAI: { inputs: boolean; outputs: boolean };
+    mcp: { inputs: boolean; outputs: boolean };
     databaseQueryData: boolean;
     queues: boolean;
     stackFrameVariables: boolean;
@@ -53,6 +56,7 @@ export const DATA_COLLECTION: DataCollectionBlock = {
     urlQueryParams: { deny: ADDRESS_NAME_SNIPPETS },
     graphQL: { document: true, variables: true },
     genAI: { inputs: false, outputs: false },
+    mcp: { inputs: false, outputs: false },
     databaseQueryData: false,
     queues: false,
     stackFrameVariables: true,
