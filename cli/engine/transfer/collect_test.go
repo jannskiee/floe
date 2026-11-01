@@ -1,6 +1,7 @@
 package transfer
 
 import (
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -136,4 +137,53 @@ func TestCollectFilesNamesFilesAsBefore(t *testing.T) {
 			t.Errorf("collectFiles(%q) = %+v, %v; want one %q", in, entries, err, want)
 		}
 	}
+}
+
+// TestCollectFilesLeavesOutPipesSocketsAndDevices: refused when named, skipped inside a folder.
+func TestCollectFilesLeavesOutPipesSocketsAndDevices(t *testing.T) {
+	refused := func(t *testing.T, p string) {
+		t.Helper()
+		want := "cannot send " + p + ": it is a pipe, a socket or a device, not a file"
+		if _, err := collectFiles([]string{p}); err == nil || err.Error() != want {
+			t.Errorf("collectFiles(%q) = %v, want %q", p, err, want)
+		}
+	}
+	t.Run("a device", func(t *testing.T) { refused(t, os.DevNull) }) // NUL on Windows
+	t.Run("a pipe and a socket", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Linux and macOS only")
+		}
+		dir, err := os.MkdirTemp("", "floe") // short: macOS caps a socket path at 104 bytes
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(dir) })
+		album := filepath.Join(dir, "album")
+		if err := os.Mkdir(album, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(album, "a.txt"), []byte("hello"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pipe, sock := filepath.Join(album, "pipe"), filepath.Join(album, "sock")
+		if out, err := exec.Command("mkfifo", pipe).CombinedOutput(); err != nil {
+			t.Skipf("no named pipe here: %v %s", err, out)
+		}
+		l, err := net.Listen("unix", sock)
+		if err != nil {
+			t.Skipf("no Unix socket here: %v", err)
+		}
+		defer l.Close()
+		symlinkOrSkip(t, os.DevNull, filepath.Join(album, "null"))
+		refused(t, pipe)
+		refused(t, sock)
+		entries, err := collectFiles([]string{album})
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.displayName)
+		}
+		if err != nil || strings.Join(names, "|") != "album/a.txt" {
+			t.Errorf("collectFiles(album) = %q, %v; want album/a.txt alone", names, err)
+		}
+	})
 }
