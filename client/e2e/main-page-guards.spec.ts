@@ -302,24 +302,24 @@ test("the footer's Floe link on the main page keeps files not yet sent", async (
     await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 5_000 }).toBe(0);
 });
 
-test('a folder dropped on the Send page is refused at the drop', async ({ page }) => {
+test('a folder dropped where the browser gives no entries is refused at the drop', async ({ page }) => {
     await page.goto('/');
     const zone = page.getByText('Drop files or click to browse');
     await expect(zone).toBeVisible();
+    const region = page.getByRole('main').getByRole('status');
+    await expect(region).toHaveText('');
 
-    // What Chromium hands a page for a dropped folder: an entry that is a
-    // directory, and in the file list a pseudo-file whose read fails later.
+    // A browser without the entries API hands over only the pseudo-file it
+    // makes for a folder, whose read fails. The page cannot walk it.
     await zone.evaluate((el) => {
         const folder = new File([new Uint8Array(4096)], 'photos');
+        Object.defineProperty(folder, 'slice', {
+            value: () => ({ arrayBuffer: () => Promise.reject(new DOMException('gone', 'NotFoundError')) }),
+        });
         const dataTransfer = {
             types: ['Files'],
             files: [folder],
-            items: [{
-                kind: 'file',
-                type: '',
-                getAsFile: () => folder,
-                webkitGetAsEntry: () => ({ isDirectory: true, isFile: false, name: 'photos' }),
-            }],
+            items: [{ kind: 'file', type: '', getAsFile: () => folder }],
             dropEffect: 'none',
         };
         const drop = new Event('drop', { bubbles: true, cancelable: true });
@@ -327,7 +327,9 @@ test('a folder dropped on the Send page is refused at the drop', async ({ page }
         el.dispatchEvent(drop);
     });
 
-    await expect(page.getByText('Folders cannot be sent from this page. Add the files inside it, or zip it first.')).toBeVisible();
+    const refused = 'This browser cannot send a folder. Add the files inside it, or zip it first.';
+    await expect(page.getByText(refused).and(page.locator(':not([role="status"])'))).toBeVisible();
+    await expect(region).toHaveText(refused);
     await expect(page.locator('button', { hasText: /create secure link/i })).toHaveCount(0);
 });
 

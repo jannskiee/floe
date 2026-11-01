@@ -38,8 +38,8 @@ to install anything:
 
 **Sending a folder.** Use Floe Desktop or the CLI. Both walk the folder for you, and Floe Desktop or
 the CLI on the other side rebuilds the same structure. A browser on the other side rebuilds it only
-inside **Download ZIP**. The Send page at floe.one has no folder picker, and it refuses a
-folder dropped on it. The one browser page that takes folders is the page a request link opens.
+inside **Download ZIP**. The Send page at floe.one has no folder picker, but it sends a folder you
+drop on it. The page a request link opens takes folders too.
 
 **Receiving something very large.** Use Floe Desktop or the CLI. Both write straight to disk as
 the bytes arrive. A browser receiver keeps each file inside the browser until you save it, and how
@@ -63,7 +63,7 @@ transfers, remembers where you save things, and, on the build from GitHub, can p
 | Platforms | Any modern browser | Windows 10 or later, 64-bit Intel or AMD (x64), as most PCs are: [how to check](/desktop/installation#requirements) | macOS 13 or later, Windows, Linux, on Intel and ARM |
 | Install | None | Microsoft Store or a download | A [package manager](/glossary#package-manager), the one-line script, or `go install` |
 | Send files | Yes | Yes | Yes |
-| Send a folder | Only through a request link | Yes | Yes |
+| Send a folder | By dropping it, or through a request link | Yes | Yes |
 | Share a link | Yes | Yes | Yes |
 | Share a [room code](/glossary#room-code) | No | Yes | Yes |
 | Show a QR code | Yes | Yes | No |
