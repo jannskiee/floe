@@ -62,13 +62,18 @@ async function onTheWire(page: Page): Promise<Wire> {
     await page.route(/\/socket\.io\/\?.*transport=polling/, async (route) => {
         if (route.request().method() !== 'GET') return route.continue();
         let response;
+        let text: string;
         try {
             response = await route.fetch();
+            text = await response.text();
         } catch {
-            // The page went offline or closed with this poll in flight.
+            // The page went offline or closed with this poll in flight. Playwright
+            // drops a fetched body when the context closes, after the page is gone
+            // and every assertion has run, so aborting here adds no reconnect or
+            // join-room that a test counts.
             return route.abort().catch(() => {});
         }
-        const packets = (await response.text()).split(SEPARATOR);
+        const packets = text.split(SEPARATOR);
         const answer = packets.findIndex((p) => p.startsWith('40'));
         if (armed && answer >= 0) {
             packets[answer] = REFUSAL;
