@@ -96,7 +96,8 @@ downloads that release's archive and its `checksums.txt` from GitHub.
     `sudo rm /usr/local/bin/floe`.
 
     If the machine has neither `sha256sum` nor `shasum`, or the release lists no checksum for the
-    archive, the script prints a warning and installs without the check.
+    archive, the script stops and installs nothing: see
+    [If the install script stops](#if-the-install-script-stops).
 
     A run that needs `sudo` looks like this:
 
@@ -126,7 +127,7 @@ downloads that release's archive and its `checksums.txt` from GitHub.
     The script downloads the `.zip` for your processor (x64 or ARM64), checks its SHA-256 against
     the release's `checksums.txt`, and installs `floe.exe` to `%LOCALAPPDATA%\Programs\floe`. It
     adds that folder to your user `PATH` and asks for no administrator rights. If the release lists
-    no checksum for the archive, the script prints a warning and installs without the check.
+    no checksum for the archive, the script stops and installs nothing.
 
     ```text Output
     Fetching latest version...
@@ -143,8 +144,8 @@ downloads that release's archive and its `checksums.txt` from GitHub.
     Open a new terminal after running it.
 
     If a step fails (a processor with no release, a download that does not complete, a checksum that
-    does not match), the script prints the reason in red and stops before it copies `floe.exe`
-    anywhere. It never closes your PowerShell window, so the reason stays on screen; the
+    is missing or does not match), the script prints the reason in red and stops before it copies
+    `floe.exe` anywhere. It never closes your PowerShell window, so the reason stays on screen; the
     `Installed floe` line is the sign that it finished.
   </Tab>
 </Tabs>
@@ -296,6 +297,8 @@ The script ends with one of these and installs nothing:
 | `Could not determine latest version.` | The script could not read the newest release from GitHub: no connection, a proxy, or GitHub's limit on requests made without an account. | Try again later, or set `FLOE_VERSION` to a release tag, as the message shows. |
 | `needs macOS 13 or later` and the Mac's version | Releases from 1.11.2 on are built with Go 1.27, which supports macOS 13 Ventura and later. 1.11.1 was the last one built for macOS 12. | Install 1.11.1 with the command the message shows, or [build from source](#build-from-source) with Go 1.26. |
 | `Checksum verification failed!`, then `Expected:` and `Got:` lines (`Checksum verification failed.` in PowerShell) | The download did not match `checksums.txt`. | Run the script again. |
+| `Error: no SHA-256 tool found (sha256sum or shasum), so the download could not be verified. Install one and run this again.` | The macOS and Linux script checks the download with one of those two tools, and this machine has neither. | Install either one, then run the script again. |
+| `Error: checksums.txt has no line for` and the archive's name, then `so the download could not be verified.` (without `Error:` in PowerShell) | The `checksums.txt` that arrived lists no checksum for your archive: the download was cut short or replaced on the way, such as by a sign-in page on a proxy, or the release lists none. | Run the script again, on another network if it repeats. If it still stops, set `FLOE_VERSION` to another release, or [install from a release archive](#install-from-a-release-archive) and check it against the release's attestation. |
 | `Error: binary not found after extraction.` | The macOS and Linux script unpacked the archive and found no `floe` file in it. | Run the script again. If it repeats, [install from a release archive](#install-from-a-release-archive) by hand. |
 
 A `FLOE_VERSION` that names no release stops the script right after its `Downloading` line, with

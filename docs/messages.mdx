@@ -679,10 +679,10 @@ yet has no section of its own so far.
 | `Cannot transfer: your floe is too old for this peer. {rest} Update Floe to continue.` | [`Cannot transfer: your floe is too old for this peer.`](/troubleshooting#cannot-transfer-your-floe-is-too-old-for-this-peer) |
 | `Cannot update a dev build.` | [`Cannot update a dev build.`](/troubleshooting#cannot-update-a-dev-build) |
 | `Checking for updates... {version}` | [Script and manual installs](/cli/update#script-and-manual-installs) |
-| `Checksum not found for {archive}, skipping verification.` | [One-line installer](/cli/installation#one-line-installer) |
 | `Checksum verification failed!` | [If the install script stops](/cli/installation#if-the-install-script-stops) |
 | `Checksum verification failed.` | [If the install script stops](/cli/installation#if-the-install-script-stops) |
 | `Checksum verified.` | [One-line installer](/cli/installation#one-line-installer) |
+| `checksums.txt has no line for {archive}, so the download could not be verified.` | [If the install script stops](/cli/installation#if-the-install-script-stops) |
 | `closed before the connection was established` | [`WebRTC setup failed:` and another reason](/troubleshooting#webrtc-setup-failed) |
 | `Connected` | [Send through a request link](/cli/send#send-through-a-request-link) |
 | `Connecting to sender...` | [Output](/cli/receive#output) |
@@ -715,6 +715,7 @@ yet has no section of its own so far.
 | `Error: binary not found after extraction.` | [If the install script stops](/cli/installation#if-the-install-script-stops) |
 | `Error: cannot create output directory {dir}: {reason}` | [`cannot create output directory`](/troubleshooting#cannot-create-output-directory) |
 | `Error: Cannot update a dev build.` | [`Cannot update a dev build.`](/troubleshooting#cannot-update-a-dev-build) |
+| `Error: checksums.txt has no line for {archive}, so the download could not be verified.` | [If the install script stops](/cli/installation#if-the-install-script-stops) |
 | `Error: connection closed after {n} of {n} files` | [`connection closed before any file arrived (the sender canceled, or the transfer was blocked)`](/troubleshooting#connection-closed-before-any-file-arrived) |
 | `Error: connection closed mid-transfer: {name}` | [`connection closed before any file arrived (the sender canceled, or the transfer was blocked)`](/troubleshooting#connection-closed-before-any-file-arrived) |
 | `Error: could not resolve "{code}": could not reach signaling server: {network reason}` | [`failed to connect to signaling server`](/troubleshooting#failed-to-connect-to-signaling-server) |
@@ -743,6 +744,7 @@ yet has no section of its own so far.
 | `Error: failed to create peer connection: {reason}` | [`WebRTC setup failed:` and another reason](/troubleshooting#webrtc-setup-failed) |
 | `Error: incomplete file "{name}": received {n} of {m} bytes` | [`rejected the sender's file description` and similar lines](/troubleshooting#rejected-the-senders-file-description) |
 | `` Error: installed via {package manager} - run `{command}` to update `` | [``installed via homebrew - run `brew upgrade floe` to update``](/troubleshooting#installed-via-homebrew-run-brew-upgrade-floe-to-update) |
+| `Error: no SHA-256 tool found (sha256sum or shasum), so the download could not be verified. Install one and run this again.` | [If the install script stops](/cli/installation#if-the-install-script-stops) |
 | `Error: receiver discarded a file: incomplete file "{name}": received {n} of {m} bytes` | [A banner that starts with receiver](/troubleshooting#a-banner-that-starts-with-receiver) |
 | `Error: receiver rejected the file description: {detail}` | [floe send](/cli/send) |
 | `Error: rejected the sender's control message: {n} bytes, limit {n}` | [`receive stopped: a file's path is too deep or too long to save in this folder`](/troubleshooting#receive-stopped-path-too-deep-or-too-long) |
@@ -857,12 +859,9 @@ yet has no section of its own so far.
 | `Verifying checksum...` | [One-line installer](/cli/installation#one-line-installer) |
 | `Waiting for peer...` | [Output](/cli/send#output) |
 | `Waiting for them to accept. They have {n} min to answer.` | [Send through a request link](/cli/send#send-through-a-request-link) |
-| `WARNING: Checksum not found for {archive}, skipping verification.` | [One-line installer](/cli/installation#one-line-installer) |
-| `Warning: checksum not found for {archive}, skipping verification.` | [One-line installer](/cli/installation#one-line-installer) |
 | `Warning: could not generate short code: {cause}` | [`Warning: could not generate short code`](/troubleshooting#warning-could-not-generate-short-code) |
 | `Warning: could not reach signaling server for TURN credentials. Using STUN only.` | [`Warning: could not reach signaling server for TURN credentials. Using STUN only.`](/troubleshooting#warning-could-not-reach-signaling-server-for-turn-credentials-using-stun-only) |
 | `Warning: could not read TURN credentials from the signaling server. Using STUN only.` | [`Warning: could not reach signaling server for TURN credentials. Using STUN only.`](/troubleshooting#warning-could-not-reach-signaling-server-for-turn-credentials-using-stun-only) |
-| `Warning: no sha256 tool found, skipping checksum verification.` | [One-line installer](/cli/installation#one-line-installer) |
 | `Warning: signaling server returned {n} for TURN credentials. Using STUN only.` | [`Warning: could not reach signaling server for TURN credentials. Using STUN only.`](/troubleshooting#warning-could-not-reach-signaling-server-for-turn-credentials-using-stun-only) |
 | `write error: could not finish writing a file, so it was not kept` | [`write error: the drive ran out of space, so the file was not kept`](/troubleshooting#write-error) |
 | `write error: the drive ran out of space, so the file was not kept` | [`write error: the drive ran out of space, so the file was not kept`](/troubleshooting#write-error) |

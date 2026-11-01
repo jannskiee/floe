@@ -43,10 +43,10 @@ Updated to 1.y.y
 `Update available: 1.10.11 -> v1.11.0`. When nothing newer exists, `floe update` prints
 `Already up to date (1.x.x)` after the first two lines and stops.
 
-`floe update` installs nothing when the checksum does not match. Unlike the install scripts, it also
-installs nothing when the release lists no checksum for the archive. It gives GitHub 10 seconds to
-say which release is newest, 30 seconds for `checksums.txt`, and 5 minutes for the whole archive,
-and an update that runs out of time installs nothing.
+`floe update` installs nothing when the checksum does not match, or when the release lists no
+checksum for the archive, and the install scripts stop in the same two cases. `floe update` gives
+GitHub 10 seconds to say which release is newest, 30 seconds for `checksums.txt`, and 5 minutes for
+the whole archive, and an update that runs out of time installs nothing.
 
 On macOS and Linux, if `floe` lives in a folder you cannot write to, such as `/usr/local/bin` (the
 install script's usual place), the final swap needs `sudo`. One more line then comes before
@@ -142,7 +142,7 @@ Each of these ends `floe update` with status 1, and nothing is installed:
 | `Error: failed to check for updates: GitHub API returned 403` | GitHub turned the request away, for example because of its limit on requests made without an account, which a shared network or a CI runner reaches quickly. | Try again later, or download the release by hand: see [Install from a release archive](/cli/installation#install-from-a-release-archive). |
 | `Error: failed to check for updates:` and another cause | `floe` could not reach GitHub, or could not read its answer, for example while offline or behind a proxy. | Check your connection, then try again. |
 | `Error: update failed: checksum mismatch for floe_X.Y.Z_linux_amd64.tar.gz:`, then an `expected` and a `got` line | The download did not match the release's `checksums.txt`. | Run `floe update` again. |
-| `Error: update failed: checksum not found in checksums.txt for floe_X.Y.Z_linux_amd64.tar.gz` | The release lists no checksum for your archive, and `floe update` installs nothing without one. | Install that release another way, such as the install script. |
+| `Error: update failed: checksum not found in checksums.txt for floe_X.Y.Z_linux_amd64.tar.gz` | The release lists no checksum for your archive, and `floe update` installs nothing without one. The install scripts stop on it too. | [Install from a release archive](/cli/installation#install-from-a-release-archive) and check it against the release's attestation. |
 | `Error: update failed: download failed:` or `failed to fetch checksums:`, and the cause | The archive or `checksums.txt` could not be downloaded, for example `HTTP 404`. | Check your connection, then try again. |
 | `Error: update failed: /usr/local/bin is not writable and sudo is not available; re-run as root, or reinstall with the install script` | The folder that holds `floe` is not yours to write to, and the machine has no `sudo`. | Do what the line says. |
 | `Error: update failed: permission denied writing to /usr/local/bin` | You ran `floe update` as root, and the system still refused a write into the folder that holds `floe`. | Find out what protects that folder. |

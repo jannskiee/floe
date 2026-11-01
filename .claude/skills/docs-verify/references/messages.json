@@ -5055,13 +5055,6 @@
     },
     {
         "surface": "cli",
-        "text": "Checksum not found for {archive}, skipping verification.",
-        "source": "client/public/install.ps1",
-        "anchor": "/cli/installation#one-line-installer",
-        "why_no_home": null
-    },
-    {
-        "surface": "cli",
         "text": "Checksum verification failed!",
         "source": "client/public/install.sh",
         "anchor": "/cli/installation#if-the-install-script-stops",
@@ -5079,6 +5072,13 @@
         "text": "Checksum verified.",
         "source": "client/public/install.sh",
         "anchor": "/cli/installation#one-line-installer",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "checksums.txt has no line for {archive}, so the download could not be verified.",
+        "source": "client/public/install.ps1",
+        "anchor": "/cli/installation#if-the-install-script-stops",
         "why_no_home": null
     },
     {
@@ -5300,6 +5300,13 @@
     },
     {
         "surface": "cli",
+        "text": "Error: checksums.txt has no line for {archive}, so the download could not be verified.",
+        "source": "client/public/install.sh",
+        "anchor": "/cli/installation#if-the-install-script-stops",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
         "text": "Error: connection closed after {n} of {n} files",
         "source": "cli/engine/transfer/receiver.go",
         "anchor": "/troubleshooting#connection-closed-before-any-file-arrived",
@@ -5506,6 +5513,13 @@
         "text": "Error: installed via {package manager} - run `{command}` to update",
         "source": "cli/cmd/floe/update.go",
         "anchor": "/troubleshooting#installed-via-homebrew-run-brew-upgrade-floe-to-update",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "Error: no SHA-256 tool found (sha256sum or shasum), so the download could not be verified. Install one and run this again.",
+        "source": "client/public/install.sh",
+        "anchor": "/cli/installation#if-the-install-script-stops",
         "why_no_home": null
     },
     {
@@ -6392,20 +6406,6 @@
     },
     {
         "surface": "cli",
-        "text": "WARNING: Checksum not found for {archive}, skipping verification.",
-        "source": "client/public/install.ps1",
-        "anchor": "/cli/installation#one-line-installer",
-        "why_no_home": null
-    },
-    {
-        "surface": "cli",
-        "text": "Warning: checksum not found for {archive}, skipping verification.",
-        "source": "client/public/install.sh",
-        "anchor": "/cli/installation#one-line-installer",
-        "why_no_home": null
-    },
-    {
-        "surface": "cli",
         "text": "Warning: could not generate short code: {cause}",
         "source": "cli/cmd/floe/send.go",
         "anchor": "/troubleshooting#warning-could-not-generate-short-code",
@@ -6423,13 +6423,6 @@
         "text": "Warning: could not read TURN credentials from the signaling server. Using STUN only.",
         "source": "cli/engine/ice/credentials.go",
         "anchor": "/troubleshooting#warning-could-not-reach-signaling-server-for-turn-credentials-using-stun-only",
-        "why_no_home": null
-    },
-    {
-        "surface": "cli",
-        "text": "Warning: no sha256 tool found, skipping checksum verification.",
-        "source": "client/public/install.sh",
-        "anchor": "/cli/installation#one-line-installer",
         "why_no_home": null
     },
     {
