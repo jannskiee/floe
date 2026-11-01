@@ -1324,12 +1324,12 @@ ackLoop:
 	}
 	// Growth is probed off the descriptor, never a second Stat. A descriptor that
 	// stats as 0 and still yields bytes (a log created moments earlier, or a
-	// /proc, /sys or character-device path, all of which collectFiles accepts) is
-	// exactly what a re-stat cannot see, and capping it silently would send an
-	// empty file that both ends reported as a success.
+	// /proc or /sys path) is exactly what a re-stat cannot see, and capping it
+	// silently would send an empty file that both ends reported as a success.
 	//
 	// Only for a regular file. A FIFO or a character device would block this
-	// read forever, and collectFiles accepts whatever os.Stat succeeded on.
+	// read forever. collectFiles refuses a pipe, a socket and a device, so the
+	// guard only covers one that turned into one after the walk.
 	if info.Mode().IsRegular() {
 		var probe [1]byte
 		if n, _ := f.Read(probe[:]); n > 0 {

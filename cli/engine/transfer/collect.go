@@ -16,6 +16,11 @@ type fileEntry struct {
 	size        int64  // file size in bytes
 }
 
+// notAFile is the mode bits of a pipe, a socket and a device. None of them is
+// a file with a size and an end: a pipe or a device sends as an empty file, and
+// a socket or a pipe inside a folder stops or hangs the send.
+const notAFile = os.ModeNamedPipe | os.ModeSocket | os.ModeDevice | os.ModeCharDevice
+
 // collectFiles expands all paths: plain files are added directly,
 // directories are walked and each file inside is added with its relative path.
 func collectFiles(paths []string) ([]fileEntry, error) {
@@ -27,6 +32,9 @@ func collectFiles(paths []string) ([]fileEntry, error) {
 		}
 
 		if !info.IsDir() {
+			if info.Mode()&notAFile != 0 {
+				return nil, fmt.Errorf("cannot send %s: it is a pipe, a socket or a device, not a file", p)
+			}
 			entries = append(entries, fileEntry{
 				absPath:     p,
 				displayName: filepath.Base(p),
@@ -64,6 +72,11 @@ func collectFiles(paths []string) ([]fileEntry, error) {
 					return fmt.Errorf("cannot send %s: it is a link to a folder, which Floe does not follow", path)
 				}
 				fi = target
+			}
+			// A pipe, a socket or a device inside the folder is left out, and so
+			// is a link to one (fi is the target by now).
+			if fi.Mode()&notAFile != 0 {
+				return nil
 			}
 			// Named as before, from the path the person gave: the file's place
 			// under root, seen from the folder that holds p.
