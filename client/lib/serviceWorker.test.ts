@@ -18,8 +18,8 @@ import { fileURLToPath } from 'node:url';
  * no worker were registered. Only the first path can ever reach the Cache API,
  * so "respondWith was never called" is a complete statement of "this URL is not
  * cached", not a proxy for one. (Taking a request over does not imply answering
- * from cache: the navigate branch and a /_next/static miss both answer from the
- * network through respondWith.)
+ * from cache: the navigate branch and /_next/static both answer from the network
+ * through respondWith, and read the cache only when fetch itself rejects.)
  */
 const SW_SOURCE = readFileSync(
     fileURLToPath(new URL('../public/sw.js', import.meta.url)),
@@ -29,12 +29,11 @@ const SW_SOURCE = readFileSync(
 const ORIGIN = 'https://www.floe.one';
 const NETWORK_BODY = 'from the network';
 
-// The name v5 shipped. The rename is NOT what makes the link guards take effect:
-// they return before respondWith, so a v5 visitor stops writing share links the
-// moment v6 activates, whatever the cache is called. The rename is what deletes
-// the links v5 already wrote, because activate purges by name and nothing else
-// ever evicts.
-const PREVIOUS_CACHE_NAME = 'floe-cache-v5';
+// The name v6 shipped. The rename is NOT what stops a planted chunk running:
+// network-first does that, the moment v7 activates, whatever the cache is
+// called. The rename is what deletes every entry v6 already stored, a planted
+// one included, because activate purges by name and nothing else ever evicts.
+const PREVIOUS_CACHE_NAME = 'floe-cache-v6';
 
 interface FakeRequest {
     url: string;
@@ -96,8 +95,11 @@ function createCacheStorage() {
                 put: async (request: FakeRequest, response: FakeResponse) => {
                     target.set(key(request.url), response);
                 },
+                match: async (request: FakeRequest) => target.get(key(request.url)),
             };
         },
+        // Every cache on the origin, oldest first, as the real one searches. The
+        // worker must not use this: a copy planted under another name would answer.
         match: async (request: FakeRequest) => {
             for (const target of stores.values()) {
                 const hit = target.get(key(request.url));
@@ -132,7 +134,8 @@ function loadServiceWorker() {
 
     new Function(SW_SOURCE)();
 
-    return { listeners, stores, opened, precached, entriesFor, fetchMock, skipWaiting, claim };
+    const held: Promise<unknown>[] = [];
+    return { listeners, stores, opened, precached, entriesFor, fetchMock, skipWaiting, claim, held };
 }
 
 type Worker = ReturnType<typeof loadServiceWorker>;
@@ -156,6 +159,9 @@ function dispatchFetch(
         respondWith: (promise: Promise<FakeResponse>) => {
             handled.push(promise);
         },
+        waitUntil: (promise: Promise<unknown>) => {
+            sw.held.push(promise);
+        },
     });
     return handled;
 }
@@ -174,8 +180,8 @@ async function dispatchLifecycle(sw: Worker, type: 'install' | 'activate') {
 
 /**
  * The worker writes to the cache without awaiting it, deliberately, so a slow
- * write never delays the response. Asserting on the write means draining those
- * microtasks first.
+ * write never delays the response; waitUntil keeps the worker alive for it. Asserting
+ * on the write means draining those microtasks first.
  */
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -231,23 +237,31 @@ describe('activate', () => {
         const current = sw.opened[0];
         sw.entriesFor(PREVIOUS_CACHE_NAME).set(`${ORIGIN}/docs/changelog`, makeResponse('stale'));
         sw.entriesFor('floe-cache-v3').set(`${ORIGIN}/_next/image?url=x`, makeResponse('stale'));
+        // v5 stored every opened share link under its full URL. The literal name
+        // is deliberate: whatever later releases are called, v5 must stay purged.
+        sw.entriesFor('floe-cache-v5').set(`${ORIGIN}/?s=x#room=y`, makeResponse('a share link v5 kept'));
 
         await dispatchLifecycle(sw, 'activate');
 
         expect([...sw.stores.keys()]).toEqual([current]);
     });
 
-    it('purges the v5 cache on activate', async () => {
-        // v5 stored every opened share link under its full URL. The literal name
-        // is deliberate: whatever later releases are called, v5 must stay purged.
+    it('purges the v6 cache on activate, a planted chunk with it', async () => {
+        // v6 answered /_next/static from its store for as long as an entry was
+        // there, so one same-origin script run could leave a chunk that outlived
+        // every deploy. The literal name is deliberate, as for v5 above.
         await dispatchLifecycle(sw, 'install');
         const current = sw.opened[0];
-        sw.entriesFor('floe-cache-v5').set(`${ORIGIN}/?s=x#room=y`, makeResponse('a share link v5 kept'));
+        expect(current).not.toBe('floe-cache-v6');
+        sw.entriesFor('floe-cache-v6').set(`${ORIGIN}/_next/static/chunks/x.js`, makeResponse('window.__planted = 1'));
 
         await dispatchLifecycle(sw, 'activate');
 
-        expect(sw.stores.has('floe-cache-v5')).toBe(false);
+        expect(sw.stores.has('floe-cache-v6')).toBe(false);
         expect([...sw.stores.keys()]).toEqual([current]);
+        // Nothing is left to answer with, even with the network gone.
+        sw.fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+        await expect(dispatchFetch(sw, `${ORIGIN}/_next/static/chunks/x.js`)[0]).resolves.toBeUndefined();
     });
 });
 
@@ -282,6 +296,10 @@ describe('URLs the worker must leave alone', () => {
         ['a hash-suffixed icon route', `${ORIGIN}/icon.svg?f7a1c2b9`],
         ['a public image', `${ORIGIN}/og.png`],
         ['the CLI install script', `${ORIGIN}/install.sh`],
+        // The pinned tracker sits outside /_next/static on purpose: the worker
+        // never answers for it, so a planted copy could never be served, and
+        // the browser's integrity check has the only word on its bytes.
+        ['the pinned Umami copy', `${ORIGIN}/vendor/umami-8104cfaf.js`],
         ['another host entirely', 'https://api.floe.one/api/turn-credentials'],
         ['build output on another host', 'https://cdn.example.com/_next/static/chunks/a.js'],
     ];
@@ -297,30 +315,171 @@ describe('URLs the worker must leave alone', () => {
     });
 });
 
-describe('/_next/static is the only cache-first path', () => {
+describe('/_next/static is network-first, with the cache as the offline fallback', () => {
+    const CHUNK = `${ORIGIN}/_next/static/chunks/4f2a91c3.js`;
+    const PLANTED = 'window.__planted = 1';
+
     const CACHED: [string, string][] = [
-        ['a build chunk', `${ORIGIN}/_next/static/chunks/4f2a91c3.js`],
+        ['a build chunk', CHUNK],
         ['a build stylesheet', `${ORIGIN}/_next/static/css/9b1c0e.css`],
         ['a self-hosted next/font file', `${ORIGIN}/_next/static/media/geist-a1b2c3.woff2`],
     ];
 
     for (const [label, url] of CACHED) {
         it(`caches ${label}, whose filename is a hash of its bytes`, async () => {
+            await dispatchLifecycle(sw, 'install');
             const handled = dispatchFetch(sw, url);
             expect(handled).toHaveLength(1);
             await expect(handled[0]).resolves.toMatchObject({ body: NETWORK_BODY });
+            await flush();
+            expect(sw.stores.get(sw.opened[0])?.get(url)).toMatchObject({ body: NETWORK_BODY });
         });
     }
 
-    it('serves a repeat request from the cache without a second network hit', async () => {
-        const url = `${ORIGIN}/_next/static/chunks/4f2a91c3.js`;
+    it('a repeat request goes to the network again and refreshes the stored copy', async () => {
+        await dispatchLifecycle(sw, 'install');
+        const current = sw.opened[0];
 
-        await dispatchFetch(sw, url)[0];
+        await dispatchFetch(sw, CHUNK)[0];
         await flush();
         expect(sw.fetchMock).toHaveBeenCalledTimes(1);
 
-        await expect(dispatchFetch(sw, url)[0]).resolves.toMatchObject({ body: NETWORK_BODY });
+        sw.fetchMock.mockResolvedValueOnce(makeResponse('the bytes of this load'));
+        await expect(dispatchFetch(sw, CHUNK)[0]).resolves.toMatchObject({ body: 'the bytes of this load' });
+        await flush();
+        expect(sw.fetchMock).toHaveBeenCalledTimes(2);
+        expect(sw.stores.get(current)?.get(CHUNK)).toMatchObject({ body: 'the bytes of this load' });
+    });
+
+    it('a copy planted in the store never answers while the network does, and is overwritten', async () => {
+        // One same-origin script run can write to Cache Storage: a tracker, or
+        // Mintlify's scripts under /docs. Under cache-first its entry ran on
+        // every later load, across deploys, on the page that holds a link.
+        await dispatchLifecycle(sw, 'install');
+        const current = sw.opened[0];
+        sw.entriesFor(current).set(CHUNK, makeResponse(PLANTED));
+
+        await expect(dispatchFetch(sw, CHUNK)[0]).resolves.toMatchObject({ body: NETWORK_BODY });
+        await flush();
+
         expect(sw.fetchMock).toHaveBeenCalledTimes(1);
+        expect(sw.stores.get(current)?.get(CHUNK)).toMatchObject({ body: NETWORK_BODY });
+    });
+
+    it('the stored copy answers only when fetch itself rejects', async () => {
+        await dispatchLifecycle(sw, 'install');
+        const current = sw.opened[0];
+        sw.entriesFor(current).set(CHUNK, makeResponse('the copy from an earlier load'));
+        sw.fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+
+        await expect(dispatchFetch(sw, CHUNK)[0]).resolves.toMatchObject({ body: 'the copy from an earlier load' });
+        await flush();
+        // A rejected fetch has nothing to store, so the copy stays as it was.
+        expect(sw.stores.get(current)?.get(CHUNK)).toMatchObject({ body: 'the copy from an earlier load' });
+        // With nothing stored either, the page gets the network error it would
+        // have had with no worker registered.
+        sw.fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+        await expect(dispatchFetch(sw, `${ORIGIN}/_next/static/chunks/never-seen.js`)[0]).resolves.toBeUndefined();
+    });
+
+    it('a copy planted under another cache name never answers, even when fetch rejects', async () => {
+        // caches.match searches every cache on the origin, so this store would
+        // answer a rejected fetch, and the 200 that overwrites the worker's own
+        // copy would never reach it. One script run can make such a cache.
+        await dispatchLifecycle(sw, 'install');
+        sw.entriesFor('elsewhere').set(CHUNK, makeResponse(PLANTED));
+        sw.fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+
+        await expect(dispatchFetch(sw, CHUNK)[0]).resolves.toBeUndefined();
+    });
+
+    it('a copy planted under an older cache of that name stays out after an online load', async () => {
+        // The durable shape, run in real Chromium for the review: delete the
+        // worker's cache, make another, open the worker's again, so the plant is
+        // the oldest cache the origin holds and caches.match would find it first.
+        await dispatchLifecycle(sw, 'install');
+        const current = sw.opened[0];
+        sw.stores.delete(current);
+        sw.entriesFor('elsewhere').set(CHUNK, makeResponse(PLANTED));
+        sw.entriesFor(current);
+
+        await expect(dispatchFetch(sw, CHUNK)[0]).resolves.toMatchObject({ body: NETWORK_BODY });
+        await flush();
+        expect(sw.stores.get(current)?.get(CHUNK)).toMatchObject({ body: NETWORK_BODY });
+
+        sw.fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+        await expect(dispatchFetch(sw, CHUNK)[0]).resolves.toMatchObject({ body: NETWORK_BODY });
+    });
+
+    it('holds the write that overwrites a plant with waitUntil', async () => {
+        // A browser may stop the worker once respondWith has settled, and this
+        // write is what heals a plant.
+        await dispatchLifecycle(sw, 'install');
+        const current = sw.opened[0];
+        sw.entriesFor(current).set(CHUNK, makeResponse(PLANTED));
+
+        await dispatchFetch(sw, CHUNK)[0];
+
+        expect(sw.held).toHaveLength(1);
+        await sw.held[0];
+        expect(sw.stores.get(current)?.get(CHUNK)).toMatchObject({ body: NETWORK_BODY });
+    });
+
+    // A 206 is a range answer, whose ok is true, so only the status can keep it
+    // out. A 0 is an opaque answer, whose bytes nobody can read.
+    for (const status of [0, 206, 404, 500, 503]) {
+        it(`a ${status} passes through, unstored, and is never swapped for a stored copy`, async () => {
+            // An old tab asking for a chunk the last deploy removed gets the
+            // host's 404. If that fell back to the store, an entry planted at
+            // an old build's URL would run, which is the path this closes.
+            await dispatchLifecycle(sw, 'install');
+            const current = sw.opened[0];
+            sw.entriesFor(current).set(CHUNK, makeResponse(PLANTED));
+            sw.fetchMock.mockResolvedValueOnce(makeResponse('an error page', status));
+
+            await expect(dispatchFetch(sw, CHUNK)[0]).resolves.toMatchObject({ status, body: 'an error page' });
+            await flush();
+
+            // The stored copy is untouched: a bad answer proves nothing about it.
+            expect(sw.stores.get(current)?.get(CHUNK)).toMatchObject({ body: PLANTED });
+
+            const missing = `${ORIGIN}/_next/static/chunks/gone.js`;
+            sw.fetchMock.mockResolvedValueOnce(makeResponse('an error page', status));
+            await expect(dispatchFetch(sw, missing)[0]).resolves.toMatchObject({ status });
+            await flush();
+            expect(sw.stores.get(current)?.has(missing)).toBe(false);
+        });
+    }
+
+    it('a throw while handling the answer does not fall back to the store', async () => {
+        // Why the handlers are the two arguments of one then(): with
+        // then().catch() a throw in the success path would read the store too.
+        await dispatchLifecycle(sw, 'install');
+        sw.entriesFor(sw.opened[0]).set(CHUNK, makeResponse(PLANTED));
+        sw.fetchMock.mockResolvedValueOnce({
+            ...makeResponse(NETWORK_BODY),
+            clone: () => {
+                throw new TypeError('body already used');
+            },
+        });
+
+        await expect(dispatchFetch(sw, CHUNK)[0]).rejects.toThrow('body already used');
+    });
+
+    it('does not touch the store before the network answers', async () => {
+        // caches.match first was the whole of the old path.
+        await dispatchLifecycle(sw, 'install');
+        sw.entriesFor(sw.opened[0]).set(CHUNK, makeResponse(PLANTED));
+        const openedBefore = sw.opened.length;
+        let answer: (response: FakeResponse) => void = () => {};
+        sw.fetchMock.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+
+        const pending = dispatchFetch(sw, CHUNK)[0];
+        await flush();
+        expect(sw.opened).toHaveLength(openedBefore);
+
+        answer(makeResponse(NETWORK_BODY));
+        await expect(pending).resolves.toMatchObject({ body: NETWORK_BODY });
     });
 });
 
@@ -421,6 +580,43 @@ describe('share links and request links', () => {
 
     it('does not cache /r/abc#uuid', () => {
         expect(dispatchFetch(sw, `${ORIGIN}/r/abc#uuid`, 'navigate')).toHaveLength(0);
+    });
+
+    it('does not cache a link that carries a link key, in any shape', () => {
+        const KEY = 'AbCdEfGhIjKlMnOpQrStUg';
+        for (const link of [
+            `${ORIGIN}/?s=x#k=${KEY}&room=${ROOM_ID}`,
+            `${ORIGIN}/#k=${KEY}&room=${ROOM_ID}`,
+            `${ORIGIN}/r/abc#${ROOM_ID}.${KEY}`,
+            `${ORIGIN}/#k=${KEY}`,
+            // No builder makes this one. A mangled link can, and with no fragment
+            // and no nonce only the k guard stops it.
+            `${ORIGIN}/?k=${KEY}`,
+        ]) {
+            expect(dispatchFetch(sw, link, 'navigate'), link).toHaveLength(0);
+        }
+    });
+
+    it('a document planted under another cache name never answers a failed load', async () => {
+        await dispatchLifecycle(sw, 'install');
+        const current = sw.opened[0];
+        sw.stores.delete(current);
+        sw.entriesFor('elsewhere').set(`${ORIGIN}/`, makeResponse('planted document'));
+        sw.entriesFor(current);
+        sw.fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+
+        await expect(dispatchFetch(sw, `${ORIGIN}/`, 'navigate')[0]).resolves.toBeUndefined();
+    });
+
+    it('holds the write that overwrites a stored document with waitUntil', async () => {
+        await dispatchLifecycle(sw, 'install');
+        const current = sw.opened[0];
+
+        await dispatchFetch(sw, `${ORIGIN}/`, 'navigate')[0];
+
+        expect(sw.held).toHaveLength(1);
+        await sw.held[0];
+        expect(sw.stores.get(current)?.get(`${ORIGIN}/`)).toMatchObject({ body: NETWORK_BODY });
     });
 
     it('does not cache /R/abc', () => {

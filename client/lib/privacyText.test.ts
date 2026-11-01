@@ -1,4 +1,5 @@
-// Three sentences of the privacy page that said more than the code does.
+// Sentences of the privacy page that said, or could come to say, more than the
+// code does.
 //
 // vitest cannot import anything under app/, so the page is read as text, the
 // way visitorBoundaries.test.ts reads its sources. Each sentence is pinned
@@ -7,7 +8,10 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { umamiBeforeSend } from './analyticsPath';
 import { LOST_KEY, recordLost, takeLost } from './request/lostRecord';
+import { scrubBreadcrumb } from './scrubUrl';
+import { UMAMI_SRC } from './umamiPin';
 
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
 // One line of text per paragraph, so a sentence the page wraps still matches.
@@ -77,5 +81,50 @@ describe('the privacy page: the request link page\'s two counts', () => {
         // The tab loads again, as Chrome's reload of a discarded tab or not.
         takeLost(store, false);
         expect(held.has(LOST_KEY)).toBe(false);
+    });
+});
+
+describe('the privacy page: the tracker', () => {
+    it('says floe.one serves a copy the browser checks, and the component loads exactly that', () => {
+        expect(page).toContain(
+            'The script that does this does not load from Umami. floe.one serves its own copy of it, which we read through before using, and your browser refuses to run that copy if any of its bytes have changed.',
+        );
+        const component = read('../components/UmamiScript.tsx');
+        expect(component).toMatch(/^\s+src=\{UMAMI_SRC\}\r?$/m);
+        expect(component).toMatch(/^\s+integrity=\{UMAMI_INTEGRITY\}\r?$/m);
+        expect(UMAMI_SRC.startsWith('/vendor/')).toBe(true);
+    });
+
+    it('says the page title stays out of everything it sends', () => {
+        expect(page).toContain('Floe takes the page title out of everything it sends.');
+        expect(umamiBeforeSend('event', { url: 'https://floe.one/', title: 'Send files - Floe' })).toEqual({
+            url: 'https://floe.one/',
+        });
+    });
+});
+
+describe('the privacy page: a click in an error report', () => {
+    it('says a click is recorded without its label, and the breadcrumb hook holds that', () => {
+        expect(page).toContain('A click is recorded without the label of what you clicked,');
+        // Sentry does not capture file names: the two labels that hold one.
+        for (const label of ['Remove a.pdf', 'Download a.pdf']) {
+            const out = scrubBreadcrumb({ category: 'ui.click', message: `button[aria-label="${label}"]` });
+            expect(out.message).toBe('button[aria-label]');
+        }
+    });
+});
+
+describe('the privacy page: the cache', () => {
+    it('says a stored copy is for when there is no network, and the worker holds that', () => {
+        expect(page).toContain('and uses those copies only when it cannot reach the network;');
+        // Each answer from the store sits behind a fetch that rejected: nothing
+        // asks the store first. Both read the worker's own cache by name, because
+        // caches.match would also find a copy planted under another name.
+        const worker = read('../public/sw.js').replace(/^\s*\/\/.*$/gm, '');
+        const fromStore = '() => caches.open(CACHE_NAME).then((cache) => cache.match(request))';
+        expect(worker).not.toMatch(/caches\.match\(/);
+        expect(worker.match(/cache\.match\(/g)).toHaveLength(2);
+        expect(worker).toContain(`.catch(${fromStore})`);
+        expect(worker).toMatch(/\},\s*\(\) => caches\.open\(CACHE_NAME\)\.then\(\(cache\) => cache\.match\(request\)\)\s*\)/);
     });
 });

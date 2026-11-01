@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { REQUEST_REPORT_ADDRESS } from '../lib/request/report';
 import { visitorCopy } from '../lib/request/visitorCopy';
+import { UMAMI_INTEGRITY, UMAMI_SRC } from '../lib/umamiPin';
 import { E2E_REPORT_EMAIL } from './report-email';
 
 // ---------------------------------------------------------------------------
@@ -21,6 +22,18 @@ import { E2E_REPORT_EMAIL } from './report-email';
 const LINK_ID = 'AAAAAAAAAAA';
 const ROOM_ID = '6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f';
 const LINK = `/r/${LINK_ID}#${ROOM_ID}`;
+
+// The tracker is a pinned copy on this origin (lib/umamiPin.ts), so what it
+// looks like on a page is one script and the link next/script preloads it with.
+// A test that counts zero of these says something about the tracker only while
+// the same two selectors find it where it does load: the E2E_EXPECT_UMAMI arm
+// below holds that.
+const UMAMI_SCRIPT = 'script[src^="/vendor/umami-"]';
+const UMAMI_PRELOAD = 'link[rel="preload"][href^="/vendor/umami-"]';
+
+/** Every Umami host. The tracker's own file is on this origin, so anything here
+ *  is its collector, and no test may reach that. */
+const isUmamiHost = (url: URL) => url.hostname === 'umami.is' || url.hostname.endsWith('.umami.is');
 
 /** `page.waitForFunction` as a boolean: did the condition hold in time? Used
  *  where a timeout is an answer rather than a failure. */
@@ -65,7 +78,21 @@ function watchSignaling(page: Page): string[] {
 }
 
 test.describe('request privacy', () => {
+    // On a build with a website id (E2E_EXPECT_UMAMI=1) the real tracker runs on
+    // every page but /r. A page view from a test is not a visit, so nothing here
+    // reaches the collector, whatever the test is about. A test that reads what
+    // was sent adds its own route on top; the newest route answers first.
+    test.beforeEach(async ({ page }) => {
+        await page.route(isUmamiHost, (route) => route.abort());
+    });
+
     test('E2E-09 no /r entry in Cache Storage', async ({ page }) => {
+        // This test needs the service worker, and page.route is not promised to
+        // see past one, so Umami's own switch keeps the tracker quiet as well.
+        await page.addInitScript(() => {
+            localStorage.setItem('umami.disabled', '1');
+        });
+
         await page.goto('/');
 
         // components/ServiceWorkerRegistration.tsx gates registration on
@@ -116,11 +143,15 @@ test.describe('request privacy', () => {
     });
 
     test('E2E-10 no-referrer header and no Umami on /r', async ({ page }) => {
-        // Nothing leaves this machine even if the assertion below is wrong.
-        await page.route('https://cloud.umami.is/**', (route) => route.abort());
         const umami: string[] = [];
         page.on('request', (req) => {
-            if (req.url().includes('cloud.umami.is')) umami.push(req.url());
+            const url = new URL(req.url());
+            if (isUmamiHost(url) || url.pathname.startsWith('/vendor/umami-')) umami.push(req.url());
+        });
+        // As in E2E-09: the arm below loads / in a browser where /r may have
+        // registered the worker, and nothing leaves this machine either way.
+        await page.addInitScript(() => {
+            localStorage.setItem('umami.disabled', '1');
         });
 
         const response = await page.goto(LINK);
@@ -133,15 +164,22 @@ test.describe('request privacy', () => {
         // once RequestShell's own mount effect has run, by which point
         // next/script's effect has had its chance too.
         await expect(page.getByText('SEND FILES THROUGH THIS LINK')).toBeVisible();
-        await expect(page.locator('script[src*="cloud.umami.is"]')).toHaveCount(0);
+        await expect(page.locator(UMAMI_SCRIPT)).toHaveCount(0);
         // The half that needs no hydration at all: in the App Router,
         // next/script emits ReactDOM.preload output into the SERVED HTML for an
         // afterInteractive script, so a /r that rendered the tracker would carry
         // this link tag before a single effect ran.
-        await expect(page.locator('link[rel="preload"][href*="cloud.umami.is"]')).toHaveCount(0);
+        await expect(page.locator(UMAMI_PRELOAD)).toHaveCount(0);
         expect(umami).toEqual([]);
 
         if (process.env.E2E_EXPECT_UMAMI === '1') {
+            // A failed integrity check is silent to the page: the script just
+            // never runs, and the only word of it is in this console.
+            const refused: string[] = [];
+            page.on('console', (message) => {
+                if (/integrity/i.test(message.text())) refused.push(message.text());
+            });
+
             // The build under test has a website id, so "no script on /r" means
             // the path gate, not an absent id. Without this arm the assertion
             // above passes on every build that simply has analytics turned off.
@@ -149,10 +187,17 @@ test.describe('request privacy', () => {
             expect(home?.headers()['referrer-policy']).toBe(
                 'strict-origin-when-cross-origin'
             );
-            const script = page.locator('script[src*="cloud.umami.is"]');
+            const script = page.locator(UMAMI_SCRIPT);
             await expect(script).toHaveCount(1);
+            // The pinned copy, from this origin, checked by the browser, and
+            // naming the collector it reports to.
+            await expect(script).toHaveAttribute('src', UMAMI_SRC);
+            await expect(script).toHaveAttribute('integrity', UMAMI_INTEGRITY);
+            await expect(script).toHaveAttribute('data-host-url', 'https://gateway.umami.is');
+            await expect(page.locator(UMAMI_PRELOAD)).toHaveAttribute('integrity', UMAMI_INTEGRITY);
             await expect(script).toHaveAttribute('data-exclude-hash', 'true');
             await expect(script).toHaveAttribute('data-exclude-search', 'true');
+            await expect(script).toHaveAttribute('data-do-not-track', 'true');
             // The send filter (lib/analyticsPath.ts umamiBeforeSend): the
             // tracker finds it by this name on window, and sends everything
             // unfiltered when nothing is there.
@@ -162,6 +207,13 @@ test.describe('request privacy', () => {
                     () => typeof (window as unknown as Record<string, unknown>).floeUmamiBeforeSend
                 )
             ).toBe('function');
+            // The browser ran it, so its bytes matched.
+            await page.waitForFunction(() => 'umami' in window);
+            expect(refused).toEqual([]);
+            // Served as a script, or nosniff would have refused it.
+            const served = await page.request.get(UMAMI_SRC);
+            expect(served.status()).toBe(200);
+            expect(served.headers()['content-type']).toMatch(/javascript/);
         }
     });
 
@@ -184,37 +236,24 @@ test.describe('request privacy', () => {
             //
             // The Umami half needs a tracker that really runs, which only a
             // build with a website id has (E2E_EXPECT_UMAMI=1, as E2E-10
-            // above). Then the tracker script, a public static file, is the
-            // one request let through; every other request to an umami.is
+            // above). Its file is on this origin; every request to an umami.is
             // host is the collector, recorded here and never sent.
             const expectUmami = process.env.E2E_EXPECT_UMAMI === '1';
             // Every collector request, as its URL plus its body.
             const umami: string[] = [];
             // The page path each collected payload reported.
             const reported: string[] = [];
-            await page.route(
-                (url) => url.hostname === 'umami.is' || url.hostname.endsWith('.umami.is'),
-                (route) => {
-                    const request = route.request();
-                    const url = new URL(request.url());
-                    if (
-                        expectUmami &&
-                        request.method() === 'GET' &&
-                        url.hostname === 'cloud.umami.is' &&
-                        url.pathname === '/script.js'
-                    ) {
-                        return route.continue();
-                    }
-                    const body = request.postData() ?? '';
-                    umami.push(`${request.url()} ${body}`);
-                    try {
-                        reported.push(new URL(JSON.parse(body).payload.url).pathname);
-                    } catch {
-                        // Not a payload with a page URL; still checked below.
-                    }
-                    return route.abort();
+            await page.route(isUmamiHost, (route) => {
+                const request = route.request();
+                const body = request.postData() ?? '';
+                umami.push(`${request.url()} ${body}`);
+                try {
+                    reported.push(new URL(JSON.parse(body).payload.url).pathname);
+                } catch {
+                    // Not a payload with a page URL; still checked below.
                 }
-            );
+                return route.abort();
+            });
             const collected = (path: string) => reported.includes(path);
 
             await page.goto(LINK);
@@ -255,6 +294,41 @@ test.describe('request privacy', () => {
                 expect(sent, 'an Umami request carried the request link').not.toContain('/r/');
                 expect(sent, 'an Umami request carried the link id').not.toContain(LINK_ID);
                 expect(sent, 'an Umami request carried the room id').not.toContain(ROOM_ID);
+            }
+        });
+    });
+
+    test.describe('what the tracker reports', () => {
+        // As above: page.route has to see the collector POST, so no worker.
+        test.use({ serviceWorkers: 'block' });
+
+        test('a page holding a keyed fragment reports no key, room id, query or title', async ({ page }) => {
+            test.skip(process.env.E2E_EXPECT_UMAMI !== '1', 'needs a build with a website id');
+            const KEY = 'AbCdEfGhIjKlMnOpQrStUg';
+            const sent: { url: string; body: string }[] = [];
+            await page.route(isUmamiHost, (route) => {
+                const request = route.request();
+                sent.push({ url: request.url(), body: request.postData() ?? '' });
+                return route.abort();
+            });
+
+            // A page with no transfer on it: the question is what the tracker
+            // does with the address, not what the page does with the link.
+            await page.goto(`/privacy?s=n0nce#k=${KEY}&room=${ROOM_ID}`);
+            await expect.poll(() => sent.length).toBeGreaterThan(0);
+
+            // The key is still in the page, so this checks something.
+            expect(await page.evaluate(() => location.hash)).toContain(KEY);
+            for (const { url, body } of sent) {
+                expect(url).toBe('https://gateway.umami.is/api/send');
+                const { payload } = JSON.parse(body) as { payload: Record<string, unknown> };
+                expect(new URL(payload.url as string).pathname).toBe('/privacy');
+                expect(payload.url).not.toContain('#');
+                expect(payload.url).not.toContain('?');
+                expect(payload).not.toHaveProperty('title');
+                for (const secret of [KEY, ROOM_ID, 'n0nce']) {
+                    expect(`${url} ${body}`, secret).not.toContain(secret);
+                }
             }
         });
     });
