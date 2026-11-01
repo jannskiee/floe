@@ -16,12 +16,9 @@
  */
 
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
-import { rmSync } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
-import { createFixture, browserSenderSetup } from './helpers';
+import { createFixture, fixtureDir, removeFixtureDir, browserSenderSetup } from './helpers';
 
-const FIXTURE_DIR = join(tmpdir(), 'floe-e2e-send-status');
+const FIXTURE_DIR = fixtureDir('floe-e2e-send-status');
 // What the status reads once a recipient whose connection has already closed
 // also leaves the room: the page goes back to waiting for them, which is true,
 // since the link still works. Each test below closes the connection first and
@@ -32,7 +29,7 @@ const WAITING_AGAIN = 'Peer disconnected. Waiting for reconnection';
 const INTERRUPTED_BANNER = 'The connection closed before the transfer finished.';
 
 test.afterAll(() => {
-    try { rmSync(FIXTURE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    removeFixtureDir(FIXTURE_DIR);
 });
 
 interface Held {

@@ -10,18 +10,13 @@
  */
 
 import { test, expect, type BrowserContext, type Locator, type Page } from '@playwright/test';
-import { rmSync } from 'fs';
-import { basename, join } from 'path';
-import { tmpdir } from 'os';
-import { browserSenderSetup, createFixture, sha256OfBlobUrl } from './helpers';
+import { basename } from 'path';
+import { browserSenderSetup, createFixture, fixtureDir, removeFixtureDir, sha256OfBlobUrl } from './helpers';
 
-// One folder per worker process. With --repeat-each the file runs in several
-// workers at once, and a shared folder was rewritten and removed under the
-// others (ENOENT, or a digest that no longer matched the file sent).
-const FIXTURE_DIR = join(tmpdir(), `floe-e2e-main-page-guards-${process.pid}`);
+const FIXTURE_DIR = fixtureDir('floe-e2e-main-page-guards');
 
 test.afterAll(() => {
-    try { rmSync(FIXTURE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    removeFixtureDir(FIXTURE_DIR);
 });
 
 async function optedOutContext(ctx: BrowserContext): Promise<BrowserContext> {

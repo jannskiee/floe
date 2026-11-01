@@ -20,12 +20,13 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { mkdirSync, rmSync, existsSync } from 'fs';
+import { mkdirSync, existsSync } from 'fs';
 import { join, basename } from 'path';
-import { tmpdir } from 'os';
 import {
     CLI_TIMEOUT_MS,
     createFixture,
+    fixtureDir,
+    removeFixtureDir,
     sha256OfFile,
     sha256OfBlobUrl,
     browserSenderSetup,
@@ -46,7 +47,7 @@ process.env.FLOE_NO_UPDATE_CHECK = '1';
 // released binary; everywhere else the file reports as skipped.
 test.skip(!process.env.FLOE_RELEASED_CLI, 'FLOE_RELEASED_CLI is not set (back-compat CI job only)');
 
-const FIXTURE_DIR = join(tmpdir(), 'floe-back-compat');
+const FIXTURE_DIR = fixtureDir('floe-back-compat');
 // Same 12 MB as cli-interop: large enough to exercise the 8 MB backpressure loop.
 const FIXTURE_SIZE = 12 * 1024 * 1024;
 
@@ -72,7 +73,7 @@ test.beforeAll(() => {
 });
 
 test.afterAll(() => {
-    try { rmSync(FIXTURE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    removeFixtureDir(FIXTURE_DIR);
 });
 
 test('released CLI send → HEAD CLI receive (SHA-256 integrity)', async () => {

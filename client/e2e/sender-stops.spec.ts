@@ -14,13 +14,12 @@
 import { test, expect, type BrowserContext } from '@playwright/test';
 import { rmSync } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
-import { createFixture, sha256OfBlobUrl, writeRandomFile } from './helpers';
+import { createFixture, fixtureDir, removeFixtureDir, sha256OfBlobUrl, writeRandomFile } from './helpers';
 
-const FIXTURE_DIR = join(tmpdir(), 'floe-e2e-sender-stops');
+const FIXTURE_DIR = fixtureDir('floe-e2e-sender-stops');
 
 test.afterAll(() => {
-    try { rmSync(FIXTURE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    removeFixtureDir(FIXTURE_DIR);
 });
 
 async function optedOutContext(ctx: BrowserContext): Promise<BrowserContext> {

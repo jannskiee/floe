@@ -19,19 +19,18 @@
 import { test, expect, type Page } from '@playwright/test';
 import { spawn, type ChildProcess } from 'child_process';
 import { randomUUID } from 'crypto';
-import { mkdirSync, readdirSync, rmSync } from 'fs';
+import { mkdirSync, readdirSync } from 'fs';
 import { createRequire } from 'module';
-import { tmpdir } from 'os';
 import { basename, join } from 'path';
 import { LOOPBACK_BUNDLE } from './cli-binary';
-import { SERVER_URL, WEB_URL, createFixture, sha256OfFile } from './helpers';
+import { SERVER_URL, WEB_URL, createFixture, fixtureDir, removeFixtureDir, sha256OfFile } from './helpers';
 
-const FIXTURE_DIR = join(tmpdir(), 'floe-loopback-host');
+const FIXTURE_DIR = fixtureDir('floe-loopback-host');
 const PAGE_URL = `${WEB_URL}/__floe-loopback`;
 const requireFromClient = createRequire(join(__dirname, '..', 'package.json'));
 
 test.afterAll(() => {
-    try { rmSync(FIXTURE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    removeFixtureDir(FIXTURE_DIR);
 });
 
 function hostBinary(): string {

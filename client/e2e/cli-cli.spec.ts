@@ -14,12 +14,13 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { rmSync, existsSync } from 'fs';
+import { existsSync } from 'fs';
 import { join, basename } from 'path';
-import { tmpdir } from 'os';
 import {
     CLI_TIMEOUT_MS,
     createFixture,
+    fixtureDir,
+    removeFixtureDir,
     writeRandomFile,
     sha256OfFile,
     spawnSend,
@@ -27,12 +28,12 @@ import {
     waitForExit,
 } from './helpers';
 
-const FIXTURE_DIR = join(tmpdir(), 'floe-cli-cli');
+const FIXTURE_DIR = fixtureDir('floe-cli-cli');
 // Same 12 MB as cli-interop: large enough to exercise the 8 MB backpressure loop.
 const FIXTURE_SIZE = 12 * 1024 * 1024;
 
 test.afterAll(() => {
-    try { rmSync(FIXTURE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    removeFixtureDir(FIXTURE_DIR);
 });
 
 test('CLI to CLI: 12 MB file transfer with SHA-256 integrity', async () => {

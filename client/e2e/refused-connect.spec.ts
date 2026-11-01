@@ -17,18 +17,15 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { randomUUID } from 'crypto';
-import { rmSync } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
-import { createFixture, browserSenderSetup } from './helpers';
+import { createFixture, fixtureDir, removeFixtureDir, browserSenderSetup } from './helpers';
 
-const FIXTURE_DIR = join(tmpdir(), 'floe-e2e-refused-connect');
+const FIXTURE_DIR = fixtureDir('floe-e2e-refused-connect');
 const BANNER = 'Too many refreshes. Reconnecting';
 const SEPARATOR = '\x1e';
 const REFUSAL = '44{"message":"Rate limit exceeded"}';
 
 test.afterAll(() => {
-    try { rmSync(FIXTURE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    removeFixtureDir(FIXTURE_DIR);
 });
 
 interface Wire {

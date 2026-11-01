@@ -17,7 +17,8 @@
 
 import { expect, test, type Page } from '@playwright/test';
 import { createHash, randomBytes } from 'crypto';
-import { writeFileSync, mkdirSync, readFileSync } from 'fs';
+import { writeFileSync, mkdirSync, readFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
 import { join, dirname } from 'path';
 import { spawn, type ChildProcess } from 'child_process';
 
@@ -61,10 +62,35 @@ export function writeRandomFile(filePath: string, size: number): string {
     return createHash('sha256').update(data).digest('hex');
 }
 
+// One folder per worker process. With --repeat-each the file runs in several
+// workers at once, and a shared folder was rewritten and removed under the
+// others (ENOENT, or a digest that no longer matched the file sent).
+//
+// The path only. Playwright's runner also loads every spec to list its tests,
+// and a folder made there is never removed.
+export function fixtureDir(name: string): string {
+    return join(tmpdir(), `${name}-${process.pid}`);
+}
+
+// A CLI process killed at teardown can hold a file open for a moment, so
+// rmSync may throw EBUSY/EPERM. maxRetries gives the OS time to release the
+// handle; any remaining error is swallowed. A leaked temp directory must
+// never fail an otherwise green suite. Same retries as global-teardown.ts.
+export function removeFixtureDir(dir: string): void {
+    try {
+        rmSync(dir, {
+            recursive: true,
+            force: true,
+            maxRetries: 5,
+            retryDelay: 200,
+        });
+    } catch { /* ignore */ }
+}
+
 /**
  * Create `fixture-<size>.bin` with random content inside `dir`.
- * Every spec passes its own dir (e.g. join(tmpdir(), 'floe-cli-interop')) so
- * one spec's afterAll rmSync can never race another spec's fixtures.
+ * Every spec passes the directory fixtureDir returns for its own name, so
+ * one spec's removeFixtureDir can never race another spec's fixtures.
  */
 export function createFixture(dir: string, size: number): { path: string; sha256: string } {
     const filePath = join(dir, `fixture-${size}.bin`);
