@@ -209,7 +209,7 @@ describe('generateCoturnCredentials', () => {
 
     it('returns null when TURN_DOMAIN holds more than a host name', () => {
         process.env.TURN_SECRET = 'test-secret';
-        for (const domain of ['https://turn.example.test', 'turn.example.test:3478', '[2001:db8::1]:3478', '2001:db8::1', 'turn.example.test/', '"turn.example.test"']) {
+        for (const domain of ['https://turn.example.test', 'turn.example.test:3478', '[2001:db8::1]:3478', '2001:db8::1', 'turn.example.test/', '"turn.example.test"', '[::::]', '[2001:db8:]', '[1.2.3.4]']) {
             process.env.TURN_DOMAIN = domain;
             assert.equal(generateCoturnCredentials(), null, domain);
         }

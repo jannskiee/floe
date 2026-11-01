@@ -18,6 +18,7 @@
 // notice.
 
 const crypto = require('crypto');
+const net = require('net');
 const { rateKey } = require('./ratekey');
 const { envLimit } = require('./envlimit');
 
@@ -44,11 +45,12 @@ const TURN_TLS_OFF = /^(off|false|0|no)$/i;
 // TURN_DOMAIN is pasted between a scheme and a port below, so it must be a
 // host name alone: a scheme, a port, a path or a bare IPv6 address makes a URL
 // that browsers throw on and pion refuses, and then no transfer starts at all.
-// A bracketed IPv6 address is a host name here.
+// A bracketed IPv6 address is a host name here, if it is a real IPv6 address.
 const COTURN_DOMAIN_SHAPE = /^(\[[0-9A-Fa-f:.]+\]|[\p{L}\p{N}._-]+)$/u;
 
 function coturnDomainOk(domain) {
-    return COTURN_DOMAIN_SHAPE.test(domain);
+    if (!COTURN_DOMAIN_SHAPE.test(domain)) return false;
+    return !domain.startsWith('[') || net.isIPv6(domain.slice(1, -1));
 }
 
 function generateCoturnCredentials() {
