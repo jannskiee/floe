@@ -375,7 +375,6 @@ func TestLimitsTotalMustStayConstantAndIndexInOrder(t *testing.T) {
 		{"in order", metaFor("b.txt", 4, 2, 2, 8), true, 2},
 		{"total grows", metaFor("b.txt", 4, 2, 3, 8), false, 2},
 		{"total bytes grows", metaFor("b.txt", 4, 2, 2, 9), false, 2},
-		{"index skips", metaFor("b.txt", 4, 3, 2, 8), false, 3},
 		{"index repeats", metaFor("b.txt", 4, 1, 2, 8), false, 1},
 		// Nested, so a check that ran after MkdirAll would leave the folders
 		// behind (WP-A1 review L1).
@@ -406,6 +405,43 @@ func TestLimitsTotalMustStayConstantAndIndexInOrder(t *testing.T) {
 			}
 		})
 	}
+	// A batch of 3 here, so the skip stays inside the total: past it parseMetadata
+	// refuses the frame before this rule can run, the row below.
+	t.Run("index skips", func(t *testing.T) {
+		stubDisk(t, 0, 1<<40)
+		run := runScripted(t, t.TempDir(), metaFor("a.txt", 4, 1, 3, 12), ReceiveOptions{Limits: requestLimits()},
+			func(h *handSender, n int) {
+				if n == 1 {
+					h.bytes([]byte("abcd"))
+					h.text(`{"type":"end"}`)
+					h.text(metaFor("b.txt", 4, 3, 3, 12))
+				}
+			})
+		wantFrame(t, run, CodeOverApproved, CodeOverApproved.WireReason(), 1)
+		if strings.Join(run.tree, "|") != "a.txt" {
+			t.Fatalf("output tree %v, want only the committed a.txt", run.tree)
+		}
+	})
+	t.Run("index past the total", func(t *testing.T) {
+		stubDisk(t, 0, 1<<40)
+		run := runScripted(t, t.TempDir(), metaFor("a.txt", 4, 1, 2, 8), ReceiveOptions{Limits: requestLimits()},
+			func(h *handSender, n int) {
+				if n == 1 {
+					h.bytes([]byte("abcd"))
+					h.text(`{"type":"end"}`)
+					h.text(metaFor("b.txt", 4, 3, 2, 8))
+				}
+			})
+		if run.err == nil {
+			t.Fatal("the receive accepted file 3 of 2")
+		}
+		if run.refusal == nil || run.refusal.Code != "" || !strings.Contains(run.refusal.Reason, "past the end of its batch") {
+			t.Fatalf("refusal frame = %+v, want the file description's fixed rejection", run.refusal)
+		}
+		if strings.Join(run.tree, "|") != "a.txt" {
+			t.Fatalf("output tree %v, want only the committed a.txt", run.tree)
+		}
+	})
 	t.Run("first metadata is not file 1", func(t *testing.T) {
 		stubDisk(t, 0, 1<<40)
 		d := &acceptingDecide{}

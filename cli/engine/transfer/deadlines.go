@@ -49,3 +49,11 @@ func ackTimeoutOrDefault(d time.Duration) time.Duration {
 	}
 	return d
 }
+
+// KeyCheckWait is how long an enforcing sender waits for the receiver's proof of
+// the link key before naming any file. A keyed receiver sends its proof the moment
+// its receive starts, so this only has to outlast one trip and a slow start, and it
+// sits well under the receive side's idle clock (30 s), so a first metadata sent at
+// the end of this wait still lands in time. KEY_CHECK_WAIT_MS in
+// client/lib/transfer/protocol.ts mirrors it (TestKeyCheckConstantsMatchTS).
+const KeyCheckWait = 15 * time.Second

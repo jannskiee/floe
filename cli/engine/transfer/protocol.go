@@ -10,8 +10,16 @@ import "fmt"
 // require). Raise MinProtocolVersion only when deliberately dropping support
 // for an old wire format. Never tie either constant to the floe release version
 // (1.x.y) - they are independent.
+//
+// The move to 2 is the one bump that is not breaking, on purpose: 2 marks "speaks
+// kc", the link key's proof (keycheck.go). Old peers drop a kc frame and every
+// released peer's 1-1 overlaps 1-2, so nothing stops working. It is there for the
+// later cutover, whose incompatible {pv:2,pvMin:2} must miss only the peers that
+// do not speak kc; if every kc-speaking build still said 1, the cutover would tell
+// them too that they are too old. Decisions never read pv to pick a check: a
+// keyed side acts on holding the key.
 const (
-	ProtocolVersion    = 1
+	ProtocolVersion    = 2
 	MinProtocolVersion = 1
 )
 

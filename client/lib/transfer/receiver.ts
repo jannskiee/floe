@@ -18,11 +18,15 @@ import {
     metadataProblem,
     hashBoundMs as defaultHashBoundMs,
     POST_END_HASH_WAIT_MS,
+    RECEIVER_UNVERIFIED_REASON,
+    refusalCodeOf,
     type End,
+    type KeyCheckFrame,
     type Metadata,
     type Incompatible,
 } from './protocol';
 import { hashBlob as workerHashBlob } from './fileHash';
+import type { KeyOutcome, KeySession } from './keySession';
 import { sanitizeDisplayText } from '../download';
 import { classifyThrow, type ReceiveFailureCode } from './receiveFailure';
 
@@ -47,7 +51,17 @@ export interface ReceiverDeps {
     // Whether acks promise `received` and the batch ends with one. Defaults to
     // RECEIVER_CONFIRMS, the rollback lever.
     confirms?: boolean;
+    // The link-key session of this connection. Absent, or a keyless session, is
+    // today's receiver exactly: an incoming kc is dropped like any frame it does not
+    // know. With a key, every frame comes through this one ordered entry: the
+    // sender's kc goes to the session, and until it has checked out nothing else is
+    // acted on (see refusedBeforeProof). The session sends this side's own kc; the
+    // caller's send must go through it, so that kc leads.
+    keyCheck?: ReceiverKeyCheck;
 }
+
+/** What the receive engine reads of a link-key session. */
+export type ReceiverKeyCheck = Pick<KeySession, 'keyed' | 'mode' | 'verdict' | 'outcome' | 'peerTag' | 'beforeFile'>;
 
 // String frames held while a SHA-256 check is pending. A conforming sender has
 // at most one in flight (it waits for the next ack), so this is room to spare,
@@ -86,6 +100,13 @@ export interface ReceiverCallbacks {
      * fields may go to an error report. Every other stop calls with `msg` alone.
      */
     onError?: (msg: string, failure?: ReceiveFailure) => void;
+    /**
+     * The link-key check stopped this receive, in place of onError, so no peer text
+     * has a path here: an enum and one boolean. `unavailable` is this browser not
+     * being able to read the certificates, which never blames the other side. On
+     * 'peer-refused' the sender stopped because it could not confirm this side.
+     */
+    onKeyCheckFailed?: (failure: { outcome: KeyOutcome; unavailable: boolean }) => void;
 }
 
 export interface ReceiveFailure {
@@ -215,6 +236,7 @@ export function createReceiver(
     const hashBlob = deps.hashBlob ?? workerHashBlob;
     const hashBoundMs = deps.hashBoundMs ?? defaultHashBoundMs;
     const confirms = deps.confirms ?? RECEIVER_CONFIRMS;
+    const keyCheck = deps.keyCheck?.keyed ? deps.keyCheck : undefined;
     const partialDownloads = new Map<string, PartialDownload>();
     let currentMetadata: Metadata | null = null;
     let hasCheckedCompat = false;
@@ -314,6 +336,33 @@ export function createReceiver(
         tell(() => {
             const reason = `receiver rejected the file description: control message is ${bytes} bytes, limit ${CONTROL_MSG_MAX}`;
             return incompatibleMessage(reason, 'path-too-long', filesHanded);
+        });
+    }
+
+    // A sender that holds no proof gets nothing from a keyed receiver: not an ack, not
+    // a prompt, and not even a word about what was wrong with its frame. Checked
+    // ahead of the over-cap answer, metadataProblem and the compatibility check, which
+    // would each tell it something. Synchronous, because verification is: the verdict
+    // is in by the time the next frame runs. In observe mode this only records it.
+    function refusedBeforeProof(): boolean {
+        if (!keyCheck || keyCheck.verdict() === 'verified') return false;
+        keyCheck.beforeFile();
+        if (keyCheck.mode !== 'enforce') return false;
+        refuseUnverified();
+        return true;
+    }
+
+    // Nothing is open or kept, since no file starts before the proof, so nothing is
+    // saved and the count is 0. No close, the same as a hash refusal: the latch drops
+    // everything after it, and the frame has time to leave.
+    function refuseUnverified(): void {
+        release();
+        queued = [];
+        clearProgress();
+        tell(() => incompatibleMessage(RECEIVER_UNVERIFIED_REASON, 'unverified', 0));
+        cb.onKeyCheckFailed?.({
+            outcome: keyCheck?.outcome() ?? 'missing',
+            unavailable: keyCheck?.verdict() === 'unavailable',
         });
     }
 
@@ -620,6 +669,7 @@ export function createReceiver(
             // folder path does it).
             const textBytes = new TextEncoder().encode(text).byteLength;
             if (textBytes > CONTROL_MSG_MAX) {
+                if (refusedBeforeProof()) return;
                 release();
                 clearProgress();
                 refuseOversize(textBytes);
@@ -632,6 +682,20 @@ export function createReceiver(
             // whatever file was open, which is what made adding any new frame
             // type unsafe.
             if (!msg) return;
+
+            // The sender's proof. Held to the key only by a side that holds one; any
+            // other side drops it here, like a frame it does not know.
+            if (msg.type === 'kc') {
+                if (keyCheck) {
+                    const verdict = keyCheck.peerTag(msg as KeyCheckFrame);
+                    if (keyCheck.mode === 'enforce' && verdict !== 'verified') refuseUnverified();
+                }
+                return;
+            }
+
+            if (msg.type === 'metadata' || msg.type === 'end' || msg.type === 'incompatible') {
+                if (refusedBeforeProof()) return;
+            }
 
             if (msg.type === 'metadata') {
                 // A description Go would refuse is refused here too, before the
@@ -758,6 +822,11 @@ export function createReceiver(
                 // the close that comes next reports the finished receive.
                 if (batchComplete) return;
                 const incompat = msg as Incompatible;
+                // A keyed page shows its own fixed line for this, never the words.
+                if (keyCheck && refusalCodeOf(incompat) === 'unverified') {
+                    cb.onKeyCheckFailed?.({ outcome: 'peer-refused', unavailable: false });
+                    return;
+                }
                 const reason = sanitizeDisplayText(incompat.reason ?? '', 300);
                 cb.onError?.(
                     isAbortReason(incompat) && reason
@@ -926,7 +995,8 @@ export function createReceiver(
             return;
         }
 
-        // Binary frame: file data, unconditionally.
+        // Binary frame: file data, unconditionally, and refused whole before the proof.
+        if (refusedBeforeProof()) return;
         const buf = data instanceof Uint8Array ? data : new Uint8Array(data);
         if (!currentMetadata) return;
         const fileData = partialDownloads.get(currentMetadata.id);

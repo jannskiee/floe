@@ -16,6 +16,7 @@ package transfer
 // exactly which code point each seed carries.
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -150,7 +151,7 @@ func FuzzParseMetadata(f *testing.F) {
 	})
 }
 
-var controlTypes = []string{"metadata", "end", "ack", "received", "incompatible"}
+var controlTypes = []string{"metadata", "end", "ack", "received", "incompatible", "kc"}
 
 // sizedControl builds a control frame of exactly n bytes with the given type.
 func sizedControl(typ string, n int) []byte {
@@ -185,7 +186,7 @@ func classifySeeds() []fuzzSeed {
 }
 
 // FuzzClassifyControl: classifyControl never panics, calls a frame control
-// only for the five known types, never parses a frame past controlMsgMax,
+// only for the six known types, never parses a frame past controlMsgMax,
 // and agrees with an independent decode on every frame within the cap.
 func FuzzClassifyControl(f *testing.F) {
 	addSeeds(f, "FuzzClassifyControl", classifySeeds(), true)
@@ -207,7 +208,7 @@ func FuzzClassifyControl(f *testing.F) {
 		if !isControl && msgType != "" {
 			t.Fatalf("not control, yet returned type %q", msgType)
 		}
-		// Independent decode: a JSON object whose "type" is one of the five
+		// Independent decode: a JSON object whose "type" is one of the six
 		// is control, and nothing else is.
 		var obj map[string]interface{}
 		want := ""
@@ -479,6 +480,7 @@ func abortSeeds() []fuzzSeed {
 		{name: "code-hash-mismatch", data: refusalFrame(`"reason":"a file did not match","pv":1,"pvMin":1,"code":"hash-mismatch","saved":0`)},
 		{name: "code-declined-pv-disjoint", data: refusalFrame(`"reason":"x","pv":9,"pvMin":9,"code":"declined"`)},
 		{name: "code-time-limit-hostile-reason", data: refusalFrame(reason + `,"pv":1,"pvMin":1,"code":"time-limit","saved":2`)},
+		{name: "code-unverified-range-2", data: refusalFrame(`"reason":"sender could not confirm the receiver holds this link","pv":2,"pvMin":2,"ver":"v1.12.0","code":"unverified"`)},
 		{name: "code-unknown", data: refusalFrame(`"reason":"stopped","pv":1,"pvMin":1,"code":"too-slow","saved":3`)},
 		{name: "code-number", data: refusalFrame(`"reason":"stopped","pv":1,"pvMin":1,"code":7`)},
 		{name: "code-key-case", data: refusalFrame(`"reason":"stopped","pv":1,"pvMin":1,"CODE":"write-failed"`)},
@@ -490,7 +492,7 @@ func abortSeeds() []fuzzSeed {
 		{name: "saved-1e300", data: refusalFrame(`"reason":"stopped","pv":1,"pvMin":1,"code":"write-failed","saved":1e300`)},
 		{name: "saved-string", data: refusalFrame(`"reason":"stopped","pv":1,"pvMin":1,"code":"write-failed","saved":"3"`)},
 		{name: "pv-overlapping-hostile-reason", data: refusalFrame(reason + `,"pv":1,"pvMin":1,"code":"write-failed","saved":2`)},
-		{name: "pv-disjoint-hostile-ver", data: refusalFrame(`"reason":"x","pv":2,"pvMin":2,"ver":` + jsonString(hostile))},
+		{name: "pv-disjoint-hostile-ver", data: refusalFrame(`"reason":"x","pv":3,"pvMin":3,"ver":` + jsonString(hostile))},
 		{name: "pv-legacy-absent", data: refusalFrame(reason)},
 		{name: "pv-huge-negative", data: refusalFrame(`"reason":"x","pv":-9223372036854775808,"pvMin":9223372036854775807`)},
 		{name: "reason-empty", data: refusalFrame(`"reason":"","pv":1,"pvMin":1`)},
@@ -737,6 +739,103 @@ func FuzzParseAckConfirms(f *testing.F) {
 		}
 		if got != want {
 			t.Fatalf("parseAckConfirms(%q) = %v; an independent decode says %v", raw, got, want)
+		}
+	})
+}
+
+func parseKCSeeds() []fuzzSeed {
+	tag := strings.Repeat("A", 43)
+	kc := func(fields string) []byte { return []byte(`{"type":"kc"` + fields + `}`) }
+	return []fuzzSeed{
+		{name: "valid", data: kc(`,"tag":"` + tag + `"`)},
+		{name: "valid-alt", data: kc(`,"tag":"xJgBMZk3OsXxCjLFjYdncS5CaBBliB8cBpai84L62Zc"`)},
+		{name: "tag-absent", data: kc(``)},
+		{name: "tag-null", data: kc(`,"tag":null`)},
+		{name: "tag-42", data: kc(`,"tag":"` + tag[:42] + `"`)},
+		{name: "tag-44", data: kc(`,"tag":"` + tag + `A"`)},
+		{name: "tag-padded", data: kc(`,"tag":"` + tag + `="`)},
+		{name: "tag-plus", data: kc(`,"tag":"+` + tag[1:] + `"`)},
+		{name: "tag-slash", data: kc(`,"tag":"/` + tag[1:] + `"`)},
+		{name: "tag-dot", data: kc(`,"tag":".` + tag[1:] + `"`)},
+		{name: "tag-last-char-B", data: kc(`,"tag":"` + tag[:42] + `B"`)},
+		{name: "tag-crlf-inside", data: kc(`,"tag":"` + tag[:20] + `\r\n` + tag[22:] + `"`)},
+		{name: "tag-number", data: kc(`,"tag":7`)},
+		{name: "tag-array", data: kc(`,"tag":["` + tag + `"]`)},
+		{name: "tag-object", data: kc(`,"tag":{"tag":"` + tag + `"}`)},
+		{name: "tag-true", data: kc(`,"tag":true`)},
+		{name: "tag-key-case", data: kc(`,"TAG":"` + tag + `"`)},
+		{name: "duplicate-bad-then-good", data: kc(`,"tag":"x","tag":"` + tag + `"`)},
+		{name: "duplicate-good-then-bad", data: kc(`,"tag":"` + tag + `","tag":"x"`)},
+		{name: "extra-field", data: kc(`,"tag":"` + tag + `","x":1`)},
+		{name: "escaped-valid", data: kc(`,"tag":"\u0041` + tag[1:] + `"`)},
+		{name: "lone-surrogate", data: kc(`,"tag":"\ud800` + tag[1:] + `"`)},
+		{name: "leading-whitespace", data: append([]byte(" "), kc(`,"tag":"`+tag+`"`)...)},
+		{name: "type-upper", data: []byte(`{"type":"KC","tag":"` + tag + `"}`)},
+		{name: "type-key-case", data: []byte(`{"TYPE":"kc","tag":"` + tag + `"}`)},
+		{name: "trailing-garbage", data: append(kc(`,"tag":"`+tag+`"`), 'x')},
+		{name: "not-kc", data: []byte(`{"type":"ack","tag":"` + tag + `"}`)},
+		{name: "cap-exact", data: sizedKC(tag, controlMsgMax)},
+		{name: "cap-plus-1", data: sizedKC(tag, controlMsgMax+1)},
+		{name: "not-json", data: []byte(`{"type":"kc"`)},
+		{name: "json-null", data: []byte(`null`)},
+		{name: "empty", data: []byte{}},
+	}
+}
+
+// sizedKC builds a kc frame carrying tag, padded to exactly n bytes.
+func sizedKC(tag string, n int) []byte {
+	base := `{"type":"kc","tag":"` + tag + `","pad":""}`
+	return []byte(`{"type":"kc","tag":"` + tag + `","pad":"` + strings.Repeat("x", n-len(base)) + `"}`)
+}
+
+// kcTagShape is the canonical tag as the wire spec writes it, kept apart from
+// DecodeCanonical so the property does not grade the code with its own answer key.
+var kcTagShape = regexp.MustCompile(`^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$`)
+
+// FuzzParseKC: never panics, and agrees with an independent decode on every
+// frame: not a frame of type "kc" within controlMsgMax is kcNone, a "tag" key
+// whose last occurrence is a JSON string in the canonical shape is kcTag with
+// exactly those bytes, and anything else of type "kc" is kcMalformed, with the
+// zero value beside both of those other answers. classifyControl calls it "kc"
+// whenever this does not say kcNone, so no reader can see a tag the classifier
+// did not, and a tag that parsed comes back byte for byte through kcFrame.
+func FuzzParseKC(f *testing.F) {
+	addSeeds(f, "FuzzParseKC", parseKCSeeds(), true)
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		tag, kind := parseKC(raw)
+
+		// Independent decode.
+		want := kcNone
+		var wantTag [32]byte
+		var fields map[string]json.RawMessage
+		if len(raw) <= controlMsgMax && json.Unmarshal(raw, &fields) == nil {
+			var typ string
+			if json.Unmarshal(fields["type"], &typ) == nil && typ == "kc" {
+				want = kcMalformed
+				var s string
+				lit := fields["tag"]
+				if len(lit) > 0 && lit[0] == '"' && json.Unmarshal(lit, &s) == nil && kcTagShape.MatchString(s) {
+					decoded, err := base64.RawURLEncoding.DecodeString(s)
+					if err != nil || len(decoded) != 32 {
+						t.Fatalf("the shape passed %q and the decoder says %v, %d bytes", s, err, len(decoded))
+					}
+					want = kcTag
+					copy(wantTag[:], decoded)
+				}
+			}
+		}
+		if kind != want || tag != wantTag {
+			t.Fatalf("parseKC(%q) = %x, %v; an independent decode says %x, %v", raw, tag, kind, wantTag, want)
+		}
+		msgType, isControl := classifyControl(raw)
+		if kind != kcNone && (!isControl || msgType != "kc") {
+			t.Fatalf("parseKC(%q) = %v, but classifyControl says %q, %v", raw, kind, msgType, isControl)
+		}
+		if kind == kcTag {
+			again, againKind := parseKC(kcFrame(tag))
+			if againKind != kcTag || again != tag {
+				t.Fatalf("the tag of %q did not survive kcFrame: %x, %v", raw, again, againKind)
+			}
 		}
 	})
 }

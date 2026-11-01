@@ -1699,12 +1699,13 @@ var approvedRefusal = []struct {
 	{"over-approved", []string{"More data arrived than they accepted. If files changed after you chose them, ask them for a new link.", "Nothing was sent."}},
 	{"stopped", []string{"They stopped this drop.", "Nothing was sent."}},
 	{"time-limit", []string{"This drop reached the 24-hour limit, so their Floe stopped it.", "Nothing was sent."}},
+	{"unverified", []string{"Their computer couldn't confirm this link.", "Nothing was sent."}},
 	{"too-slow", []string{"The drop stopped on their computer.", "Nothing was sent."}},
 	{"not-a-code", []string{"The drop stopped on their computer.", "Nothing was sent."}},
 }
 
 // TestSendToEveryRefusalCodeHasFixedLine: a host that refuses with each of
-// the twelve codes, and with two it does not know, ends the command on that
+// the thirteen codes, and with two it does not know, ends the command on that
 // code's approved block and a non-zero exit, through the wire and the whole
 // command. The saved forms are pinned below in TestSendToOutcomeLines.
 func TestSendToEveryRefusalCodeHasFixedLine(t *testing.T) {

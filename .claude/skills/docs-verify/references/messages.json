@@ -519,6 +519,13 @@
     },
     {
         "surface": "web",
+        "text": "receiver could not confirm the sender holds this link",
+        "source": "client/lib/transfer/protocol.ts",
+        "anchor": null,
+        "why_no_home": "The reason a browser receiver that holds a link key sends with its unverified code, when the sender's proof failed. No page sends it until a link carries a key, and every current sender reads the code and shows its own sentence."
+    },
+    {
+        "surface": "web",
         "text": "receiver could not create a file",
         "source": "cli/engine/transfer/refusal.go",
         "anchor": "/reference/transfer-protocol",
@@ -901,6 +908,13 @@
         "source": "client/lib/senderSelfStop.ts",
         "anchor": "/troubleshooting#the-sender-ended-the-transfer",
         "why_no_home": null
+    },
+    {
+        "surface": "web",
+        "text": "sender could not confirm the receiver holds this link",
+        "source": "client/lib/transfer/protocol.ts",
+        "anchor": null,
+        "why_no_home": "The reason a browser sender that holds a link key sends with its unverified code, when the receiver's proof failed. No page sends it until a link carries a key. A receiver that holds the key shows its own sentence. One without it, on a link cut before its key, shows this in the sender's cleaned words, as it does any stop, and only an enforcing sender gets that far."
     },
     {
         "surface": "web",

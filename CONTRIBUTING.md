@@ -342,7 +342,7 @@ Run `go vet ./...` and `go test ./...` in `cli/`, and in `desktop/` once the fro
   FLOE_LONG_TESTS=1 go test -run 'TestDecideBlockingDoesNotTripWatchdog/long' -timeout 20m ./engine/transfer/
   ```
 
-- **Fuzz targets keep their seeds in git.** The `Fuzz*` functions in `cli/engine/code`, `cli/engine/signaling` and `cli/engine/transfer` exercise the decoders of what a peer, the signaling server or a pasted link hands the engine. Their seed inputs are committed under each package's `testdata/fuzz/`, and a plain `go test ./...` replays every one, so CI runs them as ordinary tests. To fuzz a target, name exactly one:
+- **Fuzz targets keep their seeds in git.** The `Fuzz*` functions in `cli/engine/code`, `cli/engine/linkkey`, `cli/engine/signaling` and `cli/engine/transfer` exercise the decoders of what a peer, the signaling server or a pasted link hands the engine. Their seed inputs are committed under each package's `testdata/fuzz/`, and a plain `go test ./...` replays every one, so CI runs them as ordinary tests. To fuzz a target, name exactly one:
 
   ```bash
   cd cli

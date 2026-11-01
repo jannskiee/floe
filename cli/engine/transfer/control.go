@@ -138,7 +138,9 @@ const controlMsgMax = 1000
 // and never come through here: the sender decodes the receiver's frames on its
 // own (the ack wait in sendFile, abortFromPeer and parseReceived) under the same
 // controlMsgMax bound. A stray "ack" or "received" that does reach the receive
-// loop matches no arm of its switch and is dropped.
+// loop matches no arm of its switch and is dropped. So is "kc", the link key's
+// proof (keycheck.go), which a receiver without the key ignores: exactly what
+// a released receiver does with it, an unknown type being a string it skips.
 //
 // "type" is read by its exact key from a map of RAW values, so no other key's
 // value is ever converted here: decoding into interface{} turned a number out
@@ -161,7 +163,7 @@ func classifyControl(data []byte) (msgType string, isControl bool) {
 		return "", false
 	}
 	switch t {
-	case "metadata", "end", "ack", "received", "incompatible":
+	case "metadata", "end", "ack", "received", "incompatible", "kc":
 		return t, true
 	}
 	return "", false
@@ -231,6 +233,9 @@ func parseMetadata(text string) (FileInfo, error) {
 	}
 	if m.Index < 1 || m.Total < 1 {
 		return FileInfo{}, fmt.Errorf("file index %d of %d is not a position in a batch", m.Index, m.Total)
+	}
+	if m.Index > m.Total {
+		return FileInfo{}, fmt.Errorf("the file index is past the end of its batch")
 	}
 	// Zero means "not announced" (pre-1.5.0 senders) and is fine; a batch that
 	// is smaller than one of its own files is not, and the desktop preview
