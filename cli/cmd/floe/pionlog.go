@@ -102,8 +102,8 @@ func quietPionScope(scope string) {
 // The test binary runs it too, which is what turnlog_test.go reads.
 func init() {
 	// The TURN client's "turnc" scope, by quietPionScope's rule, as noise and
-	// no longer as a security stopgap: since pion/ice 4.4.3 (floe has 4.4.7
-	// since #603) the client logs through newLoggerFactory, so its lines
+	// no longer as a security stopgap: since pion/ice 4.4.3 (floe has 4.4.8
+	// since #844) the client logs through newLoggerFactory, so its lines
 	// arrive escaped (TestNoPionLoggerBypassesTheLoggerFactory pins that). Its
 	// one ERROR line, a failed permission refresh, is relay housekeeping every
 	// 120 s that the person running floe cannot act on. It runs first, as the
