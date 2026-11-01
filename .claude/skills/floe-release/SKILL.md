@@ -56,15 +56,16 @@ and 8 are for.
 Never reuse a `v*` number: the `release-tags` ruleset blocks deletion and
 update of `refs/tags/v*` for everyone, so a pushed CLI tag is permanent,
 failed run or not. Since 2026-10-26 a second ruleset, `release-tag-writers`
-(25870867), restricts creating `v*` and `desktop-v*` tags, and moving or
-deleting `desktop-v*` ones, to its bypass, the repository admin role. So only
-the owner's own credentials can push a release tag: no installed app, and no
-workflow on its `GITHUB_TOKEN`, can. Nobody can move or delete a `v*` tag, the
-owner included. A `desktop-v*` tag
-whose run failed can still be deleted and re-cut with the same number ("If a
-workflow fails" under step 4), but only while the tag has no published
-release. Releases are immutable since the same day: once one is published its
-assets and tag are locked, and deleting it burns its tag name for good. A
+(25870867), restricts creating a tag, and moving or deleting one, to its bypass,
+the repository admin role. It named only `v*` and `desktop-v*` until 2026-11-01,
+when it was widened to every tag (`~ALL`); `release-tags` stays on `v*`, so that
+bypass can still move or delete a `desktop-v*` tag. So only the owner's own
+credentials can push a tag of any name: no installed app, and no workflow on its
+`GITHUB_TOKEN`, can. Nobody can move or delete a `v*` tag, the owner included. A
+`desktop-v*` tag whose run failed can still be deleted and re-cut with the same
+number ("If a workflow fails" under step 4), but only while the tag has no
+published release. Releases are immutable since 2026-10-26: once one is published
+its assets and tag are locked, and deleting it burns its tag name for good. A
 number the Store has accepted can never be reused or lowered either.
 
 ## 1. Code merges

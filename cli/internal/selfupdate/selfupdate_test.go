@@ -1,14 +1,17 @@
 package selfupdate
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -387,3 +390,306 @@ func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) { r
 type failingReader struct{}
 
 func (failingReader) Read([]byte) (int, error) { return 0, errors.New("connection reset mid-download") }
+
+// unexpectedTagLine is the fixed line floe update stops with, typed out here so
+// a test fails if the sentence changes.
+const unexpectedTagLine = "The latest release has an unexpected version name, so floe update stopped. Reinstall with the steps at floe.one/docs/cli/installation instead."
+
+// goodTags are release tags as the release process makes them.
+var goodTags = []string{"v0.0.0", "v0.1.0", "v1.2.3", "v1.11.7", "v10.20.30"}
+
+type namedTag struct{ name, tag string }
+
+// hostileTags is every shape of name a release could carry that must never reach
+// a download URL, the cache or the output. The empty tag is not here: it is
+// everyBadTag's, because LatestVersion has its own check for that one.
+func hostileTags() []namedTag {
+	return []namedTag{
+		{"no leading v", "9.9.9"},
+		{"two numbers", "v1.2"},
+		{"one number", "v9"},
+		{"four numbers", "v1.2.3.4"},
+		{"a prerelease", "v1.2.3-rc1"},
+		{"build metadata", "v1.2.3+build"},
+		{"a leading zero in the major", "v01.2.3"},
+		{"a leading zero in the minor", "v1.02.3"},
+		{"a leading zero in the patch", "v1.2.03"},
+		{"the desktop line", "desktop-v1.0.4"},
+		{"a capital V", "V1.2.3"},
+		{"a slash", "v1.2.3/evil"},
+		{"a path up and out", "../../../evil/v1.2.3"},
+		{"dot dot after the tag", "v1.2.3/.."},
+		{"an empty number", "v1..3"},
+		{"a backslash", `v1.2.3\..\evil`},
+		{"a query", "v1.2.3?x=1"},
+		{"a fragment", "v1.2.3#x"},
+		{"an encoded slash", "v1.2.3%2f"},
+		{"a line feed at the end", "v1.2.3\n"},
+		{"a line feed before the tag", "x\nv1.2.3"},
+		{"a space in front", " v1.2.3"},
+		{"a space behind", "v1.2.3 "},
+		{"a NUL", "v1.2.3\x00"},
+		{"a terminal escape", "v1.2.3\x1b[2J"},
+		{"digits outside ASCII", "v\u0661.2.3"},
+		{"a minus sign", "v-1.2.3"},
+		{"a number too large to compare", "v99999999999999999999.0.0"},
+		{"10 KB after a good tag", "v1.2.3" + strings.Repeat("x", 10*1024)},
+		{"10 KB of digits", "v" + strings.Repeat("1", 10*1024) + ".0.0"},
+	}
+}
+
+func everyBadTag() []namedTag { return append(hostileTags(), namedTag{"empty", ""}) }
+
+// short keeps a failure message readable when the value is a 10 KB tag.
+func short(s string) string {
+	if len(s) > 120 {
+		return s[:120] + "..."
+	}
+	return s
+}
+
+// waitFor gives CheckAvailable's goroutine time to finish. The function itself
+// stops waiting after a second, which a busy machine can overrun, so what the
+// goroutine does is waited for here and never assumed from what the call returned.
+func waitFor(t *testing.T, what string, done func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); !done(); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("waited 5 s for %s", what)
+		}
+	}
+}
+
+// standInForGitHub answers every request with the given function until the test
+// ends and returns what has been asked so far. Nothing here reaches the network.
+// The lock is there because CheckAvailable makes its request on a goroutine of
+// its own, which it stops waiting for once its second is up.
+func standInForGitHub(t *testing.T, answer func(*http.Request) (*http.Response, error)) (asked func() []string) {
+	t.Helper()
+	prev := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = prev })
+	var mu sync.Mutex
+	var urls []string
+	http.DefaultTransport = roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		mu.Lock()
+		urls = append(urls, r.URL.String())
+		mu.Unlock()
+		return answer(r)
+	})
+	return func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), urls...)
+	}
+}
+
+// latestReleaseIs makes GitHub name tag as its latest release.
+func latestReleaseIs(t *testing.T, tag string) (asked func() []string) {
+	t.Helper()
+	body, err := json.Marshal(map[string]string{"tag_name": tag})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return standInForGitHub(t, func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(body)), Request: r}, nil
+	})
+}
+
+// cacheOfOurOwn points the update-check cache at a folder of this test's own, on
+// every OS, and returns the path of the cache file. FLOE_NO_UPDATE_CHECK is
+// cleared too, so a machine that sets it cannot make these tests pass for nothing.
+func cacheOfOurOwn(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, k := range []string{"HOME", "XDG_CONFIG_HOME", "AppData"} {
+		t.Setenv(k, dir)
+	}
+	t.Setenv("FLOE_NO_UPDATE_CHECK", "")
+	p := cacheFilePath()
+	if p == "" {
+		t.Skip("no user config dir on this machine")
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	return p
+}
+
+// putInCache writes a fresh cache entry naming tag, as the file could hold after
+// an earlier floe saved it or someone edited it.
+func putInCache(t *testing.T, p, tag string) {
+	t.Helper()
+	b, err := json.Marshal(cacheEntry{CheckedAt: time.Now().Add(-time.Minute), Latest: tag})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(p, b, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+}
+
+// TestLatestVersionAcceptsOnlyAPlainReleaseTag: GitHub's answer is refused with
+// the fixed line unless it is exactly vX.Y.Z, and the error never carries the
+// tag. A release under 9.9.9 used to be offered and installed by every floe (B1).
+func TestLatestVersionAcceptsOnlyAPlainReleaseTag(t *testing.T) {
+	for _, tag := range goodTags {
+		t.Run(tag, func(t *testing.T) {
+			latestReleaseIs(t, tag)
+			if got, err := LatestVersion(); err != nil || got != tag {
+				t.Fatalf("LatestVersion() = %q, %v; want %q", got, err, tag)
+			}
+		})
+	}
+	for _, tt := range hostileTags() {
+		t.Run(tt.name, func(t *testing.T) {
+			latestReleaseIs(t, tt.tag)
+			got, err := LatestVersion()
+			if got != "" {
+				t.Fatalf("LatestVersion() returned the tag %q", short(got))
+			}
+			if err == nil || err.Error() != unexpectedTagLine {
+				t.Fatalf("LatestVersion() error = %v; want the fixed line", err)
+			}
+		})
+	}
+}
+
+// TestLatestVersionKeepsItsEmptyCheck: an answer with no tag at all stays the
+// failure it has always been, a check that could not complete. It names no
+// release, so nothing can reach a URL either.
+func TestLatestVersionKeepsItsEmptyCheck(t *testing.T) {
+	latestReleaseIs(t, "")
+	if got, err := LatestVersion(); got != "" || err == nil || err.Error() != "no tag_name in GitHub API response" {
+		t.Fatalf("LatestVersion() = %q, %v", got, err)
+	}
+}
+
+// TestFromCacheCountsABadTagAsNoCache (B13): the cache is a file anyone on this
+// account can edit, and floe 1.11.7 and earlier saved whatever GitHub named, so a
+// value in it gets the same check as an answer from GitHub.
+func TestFromCacheCountsABadTagAsNoCache(t *testing.T) {
+	p := cacheOfOurOwn(t)
+	for _, tag := range goodTags {
+		putInCache(t, p, tag)
+		if got, ok := fromCache(); !ok || got != tag {
+			t.Errorf("fromCache() with %q = %q, %v; want a hit", tag, got, ok)
+		}
+	}
+	for _, tt := range everyBadTag() {
+		t.Run(tt.name, func(t *testing.T) {
+			putInCache(t, p, tt.tag)
+			if got, ok := fromCache(); ok || got != "" {
+				t.Fatalf("fromCache() = %q, %v; want a miss", short(got), ok)
+			}
+		})
+	}
+}
+
+// TestCheckAvailableTreatsABadCachedTagAsNoCache: with a bad value in the cache
+// the check asks GitHub, as with no cache, and a good answer replaces the value.
+// "" is allowed back because the answer can miss the check's second on a busy
+// machine; the bad value itself never comes back.
+func TestCheckAvailableTreatsABadCachedTagAsNoCache(t *testing.T) {
+	for _, tt := range everyBadTag() {
+		t.Run(tt.name, func(t *testing.T) {
+			p := cacheOfOurOwn(t)
+			putInCache(t, p, tt.tag)
+			asked := latestReleaseIs(t, "v1.11.0")
+			if got := CheckAvailable("1.10.11"); got != "v1.11.0" && got != "" {
+				t.Fatalf("CheckAvailable = %q; want GitHub's answer, v1.11.0", short(got))
+			}
+			waitFor(t, "GitHub's answer to replace the bad value", func() bool {
+				got, ok := fromCache()
+				return ok && got == "v1.11.0"
+			})
+			if n := len(asked()); n != 1 {
+				t.Fatalf("GitHub was asked %d time(s), want once", n)
+			}
+		})
+	}
+}
+
+// TestCheckAvailableKeepsAGoodCachedTag is the control: a good value is still
+// used, and GitHub is not asked.
+func TestCheckAvailableKeepsAGoodCachedTag(t *testing.T) {
+	p := cacheOfOurOwn(t)
+	putInCache(t, p, "v1.11.0")
+	asked := latestReleaseIs(t, "v9.9.9")
+	if got := CheckAvailable("1.10.11"); got != "v1.11.0" {
+		t.Fatalf("CheckAvailable = %q, want the cached v1.11.0", got)
+	}
+	if got := asked(); len(got) != 0 {
+		t.Fatalf("a good cached value still asked GitHub: %q", got)
+	}
+}
+
+// TestCheckAvailableRefusesABadTagFromGitHub: the hint names no such release, and
+// nothing is saved for the next run. Only tags that read as newer than the build,
+// the ones that would otherwise be printed. Each costs the check's whole second,
+// because a failed request is not reported back to its select.
+func TestCheckAvailableRefusesABadTagFromGitHub(t *testing.T) {
+	for _, tag := range []string{"9.9.9", "v9.9.9-rc1"} {
+		t.Run(tag, func(t *testing.T) {
+			p := cacheOfOurOwn(t)
+			asked := latestReleaseIs(t, tag)
+			if got := CheckAvailable("1.10.11"); got != "" {
+				t.Fatalf("CheckAvailable = %q; want no release named", got)
+			}
+			waitFor(t, "the request to GitHub", func() bool { return len(asked()) == 1 })
+			if _, err := os.Stat(p); !os.IsNotExist(err) {
+				t.Fatalf("the refused tag left a cache file (stat err %v)", err)
+			}
+		})
+	}
+}
+
+// TestWriteCacheStoresOnlyAPlainReleaseTag: nothing fromCache would refuse is ever
+// written, whatever a later caller hands it.
+func TestWriteCacheStoresOnlyAPlainReleaseTag(t *testing.T) {
+	for _, tt := range everyBadTag() {
+		t.Run(tt.name, func(t *testing.T) {
+			p := cacheOfOurOwn(t)
+			writeCache(tt.tag)
+			if _, err := os.Stat(p); !os.IsNotExist(err) {
+				t.Fatalf("writeCache stored a bad tag (stat err %v)", err)
+			}
+		})
+	}
+	p := cacheOfOurOwn(t)
+	writeCache("v1.11.0")
+	if b, err := os.ReadFile(p); err != nil || !strings.Contains(string(b), `"v1.11.0"`) {
+		t.Fatalf("writeCache did not store a good tag: %q, %v", b, err)
+	}
+}
+
+// TestApplyRefusesABadTagBeforeAnyRequest: the last gate before the tag becomes
+// part of two URLs. The stand-in fails every request, so neither this test nor a
+// mutation of the guard can get as far as replacing the test binary.
+func TestApplyRefusesABadTagBeforeAnyRequest(t *testing.T) {
+	asked := standInForGitHub(t, func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("no network in this test")
+	})
+	for _, tt := range everyBadTag() {
+		t.Run(tt.name, func(t *testing.T) {
+			before := len(asked())
+			err := Apply(tt.tag)
+			if err == nil || err.Error() != unexpectedTagLine {
+				t.Errorf("Apply error = %q; want the fixed line", short(fmt.Sprint(err)))
+			}
+			if got := asked()[before:]; len(got) != 0 {
+				t.Errorf("Apply asked for %d URL(s), the first %q", len(got), short(got[0]))
+			}
+		})
+	}
+
+	// The control: a good tag goes on to ask for that release's checksums, and
+	// stops at the stand-in's refusal.
+	before := len(asked())
+	if err := Apply("v1.2.3"); err == nil || !strings.HasPrefix(err.Error(), "failed to fetch checksums: ") {
+		t.Fatalf("Apply(v1.2.3) = %v; want the stand-in's refusal", err)
+	}
+	want := baseURL + "/v1.2.3/checksums.txt"
+	if got := asked()[before:]; len(got) != 1 || got[0] != want {
+		t.Fatalf("Apply(v1.2.3) asked for %q, want only %q", got, want)
+	}
+}
