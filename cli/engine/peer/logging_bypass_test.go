@@ -34,8 +34,9 @@ const turnClientScope = "turnc "
 // receiver. The sender also has a TURN server on its list, so its ICE agent
 // makes a TURN client, whose "turnc" logger writes pion/turn's "Fail to
 // refresh permissions" ERROR line: that line quotes the reason phrase of a
-// TURN error response, which anyone on the UDP path to the server can forge,
-// since pion/turn checks no integrity on it. The server is a loopback socket
+// TURN error response, which anyone on the UDP path to the server can forge
+// as an unsigned 401: pion/turn checks a response's integrity since v5.1.3 but
+// still takes that. The server is a loopback socket
 // that never answers (silentTURN): the client logs as it starts and before
 // its first request leaves, and the factory it was handed decides where those
 // lines go.

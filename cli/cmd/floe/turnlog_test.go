@@ -45,7 +45,7 @@ func pionLevelChosen() bool {
 	return false
 }
 
-// turncErrorLine is the TURN client's ERROR line as pion/turn v5.1.2 writes
+// turncErrorLine is the TURN client's ERROR line as pion/turn v5.1.3 writes
 // it when a permission refresh gets an error response, the reason quoted.
 const turncErrorLine = "Fail to refresh permissions: %s"
 
