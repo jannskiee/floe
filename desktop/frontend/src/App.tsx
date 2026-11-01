@@ -135,6 +135,16 @@ const isWindows = navigator.userAgent.includes('Windows');
 // WKWebView reports "Macintosh" even on Apple Silicon; the UA is synchronous, unlike
 // the Wails Environment() promise, so the once-registered key listener can read it.
 const isMac = navigator.userAgent.includes('Macintosh');
+
+// Whether the focused element takes typed text, which is what the keyboard
+// shortcut handlers below pause for. A Settings switch (and a request link's
+// Auto-accept) is a hidden checkbox: it takes Space, not text, so it does not
+// count, or the shortcuts would die for as long as a switch holds focus.
+const isTextField = (el: HTMLElement | null): boolean => {
+    if (!el) return false;
+    if (el.tagName === 'INPUT') return (el as HTMLInputElement).type !== 'checkbox';
+    return el.tagName === 'TEXTAREA' || el.isContentEditable;
+};
 const aboutLabelClass = 'text-[13px] leading-5 text-zinc-400';
 const aboutValueClass = 'shrink-0 font-mono text-xs text-zinc-300';
 
@@ -1171,7 +1181,7 @@ function App() {
             if ((e.ctrlKey || e.metaKey) && (e.key === 'r' || e.key === 'R')) {
                 e.preventDefault();
                 const el = document.activeElement as HTMLElement | null;
-                if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+                if (isTextField(el)) return;
                 startOverRef.current();
             }
         };
@@ -1190,7 +1200,7 @@ function App() {
             if (e.repeat) return;
             if (busyRef.current || modalOpenRef.current) return;
             const el = document.activeElement as HTMLElement | null;
-            if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+            if (isTextField(el)) return;
             e.preventDefault();
             PasteFiles().then((paths) => { if (paths && paths.length) addFiles(paths); }).catch(() => {});
         };
@@ -1216,7 +1226,7 @@ function App() {
             if (!(e.ctrlKey || e.metaKey) || e.repeat) return;
             if (modalOpenRef.current) return;
             const el = document.activeElement as HTMLElement | null;
-            const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+            const typing = isTextField(el);
             switch (e.key.toLowerCase()) {
                 case 'o': // add files: jump to Send > Files and open the picker
                     if (typing) return;
