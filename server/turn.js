@@ -18,6 +18,7 @@
 // notice.
 
 const crypto = require('crypto');
+const net = require('net');
 const { rateKey } = require('./ratekey');
 const { envLimit } = require('./envlimit');
 
@@ -41,11 +42,23 @@ const TURN_MAX_REQUESTS = envLimit('MAX_TURN_REQUESTS_PER_IP', 20);
 // clients on networks that block UDP, and its operator has set nothing.
 const TURN_TLS_OFF = /^(off|false|0|no)$/i;
 
+// TURN_DOMAIN is pasted between a scheme and a port below, so it must be a
+// host name alone: a scheme, a port, a path or a bare IPv6 address makes a URL
+// that browsers throw on and pion refuses, and then no transfer starts at all.
+// A bracketed IPv6 address is a host name here, if it is a real IPv6 address.
+const COTURN_DOMAIN_SHAPE = /^(\[[0-9A-Fa-f:.]+\]|[\p{L}\p{N}._-]+)$/u;
+
+function coturnDomainOk(domain) {
+    if (!COTURN_DOMAIN_SHAPE.test(domain)) return false;
+    return !domain.startsWith('[') || net.isIPv6(domain.slice(1, -1));
+}
+
 function generateCoturnCredentials() {
     const turnSecret = process.env.TURN_SECRET;
     const turnDomain = process.env.TURN_DOMAIN;
     const turnTls = process.env.TURN_TLS;
     if (!turnSecret || !turnDomain) return null;
+    if (!coturnDomainOk(turnDomain)) return null;
 
     // 24h, matching CF_TURN_TTL below. Do not shorten: every sender fetches ICE
     // credentials BEFORE its wait for a peer, that wait is intentionally
@@ -277,6 +290,7 @@ module.exports = {
     TURN_RATE_WINDOW,
     TURN_MAX_REQUESTS,
     generateCoturnCredentials,
+    coturnDomainOk,
     selectMinimalIceUrls,
     generateCloudflareIceServers,
     turnCredentialsHandler,
