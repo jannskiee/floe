@@ -30,8 +30,8 @@ func decodeMeta(t *testing.T, frame []byte) map[string]interface{} {
 			t.Fatalf("frame is missing %q: %s", k, frame)
 		}
 	}
-	if m["pv"] != float64(1) || m["pvMin"] != float64(1) {
-		t.Fatalf("pv/pvMin = %v/%v, want 1/1", m["pv"], m["pvMin"])
+	if m["pv"] != float64(2) || m["pvMin"] != float64(1) {
+		t.Fatalf("pv/pvMin = %v/%v, want 2/1", m["pv"], m["pvMin"])
 	}
 	return m
 }
@@ -149,7 +149,7 @@ func TestAbortFrameCarriesTheReason(t *testing.T) {
 	if m["type"] != "incompatible" || m["reason"] != reason {
 		t.Fatalf("abort frame = %v", m)
 	}
-	if m["pv"] != float64(1) || m["pvMin"] != float64(1) {
+	if m["pv"] != float64(2) || m["pvMin"] != float64(1) {
 		t.Fatalf("abort frame pv/pvMin = %v/%v", m["pv"], m["pvMin"])
 	}
 }

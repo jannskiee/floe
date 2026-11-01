@@ -21,6 +21,38 @@ export const SEND_FILE_HASHES = true;
 // against every browser receiver of 1.11.1 or earlier (SG-01).
 export const RECEIVER_CONFIRMS = true;
 
+// The link-key levers. linkKeyMode in keySession.ts is the only reader of the two
+// ENFORCE ones, and each of the four is a one-line deploy for a production problem;
+// parsers accept links with and without a key whatever these say.
+//
+// Whether the web sender adds a key to the links it makes. Off, it makes today's
+// keyless links again.
+export const MAKE_LINK_KEYS = true;
+// Off, every web page only observes: it still sends its own proof, so an enforcing
+// Go peer keeps working, and it still checks and reports, but it never stops a
+// transfer on a failed check.
+export const ENFORCE_LINK_KEYS = true;
+// The cutover: a web sender also refuses a receiver that cannot show the key. It
+// strands released Go receivers of web links, so it waits for adoption (owner
+// decision O2). Effective only with ENFORCE_LINK_KEYS.
+export const ENFORCE_SHARE_LINK_KEY = false;
+// Whether a browser with no usable getRemoteCertificates may read the remote
+// fingerprint from a strictly shaped SDP instead (keyCheck.ts).
+export const KEY_CHECK_SDP_FALLBACK = true;
+
+// How long an enforcing side waits for the other side's proof. Mirrors KeyCheckWait
+// in cli/engine/transfer, which a Go test holds to this line. Well under the 30 s
+// receive-idle and request open-channel clocks.
+export const KEY_CHECK_WAIT_MS = 15_000;
+
+// The reasons a failed check puts on the wire, one voiced from each side. No current
+// peer shows them: each reads the code and shows its own sentence, and the words are
+// for a peer that prints a reason. CodeUnverified.WireReason and
+// senderUnverifiedReason in cli/engine/transfer hold the same text, and a Go test
+// reads both lines here, so keep each one literal on one line.
+export const RECEIVER_UNVERIFIED_REASON = 'receiver could not confirm the sender holds this link';
+export const SENDER_UNVERIFIED_REASON = 'sender could not confirm the receiver holds this link';
+
 // Milliseconds the sender waits for the receiver's ack before failing. Mirrors
 // the CLI sender's 120 s ack deadline (cli/engine/transfer/sender.go). It must be
 // this generous because a CLI receiver only acks after a human answers its
@@ -88,8 +120,20 @@ export const POST_END_HASH_WAIT_MS = 90_000;
 // Bump policy: increment ProtocolVersion on any breaking wire change. Raise
 // MinProtocolVersion only when dropping support for an old wire format. Never
 // tie either constant to the app's npm version — they are independent.
-export const PROTOCOL_VERSION = 1;
+//
+// Version 2 is the one bump that is not a breaking change, on purpose (decision PV).
+// `kc` breaks nothing, since an older peer drops it, and 2 marks the builds that
+// speak it: a stop for a failed key check goes out as incompatible {pv:2,pvMin:2},
+// and that range must miss only the peers that do not speak kc. If every kc-speaking
+// build said 1, that frame would tell them too that they are too old. The minimum
+// stays 1, so every released peer stays compatible. Mirrors protocol.go.
+export const PROTOCOL_VERSION = 2;
 export const MIN_PROTOCOL_VERSION = 1;
+
+// The range a failed key check's stop frame carries, and the first version that
+// speaks kc. It does not follow PROTOCOL_VERSION: a later bump must not make that
+// frame miss the peers that do speak kc.
+const KEY_CHECK_PROTOCOL = 2;
 
 // Adaptive chunk size: use the negotiated SCTP max, capped at MAX_CHUNK.
 export function chunkSize(sctpMax?: number | null): number {
@@ -172,7 +216,20 @@ export interface Incompatible {
     saved?: number; // files the peer committed before this frame
 }
 
-export type ControlMessage = Metadata | Ack | End | Received | Incompatible;
+// A side's proof that it holds the link key, sent only by a side that does (DV1): an
+// HMAC over the key, the room and both DTLS certificates, once per connection and
+// before any other frame that side sends. TEXT from the file sender, BINARY from the
+// file receiver, as the two directions always frame control. `tag` is whatever the
+// peer typed, since classifyControl casts: read it only through parseKeyCheckTag
+// (keyCheck.ts), compare it only through tagsEqual, and never display, log or store
+// it. A consumer with no key drops the frame. Mirrors the kc frame in
+// cli/engine/transfer/keycheck.go.
+export interface KeyCheckFrame {
+    type: 'kc';
+    tag?: unknown;
+}
+
+export type ControlMessage = Metadata | Ack | End | Received | Incompatible | KeyCheckFrame;
 
 // --- Message builders ---
 
@@ -258,12 +315,16 @@ function frameBytes(frame: string): number {
 // A code is sent only when the caller names one, and saved only as a safe
 // integer from 0 up (0 is sent, like Go's *int), which is exactly the frame
 // every shipped peer already reads when neither is given.
+//
+// `unverified` alone carries a narrower range, the one rule for that frame from
+// either side (see KEY_CHECK_PROTOCOL): a released peer misses it and prints its own
+// update remedy, and a current one overlaps it and reads the code.
 function buildIncompatible(reason: string, code?: RefusalCode, saved?: number): string {
     const msg: Incompatible = {
         type: 'incompatible',
         reason,
-        pv: PROTOCOL_VERSION,
-        pvMin: MIN_PROTOCOL_VERSION,
+        pv: code === 'unverified' ? KEY_CHECK_PROTOCOL : PROTOCOL_VERSION,
+        pvMin: code === 'unverified' ? KEY_CHECK_PROTOCOL : MIN_PROTOCOL_VERSION,
     };
     if (code) msg.code = code;
     if (saved !== undefined && Number.isSafeInteger(saved) && saved >= 0) msg.saved = saved;
@@ -488,6 +549,7 @@ export function classifyControl(data: string | ArrayBuffer | Uint8Array): Contro
     if (t === 'end') return msg as unknown as End;
     if (t === 'received') return msg as unknown as Received;
     if (t === 'incompatible') return msg as unknown as Incompatible;
+    if (t === 'kc') return msg as unknown as KeyCheckFrame;
     return null;
 }
 
@@ -508,11 +570,12 @@ export function isAbortReason(msg: Incompatible): boolean {
 }
 
 /**
- * Why a receiver stopped a transfer on purpose, as named by the optional `code`
- * on its `incompatible` frame. Mirrors RefusalCode and RefusalCodes in
+ * Why a side stopped a transfer on purpose, as named by the optional `code` on
+ * its `incompatible` frame. Twelve name why a receiver stopped; `unverified` is
+ * the one either side may send. Mirrors RefusalCode and RefusalCodes in
  * cli/engine/transfer/refusal.go; the two lists must stay in sync, and they are
  * kept in the byte order of the wire values so the literals can be compared
- * whole (TestRefusalCodeListMatchesTS there, the "twelve codes" case in
+ * whole (TestRefusalCodeListMatchesTS there, the "thirteen codes" case in
  * protocol.test.ts here). The set is closed: a reader maps anything else to its
  * generic stopped copy.
  */
@@ -528,6 +591,7 @@ export type RefusalCode =
     | 'save-blocked'
     | 'stopped'
     | 'time-limit'
+    | 'unverified'
     | 'write-failed';
 
 export const REFUSAL_CODES: ReadonlySet<string> = new Set<RefusalCode>([
@@ -542,6 +606,7 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set<RefusalCode>([
     'save-blocked',
     'stopped',
     'time-limit',
+    'unverified',
     'write-failed',
 ]);
 
@@ -625,6 +690,7 @@ export function metadataProblem(msg: Metadata): string | null {
     if (given('fileSize') && !byteCount(m.fileSize)) return 'the file size is not a byte count';
     if (given('totalBytes') && !byteCount(m.totalBytes)) return 'the batch size is not a byte count';
     if (!position(m.index) || !position(m.total)) return 'the file index is not a position in a batch';
+    if ((m.index as number) > (m.total as number)) return 'the file index is not a position in a batch';
     if (byteCount(m.totalBytes) && m.totalBytes > 0 && byteCount(m.fileSize) && m.totalBytes < m.fileSize) {
         return 'the batch size is smaller than the file size';
     }

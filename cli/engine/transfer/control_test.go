@@ -23,6 +23,8 @@ func metadataInvariant(info FileInfo) string {
 		return fmt.Sprintf("Index %d is below 1", info.Index)
 	case info.Total < 1:
 		return fmt.Sprintf("Total %d is below 1", info.Total)
+	case info.Index > info.Total:
+		return fmt.Sprintf("Index %d is above Total %d", info.Index, info.Total)
 	case info.TotalBytes != 0 && info.TotalBytes < info.FileSize:
 		return fmt.Sprintf("TotalBytes %d is below FileSize %d", info.TotalBytes, info.FileSize)
 	}
@@ -45,6 +47,41 @@ func TestParseMetadata(t *testing.T) {
 	}
 	if _, err := parseMetadata(`not json`); err == nil {
 		t.Error("parseMetadata(invalid json) should error")
+	}
+}
+
+// TestParseMetadataRefusesIndexAboveTotal: a sender cannot be on file 9 of a
+// 3-file batch, and "Receiving file 9 of 3" is what a receiver would say. The
+// browser twin is metadataProblem, and the parity rows index-above-total and
+// index-equals-total hold the two together. The error is fixed text: it goes on
+// the wire and to a terminal, and neither number needs to.
+func TestParseMetadataRefusesIndexAboveTotal(t *testing.T) {
+	frame := func(index, total int) string {
+		return fmt.Sprintf(`{"type":"metadata","id":"a","fileName":"a.bin","fileSize":4,"index":%d,"total":%d,"totalBytes":40}`, index, total)
+	}
+	var first string
+	for _, c := range []struct{ index, total int }{{2, 1}, {9, 3}, {10001, 10000}, {1 << 40, 1}} {
+		_, err := parseMetadata(frame(c.index, c.total))
+		if err == nil {
+			t.Errorf("index %d of %d was accepted", c.index, c.total)
+			continue
+		}
+		if first == "" {
+			first = err.Error()
+		}
+		if err.Error() != first {
+			t.Errorf("index %d of %d gave %q, want the one fixed message %q", c.index, c.total, err, first)
+		}
+		for _, n := range []string{"9", "10001", "10000"} {
+			if strings.Contains(err.Error(), n) {
+				t.Errorf("index %d of %d: the message carries a number from the frame: %q", c.index, c.total, err)
+			}
+		}
+	}
+	for _, c := range []struct{ index, total int }{{1, 1}, {1, 3}, {3, 3}, {10000, 10000}} {
+		if _, err := parseMetadata(frame(c.index, c.total)); err != nil {
+			t.Errorf("index %d of %d was refused: %v", c.index, c.total, err)
+		}
 	}
 }
 
@@ -101,6 +138,9 @@ func TestClassifyControl(t *testing.T) {
 		{"ack type is control", `{"type":"ack","id":"x","offset":0}`, "ack", true},
 		{"received type is control", `{"type":"received"}`, "received", true},
 		{"incompatible type is control", `{"type":"incompatible","reason":"too old"}`, "incompatible", true},
+		{"kc type is control", `{"type":"kc","tag":"x"}`, "kc", true},
+		{"kc key case is not", `{"TYPE":"kc"}`, "", false},
+		{"kc type case is not", `{"type":"KC"}`, "", false},
 		// A tiny JSON file (its own content) must be treated as DATA, not dropped.
 		{"json file content under 1KB", `{"hello":"world","n":42}`, "", false},
 		// A JSON object whose type is unknown is still data, not control.

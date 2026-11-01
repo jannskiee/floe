@@ -69,6 +69,9 @@ export const FIELDS = {
             'parseEnd',
             'parseReceived',
             'parseAckConfirms',
+            'parseKC',
+            'kcFrame',
+            'LinkKeyProof',
             'FileDone',
             // The protocol range every metadata, ack and incompatible carries.
             'Pv',
@@ -97,6 +100,8 @@ export const FIELDS = {
             'normalizeSha256',
             'verifiedCountOf',
             'ackConfirmsOf',
+            'KeyCheckFrame',
+            'parseKeyCheckTag',
         ],
         // pv and pvMin are member tokens although the names are wire-unique:
         // as bare words they match three tests that build frames by hand, which
@@ -121,6 +126,9 @@ export const FIELDS = {
 // ("Floe - send failed", "Floe"), so nothing peer-chosen reaches an OS
 // notification. That is worth keeping as a row rather than deleting.
 //
+// cli/engine/linkkey/linkkey.go is the first kind: it reads the link key, which
+// the other party wrote into a link, as `s`.
+//
 // desktop/toast_windows.go and desktop/toast_other.go are the second kind:
 // their rows record that pushToast and toastXML carry only the constant strings
 // notify was handed.
@@ -129,14 +137,15 @@ export const FIELDS = {
 // row records that the Request link notice (RequestNotice) shows only the
 // constant N1 and N2 strings, never a label, count, size or name.
 //
-// The six client files at the end are the first kind, on the /r page and the
+// The seven client files at the end are the first kind, on the /r page and the
 // browser's signaling: visitorCopy.ts takes the host's refusal code, saved
 // count and verified count as `refusal`, `savedCount` and `verifiedCount`, and
 // RequestStatus.tsx renders the card it builds; requestLink.ts and report.ts
 // read the request link, which the other party wrote, as `pathname`, `hash`
 // and `linkId`; useSignaling.ts hands the server's answers and the relayed
 // signal to its callbacks unread; roomSeat.ts compares the role the signaling
-// server named, a value with no token of its own (see FIELDS.ts.member).
+// server named, a value with no token of its own (see FIELDS.ts.member);
+// linkKey.ts reads a share link, which the other party wrote, as `hash`.
 export const TOKEN_FREE = new Set([
     'desktop/frontend/src/errors.ts',
     'desktop/frontend/src/history.ts',
@@ -144,6 +153,7 @@ export const TOKEN_FREE = new Set([
     'desktop/frontend/src/components/Toasts.tsx',
     'cli/engine/peer/connection.go',
     'cli/engine/peer/setuperror.go',
+    'cli/engine/linkkey/linkkey.go',
     'cli/engine/transfer/relay.go',
     'desktop/app.go',
     'desktop/toast_windows.go',
@@ -154,6 +164,7 @@ export const TOKEN_FREE = new Set([
     'client/lib/request/report.ts',
     'client/hooks/useSignaling.ts',
     'client/lib/roomSeat.ts',
+    'client/lib/linkKey.ts',
 ]);
 const tokenRegex = (f) =>
     new RegExp(`\\b(${f.word.join('|')})\\b|\\.(${f.member.join('|')})\\b`);

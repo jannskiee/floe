@@ -270,8 +270,8 @@ describe('receiver: a peer that stops on purpose says why', () => {
  * showed itself, so a peer that displays the reason verbatim was told the
  * wrong side was old.
  *
- * Unreachable between shipped peers, which all speak protocol 1, so the fixture
- * drives a metadata frame claiming protocol 2.
+ * Unreachable between shipped peers, whose ranges all share protocol 1, so the fixture
+ * drives a metadata frame claiming protocol 3.
  */
 describe('receiver: the wire reason is written for the peer that reads it', () => {
     function receiver() {
@@ -293,8 +293,8 @@ describe('receiver: the wire reason is written for the peer that reads it', () =
             index: 1,
             total: 1,
             totalBytes: 1,
-            pv: 2,
-            pvMin: 2,
+            pv: 3,
+            pvMin: 3,
             ver: '1.11.0',
         });
     }
@@ -310,7 +310,7 @@ describe('receiver: the wire reason is written for the peer that reads it', () =
         const parsed = JSON.parse(new TextDecoder().decode(frame as Uint8Array));
         expect(parsed.type).toBe('incompatible');
         expect(parsed.reason).toContain("peer's floe is too old");
-        expect(parsed.reason).toContain('You: protocol 2 (1.11.0)  Peer: protocol 1');
+        expect(parsed.reason).toContain('You: protocol 3 (1.11.0)  Peer: protocol 1-2');
         expect(parsed.reason).toContain('Ask the other side to update Floe.');
         // The trap: a naive perspective flip reuses the browser's local
         // wording, which means nothing to a CLI or desktop reader.
@@ -325,13 +325,13 @@ describe('receiver: the wire reason is written for the peer that reads it', () =
 
     it('names the side a rebuilding peer would name', () => {
         // The round trip, without hardcoding the answer: read the frame back
-        // as the protocol-2 peer that sent the metadata, and check the reason
+        // as the protocol-3 peer that sent the metadata, and check the reason
         // agrees with what that peer works out for itself from pv/pvMin.
         const h = receiver();
         h.rx.handleMessage(futureMetadata());
         const parsed = JSON.parse(new TextDecoder().decode(h.sent[0] as Uint8Array));
 
-        const { ok, localTooOld } = checkCompat(2, 2, parsed.pvMin, parsed.pv);
+        const { ok, localTooOld } = checkCompat(3, 3, parsed.pvMin, parsed.pv);
         expect(ok).toBe(false);
         expect(localTooOld).toBe(false); // the reader is NEWER; we are the old one
         expect(parsed.reason).toContain("peer's floe is too old");

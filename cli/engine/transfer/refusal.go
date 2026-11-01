@@ -1,6 +1,6 @@
 package transfer
 
-// The refusal vocabulary a receiver uses when it stops a transfer on purpose: the
+// The refusal vocabulary a side uses when it stops a transfer on purpose: the
 // codes, the incompatible frame that carries them, and the error a caller reads back.
 
 import (
@@ -10,13 +10,13 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
-// RefusalCode names why a receiver stopped a transfer on purpose. It rides the
+// RefusalCode names why a side stopped a transfer on purpose. It rides the
 // incompatible frame as the optional "code", so a reader can pick its own
 // fixed copy instead of showing the peer's prose. The set is closed: a reader
 // maps anything it does not know to its generic stopped copy.
 type RefusalCode string
 
-// The twelve codes. client/lib/transfer/protocol.ts REFUSAL_CODES mirrors this
+// The thirteen codes. client/lib/transfer/protocol.ts REFUSAL_CODES mirrors this
 // list and must stay in sync; RefusalCodes below is the list in wire order.
 const (
 	// CodeDeclined: the person at the receiver said no before any file was
@@ -48,6 +48,10 @@ const (
 	CodeStopped RefusalCode = "stopped"
 	// CodeTimeLimit: the receiver's 24-hour per-transfer limit was reached.
 	CodeTimeLimit RefusalCode = "time-limit"
+	// CodeUnverified: this side holds the link's key and the other side could
+	// not prove it does (keycheck.go). The one code either side may send. Nothing
+	// was saved and no file byte was sent.
+	CodeUnverified RefusalCode = "unverified"
 	// CodeWriteFailed: a flush, close, create or write failed on this side's
 	// own file handle for a reason other than a full drive. The in-flight
 	// .part is removed.
@@ -69,6 +73,7 @@ var RefusalCodes = [...]RefusalCode{
 	CodeSaveBlocked,
 	CodeStopped,
 	CodeTimeLimit,
+	CodeUnverified,
 	CodeWriteFailed,
 }
 
@@ -115,11 +120,20 @@ func (c RefusalCode) WireReason() string {
 		return "receiver stopped the transfer"
 	case CodeTimeLimit:
 		return "receiver stopped the transfer at the 24-hour limit"
+	case CodeUnverified:
+		return "receiver could not confirm the sender holds this link"
 	case CodeWriteFailed:
 		return "receiver could not finish writing a file"
 	}
 	return "receiver stopped the transfer"
 }
+
+// senderUnverifiedReason is the reason on a SENDER's unverified abort. WireReason
+// words every code from the receiver's side, and unverified is the one code that
+// also travels the other way, so this is a constant of its own with the same
+// shape. RECEIVER_UNVERIFIED_REASON and SENDER_UNVERIFIED_REASON in
+// client/lib/transfer/protocol.ts pin both (TestKeyCheckConstantsMatchTS).
+const senderUnverifiedReason = "sender could not confirm the receiver holds this link"
 
 // The two ways a file fails its SHA-256, carried in RefusedError.Err so that
 // Error() can word them apart without ever reading the peer's text. Both refuse
@@ -160,6 +174,11 @@ func AbortWithCode(dc *webrtc.DataChannel, localVer string, code RefusalCode, re
 // reader acts on and cost at most about 45 bytes, so they are never dropped to
 // make room. Halving a rune budget terminates and never splits a character,
 // which a byte cut would.
+//
+// CodeUnverified alone carries a narrower range, the one rule for that frame from
+// either side, as buildIncompatible in protocol.ts has it: a released peer misses
+// the range and prints its own update remedy, and a current one overlaps it and
+// reads the code.
 func incompatibleFrame(localVer string, code RefusalCode, reason string, saved int) []byte {
 	msg := incompatibleMsg{
 		Type:   "incompatible",
@@ -168,6 +187,9 @@ func incompatibleFrame(localVer string, code RefusalCode, reason string, saved i
 		PvMin:  MinProtocolVersion,
 		Ver:    localVer,
 		Code:   string(code),
+	}
+	if code == CodeUnverified {
+		msg.Pv, msg.PvMin = keyCheckProtocol, keyCheckProtocol
 	}
 	if saved >= 0 {
 		msg.Saved = &saved
@@ -235,7 +257,7 @@ type RefusedError struct {
 }
 
 // Error is one approved sentence per code (D-123: approved-copy-cli.txt RX-01
-// to RX-09, printed behind cobra's "Error: "). The desktop's friendlyError
+// to RX-09 and RX-11, printed behind cobra's "Error: "). The desktop's friendlyError
 // matches each "receive stopped: " sentence whole to pick its own wording, so
 // a change here is a change there too (desktop/frontend/src/errors.ts).
 func (e *RefusedError) Error() string {
@@ -273,6 +295,8 @@ func (e *RefusedError) Error() string {
 		return "receive stopped: the transfer was stopped on this computer"
 	case CodeSaveBlocked:
 		return "receive stopped: a finished file could not be moved into place"
+	case CodeUnverified:
+		return ErrSenderNotConfirmed.Error()
 	}
 	// An empty code, and a code this build does not know, which only a
 	// hand-built value can carry: the bare sentence, never the value.
@@ -321,6 +345,8 @@ func (e *PeerStoppedError) Error() string {
 		return "They stopped this drop."
 	case CodeTimeLimit:
 		return "This drop reached the 24-hour limit, so their Floe stopped it."
+	case CodeUnverified:
+		return "Their computer couldn't confirm this link."
 	case CodeWriteFailed:
 		return "Their computer could not save a file."
 	}

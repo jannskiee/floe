@@ -13,8 +13,8 @@
  *
  * Decoders covered: refusalCodeOf, classifyControl, normalizeSha256 (twin of
  * parseEnd), verifiedCountOf (twin of parseReceived) and ackConfirmsOf (twin of
- * parseAckConfirms) in protocol.ts, and the metadata guard of createReceiver
- * (receiver.ts).
+ * parseAckConfirms) in protocol.ts, the metadata guard of createReceiver
+ * (receiver.ts), and parseKeyCheckTag (twin of parseKC) in keyCheck.ts.
  */
 import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
@@ -28,8 +28,10 @@ import {
     verifiedCountOf,
     type Ack,
     type Incompatible,
+    type KeyCheckFrame,
     type Received,
 } from './protocol';
+import { KC_TAG_RE, parseKeyCheckTag } from './keyCheck';
 import { createReceiver } from './receiver';
 
 // PARITY-TABLE-BEGIN (twin: cli/engine/transfer/parity_test.go, parityTable)
@@ -91,7 +93,7 @@ const PARITY_TABLE = String.raw`
 {"decoder":"metadataGuard","name":"total-0","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":0,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"reject","ts":"reject"}
 {"decoder":"metadataGuard","name":"totalBytes-below-fileSize","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":2,\"pv\":1,\"pvMin\":1}","go":"reject","ts":"reject"}
 {"decoder":"metadataGuard","name":"totalBytes-absent","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"pv\":1,\"pvMin\":1}","go":"accept","ts":"accept"}
-{"decoder":"metadataGuard","name":"pv-disjoint","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":2,\"pvMin\":2}","go":"reject","ts":"reject"}
+{"decoder":"metadataGuard","name":"pv-disjoint","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":3,\"pvMin\":3}","go":"reject","ts":"reject"}
 {"decoder":"metadataGuard","name":"pv-absent-legacy","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4}","go":"accept","ts":"accept"}
 {"decoder":"metadataGuard","name":"pv-string","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":\"1\",\"pvMin\":1}","go":"reject","ts":"reject"}
 {"decoder":"metadataGuard","name":"name-number","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":7,\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"reject","ts":"reject"}
@@ -156,11 +158,45 @@ const PARITY_TABLE = String.raw`
 {"decoder":"ackConfirms","name":"over-cap","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":true,\"pad\":\"\"}","padTo":1001,"padChar":"x","go":"none","ts":"none"}
 {"decoder":"ackConfirms","name":"type-key-case","frame":"{\"TYPE\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":true}","go":"none","ts":"none"}
 {"decoder":"ackConfirms","name":"not-ack","frame":"{\"type\":\"received\",\"confirms\":true}","go":"none","ts":"none"}
+{"decoder":"classifyControl","name":"kc","frame":"{\"type\":\"kc\"}","go":"kc","ts":"kc"}
+{"decoder":"classifyControl","name":"kc-with-tag","frame":"{\"type\":\"kc\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"kc","ts":"kc"}
+{"decoder":"classifyControl","name":"kc-upper-type","frame":"{\"type\":\"KC\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"none","ts":"none"}
+{"decoder":"refusalCodeOf","name":"unverified","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"unverified\"}","go":"accept","ts":"accept"}
+{"decoder":"refusalCodeOf","name":"unverified-range-2","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":2,\"pvMin\":2,\"code\":\"unverified\"}","go":"accept","ts":"accept"}
+{"decoder":"refusalCodeOf","name":"unverified-upper-case","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"UNVERIFIED\"}","go":"reject","ts":"reject"}
+{"decoder":"metadataGuard","name":"index-above-total","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":2,\"total\":1,\"totalBytes\":4,\"pv\":2,\"pvMin\":1}","go":"reject","ts":"reject"}
+{"decoder":"metadataGuard","name":"index-equals-total","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":2,\"total\":2,\"totalBytes\":8,\"pv\":2,\"pvMin\":1}","go":"accept","ts":"accept"}
+{"decoder":"keyCheck","name":"valid","frame":"{\"type\":\"kc\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"tag","ts":"tag"}
+{"decoder":"keyCheck","name":"valid-alt","frame":"{\"type\":\"kc\",\"tag\":\"xJgBMZk3OsXxCjLFjYdncS5CaBBliB8cBpai84L62Zc\"}","go":"tag","ts":"tag"}
+{"decoder":"keyCheck","name":"tag-absent","frame":"{\"type\":\"kc\"}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-null","frame":"{\"type\":\"kc\",\"tag\":null}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-42","frame":"{\"type\":\"kc\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-44","frame":"{\"type\":\"kc\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-padded","frame":"{\"type\":\"kc\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-plus","frame":"{\"type\":\"kc\",\"tag\":\"+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-slash","frame":"{\"type\":\"kc\",\"tag\":\"/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-dot","frame":"{\"type\":\"kc\",\"tag\":\".AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-last-char-B","frame":"{\"type\":\"kc\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB\"}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-number","frame":"{\"type\":\"kc\",\"tag\":7}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-array","frame":"{\"type\":\"kc\",\"tag\":[\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"]}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-object","frame":"{\"type\":\"kc\",\"tag\":{\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-true","frame":"{\"type\":\"kc\",\"tag\":true}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-key-case","frame":"{\"type\":\"kc\",\"TAG\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"duplicate-bad-then-good","frame":"{\"type\":\"kc\",\"tag\":\"x\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"tag","ts":"tag"}
+{"decoder":"keyCheck","name":"duplicate-good-then-bad","frame":"{\"type\":\"kc\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"tag\":\"x\"}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"extra-field","frame":"{\"type\":\"kc\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"x\":1}","go":"tag","ts":"tag"}
+{"decoder":"keyCheck","name":"escaped-valid","frame":"{\"type\":\"kc\",\"tag\":\"\\u0041AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"tag","ts":"tag"}
+{"decoder":"keyCheck","name":"leading-whitespace","frame":" {\"type\":\"kc\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"tag","ts":"tag"}
+{"decoder":"keyCheck","name":"type-upper","frame":"{\"type\":\"KC\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"none","ts":"none"}
+{"decoder":"keyCheck","name":"trailing-garbage","frame":"{\"type\":\"kc\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}x","go":"none","ts":"none"}
+{"decoder":"keyCheck","name":"over-cap","frame":"{\"type\":\"kc\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"pad\":\"\"}","padTo":1001,"padChar":"x","go":"none","ts":"none"}
+{"decoder":"keyCheck","name":"cap-exact","frame":"{\"type\":\"kc\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"pad\":\"\"}","padTo":1000,"padChar":"x","go":"tag","ts":"tag"}
+{"decoder":"keyCheck","name":"not-kc","frame":"{\"type\":\"ack\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"none","ts":"none"}
 `;
 // PARITY-TABLE-END
 
 interface ParityRow {
-    decoder: 'refusalCodeOf' | 'classifyControl' | 'metadataGuard' | 'endSha256' | 'receivedVerified' | 'ackConfirms';
+    decoder: 'refusalCodeOf' | 'classifyControl' | 'metadataGuard' | 'endSha256' | 'receivedVerified' | 'ackConfirms' | 'keyCheck';
     name: string;
     frame: string;
     padTo?: number;
@@ -216,6 +252,13 @@ function tsDecision(row: ParityRow, frame: string): string {
             const msg = classifyControl(frame);
             if (msg?.type !== 'ack') return 'none';
             return ackConfirmsOf(msg as Ack) ? 'true' : 'absent';
+        }
+        case 'keyCheck': {
+            // None: not a kc frame at all. Malformed: a kc frame whose tag cannot
+            // be read, which a side holding the key treats as a failed check.
+            const msg = classifyControl(frame);
+            if (msg?.type !== 'kc') return 'none';
+            return parseKeyCheckTag(msg as KeyCheckFrame) ? 'tag' : 'malformed';
         }
     }
 }
@@ -297,8 +340,8 @@ function xorshift32(seed: number): () => number {
 type Rng = () => number;
 const pick = <T,>(rng: Rng, items: readonly T[]): T => items[rng() % items.length];
 
-const CONTROL_TYPES = ['metadata', 'end', 'ack', 'received', 'incompatible'] as const;
-const CODES = ['write-failed', 'hash-mismatch', 'too-slow', 'declined', 'WRITE-FAILED', '', 'write-failed '];
+const CONTROL_TYPES = ['metadata', 'end', 'ack', 'received', 'incompatible', 'kc'] as const;
+const CODES = ['write-failed', 'hash-mismatch', 'too-slow', 'declined', 'WRITE-FAILED', '', 'write-failed ', 'unverified', 'UNVERIFIED'];
 const ALPHABET = [
     'a', 'Z', '0', ' ', '"', '\\', '{', '}', '[', ']', ':', ',', '.', '/', 'e', '-',
     ...[0, 7, 10, 13, 27, 0x7f, 0x85, 0x9b, 0xe9, 0x061c, 0x200f, 0x202e, 0x2066, 0x6587, 0xd800, 0xfeff].map((c) =>
@@ -384,6 +427,7 @@ const METADATA_SEED = 0x5eed3e7a;
 const SHA256_SEED = 0x5eed5a25;
 const VERIFIED_SEED = 0x5eedfe71;
 const CONFIRMS_SEED = 0x5eedc0f1;
+const KEY_CHECK_SEED = 0x5eedc0de;
 const FRAMES = 1000;
 
 describe('seeded xorshift32 property loops (1000 frames each)', () => {
@@ -563,5 +607,44 @@ describe('seeded xorshift32 property loops (1000 frames each)', () => {
         // Not vacuous: some frames were acks, and some of those carried the promise and some did not.
         expect(promised).toBeGreaterThan(0);
         expect(promised).toBeLessThan(acks);
+    });
+
+    it(`parseKeyCheckTag never throws and reads only a canonical tag (xorshift32 seed 0x${KEY_CHECK_SEED.toString(16)})`, () => {
+        const rng = xorshift32(KEY_CHECK_SEED);
+        const base64url = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+        const tagLike = (): string => {
+            let tag = '';
+            const n = rng() % 3 ? 43 : 41 + (rng() % 5);
+            for (let i = 0; i < n; i++) tag += base64url[rng() % base64url.length];
+            return JSON.stringify(tag);
+        };
+        let read = 0;
+        let frames = 0;
+        for (let i = 0; i < FRAMES; i++) {
+            const frame = damage(rng, jsonObject([['type', field(rng, '"kc"')], ['tag', rng() % 4 ? tagLike() : genValue(rng)]]));
+            let got: Uint8Array | null = null;
+            let parsed: unknown = null;
+            try {
+                const msg = classifyControl(frame);
+                if (msg?.type !== 'kc') continue;
+                frames++;
+                got = parseKeyCheckTag(msg as KeyCheckFrame);
+                parsed = JSON.parse(frame);
+            } catch (err) {
+                throw new Error(describeFailure(KEY_CHECK_SEED, i, frame, `threw ${String(err)}`));
+            }
+            // An independent reading of the same text: its own key, a string, canonical.
+            const own = Object.prototype.hasOwnProperty.call(parsed, 'tag') ? (parsed as { tag?: unknown }).tag : undefined;
+            const canonical = typeof own === 'string' && KC_TAG_RE.test(own);
+            expect(got !== null, describeFailure(KEY_CHECK_SEED, i, frame, `read ${got !== null}, canonical ${canonical}`)).toBe(canonical);
+            if (got) {
+                read++;
+                expect(got.byteLength).toBe(32);
+                expect(Buffer.from(got).toString('base64url'), describeFailure(KEY_CHECK_SEED, i, frame, 'bytes differ from the tag')).toBe(own);
+            }
+        }
+        // Not vacuous: some frames were kc frames, and some of those read and some did not.
+        expect(read).toBeGreaterThan(0);
+        expect(read).toBeLessThan(frames);
     });
 });
