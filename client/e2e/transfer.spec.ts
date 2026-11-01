@@ -1,14 +1,14 @@
 import { test, expect, type Page } from '@playwright/test';
 import { createHash, randomBytes } from 'crypto';
-import { writeFileSync, mkdirSync, rmSync } from 'fs';
+import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
+import { fixtureDir, removeFixtureDir } from './helpers';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-const FIXTURE_DIR = join(tmpdir(), 'floe-e2e');
+const FIXTURE_DIR = fixtureDir('floe-e2e');
 
 function createFixture(size: number): { path: string; sha256: string } {
     mkdirSync(FIXTURE_DIR, { recursive: true });
@@ -62,9 +62,7 @@ async function senderSetup(
 // ---------------------------------------------------------------------------
 
 test.afterAll(() => {
-    try {
-        rmSync(FIXTURE_DIR, { recursive: true, force: true });
-    } catch { /* ignore */ }
+    removeFixtureDir(FIXTURE_DIR);
 });
 
 test('transfers a 50 MB binary file with SHA-256 integrity check', async ({ browser }) => {

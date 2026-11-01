@@ -13,16 +13,15 @@
 
 import { test, expect } from '@playwright/test';
 import { spawn } from 'child_process';
-import { mkdirSync, rmSync, existsSync } from 'fs';
+import { mkdirSync, existsSync } from 'fs';
 import { join, basename } from 'path';
-import { tmpdir } from 'os';
-import { createFixture, sha256OfFile, browserSenderSetup, cliBinary, SERVER_URL, WEB_URL } from './helpers';
+import { createFixture, fixtureDir, removeFixtureDir, sha256OfFile, browserSenderSetup, cliBinary, SERVER_URL, WEB_URL } from './helpers';
 
-const FIXTURE_DIR = join(tmpdir(), 'floe-hash-worker');
+const FIXTURE_DIR = fixtureDir('floe-hash-worker');
 const FIXTURE_SIZE = 64 * 1024 * 1024;
 
 test.afterAll(() => {
-    try { rmSync(FIXTURE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    removeFixtureDir(FIXTURE_DIR);
 });
 
 test('a 64 MiB browser send hashes in a dedicated Worker and the CLI reports SHA-256 matched', async ({ browser }) => {

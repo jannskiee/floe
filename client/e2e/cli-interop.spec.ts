@@ -17,11 +17,12 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { mkdirSync, rmSync, existsSync } from 'fs';
+import { mkdirSync, existsSync } from 'fs';
 import { join, basename } from 'path';
-import { tmpdir } from 'os';
 import {
     createFixture,
+    fixtureDir,
+    removeFixtureDir,
     sha256OfFile,
     sha256OfBlobUrl,
     browserSenderSetup,
@@ -32,12 +33,12 @@ import {
     CLI_TIMEOUT_MS,
 } from './helpers';
 
-const FIXTURE_DIR = join(tmpdir(), 'floe-cli-interop');
+const FIXTURE_DIR = fixtureDir('floe-cli-interop');
 // File size: large enough to exercise the 8 MB backpressure loop (~12 MB).
 const FIXTURE_SIZE = 12 * 1024 * 1024;
 
 test.afterAll(() => {
-    try { rmSync(FIXTURE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    removeFixtureDir(FIXTURE_DIR);
 });
 
 test('Direction 1: CLI send → browser receive (SHA-256 integrity)', async ({ browser }) => {

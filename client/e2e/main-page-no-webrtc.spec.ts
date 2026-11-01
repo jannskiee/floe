@@ -1,9 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { randomUUID } from 'crypto';
-import { rmSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
-import { browserSenderSetup, createFixture } from './helpers';
+import { browserSenderSetup, createFixture, fixtureDir, removeFixtureDir } from './helpers';
 import { forwardSocketFrames, framesFor } from './request-helpers';
 
 // ---------------------------------------------------------------------------
@@ -70,10 +67,10 @@ test('a sending page without WebRTC says why on load', async ({ page }) => {
     expect(errors).toEqual([]);
 });
 
-const FIXTURE_DIR = join(tmpdir(), 'floe-e2e-no-webrtc');
+const FIXTURE_DIR = fixtureDir('floe-e2e-no-webrtc');
 
 test.afterAll(() => {
-    try { rmSync(FIXTURE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    removeFixtureDir(FIXTURE_DIR);
 });
 
 test('a sending page without WebRTC keeps its sentence when a receiver joins', async ({ page, browser }) => {

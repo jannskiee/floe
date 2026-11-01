@@ -1,8 +1,8 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { randomBytes } from 'crypto';
-import { mkdirSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
+import { fixtureDir, removeFixtureDir } from './helpers';
 
 // Each row of the two file lists carries a tooltip with the whole file name,
 // placed under the name and transparent until hover. While the lists were
@@ -13,12 +13,10 @@ import { tmpdir } from 'os';
 // after each file lands, so its first row lost 23 px off the top, and both
 // lists drew a scrollbar beside a single row. See lib/fileListScroll.ts.
 
-const FIXTURE_DIR = join(tmpdir(), 'floe-e2e-list-scroll');
+const FIXTURE_DIR = fixtureDir('floe-e2e-list-scroll');
 
 test.afterAll(() => {
-    try {
-        rmSync(FIXTURE_DIR, { recursive: true, force: true });
-    } catch { /* ignore */ }
+    removeFixtureDir(FIXTURE_DIR);
 });
 
 function fixtures(count: number): string[] {

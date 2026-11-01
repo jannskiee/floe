@@ -18,19 +18,17 @@
  */
 
 import { test, expect, type BrowserContext, type WebSocketRoute } from '@playwright/test';
-import { rmSync } from 'fs';
 import { randomUUID } from 'crypto';
-import { basename, join } from 'path';
-import { tmpdir } from 'os';
+import { basename } from 'path';
 import { io as ioClient, type Socket } from 'socket.io-client';
-import { SERVER_URL, createFixture, sha256OfBlobUrl, browserSenderSetup } from './helpers';
+import { SERVER_URL, createFixture, fixtureDir, removeFixtureDir, sha256OfBlobUrl, browserSenderSetup } from './helpers';
 
-const FIXTURE_DIR = join(tmpdir(), 'floe-e2e-reconnect');
+const FIXTURE_DIR = fixtureDir('floe-e2e-reconnect');
 // Small on purpose: these tests exercise room lifecycle, not throughput.
 const FIXTURE_SIZE = 1024 * 1024;
 
 test.afterAll(() => {
-    try { rmSync(FIXTURE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    removeFixtureDir(FIXTURE_DIR);
 });
 
 test('sender link survives a signaling blip (client re-joins on reconnect)', async ({ browser }) => {

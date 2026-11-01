@@ -22,27 +22,28 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { createServer, connect, type AddressInfo } from 'net';
 import { spawn, type ChildProcess } from 'child_process';
-import { rmSync, existsSync } from 'fs';
+import { existsSync } from 'fs';
 import { join, basename } from 'path';
-import { tmpdir } from 'os';
 import {
     CLI_TIMEOUT_MS,
     WEB_URL,
     cliBinary,
     createFixture,
+    fixtureDir,
+    removeFixtureDir,
     sha256OfFile,
     sha256OfBlobUrl,
     browserSenderSetup,
     waitForExit,
 } from './helpers';
 
-const FIXTURE_DIR = join(tmpdir(), 'floe-e2e-signaling-drop');
+const FIXTURE_DIR = fixtureDir('floe-e2e-signaling-drop');
 // Large enough that the cut lands well before the last byte on loopback.
 const FIXTURE_SIZE = 64 * 1024 * 1024;
 const SIGNALING_PORT = 3001;
 
 test.afterAll(() => {
-    try { rmSync(FIXTURE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    removeFixtureDir(FIXTURE_DIR);
 });
 
 // ---------------------------------------------------------------------------

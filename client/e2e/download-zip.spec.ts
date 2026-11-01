@@ -11,16 +11,15 @@
 
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { createHash } from 'crypto';
-import { mkdirSync, readFileSync, rmSync } from 'fs';
+import { mkdirSync, readFileSync } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
 import { unzipSync } from 'fflate';
-import { writeRandomFile } from './helpers';
+import { fixtureDir, removeFixtureDir, writeRandomFile } from './helpers';
 
-const FIXTURE_DIR = join(tmpdir(), 'floe-e2e-download-zip');
+const FIXTURE_DIR = fixtureDir('floe-e2e-download-zip');
 
 test.afterAll(() => {
-    try { rmSync(FIXTURE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    removeFixtureDir(FIXTURE_DIR);
 });
 
 async function optedOutContext(ctx: BrowserContext): Promise<BrowserContext> {
