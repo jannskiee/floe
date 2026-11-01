@@ -360,9 +360,16 @@ func cutRunes(s string, max int) string {
 
 func main() {
 	// Translate Ctrl+C / SIGTERM into a clean message and exit code 130
-	// instead of an abrupt stop mid-transfer.
+	// instead of an abrupt stop mid-transfer. A closed terminal or a lost SSH
+	// session sends SIGHUP on macOS and Linux, and Go's default for it ends the
+	// process at once, so it takes the same path. Only while SIGHUP is not
+	// ignored: nohup starts a program with it ignored, and Notify would install
+	// a handler and undo that.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	if !signal.Ignored(syscall.SIGHUP) {
+		signal.Notify(sigCh, syscall.SIGHUP)
+	}
 	go handleInterrupts(sigCh, os.Exit)
 
 	// The old binary a Windows `floe update` could not delete while it ran.
