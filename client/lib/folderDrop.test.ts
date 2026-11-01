@@ -9,7 +9,6 @@ import {
     selectionFitsFrames,
 } from './folderDrop';
 import { mergeFiles } from './fileSelection';
-import { visitorCopy } from './request/visitorCopy';
 import { CONTROL_MSG_MAX } from './transfer/protocol';
 import { metadataFrameBytes } from './request/metadataBudget';
 
@@ -70,11 +69,11 @@ describe('selectionFitsFrames', () => {
 });
 
 describe('main-page drop copy', () => {
-    it('matches the request page words it is copied from', () => {
-        expect(DROP_TOO_MANY_FILES).toBe(visitorCopy.tooManyFiles);
-        expect(DROP_PATH_TOO_LONG).toBe(visitorCopy.pathTooLong);
-        expect(DROP_FOLDER_UNREADABLE).toBe(visitorCopy.folderUnreadable);
-        expect(DROP_EMPTY_FOLDERS_SKIPPED).toBe(visitorCopy.emptyFoldersSkipped);
+    it('pins the words the main page shows', () => {
+        expect(DROP_TOO_MANY_FILES).toBe('This drop has more than 10,000 files. Zip them first.');
+        expect(DROP_PATH_TOO_LONG).toBe('A file name or folder path is too long to send. Shorten it or zip it first.');
+        expect(DROP_FOLDER_UNREADABLE).toBe('Some files in this folder could not be read. Nothing was added.');
+        expect(DROP_EMPTY_FOLDERS_SKIPPED).toBe('Empty folders are not sent.');
     });
 
     it('caps a folder drop at the number its sentence names', () => {

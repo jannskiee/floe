@@ -143,6 +143,15 @@ describe('mergeFiles with folder paths', () => {
         expect(merged.map((f) => f.relativePath)).toEqual(['a/readme.txt', 'b/readme.txt']);
     });
 
+    it('keeps two files at the same path with different sizes', () => {
+        const merged = mergeFiles([], [
+            { file: fileOf('readme.txt', 3, 1), relativePath: 'a/readme.txt' },
+            { file: fileOf('readme.txt', 4, 1), relativePath: 'a/readme.txt' },
+        ]);
+
+        expect(merged.map((f) => f.file.size)).toEqual([3, 4]);
+    });
+
     it('ignores the same folder dropped twice', () => {
         const first = mergeFiles([], [{ file: fileOf('readme.txt', 3, 1), relativePath: 'a/readme.txt' }]);
         const second = mergeFiles(first, [{ file: fileOf('readme.txt', 3, 1), relativePath: 'a/readme.txt' }]);

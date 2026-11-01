@@ -1649,6 +1649,12 @@ export function P2PTransfer() {
                                 />
                             )}
 
+                            {isSender && !filesLocked && (
+                                <span role="status" className="sr-only">
+                                    {dropNotice}
+                                </span>
+                            )}
+
                             {isSender && !filesLocked && files.length === 0 && (
                                 <div
                                     onDragOver={handleDragOver}
@@ -1721,7 +1727,7 @@ export function P2PTransfer() {
                             )}
 
                             {isSender && !filesLocked && dropNotice && (
-                                <p role="status" className="text-center text-xs leading-relaxed text-amber-300">
+                                <p className="text-center text-xs leading-relaxed text-amber-300">
                                     {dropNotice}
                                 </p>
                             )}

@@ -306,6 +306,8 @@ test('a folder dropped where the browser gives no entries is refused at the drop
     await page.goto('/');
     const zone = page.getByText('Drop files or click to browse');
     await expect(zone).toBeVisible();
+    const region = page.getByRole('main').getByRole('status');
+    await expect(region).toHaveText('');
 
     // A browser without the entries API hands over only the pseudo-file it
     // makes for a folder, whose read fails. The page cannot walk it.
@@ -325,7 +327,9 @@ test('a folder dropped where the browser gives no entries is refused at the drop
         el.dispatchEvent(drop);
     });
 
-    await expect(page.getByText('This browser cannot send a folder. Add the files inside it, or zip it first.')).toBeVisible();
+    const refused = 'This browser cannot send a folder. Add the files inside it, or zip it first.';
+    await expect(page.getByText(refused).and(page.locator(':not([role="status"])'))).toBeVisible();
+    await expect(region).toHaveText(refused);
     await expect(page.locator('button', { hasText: /create secure link/i })).toHaveCount(0);
 });
 
