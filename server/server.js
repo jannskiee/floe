@@ -188,9 +188,22 @@ const {
     TURN_RATE_WINDOW,
     selectMinimalIceUrls,
     turnCredentialsHandler,
+    coturnDomainOk,
 } = require('./turn');
 
 app.get('/api/turn-credentials', turnCredentialsHandler);
+
+// Logged once at startup when a coturn TURN_DOMAIN was given that cannot sit
+// in a stun:/turn: URL (a scheme, a port, a trailing slash, a path, a bare
+// IPv6 address): browsers throw on such a URL and pion refuses the whole list,
+// so the relay is off even though every variable looks set. Never the value:
+// an operator can paste a secret into the wrong field.
+const TURN_DOMAIN_INVALID_LINE =
+    process.env.TURN_SECRET &&
+    process.env.TURN_DOMAIN &&
+    !coturnDomainOk(process.env.TURN_DOMAIN)
+        ? 'TURN_DOMAIN holds more than a host name, so the coturn relay is off. Set it to the host name alone, such as turn.example.com.'
+        : null;
 
 // ---------------------------------------------------------------------------
 // Global stats counter (server/stats.js)
@@ -2044,6 +2057,7 @@ if (require.main === module) {
 
     if (PROXY_COUNT_UNSET_LINE) console.warn(PROXY_COUNT_UNSET_LINE);
     if (PROXY_COUNT_INVALID_LINE) console.warn(PROXY_COUNT_INVALID_LINE);
+    if (TURN_DOMAIN_INVALID_LINE) console.warn(TURN_DOMAIN_INVALID_LINE);
 
     // Invalid ports throw synchronously, before an 'error' event can fire.
     // Handle that throw through the same fail-fast path as other bind errors.

@@ -50,6 +50,12 @@ Each entry lists the parts it changed. Filter on the right to see only the ones 
   - In Settings, **Hide my IP address** and **Contribute to global stats** now switch back when Floe cannot save the change, as the other switches already do. They used to keep showing the new setting while a request link went on with the saved one.
 </Update>
 
+<Update label="Unreleased" tags={["Self-hosting"]}>
+  **A signaling server whose `TURN_DOMAIN` holds more than a host name now starts with the relay off and says so once**
+
+  - A `TURN_DOMAIN` written with a scheme such as `https://`, with a port, with a trailing slash or as a bare IPv6 address used to be pasted into `stun:` and `turn:` URLs that no browser or `floe` accepts, so nothing transferred through that relay and the server logged nothing. The relay is now simply off, and startup writes one line saying to set `TURN_DOMAIN` to the host name alone. The value itself is never echoed.
+</Update>
+
 <Update label="desktop-v1.0.4" description="2026-10-28" tags={["Desktop"]}>
   **"Reset all settings?" now opens with keyboard focus on Cancel, so Enter there resets nothing**
 
