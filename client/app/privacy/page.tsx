@@ -98,6 +98,13 @@ export const metadata: Metadata = {
 // (lib/sentryDataCollection.ts, equal to what 10.x made of sendDefaultPii
 // false), and the reports of base and head production builds, compared field
 // by field, held nothing the section does not cover (the owner kept the text).
+// Rechecked on 2026-11-01: the tracker is the pinned copy in public/vendor
+// (lib/umamiPin.ts, components/UmamiScript.tsx), which reports to Umami's
+// collector, and umamiBeforeSend (lib/analyticsPath.ts) takes the title out of
+// every payload. A click breadcrumb holds no aria-label, title or alt
+// (lib/scrubUrl.ts dropSelectorWords, which also covers the page load's
+// lcp.element and cls.source attributes). The worker (public/sw.js, floe-cache-v7)
+// answers from its store only when fetch rejects, for documents and build files alike.
 // When a flag, label, hostname or number changes, this page changes with it.
 const toc = [
     { id: 'transfer', label: 'How the transfer works' },
@@ -117,7 +124,7 @@ export default function PrivacyPolicy() {
         <LegalShell
             document="privacy"
             title="Privacy policy"
-            dates={[{ label: 'Last updated', iso: '2026-10', text: 'October 2026' }]}
+            dates={[{ label: 'Last updated', iso: '2026-11', text: 'November 2026' }]}
             historyHref="https://github.com/jannskiee/floe/commits/main/client/app/privacy/page.tsx"
             toc={toc}
             intro={
@@ -450,7 +457,9 @@ export default function PrivacyPolicy() {
                 <p>
                     Sentry does <strong>not</strong> capture file names or file contents, and Floe
                     sends it nothing that names you: there are no accounts, so there is no name or
-                    email address to send. The room link is stripped from every error
+                    email address to send. A click is recorded without the label of what you clicked,
+                    because the labels of Floe&apos;s Remove and Download buttons name a file. The room
+                    link is stripped from every error
                     report, breadcrumb, and performance trace before it is sent, and on a request
                     link&apos;s page the link id in the address is removed as well.{' '}
                     <LegalLink href="https://sentry.io/privacy/">Sentry Privacy Policy</LegalLink>.
@@ -479,18 +488,26 @@ export default function PrivacyPolicy() {
                     visitor for a while without keeping the address, and the hash is tied to
                     floe.one, so it cannot follow you to other websites. File names and file contents
                     are never recorded. It is configured to drop the URL fragment and the query string
-                    before reporting a page view, so the room link never reaches it. Umami does not
+                    before reporting a page view, so the room link never reaches it, and Floe takes the
+                    page title out of everything it sends. Umami does not
                     load on a request link&apos;s page at all. If your browser sends the Do Not Track
                     signal, Umami records nothing at all for your visit.{' '}
                     <LegalLink href="https://umami.is/privacy">Umami Privacy Policy</LegalLink>.
+                </p>
+                <p>
+                    The script that does this does not load from Umami. floe.one serves its own copy of
+                    it, which we read through before using, and your browser refuses to run that copy
+                    if any of its bytes have changed. Its reports still go from your browser to
+                    Umami&apos;s service.
                 </p>
             </LegalSection>
 
             <LegalSection id="browser" index={sectionIndex(toc, 'browser')} title="The web app on your device">
                 <p>
                     The web app keeps a few small things in your browser, and none of them leave it.
-                    So that floe.one loads quickly and can open without a network, your browser caches
-                    the app&apos;s pages and build files, the same files every visitor downloads; that
+                    So that floe.one can open without a network, your browser caches the app&apos;s
+                    pages and build files, the same files every visitor downloads, and uses those copies
+                    only when it cannot reach the network; that
                     cache never holds file data, anything from our API, or a request link&apos;s page. Your &quot;Contribute to
                     global stats&quot; choice is remembered in this browser&apos;s local storage, and a
                     timestamp is kept for the life of the tab to avoid reload loops after a new version

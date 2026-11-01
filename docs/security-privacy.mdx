@@ -214,7 +214,9 @@ On the floe.one website:
     size.
   - An error report, or a performance trace in the 10% sample, also carries a short trail of what
     happened just before it. The trail lists clicks, page changes, the addresses of network
-    requests, and console lines, with the room link removed from each.
+    requests, and console lines, with the room link removed from each. A click is recorded without
+    the label of what was clicked, because the labels of the **Remove** and **Download** buttons
+    name a file.
   - A report of a failed receive may also add the device's approximate memory.
 
   Sentry's servers see the IP address a report arrives from, as any server does. Each report is
@@ -235,9 +237,14 @@ On the floe.one website:
     or iOS.
 
   It is configured to send neither the URL fragment nor the query string, so the room secret never
-  reaches it. It sets no cookies and cannot follow you to other sites. It can recognize a
-  returning visitor for a while from a scrambled value that changes on a schedule. If your browser
-  sends Do Not Track, a privacy setting many browsers offer, it records nothing at all.
+  reaches it, and Floe takes the page title out of everything it sends. It sets no cookies and
+  cannot follow you to other sites. It can recognize a returning visitor for a while from a
+  scrambled value that changes on a schedule. If your browser sends Do Not Track, a privacy setting
+  many browsers offer, it records nothing at all.
+
+  The script does not load from Umami. floe.one serves its own copy, which was read through before
+  use, and the browser refuses to run that copy if any of its bytes have changed. Its reports still
+  go from your browser to Umami's service.
 
 Both are enabled only when their key is supplied. The published container image sets neither, so a
 self-hosted instance ships with both off unless you add your own.
@@ -287,9 +294,11 @@ your device. Clearing the site's data in your browser's settings empties all thr
 | On a request link's page, two numbers while a drop is sending: how many files have arrived and how many there are | Session storage, key `floe:r-lost` | The drop ends. If the browser discarded the tab first: that tab loads again, or you close it |
 | Five of the site's own pages (the home page, Download, How it works, Privacy and Terms) and its build files, so they open without a network. Nothing transfers without one | Cache Storage, written by the site's service worker | You clear the site's data |
 
-That cache never holds a share link, a request link's page, an answer from the server, or these
-docs. The web app sets no cookies, uses no IndexedDB, writes to your clipboard only when you press
-a copy button and never reads it, and never asks for notification permission. How much a browser
+The browser uses those stored copies only when it cannot reach the network, and a page or build
+file it fetches replaces its stored copy. That cache never holds a share link, a request link's
+page, an answer from the server, or these docs. The web app sets no cookies, uses no IndexedDB,
+writes to your clipboard only when you press a copy button and never reads it, and never asks for
+notification permission. How much a browser
 can hold while it receives is under
 [A browser receiver is limited by what the browser can hold](/how-it-works/known-limitations#a-browser-receiver-is-limited-by-what-the-browser-can-hold).
 

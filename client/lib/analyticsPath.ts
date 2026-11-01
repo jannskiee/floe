@@ -39,18 +39,26 @@ export function loadsUmami(pathname: string | null | undefined): boolean {
 // /r footer no longer navigates softly, which closes that path at its root;
 // this closes it for any path nobody has found yet.
 //
-// The live cloud.umami.is script reads data-before-send as the NAME of a
-// window function, calls it with (type, payload) before every send, and sends
-// only what it returns when that is truthy (verified 2026-09-25 against the
-// 4810-byte script, sha256 prefix 91a876d767646fd5). It looks the name up at
-// send time, and sends everything when no function is there.
+// The pinned tracker reads data-before-send as the NAME of a window function,
+// calls it with (type, payload) before every send, and sends only what it
+// returns when that is truthy (read 2026-11-01 in the 8,575-byte copy, sha256
+// prefix 8104cfafda3cc828, public/vendor/umami-8104cfaf.js). It looks the name
+// up at send time, and sends everything when no function is there.
+//
+// It also copies document.title into every payload. Floe's titles are its own
+// words today, so nothing leaks yet, and the title has no use in a count of
+// page views, so it never leaves: no future title can name a file or a link.
 
 /** The window property UmamiScript names in data-before-send. */
 export const UMAMI_BEFORE_SEND = 'floeUmamiBeforeSend';
 
-/** The before-send hook: the payload itself to send it, false to drop it. */
-export function umamiBeforeSend<T>(type: string, payload: T): T | false {
-    return umamiPayloadAllowed(payload) ? payload : false;
+/** The before-send hook: what to send, which is the payload without its title,
+ *  or false to drop it. */
+export function umamiBeforeSend(type: string, payload: unknown): Record<string, unknown> | false {
+    if (!umamiPayloadAllowed(payload)) return false;
+    const sent = { ...(payload as Record<string, unknown>) };
+    delete sent.title;
+    return sent;
 }
 
 /** False when the payload's url or referrer is a /r path, or cannot be read.
