@@ -53,6 +53,12 @@ export const metadata: Metadata = {
 // the request link save folder (desktop/requestlink.go requestDefaultDirFn).
 // Rechecked on 2026-10-19: nine reason labels, since ReceiveFailure gained
 // 'storage-full' (lib/transfer/receiveFailure.ts).
+// Rechecked on 2026-11-02, for the link key on a share link: what a link carries and
+// what the receiving page checks (lib/linkKey.ts, lib/transfer/keyCheck.ts,
+// lib/transfer/keySession.ts, components/P2PTransfer.tsx), the warning a failed check
+// sends (lib/keyCheckReport.ts), and ten reason labels, with 'unverified'
+// (TRANSFER_FAILED_REASONS in lib/peerErrors.ts, which lib/privacyText.test.ts ties
+// to the word).
 // Rechecked on 2026-10-14: the browser's Sentry reports carry breadcrumbs
 // (the SDK's default clicks, navigations, fetch and XHR addresses and console
 // lines), each scrubbed of the room link by beforeBreadcrumb
@@ -171,9 +177,16 @@ export default function PrivacyPolicy() {
                 <p>
                     The encryption is WebRTC&apos;s own (DTLS), with keys that exist only on the two
                     devices for that one transfer. The codes the two devices use to recognize each
-                    other (their certificate fingerprints) pass through our signaling server, so you
-                    are trusting that server not to swap them, and no Floe app shows a verification
-                    code to check it today. This is true of every WebRTC application; the full list of what Floe
+                    other (their certificate fingerprints) pass through our signaling server. A link
+                    made in the web app also carries a random link key in its fragment, which no
+                    server receives. Once the two devices connect, each one that holds the link key
+                    proves it to the other, tied to the certificates actually in use, and the
+                    receiving device stops the transfer before any file arrives if the sender cannot.
+                    So a server that swaps the fingerprints on such a link is caught. A room code, and
+                    a link made by the CLI or Floe Desktop, carries no link key yet, and a sender in
+                    the browser does not yet refuse a receiver that cannot show the link key, and
+                    sends a file&apos;s name and size before that check has finished, so in those cases
+                    you are still trusting that server; the full list of what Floe
                     does not protect against is in{' '}
                     <LegalLink href="https://www.floe.one/docs/how-it-works/known-limitations">
                         Known limitations
@@ -354,7 +367,8 @@ export default function PrivacyPolicy() {
                     and a self-hosted copy of Floe ships with both turned off.
                 </p>
                 <p>
-                    The link you share carries its room id in the URL fragment (the part after the{' '}
+                    The link you share carries its room id, and on a link made in the web app a link
+                    key, in the URL fragment (the part after the{' '}
                     <InlineCode>#</InlineCode>). Browsers never include the fragment in HTTP requests,
                     so it stays out of hosting logs and referrer headers, and our analytics script is
                     configured to drop it as well; what our error monitoring receives is described
@@ -368,7 +382,8 @@ export default function PrivacyPolicy() {
                     Both are held in memory only: the room is dropped when the last device leaves it,
                     and a code&apos;s mapping to its room id is dropped when the receiver joins or the
                     room closes, and about ten minutes after the code was made at the latest. Neither
-                    is written to a log.
+                    is written to a log. Our signaling server never receives the link key, which stays
+                    in the link and in the memory of the page that read it.
                 </p>
                 <p>
                     A request link looks like <InlineCode>floe.one/r/&lt;link id&gt;#&lt;key&gt;</InlineCode>
@@ -446,6 +461,7 @@ export default function PrivacyPolicy() {
                         'Error stack traces and browser metadata (browser version, OS, device type, approximate device memory, language, and time zone)',
                         'Connection type (direct or relay), whether relay fallback was on, transfer progress, file count, and total size, sent with an error report or with a page performance trace that falls in the 10% sample',
                         'A short trail of what happened just before: clicks, page changes, the addresses of network requests, and console lines, with the room link removed from each',
+                        'One warning when a link key check does not pass: which side it was, how the check read the certificate, the outcome, and whether the page was set to stop on it, each a fixed label, with no link, no key, and nothing the other device sent',
                     ]}
                 />
                 <p>
@@ -459,7 +475,7 @@ export default function PrivacyPolicy() {
                     sends it nothing that names you: there are no accounts, so there is no name or
                     email address to send. A click is recorded without the label of what you clicked,
                     because the labels of Floe&apos;s Remove and Download buttons name a file. The room
-                    link is stripped from every error
+                    link, its link key included, is stripped from every error
                     report, breadcrumb, and performance trace before it is sent, and on a request
                     link&apos;s page the link id in the address is removed as well.{' '}
                     <LegalLink href="https://sentry.io/privacy/">Sentry Privacy Policy</LegalLink>.
@@ -475,7 +491,7 @@ export default function PrivacyPolicy() {
                 </p>
                 <LegalList
                     items={[
-                        'Transfer outcomes: for a completed transfer, the number of files, the total size in bytes, whether you were sending or receiving, and whether the connection was direct or relayed; for a failure, your role, one of nine fixed labels (for example "ice-failed" or "out-of-memory"), and, when you were sending, the file count and total size',
+                        'Transfer outcomes: for a completed transfer, the number of files, the total size in bytes, whether you were sending or receiving, and whether the connection was direct or relayed; for a failure, your role, one of ten fixed labels (for example "ice-failed" or "out-of-memory"), and, when you were sending, the file count and total size',
                         "Which download button you clicked on the download page, the homepage, or the navigation bar, and, when Floe opens inside another app's built-in browser (such as Facebook or Instagram), the name of that app and whether it was Android or iOS",
                         'Standard page view data: the page path, referring site, browser, operating system, device type, screen size, and language',
                         'Your approximate location (country, region, and city), derived from your IP address by Umami, which does not store the address',

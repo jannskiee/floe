@@ -1,7 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
-import { describeSenderStop, SEND_INTERNAL_ERROR, SENDER_HASH_STOP, senderCloseInterrupted } from './senderStop';
+import { KEY_REFUSED_SENDER, KEY_UNAVAILABLE_SENDER } from './linkKeyCopy';
+import {
+    SENDER_REJECTED,
+    describeSenderStop,
+    SEND_INTERNAL_ERROR,
+    SENDER_HASH_STOP,
+    senderCloseInterrupted,
+    senderKeyFailureAtClose,
+} from './senderStop';
 
 // The code type is deliberately not imported here: the consumer-map checker
 // counts that name as a peer-field token, and its warning total is a max
@@ -43,6 +51,36 @@ describe('describeSenderStop', () => {
         );
     });
 
+    // A refusal for the key check has its own sentence. The peer's words never get
+    // here, and neither does what the check found: only the code, and this side's
+    // own fact that it could not read the certificates.
+    // A hostile receiver holding the bytes could otherwise make the page say none went.
+    it('unverified past the first ack says no such thing', () => {
+        expect(describeSenderStop({ code: 'unverified', saved: 0, files: 1, acked: true })).toBe(SENDER_REJECTED);
+        expect(describeSenderStop({ code: 'unverified', saved: 0, files: 1, acked: true, keyUnavailable: true })).toBe(SENDER_REJECTED);
+        expect(SENDER_REJECTED).not.toMatch(/nothing was/i);
+        expect(describeSenderStop({ code: 'unverified', saved: 0, files: 1, acked: false })).toBe(KEY_REFUSED_SENDER);
+    });
+
+    it('unverified maps to the fixed sentence, whatever the count', () => {
+        expect(describeSenderStop({ code: 'unverified', saved: 0, files: 1 })).toBe(KEY_REFUSED_SENDER);
+        expect(describeSenderStop({ code: 'unverified', saved: 7, files: 3 })).toBe(KEY_REFUSED_SENDER);
+    });
+
+    it('a browser that could not read the certificates is told that, and the other side is not blamed', () => {
+        expect(describeSenderStop({ code: 'unverified', saved: 0, files: 1, keyUnavailable: true })).toBe(
+            KEY_UNAVAILABLE_SENDER
+        );
+        expect(describeSenderStop({ code: 'unverified', saved: 0, files: 1, keyUnavailable: false })).toBe(
+            KEY_REFUSED_SENDER
+        );
+        // Only for this code: it says nothing about any other stop.
+        expect(describeSenderStop({ code: 'hash-mismatch', saved: 0, files: 1, keyUnavailable: true })).toBe(
+            SENDER_HASH_STOP
+        );
+        expect(describeSenderStop({ code: 'declined', saved: 0, files: 1, keyUnavailable: true })).toBe(null);
+    });
+
     it('the sentence is the D-092 string byte for byte', () => {
         // Quoted, never built by concatenation: the audit's web leg waits for
         // this exact string and web.test.mjs reads it out of senderStop.ts.
@@ -68,10 +106,48 @@ describe('senderCloseInterrupted', () => {
         expect(senderCloseInterrupted(base)).toBe(true);
     });
 
+    // Progress reads 0 below half a percent of a file, and until its ticker next runs.
+    it('says interrupted past the first ack at progress 0, where nothing else speaks', () => {
+        expect(senderCloseInterrupted({ ...base, progress: 0, acked: true })).toBe(true);
+        expect(senderCloseInterrupted({ ...base, progress: 0, acked: false })).toBe(false);
+        expect(senderCloseInterrupted({ ...base, progress: 0, acked: true, closedByUs: true })).toBe(false);
+        expect(senderCloseInterrupted({ ...base, progress: 0, acked: true, wireReason: true })).toBe(false);
+    });
+
     it('stays quiet once every file was sent, before any byte moved, or when this side closed', () => {
         expect(senderCloseInterrupted({ ...base, transferComplete: true })).toBe(false);
         expect(senderCloseInterrupted({ ...base, progress: 0 })).toBe(false);
         expect(senderCloseInterrupted({ ...base, closedByUs: true })).toBe(false);
+    });
+});
+
+// The check can find something and the connection go before the send engine gets
+// to act on it: with relay fallback off the send starts 2 s after the connection,
+// the same 2 s a refusing browser waits before it closes. Nothing else speaks at
+// progress 0 (senderCloseInterrupted, above), so a bad proof that the close beat
+// would otherwise read as a lost connection, or as nothing at all.
+describe('senderKeyFailureAtClose', () => {
+    const base = { mode: 'detect' as const, transferComplete: false, acked: false, closedByUs: false, wireReason: false };
+
+    it('speaks for a check that failed before any answer, when nobody has said why', () => {
+        expect(senderKeyFailureAtClose(base)).toBe(true);
+        expect(senderKeyFailureAtClose({ ...base, mode: 'enforce' })).toBe(true);
+    });
+
+    it('never in observe mode, where the check stops nothing and tells nobody', () => {
+        expect(senderKeyFailureAtClose({ ...base, mode: 'observe' })).toBe(false);
+    });
+
+    it('stays quiet after an account already given, or a teardown of this page\'s own', () => {
+        expect(senderKeyFailureAtClose({ ...base, wireReason: true })).toBe(false);
+        expect(senderKeyFailureAtClose({ ...base, closedByUs: true })).toBe(false);
+    });
+
+    // Its sentence says nothing was sent, which stops being true once the receiver has
+    // answered a file: the first byte goes straight after.
+    it('stays quiet once the receiver has answered a file, or the send finished', () => {
+        expect(senderKeyFailureAtClose({ ...base, acked: true })).toBe(false);
+        expect(senderKeyFailureAtClose({ ...base, transferComplete: true })).toBe(false);
     });
 });
 
@@ -133,7 +209,7 @@ describe('a send that throws', () => {
     // assignment and does not match.
     it('is caught where the send is started, and nowhere started without the catch', () => {
         expect(page.match(/\bsendAllFiles\(/g)).toHaveLength(1);
-        expect(page).toContain('sendAllFiles(peer, files).catch((cause: unknown) => {');
+        expect(page).toContain('sendAllFiles(peer, ks, keyState, files).catch((cause: unknown) => {');
     });
 
     // The handler says something and then lets the throw go on, so the report
@@ -141,7 +217,7 @@ describe('a send that throws', () => {
     // making. A session the page has moved on from, and a send whose files had
     // all left, keep what they show.
     it('shows the sentence without talking over a banner, and rethrows', () => {
-        const from = page.indexOf('sendAllFiles(peer, files).catch((cause: unknown) => {');
+        const from = page.indexOf('sendAllFiles(peer, ks, keyState, files).catch((cause: unknown) => {');
         const handler = page.slice(from, page.indexOf('\n                    });', from));
         expect(handler).toContain('if (peerRef.current === peer && !transferCompleteRef.current) {');
         // Latched, so the error or close that follows when the other device

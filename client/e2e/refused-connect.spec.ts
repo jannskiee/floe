@@ -17,7 +17,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { randomUUID } from 'crypto';
-import { createFixture, fixtureDir, removeFixtureDir, browserSenderSetup } from './helpers';
+import { createFixture, fixtureDir, removeFixtureDir, browserSenderSetup, roomOfShareLink } from './helpers';
 
 const FIXTURE_DIR = fixtureDir('floe-e2e-refused-connect');
 const BANNER = 'Too many refreshes. Reconnecting';
@@ -118,7 +118,7 @@ test('a sender whose reconnect is refused joins its room again exactly once', as
     try {
         const wire = await onTheWire(page);
         const link = await browserSenderSetup(page, fixturePath);
-        const roomId = new URL(link).hash.replace('#room=', '');
+        const roomId = roomOfShareLink(link);
         await expect(page.getByText('Ready', { exact: true })).toBeVisible({ timeout: 10_000 });
 
         // Drop the socket, and refuse the reconnect that follows.

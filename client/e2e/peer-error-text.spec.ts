@@ -24,7 +24,8 @@ import { randomUUID } from 'crypto';
 import { writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import { join } from 'path';
-import { SERVER_URL, WEB_URL, browserSenderSetup } from './helpers';
+import { ENFORCE_SHARE_LINK_KEY } from '../lib/transfer/protocol';
+import { SERVER_URL, WEB_URL, browserSenderSetup, roomOfShareLink } from './helpers';
 
 const PEER_URL = `${WEB_URL}/__floe-scripted-peer`;
 const requireFromClient = createRequire(join(__dirname, '..', 'package.json'));
@@ -84,42 +85,50 @@ async function noteVector(page: Page, type: 'offer' | 'answer'): Promise<void> {
 }
 
 test.describe('peer error text', () => {
-    test('a receiving page shows its fixed sentence, never the text of an offer it could not parse', async ({ browser }) => {
-        const roomId = randomUUID();
-        const peer = await scriptedPeer(browser);
-        const receiverCtx = await browser.newContext();
-        try {
-            await noteVector(peer.page, 'offer');
-            // The first joiner holds the sender seat, and offers the moment
-            // the receiver arrives.
-            await peer.page.evaluate(({ roomId, serverUrl, sdp }) => new Promise<void>((resolve, reject) => {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const socket = (window as any).io(serverUrl);
-                socket.on('connect', () => socket.emit('join-room', roomId));
-                socket.on('room-joined', () => resolve());
-                socket.on('room-full', () => reject(new Error('room-full')));
-                socket.on('user-connected', (userId: string) => {
-                    socket.emit('signal', { target: userId, roomId, signal: { type: 'offer', sdp } });
+    // Both shapes of the link a receiver can hold. A page with a key sends the offer
+    // through its signal gate first, and the one offer it admits still goes to the
+    // browser, whose error text it must not show either.
+    for (const [shape, fragment] of [
+        ['no key', (roomId: string) => `#room=${roomId}`],
+        ['a key', (roomId: string) => `#k=AAECAwQFBgcICQoLDA0ODw&room=${roomId}`],
+    ] as const) {
+        test(`a receiving page shows its fixed sentence, never the text of an offer it could not parse (${shape})`, async ({ browser }) => {
+            const roomId = randomUUID();
+            const peer = await scriptedPeer(browser);
+            const receiverCtx = await browser.newContext();
+            try {
+                await noteVector(peer.page, 'offer');
+                // The first joiner holds the sender seat, and offers the moment
+                // the receiver arrives.
+                await peer.page.evaluate(({ roomId, serverUrl, sdp }) => new Promise<void>((resolve, reject) => {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const socket = (window as any).io(serverUrl);
+                    socket.on('connect', () => socket.emit('join-room', roomId));
+                    socket.on('room-joined', () => resolve());
+                    socket.on('room-full', () => reject(new Error('room-full')));
+                    socket.on('user-connected', (userId: string) => {
+                        socket.emit('signal', { target: userId, roomId, signal: { type: 'offer', sdp } });
+                    });
+                }), { roomId, serverUrl: SERVER_URL, sdp: HOSTILE_SDP });
+
+                await receiverCtx.addInitScript(() => {
+                    try { localStorage.setItem('floe:report-stats', 'false'); } catch { /* ignore */ }
                 });
-            }), { roomId, serverUrl: SERVER_URL, sdp: HOSTILE_SDP });
+                const receiver = await receiverCtx.newPage();
+                await receiver.goto(`${WEB_URL}/${fragment(roomId)}`);
 
-            await receiverCtx.addInitScript(() => {
-                try { localStorage.setItem('floe:report-stats', 'false'); } catch { /* ignore */ }
-            });
-            const receiver = await receiverCtx.newPage();
-            await receiver.goto(`${WEB_URL}/#room=${roomId}`);
-
-            await expect(receiver.getByText(RECEIVER_SENTENCE, { exact: true })).toBeVisible({ timeout: 30_000 });
-            const shown = await receiver.locator('body').innerText();
-            expect(shown).not.toContain(MARKER);
-            expect(shown).not.toContain('evil.example');
-            expect(shown).not.toContain('Connection error');
-            expect(shown).not.toContain('SessionDescription');
-        } finally {
-            await receiverCtx.close();
-            await peer.close();
-        }
-    });
+                await expect(receiver.getByText(RECEIVER_SENTENCE, { exact: true })).toBeVisible({ timeout: 30_000 });
+                const shown = await receiver.locator('body').innerText();
+                expect(shown).not.toContain(MARKER);
+                expect(shown).not.toContain('evil.example');
+                expect(shown).not.toContain('Connection error');
+                expect(shown).not.toContain('SessionDescription');
+            } finally {
+                await receiverCtx.close();
+                await peer.close();
+            }
+        });
+    }
 
     test('a sending page shows its fixed sentence, never the text of an answer it could not parse', async ({ browser }, testInfo) => {
         const fixture = testInfo.outputPath('peer-error.bin');
@@ -130,7 +139,7 @@ test.describe('peer error text', () => {
             await noteVector(peer.page, 'answer');
             const sender = await senderCtx.newPage();
             const link = await browserSenderSetup(sender, fixture);
-            const roomId = new URL(link).hash.replace(/^#room=/, '');
+            const roomId = roomOfShareLink(link);
 
             // The second joiner is the receiver: it answers the sender's
             // first offer, once, with a description that cannot be parsed.
@@ -210,6 +219,7 @@ test.describe('peer error text', () => {
     // its refusal, and nothing awaited the send: the page stayed on
     // "Connected" for good, with no banner. It now refuses in fixed words.
     test('a sending page refuses an ack whose offset is an object, and says so', async ({ browser }, testInfo) => {
+        test.skip(ENFORCE_SHARE_LINK_KEY, 'from the cutover this scripted receiver, which holds no key, is refused before any metadata and never sends the ack');
         const fixture = testInfo.outputPath('bad-ack.bin');
         writeFileSync(fixture, Buffer.alloc(1024, 7));
         const senderCtx = await browser.newContext();
@@ -217,7 +227,7 @@ test.describe('peer error text', () => {
         try {
             const sender = await senderCtx.newPage();
             const link = await browserSenderSetup(sender, fixture);
-            const roomId = new URL(link).hash.replace(/^#room=/, '');
+            const roomId = roomOfShareLink(link);
 
             // The second joiner is the receiver: a real connection, and one
             // answer to the first file's metadata.

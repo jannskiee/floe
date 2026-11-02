@@ -31,6 +31,34 @@ export const WEB_URL = 'http://localhost:3000';
 /** Max time to wait for CLI process output / completion. */
 export const CLI_TIMEOUT_MS = 60_000;
 
+/** How a share link reads on a page, with a link key (#k=<k>&room=<id>) or
+ *  without one (#room=<id>). For a locator's hasText. */
+export const SHARE_LINK_TEXT = /[#&]room=/;
+
+/** A link the web app made, whole: its nonce, its key first, then its room. */
+export const KEYED_SHARE_LINK = /\/\?s=[^#]+#k=[A-Za-z0-9_-]{21}[AQgw]&room=[0-9a-f-]{36}$/;
+
+/** The room of a share link of either shape. Never hash.replace(/^#room=/, ''): on a
+ *  keyed link that reads "k=<k>" as the room, and the receiver shows Link Invalid. */
+export function roomOfShareLink(link: string): string {
+    const room = new URLSearchParams(new URL(link).hash.replace(/^#/, '')).get('room');
+    if (!room) throw new Error('a share link with no room in its fragment');
+    return room;
+}
+
+/** The link key of a share link. */
+export function keyOfShareLink(link: string): string {
+    const key = new URLSearchParams(new URL(link).hash.replace(/^#/, '')).get('k');
+    if (!key) throw new Error('a share link with no key in its fragment');
+    return key;
+}
+
+/** The same link with another key in its fragment, the room and the rest as they were. */
+export function withKey(link: string, key: string): string {
+    const { origin, pathname, search } = new URL(link);
+    return `${origin}${pathname}${search}#k=${key}&room=${roomOfShareLink(link)}`;
+}
+
 /**
  * Path of the CLI binary built by global-setup. Throws when the suite runs
  * without global setup so the failure names the fix instead of ENOENT.
@@ -134,7 +162,7 @@ export async function browserSenderSetup(
         await expect(page.getByRole('checkbox', { name: /network relay fallback/i })).not.toBeChecked();
     }
     await page.locator('button', { hasText: /create secure link/i }).click();
-    const linkEl = page.locator('code').filter({ hasText: '#room=' });
+    const linkEl = page.locator('code').filter({ hasText: SHARE_LINK_TEXT });
     await expect(linkEl).toBeVisible({ timeout: 10_000 });
     return (await linkEl.textContent())!.trim();
 }

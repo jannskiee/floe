@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from 'crypto';
 import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { visitorCopy } from '../lib/request/visitorCopy';
-import { fixtureDir, removeFixtureDir } from './helpers';
+import { SHARE_LINK_TEXT, fixtureDir, removeFixtureDir } from './helpers';
 
 // ---------------------------------------------------------------------------
 // Multi-viewport layout guard: every route must render without horizontal
@@ -250,7 +250,7 @@ test('sender flow stays inside the viewport at 320 and 390 wide', async ({ page 
         await page.locator('input[type="file"]').setInputFiles(fixturePath);
         await page.locator('button', { hasText: /create secure link/i }).click();
 
-        const linkEl = page.locator('code').filter({ hasText: '#room=' });
+        const linkEl = page.locator('code').filter({ hasText: SHARE_LINK_TEXT });
         await expect(linkEl).toBeVisible({ timeout: 10_000 });
         await expect(page.getByRole('button', { name: 'Copy link' })).toBeVisible();
 
@@ -302,7 +302,7 @@ test('the share panel shows every status sentence whole at phone widths', async 
         await page.goto('/');
         await page.locator('input[type="file"]').setInputFiles(fixturePath);
         await page.locator('button', { hasText: /create secure link/i }).click();
-        await expect(page.locator('code').filter({ hasText: '#room=' })).toBeVisible({ timeout: 10_000 });
+        await expect(page.locator('code').filter({ hasText: SHARE_LINK_TEXT })).toBeVisible({ timeout: 10_000 });
 
         // The status line is the one under the link that says what the send
         // is doing; right after Create that is the waiting sentence.

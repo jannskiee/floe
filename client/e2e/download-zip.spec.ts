@@ -14,7 +14,7 @@ import { createHash } from 'crypto';
 import { mkdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { unzipSync } from 'fflate';
-import { fixtureDir, removeFixtureDir, writeRandomFile } from './helpers';
+import { SHARE_LINK_TEXT, fixtureDir, removeFixtureDir, writeRandomFile } from './helpers';
 
 const FIXTURE_DIR = fixtureDir('floe-e2e-download-zip');
 
@@ -33,7 +33,7 @@ async function senderSetup(page: Page, paths: string[]): Promise<string> {
     await page.goto('/');
     await page.locator('input[type="file"]').setInputFiles(paths);
     await page.locator('button', { hasText: /create secure link/i }).click();
-    const linkEl = page.locator('code').filter({ hasText: '#room=' });
+    const linkEl = page.locator('code').filter({ hasText: SHARE_LINK_TEXT });
     await expect(linkEl).toBeVisible({ timeout: 10_000 });
     return (await linkEl.textContent())!.trim();
 }

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { RELAY_OFF_REASON, SELF_STOP_REASONS, selfStopOf } from './senderSelfStop';
-import { classifyControl, incompatibleMessage, isAbortReason, type Incompatible } from './transfer/protocol';
+import { SENDER_UNVERIFIED_REASON, classifyControl, incompatibleMessage, isAbortReason, type Incompatible } from './transfer/protocol';
 import { createReceiver } from './transfer/receiver';
 
 // The literal frames a browser sender now sends when it stops on its own, and
@@ -26,7 +26,15 @@ const REASON_OF: Record<string, string> = {
     'ack-timeout': SELF_STOP_REASONS['ack-timeout'],
     internal: SELF_STOP_REASONS.internal,
     'relay-off': RELAY_OFF_REASON,
+    unverified: SENDER_UNVERIFIED_REASON,
 };
+
+// The one frame that carries a code: a sender that could not confirm its receiver
+// holds the link says so as that code, in the narrow range a current peer overlaps.
+const frameOf = (name: string) =>
+    name === 'unverified'
+        ? incompatibleMessage(REASON_OF[name], 'unverified')
+        : incompatibleMessage(REASON_OF[name]);
 
 describe('the stop frames a browser sender sends', () => {
     it('covers every reason, and nothing else', () => {
@@ -35,7 +43,7 @@ describe('the stop frames a browser sender sends', () => {
 
     for (const row of ROWS) {
         it(`${row.name}: the page builds exactly the pinned frame`, () => {
-            expect(incompatibleMessage(REASON_OF[row.name])).toBe(row.frame);
+            expect(frameOf(row.name)).toBe(row.frame);
         });
 
         it(`${row.name}: every peer reads it as a deliberate stop, not a version mismatch`, () => {
@@ -54,9 +62,10 @@ describe('the stop frames a browser sender sends', () => {
         it(`${row.name}: fits a control frame and reads the same on every receiver`, () => {
             expect(new TextEncoder().encode(row.frame).byteLength).toBeLessThanOrEqual(1000);
             // The Go receiver prints the reason through displayText, capped at
-            // 300 characters: under that, both show the same sentence.
+            // 300 characters: under that, both show the same sentence. Not for the
+            // key check's stop: a Go receiver may read its code and show its own.
             expect(REASON_OF[row.name].length).toBeLessThanOrEqual(300);
-            expect(row.go).toBe(row.browser);
+            if (row.name !== 'unverified') expect(row.go).toBe(row.browser);
         });
     }
 

@@ -128,10 +128,12 @@ const textOf = (frame: string | Uint8Array) => (typeof frame === 'string' ? fram
 describe('linkKeyMode, the one reader of the levers', () => {
     const on = { ENFORCE_LINK_KEYS: true, ENFORCE_SHARE_LINK_KEY: false };
 
-    it('makes every receiver and the /r visitor enforce, and a share sender only detect, as shipped', () => {
-        expect(linkKeyMode('share-receiver')).toBe('enforce');
-        expect(linkKeyMode('request-visitor')).toBe('enforce');
-        expect(linkKeyMode('share-sender')).toBe('detect');
+    // With the levers named here: protocol.test.ts pins how they are shipped, so a flip
+    // in an emergency moves one file of pins.
+    it('makes every receiver and the /r visitor enforce, and a share sender only detect, before the cutover', () => {
+        expect(linkKeyMode('share-receiver', on)).toBe('enforce');
+        expect(linkKeyMode('request-visitor', on)).toBe('enforce');
+        expect(linkKeyMode('share-sender', on)).toBe('detect');
     });
 
     it('turns a share sender into an enforcer at the cutover', () => {

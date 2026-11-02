@@ -35,10 +35,15 @@ import {useTransferAnalytics} from '@/hooks/useTransferAnalytics';
 import {useFullLoadLinks, useLeavePrompt, useStrayDropGuard} from '@/hooks/usePageGuards';
 import {useRelayConfiguration} from '@/hooks/useRelayConfiguration';
 import {RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, probeIsRelay, readConnectionType, relayProbeDelayMs} from '@/lib/relay';
-import {buildShareLink, getRoomFromUrl, isValidRoomId} from '@/lib/roomLink';
+import {buildShareLink, isValidRoomId} from '@/lib/roomLink';
+import {makeLinkKey, readShareFragment, shareLinkChanged, type LinkKey} from '@/lib/linkKey';
+import {createKeySession, keySessionOf, linkKeyMode, type KeyOutcome, type KeySession, type PeerLike} from '@/lib/transfer/keySession';
+import {MAKE_LINK_KEYS} from '@/lib/transfer/protocol';
+import {receiverKeyLine, senderKeyLine} from '@/lib/linkKeyCopy';
+import {reportLinkKey} from '@/lib/keyCheckReport';
 import {classifyPeerError, peerErrorBanner, peerErrorCodeOf, peerErrorReport, senderErrorBlamesRelay} from '@/lib/peerErrors';
 import {decideReceiverClose} from '@/lib/receiverClose';
-import {SEND_INTERNAL_ERROR, describeSenderStop, senderCloseInterrupted} from '@/lib/senderStop';
+import {SEND_INTERNAL_ERROR, describeSenderStop, senderCloseInterrupted, senderKeyFailureAtClose} from '@/lib/senderStop';
 import {RELAY_OFF_REASON, SELF_STOP_REASONS, selfStopOf, type SelfStop} from '@/lib/senderSelfStop';
 import {verifiedLine, VERIFIED_LINE} from '@/lib/verifiedLine';
 import {receiveSummary, receiverTabMatters} from '@/lib/receiveSummary';
@@ -80,6 +85,17 @@ import {ShareLinkPanel} from '@/components/ShareLinkPanel';
 import {TransferProgressBar} from '@/components/TransferProgressBar';
 import {SelectedFilesList} from '@/components/SelectedFilesList';
 import {ReceiverPanel} from '@/components/ReceiverPanel';
+
+// What the link-key check found on one sending connection. `outcome` is the session's
+// report, an enum and the first one only. `told` is whether this page has said so:
+// the send engine can get there, or the close that beat the engine to it, and only one
+// of them may speak and count.
+interface SenderKeyState {
+    outcome: KeyOutcome | null;
+    told: boolean;
+    // The receiver has answered a file, so a file's bytes can have gone from here on.
+    acked: boolean;
+}
 
 export function P2PTransfer() {
     const [isSender, setIsSender] = useState<boolean | null>(null);
@@ -232,6 +248,11 @@ export function P2PTransfer() {
     // The room this page instance is handling as a receiver. Used to detect a
     // fragment-only navigation (scanning a second QR code into the same tab).
     const joinedRoomRef = useRef<string | null>(null);
+    // The link key of that room: read from the fragment at mount, and what every join
+    // and re-join hands its key session. A ref and never state, so no render holds it
+    // and nothing can draw it. It reaches the session and the comparison in the
+    // hashchange effect, and no report, event, log or store (lib/linkKey.ts).
+    const joinedKeyRef = useRef<LinkKey | null>(null);
     // The room this page instance created as a sender (handleCreateLink). The
     // displayed link keeps pointing at this id, so a socket reconnect must
     // re-join it or the link goes dead.
@@ -344,6 +365,21 @@ export function P2PTransfer() {
                     category: 'webrtc',
                     level: 'warning',
                     message: 'Skipped duplicate answer signal: peer already in stable state',
+                });
+                return;
+            }
+            // A page that holds a link key takes one description of the type its role
+            // expects and candidates, and nothing else from the server: the proof's
+            // certificate fallback relies on that one description being the only one.
+            // A signal is dropped whole, because simple-peer destroys the peer over an
+            // object with none of its fields. Through the WeakMap, because peerRef is
+            // set only at the end of building the peer. A keyless session admits all.
+            const ks = keySessionOf(peer);
+            if (ks && !ks.admitSignal(sig)) {
+                Sentry.addBreadcrumb({
+                    category: 'webrtc',
+                    level: 'warning',
+                    message: 'Dropped a signal a keyed link does not allow',
                 });
                 return;
             }
@@ -487,8 +523,11 @@ export function P2PTransfer() {
     };
 
     useEffect(() => {
+        const link = readShareFragment(window.location.hash, window.location.search);
+        // A link that was cut is no invitation to send: the mount effect below shows
+        // it the Link Invalid card, where "no room" used to open the sending page.
         // eslint-disable-next-line react-hooks/set-state-in-effect
-        setIsSender(!getRoomFromUrl(window.location.hash, window.location.search));
+        setIsSender(!link.room && !link.incomplete);
     }, []);
 
     useEffect(() => {
@@ -644,6 +683,20 @@ export function P2PTransfer() {
             },
         });
 
+        // First, ahead of every other listener. With a key in the link this session owns
+        // what the connection reads and sends, so this side's proof leads everything it
+        // says and the sender's is judged before anything else is acted on. With none it
+        // is a pass-through that attaches nothing, and this page is what it always was.
+        const ks = createKeySession({
+            peer: peer as unknown as PeerLike,
+            fileRole: 'receiver',
+            key: joinedKeyRef.current,
+            roomId,
+            mode: linkKeyMode('share-receiver'),
+            reportRole: 'receiver',
+            onReport: (report) => reportLinkKey(report),
+        });
+
         peer.on('signal', (signal) =>
             sendSignal({ target: null, roomId, signal })
         );
@@ -775,7 +828,7 @@ export function P2PTransfer() {
         });
 
         const rx = createReceiver({
-            send: (d) => peer.send(d),
+            send: (d) => ks.send(d),
             onFileStart: (index, total) => {
                 expectedFilesRef.current = total;
                 setExpectedFiles(total);
@@ -906,8 +959,31 @@ export function P2PTransfer() {
                     // Telemetry is best effort; the person has their message.
                 }
             },
-        });
-        peer.on('data', rx.handleMessage);
+            // The link-key check stopped this receive, ahead of any file. Fixed words
+            // chosen by the engine's enum and one boolean, so the sender's text has no
+            // path here. Latched as onError is, and the connection goes once the refusal
+            // has had time to leave: a browser sender stops on it, and a sender that
+            // does not has nothing left to say to a page that keeps none of it.
+            onKeyCheckFailed: ({ unavailable }) => {
+                wireReasonRef.current = true;
+                setError(receiverKeyLine(unavailable));
+                setStatus('Transfer failed');
+                setReceiveEnded(true);
+                releaseWakeLock();
+                setTimeout(() => {
+                    closedByUsRef.current = peer;
+                    peer.destroy();
+                }, CONTROL_FLUSH_MS);
+                try {
+                    track('transfer-failed', { reason: 'unverified', role: 'receiver' });
+                } catch {
+                    // Telemetry is best effort; the person has their message.
+                }
+            },
+        }, { keyCheck: ks });
+        // In this turn, so nothing can arrive ahead of it. The session replays anything
+        // that came early inside this call, and the engine above is what it replays to.
+        ks.onData(rx.handleMessage);
         // A connection that dies mid-file must not leave the partial file
         // held for the life of the tab.
         peer.on('close', rx.dispose);
@@ -920,7 +996,8 @@ export function P2PTransfer() {
         // were it ever on) must not leave every later receiver rebuild a
         // no-op (rejoinAsReceiver).
         unmountedRef.current = false;
-        const roomFromUrl = getRoomFromUrl(window.location.hash, window.location.search);
+        const link = readShareFragment(window.location.hash, window.location.search);
+        const roomFromUrl = link.room;
         // Tor Browser, Mullvad Browser and Firefox with
         // media.peerconnection.enabled off have no data channels, and new
         // SimplePeer throws there. A receiver used to emit join-room first, so
@@ -928,19 +1005,22 @@ export function P2PTransfer() {
         const webRtc = hasDataChannelSupport(window);
         noWebRtcRef.current = !webRtc;
 
+        if (link.incomplete || (roomFromUrl && !isValidRoomId(roomFromUrl))) {
+            // A hand-edited or truncated fragment: a non-UUID room id, or a key or a
+            // room that did not survive. The server would reject the join with an
+            // 'error' event we do not listen for, leaving the receiver waiting forever,
+            // and a link cut before its room joins nothing; surface the same "Link
+            // Invalid" card the room-full path uses. No join, and no keyless join of a
+            // link that had a key: that would be a downgrade.
+            // Fragment-derived state is set post-mount (SSR has no fragment),
+            // the same one-shot sync as the setIsSender effect above.
+            // eslint-disable-next-line react-hooks/set-state-in-effect
+            setError(LINK_INVALID);
+            setStatus('Access Denied');
+            return;
+        }
+
         if (roomFromUrl) {
-            if (!isValidRoomId(roomFromUrl)) {
-                // A hand-edited or truncated fragment can carry a non-UUID room id.
-                // The server would reject the join with an 'error' event we do not
-                // listen for, leaving the receiver waiting forever; surface the same
-                // "Link Invalid" card the room-full path uses instead of joining.
-                // Fragment-derived state is set post-mount (SSR has no fragment),
-                // the same one-shot sync as the setIsSender effect above.
-                // eslint-disable-next-line react-hooks/set-state-in-effect
-                setError(LINK_INVALID);
-                setStatus('Access Denied');
-                return;
-            }
             // No join, so the seat stays free for a browser that can take it,
             // and the attempt is over before it starts: the banner is the whole
             // account, with no joining steps under it.
@@ -954,6 +1034,7 @@ export function P2PTransfer() {
             // onRoomFull, emit join-room and assign peerRef, with no cleanup
             // left to tear any of it down. useSignaling already does exactly
             // this one file away.
+            joinedKeyRef.current = link.key;
             iceList.read().then(() => {
                 if (cancelled) return;
                 joinRoomAsReceiver(roomFromUrl);
@@ -987,7 +1068,8 @@ export function P2PTransfer() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // The room id lives in the URL fragment (#room=<id>). Swapping only the
+    // The room id and the link key live in the URL fragment (#k=<k>&room=<id>, or
+    // #room=<id> on a link with no key). Swapping only the
     // fragment is a same-document navigation, so opening a new room link in an
     // existing tab changes the hash without reloading, so the mount effect
     // above never re-runs and the tab stays stuck on the previous transfer.
@@ -995,19 +1077,21 @@ export function P2PTransfer() {
     // clean slate. A link this page makes (buildShareLink) or Floe Desktop
     // makes carries its own ?s= nonce and so loads as a new document; the
     // links `floe` prints (/#room=<id>) differ only in the fragment and come
-    // here.
+    // here. A key that changed under the same room is another link too, and so is a
+    // fragment that no longer reads as a whole one (lib/linkKey.ts shareLinkChanged).
     // Through the reload gate: while this page holds the tab (a link out or a
     // send under way, a receive under way or a file not yet saved) the reload
     // goes ahead only where the browser will ask first, and otherwise waits
-    // for the tab to be let go, when the room is read again, so a link
+    // for the tab to be let go, when the link is read again, so a link
     // changed back in the meantime reloads nothing (lib/reloadGate.ts).
     useEffect(() => {
-        const roomChanged = () => {
-            const room = getRoomFromUrl(window.location.hash, window.location.search);
-            return room !== null && room !== joinedRoomRef.current;
-        };
+        const linkChanged = () =>
+            shareLinkChanged(readShareFragment(window.location.hash, window.location.search), {
+                room: joinedRoomRef.current,
+                key: joinedKeyRef.current,
+            });
         const onHashChange = () => {
-            if (roomChanged()) reloadGate.request('room-link', roomChanged);
+            if (linkChanged()) reloadGate.request('room-link', linkChanged);
         };
         window.addEventListener('hashchange', onHashChange);
         return () => window.removeEventListener('hashchange', onHashChange);
@@ -1048,7 +1132,11 @@ export function P2PTransfer() {
         // scanned instead of joining the new room. The secret room id stays in
         // the fragment (never sent to the server); the nonce carries no info.
         const nonce = uuidv4().slice(0, 8);
-        const link = buildShareLink(window.location.origin, newRoomId, nonce);
+        // The link key: a const, held by the closures below and by the link string, as
+        // the room id is. Never state and never a prop, so nothing renders it but the
+        // link itself, and it goes to no server, event or log (lib/linkKey.ts).
+        const key = MAKE_LINK_KEYS ? makeLinkKey() : null;
+        const link = buildShareLink(window.location.origin, newRoomId, nonce, key);
         createdRoomRef.current = newRoomId;
         // Render the link only after the server confirms the join. The link is
         // an invitation into this room, so the sender must hold the room's
@@ -1185,6 +1273,43 @@ export function P2PTransfer() {
                 },
             });
 
+            // First, ahead of every other listener: its own 'connect' listener has to
+            // run before the page's for this side's proof to lead, and it has to hear a
+            // receiver's proof that beats 'connect', as they usually do. Every send
+            // below goes through it. The record is declared ahead of it, because its
+            // report writes the record from inside a frame.
+            const keyState: SenderKeyState = { outcome: null, told: false, acked: false };
+            const ks = createKeySession({
+                peer: peer as unknown as PeerLike,
+                fileRole: 'sender',
+                key,
+                roomId: newRoomId,
+                mode: linkKeyMode('share-sender'),
+                reportRole: 'sender',
+                onReport: (report) => {
+                    keyState.outcome = report.outcome;
+                    reportLinkKey(report);
+                },
+            });
+            // The check found something and the connection went before the send got to
+            // act on it. With relay fallback off the send starts 2 s after the connection,
+            // the same 2 s a refusing browser waits before it closes, and nothing else
+            // speaks at progress 0: the failure would read as a lost connection, or as
+            // nothing at all (lib/senderStop.ts senderKeyFailureAtClose).
+            const endedOnKeyCheck = (): boolean => {
+                const { outcome } = keyState;
+                if (outcome === null) return false;
+                const speaks = senderKeyFailureAtClose({
+                    mode: ks.mode,
+                    transferComplete: transferCompleteRef.current,
+                    acked: keyState.acked,
+                    closedByUs: closedByUsRef.current === peer,
+                    wireReason: wireReasonRef.current,
+                });
+                if (speaks) tellKeyFailure(peer, keyState, outcome, files);
+                return speaks;
+            };
+
             peer.on('signal', (signal) =>
                 sendSignal({ target: userId, signal })
             );
@@ -1212,6 +1337,9 @@ export function P2PTransfer() {
                 // and 2 GB or less, a relayed and a direct route both proceed.
                 const totalSize = files.reduce((s, f) => s + f.file.size, 0);
                 iceProbeRef.current = setTimeout(async () => {
+                    // This side's proof goes ahead of anything below sends. Settled
+                    // already unless the channel refused it: then a close settles it.
+                    await ks.ownKcOut;
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     const pc = (peer as any)._pc as RTCPeerConnection | undefined;
                     let isRelay = false;
@@ -1252,7 +1380,7 @@ export function P2PTransfer() {
                         // "the sender ended the transfer, ask them to start it
                         // again", and a restart fails the same way.
                         await sendAbortReason(
-                            (d) => peer.send(d),
+                            (d) => ks.send(d),
                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             (peer as any)._channel as RTCDataChannel | undefined,
                             RELAY_OFF_REASON
@@ -1280,7 +1408,7 @@ export function P2PTransfer() {
                         // by definition, and it waits for the wire so the
                         // destroy below does not take it along.
                         await sendAbortReason(
-                            (d) => peer.send(d),
+                            (d) => ks.send(d),
                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             (peer as any)._channel as RTCDataChannel | undefined,
                             'Transfer blocked: relay connections are capped at 2 GB. ' +
@@ -1298,7 +1426,7 @@ export function P2PTransfer() {
                     // else: the page stayed on its last status line for good.
                     // The throw goes on after the words are up, so Sentry
                     // reports it exactly as it did before.
-                    sendAllFiles(peer, files).catch((cause: unknown) => {
+                    sendAllFiles(peer, ks, keyState, files).catch((cause: unknown) => {
                         // A session this page has moved on from, and a send
                         // whose files had all left, keep what they show.
                         if (peerRef.current === peer && !transferCompleteRef.current) {
@@ -1326,6 +1454,7 @@ export function P2PTransfer() {
                     level: 'info',
                     data: { progress: progressRef.current, transferComplete: transferCompleteRef.current },
                 });
+                if (endedOnKeyCheck()) return;
                 // A receiver that stops mid-file (it ran out of memory, or its
                 // tab closed) closes the connection, and the send engine then
                 // stops without a word: the screen stayed on "Sending: <name>".
@@ -1337,6 +1466,7 @@ export function P2PTransfer() {
                         progress: progressRef.current,
                         closedByUs: closedByUsRef.current === peer,
                         wireReason: wireReasonRef.current,
+                        acked: keyState.acked,
                     })
                 ) {
                     setError((prev) => prev || 'The connection closed before the transfer finished.');
@@ -1350,6 +1480,7 @@ export function P2PTransfer() {
                 // refusal with "Connection interrupted" is the wrong-cause
                 // problem the receiver's own guard above already fixes.
                 if (wireReasonRef.current) return;
+                if (endedOnKeyCheck()) return;
                 if (transferCompleteRef.current || progressRef.current > 0) {
                     setStatus('Connection interrupted');
                     // A send that was still open stops here. One that was
@@ -1418,7 +1549,8 @@ export function P2PTransfer() {
     const tellAndClose = async (peer: PeerInstance, reason: string) => {
         if (peer.destroyed) return;
         await sendAbortReason(
-            (d) => peer.send(d),
+            // Through the peer's key session, so this side's proof is ahead of the reason.
+            (d) => (keySessionOf(peer) ?? peer).send(d),
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (peer as any)._channel as RTCDataChannel | undefined,
             reason
@@ -1427,7 +1559,26 @@ export function P2PTransfer() {
         peer.destroy();
     };
 
-    const sendAllFiles = async (peer: PeerInstance, fileList: FileWithId[]) => {
+    // A send the link-key check ended, said and counted once per connection. Latched
+    // like a stop the peer reported, so the close and the error that follow, and the
+    // send engine's own next words, cannot talk over it.
+    const tellKeyFailure = (peer: PeerInstance, keyState: SenderKeyState, outcome: KeyOutcome, fileList: FileWithId[]) => {
+        if (keyState.told || peerRef.current !== peer) return;
+        keyState.told = true;
+        wireReasonRef.current = true;
+        setError(senderKeyLine(outcome));
+        setStatus('Transfer failed');
+        setSendEnd('failed');
+        releaseWakeLock();
+        track('transfer-failed', {
+            reason: 'unverified',
+            role: 'sender',
+            files: fileList.length,
+            bytes: fileList.reduce((s, f) => s + f.file.size, 0),
+        });
+    };
+
+    const sendAllFiles = async (peer: PeerInstance, ks: KeySession, keyState: SenderKeyState, fileList: FileWithId[]) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const channel = (peer as any)._channel as RTCDataChannel | undefined;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1437,22 +1588,26 @@ export function P2PTransfer() {
 
         // Written by onFailed: a stop on this side that the receiver has not
         // been told about. A holder, so the read after the await is not
-        // narrowed to the initial null.
-        const failed: { stop: SelfStop | null } = { stop: null };
+        // narrowed to the initial null. `key` says the link-key check ended the
+        // send, on either side. Ahead of the call below on purpose: the session
+        // replays frames that came early inside it, so the callbacks can run before
+        // it returns, and a const of this function declared after it would throw.
+        const failed: { stop: SelfStop | null; key: boolean } = { stop: null, key: false };
 
         await sendFilesEngine(
             {
-                send: (d) => peer.send(d),
-                onData: (handler) => {
-                    peer.on('data', handler);
-                    return () => peer.off('data', handler);
-                },
+                send: (d) => ks.send(d),
+                onData: (handler) => ks.onData(handler),
                 channel,
                 sctpMaxMessageSize: pc?.sctp?.maxMessageSize,
             },
             fileList.map((f) => ({ id: f.id, file: f.file })),
             {
                 isDestroyed: () => peer.destroyed,
+                // The engine has read the check by now, and no file byte has gone yet.
+                onAck: () => {
+                    keyState.acked = true;
+                },
                 onFileStart: (i, _total, name) => {
                     setCurrentFileIndex(i);
                     setStatus(`Sending: ${name}`);
@@ -1478,6 +1633,10 @@ export function P2PTransfer() {
                     // answer still reports its end, and that report is about a
                     // connection this page has moved on from.
                     if (peerRef.current !== peer) return;
+                    // The engine says a closed channel was lost whoever closed it, and
+                    // leaves this page's own teardown to this page. The check's account,
+                    // once told, stands over those words too.
+                    if (closedByUsRef.current === peer || keyState.told) return;
                     // The receiver's own words when it stopped with a
                     // reason: never the Link Invalid card's value.
                     setError(peerBanner(msg, 'The other side rejected the transfer.'));
@@ -1490,6 +1649,12 @@ export function P2PTransfer() {
                 // left to tell (selfStopOf).
                 onFailed: ({ kind }) => {
                     failed.stop = selfStopOf(kind);
+                },
+                // This side's check stopped the send, with the abort already sent. An
+                // enum and never a peer value (lib/linkKeyCopy.ts).
+                onKeyCheckFailed: ({ outcome }) => {
+                    failed.key = true;
+                    tellKeyFailure(peer, keyState, outcome, fileList);
                 },
                 onAllSent: () => {
                     setStatus('All Files Sent!');
@@ -1517,17 +1682,23 @@ export function P2PTransfer() {
                     // its banner, and the next socket drop or the peer's
                     // leaving wrote "Transfer complete" over it.
                     wireReasonRef.current = true;
+                    if (stop.code === 'unverified') failed.key = true;
                     // Counted here, once, for every stop the peer reports. The
                     // error handler that used to count a refusal other than a
                     // hash mismatch now returns at the latch, so without this
                     // such a send failed without being counted at all.
                     track('transfer-failed', {
-                        reason: 'peer-reason',
+                        reason: stop.code === 'unverified' ? 'unverified' : 'peer-reason',
                         role: 'sender',
                         files: fileList.length,
                         bytes: fileList.reduce((s, f) => s + f.file.size, 0),
                     });
-                    const sentence = describeSenderStop({ ...stop, files: fileList.length });
+                    const sentence = describeSenderStop({
+                        ...stop,
+                        files: fileList.length,
+                        keyUnavailable: ks.verdict() === 'unavailable',
+                        acked: keyState.acked,
+                    });
                     if (!sentence) return;
                     // onStopped runs after onError inside reportStop, so this
                     // overwrites the generic wording in the same tick; every
@@ -1536,8 +1707,17 @@ export function P2PTransfer() {
                     setStatus('Transfer failed');
                     setAllVerified(false);
                 },
-            }
+            },
+            { keyCheck: ks }
         );
+
+        // Nothing more can happen on a connection the check ended, and any abort of ours
+        // has had its time to leave. Left open, it would sit idle for the life of the tab.
+        if (failed.key) {
+            closedByUsRef.current = peer;
+            peer.destroy();
+            return;
+        }
 
         if (failed.stop) {
             // Latched like the internal-error path: this page's banner is the

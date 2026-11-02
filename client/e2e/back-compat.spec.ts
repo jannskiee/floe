@@ -22,8 +22,10 @@
 import { test, expect } from '@playwright/test';
 import { mkdirSync, existsSync } from 'fs';
 import { join, basename } from 'path';
+import { ENFORCE_SHARE_LINK_KEY, MAKE_LINK_KEYS } from '../lib/transfer/protocol';
 import {
     CLI_TIMEOUT_MS,
+    KEYED_SHARE_LINK,
     createFixture,
     fixtureDir,
     removeFixtureDir,
@@ -171,6 +173,7 @@ test('released CLI send → HEAD browser receive (SHA-256 integrity)', async ({ 
 });
 
 test('HEAD browser send → released CLI receive (SHA-256 integrity)', async ({ browser }) => {
+    test.skip(ENFORCE_SHARE_LINK_KEY, 'from the cutover a sending page refuses a floe older than 1.12, which is what the cutover is for');
     const { path: fixturePath, sha256: expectedHash } = createFixture(FIXTURE_DIR, FIXTURE_SIZE);
     // Pre-create: only HEAD's receive is known to create --output itself.
     const outputDir = join(FIXTURE_DIR, 'received-browser-to-released');
@@ -180,15 +183,21 @@ test('HEAD browser send → released CLI receive (SHA-256 integrity)', async ({ 
     const page = await ctx.newPage();
 
     try {
-        // The client renders a #room= fragment link; v1.7.5's resolver
-        // parses both ?room= and #room=, so it is handed over as-is.
+        // The client renders a keyed link, #k=<k>&room=<id>. A released resolver
+        // reads the fragment's room by name and has never heard of k, so the
+        // link is handed over as-is, and the page's kc is a frame it drops.
         const roomLink = await browserSenderSetup(page, fixturePath);
+        if (MAKE_LINK_KEYS) expect(roomLink).toMatch(KEYED_SHARE_LINK);
 
         await spawnReceive(roomLink, outputDir, releasedCli());
 
         const receivedPath = join(outputDir, basename(fixturePath));
         expect(existsSync(receivedPath)).toBe(true);
         expect(sha256OfFile(receivedPath)).toBe(expectedHash);
+
+        // It sends no proof back, and until the cutover a page only detects, so
+        // the send ends as it always has and the page has nothing to say about it.
+        await expect(page.getByText(/couldn't confirm|can't check/i)).toHaveCount(0);
     } finally {
         await ctx.close();
     }

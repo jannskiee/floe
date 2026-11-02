@@ -323,6 +323,20 @@
     },
     {
         "surface": "web",
+        "text": "Floe couldn't confirm the person who opened your link, so nothing was sent. Make a new link and send it again.",
+        "source": "client/lib/linkKeyCopy.ts",
+        "anchor": null,
+        "why_no_home": null
+    },
+    {
+        "surface": "web",
+        "text": "Floe couldn't confirm who sent this link, so nothing was received. Ask them for a new link.",
+        "source": "client/lib/linkKeyCopy.ts",
+        "anchor": null,
+        "why_no_home": null
+    },
+    {
+        "surface": "web",
         "text": "Folders cannot be sent from this page. Add the files inside it, or zip it first.",
         "source": "client/lib/pageGuards.ts",
         "anchor": "/web-app/sending#add-your-files",
@@ -799,6 +813,13 @@
     },
     {
         "surface": "web",
+        "text": "The other side couldn't confirm this link, so nothing was sent. Make a new link and send it again.",
+        "source": "client/lib/linkKeyCopy.ts",
+        "anchor": null,
+        "why_no_home": null
+    },
+    {
+        "surface": "web",
         "text": "The other side discarded a file that did not match what was sent. Try sending again.",
         "source": "client/lib/senderStop.ts",
         "anchor": "/web-app/sending#when-it-finishes",
@@ -928,6 +949,20 @@
         "text": "The sender's SHA-256 for a file could not be read, so the file was discarded. Ask the sender to try again.",
         "source": "client/lib/transfer/receiver.ts",
         "anchor": "/troubleshooting#a-file-did-not-match-what-was-sent",
+        "why_no_home": null
+    },
+    {
+        "surface": "web",
+        "text": "This browser can't check this link, so nothing was received. Open it in a current version of Chrome, Edge, Firefox or Safari.",
+        "source": "client/lib/linkKeyCopy.ts",
+        "anchor": null,
+        "why_no_home": null
+    },
+    {
+        "surface": "web",
+        "text": "This browser can't check this link, so nothing was sent. Open Floe in a current version of Chrome, Edge, Firefox or Safari.",
+        "source": "client/lib/linkKeyCopy.ts",
+        "anchor": null,
         "why_no_home": null
     },
     {

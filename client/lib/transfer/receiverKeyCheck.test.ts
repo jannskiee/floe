@@ -221,6 +221,18 @@ describe('a receiver with the key: a good proof', () => {
         expect(h.reports.map((r) => r.outcome)).toEqual(['peer-refused']);
     });
 
+    it('does not say nothing was received once a file has been handed over', async () => {
+        const h = rig();
+        h.deliver(senderKc());
+        h.deliver(metadataMessage('a', 'a.bin', 4, 1, 2, 8));
+        h.deliver(FILE);
+        h.deliver(endMessage());
+        await vi.waitFor(() => expect(h.completed).toEqual(['a.bin']));
+        h.deliver(incompatibleMessage('A HOSTILE SENTENCE', 'unverified'));
+        expect(h.failed).toEqual([]);
+        expect(h.errors).toHaveLength(1);
+    });
+
     it('shows any other sender stop in today\'s words', () => {
         const h = rig();
         h.deliver(senderKc());
