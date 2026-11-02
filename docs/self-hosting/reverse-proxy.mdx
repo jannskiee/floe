@@ -231,9 +231,13 @@ no relay: Hide my IP will not work, and some networks will not connect". Floe De
 directly. Leave **Share link address** blank on a one-domain instance and the app derives the link
 from the server address. See [Desktop app settings](/desktop/settings#server).
 
-The test deliberately does not follow redirects, so a proxy that answers
-`/health` with a 301 is reported as "Error: That address answered HTTP 301
-(likely the web app, not the server)" rather than passing.
+The test deliberately does not follow redirects. If you enter an `http://`
+address and the proxy redirects it to `https://` on the same host, as the nginx
+sample above does with a 301, the test reports "Error: That address redirects to
+https://. Start it with https:// and test again". Change the address to
+`https://` and click **Test** again. Any other redirect on `/health` is reported
+as "Error: That address answered HTTP 301 (likely the web app, not the server)",
+with the status the proxy sent, rather than passing.
 
 On this layout the address both apps use is your `CLIENT_URL`, which the server always accepts, so
 the `Host` header does not affect them here. It matters on the
