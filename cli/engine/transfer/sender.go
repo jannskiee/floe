@@ -695,93 +695,8 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 		}
 	}
 
-	// ackCh receives JSON ack messages from the receiver.
-	// Accept ack as either string or binary: the CLI receiver sends binary for
-	// browser compatibility, CLI-to-CLI also works.
-	// Non-blocking: a full buffer means a stray/duplicate message arrived;
-	// dropping it is safe because the ack loop already matched its ID.
-	ackCh := make(chan []byte, 4)
-	// flushed is closed once every frame that arrived before the channel
-	// closed is in ackCh, so a wait that sees the close can still read the
-	// refusal a receiver sends just before it closes (stopBeforeClose).
-	flushed := make(chan struct{})
-	if opts.Messages != nil && opts.Closed != nil {
-		// The pump was installed with the data channel, so the receiver's first
-		// ack cannot have arrived before anyone was listening. Forwarding into
-		// ackCh rather than reading opts.Messages directly leaves every deadline
-		// below exactly as it was.
-		go func() {
-			defer close(flushed)
-			forward := func(msg webrtc.DataChannelMessage) {
-				select {
-				case ackCh <- msg.Data:
-				default:
-				}
-			}
-			for {
-				select {
-				case msg, ok := <-opts.Messages:
-					if !ok {
-						return
-					}
-					forward(msg)
-				case <-opts.Closed:
-					// A refusal is the last frame a receiver sends before it
-					// closes, and both can be ready here at once: a random pick
-					// used to return with the refusal still in Messages. The
-					// pump fills Messages before it closes Closed (pion delivers
-					// a message before the close, from one read goroutine), so
-					// moving what is queued now leaves nothing behind.
-					for {
-						select {
-						case msg, ok := <-opts.Messages:
-							if !ok {
-								return
-							}
-							forward(msg)
-						default:
-							return
-						}
-					}
-				}
-			}
-		}()
-	} else {
-		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-			select {
-			case ackCh <- msg.Data:
-			default:
-			}
-		})
-		// pion runs OnMessage before OnClose on the same read goroutine, so
-		// every frame is in ackCh by the time done fires.
-		close(flushed)
-	}
-
-	// done is closed when the data channel closes, letting every wait below
-	// fail fast instead of burning its full deadline. pion fires OnClose on
-	// GRACEFUL closes only (remote dc.Close/pc.Close/browser tab close send a
-	// close notification): a kill -9 or dead network does not error the read
-	// chain promptly (sctp retransmits by design; an ICE failure closes the
-	// association only indirectly, when a pending retransmission finds no
-	// candidate pair), so the 120 s ack wait and the 60 s no-progress windows
-	// of the backpressure and delivery waits remain the backstop for ungraceful
-	// death.
-	//
-	// Taken from the pump when there is one. Registering our own OnClose would
-	// REPLACE the pump's, since pion keeps a single handler per event, and the
-	// pump needs its own close signal to be sure its send can never block.
-	var done <-chan struct{}
-	if opts.Closed != nil {
-		done = opts.Closed
-	} else {
-		d := make(chan struct{})
-		var closeOnce sync.Once
-		dc.OnClose(func() {
-			closeOnce.Do(func() { close(d) })
-		})
-		done = d
-	}
+	replies := wireReplies(dc, opts)
+	ackCh, flushed, done := replies.ackCh, replies.flushed, replies.done
 
 	// Backpressure: pion calls OnBufferedAmountLow once the send buffer drains
 	// to bufferedAmountLowWater. The send loop blocks on sendMore whenever the
@@ -979,6 +894,107 @@ drainLoop:
 	rows = append(rows, [2]string{"Time", timeVal})
 	printSummary(rows)
 	return nil
+}
+
+// sendReplies is where a send reads what its receiver says: ackCh takes its frames,
+// flushed closes once every frame that arrived before the channel closed has been
+// moved, and done is the close itself.
+type sendReplies struct {
+	ackCh   chan []byte
+	flushed chan struct{}
+	done    <-chan struct{}
+}
+
+// wireReplies starts reading the receiver's frames.
+func wireReplies(dc *webrtc.DataChannel, opts SendOptions) sendReplies {
+	// ackCh receives JSON ack messages from the receiver.
+	// Accept ack as either string or binary: the CLI receiver sends binary for
+	// browser compatibility, CLI-to-CLI also works.
+	// Non-blocking: a full buffer means a stray/duplicate message arrived;
+	// dropping it is safe because the ack loop already matched its ID.
+	ackCh := make(chan []byte, 4)
+	// flushed is closed once every frame that arrived before the channel
+	// closed is in ackCh, so a wait that sees the close can still read the
+	// refusal a receiver sends just before it closes (stopBeforeClose).
+	flushed := make(chan struct{})
+	if opts.Messages != nil && opts.Closed != nil {
+		// The pump was installed with the data channel, so the receiver's first
+		// ack cannot have arrived before anyone was listening. Forwarding into
+		// ackCh rather than reading opts.Messages directly leaves every deadline
+		// below exactly as it was.
+		go func() {
+			defer close(flushed)
+			forward := func(msg webrtc.DataChannelMessage) {
+				select {
+				case ackCh <- msg.Data:
+				default:
+				}
+			}
+			for {
+				select {
+				case msg, ok := <-opts.Messages:
+					if !ok {
+						return
+					}
+					forward(msg)
+				case <-opts.Closed:
+					// A refusal is the last frame a receiver sends before it
+					// closes, and both can be ready here at once: a random pick
+					// used to return with the refusal still in Messages. The
+					// pump fills Messages before it closes Closed (pion delivers
+					// a message before the close, from one read goroutine), so
+					// moving what is queued now leaves nothing behind.
+					for {
+						select {
+						case msg, ok := <-opts.Messages:
+							if !ok {
+								return
+							}
+							forward(msg)
+						default:
+							return
+						}
+					}
+				}
+			}
+		}()
+	} else {
+		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
+			select {
+			case ackCh <- msg.Data:
+			default:
+			}
+		})
+		// pion runs OnMessage before OnClose on the same read goroutine, so
+		// every frame is in ackCh by the time done fires.
+		close(flushed)
+	}
+
+	// done is closed when the data channel closes, letting every wait below
+	// fail fast instead of burning its full deadline. pion fires OnClose on
+	// GRACEFUL closes only (remote dc.Close/pc.Close/browser tab close send a
+	// close notification): a kill -9 or dead network does not error the read
+	// chain promptly (sctp retransmits by design; an ICE failure closes the
+	// association only indirectly, when a pending retransmission finds no
+	// candidate pair), so the 120 s ack wait and the 60 s no-progress windows
+	// of the backpressure and delivery waits remain the backstop for ungraceful
+	// death.
+	//
+	// Taken from the pump when there is one. Registering our own OnClose would
+	// REPLACE the pump's, since pion keeps a single handler per event, and the
+	// pump needs its own close signal to be sure its send can never block.
+	var done <-chan struct{}
+	if opts.Closed != nil {
+		done = opts.Closed
+	} else {
+		d := make(chan struct{})
+		var closeOnce sync.Once
+		dc.OnClose(func() {
+			closeOnce.Do(func() { close(d) })
+		})
+		done = d
+	}
+	return sendReplies{ackCh: ackCh, flushed: flushed, done: done}
 }
 
 // sendFile handles the full send sequence for a single file. confirms is set
