@@ -523,10 +523,11 @@ func roomFromLink(t *testing.T, link string) string {
 	if !strings.HasPrefix(link, base) {
 		t.Fatalf("link %q does not start with %s", link, base)
 	}
-	id, room, ok := strings.Cut(strings.TrimPrefix(link, base), "#")
+	id, fragment, ok := strings.Cut(strings.TrimPrefix(link, base), "#")
 	if !ok || !linkIDShape.MatchString(id) {
 		t.Fatalf("link %q: link id is not 11 base64url characters", link)
 	}
+	room, _, _ := strings.Cut(fragment, ".")
 	if _, err := uuid.Parse(room); err != nil {
 		t.Fatalf("link %q: fragment is not a room id", link)
 	}

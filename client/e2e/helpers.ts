@@ -209,8 +209,9 @@ export function spawnSend(path: string, binary: string = cliBinary()): {
 
         proc.stdout?.on('data', (chunk: Buffer) => {
             stdout += chunk.toString();
-            // Room link always contains #room=
-            const match = stdout.match(/https?:\/\/\S*#room=[^\s]+/);
+            // A room link always holds room=: first on a released CLI's link
+            // (#room=), and behind the key on a current one's (#k=...&room=).
+            const match = stdout.match(/https?:\/\/\S*[#&]room=[^\s]+/);
             if (match) {
                 clearTimeout(timer);
                 resolve(match[0].trim());

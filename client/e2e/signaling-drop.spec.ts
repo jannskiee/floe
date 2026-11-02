@@ -214,7 +214,7 @@ test('CLI sender loses signaling mid-transfer and the browser receiver completes
     const ctx = await browser.newContext();
 
     try {
-        const link = await sender.waitForStdout(/https?:\/\/\S*#room=\S+/);
+        const link = await sender.waitForStdout(/https?:\/\/\S*[#&]room=\S+/);
         const { page, statsReports } = await optedOutPage(ctx);
         await page.goto(link);
 

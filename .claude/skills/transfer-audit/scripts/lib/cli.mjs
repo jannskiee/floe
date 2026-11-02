@@ -70,8 +70,9 @@ export const VERSION_RE = /^floe (\S+)\s*$/m;
 // send.go runSend box row via format.go PrintBox "  %s%s   %s": three lowercase
 // words, four after ten collisions (server/server.js generateCode).
 export const CODE_RE = /^\s*Code\s+([a-z]+(?:-[a-z]+){2,3})\s*$/m;
-// client/e2e/helpers.ts spawnSend
-export const LINK_RE = /https?:\/\/\S*#room=[^\s]+/;
+// client/e2e/helpers.ts spawnSend: the room is first on a released CLI's link
+// and behind the key on a current one's.
+export const LINK_RE = /https?:\/\/\S*[#&]room=[^\s]+/;
 // Summary rows: sender.go SendFilesWithOptions (Sent, Time, Verified), receiver.go
 // ReceiveFilesWithOptions (Received, Time, Saved to, Verified). Labels are padded
 // to the longest label. Verified is present only when every file carried a digest
@@ -433,7 +434,7 @@ export class CliLeg extends Leg {
         const { opts } = this;
         const timeout = this.budget(opts.startTimeoutMs ?? START_TIMEOUT_MS);
         // send.go runSend and receive.go runReceive fetch TURN, open /ws,
-        // and register a code (sender) and code.Resolve GETs one (receiver
+        // and register a code (sender) and code.ResolveLink GETs one (receiver
         // by code). The request visitor (sendto.go) fetches TURN and opens
         // /ws but registers no code: it joins with request-join.
         spend(opts.ledger, 'turn');

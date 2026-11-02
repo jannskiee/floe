@@ -87,8 +87,10 @@ func TestReceiverReadsTheBrowserSendersOwnStops(t *testing.T) {
 					if err == nil {
 						t.Fatal("the receiver reported success for a stopped transfer")
 					}
+					// A stop for the link key's check reads as its fixed sentinel, in
+					// no words of the sender's; every other stop is its reason.
 					var compat *CompatError
-					if !errors.As(err, &compat) || compat.LocalTooOld {
+					if !errors.Is(err, ErrSenderNotConfirmed) && (!errors.As(err, &compat) || compat.LocalTooOld) {
 						t.Fatalf("error %T %v, want the sender's reason as a *CompatError", err, err)
 					}
 					if err.Error() != row.Go {

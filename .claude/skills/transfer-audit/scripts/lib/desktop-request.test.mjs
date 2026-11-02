@@ -260,6 +260,14 @@ test('wailsdev ReadLink returns the host link, checks it against the screen, and
     assert.ok(!r.shown.includes(ROOM), 'the shown form never carries the room');
     assert.equal(r.shown, 'http://localhost:3000/r/Xk3p9Q0aB1c#<room>');
     assert.equal(redactRequestLink('no-fragment'), 'no-fragment');
+    // B11: a keyed request link is a request link, and its shown form holds no key.
+    const key = 'AbC_dEf-GhIjKlMnOpQrSw';
+    const keyed = `http://localhost:3000/r/Xk3p9Q0aB1c#${ROOM}.${key}`;
+    assert.ok(REQUEST_LINK_RE.test(keyed));
+    assert.equal(redactRequestLink(keyed), 'http://localhost:3000/r/Xk3p9Q0aB1c#<room>');
+    assert.ok(!REQUEST_LINK_RE.test(`http://localhost:3000/r/Xk3p9Q0aB1c#${ROOM}.`), 'cut at the dot');
+    assert.ok(!REQUEST_LINK_RE.test(`http://localhost:3000/r/Xk3p9Q0aB1c#${ROOM}.${key.slice(0, 21)}`), 'cut inside the key');
+    assert.ok(!REQUEST_LINK_RE.test(`http://localhost:3000/r/Xk3p9Q0aB1c#${ROOM}.${key}x`), 'one character long');
 
     const other = fakeRequestDom({
         screenText:

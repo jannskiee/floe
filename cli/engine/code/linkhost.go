@@ -72,8 +72,8 @@ func IsFloeOneLinkHost(host string) bool {
 // --server default and the only server that holds the room of a link made on
 // floe.one, in any spelling that reaches it: once normalized, https (url.Parse
 // lower-cases the scheme), the host api.floe.one in any case and with one
-// trailing dot, port empty or 443, path empty or "/", and no userinfo, query
-// or fragment (FU-46 review 1 N4; an exact string compare refused
+// trailing dot, port empty or 443, path empty or "/", and no userinfo or query,
+// a fragment being one thing Normalize drops (FU-46 review 1 N4; an exact string compare refused
 // https://API.floe.one and https://api.floe.one:443, which used to work).
 // Anything else, http, another port, a path the requests would be appended
 // to, is not, and a floe.one link with it ends on TL-10.

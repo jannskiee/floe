@@ -22,6 +22,7 @@ func TestIfaceIsCheckedBeforeTheNetwork(t *testing.T) {
 	}{
 		{"send", []string{"send", file, "--iface", "wifi"}, nil, noMatch},
 		{"send --to", []string{"send", file, "--to", floeLinkFor(), "--iface", "wifi"}, nil, noMatch},
+		{"send --link-only", []string{"send", file, "--link-only", "--iface", "wifi"}, nil, noMatch},
 		{"receive", []string{"receive", room, "--iface", "wifi"}, nil, noMatch},
 		{"any case", []string{"send", file, "--iface", "WI-FI"}, nil, goesOn},
 		{"any one name", []string{"send", file, "--iface", "wifi, Wi-Fi"}, nil, goesOn},
@@ -31,11 +32,10 @@ func TestIfaceIsCheckedBeforeTheNetwork(t *testing.T) {
 			stubCompletionInterfaces(t, []net.Interface{{Name: "Ethernet 2"}, {Name: "Wi-Fi"}}, tc.listErr)
 			calls := stubNetwork(t, "")
 			t.Cleanup(func() {
-				// pflag appends to a slice flag it set before; cobra keeps --to.
+				// pflag appends to a slice flag it set before; cobra keeps --to and
+				// --link-only.
 				flagIface, rootCmd.PersistentFlags().Lookup("iface").Changed = nil, false
-				to := sendCmd.Flags().Lookup("to")
-				_ = to.Value.Set("")
-				to.Changed = false
+				resetSendFlags(t)
 				interruptHook.Store(nil)
 				resetReceiveStop()
 			})

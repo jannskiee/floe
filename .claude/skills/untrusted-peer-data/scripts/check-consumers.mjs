@@ -127,7 +127,8 @@ export const FIELDS = {
 // notification. That is worth keeping as a row rather than deleting.
 //
 // cli/engine/linkkey/linkkey.go is the first kind: it reads the link key, which
-// the other party wrote into a link, as `s`.
+// the other party wrote into a link, as `s`. So is cli/cmd/floe/links.go, which
+// reads a pasted link as `arg`.
 //
 // desktop/toast_windows.go and desktop/toast_other.go are the second kind:
 // their rows record that pushToast and toastXML carry only the constant strings
@@ -154,6 +155,7 @@ export const TOKEN_FREE = new Set([
     'cli/engine/peer/connection.go',
     'cli/engine/peer/setuperror.go',
     'cli/engine/linkkey/linkkey.go',
+    'cli/cmd/floe/links.go',
     'cli/engine/transfer/relay.go',
     'desktop/app.go',
     'desktop/toast_windows.go',

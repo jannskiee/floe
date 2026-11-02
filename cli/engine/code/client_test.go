@@ -9,9 +9,17 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/jannskiee/floe/cli/engine/linkkey"
 )
 
-// Resolve must accept both the new fragment links (#room=) and the older query
+// resolveRoom is ResolveLink for a test about the room id alone.
+func resolveRoom(serverURL, input string) (string, error) {
+	link, err := ResolveLink(serverURL, input)
+	return link.RoomID, err
+}
+
+// ResolveLink must accept both the new fragment links (#room=) and the older query
 // links (?room=) so that a link from either the browser or the CLI works in
 // `floe receive`. The URL branch parses locally and never touches the network.
 func TestResolveURL(t *testing.T) {
@@ -31,21 +39,21 @@ func TestResolveURL(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := Resolve("", tc.input)
+			got, err := resolveRoom("", tc.input)
 			if err != nil {
-				t.Fatalf("Resolve(%q) returned error: %v", tc.input, err)
+				t.Fatalf("ResolveLink(%q) returned error: %v", tc.input, err)
 			}
 			if got != tc.want {
-				t.Fatalf("Resolve(%q) = %q, want %q", tc.input, got, tc.want)
+				t.Fatalf("ResolveLink(%q) = %q, want %q", tc.input, got, tc.want)
 			}
 		})
 	}
 }
 
-// TestLinkHostReadsALinkAsResolveDoes (FU-53): for every shape Resolve takes
+// TestLinkHostReadsALinkAsResolveDoes (FU-53): for every shape ResolveLink takes
 // a room id from, LinkHost names the host of that same link, as written (the
 // caller folds case and the trailing dot), so a caller can check where the
-// room lives before it uses the id. A code, and anything Resolve does not read
+// room lives before it uses the id. A code, and anything ResolveLink does not read
 // as a link, has no host.
 func TestLinkHostReadsALinkAsResolveDoes(t *testing.T) {
 	const room = "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"
@@ -62,16 +70,16 @@ func TestLinkHostReadsALinkAsResolveDoes(t *testing.T) {
 		{"https://ｆｌｏｅ.one/#room=" + room, "ｆｌｏｅ.one"},
 		{"http://localhost:3000/#room=" + room, "localhost"},
 		// FU-53 review 1 L-1: slashes a browser reads past and url.Parse does
-		// not. Resolve takes the room id out of each with no host, so LinkHost
+		// not. ResolveLink takes the room id out of each with no host, so LinkHost
 		// names the host the text names.
 		{"//floe.one/#room=" + room, "floe.one"},
 		{"https:///floe.one/#room=" + room, "floe.one"},
 		{"https:/floe.one/#room=" + room, "floe.one"},
 		{"/floe.one/#room=" + room, "floe.one"},
 	} {
-		got, err := Resolve("", c.input)
+		got, err := resolveRoom("", c.input)
 		if err != nil || got != room {
-			t.Fatalf("Resolve(%q) = %q, %v; want the room id", c.input, got, err)
+			t.Fatalf("ResolveLink(%q) = %q, %v; want the room id", c.input, got, err)
 		}
 		if h := LinkHost(c.input); h != c.host {
 			t.Errorf("LinkHost(%q) = %q, want %q", c.input, h, c.host)
@@ -85,7 +93,7 @@ func TestLinkHostReadsALinkAsResolveDoes(t *testing.T) {
 }
 
 func TestResolveURLWithoutRoom(t *testing.T) {
-	if _, err := Resolve("", "https://floe.one/about"); err == nil {
+	if _, err := resolveRoom("", "https://floe.one/about"); err == nil {
 		t.Fatal("expected an error for a URL with no room id, got nil")
 	}
 }
@@ -112,20 +120,20 @@ func TestResolveRefusesARoomValueThatIsNotARoomID(t *testing.T) {
 		"floe.one/#room=" + room[:13],
 		"http://localhost:3000/#room=6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7g",
 	} {
-		roomID, err := Resolve(srv.URL, input)
+		roomID, err := resolveRoom(srv.URL, input)
 		if err == nil || roomID != "" {
-			t.Errorf("Resolve(%q) = %q, %v; want the incomplete-link refusal", input, roomID, err)
+			t.Errorf("ResolveLink(%q) = %q, %v; want the incomplete-link refusal", input, roomID, err)
 			continue
 		}
 		if err.Error() != "the room id in this link is incomplete or mistyped" {
-			t.Errorf("Resolve(%q) answered %q, want the fixed incomplete-link text", input, err)
+			t.Errorf("ResolveLink(%q) answered %q, want the fixed incomplete-link text", input, err)
 		}
 	}
 	if n := hits.Load(); n != 0 {
 		t.Fatalf("%d requests reached the server, want 0", n)
 	}
 	// Any letter case still resolves: the server's UUID_REGEX takes it.
-	if got, err := Resolve(srv.URL, "https://floe.one/#room="+strings.ToUpper(room)); err != nil || got != strings.ToUpper(room) {
+	if got, err := resolveRoom(srv.URL, "https://floe.one/#room="+strings.ToUpper(room)); err != nil || got != strings.ToUpper(room) {
 		t.Fatalf("an upper-case room id: %q, %v", got, err)
 	}
 }
@@ -151,16 +159,16 @@ func TestResolveAnswersAMistypedCodeAsACode(t *testing.T) {
 		"-olive-tiger",
 		"6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f",
 	} {
-		_, err := Resolve(srv.URL, input)
+		_, err := resolveRoom(srv.URL, input)
 		if err == nil || err.Error() != want {
-			t.Errorf("Resolve(%q) = %v, want %q", input, err, want)
+			t.Errorf("ResolveLink(%q) = %v, want %q", input, err, want)
 		}
 	}
 	if n := hits.Load(); n != 0 {
 		t.Fatalf("%d requests reached the code API, want 0", n)
 	}
 	// A paste that is a link and does not parse is still a URL problem.
-	if _, err := Resolve(srv.URL, "https://floe.one:port/#room=6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"); err == nil || err.Error() != "invalid URL" {
+	if _, err := resolveRoom(srv.URL, "https://floe.one:port/#room=6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"); err == nil || err.Error() != "invalid URL" {
 		t.Fatalf("a link that does not parse answered %v, want \"invalid URL\"", err)
 	}
 }
@@ -177,9 +185,9 @@ func TestResolveFoldsCaseBeforeLookup(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	roomID, err := Resolve(srv.URL, "Olive-Tiger-Castle")
+	roomID, err := resolveRoom(srv.URL, "Olive-Tiger-Castle")
 	if err != nil {
-		t.Fatalf("Resolve: %v", err)
+		t.Fatalf("ResolveLink: %v", err)
 	}
 	if roomID != "room-1" {
 		t.Fatalf("roomId = %q, want room-1", roomID)
@@ -189,7 +197,7 @@ func TestResolveFoldsCaseBeforeLookup(t *testing.T) {
 	}
 }
 
-// TestCodeAPIBodiesAreBounded: Register and Resolve read at most 64 KiB of an
+// TestCodeAPIBodiesAreBounded: Register and ResolveLink read at most 64 KiB of an
 // /api/code answer, and one that does not end within them ends on the fixed
 // "invalid response from code API". A JSON decoder holds a whole value before
 // it unmarshals, so the unbounded read handed back a code or a room id as long
@@ -215,11 +223,11 @@ func TestCodeAPIBodiesAreBounded(t *testing.T) {
 	if n := read.Swap(0); n > bound {
 		t.Fatalf("Register read %d bytes of the answer, want at most %d", n, bound)
 	}
-	if room, err := Resolve("http://code.invalid", "olive-tiger-castle"); err == nil || err.Error() != "invalid response from code API" {
-		t.Fatalf("Resolve answered a %d-byte room id and %v, want \"invalid response from code API\"", len(room), err)
+	if room, err := resolveRoom("http://code.invalid", "olive-tiger-castle"); err == nil || err.Error() != "invalid response from code API" {
+		t.Fatalf("ResolveLink answered a %d-byte room id and %v, want \"invalid response from code API\"", len(room), err)
 	}
 	if n := read.Load(); n > bound {
-		t.Fatalf("Resolve read %d bytes of the answer, want at most %d", n, bound)
+		t.Fatalf("ResolveLink read %d bytes of the answer, want at most %d", n, bound)
 	}
 }
 
@@ -247,8 +255,8 @@ func TestCodeAPIBodiesAtTheBoundDecode(t *testing.T) {
 	if code, err := Register("http://code.invalid", "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"); err != nil || len(code) != bound-len(`{"code":""}`) {
 		t.Fatalf("Register on an answer of exactly %d bytes = a %d-byte code and %v", bound, len(code), err)
 	}
-	if room, err := Resolve("http://code.invalid", "olive-tiger-castle"); err != nil || len(room) != bound-len(`{"roomId":""}`) {
-		t.Fatalf("Resolve on an answer of exactly %d bytes = a %d-byte room id and %v", bound, len(room), err)
+	if room, err := resolveRoom("http://code.invalid", "olive-tiger-castle"); err != nil || len(room) != bound-len(`{"roomId":""}`) {
+		t.Fatalf("ResolveLink on an answer of exactly %d bytes = a %d-byte room id and %v", bound, len(room), err)
 	}
 }
 
@@ -298,18 +306,18 @@ func TestResolveRequestLinkTyped(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := Resolve("", tc.input)
+			_, err := resolveRoom("", tc.input)
 			if err == nil {
-				t.Fatal("Resolve returned no error")
+				t.Fatal("ResolveLink returned no error")
 			}
 			if tc.want != nil {
 				if !errors.Is(err, tc.want) {
-					t.Fatalf("Resolve returned %v, want the matching sentinel", err)
+					t.Fatalf("ResolveLink returned %v, want the matching sentinel", err)
 				}
 				return
 			}
 			if errors.Is(err, ErrRequestLink) || errors.Is(err, ErrDropLink) {
-				t.Fatal("Resolve returned a browser-link sentinel for a URL that is not one")
+				t.Fatal("ResolveLink returned a browser-link sentinel for a URL that is not one")
 			}
 			if !strings.Contains(err.Error(), "does not contain a room id") {
 				t.Fatalf("expected the existing room-id error, got: %v", err)
@@ -327,9 +335,9 @@ func TestResolveRequestLinkTyped(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		roomID, err := Resolve(srv.URL, "olive-tiger-castle")
+		roomID, err := resolveRoom(srv.URL, "olive-tiger-castle")
 		if err != nil {
-			t.Fatalf("Resolve: %v", err)
+			t.Fatalf("ResolveLink: %v", err)
 		}
 		if roomID != "room-1" || got != "olive-tiger-castle" {
 			t.Fatalf("roomId = %q and the server saw %q", roomID, got)
@@ -398,12 +406,12 @@ func TestResolveNeverSendsALinkToTheCodeAPI(t *testing.T) {
 	for _, tc := range links {
 		t.Run(tc.name, func(t *testing.T) {
 			hits.Store(0)
-			roomID, err := Resolve(srv.URL, tc.input)
+			roomID, err := resolveRoom(srv.URL, tc.input)
 			if n := hits.Load(); n != 0 {
 				t.Errorf("%d requests reached the code API, want 0", n)
 			}
 			if !errors.Is(err, ErrRequestLink) {
-				t.Fatalf("Resolve returned %q, %v; want ErrRequestLink", roomID, err)
+				t.Fatalf("ResolveLink returned %q, %v; want ErrRequestLink", roomID, err)
 			}
 			if anyUUID.MatchString(err.Error()) || strings.Contains(err.Error(), id[:10]) {
 				t.Fatalf("the error quotes the pasted link: %q", err.Error())
@@ -414,9 +422,9 @@ func TestResolveNeverSendsALinkToTheCodeAPI(t *testing.T) {
 	// The same rule resolves a room link that lost its scheme, locally.
 	t.Run("a room link without its scheme resolves with no request", func(t *testing.T) {
 		hits.Store(0)
-		roomID, err := Resolve(srv.URL, "floe.one/#room="+room)
+		roomID, err := resolveRoom(srv.URL, "floe.one/#room="+room)
 		if err != nil || roomID != room {
-			t.Fatalf("Resolve returned %q, %v; want the room id", roomID, err)
+			t.Fatalf("ResolveLink returned %q, %v; want the room id", roomID, err)
 		}
 		if n := hits.Load(); n != 0 {
 			t.Fatalf("%d requests reached the code API, want 0", n)
@@ -453,12 +461,12 @@ func TestResolveNeverSendsALinkToTheCodeAPI(t *testing.T) {
 	for _, tc := range pastes {
 		t.Run(tc.name, func(t *testing.T) {
 			hits.Store(0)
-			roomID, err := Resolve(srv.URL, tc.input)
+			roomID, err := resolveRoom(srv.URL, tc.input)
 			if n := hits.Load(); n != 0 {
 				t.Errorf("%d requests reached the code API, want 0", n)
 			}
 			if !errors.Is(err, errNotACode) {
-				t.Fatalf("Resolve returned %q, %v; want the fixed errNotACode", roomID, err)
+				t.Fatalf("ResolveLink returned %q, %v; want the fixed errNotACode", roomID, err)
 			}
 			if anyUUID.MatchString(err.Error()) || strings.Contains(strings.ToLower(err.Error()), strings.ToLower(id)) {
 				t.Fatalf("the error quotes the paste: %q", err.Error())
@@ -468,9 +476,9 @@ func TestResolveNeverSendsALinkToTheCodeAPI(t *testing.T) {
 
 	t.Run("a word code makes exactly one request", func(t *testing.T) {
 		hits.Store(0)
-		roomID, err := Resolve(srv.URL, "olive-tiger-castle")
+		roomID, err := resolveRoom(srv.URL, "olive-tiger-castle")
 		if err != nil || roomID != "room-1" {
-			t.Fatalf("Resolve returned %q, %v; want room-1", roomID, err)
+			t.Fatalf("ResolveLink returned %q, %v; want room-1", roomID, err)
 		}
 		if n := hits.Load(); n != 1 {
 			t.Fatalf("%d requests reached the code API, want exactly 1", n)
@@ -495,9 +503,9 @@ func TestResolveNeverSendsALinkToTheCodeAPI(t *testing.T) {
 	for _, tc := range codes {
 		t.Run(tc.name, func(t *testing.T) {
 			hits.Store(0)
-			roomID, err := Resolve(srv.URL, tc.input)
+			roomID, err := resolveRoom(srv.URL, tc.input)
 			if err != nil || roomID != "room-1" {
-				t.Fatalf("Resolve returned %q, %v; want room-1", roomID, err)
+				t.Fatalf("ResolveLink returned %q, %v; want room-1", roomID, err)
 			}
 			if n := hits.Load(); n != 1 {
 				t.Fatalf("%d requests reached the code API, want exactly 1", n)
@@ -524,9 +532,9 @@ func TestResolveInvalidURLIsFixedText(t *testing.T) {
 		"floe.one/r/Xk3p9Q0aB1c#" + room + "%zz",
 		"https://floe.one:port/#room=" + room,
 	} {
-		_, err := Resolve(srv.URL, input)
+		_, err := resolveRoom(srv.URL, input)
 		if err == nil || err.Error() != "invalid URL" {
-			t.Errorf("Resolve(<a paste that does not parse>) = %v, want the fixed text \"invalid URL\"", err)
+			t.Errorf("resolveRoom(<a paste that does not parse>) = %v, want the fixed text \"invalid URL\"", err)
 		}
 	}
 	if n := hits.Load(); n != 0 {
@@ -561,27 +569,30 @@ func TestParseRequestLink(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			linkID, roomID, err := ParseRequestLink(tc.input)
+			link, err := ParseRequestLink(tc.input)
 			if tc.wantRoom == "" {
 				if err == nil {
-					t.Fatalf("ParseRequestLink accepted it and returned %q, %q", linkID, roomID)
+					t.Fatalf("ParseRequestLink accepted it and returned %q, %q", link.LinkID, link.RoomID)
 				}
 				if strings.Contains(err.Error(), id) || strings.Contains(err.Error(), room) {
 					t.Fatalf("the error echoes part of the link: %v", err)
 				}
-				if linkID != "" || roomID != "" {
-					t.Fatalf("a failed parse returned %q, %q; want both empty", linkID, roomID)
+				if link != (RequestLink{}) {
+					t.Fatalf("a failed parse returned %q, %q; want the zero value", link.LinkID, link.RoomID)
 				}
 				return
 			}
 			if err != nil {
 				t.Fatalf("ParseRequestLink: %v", err)
 			}
-			if linkID != tc.wantLink {
-				t.Fatalf("linkID = %q, want %q", linkID, tc.wantLink)
+			if link.LinkID != tc.wantLink {
+				t.Fatalf("linkID = %q, want %q", link.LinkID, tc.wantLink)
 			}
-			if roomID != tc.wantRoom {
-				t.Fatalf("roomID = %q, want %q", roomID, tc.wantRoom)
+			if link.RoomID != tc.wantRoom {
+				t.Fatalf("roomID = %q, want %q", link.RoomID, tc.wantRoom)
+			}
+			if link.HasKey || link.Key != (linkkey.Key{}) {
+				t.Fatal("a bare link came back with a key")
 			}
 		})
 	}
@@ -590,11 +601,11 @@ func TestParseRequestLink(t *testing.T) {
 // A URL is not a code phrase: the fragment carries a room id whose case is
 // significant, so the URL branch must not fold it.
 func TestResolveDoesNotFoldRoomIdsInLinks(t *testing.T) {
-	got, err := Resolve("", "https://floe.one/#room=6F207790-92A6-4662-BB68-4C4059F75139")
+	got, err := resolveRoom("", "https://floe.one/#room=6F207790-92A6-4662-BB68-4C4059F75139")
 	if err != nil {
-		t.Fatalf("Resolve: %v", err)
+		t.Fatalf("ResolveLink: %v", err)
 	}
 	if got != "6F207790-92A6-4662-BB68-4C4059F75139" {
-		t.Fatalf("Resolve folded a room id in a link: got %q", got)
+		t.Fatalf("ResolveLink folded a room id in a link: got %q", got)
 	}
 }

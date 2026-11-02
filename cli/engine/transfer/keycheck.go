@@ -1,12 +1,13 @@
 package transfer
 
-// The link-key check's primitives: what a side holding a link's key computes and
-// reads. After DTLS opens, each side proves it holds the key with an HMAC bound
-// to the two certificates DTLS actually used, so a signaling server that swapped
+// The link-key check: what a side holding a link's key computes, reads and waits
+// for. After DTLS opens, each side proves it holds the key with an HMAC bound to
+// the two certificates DTLS actually used, so a signaling server that swapped
 // fingerprints to sit between the peers cannot produce a tag either end accepts.
 //
-// Nothing here is called from SendFilesWithOptions or ReceiveFilesWithOptions
-// yet. client/lib/transfer/keyCheck.ts is the browser twin; the shared vectors in
+// SendFilesWithOptions and ReceiveFilesWithOptions hold the order of the check;
+// the wait and the judging live here. client/lib/transfer/keyCheck.ts and
+// keySession.ts are the browser twins; the shared vectors in
 // testdata/keycheck-vectors.json and the keyCheck parity rows hold the two to the
 // same bytes.
 
@@ -18,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/jannskiee/floe/cli/engine/linkkey"
 	"github.com/pion/webrtc/v4"
@@ -54,6 +56,19 @@ var (
 )
 
 var errKeyCheckRoomID = errors.New("this link's room id cannot be used in a key check")
+
+// errSenderStoppedUnproven is the stop of a sender that has not proved the key, for
+// a receive that holds it. The words are the ones this receive already uses for a stop
+// it cannot read.
+var errSenderStoppedUnproven = errors.New("the sender stopped the transfer")
+
+// errKeyCheckNeedsPump refuses a keyed send with no pump, before anything goes
+// out. The fallback OnMessage registers late and can lose a kc the receiver sent
+// when its receive began, which an enforcing send would then read as silence.
+var errKeyCheckNeedsPump = errors.New("a send with a link key needs the connection's message pump")
+
+// keyCheckWait is KeyCheckWait as a var, only so tests can shrink it.
+var keyCheckWait = KeyCheckWait
 
 // keyCheckProtocol is the protocol version that first speaks kc. It is the lowest
 // and the highest version named in the frame a failed check stops with, which
@@ -233,17 +248,192 @@ func kcTagMatches(raw []byte, want [32]byte) bool {
 // proof always, and that is the point of exporting it: a test harness that wants
 // a failing peer passes it a different key, with no way to make this code lie.
 func LinkKeyProof(dc *webrtc.DataChannel, kc KeyCheck, fileSender bool) ([]byte, error) {
+	ks, err := newKeySession(dc, &kc, fileSender)
+	if err != nil {
+		return nil, err
+	}
+	return ks.own, nil
+}
+
+// keySession is one connection's check: the frame this side sends and the tag it
+// must see. It holds neither the key nor the room id, so nothing that keeps it can
+// print them.
+type keySession struct {
+	own  []byte
+	want [32]byte
+}
+
+// newKeySession computes both tags from the certificates DTLS used on dc's
+// connection. Its errors are fixed text: ErrKeyCheckUnavailable when this side
+// cannot read them, and errKeyCheckRoomID for a room id no link can hold.
+func newKeySession(dc *webrtc.DataChannel, kc *KeyCheck, fileSender bool) (*keySession, error) {
 	local, remote, err := certHashes(dc)
 	if err != nil {
 		return nil, err
 	}
-	role, hS, hR := kcRoleReceiver, remote, local
+	ownRole, peerRole, hS, hR := kcRoleReceiver, kcRoleSender, remote, local
 	if fileSender {
-		role, hS, hR = kcRoleSender, local, remote
+		ownRole, peerRole, hS, hR = kcRoleSender, kcRoleReceiver, local, remote
 	}
-	tag, err := keyCheckTag(kc.Key, role, kc.RoomID, hS, hR)
+	own, err := keyCheckTag(kc.Key, ownRole, kc.RoomID, hS, hR)
 	if err != nil {
 		return nil, err
 	}
-	return kcFrame(tag), nil
+	want, err := keyCheckTag(kc.Key, peerRole, kc.RoomID, hS, hR)
+	if err != nil {
+		return nil, err
+	}
+	return &keySession{own: kcFrame(own), want: want}, nil
+}
+
+// verify reports whether raw is the proof this side must see.
+func (ks *keySession) verify(raw []byte) bool {
+	return kcTagMatches(raw, ks.want)
+}
+
+// abortUnverified is a sender's stop for a failed check, one frame for a bad proof
+// and for silence: TEXT, because this direction carries file data, with the range
+// incompatibleFrame gives the code, so a released receiver misses it and prints its
+// own update remedy and a current one reads the code. Nothing follows it, so a Stop
+// that has closed stays silent: the caller's own abort is the one the peer reads.
+func abortUnverified(dc *webrtc.DataChannel, stop <-chan struct{}, localVer string) {
+	if stopRequested(stop) {
+		return
+	}
+	sendIncompatible(dc, incompatibleFrame(localVer, CodeUnverified, senderUnverifiedReason, -1), true)
+}
+
+// detectProof is a detecting sender's look at the slot, without waiting: a proof
+// that is here and wrong stops the send, and no proof at all is a receiver without
+// the key, which goes on. The first file's ack is its last look, and the look there
+// sees every proof sent ahead of that ack, because the pump parks a kc before it
+// forwards what came behind it. A nil session is a keyless send.
+func detectProof(dc *webrtc.DataChannel, ks *keySession, kcCh <-chan []byte, stop <-chan struct{}, localVer string) error {
+	if ks == nil {
+		return nil
+	}
+	select {
+	case raw := <-kcCh:
+		if !ks.verify(raw) {
+			abortUnverified(dc, stop, localVer)
+			return ErrReceiverNotConfirmed
+		}
+	default:
+	}
+	return nil
+}
+
+// waitForProof is an enforcing sender's wait for the receiver's proof, before it
+// names any file. It reports whether the proof checked out, which can be true
+// beside an error: a refusal that landed with a good proof still ends the send, and
+// the caller says what a good proof lets it say first.
+//
+// A queued kc is judged before a queued refusal, a close or the clock, whichever arm
+// select picks between ready ones, because each of those arms looks in its slot
+// first, so a man in the middle, whose kc is always wrong, gets one line every time.
+// A frame that is neither is dropped: no honest receiver has anything else to say
+// before the first metadata.
+//
+// In this file and not sender.go, because TestSenderAckWaitArmsNothingElse reads
+// that file as text: this timer is over before the ack wait begins.
+func waitForProof(dc *webrtc.DataChannel, ks *keySession, r sendReplies, stop <-chan struct{}, localVer, updateHint string, total int) (bool, error) {
+	judge := func(raw []byte) (bool, error) {
+		if ks.verify(raw) {
+			return true, nil
+		}
+		abortUnverified(dc, stop, localVer)
+		return false, ErrReceiverNotConfirmed
+	}
+	deadline := time.NewTimer(keyCheckWait)
+	defer deadline.Stop()
+	for {
+		select {
+		case raw := <-r.kcCh:
+			return judge(raw)
+		case raw := <-r.ackCh:
+			verified := false
+			select {
+			case proof := <-r.kcCh:
+				ok, err := judge(proof)
+				if err != nil {
+					return false, err
+				}
+				verified = ok
+			default:
+			}
+			if err := abortFromPeer(raw, localVer, updateHint, total); err != nil {
+				if !verified {
+					return false, unprovenStop(err)
+				}
+				return true, err
+			}
+			if verified {
+				return true, nil
+			}
+		case <-r.done:
+			// The frames that arrived before the close are moved by the flush.
+			waitFlushed(r.flushed)
+			select {
+			case raw := <-r.kcCh:
+				return judge(raw)
+			default:
+			}
+			if err := stopBeforeClose(r.ackCh, r.flushed, localVer, updateHint, total); err != nil {
+				return false, unprovenStop(err)
+			}
+			return false, errClosedAwaitingReceiver
+		case <-deadline.C:
+			select {
+			case raw := <-r.kcCh:
+				return judge(raw)
+			default:
+			}
+			abortUnverified(dc, stop, localVer)
+			return false, ErrReceiverSilent
+		case <-stop:
+			return false, ErrSendStopped
+		}
+	}
+}
+
+// unprovenStop is what a stop from a receiver that has proved nothing may say to a
+// sender holding the key. A code keeps its fixed sentence and loses its count, or a
+// man in the middle could make a visitor read "2 of 3 files were saved" with nothing
+// sent. A frame's own words go too: the sentence is the one for no proof. A range miss
+// stays, because those lines are Floe's own.
+func unprovenStop(err error) error {
+	var stopped *PeerStoppedError
+	if errors.As(err, &stopped) {
+		return &PeerStoppedError{Code: stopped.Code}
+	}
+	var ended *PeerEndedError
+	if errors.As(err, &ended) {
+		return ErrReceiverSilent
+	}
+	return err
+}
+
+// keyCheckEnded reports whether err is the check's own ending inside the file loop,
+// which is about the receiver and names no file.
+func keyCheckEnded(err error) bool {
+	return errors.Is(err, ErrReceiverNotConfirmed)
+}
+
+// refuseUnverified is a keyed receiver's stop for a sender that did not prove it
+// holds the link: the coded frame, then the typed error. Nothing is on disk, because
+// the check comes before the first metadata is even parsed.
+func refuseUnverified(dc *webrtc.DataChannel, localVer string) error {
+	AbortWithCode(dc, localVer, CodeUnverified, CodeUnverified.WireReason(), 0)
+	return &RefusedError{Code: CodeUnverified, Err: ErrSenderNotConfirmed}
+}
+
+// senderSaysUnverified reports whether an incompatible frame is a sender's stop for
+// a failed check, its code read by exact key as every other reader of a code does.
+func senderSaysUnverified(raw []byte) bool {
+	fields, _, ok := controlFields(raw)
+	if !ok {
+		return false
+	}
+	code, known := refusalCodeIn(fields)
+	return known && code == CodeUnverified
 }

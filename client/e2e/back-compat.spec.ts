@@ -84,7 +84,9 @@ test('released CLI send → HEAD CLI receive (SHA-256 integrity)', async () => {
     const { linkPromise, proc: sender } = spawnSend(fixturePath, releasedCli());
     try {
         const roomLink = await linkPromise;
-        expect(roomLink).toContain('#room=');
+        // A released floe prints #room= today and #k=...&room= from v1.12.0 on, and this
+        // job reads whichever release is the latest.
+        expect(roomLink).toMatch(/[#&]room=/);
 
         await spawnReceive(roomLink, outputDir);
 
@@ -110,7 +112,10 @@ test('HEAD CLI send → released CLI receive (SHA-256 integrity)', async () => {
     const { linkPromise, proc: sender } = spawnSend(fixturePath);
     try {
         const roomLink = await linkPromise;
-        expect(roomLink).toContain('#room=');
+        // HEAD's link leads with its key. The released receiver reads only room=
+        // out of it, and drops the kc that comes ahead of the metadata.
+        expect(roomLink).toContain('#k=');
+        expect(roomLink).toContain('&room=');
 
         await spawnReceive(roomLink, outputDir, releasedCli());
 

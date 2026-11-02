@@ -835,7 +835,7 @@ test(
             const link = await leg.link();
             assert.match(
                 link,
-                /^https:\/\/www\.floe\.one\/.*#room=[0-9a-f-]{36}$/
+                /^https:\/\/www\.floe\.one\/.*[#&]room=[0-9a-f-]{36}$/
             );
             const audit = await leg.page.evaluate(() => {
                 const a = window.__floeAudit;
@@ -856,7 +856,7 @@ test(
             }
             assert.equal(pill, 'Ready');
             console.log(
-                `live: link ${link.replace(/#room=.*/, '#room=<redacted>')}, pill ${pill}, pcs ${audit.pcs}, status events ${audit.status}`
+                `live: link ${link.replace(/#.*/, '#<redacted>')}, pill ${pill}, pcs ${audit.pcs}, status events ${audit.status}`
             );
         } finally {
             await leg.stop('live test');

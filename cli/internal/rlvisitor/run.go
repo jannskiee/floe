@@ -135,6 +135,20 @@ func run(cfg config) int {
 	early := conn.Early()
 	emit(map[string]interface{}{"event": "connected", "route": routeWord(conn)})
 
+	// A crafted mode is here to test what a host does with its frame, so on a keyed
+	// link that frame goes behind a proof, or the host's own check is all it tests.
+	// -send goes through the engine, which does this itself and also holds the host
+	// to the key.
+	if m != modeSend && cfg.kc != nil {
+		proof, err := transfer.LinkKeyProof(dc, *cfg.kc, true)
+		if err != nil {
+			return fail("proof")
+		}
+		if err := dc.SendText(string(proof)); err != nil {
+			return fail("proof")
+		}
+	}
+
 	switch m {
 	case modeSend:
 		return runSend(dc, cfg, early)
@@ -184,6 +198,7 @@ func runSend(dc *webrtc.DataChannel, cfg config, early *peer.Early) int {
 		Messages:        early.Msgs,
 		Closed:          early.Closed,
 		RequireReceived: true,
+		KeyCheck:        cfg.kc,
 	})
 	ev, exit := sendOutcome(err)
 	emit(ev)
@@ -198,8 +213,10 @@ func runSend(dc *webrtc.DataChannel, cfg config, early *peer.Early) int {
 // visitor's own relay gate prints that gate's sentence, which holds only local
 // numbers (TL-11). A close after the last byte with no received and no refusal
 // (the engine's ErrClosedBeforeReceived) is the crafted modes' "host-closed",
-// with their exit code and no text. Any other error prints the word "failed"
-// and never its text, which can carry a local path or a peer's version string.
+// with their exit code and no text. The link key's check has its own exit code
+// from either side, and "by" says whose it was. Any other error prints the word
+// "failed" and never its text, which can carry a local path or a peer's version
+// string.
 func sendOutcome(err error) (map[string]interface{}, int) {
 	ev := map[string]interface{}{"event": "send-ended"}
 	var stopped *transfer.PeerStoppedError
@@ -207,6 +224,14 @@ func sendOutcome(err error) (map[string]interface{}, int) {
 	case err == nil:
 		ev["outcome"] = "delivered"
 		return ev, exitDelivered
+	case errors.Is(err, transfer.ErrReceiverNotConfirmed), errors.Is(err, transfer.ErrReceiverSilent):
+		ev["outcome"] = "unverified"
+		ev["by"] = "visitor"
+		return ev, exitUnverified
+	case errors.As(err, &stopped) && stopped.Code == transfer.CodeUnverified:
+		ev["outcome"] = "unverified"
+		ev["by"] = "host"
+		return ev, exitUnverified
 	case errors.As(err, &stopped):
 		code := "other"
 		if c, ok := transfer.ParseRefusalCode(string(stopped.Code)); ok {
@@ -264,6 +289,9 @@ func emitEnd(name string, early *peer.Early) int {
 	case "host-refused":
 		ev["code"] = code
 		emit(ev)
+		if code == string(transfer.CodeUnverified) {
+			return exitUnverified
+		}
 		return exitPeerRefused
 	case "host-closed":
 		emit(ev)

@@ -15,12 +15,13 @@ package main
 // committed file with a code and a -stop-reason of the spec's choosing, and
 // -corrupt-hash, which rewrites the
 // sender's end-frame digest on its way from the data channel to the engine so
-// the engine's own compare refuses the file. The release floe binary cannot
+// the engine's own compare refuses the file. -kc runs the engine under a
+// different key or none. The release floe binary cannot
 // reach any of it (.goreleaser.yml builds only ./cmd/floe).
 //
 // Output: the events of main.go's contract plus the link, whose only variable
-// parts are the link id and the room id this process generated. The host
-// token is never printed; the stats URL is always empty.
+// parts are the link id, the room id this process generated and, under -key, the
+// key. The host token is never printed; the stats URL is always empty.
 
 import (
 	"bufio"
@@ -34,6 +35,7 @@ import (
 	"time"
 
 	"github.com/jannskiee/floe/cli/engine/ice"
+	"github.com/jannskiee/floe/cli/engine/linkkey"
 	"github.com/jannskiee/floe/cli/engine/peer"
 	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/jannskiee/floe/cli/engine/transfer"
@@ -190,6 +192,11 @@ type requestConfig struct {
 	// sentence. It goes to the visitor as given, hostile text included, and
 	// is never printed.
 	stopReason string
+	// keyed (-key) makes the link #<room>.<key> and runs the engine's check with
+	// that key. kcMode (-kc) fails the check honestly: "bad" runs the engine under
+	// a different key, and "none" with no key at all.
+	keyed  bool
+	kcMode string
 }
 
 // parseRequestFlags reads request mode's flags. It never reads FLOE_SERVER:
@@ -215,8 +222,13 @@ func parseRequestFlags(args []string) (requestConfig, error) {
 	stopAfterFile := fs.String("stop-after-file", "", "after the first committed file, stop the drop with this refusal code")
 	stopReason := fs.String("stop-reason", "", "the reason the -stop-after-file frame carries (default: the code's stock sentence)")
 	closeBeforeVisit := fs.Bool("close-before-visit", false, "close the link right after joining, before any visitor, then exit 0")
+	keyed := fs.Bool("key", false, "make a keyed link, and check the visitor with its key")
+	kcMode := fs.String("kc", "", "with -key, fail the check: bad checks under a different key, none under no key")
 	if err := fs.Parse(args); err != nil {
 		return requestConfig{}, err
+	}
+	if !validKCFlags(*keyed, *kcMode) {
+		return requestConfig{}, errors.New("request: usage")
 	}
 	maxFilesSet, stopSet, reasonSet := false, false, false
 	fs.Visit(func(f *flag.Flag) {
@@ -293,6 +305,8 @@ func parseRequestFlags(args []string) (requestConfig, error) {
 		holdAfterFile: time.Duration(*holdAfterFile) * time.Millisecond,
 		stopCode:      stopCode,
 		stopReason:    reason,
+		keyed:         *keyed,
+		kcMode:        *kcMode,
 
 		closeBeforeVisit: *closeBeforeVisit,
 	}, nil
@@ -377,6 +391,8 @@ type requestHost struct {
 	// files and verified count committed files for the done event.
 	files    int
 	verified int
+	// kc is the check the engine runs with: nil is a keyless host.
+	kc *transfer.KeyCheck
 }
 
 // emit writes one event and fires the blip cue when this is its event. Every
@@ -466,6 +482,9 @@ func refusalWord(err error) (string, bool) {
 			return string(transfer.CodeStopped), true
 		}
 		return string(re.Code), true
+	case errors.Is(err, transfer.ErrSenderNotConfirmed):
+		// The visitor stopped for the code itself, which is not this side's refusal.
+		return string(transfer.CodeUnverified), true
 	case errors.Is(err, transfer.ErrDeclined):
 		return string(transfer.CodeDeclined), true
 	case errors.Is(err, transfer.ErrSenderLeft):
@@ -553,6 +572,7 @@ func (h *requestHost) visit(step decideStep) visitOutcome {
 		Messages: msgs,
 		Closed:   early.Closed,
 		Limits:   h.cfg.limits,
+		KeyCheck: h.kc,
 	})
 	if stopped {
 		// This side ended the drop, so whatever the engine made of the close
@@ -625,6 +645,16 @@ func runRequest(ev *events, stdin io.Reader, args []string) {
 	watchdog := time.AfterFunc(cfg.timeout, func() { ev.fail("timeout") })
 
 	link := cfg.web + "/r/" + linkID + "#" + h.room
+	if cfg.keyed {
+		key, err := linkkey.New()
+		if err != nil {
+			ev.fail("token")
+		}
+		link += "." + key.Encode()
+		if h.kc, err = harnessKeyCheck(key, h.room, cfg.kcMode); err != nil {
+			ev.fail("token")
+		}
+	}
 	if cfg.joinAfter > 0 || cfg.joinOnStdin {
 		// The link first, then the room: until the join the server answers
 		// the visitor host-absent. The room id is the token's derivation, so

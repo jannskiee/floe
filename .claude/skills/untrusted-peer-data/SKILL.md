@@ -15,7 +15,7 @@ SDP, the DTLS certificate, the signaling server's answers, and a link, which the
 party wrote. Decoding validates nothing: classifyControl casts parsed JSON to the
 interface and json.Unmarshal fills the Go struct. Validation is a named function where the
 value enters: parseMetadata and byteCount, parseEnd, parseReceived, parseAckConfirms,
-parseKC, ParseRefusalCode and the receiver limits in limits.go (Go); metadataProblem,
+parseKC, linkkey.Parse, code.ResolveLink, code.ParseRequestLink, ParseRefusalCode and the receiver limits in limits.go (Go); metadataProblem,
 normalizeFileSize, normalizeSha256, verifiedCountOf, ackConfirmsOf, parseKeyCheckTag,
 parseLinkKey, readShareFragment and refusalCodeOf (browser). The invariant: a peer value is safe at a sink only because THAT sink applied
 THAT sink's treatment. A value carries no "already sanitized" flag, and the engine's

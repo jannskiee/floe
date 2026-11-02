@@ -275,6 +275,8 @@ test('RE table matches the rendered-case names UIA reports', () => {
     assert.ok(!RE.code.test('CODE OR LINK'));
     assert.ok(!RE.code.test('SEND'));
     assert.ok(RE.link.test('https://floe.one/#room=0b1c'));
+    assert.ok(RE.link.test('https://floe.one/?s=a#k=AbC_dEf-GhIjKlMnOpQrSw&room=0b1c'), 'B11: a keyed share link');
+    assert.ok(!RE.link.test('https://floe.one/#k=AbC_dEf-GhIjKlMnOpQrSw'), 'a link cut after its key has no room');
     assert.ok(
         RE.busyFooter.test(
             'KEEP THIS WINDOW OPEN. CLOSING IT CANCELS THE TRANSFER.'
@@ -3563,6 +3565,11 @@ test('isRoomLink takes a share link and refuses the page around it', () => {
     const link = 'http://localhost:3000/?s=a7ac39a8#room=7d6d89b2-0742-4f75';
     assert.equal(isRoomLink(link), true);
     assert.equal(isRoomLink('https://www.floe.one/#room=abc'), true);
+    // B11: the key leads a keyed link, in either order, and a room must still be there.
+    assert.equal(isRoomLink('http://localhost:3000/?s=a7ac39a8#k=AbC_dEf-GhIjKlMnOpQrSw&room=7d6d89b2'), true);
+    assert.equal(isRoomLink('http://localhost:3000/#room=7d6d89b2&k=AbC_dEf-GhIjKlMnOpQrSw'), true);
+    assert.equal(isRoomLink('http://localhost:3000/#k=AbC_dEf-GhIjKlMnOpQrSw'), false);
+    assert.equal(isRoomLink('http://localhost:3000/#k=AbC_dEf-GhIjKlMnOpQrSw&room='), false);
     // What the wailsdev read actually handed the web receiver on 2026-09-22.
     assert.equal(
         isRoomLink(

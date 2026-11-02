@@ -20,6 +20,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"unicode"
+
+	"github.com/jannskiee/floe/cli/engine/linkkey"
 )
 
 var (
@@ -110,12 +112,29 @@ func seedName(s string) string {
 
 // FuzzParseRequestLink: never panics; a nil error means the link id has the
 // 11-character shape and the room id the UUID shape, and a second call
-// agrees; a failure returns two empty strings and one of the two fixed
-// sentinel errors, so no part of the input can reach a caller that prints it.
+// agrees; a key that parsed is in the input as written, since a keyed fragment
+// holding a % is refused; a failure returns the zero value and one of the three
+// fixed sentinel errors, so no part of the input can reach a caller that prints it.
 func FuzzParseRequestLink(f *testing.F) {
 	const room = "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"
 	const id = "Xk3p9Q0aB1c"
+	const key = "AAECAwQFBgcICQoLDA0ODw"
 	seeds := map[string]string{
+		"keyed":                      "https://floe.one/r/" + id + "#" + room + "." + key,
+		"keyed, trailing slash":      "https://floe.one/r/" + id + "/#" + room + "." + key,
+		"keyed, self-hosted":         "https://files.example.com/floe/r/" + id + "#" + room + "." + key,
+		"keyed, uppercase room":      "https://floe.one/r/" + id + "#" + strings.ToUpper(room) + "." + key,
+		"keyed, empty key":           "https://floe.one/r/" + id + "#" + room + ".",
+		"keyed, short key":           "https://floe.one/r/" + id + "#" + room + "." + key[:21],
+		"keyed, long key":            "https://floe.one/r/" + id + "#" + room + "." + key + "A",
+		"keyed, loose last char":     "https://floe.one/r/" + id + "#" + room + "." + key[:21] + "x",
+		"keyed, two dots":            "https://floe.one/r/" + id + "#" + room + "." + key + "." + key,
+		"keyed, percent in the room": "https://floe.one/r/" + id + "#%36f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f." + key,
+		"keyed, percent in the key":  "https://floe.one/r/" + id + "#" + room + ".%41AECAwQFBgcICQoLDA0ODw",
+		"keyed, percent-encoded dot": "https://floe.one/r/" + id + "#" + room + "%2E" + key,
+		"keyed, no room":             "https://floe.one/r/" + id + "#." + key,
+		"keyed, key alone":           "https://floe.one/r/" + id + "#" + key,
+		"share link shape":           "https://floe.one/r/" + id + "#k=" + key + "&room=" + room,
 		"valid":                      "https://floe.one/r/" + id + "#" + room,
 		"trailing slash":             "https://floe.one/r/" + id + "/#" + room,
 		"self-hosted base path":      "https://files.example.com/floe/r/" + id + "#" + room,
@@ -151,26 +170,38 @@ func FuzzParseRequestLink(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, input string) {
-		linkID, roomID, err := ParseRequestLink(input)
+		link, err := ParseRequestLink(input)
 		if err != nil {
-			if !errors.Is(err, errNotRequestLink) && !errors.Is(err, errRequestLinkRoom) {
+			if !errors.Is(err, errNotRequestLink) && !errors.Is(err, errRequestLinkRoom) && !errors.Is(err, errRequestLinkKey) {
 				t.Fatalf("a failure returned a non-sentinel error: %v", err)
 			}
-			if linkID != "" || roomID != "" {
-				t.Fatalf("a failed parse returned %q, %q; want both empty", linkID, roomID)
+			if link != (RequestLink{}) {
+				t.Fatal("a failed parse returned something; want the zero value")
 			}
 			return
 		}
-		if !fuzzLinkIDShape.MatchString(linkID) {
-			t.Fatalf("accepted link id %q is not 11 characters of [A-Za-z0-9_-]", linkID)
+		if !fuzzLinkIDShape.MatchString(link.LinkID) {
+			t.Fatalf("accepted link id %q is not 11 characters of [A-Za-z0-9_-]", link.LinkID)
 		}
-		if !fuzzRoomShape.MatchString(roomID) {
-			t.Fatalf("accepted room id %q is not UUID-shaped", roomID)
+		if !fuzzRoomShape.MatchString(link.RoomID) {
+			t.Fatalf("accepted room id %q is not UUID-shaped", link.RoomID)
 		}
-		// No "the input holds both values" check: url.Parse decodes percent
-		// escapes, so %36f1c... is the room id 6f1c... (the browser agrees).
-		if l2, r2, err2 := ParseRequestLink(input); err2 != nil || l2 != linkID || r2 != roomID {
-			t.Fatalf("not deterministic: %q, %q then %q, %q (%v)", linkID, roomID, l2, r2, err2)
+		// No "the input holds both values" check on a bare link: url.Parse decodes
+		// percent escapes, so %36f1c... is the room id 6f1c.... A keyed one holding
+		// any % is refused, so its room and its key are in the input as written.
+		if link.HasKey {
+			text := link.Key.Encode()
+			if !strings.Contains(input, link.RoomID+"."+text) {
+				t.Fatal("the key and the room that parsed are not in the input as written")
+			}
+			if back, err := linkkey.Parse(text); err != nil || back != link.Key {
+				t.Fatalf("the key does not round-trip: %v", err)
+			}
+		} else if link.Key != (linkkey.Key{}) {
+			t.Fatal("a link with no key returned key bytes")
+		}
+		if again, err2 := ParseRequestLink(input); err2 != nil || again != link {
+			t.Fatalf("not deterministic: %v", err2)
 		}
 	})
 }
@@ -180,17 +211,19 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-// FuzzResolve (FT-LINK-ECHO-F2): Resolve never panics, an input with a slash
+// FuzzResolve (FT-LINK-ECHO-F2): ResolveLink never panics, an input with a slash
 // or a hash never reaches the code API (every server code is lowercase words
 // joined by hyphens, so such an input is a link, resolved or refused here),
 // and whatever does reach it is shaped like a code with no room id in it, not
 // even a disguised one (review round 1, and E3; see fuzzLookupProblem). A
 // refusal is one of the fixed texts, so no part of the paste can reach a
-// caller that prints it. The code API is a counting transport in memory, so
+// caller that prints it. A link that came back with a key holds a room id, and
+// never went to the code API. The code API is a counting transport in memory, so
 // the target binds nothing and reaches no server.
 func FuzzResolve(f *testing.F) {
 	const room = "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"
 	const id = "Xk3p9Q0aB1c"
+	const key = "AAECAwQFBgcICQoLDA0ODw"
 	var lookups atomic.Int64
 	var lastPath atomic.Value // string: the path of the newest lookup
 	orig := client
@@ -202,6 +235,25 @@ func FuzzResolve(f *testing.F) {
 	f.Cleanup(func() { client = orig })
 
 	seeds := map[string]string{
+		"keyed link":                 "https://floe.one/#k=" + key + "&room=" + room,
+		"keyed link with a nonce":    "https://floe.one/?s=deadbeef#k=" + key + "&room=" + room,
+		"keyed link, room first":     "https://floe.one/#room=" + room + "&k=" + key,
+		"keyed link without scheme":  "floe.one/#k=" + key + "&room=" + room,
+		"k alone":                    "https://floe.one/#k=" + key,
+		"k cut short":                "https://floe.one/#k=" + key[:10],
+		"k and an empty room":        "https://floe.one/#k=" + key + "&room=",
+		"k and a query room":         "https://floe.one/?room=" + room + "#k=" + key,
+		"two keys":                   "https://floe.one/#k=" + key + "&k=" + key + "&room=" + room,
+		"two rooms":                  "https://floe.one/#k=" + key + "&room=" + room + "&room=" + room,
+		"a loose last character":     "https://floe.one/#k=" + key[:21] + "x&room=" + room,
+		"fragment encoded whole":     "https://floe.one/#k%3D" + key + "%26room%3D" + room,
+		"a semicolon":                "https://floe.one/#k=" + key + ";room=" + room,
+		"keyed request link":         "https://floe.one/r/" + id + "#" + room + "." + key,
+		"keyed fragment, short id":   "https://floe.one/r/" + id[:10] + "#" + room + "." + key,
+		"keyed fragment, no path":    "https://floe.one/#" + room + "." + key,
+		"bare fragment with no room": "#k=" + key,
+		"a key alone":                key,
+		"k= alone":                   "k=" + key,
 		"request link":               "https://floe.one/r/" + id + "#" + room,
 		"x1 no scheme":               "floe.one/r/" + id + "#" + room,
 		"x2 link id one short":       "https://floe.one/r/" + id[:10] + "#" + room,
@@ -248,8 +300,11 @@ func FuzzResolve(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, input string) {
 		before := lookups.Load()
-		roomID, err := Resolve("http://code.invalid", input)
+		link, err := ResolveLink("http://code.invalid", input)
 		if lookups.Load() != before {
+			if link.HasKey {
+				t.Fatal("the code API's answer came back with a key")
+			}
 			if strings.ContainsAny(input, "/#") {
 				t.Fatal("an input with a slash or a hash reached the code API")
 			}
@@ -261,10 +316,16 @@ func FuzzResolve(f *testing.F) {
 			return // the answer to a code: a 404 that quotes a code-shaped input
 		}
 		if err == nil {
+			if link.HasKey && !fuzzRoomShape.MatchString(link.RoomID) {
+				t.Fatalf("a keyed link came back with room %q", link.RoomID)
+			}
+			if !link.HasKey && link.Key != (linkkey.Key{}) {
+				t.Fatal("a link with no key returned key bytes")
+			}
 			return // a room link, resolved here
 		}
-		if roomID != "" {
-			t.Fatal("a refusal also returned a room id")
+		if link != (ResolvedLink{}) {
+			t.Fatal("a refusal also returned something; want the zero value")
 		}
 		if !fixed[err.Error()] {
 			t.Fatalf("a refusal came back as text that is not fixed: %q", err)
