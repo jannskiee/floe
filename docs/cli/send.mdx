@@ -177,6 +177,11 @@ connects, because Floe does not follow links to folders. A path you give that is
 folder is sent as that folder, under the name you typed. `floe` 1.11.0 and earlier sized a linked
 file by the link itself, which could stop the transfer partway.
 
+Floe sends only regular files and folders. A pipe, a socket or a device that you name directly stops
+the send before it connects, with `cannot send <path>: it is a pipe, a socket or a device, not a file`.
+Inside a folder, such entries, and links that point to them, are left out of the transfer without a
+message.
+
 The receiver checks where each file would go before saving it. It refuses a file nested more than
 32 levels deep, a path too long for it to save, or a file too large for its drive.
 `floe receive` 1.11.0 or later and Floe Desktop 0.3.0 or later make these checks. `floe send` then
@@ -201,7 +206,9 @@ the data. See [File checks](/how-it-works/file-checks#delivery-confirmation).
 
 ### Stop a send with Ctrl+C {#ctrl-c}
 
-Press `Ctrl+C` at any time to stop. `floe send` prints `Canceled.` and exits with status 130. Once
+Press `Ctrl+C` at any time to stop. `floe send` prints `Canceled.` and exits with status 130. On
+macOS and Linux, a hangup does the same: closing the terminal, losing the SSH session, or `SIGHUP`,
+unless you started `floe` with `nohup`. Once
 the two devices are connected, it first tells the receiver that the sender stopped and closes the
 connection, which takes about a second at most. What the other side sees depends on how far it had
 got:
@@ -379,7 +386,9 @@ case prints the usual `cannot read` error, which would repeat the link and its k
 
 ### Ctrl+C {#send-through-a-request-link-ctrl-c}
 
-`Ctrl+C` stops the send and exits with status 130, with one line:
+`Ctrl+C` stops the send and exits with status 130. On macOS and Linux, a hangup (a closed
+terminal, a lost SSH session, or `SIGHUP`) does the same unless `floe` runs under `nohup`. Either
+prints one line:
 
 - before they accept: `Canceled. Nothing was sent.`
 - after they accept: `You stopped this drop.` and how many files were saved, such as

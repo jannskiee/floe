@@ -712,7 +712,7 @@ two-space indent, with no prefix. `Ctrl+C` prints `Canceled.` and exits with sta
 | [`timed out waiting for delivery confirmation from peer`](#timed-out-waiting-for-delivery-confirmation-from-peer), from `floe send` | The receiver went quiet after the last file. | Ask what arrived. |
 | [`the connection closed before the receiver confirmed delivery`](#the-connection-closed-before-the-receiver-confirmed-delivery), from `floe send` | The receiving app did not say every file was saved. | Ask what arrived. |
 | [`the file shrank while it was being sent`](#the-file-shrank-or-grew-while-it-was-being-sent), or `grew`, from `floe send` | A file changed on disk while it was read. | Send it again once it stops changing. |
-| [`cannot read` or `cannot send` and a path](#cannot-read-a-path), from `floe send` | A path does not exist, or is a link to a folder. | Check the path. |
+| [`cannot read` or `cannot send` and a path](#cannot-read-a-path), from `floe send` | A path does not exist, is a link to a folder, or is a pipe, socket or device. | Check the path. |
 | [`receive stopped: a file's path is too deep or too long`](#receive-stopped-path-too-deep-or-too-long), from `floe receive` | A path in the transfer is too deep or long to save. | Ask the sender to zip it first. |
 | [`rejected the sender's file description`](#rejected-the-senders-file-description) and similar lines, from `floe receive` | The sending app sent something that cannot be right. | Ask the sender to send again or update Floe. |
 | [`a file did not match the SHA-256`](#a-file-did-not-match-the-sha-256), from `floe receive` | A file failed its SHA-256 check and was deleted. | Ask the sender to send it again. |
@@ -1213,6 +1213,7 @@ when you click **Send**. Each line names the path:
 |---|---|---|
 | `cannot read` and a path | A file or folder you added does not exist or cannot be opened, for example on a drive that was unplugged. | Check the path, or add the file again. |
 | `cannot walk` and a folder, then `cannot send` and a path ending `it is a link to a folder, which Floe does not follow` | A folder you send holds a link to another folder: a symbolic link or a junction, which are shortcuts the file system follows. | Send the folder the link points to on its own. |
+| `cannot send` and a path ending `it is a pipe, a socket or a device, not a file` | The path you named is not a regular file or folder. Inside a folder, such entries are left out without a message. | Send a regular file. To send a device's contents, copy them to a file first. |
 | `cannot walk` and a folder, then `cannot read` and a path | A link inside that folder points nowhere. | Remove the link, or restore what it pointed to. |
 | `cannot walk` and a folder, then another reason | A folder inside what you send could not be listed. | Check that you can open that folder. |
 
