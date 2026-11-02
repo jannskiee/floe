@@ -56,7 +56,7 @@ func TestLinkServerMismatch(t *testing.T) {
 		{floe, true, "https://api.floe.one:", true},
 		{floe, true, "https://api.floe.one/floe", true},
 		{floe, true, "https://api.floe.one?x=1", true},
-		{floe, true, "https://api.floe.one#x", true},
+		{floe, true, "https://api.floe.one#x", false},
 		{floe, true, "https://api.floe.one..", true},
 		{floe, true, "https://xapi.floe.one", true},
 		{floe, true, "https://floe.one.api.floe.one", true},
@@ -139,8 +139,8 @@ func TestResolveRefusesALinkWhoseHostCannotBeRead(t *testing.T) {
 		"file:///floe.one/#room=" + room,
 		"floe.one/?r=https://x#room=" + room,
 	} {
-		if id, err := Resolve("http://127.0.0.1:9", in); err == nil || id != "" {
-			t.Errorf("Resolve(%q) = %q, %v; want no room id and an error", in, id, err)
+		if id, err := resolveRoom("http://127.0.0.1:9", in); err == nil || id != "" {
+			t.Errorf("ResolveLink(%q) = %q, %v; want no room id and an error", in, id, err)
 		}
 	}
 	// Links whose host it can read still resolve, slash-mangled ones included.
@@ -149,8 +149,8 @@ func TestResolveRefusesALinkWhoseHostCannotBeRead(t *testing.T) {
 		"https:///floe.one/#room=" + room,
 		"files.example.com/?room=" + room,
 	} {
-		if id, err := Resolve("http://127.0.0.1:9", in); err != nil || id != room {
-			t.Errorf("Resolve(%q) = %q, %v; want %q", in, id, err, room)
+		if id, err := resolveRoom("http://127.0.0.1:9", in); err != nil || id != room {
+			t.Errorf("ResolveLink(%q) = %q, %v; want %q", in, id, err, room)
 		}
 	}
 }

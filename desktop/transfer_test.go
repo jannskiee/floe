@@ -2388,7 +2388,7 @@ func TestStartSendWalksTheFolderBeforeAnythingStarts(t *testing.T) {
 }
 
 // TestReceiveByCodeChecksTheLinkServerInOrder pins the wiring the helper test
-// cannot see: in receiveByCode the host rule runs after code.Resolve (so a
+// cannot see: in receiveByCode the host rule runs after code.ResolveLink (so a
 // request link keeps its own sentence) and before the first network call for
 // a link, and ReceiveByCode treats its two refusals as a paste mix-up, with
 // no failure toast. Read from the source, as server.test.js pins the order of
@@ -2404,11 +2404,11 @@ func TestReceiveByCodeChecksTheLinkServerInOrder(t *testing.T) {
 		t.Fatal("receiveByCode not found")
 	}
 	body := s[start:]
-	resolve := strings.Index(body, "code.Resolve(server, codeOrLink)")
+	resolve := strings.Index(body, "code.ResolveLink(server, codeOrLink)")
 	check := strings.Index(body, "linkServerRefusal(codeOrLink, server)")
 	fetch := strings.Index(body, "ice.FetchDetail(server)")
 	if resolve < 0 || check < 0 || fetch < 0 || !(resolve < check && check < fetch) {
-		t.Fatalf("want code.Resolve, then linkServerRefusal, then ice.FetchDetail; offsets %d, %d, %d", resolve, check, fetch)
+		t.Fatalf("want code.ResolveLink, then linkServerRefusal, then ice.FetchDetail; offsets %d, %d, %d", resolve, check, fetch)
 	}
 	wrapper := s[strings.Index(s, "func (a *App) ReceiveByCode("):start]
 	if !strings.Contains(wrapper, "errors.Is(err, errLinkFloeOneOtherServer) || errors.Is(err, errLinkOtherFloeServer)") {

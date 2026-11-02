@@ -1025,7 +1025,7 @@ export class WebLeg extends Leg {
                     .click({ timeout: this.budget(LINK_TIMEOUT_MS) });
                 const linkEl = page
                     .locator('code')
-                    .filter({ hasText: '#room=' });
+                    .filter({ hasText: /[#&]room=/ });
                 await linkEl.waitFor({
                     state: 'visible',
                     timeout: this.budget(LINK_TIMEOUT_MS),

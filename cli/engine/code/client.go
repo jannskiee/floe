@@ -15,14 +15,16 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/jannskiee/floe/cli/engine/linkkey"
 )
 
-// client bounds both calls. http.DefaultClient has no timeout, and Resolve's
+// client bounds both calls. http.DefaultClient has no timeout, and ResolveLink's
 // error is fatal to `floe receive`, so this is generous: a slow link that
 // resolves today must keep resolving.
 var client = &http.Client{Timeout: 30 * time.Second}
 
-// maxResponseBody bounds the /api/code answer Register and Resolve read. A
+// maxResponseBody bounds the /api/code answer Register and ResolveLink read. A
 // real one is under 100 bytes, and a JSON decoder holds a whole value before
 // it unmarshals, so unbounded a server could grow this process by whatever it
 // sent. The bound ice.ParseServers puts on /api/turn-credentials.
@@ -51,7 +53,7 @@ func Register(serverURL, roomId string) (string, error) {
 	return result.Code, nil
 }
 
-// ErrRequestLink and ErrDropLink are what Resolve answers for a link that is
+// ErrRequestLink and ErrDropLink are what ResolveLink answers for a link that is
 // meant to be opened in a web browser instead of typed into a receive command:
 // a request link (/r/<11 base64url characters>), and the drop link (/d/<id>,
 // with the legacy /drop/<id> spelling). They are sentinels, matched with
@@ -68,6 +70,7 @@ var (
 var (
 	errNotRequestLink  = errors.New("not a Floe request link")
 	errRequestLinkRoom = errors.New("that request link carries no room id")
+	errRequestLinkKey  = errors.New("that request link's key is incomplete or mistyped")
 )
 
 // The two browser-only link shapes, matched against the PATH and anchored at
@@ -75,7 +78,7 @@ var (
 // (https://files.example.com/floe/r/<id>) is recognized by its suffix and a
 // query string or fragment cannot fool either one. One trailing slash is
 // allowed because a browser adds it. requestLinkPath also captures the link
-// id, so ParseRequestLink and the Resolve check can never drift apart.
+// id, so ParseRequestLink and the ResolveLink check can never drift apart.
 var (
 	requestLinkPath = regexp.MustCompile(`(?:^|/)r/([A-Za-z0-9_-]{11})/?$`)
 	dropLinkPath    = regexp.MustCompile(`(?:^|/)(?:d|drop)/[A-Za-z0-9_-]+/?$`)
@@ -85,13 +88,13 @@ var (
 // package accepts out of a link fragment is one the server would accept.
 var uuidShape = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
-// errInvalidURL is Resolve's answer for a link it cannot use: one that does
+// errInvalidURL is ResolveLink's answer for a link it cannot use: one that does
 // not parse as a URL, or one whose host cannot be read. Fixed text on purpose
 // (D-144.7): url.Error quotes the input, and for a request link that is the
 // room id in its fragment.
 var errInvalidURL = errors.New("invalid URL")
 
-// errNotACode is Resolve's answer for an input in the code's place (no
+// errNotACode is ResolveLink's answer for an input in the code's place (no
 // scheme, no slash, no hash) that is not shaped like a code: an underscore or
 // a space typed into one, or a room id pasted alone. It used to be
 // errInvalidURL, which sent someone who typed a code to look for a link
@@ -99,9 +102,10 @@ var errInvalidURL = errors.New("invalid URL")
 // before the code lookup can hold a room id.
 var errNotACode = errors.New("code not recognized: a code is words joined by hyphens, like olive-tiger-castle")
 
-// ErrIncompleteLink is Resolve's answer for a room link whose #room= or
-// ?room= value is not a room id: cut short when it was copied, or mistyped.
-// It is refused before any network call, so the value never reaches a
+// ErrIncompleteLink is ResolveLink's answer for a room link whose #room= or
+// ?room= value is not a room id, cut short when it was copied or mistyped, and
+// for a link whose fragment holds a k but not exactly one valid key and one valid
+// room id. It is refused before any network call, so the value never reaches a
 // server, whose join answered "Invalid room ID" (A4-B27). A sentinel, so a
 // caller can show its own line for it; its text is fixed and quotes nothing.
 var ErrIncompleteLink = errors.New("the room id in this link is incomplete or mistyped")
@@ -150,18 +154,122 @@ func holdsRoomID(s string) bool {
 }
 
 // HoldsRoomID is holdsRoomID for a caller that must never print an input
-// carrying a room id back: floe receive, when Resolve refuses such an input
+// carrying a room id back: floe receive, when ResolveLink refuses such an input
 // for its shape (CLI-04).
 func HoldsRoomID(s string) bool { return holdsRoomID(s) }
 
-// Resolve converts a code phrase or URL to a room UUID.
+// midWordCapital is what no keyboard's autocapitalize makes of a code: a capital
+// straight after a lower-case letter or a digit.
+var midWordCapital = regexp.MustCompile(`[a-z0-9][A-Z]`)
+
+// keyTextAlone reports whether s is a link key's text and could not be a code
+// someone typed. A key is 22 characters of the base64url alphabet, so one that holds
+// no underscore passes codeShape about as often as not, and a double click in a
+// terminal selects exactly it. "olive-tiger-castle-dog" is key-shaped too, so a
+// plain-words spelling, in the capitals a phone types as well, stays a code.
+func keyTextAlone(s string) bool {
+	if _, err := linkkey.Parse(s); err != nil {
+		return false
+	}
+	return strings.Contains(s, "_") || midWordCapital.MatchString(s)
+}
+
+// IsLinkKeyText is keyTextAlone for a caller outside this package: s, whole, is a
+// link key's text and could not be a code someone typed.
+func IsLinkKeyText(s string) bool { return keyTextAlone(s) }
+
+// keyTextRun is a run of the characters a link key is written in.
+var keyTextRun = regexp.MustCompile(`[A-Za-z0-9_-]+`)
+
+// HoldsLinkKey reports whether s holds a link key's text on its own, for a caller
+// that must never print an input carrying one back: nothing in s says it came from a
+// link, so only its shape can.
+func HoldsLinkKey(s string) bool {
+	for _, run := range keyTextRun.FindAllString(s, -1) {
+		if keyTextAlone(run) {
+			return true
+		}
+	}
+	return false
+}
+
+// ResolvedLink is what a code or a room link comes to: the room to join and, for a
+// link that carries one, its key. HasKey says which, because the zero Key is a key's
+// shape too. Key is exported so a printed value shows only its redacted form.
+type ResolvedLink struct {
+	RoomID string
+	Key    linkkey.Key
+	HasKey bool
+}
+
+// fragmentParams reads a raw fragment the way the browser's URLSearchParams reads
+// location.hash, so the two parsers take one key from one link: split on & and at the
+// first =, each side query-decoded, with no error of any kind and a ; as an ordinary
+// character. url.ParseQuery drops a pair with a ; in it and reports an error.
+func fragmentParams(raw string) map[string][]string {
+	params := map[string][]string{}
+	for _, pair := range strings.Split(raw, "&") {
+		if pair == "" {
+			continue
+		}
+		name, value, _ := strings.Cut(pair, "=")
+		params[queryDecoded(name)] = append(params[queryDecoded(name)], queryDecoded(value))
+	}
+	return params
+}
+
+// queryDecoded is one fragmentParams side. A bad escape stays as it stands, as in
+// URLSearchParams, though url.Parse has already refused one in a whole link.
+func queryDecoded(s string) string {
+	if decoded, err := url.QueryUnescape(s); err == nil {
+		return decoded
+	}
+	return s
+}
+
+// namesDamagedKey reports whether a parameter's name is a link key's, or was before
+// something changed it: another letter case, or a space, a mark or an invisible
+// character at either end (a soft wrap, a mail client, a #! or a #/ in front). No link
+// Floe writes has such a name, so nothing keyless is lost. Mirrored by damagedKeyName
+// in client/lib/linkKey.ts, and testdata/link-shapes.json holds the two together.
+func namesDamagedKey(params map[string][]string) bool {
+	for name := range params {
+		trimmed := strings.TrimFunc(name, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
+		if strings.EqualFold(trimmed, "k") {
+			return true
+		}
+	}
+	return false
+}
+
+// keyedRoom reads a fragment that holds a k. It is whole only with exactly one key
+// that parses and exactly one room in the fragment that is a room id. Anything else
+// is ErrIncompleteLink with nothing returned, so no caller can drop the key and join:
+// that would be a downgrade, which is also why the query's room is never read here.
+func keyedRoom(params map[string][]string) (ResolvedLink, error) {
+	keys, rooms := params["k"], params["room"]
+	if len(keys) != 1 || len(rooms) != 1 || !uuidShape.MatchString(rooms[0]) {
+		return ResolvedLink{}, ErrIncompleteLink
+	}
+	key, err := linkkey.Parse(keys[0])
+	if err != nil {
+		return ResolvedLink{}, ErrIncompleteLink
+	}
+	return ResolvedLink{RoomID: rooms[0], Key: key, HasKey: true}, nil
+}
+
+// ResolveLink converts a code phrase or URL to a room UUID, and a key when the link
+// carries one. It replaced Resolve, so no caller can keep a shape that drops the key.
 //   - "olive-tiger-castle"              → calls GET /api/code/olive-tiger-castle
+//   - "https://floe.one/#k=key&room=uuid" → the room and the key, from the URL fragment
 //   - "https://floe.one/#room=uuid"     → extracts the room from the URL fragment
 //   - "https://floe.one/?room=uuid"     → extracts the room query parameter
 //   - "floe.one/#room=uuid"             → the same, read as https (no code has a / or #)
 //   - "https://floe.one/r/<id>#uuid"    → ErrRequestLink, a browser-only link
+//   - "https://floe.one/r/<id>#uuid.key" → ErrRequestLink, the same with its key
 //   - "https://floe.one/d/<id>"         → ErrDropLink, the same for a drop link
 //   - "https://floe.one/#room=6f1c2b9e" → ErrIncompleteLink, a room value that is not a room id
+//   - "https://floe.one/#k=key"         → ErrIncompleteLink, a key with no whole room beside it
 //   - a link that does not parse         → the fixed "invalid URL", no request
 //   - anything else not shaped like a code → the fixed errNotACode, no request
 //
@@ -172,8 +280,9 @@ func HoldsRoomID(s string) bool { return holdsRoomID(s) }
 // which sent the room id and the link id to the server, and the other shapes
 // came back in an error that quoted them. Only a code-shaped input is ever
 // looked up, so a room id pasted alone, a room link that lost its slash or a
-// percent-encoded link never reaches the server either.
-func Resolve(serverURL, input string) (string, error) {
+// percent-encoded link never reaches the server either, and neither does a link key
+// pasted alone.
+func ResolveLink(serverURL, input string) (ResolvedLink, error) {
 	input = unwrapPaste(strings.TrimSpace(input))
 
 	// Every server code is lowercase words joined by hyphens (generateCode in
@@ -190,31 +299,47 @@ func Resolve(serverURL, input string) (string, error) {
 	if strings.Contains(input, "://") {
 		u, err := url.Parse(input)
 		if err != nil {
-			return "", errInvalidURL
+			return ResolvedLink{}, errInvalidURL
 		}
 		// A request link or a drop link is not a room link. Answer with a
 		// sentinel before the room lookup below, so the caller can print the
 		// one approved sentence instead of the raw "URL does not contain a
 		// room id" text, which says nothing a person could act on.
 		if requestLinkPath.MatchString(u.Path) {
-			return "", ErrRequestLink
+			return ResolvedLink{}, ErrRequestLink
 		}
 		if dropLinkPath.MatchString(u.Path) {
-			return "", ErrDropLink
+			return ResolvedLink{}, ErrDropLink
 		}
 		// A fragment that is a bare room id is a request link whatever its
 		// path says (a link id a character short, an extra segment): that is
 		// the request link's own shape (ParseRequestLink), and a room link
-		// always spells its fragment #room=, so no room link can match.
-		if uuidShape.MatchString(u.Fragment) {
-			return "", ErrRequestLink
+		// always spells its fragment #room=, so no room link can match. So is
+		// a room id with anything behind a dot, where a keyed one holds its key.
+		if room, _, _ := strings.Cut(u.Fragment, "."); uuidShape.MatchString(room) {
+			return ResolvedLink{}, ErrRequestLink
 		}
 		// A link whose host LinkHost cannot read (a label typed in front of it, a
 		// file: URL, a "://" inside a query) would pass the host check
 		// (CheckLinkServer) as if it were a code, and its room id would go to
 		// whichever server is chosen. Refuse it before the room id is taken.
 		if LinkHost(input) == "" {
-			return "", errInvalidURL
+			return ResolvedLink{}, errInvalidURL
+		}
+		// A fragment with a k, read raw, as the browser reads location.hash. Two
+		// more shapes count as holding one, so the room beside it is never taken
+		// without it: a mail client that encoded the whole fragment left a k only
+		// the decoded fragment shows, and a ; hides a k from this reading.
+		params := fragmentParams(u.EscapedFragment())
+		_, rawKey := params["k"]
+		_, decodedKey := fragmentParams(u.Fragment)["k"]
+		if rawKey || decodedKey || strings.Contains(u.Fragment, ";k=") {
+			return keyedRoom(params)
+		}
+		// What was a k before something changed it, or a k moved into the query, is
+		// a key this reading cannot take. The room beside it is not taken without it.
+		if namesDamagedKey(params) || namesDamagedKey(fragmentParams(u.Fragment)) || namesDamagedKey(fragmentParams(u.RawQuery)) {
+			return ResolvedLink{}, ErrIncompleteLink
 		}
 		// Newer links keep the room id in the fragment (#room=uuid) so it never
 		// leaks to servers or analytics; older links use the ?room= query param.
@@ -225,14 +350,14 @@ func Resolve(serverURL, input string) (string, error) {
 			}
 		}
 		if roomId == "" {
-			return "", fmt.Errorf("URL does not contain a room id (#room= or ?room=)")
+			return ResolvedLink{}, fmt.Errorf("URL does not contain a room id (#room= or ?room=)")
 		}
 		// The server's own shape (uuidShape, in any letter case); the id is
 		// returned as written, since a room id is never folded.
 		if !uuidShape.MatchString(roomId) {
-			return "", ErrIncompleteLink
+			return ResolvedLink{}, ErrIncompleteLink
 		}
-		return roomId, nil
+		return ResolvedLink{RoomID: roomId}, nil
 	}
 
 	// Otherwise treat it as a word code and resolve via the server. Fold case
@@ -246,47 +371,47 @@ func Resolve(serverURL, input string) (string, error) {
 	// so can a room id in fullwidth or lookalike letters or without its
 	// hyphens (the increment's review, E3).
 	code := strings.ToLower(input)
-	if !codeShape.MatchString(code) || holdsRoomID(code) {
-		return "", errNotACode
+	if !codeShape.MatchString(code) || holdsRoomID(code) || keyTextAlone(input) {
+		return ResolvedLink{}, errNotACode
 	}
 	resp, err := client.Get(serverURL + "/api/code/" + url.PathEscape(code))
 	if err != nil {
-		return "", fmt.Errorf("could not reach signaling server: %w", err)
+		return ResolvedLink{}, fmt.Errorf("could not reach signaling server: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return "", fmt.Errorf("code %q not found: it was already used, the sender left, or it expired (a code lasts 10 minutes at most)", input)
+		return ResolvedLink{}, fmt.Errorf("code %q not found: it was already used, the sender left, or it expired (a code lasts 10 minutes at most)", input)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("server returned %d when resolving code", resp.StatusCode)
+		return ResolvedLink{}, fmt.Errorf("server returned %d when resolving code", resp.StatusCode)
 	}
 
 	var result struct {
 		RoomID string `json:"roomId"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBody)).Decode(&result); err != nil || result.RoomID == "" {
-		return "", fmt.Errorf("invalid response from code API")
+		return ResolvedLink{}, fmt.Errorf("invalid response from code API")
 	}
-	return result.RoomID, nil
+	return ResolvedLink{RoomID: result.RoomID}, nil
 }
 
 // slashedStart is the start of a link that a browser reads as "https://" and
 // url.Parse does not: an http or https scheme followed by any run of slashes
 // or backslashes (https:/host, https:///host), or a run of slashes with no
-// scheme (//host, /host). Resolve still takes the room id out of such a link,
+// scheme (//host, /host). ResolveLink still takes the room id out of such a link,
 // with no host, so LinkHost must name the host the link's text names (FU-53
 // review 1 L-1).
 var slashedStart = regexp.MustCompile(`(?i)^(?:https?:)?[/\\]+`)
 
 // LinkHost returns the host the link's text names, the host a room link's id
 // came from, so a caller can check where a link points before it uses that id
-// (FU-53). It reads input as Resolve does (trimmed, one pair of angle brackets
+// (FU-53). It reads input as ResolveLink does (trimmed, one pair of angle brackets
 // or quotes unwrapped, and read as https when it has a slash or a hash and no
 // scheme), and also reads a slash-mangled start (slashedStart) as a browser
-// does, where Resolve finds no host at all. It returns "" for an input Resolve
-// does not read as a link (a code) and for a link that does not parse, and it
-// makes no network call.
+// does, where ResolveLink finds no host at all. It returns "" for an input
+// ResolveLink does not read as a link (a code) and for a link that does not parse,
+// and it makes no network call.
 func LinkHost(input string) string {
 	s := unwrapPaste(strings.TrimSpace(input))
 	if m := slashedStart.FindString(s); m != "" {
@@ -319,31 +444,62 @@ func unwrapPaste(s string) string {
 	return s
 }
 
-// ParseRequestLink splits a request link into its link id and the room id its
-// fragment carries:
+// RequestLink is a request link's parts. HasKey says whether it carries a key: a
+// bare link from Floe Desktop 1.0 does not, and a visitor then has nothing to check.
+// Key is exported so a printed value shows only its redacted form.
+type RequestLink struct {
+	LinkID string
+	RoomID string
+	Key    linkkey.Key
+	HasKey bool
+}
+
+// ParseRequestLink splits a request link into its link id, the room id its fragment
+// carries and, behind the fragment's one dot, its key:
 //
+//	https://floe.one/r/Xk3p9Q0aB1c#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f.AAECAwQFBgcICQoLDA0ODw
 //	https://floe.one/r/Xk3p9Q0aB1c#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f
 //
 // It is a local shape check and nothing more. It makes no network call, so a
 // pasted link is never turned into a request to anyone, and it returns no part
 // of the input inside its errors, so a caller that logs or prints the failure
-// cannot leak the link or the room id in it.
+// cannot leak the link, the room id or the key in it. Every failure returns the
+// zero value, so no caller can take the room and drop a key that did not parse.
 //
-// The fragment is a bare UUID. The #room= form is a room link and is rejected
-// here; client/lib/request/requestLink.ts mirrors this shape in the browser.
-func ParseRequestLink(input string) (linkID, roomID string, err error) {
+// The fragment is a UUID with an optional key. The #room= form is a room link and is
+// rejected here; client/lib/request/requestLink.ts mirrors this shape in the browser.
+// That parser reads the raw location.hash, and this one url.Parse's decoded fragment,
+// so a keyed fragment holding any % is refused: the two then give one answer.
+// testdata/link-shapes.json holds them to it.
+func ParseRequestLink(input string) (RequestLink, error) {
 	u, parseErr := url.Parse(strings.TrimSpace(input))
 	if parseErr != nil {
-		return "", "", errNotRequestLink
+		return RequestLink{}, errNotRequestLink
 	}
 	m := requestLinkPath.FindStringSubmatch(u.Path)
 	if m == nil {
-		return "", "", errNotRequestLink
+		return RequestLink{}, errNotRequestLink
 	}
+	// A key moved into the query cannot be read, and the fragment beside it must not
+	// then pass as a bare link.
+	if namesDamagedKey(fragmentParams(u.RawQuery)) {
+		return RequestLink{}, errRequestLinkKey
+	}
+	roomID, keyText, keyed := strings.Cut(u.Fragment, ".")
 	// Never folded: a room id's case is significant to the server, which is
-	// the same reason the URL branch of Resolve does not fold one either.
-	if !uuidShape.MatchString(u.Fragment) {
-		return "", "", errRequestLinkRoom
+	// the same reason the URL branch of ResolveLink does not fold one either.
+	if !uuidShape.MatchString(roomID) {
+		return RequestLink{}, errRequestLinkRoom
 	}
-	return m[1], u.Fragment, nil
+	if !keyed {
+		return RequestLink{LinkID: m[1], RoomID: roomID}, nil
+	}
+	if strings.Contains(u.EscapedFragment(), "%") {
+		return RequestLink{}, errRequestLinkKey
+	}
+	key, err := linkkey.Parse(keyText)
+	if err != nil {
+		return RequestLink{}, errRequestLinkKey
+	}
+	return RequestLink{LinkID: m[1], RoomID: roomID, Key: key, HasKey: true}, nil
 }

@@ -285,15 +285,16 @@ func TestHandleInterruptsLeavesAnEndedStepsCommandAlone(t *testing.T) {
 }
 
 // TestPlainSendEndChangesOnlyStopped (D-159): the plain send prints its own
-// line for code stopped, and every other code and error exactly as before,
-// so floe send --to, which never calls it, keeps TL-24 (sendto_test.go pins
-// "They stopped this drop." for the request-link send).
+// line for code stopped, and every other code and error exactly as before but
+// unverified (TestPlainSendEndMapsTheKeyCheck), so floe send --to, which never
+// calls it, keeps TL-24 (sendto_test.go pins "They stopped this drop." for the
+// request-link send).
 func TestPlainSendEndChangesOnlyStopped(t *testing.T) {
 	if got := plainSendEnd(&transfer.PeerStoppedError{Code: transfer.CodeStopped, Saved: 2}); got == nil || got.Error() != "They stopped the transfer." {
 		t.Fatalf("code stopped prints %v, want the approved plain line", got)
 	}
 	for _, c := range transfer.RefusalCodes {
-		if c == transfer.CodeStopped {
+		if c == transfer.CodeStopped || c == transfer.CodeUnverified {
 			continue
 		}
 		in := &transfer.PeerStoppedError{Code: c}

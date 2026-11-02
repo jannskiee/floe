@@ -41,6 +41,11 @@ var errFloeLinkOtherServer = errors.New("That link is for floe.one, but this Flo
 // final run, approved-copy-cli.txt).
 var errOtherLinkFloeServer = errors.New("That link is for another Floe server, but this Floe is set to use floe.one. Use --server with that server's address, then try again.")
 
+// errReceiveUnverified ends a receive whose sender could not prove it holds the
+// link's key, or that stopped because it could not confirm this side (PLAN.md "New
+// copy"). execute prints it as an outcome.
+var errReceiveUnverified = errors.New("Couldn't confirm who sent this link. Nothing was saved. Ask them for a new link.")
+
 var receiveCmd = &cobra.Command{
 	Use:   "receive <code | link>",
 	Short: "Receive files from a peer",
@@ -78,9 +83,9 @@ func runReceive(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 
-	// 1. Resolve the input to a room ID
+	// 1. Resolve the input to a room ID, and a key when the link holds one
 	//    Input can be: "olive-tiger-castle" (code) or a full URL
-	roomId, err := code.Resolve(flagServer, input)
+	link, err := code.ResolveLink(flagServer, input)
 	if err != nil {
 		// A request or drop link (TL-33, E-10) comes back as the engine's
 		// sentinel, whose text is the approved sentence. Never put in the
@@ -95,13 +100,14 @@ func runReceive(cmd *cobra.Command, args []string) error {
 			return outcomeError{err}
 		}
 		// A room link whose room value is not a room id, cut short when it
-		// was copied (A4-B27): the request-link send's line for an incomplete
-		// link (TL-09), whose advice holds for a room link too, as an outcome
-		// and without the wrapper, which would print the link back.
+		// was copied (A4-B27), or whose key has no whole room beside it: the
+		// request-link send's line for an incomplete link (TL-09), whose advice
+		// holds for a room link too, as an outcome and without the wrapper,
+		// which would print the link back.
 		if errors.Is(err, code.ErrIncompleteLink) {
 			return outcomeError{errors.New(lineIncompleteLink)}
 		}
-		// A request link in a shape Resolve does not refuse as one (a
+		// A request link in a shape ResolveLink does not refuse as one (a
 		// percent-encoded #, a bad escape, a mail-safety redirector, the whole
 		// link percent-encoded) still carries its key, and the wrapper below
 		// would print it. The send refuses the same shapes by the same rule
@@ -111,13 +117,13 @@ func runReceive(cmd *cobra.Command, args []string) error {
 			return outcomeError{code.ErrRequestLink}
 		}
 		// An input that holds a room id, or is a room link, in a shape
-		// Resolve cannot use: a room id pasted alone (a request link's
+		// ResolveLink cannot use: a room id pasted alone (a request link's
 		// fragment copied without the link), a room link percent-encoded
 		// whole, inside a mail-safety redirector or behind a host that cannot
-		// be read, or one cut off at its room=. The incomplete-link line
-		// again (TL-09), whose advice fits each, because the wrapper below
-		// would print the room id (CLI-04). Only code-shaped input and links
-		// that carry no room reach the wrapper.
+		// be read, or one cut off at its room= or its key. The incomplete-link
+		// line again (TL-09), whose advice fits each, because the wrapper below
+		// would print the room id or the key (CLI-04, B9, B12). Only code-shaped
+		// input and links that carry neither reach the wrapper.
 		if code.HoldsRoomID(input) || looksLikeRoomLink(input) {
 			return outcomeError{errors.New(lineIncompleteLink)}
 		}
@@ -125,7 +131,7 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	}
 	// A room link names the server that holds its room, and join-room hands
 	// the room id to whichever server is chosen, so the two must agree before
-	// any network call: Resolve reads a link without one, and only a code,
+	// any network call: ResolveLink reads a link without one, and only a code,
 	// which has no host, goes to the server. A floe.one link with another
 	// server chosen (FLOE_SERVER, a self-hoster's standing setting, or
 	// --server), and a link on another host with none chosen, both end here,
@@ -173,7 +179,7 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	defer sc.Close()
 
 	// 5. Join the room (we are the second → role = receiver)
-	if err := sc.JoinRoom(roomId); err != nil {
+	if err := sc.JoinRoom(link.RoomID); err != nil {
 		return joinFailed(sc, err)
 	}
 
@@ -230,16 +236,27 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	// peer.Early. This is the side that was actually losing the sender's first
 	// message.
 	early := conn.Early()
-	err = transfer.ReceiveFilesWithOptions(dc, absOutput, flagAutoAccept, version, statsURL, transfer.ReceiveOptions{
+	opts := transfer.ReceiveOptions{
 		Messages: early.Msgs,
 		Closed:   early.Closed,
 		// For Ctrl+C's stop: a count of the files committed under their final
 		// names, and the engine's word that it has finished.
 		OnFileDone:     func(transfer.FileDone) { r.saved.Add(1) },
 		OnReceivedSent: r.receivedSent,
-	})
+	}
+	// A link that holds a key is checked; a code, or an old link, has nothing to
+	// check with, and the receive is as it always was.
+	if link.HasKey {
+		opts.KeyCheck = &transfer.KeyCheck{Key: link.Key, RoomID: link.RoomID}
+	}
+	err = transfer.ReceiveFilesWithOptions(dc, absOutput, flagAutoAccept, version, statsURL, opts)
 	if !r.finish() {
 		return park()
+	}
+	// With or without a key: a sender's own stop for this code ends here too. Any
+	// other way the check can end has fixed engine text, which names no key.
+	if errors.Is(err, transfer.ErrSenderNotConfirmed) {
+		return outcomeError{errReceiveUnverified}
 	}
 	return err
 }

@@ -183,7 +183,7 @@ export const STRINGS_RELEASED = Object.freeze({
 // through sameText, never ===.
 export const RE = Object.freeze({
     code: /^[a-z]+(-[a-z]+){2,3}$/i,
-    link: /https?:\/\/\S*#room=/i,
+    link: /https?:\/\/\S*[#&]room=/i,
     sendButton: /^Send \d+ items?$/i,
     sent: /^Sent \d+ items?$/i,
     savedTo: /^Saved to (.+)$/i,
@@ -355,12 +355,13 @@ export const ACCEPT_WAIT_MS = 1_200;
 export const REQUEST_POLL_MS = 50;
 
 /**
- * A request link (spec 06 4.4 Link: web + "/r/" + linkId + "#" + roomId).
- * The room id after `#` is a secret for the life of the link: it goes to
- * the visitor leg and nowhere else (never a log line, audit.md or run.json).
+ * A request link (spec 06 4.4 Link: web + "/r/" + linkId + "#" + roomId, and
+ * "." + k on a keyed one). The fragment is a secret for the life of the link:
+ * it goes to the visitor leg and nowhere else (never a log line, audit.md or
+ * run.json).
  */
 export const REQUEST_LINK_RE =
-    /^https?:\/\/[^\s/#]+\/r\/[A-Za-z0-9_-]+#[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    /^https?:\/\/[^\s/#]+\/r\/[A-Za-z0-9_-]+#[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\.[A-Za-z0-9_-]{21}[AQgw])?$/i;
 
 /** The link with its room fragment removed, for any line a person reads. */
 export function redactRequestLink(link) {
@@ -770,7 +771,7 @@ export function sendButtonName(n) {
 
 /**
  * A share link the receiver can be driven with: an http(s) URL carrying a
- * `#room=` fragment. The wailsdev page's read used to hand the whole page
+ * `room` in its fragment. The wailsdev page's read used to hand the whole page
  * text to the web receiver, which failed as
  * `page.goto: Cannot navigate to invalid URL` (H-DIR-D2W, 2026-09-22), so
  * what the driver reads is parsed before it is believed.
@@ -784,8 +785,7 @@ export function isRoomLink(value) {
     }
     return (
         (url.protocol === 'http:' || url.protocol === 'https:') &&
-        url.hash.startsWith('#room=') &&
-        url.hash.length > '#room='.length
+        Boolean(new URLSearchParams(url.hash.slice(1)).get('room'))
     );
 }
 
@@ -4176,7 +4176,7 @@ export class DesktopLeg extends Leg {
                 }
             );
         }
-        // desktop/transfer.go receiveByCode: code.Resolve (code only), ice.Fetch, /ws.
+        // desktop/transfer.go receiveByCode: code.ResolveLink (code only), ice.Fetch, /ws.
         this.spend('turn');
         this.spend('conn');
         if (opts.input === 'code') this.spend('code');

@@ -23,8 +23,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jannskiee/floe/cli/engine/ice"
+	"github.com/jannskiee/floe/cli/engine/linkkey"
 	"github.com/jannskiee/floe/cli/engine/peer"
 	"github.com/jannskiee/floe/cli/engine/signaling"
+	"github.com/jannskiee/floe/cli/engine/transfer"
 	"github.com/pion/webrtc/v4"
 )
 
@@ -56,7 +58,9 @@ func runSend(ev *events, args []string) {
 	malformed := fs.Bool("malformed-hash", false, "send each file's digest upper-cased")
 	wait := fs.Duration("refusal-wait", 10*time.Second, "how long to wait for the peer's refusal")
 	timeout := fs.Duration("timeout", 2*time.Minute, "overall deadline for the whole run")
-	if err := fs.Parse(args); err != nil || fs.NArg() == 0 || *timeout <= 0 || *wait <= 0 {
+	keyed := fs.Bool("key", false, "print a keyed link, and send the proof ahead of the first metadata")
+	kcMode := fs.String("kc", "", "with -key, fail the check: bad proves under a different key, none sends no proof")
+	if err := fs.Parse(args); err != nil || fs.NArg() == 0 || *timeout <= 0 || *wait <= 0 || !validKCFlags(*keyed, *kcMode) {
 		ev.usage()
 	}
 	if *corrupt && *malformed {
@@ -107,8 +111,21 @@ func runSend(ev *events, args []string) {
 		ev.fail("role")
 	}
 	// The link the other side opens. Only the room id the caller passed or this
-	// process generated goes into it.
-	ev.emit(map[string]interface{}{"event": "link", "link": strings.TrimRight(*web, "/") + "/#room=" + *room})
+	// process generated goes into it, and under -key the key this process made,
+	// in the order floe send writes them.
+	link := strings.TrimRight(*web, "/") + "/#room=" + *room
+	var kc *transfer.KeyCheck
+	if *keyed {
+		key, err := linkkey.New()
+		if err != nil {
+			ev.fail("key")
+		}
+		link = strings.TrimRight(*web, "/") + "/#k=" + key.Encode() + "&room=" + *room
+		if kc, err = harnessKeyCheck(key, *room, *kcMode); err != nil {
+			ev.fail("key")
+		}
+	}
+	ev.emit(map[string]interface{}{"event": "link", "link": link})
 
 	select {
 	case <-sc.PeerConnected:
@@ -132,6 +149,19 @@ func runSend(ev *events, args []string) {
 	ev.emit(map[string]interface{}{"event": "channel-open"})
 	emitRoute(ev, conn.ConnectionType)
 	early := conn.Early()
+
+	// The file sender's frame is TEXT, and it leads. The harness reads no proof
+	// back: a detecting sender has nothing to wait for, and what a receiver does
+	// with this one is what the specs look at.
+	if kc != nil {
+		proof, err := transfer.LinkKeyProof(dc, *kc, true)
+		if err != nil {
+			ev.fail("proof")
+		}
+		if err := dc.SendText(string(proof)); err != nil {
+			ev.fail("proof")
+		}
+	}
 
 	for i, path := range paths {
 		if !sendOneFile(ev, dc, early.Msgs, early.Closed, path, sizes[i], i+1, len(paths), totalBytes, mode) {
@@ -293,7 +323,7 @@ func refusalCode(raw []byte) string {
 		return "other"
 	}
 	switch frame.Code {
-	case "hash-mismatch", "write-failed":
+	case "hash-mismatch", "write-failed", "unverified":
 		return frame.Code
 	default:
 		return "other"

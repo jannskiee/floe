@@ -11,6 +11,7 @@ import {
     headline,
     newSafety,
     redact,
+    redactDeep,
     redactRequestLinks,
     redactRooms,
     relayBytesOf,
@@ -451,6 +452,62 @@ test('headline counts FLAKY and ERROR on their own, never inside SKIP or FAIL', 
         ),
         '1 FAIL, 1 ERROR (S-DIR-W2W, S-DIR-W2C); 1 SKIP, 1 FLAKY; all surfaces on latest'
     );
+});
+
+// B11: k must never reach run.json or audit.md. A printed link now leads with it, a
+// link can be cut right after it, and a request link carries it behind a dot.
+test('redaction keeps a link key out of every shape a link can take', () => {
+    const key = 'AbC_dEf-GhIjKlMnOpQrSw';
+    const room = '11111111-2222-4333-8444-555555555555';
+    const shapes = {
+        'the CLI link': `https://www.floe.one/#k=${key}&room=${room}`,
+        'the web and desktop link': `https://www.floe.one/?s=deadbeef#k=${key}&room=${room}`,
+        'room first': `https://www.floe.one/#room=${room}&k=${key}`,
+        'cut after the key': `https://www.floe.one/#k=${key}`,
+        'cut inside the key': `https://www.floe.one/#k=${key.slice(0, 12)}`,
+        'behind another parameter': `https://www.floe.one/#x=1&k=${key}`,
+        'no scheme': `www.floe.one/#k=${key}&room=${room}`,
+        'the fragment alone': `#k=${key}&room=${room}`,
+        'k= alone': `k=${key}`,
+        'a keyed request link': `https://www.floe.one/r/Xk3p9Q0aB1c#${room}.${key}`,
+        'a keyed request link, no scheme': `localhost:3000/r/Xk3p9Q0aB1c#${room}.${key}`,
+        'a request fragment on no request path': `https://www.floe.one/#${room}.${key}`,
+        'a room and a key alone': `${room}.${key}`,
+    };
+    const cut = key.slice(0, 12);
+    for (const [name, link] of Object.entries(shapes)) {
+        for (const text of [
+            link,
+            `stderr: floe receive "${link}" failed`,
+            `navigating to '${link}'.`,
+            `(see ${link})`,
+        ]) {
+            for (const out of [
+                redactRooms(text),
+                redactRooms(text, [link]),
+                JSON.stringify(redactDeep({ a: [text], b: { c: text } }, [])),
+            ]) {
+                assert.ok(!out.includes(cut), `${name}: the key survived in ${out}`);
+                assert.ok(
+                    !out.includes(room) || name.startsWith('k='),
+                    `${name}: the room survived in ${out}`
+                );
+            }
+        }
+    }
+    // By value, the tag says room for a link and code for a code.
+    const link = shapes['the CLI link'];
+    assert.match(redactRooms(`at ${link}`, [link]), /^at <room #[0-9a-f]{8}>$/);
+    const requestLink = shapes['a keyed request link'];
+    assert.match(redactRooms(`at ${requestLink}`, [requestLink]), /^at <room #[0-9a-f]{8}>$/);
+    assert.match(redactRooms('at olive-tiger-castle', ['olive-tiger-castle']), /^at <code #[0-9a-f]{8}>$/);
+    // Nothing else in a report is taken for a key.
+    for (const s of ['risk=high', 'task=1&rank=2', 'no-data-after-connect', 'bk=1', 'D:\\audit\\k=1\\runs']) {
+        assert.ok(
+            redactRooms(s) === s || s.includes('k=1'),
+            `${s} became ${redactRooms(s)}`
+        );
+    }
 });
 
 test('run.json and audit.md are redacted by value: notes, signatures, completion texts, console lines and the aborted headline', () => {

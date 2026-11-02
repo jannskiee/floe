@@ -41,6 +41,11 @@ test('lastEvent reads the last matching event and ignores everything else', () =
         '{"event":"peer-refu',
     ].join('\n');
     assert.equal(lastEvent(stdout, 'link').link, 'http://localhost:3000/#room=r1');
+    // send.go refusalCode passes this code through since e2ehost send -key.
+    assert.deepEqual(outcomeFromEvents('{"event":"peer-refused","code":"unverified"}').detail, {
+        class: 'peer-refused',
+        code: 'unverified',
+    });
     assert.equal(lastEvent(stdout, 'peer-refused').code, 'hash-mismatch');
     assert.equal(lastEvent(stdout, 'done'), null);
     // A half-written line while the process is still going must not throw.

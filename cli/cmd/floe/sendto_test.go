@@ -60,6 +60,7 @@ type reqServer struct {
 	URL string
 
 	mu       sync.Mutex
+	heard    strings.Builder // every frame on /ws, for a test that a value never reached it
 	answer   string
 	host     *reqConn
 	visitor  *reqConn
@@ -133,6 +134,10 @@ func (s *reqServer) serve(c *reqConn) {
 		if err != nil {
 			return
 		}
+		s.mu.Lock()
+		s.heard.Write(raw)
+		s.heard.WriteByte('\n')
+		s.mu.Unlock()
 		var msg struct {
 			Type   string          `json:"type"`
 			Signal json.RawMessage `json:"signal"`
@@ -600,18 +605,13 @@ func startCLI(t *testing.T, args ...string) *cliRun {
 func startCLIEnv(t *testing.T, env map[string]string, args ...string) *cliRun {
 	t.Helper()
 	resetSharedFlags(t)
-	to := sendCmd.Flags().Lookup("to")
-	if err := to.Value.Set(""); err != nil {
-		t.Fatal(err)
-	}
-	to.Changed = false
+	resetSendFlags(t)
 	sendCmd.SilenceErrors = false
 	t.Cleanup(func() {
 		sendCmd.SilenceErrors = false
-		// cobra keeps --to on the tree: a later plain send in this process
-		// (setup_error_test.go's runAgainst) must not go to this link.
-		_ = to.Value.Set("")
-		to.Changed = false
+		// cobra keeps --to and --link-only on the tree: a later plain send in this
+		// process (setup_error_test.go's runAgainst) must not go to this link.
+		resetSendFlags(t)
 	})
 	t.Setenv("FLOE_NO_STATS", "1")
 	// A request-link send turns pion's pc scope off in the process
@@ -680,6 +680,21 @@ func (r *cliRun) read(o *output) *cliRun {
 func runCLI(t *testing.T, args ...string) *cliRun {
 	t.Helper()
 	return startCLI(t, args...).wait(t, 90*time.Second)
+}
+
+// resetSendFlags puts send's own flags, and the variables bound to them, back.
+func resetSendFlags(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{"to", "link-only"} {
+		f := sendCmd.Flags().Lookup(name)
+		if f == nil {
+			t.Fatalf("flag --%s is not registered on send", name)
+		}
+		if err := f.Value.Set(f.DefValue); err != nil {
+			t.Fatalf("reset --%s: %v", name, err)
+		}
+		f.Changed = false
+	}
 }
 
 // linkFor is a request link on a self-hosted server for a fresh room; the
@@ -1181,7 +1196,7 @@ func TestSendToLinkTypedAsAPathIsNeverPrintedBack(t *testing.T) {
 // each carrying room, the link's key (FU-46, FU-32 F5-3). code.ParseRequestLink
 // takes five of them (a whole link, self-hosted, no scheme, capitals, a
 // percent-encoded fragment); the others still carry the room id after a #,
-// which is the rule code.Resolve refuses a request link by (FT-LINK-ECHO-F2,
+// which is the rule code.ResolveLink refuses a request link by (FT-LINK-ECHO-F2,
 // X1 to X4), or after a # that is percent-encoded, once or twice, as a link
 // pasted from a mail-safety redirector is, or doubled, or followed by a space
 // (FU-46 review 1 L2).
@@ -1699,7 +1714,7 @@ var approvedRefusal = []struct {
 	{"over-approved", []string{"More data arrived than they accepted. If files changed after you chose them, ask them for a new link.", "Nothing was sent."}},
 	{"stopped", []string{"They stopped this drop.", "Nothing was sent."}},
 	{"time-limit", []string{"This drop reached the 24-hour limit, so their Floe stopped it.", "Nothing was sent."}},
-	{"unverified", []string{"Their computer couldn't confirm this link.", "Nothing was sent."}},
+	{"unverified", []string{"Their computer couldn't confirm this link.", "Nothing was sent.", "Ask the person who made this link for a new one."}},
 	{"too-slow", []string{"The drop stopped on their computer.", "Nothing was sent."}},
 	{"not-a-code", []string{"The drop stopped on their computer.", "Nothing was sent."}},
 }
@@ -1718,8 +1733,18 @@ func TestSendToEveryRefusalCodeHasFixedLine(t *testing.T) {
 			s := newReqServer(t, "seat")
 			stubNetwork(t, s.URL)
 			p, _ := oneFile(t, t.TempDir(), "a.bin", 4096)
-			h := startHost(t, s, refuseAtMetadata(`{"type":"incompatible","reason":"receiver stopped the transfer","pv":1,"pvMin":1,"ver":"desktop-test","code":"`+c.code+`","saved":0}`))
-			r := runCLI(t, p, "--to", linkFor(), "--server", s.URL)
+			frame := `{"type":"incompatible","reason":"receiver stopped the transfer","pv":1,"pvMin":1,"ver":"desktop-test","code":"` + c.code + `","saved":0}`
+			// A bare link refused unverified is an incomplete link instead
+			// (TestSendToBareLinkRefusedAsUnverifiedIsAnIncompleteLink): this code's
+			// block belongs to a visitor that held the key.
+			link, part := linkFor(), refuseAtMetadata(frame)
+			if c.code == string(transfer.CodeUnverified) {
+				var kc *transfer.KeyCheck
+				link, kc = keyedLink(t)
+				part = provenRefusalAtMetadata(kc, frame)
+			}
+			h := startHost(t, s, part)
+			r := runCLI(t, p, "--to", link, "--server", s.URL)
 			herr := h.wait(t)
 			r.read(o)
 			if herr != nil {

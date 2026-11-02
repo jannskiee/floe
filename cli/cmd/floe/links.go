@@ -10,6 +10,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/jannskiee/floe/cli/engine/code"
+	"github.com/spf13/cobra"
 )
 
 // firstWord is the index of the first argument that is neither a root flag nor
@@ -95,21 +98,62 @@ func linkAsCommand(a string) error {
 }
 
 // looksLikeRoomLink reports whether arg is a room link, whole or cut short:
-// "room=" after a # or a ? or an &, in any letter case, in arg as typed or
-// with its percent escapes decoded, up to three times over (inAnyDecoding).
-// A room id is not required after it, so a link cut short is caught too; a
-// file name with "room=" in it is a command cobra would refuse anyway, and
-// only the words of that refusal change.
+// "room=" after a # or a ? or an &, or a link key's marks, in any letter case, in
+// arg as typed or with its percent escapes decoded, up to three times over
+// (inAnyDecoding). A room id is not required after it, so a link cut short is
+// caught too, and so is one cut after its key, with no room= to be known by (B12).
+// It reads a word where a command or a receive input goes, where a wrong yes only
+// changes the words of a refusal. A path that could not be read has a real message
+// to lose, so it asks pathLooksLikeRoomLink.
 func looksLikeRoomLink(arg string) bool {
 	return inAnyDecoding(arg, func(s string) bool {
 		l := strings.ToLower(s)
-		for _, mark := range []string{"#room=", "?room=", "&room="} {
-			if strings.Contains(l, mark) {
-				return true
-			}
-		}
-		return false
+		return holdsRoomMark(l) || linkKeyMark.MatchString(l) || code.HoldsLinkKey(s)
 	})
+}
+
+// pathLooksLikeRoomLink is looksLikeRoomLink for a path that could not be read. A
+// mark counts only with key text behind it, so "Learning C#.pdf", "notes#.txt" and
+// "k=1.txt" keep their "cannot read", and a key's shape only as the whole argument, so
+// "Screenshot_2026_1102_w.png" does. A cut shorter than that, printed back, is no key.
+func pathLooksLikeRoomLink(arg string) bool {
+	return inAnyDecoding(arg, func(s string) bool {
+		l := strings.ToLower(s)
+		return holdsRoomMark(l) || pathKeyMark.MatchString(l) || code.IsLinkKeyText(strings.Trim(s, " \t<>\"'"))
+	})
+}
+
+// holdsRoomMark reports whether a lower-cased argument spells room= as a link does.
+func holdsRoomMark(l string) bool {
+	for _, mark := range []string{"#room=", "?room=", "&room="} {
+		if strings.Contains(l, mark) {
+			return true
+		}
+	}
+	return false
+}
+
+// linkKeyMark is a link key by what stands in front of it, in lower case: k= at the
+// start of a parameter or of what was pasted (a fragment copied without its #, in
+// quotes or brackets), and a fragment with its room id gone, whose key sits behind
+// the dot. pathKeyMark is the same with eight characters of key text behind the mark.
+var (
+	linkKeyMark = regexp.MustCompile(`(?:^|[\s<"'#?&;])k=|#\.`)
+	pathKeyMark = regexp.MustCompile(`(?:^|[\s<"'#?&;])k=[a-z0-9_-]{8}|#\.[a-z0-9_-]{8}`)
+)
+
+// flagErrorWithoutLink keeps a link out of a flag error. pflag quotes the argument it
+// could not read (--link-only=<link>, floe receive -<link>), and a link holds a room id
+// and a key. Fixed text in place of the quote, and every other flag error as it was.
+func flagErrorWithoutLink(_ *cobra.Command, err error) error {
+	if typed := linkAsCommand(err.Error()); typed != nil {
+		return outcomeError{typed}
+	}
+	return err
+}
+
+func init() {
+	rootCmd.SetFlagErrorFunc(flagErrorWithoutLink)
 }
 
 // roomIDLead is a room id as the server's UUID_REGEX takes it (engine/code's
@@ -121,7 +165,7 @@ var roomIDLead = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0
 // sentence, which quotes the path: a request link's fragment is its room id,
 // the key to its one seat (FU-46, FU-32 F5-3). It is wider than
 // code.ParseRequestLink, which takes only the exact /r/<link id> path, and
-// takes every link that does: as code.Resolve refuses a request link in any
+// takes every link that does: as code.ResolveLink refuses a request link in any
 // shape, a room id after a # counts whatever comes before it, so a link id a
 // character short or long, an extra path segment, or angle brackets or
 // quotes around the link (they sit before the # and after the room id) still

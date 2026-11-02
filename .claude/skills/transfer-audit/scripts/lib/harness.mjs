@@ -36,7 +36,7 @@ export const ROUTE_GRACE_MS = 5_000;
 
 // The codes the harness passes through from a refusal frame (send.go
 // refusalCode); `none` and `closed` mean no refusal frame arrived at all.
-const REFUSAL_CODES = new Set(['hash-mismatch', 'write-failed', 'other']);
+const REFUSAL_CODES = new Set(['hash-mismatch', 'write-failed', 'unverified', 'other']);
 
 /** The last JSON object on stdout whose event matches, or null. */
 export function lastEvent(stdout, name) {

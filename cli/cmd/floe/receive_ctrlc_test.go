@@ -50,6 +50,23 @@ func plainRoom(t *testing.T) (url string, seated func() int) {
 // returns the bodies it was sent.
 func plainRoomWithStats(t *testing.T) (url string, seated func() int, posts func() []string) {
 	t.Helper()
+	url, seated, posts, _, _ = plainRoomCounting(t)
+	return url, seated, posts
+}
+
+// plainRoomCounting is plainRoomWithStats that also counts the code registrations
+// and keeps everything the server heard: each request line and body, and each frame
+// on /ws, for a test that a value never reached it.
+func plainRoomCounting(t *testing.T) (url string, seated func() int, posts func() []string, codes func() int, heard func() string) {
+	t.Helper()
+	var registered atomic.Int32
+	var heardMu sync.Mutex
+	var heardText strings.Builder
+	hear := func(s string) {
+		heardMu.Lock()
+		heardText.WriteString(s + "\n")
+		heardMu.Unlock()
+	}
 	var statsMu sync.Mutex
 	var bodies []string
 	type seat struct {
@@ -68,7 +85,10 @@ func plainRoomWithStats(t *testing.T) (url string, seated func() int, posts func
 	mux.HandleFunc("/api/turn-credentials", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, `[{"urls":"stun:127.0.0.1:9"}]`)
 	})
-	mux.HandleFunc("/api/code", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/api/code", func(w http.ResponseWriter, r *http.Request) {
+		registered.Add(1)
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+		hear(r.URL.String() + " " + string(body))
 		_ = json.NewEncoder(w).Encode(map[string]string{"code": "olive-tiger-castle"})
 	})
 	mux.HandleFunc("/api/stats/report", func(w http.ResponseWriter, r *http.Request) {
@@ -89,8 +109,13 @@ func plainRoomWithStats(t *testing.T) (url string, seated func() int, posts func
 				Type   string          `json:"type"`
 				Signal json.RawMessage `json:"signal"`
 			}
-			if ws.ReadJSON(&m) != nil {
+			_, raw, err := ws.ReadMessage()
+			if err != nil {
 				return
+			}
+			hear(string(raw))
+			if json.Unmarshal(raw, &m) != nil {
+				continue
 			}
 			switch m.Type {
 			case "join-room":
@@ -144,7 +169,12 @@ func plainRoomWithStats(t *testing.T) (url string, seated func() int, posts func
 		defer statsMu.Unlock()
 		return append([]string(nil), bodies...)
 	}
-	return srv.URL, seated, posts
+	heard = func() string {
+		heardMu.Lock()
+		defer heardMu.Unlock()
+		return heardText.String()
+	}
+	return srv.URL, seated, posts, func() int { return int(registered.Load()) }, heard
 }
 
 // engineSender is the in-process sender: seated first, it waits for the
@@ -203,11 +233,14 @@ func engineSenderAck(t *testing.T, url, room string, paths []string, onAck func(
 		}
 		close(up)
 		early := c.Early()
+		// NoSummary, because the command under test holds os.Stdout and puts it back
+		// when it returns, which this send can outlive (the race detector saw it).
 		res <- transfer.SendFilesWithOptions(dc, paths, "dev", transfer.SendOptions{
 			Messages:   early.Msgs,
 			Closed:     early.Closed,
 			OnProgress: func(transfer.Progress) {},
 			OnAck:      onAck,
+			NoSummary:  true,
 		})
 	}()
 	t.Cleanup(func() {

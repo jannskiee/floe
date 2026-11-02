@@ -727,7 +727,7 @@ func originFromServer(serverURL string) string {
 		return u
 	}
 	host := u[i+3:]
-	if j := strings.IndexByte(host, '/'); j != -1 {
+	if j := strings.IndexAny(host, "/?#"); j != -1 {
 		host = host[:j]
 	}
 	return u[:i+3] + host

@@ -44,7 +44,10 @@ test('CLI to CLI: 12 MB file transfer with SHA-256 integrity', async () => {
     const { linkPromise, proc: sender } = spawnSend(fixturePath);
     try {
         const roomLink = await linkPromise;
-        expect(roomLink).toContain('#room=');
+        // HEAD's send puts the key first, and HEAD's receive holds it, so this
+        // transfer passes only if the two agree on the proof.
+        expect(roomLink).toContain('#k=');
+        expect(roomLink).toContain('&room=');
 
         // Resolves only when the receiver exits 0, which its integrity guard
         // ties to every byte of every file being written to disk.

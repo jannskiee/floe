@@ -125,12 +125,13 @@ func TestUsageTextNamesEveryExitCode(t *testing.T) {
 		exitHostClosed:  "host-closed",
 		exitBound:       "bound",
 		exitNotJoined:   "not-joined",
+		exitUnverified:  "unverified",
 	} {
 		if want := fmt.Sprintf("  %d  %s", code, word); !strings.Contains(usageText, want) {
 			t.Errorf("usage text lacks %q", want)
 		}
 	}
-	if len(map[int]bool{exitDelivered: true, exitFailed: true, exitUsage: true, exitPeerRefused: true, exitRelayGate: true, exitHostClosed: true, exitBound: true, exitNotJoined: true}) != 8 {
+	if len(map[int]bool{exitDelivered: true, exitFailed: true, exitUsage: true, exitPeerRefused: true, exitRelayGate: true, exitHostClosed: true, exitBound: true, exitNotJoined: true, exitUnverified: true}) != 9 {
 		t.Error("two outcomes share an exit code")
 	}
 }
@@ -172,6 +173,10 @@ func TestParseFlagsRefuseBadInput(t *testing.T) {
 		"bad link":               {"-link", "https://floe.one/r/short"},
 		"link with room= form":   {"-link", "https://floe.one/r/Xk3p9Q0aB1c#room=" + room},
 		"zero timeout":           {"-room", room, "-send", "a.bin", "-timeout", "0s"},
+		"a cut key":              {"-link", "https://floe.one/r/Xk3p9Q0aB1c#" + room + ".AAECAw", "-send", "a.bin"},
+		"-kc with -room":         {"-room", room, "-send", "a.bin", "-kc", "bad"},
+		"-kc with a bare link":   {"-link", "https://floe.one/r/Xk3p9Q0aB1c#" + room, "-send", "a.bin", "-kc", "none"},
+		"-kc with a bad word":    {"-link", "https://floe.one/r/Xk3p9Q0aB1c#" + room + ".AAECAwQFBgcICQoLDA0ODw", "-send", "a.bin", "-kc", "lie"},
 		"two hostile at once":    {"-room", room, "-junk-flood", "-bad-sdp"},
 		"hostile-name plus meta": {"-room", room, "-hostile-name", "-hostile-meta", "f2"},
 	} {

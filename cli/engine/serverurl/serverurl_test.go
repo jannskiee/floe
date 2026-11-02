@@ -27,6 +27,11 @@ func TestNormalize(t *testing.T) {
 		{"empty", "", ""},
 		{"only slashes", "///", ""},
 		{"path preserved", "https://example.com/floe/", "https://example.com/floe"},
+		// A link typed as the server: its room id and key stop here.
+		{"a keyed link", "https://floe.one/#k=AAECAwQFBgcICQoLDA0ODw&room=r", "https://floe.one"},
+		{"a keyed link behind no slash", "http://Host#k=AAECAwQFBgcICQoLDA0ODw&room=r", "http://host"},
+		{"a keyed link, no scheme", "floe.one/#k=AAECAwQFBgcICQoLDA0ODw", "floe.one"},
+		{"a nonce before the fragment", "https://floe.one/?s=ab#k=AAECAwQFBgcICQoLDA0ODw", "https://floe.one/?s=ab"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

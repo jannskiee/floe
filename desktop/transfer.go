@@ -526,7 +526,7 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 	// One snapshot for the whole receive, for the same reason as runSend.
 	server, _ := a.endpoints()
 
-	roomID, err := code.Resolve(server, codeOrLink)
+	resolved, err := code.ResolveLink(server, codeOrLink)
 	if err != nil {
 		// A request or drop link (S1-DSK-07, E-10) comes back as the engine's
 		// sentinel, whose text is the approved sentence. Returned bare, never
@@ -537,8 +537,9 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 		}
 		return "", fmt.Errorf("could not resolve %q: %w", codeOrLink, err)
 	}
-	// After Resolve, so a request link pasted here keeps its own sentence,
-	// and before the first network call for a link (Resolve reads a link
+	roomID := resolved.RoomID
+	// After ResolveLink, so a request link pasted here keeps its own sentence,
+	// and before the first network call for a link (ResolveLink reads a link
 	// locally; only a code, which has no host, went to the server).
 	if err := linkServerRefusal(codeOrLink, server); err != nil {
 		return "", err

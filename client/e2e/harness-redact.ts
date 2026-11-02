@@ -1,8 +1,9 @@
 /**
  * What a failed wait may say about the Go host harness: its events and its stderr
- * tail, with everything a link is made of taken out. Pure, and apart from
- * request-helpers.ts so that vitest can read it: vitest reads lib/ and app/ only,
- * and a *.test.ts under e2e/ would be collected by Playwright.
+ * tail, with everything a link is made of taken out, so a failure never puts a room
+ * id or a link key into a Playwright error, report or CI artifact. Pure, and apart
+ * from request-helpers.ts so that vitest can read it: vitest reads lib/ and app/
+ * only, and a *.test.ts under e2e/ would be collected by Playwright.
  */
 
 export interface HarnessEvent {
@@ -18,9 +19,16 @@ export interface HarnessEvent {
  */
 const SECRET_FIELDS = ['link', 'roomId'];
 const REDACTED = '<redacted>';
-/** In the stderr tail: a room id (UUID-shaped, RoomIDFromToken) and a link's
- *  `/r/<linkId>` path, whether or not an event announced them. */
-const TAIL_SECRETS = [/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, /\/r\/[A-Za-z0-9_-]+/g];
+/** In the stderr tail: a room id (UUID-shaped, RoomIDFromToken) and whatever key is
+ *  behind its dot, a link's `/r/<linkId>` path, a share link's `k=` parameter however
+ *  cut, and a link key by its own shape, 22 base64url characters whose last holds two
+ *  data bits: all whether or not an event announced them. */
+export const TAIL_SECRETS = [
+    /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\.[A-Za-z0-9_-]*)?/gi,
+    /\/r\/[A-Za-z0-9_-]+/g,
+    /\bk=[^\s&"'<>)]*/gi,
+    /(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{21}[AQgw](?![A-Za-z0-9_-])/g,
+];
 
 /**
  * The events with SECRET_FIELDS redacted and every other field kept, then the
