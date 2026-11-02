@@ -1419,6 +1419,7 @@ Request-link messages carry no prefix.
 | [“The API answered HTTP 404”](#the-test-button-says-the-api-answered-with-an-http-error), Settings, **Test** | `/api/` is not reaching the server. | Forward `/api/` to the server. |
 | [“Connected, but this server has no relay”](#the-test-button-says-the-server-has-no-turn-relay), Settings, **Test** | The server works but offers no relay. | Leave **Hide my IP address** off, or add a relay. |
 | [“That address answered HTTP 404 (likely the web app, not the server)”](#the-test-button-says-it-may-be-the-web-app-rather-than-the-signaling-server), Settings, **Test** | You entered the web app's address. | Enter the signaling server's address. |
+| [“That address redirects to https://”](#the-test-button-says-the-address-redirects-to-https), Settings, **Test** | You entered `http://`, and the server redirects to `https://`. | Start the address with `https://`. |
 | [No right-click menu setting](#there-is-no-right-click-menu-setting), Settings | This is the Microsoft Store build. | Install the build from GitHub if you need it. |
 | [The right-click menu switch turns itself off](#the-switch-for-the-right-click-menu-keeps-turning-itself-off), Settings | Windows refused the registry entry. | Send from the Floe window instead. |
 | [“Floe could not start.”](#floe-will-not-start), a dialog | WebView2 is missing, or something else failed at startup. | Install WebView2, or report the text. |
@@ -1793,6 +1794,24 @@ with the same page, cannot pass itself off as a healthy server.
 
 Enter the signaling server's address, which is `http://localhost:3001` in that default setup.
 **Server address** always wants the signaling server.
+
+### The Test button says the address redirects to https:// {#the-test-button-says-the-address-redirects-to-https}
+
+In Settings, after you click **Test**:
+
+```text Status line
+Error: That address redirects to https://. Start it with https:// and test again
+```
+
+You entered an `http://` address, and it answered with a redirect to `https://` on the same host
+name, on any port. A reverse proxy that moves plain HTTP to HTTPS does this, such as the nginx
+sample in [Run behind one domain](/self-hosting/reverse-proxy) with a 301, or Caddy with a 308.
+Test never follows a redirect, so it stops there.
+
+Change the start of **Server address** from `http://` to `https://`, for example
+`https://floe.example.com`, and click **Test** again. A redirect to a different host, such as a
+Wi-Fi sign-in page, still shows the
+[HTTP status line](#the-test-button-says-it-may-be-the-web-app-rather-than-the-signaling-server).
 
 ### There is no right-click menu setting {#there-is-no-right-click-menu-setting}
 
