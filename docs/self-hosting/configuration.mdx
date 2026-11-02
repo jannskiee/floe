@@ -246,7 +246,7 @@ REST URL of an [Upstash Redis](https://upstash.com) database, used to durably pe
 
 ### `UPSTASH_REDIS_REST_TOKEN` {#upstash-redis-rest-token}
 
-REST token that pairs with `UPSTASH_REDIS_REST_URL`. Both must be set together for durable stats. Use the **Standard** token, the one the Upstash console shows by default, not the **Read Only** token. The server needs write access to increment the counter; with a read-only token, writes are silently rejected and the total never persists.
+REST token that pairs with `UPSTASH_REDIS_REST_URL`. Both must be set together for durable stats. Use the **Standard** token, the one the Upstash console shows by default, not the **Read Only** token. The server needs write access to increment the counter; with a read-only token, writes are rejected and the total never persists. The server logs one `Upstash counter update failed (...)` line when that happens; see [Operations](/self-hosting/operations#the-server-logs-very-little).
 
 ### `MAX_REPORT_BYTES` {#max-report-bytes}
 

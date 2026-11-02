@@ -195,7 +195,9 @@ and no line is built from a client's address. These are all the lines it can wri
 | `Refused a request with 403.` | The error handler refused one HTTP request with that status: `403` for a browser origin the server does not allow, or another status under 500. | An occasional one is some page or client sending a bad request, not a fault. If `403` lines show up each time someone uses your own web client, check `CLIENT_URL`. |
 | `Refused a connection on /ws from Origin "..." (Host "..."): not CLIENT_URL, a floe.one origin, or this server's own host. Further refusals on /ws are not logged.` | A WebSocket came from an origin the server does not accept. Written once for `/ws` and once for `/socket.io` until the next restart, however many connections are refused. | If the `Origin` is your own server and the `Host` is not, your proxy rewrites `Host`. See [Production deployment](/self-hosting/production#cors-note). |
 | `Cloudflare TURN mint failed (...)` | A request to Cloudflare for relay credentials failed. The parentheses hold the reason: `status` and an HTTP status, `no-ice-servers`, an error name such as `TimeoutError`, or the word `error`. At most one line every 5 minutes. | See [TURN relay](/self-hosting/turn-relay#verify). |
-| `HTTP server error:` and a stack trace | The server could not bind its port at startup. It exits. | Free the port, or change `PORT`. |
+| `Upstash counter read failed (...)` | The server could not read the stats total from Upstash Redis at startup. The parentheses hold the reason, such as `status 401`, `ENOTFOUND`, or `TimeoutError`. Written once per outage, and not again until a call to Upstash succeeds. | Check [`UPSTASH_REDIS_REST_URL`](/self-hosting/configuration#upstash-redis-rest-url) and [`UPSTASH_REDIS_REST_TOKEN`](/self-hosting/configuration#upstash-redis-rest-token). Common causes are a wrong or read-only token, a URL without `https://`, and a host the server cannot reach. |
+| `Upstash counter update failed (...)` | The server could not add bytes to the stats total in Upstash Redis. The parentheses hold the reason, as above. Written once per outage, and not again until a call to Upstash succeeds. Until then, the total does not persist and resets on restart. | Same as the line above. |
+| `HTTP server error:` and a stack trace | The server could not bind its port at startup. It exits with code 1. A `PORT` that Node refuses, such as `70000` (above 65535) or `3001.5` (not a whole number), gives `HTTP server error: RangeError [ERR_SOCKET_BAD_PORT]`. | Free the port, or set `PORT` to a free whole number from 1 to 65535. |
 | `Unhandled error (uncaughtException), server still serving:` and a stack trace | An exception nothing anticipated reached the process-level backstop. The word in parentheses can also be `unhandledRejection`. The server kept serving rather than exiting, so the transfers in progress survived. | It is worth reporting. |
 | A stack trace on its own | A server-side error (a `5xx`) reached the error handler. | It is worth reporting. |
 
@@ -203,7 +205,10 @@ The `Refused a request with` line carries the status and nothing else, never the
 or any of the request's text. Besides `403`, it shows `400` for malformed JSON and `413` for a body
 over the size limit. A server image of version 1.11.0 or earlier never writes the `MAX_*` and
 `TRUSTED_PROXY_COUNT` lines, and one of version 1.11.3 or earlier never writes the
-`TRUSTED_PROXY_COUNT` line about a value that is not a whole number.
+`TRUSTED_PROXY_COUNT` line about a value that is not a whole number. A server image of version 1.11.7 or
+earlier never writes the `Upstash counter` lines, and one of version 1.11.6 or earlier given a
+`PORT` that Node refuses logs `Unhandled error (uncaughtException), server still serving:` instead
+of `HTTP server error:`, then exits with code 0.
 
 To confirm the server is alive, or that a restart actually landed, use the health endpoint below
 rather than the logs.
