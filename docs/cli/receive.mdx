@@ -273,6 +273,10 @@ was writing, and exits with status 130. Files that finished before that stay. If
 file stalls, `floe` exits after 5 seconds anyway and leaves it, and it is safe to delete. A second
 `Ctrl+C` during those seconds does nothing.
 
+On macOS and Linux, a hangup works like `Ctrl+C`. Closing the terminal, losing the SSH session, or
+sending `SIGHUP` prints `Canceled.`, exits with status 130 and tells the sender. A `floe receive`
+started under `nohup` ignores the hangup and keeps going.
+
 Once the two sides are connected, the sender is told you stopped: a `floe send` 1.11.0 or later
 ends with `Error: They stopped the transfer.`
 

@@ -59,7 +59,9 @@ only when your web app has its own hostname.
 VMware, WSL, Hyper-V) slows connection setup; see
 [slow to connect](/troubleshooting#slow-to-connect-when-a-vpn-or-virtual-machine-is-running). Your
 system lists the names: `Get-NetAdapter` in PowerShell on Windows, `ip link` on Linux, `ifconfig` on
-macOS. `floe` does not check the name, so one that matches no interface is accepted without a word.
+macOS. If no interface on this computer matches any name you give, `floe` stops before it pairs, with
+`Error: --iface matches no network interface on this computer; check the name, or drop the flag`,
+and exits with status 1.
 
 The desktop app has equivalents for three of these. `--server` and `--web` are **Server address** and **Share link address**, under Advanced in **Settings**, and `--relay-only` is the **Hide my IP address** toggle under Privacy. `--no-relay` and `--iface` have no desktop equivalent: Floe Desktop can require the relay but never refuse it. See [Desktop app settings](/desktop/settings).
 
@@ -186,7 +188,7 @@ on, such as `PION_LOG_TRACE=ice`, brings all of them back, so set one only while
   piped stdin gives it an empty answer, which accepts, so `echo | floe receive <code>` receives
   without `-y`. Leaving `-y` out therefore does not stop a job from receiving. Pass it anyway, so
   the intent is on the command line rather than in the shell's plumbing.
-- **Exit codes.** `0` is success, `1` is any error, and `130` is an interrupt (`Ctrl+C` or `SIGTERM`). There are no others. See [Exit codes](#exit-codes).
+- **Exit codes.** `0` is success, `1` is any error, and `130` is an interrupt (`Ctrl+C`, `SIGTERM`, or on macOS and Linux a hangup). There are no others. See [Exit codes](#exit-codes).
 - **What success means for a send.** It depends on the receiver. See
   [File checks](/how-it-works/file-checks#delivery-confirmation).
   - `floe send --to` exits `0` only after the other side's Floe confirmed that every file arrived.
@@ -241,15 +243,24 @@ The browser and Floe Desktop have a switch of their own for the same report. See
 
 | Code | Meaning |
 |------|---------|
-| `0` | Success. For `floe send --to`, only after the other side's Floe confirmed that every file arrived. Also `floe receive` stopped with `Ctrl+C` or `SIGTERM` after its summary box printed. |
+| `0` | Success. For `floe send --to`, only after the other side's Floe confirmed that every file arrived. Also `floe receive` stopped with `Ctrl+C`, `SIGTERM` or a hangup after its summary box printed. |
 | `1` | Any error: a usage mistake, a failed transfer, a code that would not resolve, a declined transfer, a refused link, or `floe update` refusing to update this install. Every outcome of `floe send --to` but success and `Ctrl+C`. |
-| `130` | Interrupted, by `Ctrl+C` or by `SIGTERM`, as described below the table. |
+| `130` | Interrupted, by `Ctrl+C`, by `SIGTERM`, or on macOS and Linux by a hangup (`SIGHUP`), as described below the table. |
 
 On `130`, Floe prints `Canceled.` to stderr and removes the `.part` file it was writing, waiting at
 most 5 seconds for that before it exits. Once connected, a plain `floe send` first tells the
 receiver that the sender stopped, and `floe receive` tells the sender, each within about a second.
 `floe send --to` prints its own line instead, `Canceled. Nothing was sent.` or
 `You stopped this drop.` with how many files were saved.
+
+On macOS and Linux, a hangup counts as an interrupt. Closing the terminal window, losing the SSH
+session, or sending `SIGHUP` stops `floe` the same way as `Ctrl+C`: it prints `Canceled.`, exits
+with `130`, and tells the other side. A `floe` started under `nohup` ignores the hangup and keeps
+going:
+
+```bash
+nohup floe send ./backup.tar > floe.log 2>&1 &
+```
 
 A mistake in a command's arguments or flags prints one `Error:` line and no usage text, and exits `1`. For example,
 `floe send` with no file prints `Error: requires at least 1 arg(s), only received 0`, and
