@@ -133,10 +133,17 @@ func (a *App) OpenFile(dir, name string) error {
 	return a.OpenFolder(dir)
 }
 
+// knownDownloadsFn returns the user's Downloads folder if Windows names one;
+// a variable so a test can point it at a moved Downloads folder.
+var knownDownloadsFn = knownDownloads
+
 // defaultReceiveDir returns a safe default save location (the user's Downloads
 // folder, or home) so a blank destination never writes into the app's working
 // directory and clobbers unrelated files.
 func defaultReceiveDir() string {
+	if dl := knownDownloadsFn(); filepath.IsAbs(dl) && dirExists(dl) {
+		return dl
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "."
