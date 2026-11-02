@@ -822,8 +822,10 @@ export function createReceiver(
                 // the close that comes next reports the finished receive.
                 if (batchComplete) return;
                 const incompat = msg as Incompatible;
-                // A keyed page shows its own fixed line for this, never the words.
-                if (keyCheck && refusalCodeOf(incompat) === 'unverified') {
+                // A keyed page shows its own fixed line for this, never the words. Only
+                // while it is true that nothing was received: past a file handed over, this
+                // stop reads as any other, as it does on the Go receiver.
+                if (keyCheck && filesHanded === 0 && refusalCodeOf(incompat) === 'unverified') {
                     cb.onKeyCheckFailed?.({ outcome: 'peer-refused', unavailable: false });
                     return;
                 }

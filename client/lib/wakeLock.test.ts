@@ -214,7 +214,15 @@ describe('a transfer that ends lets go of the lock', () => {
     });
 
     it('on the receiver, when its receive stops', () => {
-        expect(handler('onError: (msg, failure) => {', "peer.on('data', rx.handleMessage);")).toContain('releaseWakeLock();');
+        expect(handler('onError: (msg, failure) => {', 'onKeyCheckFailed:')).toContain('releaseWakeLock();');
+    });
+
+    it('on the receiver, when the link-key check stops it', () => {
+        expect(handler('onKeyCheckFailed: ({ unavailable }) => {', 'ks.onData(rx.handleMessage);')).toContain('releaseWakeLock();');
+    });
+
+    it('on the sender, when the link-key check ends its send', () => {
+        expect(handler('const tellKeyFailure = (', 'const sendAllFiles = async (')).toContain('releaseWakeLock();');
     });
 
     it('on the sender, below the replaced-session check', () => {

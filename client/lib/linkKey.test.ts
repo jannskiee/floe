@@ -16,6 +16,8 @@ import {
     makeLinkKey,
     parseLinkKey,
     readShareFragment,
+    sameLinkKey,
+    shareLinkChanged,
 } from './linkKey';
 import { getRoomFromUrl } from './roomLink';
 
@@ -236,6 +238,19 @@ describe('readShareFragment, a link with no key: exactly what getRoomFromUrl say
         }
     });
 
+    // A web link cut before its fragment: the sending page must not open from it.
+    it('a share link\'s nonce with nothing behind it is incomplete', () => {
+        const cut = { room: null, key: null, incomplete: true };
+        expect(readShareFragment('', '?s=abc')).toEqual(cut);
+        expect(readShareFragment('#', '?s=abc')).toEqual(cut);
+    });
+
+    // An in-page anchor on a page already holding a link asks for nothing, and the tab
+    // keeps its transfer (shareLinkChanged).
+    it('a nonce and a fragment that names no link is no damaged link', () => {
+        expect(readShareFragment('#faq', '?s=abc')).toEqual({ room: null, key: null, incomplete: false });
+    });
+
     it('an empty fragment room falls back to a valid query room, as today, and is not incomplete', () => {
         expect(readShareFragment('#room=', `?room=${ROOM}`)).toEqual({ room: ROOM, key: null, incomplete: false });
     });
@@ -298,11 +313,123 @@ describe('readShareFragment, a link with a key', () => {
         expect(keyed(`#k=${K}&room=${ROOM}`, `?room=${OTHER_ROOM}`).room).toBe(ROOM);
     });
 
-    it('never reads a key from the query: a query k is not a keyed link', () => {
-        expect(readShareFragment(`#room=${ROOM}`, `?k=${K}`)).toEqual({ room: ROOM, key: null, incomplete: false });
+    // The key is never taken from these, and neither is the room beside it, so the link
+    // does not pass as a keyless one with its check gone (review 19, L1 and L2).
+    for (const [name, hash, search] of [
+        ['a k in the query', `#room=${ROOM}`, `?k=${K}`],
+        ['a k and a room in the query', '', `?k=${K}&room=${ROOM}`],
+        ['a room and a k in the query', '', `?room=${ROOM}&k=${K}`],
+        ['K for k', `#K=${K}&room=${ROOM}`, ''],
+        ['K for k, escaped', `#%4B=${K}&room=${ROOM}`, ''],
+        ['a space in front', `# k=${K}&room=${ROOM}`, ''],
+        ['a plus in front', `#+k=${K}&room=${ROOM}`, ''],
+        ['a space behind', `#k%20=${K}&room=${ROOM}`, ''],
+        ['a zero-width space in front', `#\u200Bk=${K}&room=${ROOM}`, ''],
+        ['a byte order mark in front', `#\uFEFFk=${K}&room=${ROOM}`, ''],
+        ['a bang in front', `#!k=${K}&room=${ROOM}`, ''],
+        ['a slash in front', `#/k=${K}&room=${ROOM}`, ''],
+        ['the name escaped with its equals sign', `#k%3D${K}&room=${ROOM}`, ''],
+        ['the name escaped after the room', `#room=${ROOM}&k%3D${K}`, ''],
+        ['a semicolon in front', `#;k=${K}&room=${ROOM}`, ''],
+        ['a mail client\'s &amp; in front', `#room=${ROOM}&amp;k=${K}`, ''],
+        ['the name escaped twice', `#%256B=${K}&room=${ROOM}`, ''],
+        ['the fragment escaped whole', `#k%3D${K}%26room%3D${ROOM}`, ''],
+    ] as Array<[string, string, string]>) {
+        it(`incomplete: ${name}`, () => expect(readShareFragment(hash, search)).toEqual(incomplete));
+    }
+
+    it('takes a longer name for what it is: only k is a key', () => {
+        expect(readShareFragment(`#kk=${K}&room=${ROOM}`, '')).toEqual({ room: ROOM, key: null, incomplete: false });
+        expect(readShareFragment(`#room=${ROOM}`, '?kk=1')).toEqual({ room: ROOM, key: null, incomplete: false });
+    });
+});
+
+// The Go parser and this one over one file, cli/engine/code/testdata/link-shapes.json.
+// A row where the two differ names its finding, which Go's TestLinkShapes requires, and
+// no keyed row may have this reader join where Go refuses.
+describe('link-shapes.json: what this reader makes of a pasted link', () => {
+    const SHAPES = JSON.parse(
+        readFileSync(new URL('../../cli/engine/code/testdata/link-shapes.json', import.meta.url), 'utf8'),
+    ) as { rows: Array<{ name: string; kind: string; input: string; outcome: string; room?: string; key?: string; tsOutcome?: string; tsRoom?: string }> };
+    const rows = SHAPES.rows.filter((row) => row.kind === 'share');
+
+    it('holds the rows', () => expect(rows.length).toBeGreaterThan(50));
+
+    for (const row of rows) {
+        it(row.name, () => {
+            const url = new URL(row.input);
+            const got = readShareFragment(url.hash, url.search);
+            const outcome = got.incomplete ? 'incomplete' : got.room ? 'ok' : 'none';
+            const want = row.tsOutcome ?? row.outcome;
+            expect(outcome).toBe(want);
+            expect(got.key ? linkKeyText(got.key) : '').toBe(want === 'ok' ? row.key ?? '' : '');
+            if (want === 'ok') expect(got.room).toBe(row.tsRoom ?? row.room);
+        });
+    }
+});
+
+describe('sameLinkKey', () => {
+    it('compares what the keys are, not which object holds them', () => {
+        expect(sameLinkKey(parseLinkKey(K), parseLinkKey(K))).toBe(true);
+        expect(sameLinkKey(parseLinkKey(K), parseLinkKey(K2))).toBe(false);
     });
 
-    it('reads the parameter names by exact case: K is not k', () => {
-        expect(readShareFragment(`#K=${K}&room=${ROOM}`, '')).toEqual({ room: ROOM, key: null, incomplete: false });
+    it('reads no key as a value of its own: a keyed and a keyless link are different links', () => {
+        expect(sameLinkKey(null, null)).toBe(true);
+        expect(sameLinkKey(parseLinkKey(K), null)).toBe(false);
+        expect(sameLinkKey(null, parseLinkKey(K))).toBe(false);
+    });
+});
+
+// A fragment-only navigation does not reload the page by itself, so this is what
+// decides whether a tab joined to one link is asked to read another. Compared on
+// the room alone, a key that changed under the same room left the tab checking
+// against the old key, and a fragment cut to nothing valid left it as it was.
+describe('shareLinkChanged', () => {
+    const held = { room: ROOM, key: parseLinkKey(K) };
+    const now = (hash: string, search = '') => readShareFragment(hash, search);
+
+    it('is false for the link the page holds, parameter order and unknown parameters aside', () => {
+        expect(shareLinkChanged(now(`#k=${K}&room=${ROOM}`), held)).toBe(false);
+        expect(shareLinkChanged(now(`#room=${ROOM}&k=${K}`), held)).toBe(false);
+        expect(shareLinkChanged(now(`#k=${K}&room=${ROOM}&x=1`), held)).toBe(false);
+    });
+
+    it('is true for another room', () => {
+        expect(shareLinkChanged(now(`#k=${K}&room=${OTHER_ROOM}`), held)).toBe(true);
+        expect(shareLinkChanged(now(`#room=${OTHER_ROOM}`), { room: ROOM, key: null })).toBe(true);
+    });
+
+    it('is true for another key under the same room', () => {
+        expect(shareLinkChanged(now(`#k=${K2}&room=${ROOM}`), held)).toBe(true);
+    });
+
+    it('is true when the key went or came, under the same room', () => {
+        expect(shareLinkChanged(now(`#room=${ROOM}`), held)).toBe(true);
+        expect(shareLinkChanged(now(`#k=${K}&room=${ROOM}`), { room: ROOM, key: null })).toBe(true);
+    });
+
+    it('is true when the link became incomplete, which a room comparison reads as no change', () => {
+        for (const cut of [`#k=${K}`, `#k=${K}&`, `#k=bad&room=${ROOM}`, '#room=', '#room=junk', `#k=${K}&amp;room=${ROOM}`]) {
+            expect(shareLinkChanged(now(cut), held), cut).toBe(true);
+        }
+    });
+
+    it('is false when the fragment no longer names a link at all, as it always was', () => {
+        // The tab keeps its transfer: nothing in the address asks for another one.
+        expect(shareLinkChanged(now(''), held)).toBe(false);
+        expect(shareLinkChanged(now('#about'), held)).toBe(false);
+    });
+
+    it('is true on a page that holds no link when a whole one arrives, and false when none does', () => {
+        const none = { room: null, key: null };
+        expect(shareLinkChanged(now(`#k=${K}&room=${ROOM}`), none)).toBe(true);
+        expect(shareLinkChanged(now(`#room=${ROOM}`), none)).toBe(true);
+        expect(shareLinkChanged(now(''), none)).toBe(false);
+    });
+
+    it('still reads a legacy ?room= address the way the page joined it', () => {
+        expect(shareLinkChanged(now('', `?room=${ROOM}`), { room: ROOM, key: null })).toBe(false);
+        expect(shareLinkChanged(now('', `?room=${OTHER_ROOM}`), { room: ROOM, key: null })).toBe(true);
     });
 });

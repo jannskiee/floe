@@ -129,19 +129,74 @@ export interface ShareFragment {
  * neither value, so no caller can drop the key and join: that would be a downgrade.
  * The ?room= query is never read here, for the same reason. Parameter order is free
  * and an unknown parameter is ignored.
+ *
+ * Three more shapes count as holding a k, as they do for ResolveLink in
+ * cli/engine/code: a fragment that holds one only once decoded (a mail client encoded it
+ * whole), one behind a semicolon, and a name that was k before something changed it, or
+ * a k moved into the query. And a share link's nonce with nothing behind it is a link
+ * whose fragment was lost whole: no other page of this site has an ?s=, and opening the
+ * sending page from it is what B14 exists to stop. cli/engine/code/testdata/link-shapes.json
+ * holds the two parsers together.
  */
 export function readShareFragment(hash: string, search: string): ShareFragment {
-    const fragment = new URLSearchParams(hash.replace(/^#/, ''));
-    if (!fragment.has('k')) {
-        const room = getRoomFromUrl(hash, search);
-        const incomplete = fragment.has('room') && (room === null || !isValidRoomId(room));
-        return { room, key: null, incomplete };
+    const raw = hash.replace(/^#/, '');
+    const fragment = new URLSearchParams(raw);
+    const decoded = decodedFragment(raw);
+    const decodedParams = new URLSearchParams(decoded);
+    const query = new URLSearchParams(search);
+    const cut: ShareFragment = { room: null, key: null, incomplete: true };
+    if (fragment.has('k') || decodedParams.has('k') || decoded.includes(';k=')) {
+        const keys = fragment.getAll('k');
+        const rooms = fragment.getAll('room');
+        const key = keys.length === 1 ? parseLinkKey(keys[0]) : null;
+        if (key === null || rooms.length !== 1 || !isValidRoomId(rooms[0])) return cut;
+        return { room: rooms[0], key, incomplete: false };
     }
-    const keys = fragment.getAll('k');
-    const rooms = fragment.getAll('room');
-    const key = keys.length === 1 ? parseLinkKey(keys[0]) : null;
-    if (key === null || rooms.length !== 1 || !isValidRoomId(rooms[0])) {
-        return { room: null, key: null, incomplete: true };
+    if (namesDamagedKey(fragment) || namesDamagedKey(decodedParams) || namesDamagedKey(query)) return cut;
+    if (raw === '' && query.has('s') && !query.has('room')) return cut;
+    const room = getRoomFromUrl(hash, search);
+    const incomplete = fragment.has('room') && (room === null || !isValidRoomId(room));
+    return { room, key: null, incomplete };
+}
+
+/** The fragment with its percent escapes undone once, as Go's url.Parse leaves it. A bad
+ *  escape leaves it as it stands: the plain reading above is then the only one. */
+function decodedFragment(raw: string): string {
+    try {
+        return decodeURIComponent(raw);
+    } catch {
+        return raw;
     }
-    return { room: rooms[0], key, incomplete: false };
+}
+
+/** Whether a parameter's name is a link key's, or was before something changed it:
+ *  another letter case, or a space, a mark or an invisible character at either end. No
+ *  link Floe writes has such a name, so nothing keyless is lost. Twin of namesDamagedKey
+ *  in cli/engine/code/client.go. */
+function namesDamagedKey(params: URLSearchParams): boolean {
+    for (const name of params.keys()) {
+        if (name.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '').toLowerCase() === 'k') return true;
+    }
+    return false;
+}
+
+/** Whether two values are the same key. No key is a value of its own: a keyed and a
+ *  keyless link into one room are two links. Not constant time, and it need not be:
+ *  both sides are the address of this tab, and no peer's value comes near it. */
+export function sameLinkKey(a: LinkKey | null, b: LinkKey | null): boolean {
+    if (a === null || b === null) return a === b;
+    return materialOf(a).text === materialOf(b).text;
+}
+
+/**
+ * Whether the address now names another link than the one this page holds, for a
+ * fragment-only navigation, which reloads nothing by itself. A key that changed under
+ * the same room is another link, and so is a fragment that became incomplete: the
+ * person is looking at a link that no longer reads, and the card should say so. A
+ * fragment that names no link at all asks for nothing, and the tab keeps its transfer.
+ */
+export function shareLinkChanged(now: ShareFragment, held: { room: string | null; key: LinkKey | null }): boolean {
+    if (now.incomplete) return true;
+    if (now.room === null) return false;
+    return now.room !== held.room || !sameLinkKey(now.key, held.key);
 }

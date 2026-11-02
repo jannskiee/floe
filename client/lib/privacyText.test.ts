@@ -9,6 +9,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { umamiBeforeSend } from './analyticsPath';
+import { keyCheckReport } from './keyCheckReport';
+import { TRANSFER_FAILED_REASONS } from './peerErrors';
 import { LOST_KEY, recordLost, takeLost } from './request/lostRecord';
 import { scrubBreadcrumb } from './scrubUrl';
 import { UMAMI_SRC } from './umamiPin';
@@ -81,6 +83,59 @@ describe('the privacy page: the request link page\'s two counts', () => {
         // The tab loads again, as Chrome's reload of a discarded tab or not.
         takeLost(store, false);
         expect(held.has(LOST_KEY)).toBe(false);
+    });
+});
+
+describe('the privacy page: what a failed transfer tells Umami', () => {
+    // The page states how many labels there are, and a new one has to change the word.
+    it('counts the labels in a word tied to the list', () => {
+        const words = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
+        const word = words[TRANSFER_FAILED_REASONS.length];
+        expect(word).toBe('ten');
+        expect(page).toContain(`your role, one of ${word} fixed labels (for example`);
+    });
+});
+
+describe('the privacy page: what the link key does', () => {
+    // What is checked and what is not, and nothing more (PLAN.md, the honesty rule).
+    // The old sentence said no Floe app checks the server and that this is true of
+    // every WebRTC application, and neither holds any more.
+    it('says a link key catches a swap on a link that carries one', () => {
+        expect(page).not.toContain('no Floe app shows a verification code');
+        expect(page).not.toContain('every WebRTC application');
+        expect(page).toContain(
+            'A link made in the web app also carries a random link key in its fragment, which no server receives.',
+        );
+        expect(page).toContain('So a server that swaps the fingerprints on such a link is caught.');
+    });
+
+    it('says where you still trust the server, and that a file name can go ahead of the check', () => {
+        expect(page).toContain('A room code, and a link made by the CLI or Floe Desktop, carries no link key yet,');
+        expect(page).toContain(
+            'and a sender in the browser does not yet refuse a receiver that cannot show the link key, and sends a file&apos;s name and size before that check has finished, so in those cases you are still trusting that server;',
+        );
+    });
+
+    it('says the fragment holds it, and the signaling server never receives it', () => {
+        expect(page).toContain('The link you share carries its room id, and on a link made in the web app a link key, in the URL fragment');
+        expect(page).toContain('Our signaling server never receives the link key,');
+    });
+});
+
+describe('the privacy page: the warning a failed check sends', () => {
+    // O7: the list item has to name every field the report carries, and the report
+    // has to carry nothing else.
+    it('names the side, the way the certificate was read, the outcome and the mode, and nothing else goes', () => {
+        expect(page).toContain(
+            'One warning when a link key check does not pass: which side it was, how the check read the certificate, the outcome, and whether the page was set to stop on it, each a fixed label, with no link, no key, and nothing the other device sent',
+        );
+        const report = keyCheckReport({ role: 'receiver', path: 'der', outcome: 'bad-tag', mode: 'enforce' });
+        expect(Object.keys(report?.tags ?? {}).sort()).toEqual(['linkkey.mode', 'linkkey.outcome', 'linkkey.path', 'linkkey.role']);
+        expect(report?.fingerprint).toEqual(['link-key', 'receiver', 'bad-tag', 'der']);
+    });
+
+    it('says the link key is stripped with the room link', () => {
+        expect(page).toContain('The room link, its link key included, is stripped from every error report,');
     });
 });
 

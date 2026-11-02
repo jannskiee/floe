@@ -276,7 +276,7 @@ describe('who holds the gate', () => {
 
     it('the main page asks the gate before it reloads for a new room link', () => {
         const src = read('../components/P2PTransfer.tsx');
-        expect(src).toContain("reloadGate.request('room-link', roomChanged)");
+        expect(src).toContain("reloadGate.request('room-link', linkChanged)");
         // The page reloads nowhere else on its own.
         expect(src).not.toContain('window.location.reload()');
     });

@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { createHash, randomBytes } from 'crypto';
 import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { fixtureDir, removeFixtureDir } from './helpers';
+import { SHARE_LINK_TEXT, fixtureDir, removeFixtureDir } from './helpers';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -52,7 +52,7 @@ async function senderSetup(
     await senderPage.locator('button', { hasText: /create secure link/i }).click();
 
     // Generated link appears in the <code> element
-    const linkEl = senderPage.locator('code').filter({ hasText: '#room=' });
+    const linkEl = senderPage.locator('code').filter({ hasText: SHARE_LINK_TEXT });
     await expect(linkEl).toBeVisible({ timeout: 10_000 });
     return (await linkEl.textContent())!.trim();
 }
@@ -78,7 +78,7 @@ test('transfers a 50 MB binary file with SHA-256 integrity check', async ({ brow
 
     try {
         const link = await senderSetup(senderPage, fixturePath);
-        expect(link).toContain('#room=');
+        expect(link).toMatch(SHARE_LINK_TEXT);
 
         await receiverPage.goto(link);
 

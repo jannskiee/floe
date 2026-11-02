@@ -2,7 +2,7 @@ import { test, expect, type Locator, type Page } from '@playwright/test';
 import { randomBytes } from 'crypto';
 import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { fixtureDir, removeFixtureDir } from './helpers';
+import { SHARE_LINK_TEXT, fixtureDir, removeFixtureDir } from './helpers';
 
 // Each row of the two file lists carries a tooltip with the whole file name,
 // placed under the name and transparent until hover. While the lists were
@@ -32,7 +32,7 @@ async function senderSetup(page: Page, paths: string[]): Promise<string> {
     await page.goto('/');
     await page.locator('input[type="file"]').setInputFiles(paths);
     await page.locator('button', { hasText: /create secure link/i }).click();
-    const linkEl = page.locator('code').filter({ hasText: '#room=' });
+    const linkEl = page.locator('code').filter({ hasText: SHARE_LINK_TEXT });
     await expect(linkEl).toBeVisible({ timeout: 10_000 });
     return (await linkEl.textContent())!.trim();
 }

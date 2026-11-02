@@ -22,5 +22,11 @@
     "frame": "{\"type\":\"incompatible\",\"reason\":\"The sender has Network relay fallback off, and this connection needs the relay. Ask them to reload, leave it on, and share a new link.\",\"pv\":2,\"pvMin\":1}",
     "browser": "The sender has Network relay fallback off, and this connection needs the relay. Ask them to reload, leave it on, and share a new link.",
     "go": "The sender has Network relay fallback off, and this connection needs the relay. Ask them to reload, leave it on, and share a new link."
+  },
+  {
+    "name": "unverified",
+    "frame": "{\"type\":\"incompatible\",\"reason\":\"sender could not confirm the receiver holds this link\",\"pv\":2,\"pvMin\":2,\"code\":\"unverified\"}",
+    "browser": "sender could not confirm the receiver holds this link",
+    "go": "receive stopped: the sender could not be confirmed, so nothing was saved"
   }
 ]

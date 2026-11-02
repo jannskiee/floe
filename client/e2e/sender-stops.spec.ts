@@ -14,7 +14,7 @@
 import { test, expect, type BrowserContext } from '@playwright/test';
 import { rmSync } from 'fs';
 import { join } from 'path';
-import { createFixture, fixtureDir, removeFixtureDir, sha256OfBlobUrl, writeRandomFile } from './helpers';
+import { SHARE_LINK_TEXT, createFixture, fixtureDir, removeFixtureDir, sha256OfBlobUrl, writeRandomFile } from './helpers';
 
 const FIXTURE_DIR = fixtureDir('floe-e2e-sender-stops');
 
@@ -44,7 +44,7 @@ test('a sender that cannot read a file tells the receiver why and closes', async
         await senderPage.goto('/');
         await senderPage.locator('input[type="file"]').first().setInputFiles([first.path, second.path]);
         await senderPage.locator('button', { hasText: /create secure link/i }).click();
-        const linkEl = senderPage.locator('code').filter({ hasText: '#room=' });
+        const linkEl = senderPage.locator('code').filter({ hasText: SHARE_LINK_TEXT });
         await expect(linkEl).toBeVisible({ timeout: 10_000 });
         const link = (await linkEl.textContent())!.trim();
 
@@ -89,7 +89,7 @@ test('a sender whose first read of the relay list failed reads it again before i
         await expect.poll(() => reads, { timeout: 15_000 }).toBe(1);
         await senderPage.locator('input[type="file"]').first().setInputFiles(file.path);
         await senderPage.locator('button', { hasText: /create secure link/i }).click();
-        const linkEl = senderPage.locator('code').filter({ hasText: '#room=' });
+        const linkEl = senderPage.locator('code').filter({ hasText: SHARE_LINK_TEXT });
         await expect(linkEl).toBeVisible({ timeout: 10_000 });
 
         await receiverPage.goto((await linkEl.textContent())!.trim());

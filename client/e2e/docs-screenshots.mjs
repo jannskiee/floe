@@ -202,7 +202,7 @@ if (await sender.getByRole('checkbox', { name: /network relay fallback/i }).isCh
     throw new Error('relay fallback is still on');
 }
 await sender.locator('button', { hasText: /create secure link/i }).click();
-const linkEl = sender.locator('code').filter({ hasText: '#room=' });
+const linkEl = sender.locator('code').filter({ hasText: /[#&]room=/ });
 await linkEl.waitFor({ timeout: 20_000 });
 const roomUrl = (await linkEl.textContent()).trim();
 await sender.waitForTimeout(600);

@@ -6,6 +6,7 @@ import {
     PEER_ERROR_CODES,
     RECEIVER_PEER_ERROR,
     SENDER_PEER_ERROR,
+    TRANSFER_FAILED_REASONS,
     classifyPeerError,
     peerErrorBanner,
     peerErrorCodeOf,
@@ -319,5 +320,58 @@ describe('P2PTransfer puts no peer error text on the page or in a report', () =>
         expect(main.split("peerErrorReport('sender', err)")).toHaveLength(2);
         expect(main).toContain("message: 'Receiver: expected connection error'");
         expect(main).toContain("message: 'Sender: expected connection error'");
+    });
+});
+
+// The privacy page says how many fixed labels a failed transfer can carry
+// (lib/privacyText.test.ts ties the word to this list's length), so the list has to
+// be every label the page can send. Read from the source: nothing mounts it.
+describe('the reasons a transfer-failed event can carry', () => {
+    const main = readFileSync(fileURLToPath(new URL('../components/P2PTransfer.tsx', import.meta.url)), 'utf8');
+
+    it('lists the labels of every source, each once, and nothing that is not a label', () => {
+        expect([...TRANSFER_FAILED_REASONS].sort()).toEqual(
+            [
+                // classifyPeerError
+                'relay-disabled',
+                'abort',
+                'ice-failed',
+                'conn-failed',
+                'unknown',
+                // a stop the peer reported, and one over the link-key check
+                'peer-reason',
+                'unverified',
+                // ReceiveFailure, by its code
+                'out-of-memory',
+                'storage-full',
+                'internal',
+            ].sort(),
+        );
+        expect(new Set(TRANSFER_FAILED_REASONS).size).toBe(TRANSFER_FAILED_REASONS.length);
+    });
+
+    it('holds every reason classifyPeerError can answer', () => {
+        const inputs: Array<[string | undefined, { relayEnabled?: boolean; code?: string }]> = [
+            ['Ice connection failed.', {}],
+            ['Connection failed.', {}],
+            ['User-Initiated Abort', {}],
+            ['anything else', {}],
+            ['anything else', { relayEnabled: false }],
+        ];
+        for (const [message, options] of inputs) {
+            expect(TRANSFER_FAILED_REASONS).toContain(classifyPeerError(message, options).reason);
+        }
+    });
+
+    it('holds every literal reason the page sends', () => {
+        const events = main.split("track('transfer-failed'").slice(1);
+        expect(events.length).toBeGreaterThan(3);
+        const literals = events.flatMap((event) => {
+            const args = event.slice(0, event.indexOf(');'));
+            return [...args.matchAll(/'([a-z-]+)'/g)].map((m) => m[1]).filter((word) => !['sender', 'receiver'].includes(word));
+        });
+        expect(literals).toContain('peer-reason');
+        expect(literals).toContain('unverified');
+        for (const label of literals) expect(TRANSFER_FAILED_REASONS).toContain(label);
     });
 });

@@ -14,6 +14,8 @@
 // (e2e/peer-error-text.spec.ts reproduces it). What leaves this module is a
 // fixed sentence and a code from simple-peer's own list.
 
+import type { ReceiveFailureCode } from './transfer/receiveFailure';
+
 export type PeerErrorReason =
     | 'relay-disabled'
     | 'abort'
@@ -62,6 +64,25 @@ export function classifyPeerError(
 
     return { isExpected, reason };
 }
+
+/**
+ * Every label a transfer-failed event can carry: classifyPeerError's, 'peer-reason' for
+ * a stop the peer reported, a ReceiveFailure by its code, and 'unverified' for the
+ * link-key check on either side. The privacy page counts them in a word, and
+ * privacyText.test.ts holds that word to this list's length.
+ */
+export const TRANSFER_FAILED_REASONS = [
+    'relay-disabled',
+    'abort',
+    'ice-failed',
+    'conn-failed',
+    'unknown',
+    'peer-reason',
+    'out-of-memory',
+    'storage-full',
+    'internal',
+    'unverified',
+] as const satisfies readonly (PeerErrorReason | 'peer-reason' | Exclude<ReceiveFailureCode, 'channel-closed'> | 'unverified')[];
 
 /**
  * Every code simple-peer 9 puts on an error it raises (`err.code`, set by

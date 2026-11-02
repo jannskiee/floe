@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { createFixture, fixtureDir, removeFixtureDir } from './helpers';
+import { SHARE_LINK_TEXT, createFixture, fixtureDir, removeFixtureDir } from './helpers';
 
 // The sender seals its file set the moment "Create secure link" is clicked, but
 // the link itself is not rendered until the server acknowledges the join (or a
@@ -35,10 +35,10 @@ test.describe('sender card while the link is being created', () => {
         // ...and it is a genuine intermediate state, not a duplicate of either
         // neighbour. Both of those are gated on the same two flags.
         await expect(createButton).toBeHidden();
-        await expect(page.locator('code').filter({ hasText: '#room=' })).toHaveCount(0);
+        await expect(page.locator('code').filter({ hasText: SHARE_LINK_TEXT })).toHaveCount(0);
 
         // The 3s fallback resolves it even though no ack ever arrives.
-        await expect(page.locator('code').filter({ hasText: '#room=' })).toBeVisible({
+        await expect(page.locator('code').filter({ hasText: SHARE_LINK_TEXT })).toBeVisible({
             timeout: 10_000,
         });
         await expect(pending).toBeHidden();
@@ -62,7 +62,7 @@ test.describe('sender card while the link is being created', () => {
                 const text = document.body.innerText;
                 return {
                     button: /create secure link/i.test(text),
-                    link: text.includes('#room='),
+                    link: /[#&]room=/.test(text),
                     affordance: text.includes('Creating secure link'),
                 };
             });

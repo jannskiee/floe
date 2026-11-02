@@ -147,6 +147,9 @@ export const FIELDS = {
 // signal to its callbacks unread; roomSeat.ts compares the role the signaling
 // server named, a value with no token of its own (see FIELDS.ts.member);
 // linkKey.ts reads a share link, which the other party wrote, as `hash`.
+//
+// keyCheckReport.ts and linkKeyCopy.ts are the second kind: their rows record that
+// a failed link-key check reaches a report and the screen as enums and fixed words.
 export const TOKEN_FREE = new Set([
     'desktop/frontend/src/errors.ts',
     'desktop/frontend/src/history.ts',
@@ -167,6 +170,8 @@ export const TOKEN_FREE = new Set([
     'client/hooks/useSignaling.ts',
     'client/lib/roomSeat.ts',
     'client/lib/linkKey.ts',
+    'client/lib/keyCheckReport.ts',
+    'client/lib/linkKeyCopy.ts',
 ]);
 const tokenRegex = (f) =>
     new RegExp(`\\b(${f.word.join('|')})\\b|\\.(${f.member.join('|')})\\b`);
