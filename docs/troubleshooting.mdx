@@ -366,7 +366,7 @@ are likely to see:
 | “Transfer blocked: relay connections are capped at 2 GB. Ask the sender to send 2 GB or less, or to try a network that allows a direct connection.” | The connection is relayed, and a sender in the browser picked more than 2 GB. | Do what the banner says. |
 | “transfer blocked: relay connections are capped at 2 GB (selected 2.5 GB)” | The same cap, from `floe send` or Floe Desktop. | Ask them to send 2 GB or less at a time. |
 | “the sender's copy of "report.pdf" changed while it was being sent, so nothing further was sent” | A file changed on their computer while `floe send` or Floe Desktop was sending it. | Ask them to send it again once it stops changing. |
-| “The sender stopped: a file could not be read on their device. Ask them to check it and send again.” | A file they picked in the browser was moved, renamed, or deleted. | Do what the banner says. |
+| “The sender stopped: a file could not be read on their device. Ask them to check it and send again.” | A file they were sending was moved, renamed, or deleted, or its drive was unplugged. Senders in the browser, `floe send`, and Floe Desktop all send this reason. | Do what the banner says. |
 | “The sender stopped after waiting 2 minutes for this device to answer. Ask them to send again.” | Your page did not take the file in time. | Do what the banner says. |
 | “The sender stopped because of an error on their side. Ask them to send again.” | The sending page hit an error it did not expect. | Do what the banner says. |
 
@@ -1124,8 +1124,9 @@ From `floe receive`, as `Error: The sender stopped.` The sender pressed `Ctrl+C`
 Files that finished are kept, and the file that was arriving is deleted.
 
 A sender that stops for another reason says so, and `floe receive` prints its words. Examples are
-`the sender's copy of "report.pdf" changed while it was being sent, so nothing further was sent`
-and the relay cap in
+`the sender's copy of "report.pdf" changed while it was being sent, so nothing further was sent`,
+`The sender stopped: a file could not be read on their device. Ask them to check it and send again`
+when a file was moved, deleted, or on a drive that was unplugged, and the relay cap in
 [`relay connections are capped at 2 GB`](#relay-connections-are-capped-at-2-gb).
 
 Ask whether they meant to stop, then ask them to send again whatever did not arrive.
@@ -1547,9 +1548,9 @@ Ask the sender to start a new transfer.
 
 On the **Receive** tab, as `Error: transfer failed: ` and the sender's own sentence, without its
 closing period. `The sender stopped` means they pressed `Ctrl+C` in `floe send` 1.11.1 or later. A
-sender in the browser names its reason instead:
+sender that stops for another reason names it instead:
 
-- `The sender stopped: a file could not be read on their device. Ask them to check it and send again`
+- `The sender stopped: a file could not be read on their device. Ask them to check it and send again`, from any sender, when a file was moved, deleted, or on a drive that was unplugged
 - `The sender stopped after waiting 2 minutes for this device to answer. Ask them to send again`
 - `The sender stopped because of an error on their side. Ask them to send again`
 - `The sender has Network relay fallback off, and this connection needs the relay. Ask them to reload, leave it on, and share a new link`
