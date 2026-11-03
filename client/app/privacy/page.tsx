@@ -59,6 +59,11 @@ export const metadata: Metadata = {
 // sends (lib/keyCheckReport.ts), and ten reason labels, with 'unverified'
 // (TRANSFER_FAILED_REASONS in lib/peerErrors.ts, which lib/privacyText.test.ts ties
 // to the word).
+// Rechecked on 2026-11-03, for the link key on a request link: what the /r page reads
+// and checks (lib/request/requestLink.ts, components/RequestVisitor.tsx,
+// lib/request/visitorState.ts) and the warning it sends, the same one by the same helper
+// (lib/keyCheckReport.ts, role visitor). No released Floe Desktop makes such a link yet,
+// so the sentence in How the transfer works stands (it changes with Desktop 1.1).
 // Rechecked on 2026-10-14: the browser's Sentry reports carry breadcrumbs
 // (the SDK's default clicks, navigations, fetch and XHR addresses and console
 // lines), each scrubbed of the room link by beforeBreadcrumb
@@ -386,15 +391,20 @@ export default function PrivacyPolicy() {
                     in the link and in the memory of the page that read it.
                 </p>
                 <p>
-                    A request link looks like <InlineCode>floe.one/r/&lt;link id&gt;#&lt;key&gt;</InlineCode>
-                    . The key after the <InlineCode>#</InlineCode> is the link&apos;s room id: it works
-                    like a share link&apos;s and stays out of logs the same way. The link id before
-                    it is part of the page
-                    address, so Vercel&apos;s request logs see it; it names one link without the key, so
-                    a report or a block can point at that one link, and our signaling server never
-                    receives it. Our analytics script does not load on a request link&apos;s page at
-                    all, and our error monitoring removes the link id from the address before anything
-                    is sent. Mail security services that rewrite links may see the whole link.
+                    A request link looks like <InlineCode>floe.one/r/&lt;link id&gt;#&lt;room id&gt;</InlineCode>
+                    . The room id after the <InlineCode>#</InlineCode> works like a share link&apos;s
+                    and stays out of logs the same way. The link id before it is part of the page
+                    address, so Vercel&apos;s request logs see it; it names one link without the room id,
+                    so a report or a block can point at that one link, and our signaling server never
+                    receives it. A request link that carries a link key holds it after the room id, as{' '}
+                    <InlineCode>#&lt;room id&gt;.&lt;link key&gt;</InlineCode>. The page keeps it in
+                    memory and never sends it to any server. It proves it to the computer that made the
+                    link, and it names no file until that computer has proved it back; if that proof
+                    does not come, it sends no file and says so. Our analytics script does not load on
+                    a request link&apos;s page at all, and our error monitoring removes the link id from
+                    the address before anything is sent. A link key check that does not pass on that
+                    page sends the one warning described under Error monitoring, and nothing else about
+                    the check. Mail security services that rewrite links may see the whole link.
                 </p>
                 <p>
                     Please refer to each provider&apos;s privacy policy regarding data handling:{' '}

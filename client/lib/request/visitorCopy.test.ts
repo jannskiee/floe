@@ -28,9 +28,9 @@ const CTX: StatusContext = {
     now: 0,
 };
 
-const TWELVE = [
+const THIRTEEN = [
     'declined', 'disk-full', 'expired', 'file-too-large-for-folder', 'hash-mismatch', 'over-approved',
-    'path-too-long', 'relay-cap', 'save-blocked', 'stopped', 'time-limit', 'write-failed',
+    'path-too-long', 'relay-cap', 'save-blocked', 'stopped', 'time-limit', 'unverified', 'write-failed',
 ] as const;
 
 const UNKNOWN = 'The drop stopped on their computer.';
@@ -47,7 +47,7 @@ function everythingShown(m: VisitorModel): string {
 
 describe('visitor copy: the refusal table (spec 07 4.15.2)', () => {
     it('every refusal code has fixed copy', () => {
-        const titles: Record<(typeof TWELVE)[number], string> = {
+        const titles: Record<(typeof THIRTEEN)[number], string> = {
             declined: 'They declined. Nothing was sent.',
             expired: 'They did not answer in time. Nothing was sent.',
             'disk-full': 'Their computer ran out of space',
@@ -60,8 +60,9 @@ describe('visitor copy: the refusal table (spec 07 4.15.2)', () => {
             'over-approved': 'More data arrived than they accepted',
             stopped: 'They stopped this drop.',
             'time-limit': 'This drop reached the 24-hour limit',
+            unverified: "Their computer couldn't confirm this link",
         };
-        for (const code of TWELVE) {
+        for (const code of THIRTEEN) {
             const copy = refusalCopy(code, 4, 12);
             expect(copy.title, code).toBe(titles[code]);
             // No code falls through to the generic sentence.
@@ -105,7 +106,7 @@ describe('visitor copy: the refusal table (spec 07 4.15.2)', () => {
         }
         // A heading carries no final period; only the sentence titles do
         // (declined, expired, stopped) and the unknown code's.
-        for (const code of TWELVE) {
+        for (const code of THIRTEEN) {
             const sentence = ['declined', 'expired', 'stopped'].includes(code);
             expect(refusalCopy(code, 4, 12).title.endsWith('.'), code).toBe(sentence);
         }
@@ -289,15 +290,23 @@ describe('visitor copy: server answers and the attempt states', () => {
         ]);
         expect(copy?.showArrived).toBe(true);
         expect(announcement(m, CTX)).toBe(copy?.title);
-        // The first file itself unreadable: nothing was saved.
+        // The first file itself unreadable, past the host's answer. The read can have failed
+        // part of the way through, so the card says nothing about what went (D17).
         const first = reduce(model('V10', { ackIndex: 1, channelOpen: true, sendStarted: true }), {
             type: 'UNREADABLE', index: 1,
         }).model;
         expect(statusCopy(first, CTX)?.lines).toEqual([
             '"shoot/A001_C002.mov" may have been moved or renamed, or its drive disconnected.',
-            'Nothing was sent.',
         ]);
         expect(announcement(first, CTX)).toBe(statusCopy(first, CTX)?.title);
+        // Before any answer, only an empty file is read, ahead of its metadata, and nothing
+        // has gone: the saved line is true there and stays.
+        const early = reduce(model('V6', { channelOpen: true, sendStarted: true }), { type: 'UNREADABLE', index: 1 }).model;
+        expect(early.ackIndex).toBe(0);
+        expect(statusCopy(early, CTX)?.lines).toEqual([
+            '"shoot/A001_C002.mov" may have been moved or renamed, or its drive disconnected.',
+            'Nothing was sent.',
+        ]);
     });
 
     it('the SHA-256 line appears only when verified equals N', () => {
@@ -451,7 +460,7 @@ describe('visitor copy: hostile peers', () => {
             ];
             let seenStates = 0;
             for (const path of paths) {
-                let m = reduce(initialModel, { type: 'LINK_OK', roomId: ROOM }).model;
+                let m = reduce(initialModel, { type: 'LINK_OK', roomId: ROOM, keyed: false }).model;
                 for (const e of path) {
                     m = reduce(m, withHostile(e)).model;
                     const shown = everythingShown(m);
@@ -587,8 +596,8 @@ describe('visitor copy: Ready and Sending strings', () => {
             else if (v && typeof v === 'object') Object.values(v).forEach(walk);
         };
         walk(visitorCopy);
-        for (const code of [...TWELVE, null]) walk(refusalCopy(code, 3, 12));
-        for (const s of ['V4', 'V5a', 'V5b', 'V5c', 'V6', 'V6a', 'V6c', 'V7', 'V8a', 'V8b', 'V9', 'V11a', 'V11b', 'V12', 'V12a', 'V13'] as const) {
+        for (const code of [...THIRTEEN, null]) walk(refusalCopy(code, 3, 12));
+        for (const s of ['V4', 'V5a', 'V5b', 'V5c', 'V6', 'V6a', 'V6c', 'V6f', 'V6g', 'V7', 'V8a', 'V8b', 'V9', 'V11a', 'V11b', 'V12', 'V12a', 'V13'] as const) {
             walk(statusCopy(model(s, { ackIndex: 3, stop: { refusal: 'disk-full', savedCount: 2 }, verifiedCount: 12 }), CTX));
             walk(announcement(model(s), CTX));
         }
@@ -610,6 +619,275 @@ describe('visitor copy: Ready and Sending strings', () => {
         walk(visitorCopy);
         expect(all.length).toBeGreaterThan(60);
         expect(all.filter((s) => /\bbeta\b/i.test(s))).toEqual([]);
+    });
+});
+
+describe('visitor copy: the link key (PLAN.md New copy, C-56, C-57, code unverified)', () => {
+    const ASK = 'Ask the person who made this link for a new one.';
+
+    it('the frozen rows, byte for byte', () => {
+        expect(visitorCopy.keyFailedTitle).toBe("Couldn't confirm their computer");
+        expect(visitorCopy.keyFailedBody).toBe('Nothing was sent. Ask the person who made this link for a new one.');
+        expect(visitorCopy.askForNewLink).toBe(ASK);
+        expect(refusalCopy('unverified', 0, 3).title).toBe("Their computer couldn't confirm this link");
+        // C-57 is the two sentences this table already holds, and stays that.
+        expect(visitorCopy.keyFailedBody).toBe(`${visitorCopy.nothingSent} ${visitorCopy.askForNewLink}`);
+    });
+
+    it('V6f: the card has the title and the line, and nothing to press', () => {
+        const copy = statusCopy(model('V6f'), CTX);
+        expect(copy).toMatchObject({
+            marker: 'ended',
+            title: "Couldn't confirm their computer",
+            lines: ['Nothing was sent. Ask the person who made this link for a new one.'],
+            action: null,
+            showArrived: false,
+            learnMore: false,
+            badge: false,
+            one: false,
+        });
+    });
+
+    it('V6f is announced by its title', () => {
+        expect(announcement(model('V6f'), CTX)).toBe("Couldn't confirm their computer");
+    });
+
+    it('unverified before accept: the title, the saved line at 0, then the ask', () => {
+        expect(refusalCopy('unverified', 0, 3)).toEqual({
+            title: "Their computer couldn't confirm this link",
+            lines: ['Nothing was sent.', ASK],
+            showArrived: false,
+        });
+    });
+
+    it('unverified with files saved: their count, then the ask, and the list', () => {
+        expect(refusalCopy('unverified', 2, 3)).toEqual({
+            title: "Their computer couldn't confirm this link",
+            lines: ['2 of 3 files were saved.', ASK],
+            showArrived: true,
+        });
+        expect(refusalCopy('unverified', 1, 1).lines).toEqual(['1 of 1 file was saved.', ASK]);
+    });
+
+    // The first byte goes right behind the first ack, so from there "Nothing was sent" is
+    // false whatever count the frame carries. The refusal is the host's word and the count
+    // is its claim: a host that holds the bytes could otherwise make the page say none went.
+    it('unverified past the first ack never says nothing was sent', () => {
+        expect(refusalCopy('unverified', 0, 3, true)).toEqual({
+            title: "Their computer couldn't confirm this link",
+            lines: [ASK],
+            showArrived: false,
+        });
+        expect(refusalCopy('unverified', 2, 3, true).lines).toEqual(['2 of 3 files were saved.', ASK]);
+    });
+
+    it('the card knows that from the page\'s own count, and from nothing the host sent', () => {
+        const stop = { refusal: 'unverified' as const, savedCount: 0 };
+        const before = statusCopy(model('V11', { stop, ackIndex: 0, total: 3 }), CTX);
+        expect(before?.lines).toEqual(['Nothing was sent.', ASK]);
+        const after = statusCopy(model('V11', { stop, ackIndex: 1, total: 3 }), CTX);
+        expect(after?.title).toBe("Their computer couldn't confirm this link");
+        expect(after?.lines).toEqual([ASK]);
+        expect(JSON.stringify(after)).not.toMatch(/nothing was sent/i);
+        expect(announcement(model('V11', { stop, ackIndex: 1, total: 3 }), CTX)).toBe(after?.title);
+    });
+
+    // The row is a code, the words are ours, and no reason a peer sent has a way in.
+    it('every path from the reducer to a refusal of this code reads as above', () => {
+        const refused = (from: VisitorModel['state'], patch: Partial<VisitorModel>, event: VisitorEvent) =>
+            reduce(model(from, patch), event).model;
+        const frame: VisitorEvent = { type: 'INCOMPATIBLE', refusal: 'unverified', savedCount: 0, rangeOverlaps: true };
+        const keyed = { keyed: true, keyVerified: true, channelOpen: true, sendStarted: true, total: 3 };
+
+        // Nothing named, nothing sent: the proof was all that went.
+        const early = refused('V6', { keyed: true, channelOpen: true, total: 3 }, { type: 'KEY_CHECK_REFUSED' });
+        expect(statusCopy(early, CTX)?.lines).toEqual(['Nothing was sent.', ASK]);
+        // The metadata went, and no file byte: a byte goes only after an ack.
+        const waiting = refused('V7', { ...keyed, firstMetadataAt: 1 }, frame);
+        expect(statusCopy(waiting, CTX)?.lines).toEqual(['Nothing was sent.', ASK]);
+        // Past the ack.
+        const sending = refused('V10', { ...keyed, firstMetadataAt: 1, ackIndex: 1, acceptedAt: 2 }, frame);
+        expect(statusCopy(sending, CTX)?.lines).toEqual([ASK]);
+        const second = refused('V10', { ...keyed, firstMetadataAt: 1, ackIndex: 2, acceptedAt: 2 }, frame);
+        expect(statusCopy(second, CTX)?.lines).toEqual([ASK]);
+    });
+
+    it('V6f says nothing was sent only where the reducer has started nothing', () => {
+        // A send that started has a proof, and a proof has no way back to V6f.
+        const started = model('V6', { keyed: true, keyVerified: true, channelOpen: true, sendStarted: true });
+        expect(reduce(started, { type: 'KEY_CHECK_FAILED' }).model.state).toBe('V6');
+        const v7 = model('V7', { keyed: true, keyVerified: true, sendStarted: true });
+        expect(reduce(v7, { type: 'KEY_CHECK_FAILED' }).model.state).toBe('V7');
+        const v10 = model('V10', { keyed: true, keyVerified: true, sendStarted: true, ackIndex: 1 });
+        expect(reduce(v10, { type: 'KEY_CHECK_FAILED' }).model.state).toBe('V10');
+    });
+
+    it('a keyless visitor whose host refuses reads the V1 card, and hears it, with no new string', () => {
+        const v1 = reduce(model('V7', { sendStarted: true, firstMetadataAt: 1 }), {
+            type: 'INCOMPATIBLE',
+            refusal: 'unverified',
+            savedCount: 0,
+            rangeOverlaps: true,
+        }).model;
+        expect(v1.state).toBe('V1');
+        // V1 keeps its own card (NoticeCard), so no status card.
+        expect(statusCopy(v1, CTX)).toBeNull();
+        expect(visitorCopy.incompleteTitle).toBe('This link looks incomplete');
+        expect(visitorCopy.incompleteBody).toBe('Copy the whole link again, including everything after the # sign.');
+        // It came after an attempt the page announced, so it is announced too.
+        expect(announcement(v1, CTX)).toBe('This link looks incomplete');
+    });
+
+    it('V1 at load stays as quiet as it was: the first paint, with no attempt behind it', () => {
+        const atLoad = reduce(initialModel, { type: 'LINK_INCOMPLETE' }).model;
+        expect(atLoad.state).toBe('V1');
+        expect(announcement(atLoad, CTX)).toBe('');
+    });
+
+    it('the ask stays on its own row', () => {
+        for (const code of THIRTEEN.filter((c) => c !== 'unverified')) {
+            for (const saved of [0, 2]) {
+                expect(refusalCopy(code, saved, 12).lines.join(' '), code).not.toContain(ASK);
+                expect(refusalCopy(code, saved, 12, true).lines.join(' '), code).not.toContain(ASK);
+            }
+        }
+    });
+
+    // C-58 and C-59 (D17). A browser that cannot read the connection's certificates has no
+    // way to check the host, and a new link will not change that, so this card says what
+    // will: it never claims the other side failed (D7).
+    it('V6g: the frozen rows, byte for byte', () => {
+        expect(visitorCopy.cantCheckTitle).toBe("This browser can't check this link");
+        expect(visitorCopy.cantCheckBody).toBe('Nothing was sent. Open this link in a current version of Chrome, Edge, Firefox or Safari.');
+    });
+
+    it('V6g: the card has the title and the line, and nothing to press', () => {
+        expect(statusCopy(model('V6g'), CTX)).toMatchObject({
+            marker: 'ended',
+            title: "This browser can't check this link",
+            lines: ['Nothing was sent. Open this link in a current version of Chrome, Edge, Firefox or Safari.'],
+            action: null,
+            showArrived: false,
+            learnMore: false,
+            badge: false,
+            one: false,
+        });
+    });
+
+    it('V6g is announced by its title', () => {
+        expect(announcement(model('V6g'), CTX)).toBe("This browser can't check this link");
+    });
+
+    it('V6g says nothing about the host, and does not send the visitor to it for a new link', () => {
+        const words = JSON.stringify(statusCopy(model('V6g'), CTX));
+        expect(words).not.toContain(visitorCopy.keyFailedTitle);
+        expect(words).not.toContain(ASK);
+        expect(words).not.toMatch(/their computer/i);
+    });
+
+    it('V6g says nothing was sent only where the reducer has started nothing', () => {
+        const started = model('V6', { keyed: true, channelOpen: true, sendStarted: true });
+        expect(reduce(started, { type: 'KEY_CHECK_UNAVAILABLE' }).model.state).toBe('V6');
+        const v7 = model('V7', { keyed: true, sendStarted: true });
+        expect(reduce(v7, { type: 'KEY_CHECK_UNAVAILABLE' }).model.state).toBe('V7');
+        const v10 = model('V10', { keyed: true, sendStarted: true, ackIndex: 1 });
+        expect(reduce(v10, { type: 'KEY_CHECK_UNAVAILABLE' }).model.state).toBe('V10');
+    });
+});
+
+// D17. The first byte goes right behind the host's first answer, so from there "Nothing was
+// sent." would be false whatever count the frame carries, on a host that is honest too:
+// "Their computer ran out of space" during file 1 is the usual way here. The card keeps its
+// title and drops the line, with no new words.
+describe('visitor copy: past the host\'s first answer, with nothing saved', () => {
+    const FALSE = /nothing was sent/i;
+    const ROWS = THIRTEEN.filter((c) => c !== 'declined' && c !== 'expired');
+
+    it('every refusal row keeps its title and loses the line', () => {
+        for (const code of ROWS) {
+            const after = refusalCopy(code, 0, 12, true);
+            const before = refusalCopy(code, 0, 12);
+            expect(after.title, code).toBe(before.title);
+            expect(after.lines.join(' '), code).not.toMatch(FALSE);
+            expect(after.showArrived, code).toBe(false);
+        }
+    });
+
+    it('what follows the saved line stays where it is', () => {
+        expect(refusalCopy('disk-full', 0, 12, true).lines).toEqual([]);
+        expect(refusalCopy('relay-cap', 0, 12, true).lines).toEqual([]);
+        expect(refusalCopy('stopped', 0, 12, true).lines).toEqual([]);
+        expect(refusalCopy('hash-mismatch', 0, 12, true).lines).toEqual(['Ask them for a new link to send the rest.']);
+        expect(refusalCopy('path-too-long', 0, 12, true).lines).toEqual(['Shorten it or zip it first.']);
+        expect(refusalCopy('over-approved', 0, 12, true).lines).toEqual(['If files changed after you chose them, ask them for a new link.']);
+        expect(refusalCopy('unverified', 0, 12, true).lines).toEqual(['Ask the person who made this link for a new one.']);
+    });
+
+    it('a count of files saved reads as it always did', () => {
+        for (const code of ROWS) {
+            expect(refusalCopy(code, 2, 12, true), code).toEqual(refusalCopy(code, 2, 12));
+        }
+    });
+
+    it('before the first answer no row moved', () => {
+        expect(refusalCopy('disk-full', 0, 12).lines).toEqual(['Nothing was sent.']);
+        expect(refusalCopy('stopped', 0, 12).lines).toEqual(['Nothing was sent.']);
+        expect(refusalCopy('relay-cap', 0, 12).lines).toEqual(['Nothing was sent. Send 2 GB or less.']);
+        expect(refusalCopy('hash-mismatch', 0, 12).lines).toEqual(['Nothing was sent.', 'Ask them for a new link to send the rest.']);
+        expect(refusalCopy(null, 0, 12).lines).toEqual(['Nothing was sent.']);
+    });
+
+    // Only a hostile host gets here: declining and running out the clock both come before
+    // the first answer. Each of those titles holds the claim, so the row is the unknown one.
+    it('declined and expired past an answer read as the unknown row, whatever the count', () => {
+        for (const code of ['declined', 'expired']) {
+            expect(refusalCopy(code, 0, 12, true), code).toEqual({
+                title: 'The drop stopped on their computer.',
+                lines: [],
+                showArrived: false,
+            });
+            expect(refusalCopy(code, 2, 12, true), code).toEqual({
+                title: 'The drop stopped on their computer.',
+                lines: ['2 of 12 files were saved.'],
+                showArrived: true,
+            });
+        }
+    });
+
+    it('before an answer declined and expired keep their sentences, and nothing under them', () => {
+        expect(refusalCopy('declined', 0, 12)).toEqual({ title: 'They declined. Nothing was sent.', lines: [], showArrived: false });
+        expect(refusalCopy('expired', 0, 12)).toEqual({ title: 'They did not answer in time. Nothing was sent.', lines: [], showArrived: false });
+    });
+
+    it('a code the page does not know, past an answer: the unknown row and no line', () => {
+        for (const code of [null, 'too-slow', 'FLOEPEERTEXT']) {
+            expect(refusalCopy(code, 0, 12, true), String(code)).toEqual({
+                title: 'The drop stopped on their computer.',
+                lines: [],
+                showArrived: false,
+            });
+        }
+    });
+
+    it('the card reads that from the page\'s own count, on every row', () => {
+        for (const code of THIRTEEN) {
+            const stop = { refusal: code, savedCount: 0 };
+            const card = statusCopy(model('V11', { stop, ackIndex: 1, total: 12 }), CTX);
+            expect(JSON.stringify(card), code).not.toMatch(FALSE);
+            expect(announcement(model('V11', { stop, ackIndex: 1, total: 12 }), CTX), code).not.toMatch(FALSE);
+        }
+    });
+
+    it('You stopped this drop: the title alone with no file in, and the count with one', () => {
+        const during = statusCopy(model('V11a', { ackIndex: 1, total: 12 }), CTX);
+        expect(during).toMatchObject({ title: 'You stopped this drop.', lines: [], showArrived: false });
+        expect(statusCopy(model('V11a', { ackIndex: 2, total: 12 }), CTX)?.lines).toEqual(['1 of 12 files were saved.']);
+    });
+
+    it('from the reducer: an honest host that runs out of space during file 1', () => {
+        const v10 = model('V10', { keyed: true, keyVerified: true, channelOpen: true, sendStarted: true, firstMetadataAt: 1, ackIndex: 1, acceptedAt: 2, total: 1 });
+        const stopped = reduce(v10, { type: 'INCOMPATIBLE', refusal: 'disk-full', savedCount: 0, rangeOverlaps: true }).model;
+        expect(statusCopy(stopped, CTX)).toMatchObject({ title: 'Their computer ran out of space', lines: [], showArrived: false });
     });
 });
 

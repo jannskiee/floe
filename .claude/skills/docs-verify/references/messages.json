@@ -1261,6 +1261,13 @@
     },
     {
         "surface": "web-request",
+        "text": "Ask the person who made this link for a new one.",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": null,
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
         "text": "Ask them for a new link to send the rest.",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#when-their-floe-stops-the-drop",
@@ -1397,6 +1404,34 @@
         "text": "Couldn't check for a relay. Try again, or turn off Hide my IP to send directly.",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#messages-on-the-senders-page",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "Couldn't confirm their computer",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": null,
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "This browser can't check this link",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": null,
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "Nothing was sent. Open this link in a current version of Chrome, Edge, Firefox or Safari.",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": null,
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "Couldn't confirm their computer. Nothing was sent. Ask the person who made this link for a new one.",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": null,
         "why_no_home": null
     },
     {
@@ -1551,6 +1586,13 @@
         "text": "Nothing was sent.",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#when-their-floe-stops-the-drop",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "Nothing was sent. Ask the person who made this link for a new one.",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": null,
         "why_no_home": null
     },
     {
@@ -1782,6 +1824,13 @@
         "text": "Their computer could not save a file",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#when-their-floe-stops-the-drop",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "Their computer couldn't confirm this link",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": null,
         "why_no_home": null
     },
     {

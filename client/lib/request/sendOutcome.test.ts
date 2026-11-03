@@ -153,7 +153,7 @@ describe('an unreadable zero-size first file on /r', () => {
             model = reduce(model, e).model;
         };
         const toSend: VisitorEvent[] = [
-            { type: 'LINK_OK', roomId: 'room' },
+            { type: 'LINK_OK', roomId: 'room', keyed: false },
             { type: 'FILES_ADDED' },
             { type: 'SEND', count: 1, size: 0, hideIp: false, reading: false },
             { type: 'ICE_READY', hasTurn: true },

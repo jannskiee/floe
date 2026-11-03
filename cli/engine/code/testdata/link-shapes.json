@@ -48,6 +48,13 @@
     {"name": "a mail client's &amp; in front of k", "kind": "share", "input": "https://floe.one/#room=6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f&amp;k=AAECAwQFBgcICQoLDA0ODw", "outcome": "incomplete"},
     {"name": "the name k escaped twice", "kind": "share", "input": "https://floe.one/#%256B=AAECAwQFBgcICQoLDA0ODw&room=6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f", "outcome": "incomplete"},
     {"name": "a request link with a k in its query", "kind": "request", "input": "https://floe.one/r/Xk3p9Q0aB1c?k=AAECAwQFBgcICQoLDA0ODw#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f", "outcome": "incomplete"},
+    {"name": "a request link with a k in its query, and a whole key in its fragment", "kind": "request", "input": "https://floe.one/r/Xk3p9Q0aB1c?k=AAECAwQFBgcICQoLDA0ODw#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f.AAECAwQFBgcICQoLDA0ODw", "outcome": "incomplete"},
+    {"name": "a request link with a K in its query", "kind": "request", "input": "https://floe.one/r/Xk3p9Q0aB1c?K=AAECAwQFBgcICQoLDA0ODw#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f", "outcome": "incomplete"},
+    {"name": "a request link with an escaped k in its query", "kind": "request", "input": "https://floe.one/r/Xk3p9Q0aB1c?%6B=AAECAwQFBgcICQoLDA0ODw#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f", "outcome": "incomplete"},
+    {"name": "a request link with a k behind a space in its query", "kind": "request", "input": "https://floe.one/r/Xk3p9Q0aB1c?%20k=AAECAwQFBgcICQoLDA0ODw#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f", "outcome": "incomplete"},
+    {"name": "a request link with a k behind a superscript digit in its query", "kind": "request", "input": "https://floe.one/r/Xk3p9Q0aB1c?%C2%B2k=AAECAwQFBgcICQoLDA0ODw#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f", "outcome": "incomplete"},
+    {"name": "a request link with a k behind a roman numeral in its query", "kind": "request", "input": "https://floe.one/r/Xk3p9Q0aB1c?%E2%85%A7k=AAECAwQFBgcICQoLDA0ODw#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f", "outcome": "incomplete"},
+    {"name": "a request link with a longer name in its query is not a k", "kind": "request", "input": "https://floe.one/r/Xk3p9Q0aB1c?kk=1#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f", "outcome": "ok", "linkId": "Xk3p9Q0aB1c", "room": "6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"},
 
     {"name": "a web link with its fragment lost", "kind": "share", "input": "https://www.floe.one/?s=deadbeef", "outcome": "none", "tsOutcome": "incomplete", "finding": "The nonce appears on nothing but a share link, so the page shows Link Invalid and never opens as the sender (review 21, finding 8). floe receive already refuses it."},
     {"name": "a web link with its fragment lost, the hash kept", "kind": "share", "input": "https://www.floe.one/?s=deadbeef#", "outcome": "none", "tsOutcome": "incomplete", "finding": "As the row above."},

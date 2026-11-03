@@ -230,7 +230,7 @@ func queryDecoded(s string) string {
 // namesDamagedKey reports whether a parameter's name is a link key's, or was before
 // something changed it: another letter case, or a space, a mark or an invisible
 // character at either end (a soft wrap, a mail client, a #! or a #/ in front). No link
-// Floe writes has such a name, so nothing keyless is lost. Mirrored by damagedKeyName
+// Floe writes has such a name, so nothing keyless is lost. Mirrored by namesDamagedKey
 // in client/lib/linkKey.ts, and testdata/link-shapes.json holds the two together.
 func namesDamagedKey(params map[string][]string) bool {
 	for name := range params {

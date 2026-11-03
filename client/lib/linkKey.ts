@@ -173,9 +173,9 @@ function decodedFragment(raw: string): string {
  *  another letter case, or a space, a mark or an invisible character at either end. No
  *  link Floe writes has such a name, so nothing keyless is lost. Twin of namesDamagedKey
  *  in cli/engine/code/client.go. */
-function namesDamagedKey(params: URLSearchParams): boolean {
+export function namesDamagedKey(params: URLSearchParams): boolean {
     for (const name of params.keys()) {
-        if (name.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '').toLowerCase() === 'k') return true;
+        if (name.replace(/^[^\p{L}\p{Nd}]+|[^\p{L}\p{Nd}]+$/gu, '').toLowerCase() === 'k') return true;
     }
     return false;
 }
