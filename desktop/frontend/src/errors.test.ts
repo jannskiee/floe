@@ -246,7 +246,7 @@ describe('friendlyError', () => {
         // only for the setup waits of SetupAsSender and SetupAsReceiver
         // (the conn.connected channel, read nowhere else), so this text never
         // describes a transfer that had started. desktop/transfer.go wraps it.
-        for (const state of ['failed', 'disconnected', 'closed']) {
+        for (const state of ['failed', 'closed']) {
             expect(friendlyError(`WebRTC setup failed: connection failed (state: ${state})`)).toBe(
                 "Error: Couldn't connect the two devices",
             );

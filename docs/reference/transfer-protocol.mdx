@@ -596,8 +596,9 @@ because the host acks a file only after it has committed the one before.
 | Server answering a `request-join` | 10 s | `floe send --to` ends with `Request links are not available on this Floe server.` |
 
 Two setup failures are not timeouts. When ICE or DTLS fails before the channel opens, the engine
-reports `connection failed (state: failed)`, with `disconnected` or `closed` in place of `failed`
-as the case may be. The CLI prints it as `WebRTC setup failed: connection failed (state: failed)`.
+reports `connection failed (state: failed)`, with `closed` in place of `failed` as the case may be.
+The CLI prints it as `WebRTC setup failed: connection failed (state: failed)`. A few seconds of
+silence does not end the wait, because ICE recovers from it when the path comes back.
 A setup that this side closed itself ends with `closed before the connection was established`.
 
 ### While sending {#while-sending}
