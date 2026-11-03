@@ -16,6 +16,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -27,6 +28,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/jannskiee/floe/cli/engine/code"
+	"github.com/jannskiee/floe/cli/engine/linkkey"
 	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/jannskiee/floe/cli/engine/transfer"
 )
@@ -89,6 +92,16 @@ type fakeSignalServer struct {
 	hostSignals   int      // signal frames from the host (the offer and its candidates)
 	turnHits      int      // GETs of /api/turn-credentials
 	statsPosts    []string // bodies of POST /api/stats/report
+
+	// An ordinary room, for a Send and a code Receive, when rooms is set: the first
+	// plain join is the sender (it sits in host), the second the receiver (visitor),
+	// and /api/code keeps one code for the room it was asked about.
+	rooms    bool
+	codeRoom string
+
+	// wire is everything any client sent: each HTTP request as it arrived and each
+	// socket frame. It stays in memory, for scans that nothing secret went out.
+	wire []string
 }
 
 // localTurnBody is the fake's ICE list: one STUN URL on the loopback discard
@@ -130,6 +143,9 @@ func newFakeSignalServer(t *testing.T) *fakeSignalServer {
 		if block != nil {
 			<-block
 		}
+		if f.serveCode(w, r) {
+			return
+		}
 		if r.URL.Path == "/api/stats/report" && r.Method == http.MethodPost {
 			raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<10))
 			f.mu.Lock()
@@ -163,12 +179,59 @@ func newFakeSignalServer(t *testing.T) *fakeSignalServer {
 		f.mu.Unlock()
 		go f.read(fc)
 	})
-	f.srv = httptest.NewServer(mux)
+	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if dump, err := httputil.DumpRequest(r, true); err == nil {
+			f.mu.Lock()
+			f.wire = append(f.wire, string(dump))
+			f.mu.Unlock()
+		}
+		mux.ServeHTTP(w, r)
+	}))
 	t.Cleanup(f.srv.Close)
 	return f
 }
 
 func (f *fakeSignalServer) url() string { return f.srv.URL }
+
+// fakeCode is the one code a fake with rooms set gives out.
+const fakeCode = "olive-tiger-castle"
+
+// serveCode answers /api/code when rooms is set, and reports whether it did.
+func (f *fakeSignalServer) serveCode(w http.ResponseWriter, r *http.Request) bool {
+	f.mu.Lock()
+	rooms, room := f.rooms, f.codeRoom
+	f.mu.Unlock()
+	switch {
+	case !rooms:
+		return false
+	case r.URL.Path == "/api/code" && r.Method == http.MethodPost:
+		var body struct {
+			RoomID string `json:"roomId"`
+		}
+		_ = json.NewDecoder(io.LimitReader(r.Body, 1<<10)).Decode(&body)
+		f.mu.Lock()
+		f.codeRoom = body.RoomID
+		f.mu.Unlock()
+		_, _ = fmt.Fprintf(w, `{"code":%q}`, fakeCode)
+		return true
+	case r.URL.Path == "/api/code/"+fakeCode:
+		_, _ = fmt.Fprintf(w, `{"roomId":%q}`, room)
+		return true
+	}
+	return false
+}
+
+// wireHolds reports whether any client sent s to this server.
+func (f *fakeSignalServer) wireHolds(s string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, w := range f.wire {
+		if strings.Contains(w, s) {
+			return true
+		}
+	}
+	return false
+}
 
 func (f *fakeSignalServer) read(fc *fakeConn) {
 	defer func() {
@@ -202,6 +265,7 @@ func (f *fakeSignalServer) read(fc *fakeConn) {
 		typ, _ := m["type"].(string)
 		f.mu.Lock()
 		f.frames = append(f.frames, typ)
+		f.wire = append(f.wire, string(raw))
 		if strings.HasPrefix(typ, "request-") {
 			room, _ := m["roomId"].(string)
 			f.controls = append(f.controls, fakeControl{typ: typ, roomID: room})
@@ -215,7 +279,20 @@ func (f *fakeSignalServer) read(fc *fakeConn) {
 			tok, hasTok := m["hostToken"].(string)
 			room, _ := m["roomId"].(string)
 			if !hasTok {
-				fc.send(map[string]string{"type": "room-joined", "role": "sender"})
+				f.mu.Lock()
+				plainRole := "sender"
+				var sender *fakeConn
+				switch {
+				case f.rooms && f.host == nil:
+					f.host = fc
+				case f.rooms:
+					plainRole, f.visitor, sender = "receiver", fc, f.host
+				}
+				f.mu.Unlock()
+				fc.send(map[string]string{"type": "room-joined", "role": plainRole})
+				if sender != nil {
+					sender.send(map[string]string{"type": "user-connected", "id": "receiver"})
+				}
 				continue
 			}
 			f.mu.Lock()
@@ -878,12 +955,15 @@ func TestMakeRequestLinkUsesEngineHelpers(t *testing.T) {
 	if j.roomID != signaling.RoomIDFromToken(j.token) {
 		t.Error("the join's roomId is not RoomIDFromToken of its token")
 	}
-	m := regexp.MustCompile(`/r/([A-Za-z0-9_-]+)#(.+)$`).FindStringSubmatch(s.Link)
+	m := regexp.MustCompile(`/r/([A-Za-z0-9_-]+)#([^.]+)\.(.+)$`).FindStringSubmatch(s.Link)
 	if m == nil || len(m[1]) != 11 {
-		t.Fatal("the link does not carry an 11-character link id")
+		t.Fatal("the link does not carry an 11-character link id and a keyed fragment")
 	}
 	if m[2] != j.roomID {
 		t.Error("the link's fragment is not the joined room")
+	}
+	if _, err := linkkey.Parse(m[3]); err != nil {
+		t.Error("the link's fragment does not end in a key")
 	}
 }
 
@@ -1262,7 +1342,8 @@ func TestStaleLaneGenerationEmitsNothing(t *testing.T) {
 // TestRequestSnapshotNeverCarriesToken: no lane event of any name (the
 // request:state snapshots and, since review 1b N3, request:progress and any
 // event added later) and no returned snapshot carries the host token or a
-// token-named field, across a make, a re-join, a whole drop and the end.
+// token-named field, across a make, a re-join, a whole drop and the end. The
+// link key appears in the snapshot's link and nowhere else.
 func TestRequestSnapshotNeverCarriesToken(t *testing.T) {
 	f := pairingFake(t)
 	a, rec := laneApp(t, f)
@@ -1273,7 +1354,10 @@ func TestRequestSnapshotNeverCarriesToken(t *testing.T) {
 	waitFor(t, 5*time.Second, "the re-join", func() bool { return len(f.tokenJoins()) == 2 })
 	waitState(t, a, 5*time.Second, "waiting")
 
-	room := s.Link[strings.Index(s.Link, "#")+1:]
+	room := linkRoom(t, s.Link)
+	if !strings.HasSuffix(s.Link, "."+room.Key.Encode()) {
+		t.Fatal("the snapshot's link does not carry the key")
+	}
 	paths := writeFiles(t, t.TempDir(), map[string][]byte{"a.bin": randomBytes(t, 64<<10)})
 	v := joinVisitor(t, f, room)
 	v.connect(t)
@@ -1313,7 +1397,32 @@ func TestRequestSnapshotNeverCarriesToken(t *testing.T) {
 		if strings.Contains(js, `"token"`) || strings.Contains(js, `"hostToken"`) {
 			t.Fatal("a snapshot has a token-named field")
 		}
+		// Everything but the link: the key's whole text and every run of it long
+		// enough to be told from chance. Each line is an event's name, then its JSON.
+		rest := outsideLink(t, js)
+		text := room.Key.Encode()
+		for i := 0; i+8 <= len(text); i++ {
+			if strings.Contains(rest, text[i:i+8]) {
+				t.Fatal("a snapshot carries part of the link key outside its link")
+			}
+		}
 	}
+}
+
+// outsideLink is one lane event or returned snapshot with its link field removed.
+func outsideLink(t *testing.T, line string) string {
+	t.Helper()
+	body := line[strings.Index(line, "{"):]
+	var m map[string]any
+	if err := json.Unmarshal([]byte(body), &m); err != nil {
+		t.Fatalf("an event is not an object: %v", err)
+	}
+	delete(m, "link")
+	rest, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(rest)
 }
 
 func TestLinkShapeAndDerivedRoomID(t *testing.T) {
@@ -1330,14 +1439,26 @@ func TestLinkShapeAndDerivedRoomID(t *testing.T) {
 	if !uuidRe.MatchString(room) {
 		t.Fatal("the derived room id is not a lowercase v4-shaped UUID")
 	}
+	key, err := linkkey.New()
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, web := range []string{"https://floe.one", "http://localhost:3000", "https://files.example.com/floe"} {
-		got := requestLinkFor(web, id, room)
-		want := web + "/r/" + id + "#" + room
+		got := requestLinkFor(web, id, room, key)
+		want := web + "/r/" + id + "#" + room + "." + key.Encode()
 		if got != want {
 			t.Errorf("requestLinkFor(%q) = %q, want %q", web, got, want)
 		}
 		if strings.Contains(got, tok[:8]) {
 			t.Error("the link carries the token")
+		}
+		// The visitors' reader takes the same three values back out.
+		parsed, err := code.ParseRequestLink(got)
+		if err != nil {
+			t.Fatalf("the engine cannot read %q: %v", web, err)
+		}
+		if parsed.LinkID != id || parsed.RoomID != room || !parsed.HasKey || parsed.Key != key {
+			t.Errorf("%s read back as link %q, room %q, key present %v, same key %v", web, parsed.LinkID, parsed.RoomID, parsed.HasKey, parsed.Key == key)
 		}
 	}
 }

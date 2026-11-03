@@ -491,6 +491,15 @@ describe('the link phases (D-136)', () => {
         expect(container.textContent).not.toMatch(/open the link|still open/);
     });
 
+    it('A failed link key check says W15, the news first and Waiting for files quieter', () => {
+        render(<RequestLinkView {...at('waiting')} snap={snap({state: 'waiting', code: 'unverified'})}/>);
+        const news = screen.getByText("A sender couldn't be confirmed and was disconnected");
+        const note = screen.getByText('Waiting for files');
+        expect(news.nextElementSibling).toBe(note);
+        expect(news.className).toContain('text-zinc-200');
+        expect(note.className).toContain('text-zinc-500');
+    });
+
     it('Reconnecting says C1 on two lines, the news first and the reassurance quieter', () => {
         render(<RequestLinkView {...at('reconnecting')}/>);
         const news = screen.getByText("Can't reach the Floe server");
@@ -679,6 +688,9 @@ describe('the layout (D-136)', () => {
         expect(screen.getByText('REQUEST LINK').className).toBe('sr-only');
         // The link field keeps its name, by which the harnesses find it.
         expect(screen.getByRole('textbox', {name: 'REQUEST LINK'})).toBeTruthy();
+        // X7: the fifth sender that failed the link key check closed the link.
+        rerender(<RequestLinkView {...at('ended')} snap={snap({state: 'ended', code: 'unverified', label: ''})}/>);
+        expect(screen.getByText("Link closed after 5 senders couldn't be confirmed")).toBeTruthy();
         rerender(<RequestLinkView {...at('ended')} snap={snap({state: 'ended', code: 'closed', label: ''})}/>);
         expect(screen.getByText('REQUEST LINK').className).toBe('sr-only');
         expect(screen.getByText('Link closed')).toBeTruthy();

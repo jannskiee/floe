@@ -46,6 +46,34 @@ describe('the copy marks', () => {
     });
 });
 
+describe('a keyed link', () => {
+    // 95 characters on floe.one, and more on a self-hosted address: level M must
+    // hold both, or react-qr-code throws where it used to draw.
+    const KEYED = 'https://floe.one/?s=deadbeef#k=AAECAwQFBgcICQoLDA0ODw&room=6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f';
+    const SELF_HOSTED = KEYED.replace('https://floe.one', 'https://files.a-rather-long-subdomain.example.com/floe');
+
+    it('shows whole and copies whole', async () => {
+        const write = vi.spyOn(navigator.clipboard, 'writeText');
+        render(<SharePanel code="" link={KEYED}/>);
+        expect(screen.getByText(KEYED).tagName).toBe('CODE');
+        fireEvent.click(screen.getByRole('button', {name: 'Copy link'}));
+        await flush();
+        expect(write).toHaveBeenCalledWith(KEYED);
+        write.mockRestore();
+    });
+
+    it('still draws its QR at the panel\'s level, on any address', async () => {
+        const user = userEvent.setup();
+        for (const link of [KEYED, SELF_HOSTED]) {
+            const {unmount} = render(<SharePanel code="" link={link}/>);
+            await user.click(screen.getByRole('button', {name: 'Show QR'}));
+            expect(screen.getByText('Scan to receive files')).toBeTruthy();
+            expect(document.querySelector('svg[viewBox]')).not.toBeNull();
+            unmount();
+        }
+    });
+});
+
 describe('the QR button', () => {
     it('is named by its words and says whether the QR is open', async () => {
         const user = userEvent.setup();
