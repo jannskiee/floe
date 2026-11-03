@@ -354,6 +354,7 @@ yet has no section of its own so far.
 | “A file name or folder path was too long for Windows” | [On your PC](/desktop/request-links#messages-on-your-pc) |
 | “A file's path is too deep or too long to save in this folder” | [A file's path is too deep or too long to save in this folder](/troubleshooting#a-files-path-is-too-deep-or-too-long) |
 | “A received file couldn't be saved, so it was kept with a .part ending” | [A received file couldn't be saved, so it was kept with a .part ending](/troubleshooting#a-received-file-could-not-be-saved) |
+| “A sender couldn't be confirmed and was disconnected” | [A sender couldn't be confirmed and was disconnected](/troubleshooting#a-sender-could-not-be-confirmed) |
 | “About Auto-accept” | [Auto-accept](/desktop/request-links#auto-accept) |
 | “About \{n\} \{day or days\} at this speed, past the 24-hour limit” | [While files arrive](/desktop/request-links#while-files-arrive) |
 | “Accept” | [Accept or decline](/desktop/request-links#accept-or-decline) |
@@ -414,6 +415,8 @@ yet has no section of its own so far.
 | “Copy code” | [Share the code or link](/desktop/sending#share-the-code-or-link) |
 | “Copy link” | [Share the link](/desktop/request-links#share-the-link) |
 | “could not stage the text: \{reason\}” | [Sending files](/desktop/sending) |
+| “Couldn't confirm who opened your link. Nothing was sent” | [Couldn't confirm who opened your link. Nothing was sent](/troubleshooting#could-not-confirm-who-opened-your-link) |
+| “Couldn't confirm who sent this link. Nothing was received” | [Couldn't confirm who sent this link. Nothing was received](/troubleshooting#could-not-confirm-who-sent-this-link-in-floe-desktop) |
 | “Couldn't connect the two devices” | [Couldn't connect the two devices](/troubleshooting#could-not-connect-the-two-devices) |
 | “Couldn't connect to that server” | [Server](/desktop/settings#server) |
 | “Couldn't make a link” | [On your PC](/desktop/request-links#messages-on-your-pc) |
@@ -489,6 +492,7 @@ yet has no section of its own so far.
 | “Label” | [Make a link](/desktop/request-links#make-a-link) |
 | “\{LABEL\} WANTS TO SEND YOU FILES” | [Accept or decline](/desktop/request-links#accept-or-decline) |
 | “Link closed” | [How a link ends](/desktop/request-links#how-a-link-ends) |
+| “Link closed after 5 senders couldn't be confirmed” | [A sender that fails the check](/desktop/request-links#a-sender-that-fails-the-check) |
 | “Link ended at \{time\}” | [How a link ends](/desktop/request-links#how-a-link-ends) |
 | “Link ends” | [Make a link](/desktop/request-links#make-a-link) |
 | “Make another link” | [When it finishes](/desktop/request-links#when-it-finishes) |
@@ -589,6 +593,7 @@ yet has no section of its own so far.
 | “Text” | [Send a text note](/desktop/sending#send-a-text-note) |
 | “That address answered HTTP \{n\} (likely the web app, not the server)” | [The Test button says it may be the web app rather than the signaling server](/troubleshooting#the-test-button-says-it-may-be-the-web-app-rather-than-the-signaling-server) |
 | “That address isn't a Floe server” | [Server](/desktop/settings#server) |
+| “That address redirects to https://. Start it with https:// and test again” | [Test the address](/desktop/settings#test-the-address) |
 | “That code wasn't recognized” | [That code wasn't recognized](/troubleshooting#that-code-was-not-recognized) |
 | “That link is for another Floe server. Set its address as Server address in Settings, then try again” | [That link is for floe.one or That link is for another Floe server](/troubleshooting#that-link-is-for-another-server-in-floe-desktop) |
 | “That link is for floe.one, but Floe is set to use another server. Clear Server address in Settings, then try again” | [That link is for floe.one or That link is for another Floe server](/troubleshooting#that-link-is-for-another-server-in-floe-desktop) |
@@ -673,6 +678,7 @@ yet has no section of its own so far.
 | `Already up to date` | [Script and manual installs](/cli/update#script-and-manual-installs) |
 | `{arrived} of 1 file arrived.` | [Messages](/cli/send#messages-from-floe-send-to) |
 | `` Ask the other side to run `floe update`. `` | [`Cannot transfer: your floe is too old for this peer.`](/troubleshooting#cannot-transfer-your-floe-is-too-old-for-this-peer) |
+| `Ask the person who made this link for a new one.` | [Couldn't confirm their computer](/troubleshooting#could-not-confirm-their-computer) |
 | `Ask them for a new link to send the rest.` | [Messages](/cli/send#messages-from-floe-send-to) |
 | `backpressure stall: peer not draining` | [Timeouts](/reference/transfer-protocol#timeouts) |
 | `Canceled.` | [When a send ends](/cli/send#notes) |
@@ -684,6 +690,7 @@ yet has no section of its own so far.
 | `cannot rename current binary: {reason}` | [Messages](/cli/update#messages) |
 | `cannot resolve executable path` | [Messages](/cli/update#messages) |
 | `cannot send {path}: it is a link to a folder, which Floe does not follow` | [`cannot read` or `cannot send` and a path](/troubleshooting#cannot-read-a-path) |
+| `cannot send {path}: it is a pipe, a socket or a device, not a file` | [floe send](/cli/send) |
 | `Cannot transfer: peer's floe is too old.` | [`Cannot transfer: your floe is too old for this peer.`](/troubleshooting#cannot-transfer-your-floe-is-too-old-for-this-peer) |
 | `` Cannot transfer: peer's floe is too old. You: {rest} Peer: {rest} Ask the other side to run `floe update`. `` | [`Cannot transfer: your floe is too old for this peer.`](/troubleshooting#cannot-transfer-your-floe-is-too-old-for-this-peer) |
 | `Cannot transfer: your floe is too old for this peer.` | [`Cannot transfer: your floe is too old for this peer.`](/troubleshooting#cannot-transfer-your-floe-is-too-old-for-this-peer) |
@@ -714,6 +721,10 @@ yet has no section of its own so far.
 | `Could not determine latest version. Set $env:FLOE_VERSION = 'vX.Y.Z' to install a specific version.` | [If the install script stops](/cli/installation#if-the-install-script-stops) |
 | `Could not install with sudo, so installing to {LOCAL_BIN} instead.` | [One-line installer](/cli/installation#one-line-installer) |
 | `could not register code: {network reason}` | [`Warning: could not generate short code`](/troubleshooting#warning-could-not-generate-short-code) |
+| `Couldn't confirm the person who opened your link. Nothing was sent. Make a new link and try again.` | [Send only to a receiver that proves it holds the link](/cli/send#link-only) |
+| `Couldn't confirm the receiver. They may need to run floe update, or open the link in a browser.` | [Send only to a receiver that proves it holds the link](/cli/send#link-only) |
+| `Couldn't confirm their computer. Nothing was sent.` | [Couldn't confirm their computer](/troubleshooting#could-not-confirm-their-computer) |
+| `Couldn't confirm who sent this link. Nothing was saved. Ask them for a new link.` | [floe receive](/cli/receive) |
 | `Couldn't connect to their computer. Nothing was sent.` | [Messages](/cli/send#messages-from-floe-send-to) |
 | `curl -fsSL https://floe.one/install.sh \| FLOE_VERSION=v1.11.1 sh` | [If the install script stops](/cli/installation#if-the-install-script-stops) |
 | `curl -fsSL https://floe.one/install.sh \| FLOE_VERSION=vX.Y.Z sh` | [If the install script stops](/cli/installation#if-the-install-script-stops) |
@@ -722,6 +733,7 @@ yet has no section of its own so far.
 | `Downloading floe {version} (windows/{arch})...` | [One-line installer](/cli/installation#one-line-installer) |
 | `echo 'export PATH="${HOME}/.local/bin:${PATH}"' >> ~/.profile` | [`floe` is not found after installing](/troubleshooting#floe-is-not-found-after-installing) |
 | `echo 'export PATH="${HOME}/.local/bin:${PATH}"' >> ~/{profile file}` | [`floe` is not found after installing](/troubleshooting#floe-is-not-found-after-installing) |
+| `Error: --iface matches no network interface on this computer; check the name, or drop the flag` | [Flags](/cli/flags) |
 | `Error: --relay-only needs a TURN relay and {server} offers none; drop the flag, or configure a relay on the server` | [`--relay-only needs a TURN relay`](/troubleshooting#relay-only-needs-a-turn-relay) |
 | `Error: --relay-only needs a TURN relay, and the connection details from {server} could not be read; check --server, or drop the flag` | [`--relay-only needs a TURN relay`](/troubleshooting#relay-only-needs-a-turn-relay) |
 | `Error: binary not found after extraction.` | [If the install script stops](/cli/installation#if-the-install-script-stops) |
@@ -765,6 +777,7 @@ yet has no section of its own so far.
 | `Error: sender exceeded the announced size of "{name}"` | [`rejected the sender's file description` and similar lines](/troubleshooting#rejected-the-senders-file-description) |
 | `Error: the file shrank while it was being sent (announced {n} bytes, read {m}); send it again once it stops changing` | [`the file shrank while it was being sent`](/troubleshooting#the-file-shrank-or-grew-while-it-was-being-sent) |
 | `Error: the sender's copy of "{name}" changed while it was being sent, so nothing further was sent` | [`The sender stopped.`](/troubleshooting#the-sender-stopped) |
+| `Error: the server answered with an error this version of Floe does not know` | [`WebRTC setup failed:` and another reason](/troubleshooting#webrtc-setup-failed) |
 | `Error: transfer abandoned while completing "{name}"` | [`rejected the sender's file description` and similar lines](/troubleshooting#rejected-the-senders-file-description) |
 | `Error: transfer blocked: relay connections are capped at 2 GB` | [`relay connections are capped at 2 GB`](/troubleshooting#relay-connections-are-capped-at-2-gb) |
 | `Error: transfer blocked: relay connections are capped at {n} GB (selected {size})` | [Messages](/cli/send#messages-from-floe-send-to) |
@@ -773,7 +786,7 @@ yet has no section of its own so far.
 | `Error: update failed: permission denied writing to {dir}` | [Messages](/cli/update#messages) |
 | `Error: WebRTC setup failed: connected but the data channel did not open` | [Timeouts](/reference/transfer-protocol#timeouts) |
 | `Error: WebRTC setup failed: failed to create data channel` | [`WebRTC setup failed:` and another reason](/troubleshooting#webrtc-setup-failed) |
-| `Error: WebRTC setup failed: failed to set remote description: {text from the WebRTC library}` | [`WebRTC setup failed:` and another reason](/troubleshooting#webrtc-setup-failed) |
+| `Error: WebRTC setup failed: failed to set remote description` | [`WebRTC setup failed:` and another reason](/troubleshooting#webrtc-setup-failed) |
 | `Error: WebRTC setup failed: timed out establishing a connection` | [`timed out establishing a connection`](/troubleshooting#timed-out-establishing-a-connection) |
 | `Error: WebRTC setup failed: timed out waiting for the peer to answer` | [`timed out waiting for the peer's offer`](/troubleshooting#timed-out-waiting-for-the-peers-offer) |
 | `Error: WebRTC setup failed: timed out waiting for the peer's offer` | [`timed out waiting for the peer's offer`](/troubleshooting#timed-out-waiting-for-the-peers-offer) |
@@ -792,6 +805,7 @@ yet has no section of its own so far.
 | `Floe transfers files directly between devices using WebRTC.` | [Help and version flags](/cli/flags#help-and-version-flags) |
 | `floe {FLOE_VERSION} needs macOS 13 or later, and this Mac has macOS {MACOS_VERSION}.` | [If the install script stops](/cli/installation#if-the-install-script-stops) |
 | `go install github.com/jannskiee/floe/cli/cmd/floe@latest` | [Go install](/cli/installation#go-install) |
+| `In a terminal, put the link in quotes: floe receive "<link>"` | [Put the link in quotes](/cli/send#put-the-link-in-quotes) |
 | `incomplete file "{name}": received {n} of {m} bytes` | [`rejected the sender's file description` and similar lines](/troubleshooting#rejected-the-senders-file-description) |
 | `invalid response from code API` | [`invalid response from code API`](/troubleshooting#invalid-response-from-code-api) |
 | `Invalid room ID` | [Architecture](/reference/architecture) |
@@ -838,6 +852,7 @@ yet has no section of its own so far.
 | `the sender left before the transfer was accepted` | [`the sender left before the transfer was accepted`](/troubleshooting#the-sender-left-before-the-transfer-was-accepted) |
 | `the sender stopped the transfer` | [`rejected the sender's file description` and similar lines](/troubleshooting#rejected-the-senders-file-description) |
 | `The sender stopped.` | [`The sender stopped.`](/troubleshooting#the-sender-stopped) |
+| `The sender stopped: a file could not be read on their device. Ask them to check it and send again.` | [The sender ended the transfer before it finished.](/troubleshooting#the-sender-ended-the-transfer) |
 | `the sender's SHA-256 for a file could not be read, so the file was not kept` | [`a file did not match the SHA-256 the sender computed, so it was not kept`](/troubleshooting#a-file-did-not-match-the-sha-256) |
 | `The server is limiting connections from this network. Wait a minute and try again.` | [Messages](/cli/send#messages-from-floe-send-to) |
 | `the server is limiting connections from this network. Wait a minute and try again.` | [`the server is limiting connections from this network`](/troubleshooting#the-server-is-limiting-connections-from-this-network-cli) |
@@ -852,6 +867,7 @@ yet has no section of its own so far.
 | `They stopped the transfer.` | [`Error: They stopped the transfer.`](/troubleshooting#they-stopped-the-transfer) |
 | `They stopped this drop.` | [Messages](/cli/send#messages-from-floe-send-to) |
 | `this code or link is no longer active; ask the sender for a new one` | [`this code or link is no longer active; ask the sender for a new one`](/troubleshooting#this-code-is-no-longer-active-ask-for-a-new-one) |
+| `this connection's certificates could not be read to check the link's key` | [`this connection's certificates could not be read to check the link's key`](/troubleshooting#this-connections-certificates-could-not-be-read) |
 | `This drop has more than 10,000 files. Zip them first.` | [Messages](/cli/send#messages-from-floe-send-to) |
 | `This drop reached the 24-hour limit, so their Floe stopped it.` | [Messages](/cli/send#messages-from-floe-send-to) |
 | `This link has already been used. Ask the person who made it for a new one.` | [Messages](/cli/send#messages-from-floe-send-to) |
