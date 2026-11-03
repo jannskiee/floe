@@ -79,6 +79,19 @@ func TestKeyCheckConstantsMatchTS(t *testing.T) {
 		t.Errorf("KEY_CHECK_WAIT_MS = %d, want %d (KeyCheckWait)", ms, want)
 	}
 
+	// The page's clock for a sender that says nothing is this receiver's own.
+	idle := regexp.MustCompile(`(?m)^export const KEY_RECEIVE_WAIT_MS\b[^=\n]*=\s*([0-9_]+)\s*;`).FindStringSubmatch(src)
+	if idle == nil {
+		t.Fatal("protocol.ts has no KEY_RECEIVE_WAIT_MS constant")
+	}
+	idleMs, err := strconv.Atoi(strings.ReplaceAll(idle[1], "_", ""))
+	if err != nil {
+		t.Fatalf("KEY_RECEIVE_WAIT_MS is %q: %v", idle[1], err)
+	}
+	if want := int(receiveIdleTimeout / time.Millisecond); idleMs != want {
+		t.Errorf("KEY_RECEIVE_WAIT_MS = %d, want %d (receiveIdleTimeout)", idleMs, want)
+	}
+
 	floor := regexp.MustCompile(`(?m)^const KEY_CHECK_PROTOCOL\s*=\s*(\d+);`).FindStringSubmatch(src)
 	if floor == nil {
 		t.Fatal("protocol.ts has no KEY_CHECK_PROTOCOL constant")

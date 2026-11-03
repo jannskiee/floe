@@ -38,7 +38,7 @@ import {RELAY_SIZE_LIMIT, filterIceServers, evaluateRelayGate, probeIsRelay, rea
 import {buildShareLink, isValidRoomId} from '@/lib/roomLink';
 import {makeLinkKey, readShareFragment, shareLinkChanged, type LinkKey} from '@/lib/linkKey';
 import {createKeySession, keySessionOf, linkKeyMode, type KeyOutcome, type KeySession, type PeerLike} from '@/lib/transfer/keySession';
-import {MAKE_LINK_KEYS} from '@/lib/transfer/protocol';
+import {KEY_RECEIVE_WAIT_MS, MAKE_LINK_KEYS} from '@/lib/transfer/protocol';
 import {receiverKeyLine, senderKeyLine} from '@/lib/linkKeyCopy';
 import {reportLinkKey} from '@/lib/keyCheckReport';
 import {classifyPeerError, peerErrorBanner, peerErrorCodeOf, peerErrorReport, senderErrorBlamesRelay} from '@/lib/peerErrors';
@@ -253,6 +253,11 @@ export function P2PTransfer() {
     // and nothing can draw it. It reaches the session and the comparison in the
     // hashchange effect, and no report, event, log or store (lib/linkKey.ts).
     const joinedKeyRef = useRef<LinkKey | null>(null);
+    // A failed link-key check is this page's last word, as it is on every other surface.
+    // Whoever runs the server could otherwise wipe it by dropping the socket or seating
+    // someone else: the banner would clear and the page would go back to waiting (final
+    // audit report 27 F5). Nothing re-joins and no new peer starts while this is set.
+    const keyCheckEndedRef = useRef(false);
     // The room this page instance created as a sender (handleCreateLink). The
     // displayed link keeps pointing at this id, so a socket reconnect must
     // re-join it or the link goes dead.
@@ -475,6 +480,7 @@ export function P2PTransfer() {
         // where its banner comes down. Nothing else: see lib/refusalBanner.ts.
         onConnect: () => setError(withoutRefusalBanner),
         onReconnect: () => {
+            if (keyCheckEndedRef.current) return;
             // Cleared, except the Link Invalid card of a page that has no
             // room to re-join: see afterReconnect. A page without WebRTC keeps
             // its sentence (noWebRtcRef).
@@ -643,6 +649,7 @@ export function P2PTransfer() {
         // re-joining, once (lib/roomSeat.ts says why once), with a fresh peer
         // as the socket reconnect path builds one.
         onUserConnected(() => {
+            if (keyCheckEndedRef.current) return;
             const yieldSeat = applySeat({
                 type: 'peer-arrived',
                 connected: peerRef.current?.connected === true,
@@ -965,6 +972,7 @@ export function P2PTransfer() {
             // has had time to leave: a browser sender stops on it, and a sender that
             // does not has nothing left to say to a page that keeps none of it.
             onKeyCheckFailed: ({ unavailable }) => {
+                keyCheckEndedRef.current = true;
                 wireReasonRef.current = true;
                 setError(receiverKeyLine(unavailable));
                 setStatus('Transfer failed');
@@ -984,6 +992,15 @@ export function P2PTransfer() {
         // In this turn, so nothing can arrive ahead of it. The session replays anything
         // that came early inside this call, and the engine above is what it replays to.
         ks.onData(rx.handleMessage);
+        // A sender that says nothing reaches no frame the engine could judge, so the
+        // wait for its proof needs a clock of its own. Keyless sessions have no proof.
+        if (ks.keyed) {
+            let proofClock: ReturnType<typeof setTimeout> | undefined;
+            peer.on('connect', () => {
+                proofClock = setTimeout(rx.proofOverdue, KEY_RECEIVE_WAIT_MS);
+            });
+            peer.on('close', () => clearTimeout(proofClock));
+        }
         // A connection that dies mid-file must not leave the partial file
         // held for the life of the tab.
         peer.on('close', rx.dispose);
@@ -1195,6 +1212,7 @@ export function P2PTransfer() {
         setStatus('Waiting for peer');
 
         onUserConnected(async (userId: string) => {
+            if (keyCheckEndedRef.current) return;
             // This session, so the wait for the relay list below can tell
             // whether a newer receiver, or unmount, replaced it meanwhile.
             const session = ++senderSessionRef.current;
@@ -1565,6 +1583,7 @@ export function P2PTransfer() {
     const tellKeyFailure = (peer: PeerInstance, keyState: SenderKeyState, outcome: KeyOutcome, fileList: FileWithId[]) => {
         if (keyState.told || peerRef.current !== peer) return;
         keyState.told = true;
+        keyCheckEndedRef.current = true;
         wireReasonRef.current = true;
         setError(senderKeyLine(outcome));
         setStatus('Transfer failed');

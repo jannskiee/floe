@@ -61,7 +61,7 @@ export interface ReceiverDeps {
 }
 
 /** What the receive engine reads of a link-key session. */
-export type ReceiverKeyCheck = Pick<KeySession, 'keyed' | 'mode' | 'verdict' | 'outcome' | 'peerTag' | 'beforeFile'>;
+export type ReceiverKeyCheck = Pick<KeySession, 'keyed' | 'mode' | 'verdict' | 'outcome' | 'peerTag' | 'beforeFile' | 'noteSilent'>;
 
 // String frames held while a SHA-256 check is pending. A conforming sender has
 // at most one in flight (it waits for the next ack), so this is room to spare,
@@ -232,6 +232,7 @@ export function createReceiver(
     handleMessage: (data: string | Uint8Array | ArrayBuffer) => void;
     settled: () => Promise<void>;
     dispose: () => void;
+    proofOverdue: () => void;
 } {
     const hashBlob = deps.hashBlob ?? workerHashBlob;
     const hashBoundMs = deps.hashBoundMs ?? defaultHashBoundMs;
@@ -364,6 +365,19 @@ export function createReceiver(
             outcome: keyCheck?.outcome() ?? 'missing',
             unavailable: keyCheck?.verdict() === 'unavailable',
         });
+    }
+
+    // The page's clock on the sender's proof ran out (KEY_RECEIVE_WAIT_MS). A sender
+    // that says nothing reaches no frame, so nothing else here can decide it, and a
+    // middle that took the file from the real sender and kept quiet left this page
+    // waiting for as long as the tab stayed open (final audit report 27 F2). Refuses
+    // as a frame ahead of the proof does. A proof that came, a stop that happened and
+    // the observe lever each leave it nothing to do.
+    function proofOverdue(): void {
+        if (aborted || !keyCheck || keyCheck.verdict() !== 'pending') return;
+        keyCheck.noteSilent();
+        if (keyCheck.mode !== 'enforce') return;
+        refuseUnverified();
     }
 
     function stopWhilePending(message: string): void {
@@ -1052,5 +1066,5 @@ export function createReceiver(
         }
     }
 
-    return { handleMessage, settled, dispose };
+    return { handleMessage, settled, dispose, proofOverdue };
 }

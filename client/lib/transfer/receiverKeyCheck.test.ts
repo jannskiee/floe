@@ -423,6 +423,73 @@ describe('a receiver with the key: no proof yet', () => {
     });
 });
 
+// A sender that says nothing reaches no frame, so the page's clock is what decides it:
+// a middle that took the file from the real sender and kept quiet (report 27 F2).
+describe('a receiver with the key: the wait for a proof runs out', () => {
+    it('refuses as a frame ahead of the proof does, with its own outcome, and only once', () => {
+        const h = rig();
+        h.rx.proofOverdue();
+        expect(h.failed).toEqual([{ outcome: 'silent', unavailable: false }]);
+        expect(h.errors).toEqual([]);
+        expect(h.reports).toEqual([{ role: 'receiver', path: 'none', outcome: 'silent', mode: 'enforce' }]);
+        // Its own kc, then the refusal, and nothing about a file.
+        const frames = h.sent.slice(1).map((f) => JSON.parse(text(f)) as { type: string; code?: string; saved?: number });
+        expect(frames).toHaveLength(1);
+        expect(frames[0].type).toBe('incompatible');
+        expect(frames[0].code).toBe('unverified');
+        expect(frames[0].saved).toBe(0);
+
+        h.rx.proofOverdue();
+        expect(h.failed).toHaveLength(1);
+        expect(h.reports).toHaveLength(1);
+    });
+
+    it('takes nothing that comes after it', () => {
+        const h = rig();
+        h.rx.proofOverdue();
+        h.deliver(senderKc());
+        h.deliver(META);
+        expect(h.started).toEqual([]);
+        expect(typesOf(h.sent.slice(1))).toEqual(['incompatible']);
+    });
+
+    it('has nothing to do once the proof has come', async () => {
+        const h = rig();
+        h.deliver(senderKc());
+        h.rx.proofOverdue();
+        expect(h.failed).toEqual([]);
+        expect(h.reports).toEqual([]);
+        h.deliver(META);
+        h.deliver(FILE);
+        h.deliver(endMessage());
+        await h.rx.settled();
+        expect(h.completed).toEqual(['a.bin']);
+    });
+
+    it('has nothing to do after a check that already failed', () => {
+        const h = rig();
+        h.deliver(senderKc(OTHER_KEY));
+        expect(h.failed).toHaveLength(1);
+        h.rx.proofOverdue();
+        expect(h.failed).toHaveLength(1);
+        expect(h.reports).toHaveLength(1);
+    });
+
+    it('stops nothing under the rollback lever', () => {
+        const h = rig({ mode: 'observe' });
+        h.rx.proofOverdue();
+        expect(h.failed).toEqual([]);
+        expect(h.reports).toEqual([]);
+    });
+
+    it('has no wait at all with no key', () => {
+        const h = rig({ key: null });
+        h.rx.proofOverdue();
+        expect(h.failed).toEqual([]);
+        expect(h.sent).toEqual([]);
+    });
+});
+
 describe('a receiver with the key: certificates it cannot read', () => {
     const noCerts: CertSource = { localDescription: null, remoteDescription: null };
 

@@ -125,9 +125,10 @@ export function peerErrorCodeOf(err: unknown): string {
 }
 
 /**
- * What the page shows for a peer error it has no closer wording for. The
- * connection failed before any file moved, so each sentence says what that
- * side can do next. Never the error's own text.
+ * What the page shows for a peer error it has no closer wording for. Usually the
+ * connection failed before any file moved, though a peer's error can also beat the
+ * close mid-file, and neither sentence claims either way. Each says what that side
+ * can do next. Never the error's own text.
  */
 export const RECEIVER_PEER_ERROR =
     'Connection failed. Reload the page to try again. If it fails again, ask the sender for a new link.';
