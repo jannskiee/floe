@@ -122,7 +122,7 @@ func wantOnlyLine(t *testing.T, r *cliRun, line string) {
 
 const (
 	tl28Line = "\n  Canceled. Nothing was sent."
-	tl29Line = "\n  You stopped this drop. Nothing was sent."
+	tl29Line = "\n  You stopped this drop."
 )
 
 // TestSendToCtrlCLineFollowsThePhase: the hook's answer in each phase, and

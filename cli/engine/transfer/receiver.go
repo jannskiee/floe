@@ -269,6 +269,11 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 	if opts.KeyCheck != nil {
 		var err error
 		ks, err = newKeySession(dc, opts.KeyCheck, false)
+		if errors.Is(err, errConnectionGone) {
+			// The sender left before this receive began, so there is nobody to tell: the
+			// close the loop below reads on a receive with no key, in the same words.
+			return closedError(nil, "", 0, FileInfo{}, 0)
+		}
 		if err != nil {
 			// This side's own fault, so it goes back bare: a RefusedError with this
 			// code prints a sentence that blames the sender (D7).
@@ -482,9 +487,13 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				overlap, localTooOld := CheckCompat(MinProtocolVersion, ProtocolVersion, incompat.PvMin, incompat.Pv)
 				// Before the link key's proof a stop is told in fixed words: the
 				// sender's own are from a side that has proved nothing. A range miss
-				// stays, because those lines are Floe's own.
-				if overlap && awaitingProof() {
-					return errSenderStoppedUnproven
+				// keeps its lines, which are Floe's own, less the version they quote,
+				// which is that side's own text too.
+				if awaitingProof() {
+					if overlap {
+						return errSenderStoppedUnproven
+					}
+					incompat.Ver = ""
 				}
 				return &CompatError{LocalTooOld: localTooOld, text: compatErrorFromIncompatible(localVer, opts.UpdateHint, incompat)}
 

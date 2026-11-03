@@ -49,10 +49,10 @@ func TestLinkKeyCopyIsTheApprovedCopy(t *testing.T) {
 	if errSendUnverified.Error() != copySendUnverified || errSendSilent.Error() != copySendSilent || errReceiveUnverified.Error() != copyReceiveUnverified {
 		t.Fatalf("plain lines: %q, %q, %q", errSendUnverified, errSendSilent, errReceiveUnverified)
 	}
-	if got := refusalLines(transfer.CodeUnverified, 0, 3); fmt.Sprint(got) != fmt.Sprint([]string{"Their computer couldn't confirm this link.", "Nothing was sent.", copyAskLinkMaker}) {
+	if got := refusalLines(transfer.CodeUnverified, 0, 3, false); fmt.Sprint(got) != fmt.Sprint([]string{"Their computer couldn't confirm this link.", "Nothing was sent.", copyAskLinkMaker}) {
 		t.Fatalf("TL-36 at 0 saved: %q", got)
 	}
-	if got := refusalLines(transfer.CodeUnverified, 2, 3); fmt.Sprint(got) != fmt.Sprint([]string{"Their computer couldn't confirm this link.", "2 of 3 files were saved.", copyAskLinkMaker}) {
+	if got := refusalLines(transfer.CodeUnverified, 2, 3, false); fmt.Sprint(got) != fmt.Sprint([]string{"Their computer couldn't confirm this link.", "2 of 3 files were saved.", copyAskLinkMaker}) {
 		t.Fatalf("TL-36 at 2 saved: %q", got)
 	}
 }
@@ -207,6 +207,10 @@ func TestPlainSendPrintsAKeyedLinkAndDelivers(t *testing.T) {
 		t.Fatalf("send: %v\n%s", r.err, stderr)
 	}
 	link := printedLink.FindString(stdout)
+	// The link holds an &, so a terminal needs it in quotes (TL-37, owner, D17).
+	if !strings.Contains(stdout, "\n  In a terminal, put the link in quotes: floe receive \"<link>\"\n") {
+		t.Errorf("no quoting hint under the box in %q", stdout)
+	}
 	if !regexp.MustCompile(`^https://files\.example\.com/#k=[A-Za-z0-9_-]{21}[AQgw]&room=[0-9a-f-]{36}$`).MatchString(link) {
 		t.Fatalf("the link is %q", link)
 	}

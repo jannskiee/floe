@@ -223,6 +223,9 @@ type CompatError struct {
 	// here; false means the peer is the side that is behind.
 	LocalTooOld bool
 	text        string
+	// unproven is text without the frame's own version string, for a side holding a
+	// link key whose peer has proved nothing (unprovenStop). Set with fromWire.
+	unproven string
 	// fromWire marks the one read off the receiver's incompatible frame, which
 	// the send returns as it came (fromPeer). The first ack's is this sender's
 	// own check and keeps the file name in front of it, as it always has.
@@ -290,7 +293,9 @@ func abortFromPeer(raw []byte, localVer, updateHint string, total int) error {
 	// The same CheckCompat that picked the text above, so the type can never
 	// disagree with the words.
 	if ok, localTooOld := CheckCompat(MinProtocolVersion, ProtocolVersion, incompat.PvMin, incompat.Pv); !ok {
-		return &CompatError{LocalTooOld: localTooOld, text: text, fromWire: true}
+		unnamed := incompat
+		unnamed.Ver = ""
+		return &CompatError{LocalTooOld: localTooOld, text: text, unproven: compatErrorFromIncompatible(localVer, updateHint, unnamed), fromWire: true}
 	}
 	return &PeerEndedError{Saved: savedCountIn(fields, total), text: text}
 }
@@ -659,8 +664,17 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 		// The walk failed: a path is already gone or unreadable. Tell the
 		// receiver why, or all it sees is a close it reads as a network
 		// fault. A Stop that has closed stays silent, as the caller's own
-		// abort is the one the peer reads.
+		// abort is the one the peer reads. A send holding a link key proves it first,
+		// as it does ahead of everything it sends: a receiver holding the key reads a
+		// stop from a side that has proved nothing as just that, so a file that went
+		// missing during the wait for the peer would read as a sender it could not
+		// confirm. With no proof to give, the abort goes alone.
 		if !stopRequested(opts.Stop) {
+			if opts.KeyCheck != nil {
+				if ks, ksErr := newKeySession(dc, opts.KeyCheck, true); ksErr == nil {
+					_ = dc.SendText(string(ks.own))
+				}
+			}
 			abortReason(dc, localVer, UnreadableFileReason, true)
 		}
 		return err
@@ -693,6 +707,11 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 		}
 		var err error
 		ks, err = newKeySession(dc, opts.KeyCheck, true)
+		if errors.Is(err, errConnectionGone) {
+			// The receiver left before this send said anything, during a long file walk
+			// say: the wait's own ending, in its own words.
+			return errClosedAwaitingReceiver
+		}
 		if err != nil {
 			return err
 		}

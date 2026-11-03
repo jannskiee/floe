@@ -243,6 +243,29 @@ func TestResolveNeverLooksUpAKeyAlone(t *testing.T) {
 			t.Errorf("HoldsLinkKey misses %q", key)
 		}
 	}
+	// A key cut or overlong, pasted alone: it parses as no key, and it is no code either,
+	// since no phone's autocapitalize puts a capital inside a word. It used to go to the
+	// server lowercased and come back quoted in the 404 (review 25 F5).
+	for _, damaged := range []string{
+		"AbCdEfGhIjKlMnOpQrStU",   // 21 characters
+		"AbCdEfGhIjKlMnOpQrStUvw", // 23
+		"AbCdEfGhIjKlMnOp",        // 16
+		"AbCdEfGhIjKlMnOpQrSt",    // 20
+		"AbCd-EfGh",               // a piece between hyphens
+		"olive-tiGer-castle",      // a code with a capital inside a word
+		"a1B",
+	} {
+		if _, err := linkkey.Parse(damaged); err == nil {
+			t.Fatalf("%q is a whole key, so this row proves nothing", damaged)
+		}
+		hits.Store(0)
+		if _, err := ResolveLink(srv.URL, damaged); !errors.Is(err, errNotACode) {
+			t.Errorf("%q answered %v, want errNotACode", damaged, err)
+		}
+		if n := hits.Load(); n != 0 {
+			t.Errorf("%q reached the code API: %d requests", damaged, n)
+		}
+	}
 	// Twenty-two characters of plain words is still a code, in the capitals a phone
 	// types too, and it ends in a letter a key can end in.
 	for _, code := range []string{"olive-tiger-castle-dog", "Olive-Tiger-Castle-Dog"} {
