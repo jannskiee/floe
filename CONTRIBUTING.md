@@ -6,14 +6,16 @@ Thank you for your interest in contributing! All contributions are welcome. This
 
 ## Your first Floe pull request
 
-1. If your change is for an open issue, claim it first, so nobody else starts the same work. On a good first issue, start a new comment with `/take`: a bot assigns you, usually within a minute, or replies with the reason it can't (the issue is taken, another pull request already targets it, you already hold a good first issue, or you already have a commit here, since good first issues are for a first pull request). On any other issue, comment with your plan, and the maintainer assigns you. A pull request for an issue that is assigned to someone else is closed.
-2. Start once you are assigned. If you can't finish, comment `/untake` so someone else can take the issue. The [good first issues nobody holds yet](https://github.com/jannskiee/floe/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22%20no%3Aassignee%20-linked%3Apr) are the ones free to claim.
+1. If your change is for an open issue, claim it first, so nobody else starts the same work. On a good first issue or a help wanted issue, start a new comment with `/take`: a bot assigns you, usually within a minute, or replies with the reason it can't (the issue is taken, another pull request already targets it, the maintainer unassigned you from it earlier, or you already hold two issues; on a good first issue, also that you already hold a good first issue, or that you already have a commit here, since good first issues are for a first pull request). On any other issue, comment with your plan and wait for the maintainer's answer. A pull request for an issue that is assigned to someone else is closed.
+2. Start once you are assigned. If you can't finish, comment `/untake` so someone else can take the issue, and close your pull request if you opened one. The [good first issues nobody holds yet](https://github.com/jannskiee/floe/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22%20no%3Aassignee%20-linked%3Apr), for a first pull request here, and the [help wanted issues nobody holds yet](https://github.com/jannskiee/floe/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22help%20wanted%22%20no%3Aassignee%20-linked%3Apr), for anyone, are the ones free to claim.
 3. Fork the repository on GitHub, clone your fork, and follow [Development Setup](#development-setup) for the parts you will change.
 4. Make your change on a new branch, with the tests the issue names. A test that guards a fix should fail on `main` and pass with your change; a test that only pins what already works passes on both.
 5. Run the checks for what you touched: see [What CI runs, and how to run it locally](#what-ci-runs-and-how-to-run-it-locally).
 6. Open the pull request with a title in the style of [Pull Request Process](#pull-request-process) step 9, and fill in the template: `Closes #N`, a summary, your test plan and the changelog line.
 
-Good first issues are meant for a first pull request here. Once one of yours is merged, pick an issue labeled [help wanted](https://github.com/jannskiee/floe/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22help%20wanted%22) instead, so the next newcomer still has a first issue to take. An issue that was assigned to you, or a pull request you opened, before this rule was added is reviewed as before.
+Good first issues are meant for a first pull request here. Once one of yours is merged, claim an issue labeled [help wanted](https://github.com/jannskiee/floe/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22help%20wanted%22%20no%3Aassignee%20-linked%3Apr) with `/take` instead, so the next newcomer still has a first issue to take. An issue that was assigned to you, or a pull request you opened, before this rule was added is reviewed as before.
+
+Help wanted issues are open to everyone, newcomers included. You can hold two issues from these two labels at a time, only one of them a good first issue.
 
 You can have at most two open pull requests here at a time, drafts included. Until one of them is merged or closed, GitHub refuses to open another. Its error may read like a permissions problem and not mention the limit, so if a new pull request is refused, count your open ones first.
 
@@ -35,7 +37,7 @@ AI coding tools are welcome. You are responsible for every line of your pull req
 
 - Understand your change and be able to explain it in review in your own words.
 - Run the issue's tests and the checks for what you touched yourself, before you open the pull request.
-- An agent or an automated pipeline follows the same rules as a person: it claims the issue first (with `/take` on a good first issue), waits to be assigned, and counts toward the two-pull-request limit of the account that opens it.
+- An agent or an automated pipeline follows the same rules as a person: it claims the issue first (with `/take` on a good first issue or a help wanted issue), waits to be assigned, and counts toward the two-pull-request limit of the account that opens it.
 - Answer review comments in your own words.
 - Leave out AI credit lines: no `Co-authored-by` trailer for a tool and no "Generated with" footer, in commits or in the pull request. You do not need to say which tools you used.
 

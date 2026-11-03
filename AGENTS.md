@@ -4,10 +4,10 @@ Rules for coding agents that work on Floe for an outside contributor, and for th
 
 ## Before you write code
 
-- Work only on an issue that is assigned to the account that will open the pull request. On a good first issue, start a comment with `/take` to claim it: a bot assigns the account or replies with the reason it can't. On any other issue, comment to ask for it. Then wait to be assigned. A pull request for an issue that is assigned to someone else is closed.
+- Work only on an issue that is assigned to the account that will open the pull request. On a good first issue or a help wanted issue, start a comment with `/take` to claim it: a bot assigns the account or replies with the reason it can't. On any other issue, comment to ask for it. Then wait to be assigned. A pull request for an issue that is assigned to someone else is closed.
 - For a change that has no issue, open an issue that describes it first, and wait for the maintainer's answer.
 - One issue per pull request. An account can hold at most two open pull requests here, drafts included.
-- Good first issues are for a first pull request here. After one is merged, pick an issue labeled help wanted instead.
+- Good first issues are for a first pull request here. After one is merged, claim an issue labeled help wanted instead. An account can hold two such issues at a time, only one of them a good first issue.
 - Read the whole issue first. Its tests, its acceptance list and its out-of-scope notes are the specification.
 
 ## While you work

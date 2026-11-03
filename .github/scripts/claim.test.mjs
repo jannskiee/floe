@@ -14,8 +14,10 @@ import {
     BOT_LOGIN,
     DEFAULT_SETUP,
     FREE_URL,
+    HELP_URL,
     KINDS,
     LAUNCH_AT,
+    MAX_HELD,
     PLACEHOLDERS,
     SETUP,
     decideTake,
@@ -27,6 +29,7 @@ import {
     parseMarker,
     render,
     setupFor,
+    varsFor,
 } from './claim.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
@@ -132,10 +135,17 @@ function fakeGitHub(setup = {}) {
                     s.updated.push({ id: comment_id, body });
                     return { data: c };
                 },
-                listForRepo: async ({ assignee, labels }) => {
-                    assert.equal(labels, 'good first issue');
-                    const numbers = s.held[assignee.toLowerCase()] ?? [];
-                    return { data: numbers.map((n) => (typeof n === 'number' ? { number: n } : n)) };
+                // A bare number is a good first issue. GitHub's labels filter
+                // means every label at once, so a comma list of the two labels
+                // finds nothing here, as it does there (measured 2026-11-03).
+                listForRepo: async ({ assignee, labels, state }) => {
+                    const wanted = labels ? labels.split(',').map((l) => l.trim().toLowerCase()) : [];
+                    const entries = (s.held[assignee.toLowerCase()] ?? []).map((n) =>
+                        typeof n === 'number' ? { number: n, labels: [{ name: 'good first issue' }] } : n
+                    );
+                    const has = (i, l) => (i.labels ?? []).some((x) => (typeof x === 'string' ? x : x.name).toLowerCase() === l);
+                    const inState = (i) => state === 'all' || (i.state ?? 'open') === (state ?? 'open');
+                    return { data: entries.filter((i) => inState(i) && wanted.every((l) => has(i, l))) };
                 },
                 listEvents: async () => ({ data: s.events }),
             },
@@ -287,22 +297,53 @@ test('decideTake applies the rules in order', async () => {
         hasCommits: no,
         releasedByMaintainer: no,
         holdsAnotherGoodFirstIssue: no,
+        holdsTheLimit: no,
         otherOpenPullRequest: no,
     };
     assert.equal(await decideTake(q), 'assign');
     assert.equal(await decideTake({ ...q, isAssignee: true, isGoodFirstIssue: false }), 'already-yours');
-    assert.equal(await decideTake({ ...q, isGoodFirstIssue: false, isHelpWanted: true }), 'not-claimable-help');
     assert.equal(await decideTake({ ...q, isGoodFirstIssue: false }), 'not-claimable');
     assert.equal(await decideTake({ ...q, returnerByAssociation: true, hasAssignee: true }), 'returner');
     assert.equal(await decideTake({ ...q, hasCommits: yes }), 'returner');
     assert.equal(await decideTake({ ...q, releasedByMaintainer: yes, hasAssignee: true }), 'released');
     assert.equal(await decideTake({ ...q, hasAssignee: true, otherOpenPullRequest: yes }), 'taken');
     assert.equal(await decideTake({ ...q, otherOpenPullRequest: yes }), 'has-pr');
-    // holds-one comes last, so its advice (give that one back, then /take
+    // The hold rules come last, so their advice (give one back, then /take
     // this one) only reaches someone this issue would otherwise go to.
     assert.equal(await decideTake({ ...q, holdsAnotherGoodFirstIssue: yes }), 'holds-one');
     assert.equal(await decideTake({ ...q, holdsAnotherGoodFirstIssue: yes, hasAssignee: true }), 'taken');
     assert.equal(await decideTake({ ...q, holdsAnotherGoodFirstIssue: yes, otherOpenPullRequest: yes }), 'has-pr');
+    assert.equal(await decideTake({ ...q, holdsTheLimit: yes }), 'holds-two');
+    assert.equal(await decideTake({ ...q, holdsAnotherGoodFirstIssue: yes, holdsTheLimit: yes }), 'holds-one');
+});
+
+test('decideTake on help wanted: open to everyone, with the same refusals and the limit of two', async () => {
+    const yes = async () => true;
+    const no = async () => false;
+    const unasked = async () => assert.fail('help wanted never asks this');
+    const q = {
+        isAssignee: false,
+        hasAssignee: false,
+        isGoodFirstIssue: false,
+        isHelpWanted: true,
+        returnerByAssociation: false,
+        hasCommits: unasked,
+        releasedByMaintainer: no,
+        holdsAnotherGoodFirstIssue: unasked,
+        holdsTheLimit: no,
+        otherOpenPullRequest: no,
+    };
+    assert.equal(await decideTake(q), 'assign');
+    assert.equal(await decideTake({ ...q, returnerByAssociation: true }), 'assign', 'returners are who it is for');
+    assert.equal(await decideTake({ ...q, isAssignee: true }), 'already-yours');
+    assert.equal(await decideTake({ ...q, releasedByMaintainer: yes, hasAssignee: true }), 'released');
+    assert.equal(await decideTake({ ...q, hasAssignee: true, otherOpenPullRequest: yes }), 'taken');
+    assert.equal(await decideTake({ ...q, otherOpenPullRequest: yes }), 'has-pr');
+    assert.equal(await decideTake({ ...q, holdsTheLimit: yes }), 'holds-two');
+    assert.equal(await decideTake({ ...q, holdsTheLimit: yes, hasAssignee: true }), 'taken');
+    assert.equal(await decideTake({ ...q, holdsTheLimit: yes, otherOpenPullRequest: yes }), 'has-pr');
+    // Both labels: the good first issue rules, so a returner is still sent on.
+    assert.equal(await decideTake({ ...q, isGoodFirstIssue: true, returnerByAssociation: true }), 'returner');
 });
 
 // ---------------------------------------------------------------- /take
@@ -409,14 +450,141 @@ test('their own /untake or the bot giving way does not count as a release', asyn
     assert.deepEqual(kinds(s), ['assigned']);
 });
 
-test('help wanted and unlabeled issues are not claimable', async () => {
-    const help = fakeGitHub({ issue: { labels: [{ name: 'help wanted' }] } });
-    await help.run(help.say('ann', '/take'));
-    assert.deepEqual(kinds(help.s), ['not-claimable-help']);
-    const none = fakeGitHub({ issue: { labels: [{ name: 'bug' }] } });
-    await none.run(none.say('ann', '/take'));
-    assert.deepEqual(kinds(none.s), ['not-claimable']);
-    assert.deepEqual(assigned(help.s).concat(assigned(none.s)), []);
+test('an issue with neither label is not claimable', async () => {
+    const { s, say, run } = fakeGitHub({ issue: { labels: [{ name: 'bug' }] } });
+    await run(say('ann', '/take'));
+    assert.deepEqual(kinds(s), ['not-claimable']);
+    assert.deepEqual(assigned(s), []);
+});
+
+// ---------------------------------------------------------------- help wanted
+
+const HELP = { labels: [{ name: 'bug' }, { name: 'help wanted' }] };
+const held = (number, ...labels) => ({ number, labels: labels.map((name) => ({ name })) });
+
+for (const [who, association, commitsBy] of [
+    ['a newcomer', 'NONE', []],
+    ['a returner by association', 'CONTRIBUTOR', []],
+    ['a returner by commit history', 'NONE', ['ann']],
+]) {
+    test(`${who} can /take a free help wanted issue`, async () => {
+        const { s, say, run } = fakeGitHub({ issue: { ...HELP, title: 'Desktop: a label' }, commitsBy });
+        const c = say('ann', '/take', { association });
+        await run(c);
+        assert.deepEqual(assigned(s), ['ann']);
+        assert.deepEqual(kinds(s), ['assigned']);
+        assert.deepEqual(s.reactions, [{ id: c.id, content: '+1' }]);
+        assert.match(s.created[0].body, /^@ann you're assigned, so go ahead as the issue describes\./);
+        assert.match(s.created[0].body, /#desktop-app-only/);
+    });
+}
+
+test('an issue with both labels follows the good first issue rules', async () => {
+    const labels = [{ name: 'good first issue' }, { name: 'help wanted' }];
+    const returner = fakeGitHub({ issue: { labels } });
+    await returner.run(returner.say('ann', '/take', { association: 'CONTRIBUTOR' }));
+    assert.deepEqual(kinds(returner.s), ['returner']);
+    const newcomer = fakeGitHub({ issue: { labels, assignees: [{ login: 'bob' }] } });
+    await newcomer.run(newcomer.say('ann', '/take'));
+    assert.ok(newcomer.s.created[0].body.includes(FREE_URL), 'and the good first issue list');
+});
+
+test('a refusal on help wanted links the free help wanted issues, not the good first ones', async () => {
+    const cases = [
+        ['taken', { issue: { ...HELP, assignees: [{ login: 'bob' }] } }],
+        ['has-pr', { issue: HELP, pullRequests: [{ number: 12, state: 'OPEN', author: { login: 'bob' } }] }],
+    ];
+    for (const [kind, setup] of cases) {
+        const { s, say, run } = fakeGitHub(setup);
+        await run(say('ann', '/take', { association: 'CONTRIBUTOR' }));
+        assert.deepEqual(kinds(s), [kind]);
+        assert.deepEqual(assigned(s).filter((a) => a === 'ann'), []);
+        assert.ok(s.created[0].body.includes(`[help wanted issues nobody holds yet](${HELP_URL})`), kind);
+        assert.ok(!s.created[0].body.includes(FREE_URL), kind);
+    }
+    const good = fakeGitHub({ issue: { assignees: [{ login: 'bob' }] } });
+    await good.run(good.say('ann', '/take'));
+    assert.ok(good.s.created[0].body.includes(`[good first issues nobody holds yet](${FREE_URL})`));
+});
+
+// Each row is one state, so the two claim orders of the same pair of issues
+// are both here: what someone already holds, then the label of the one they
+// ask for. Nothing depends on which they took first.
+const GFI_ISSUE = { labels: [{ name: 'good first issue' }] };
+for (const [name, issue, list, expected] of [
+    ['one help wanted, asking for help wanted', HELP, [held(3, 'help wanted')], 'assigned'],
+    ['two help wanted, asking for help wanted', HELP, [held(3, 'help wanted'), held(4, 'help wanted')], 'holds-two'],
+    ['one of each, asking for help wanted', HELP, [held(3, 'good first issue'), held(4, 'help wanted')], 'holds-two'],
+    ['a good first issue, asking for help wanted', HELP, [held(3, 'good first issue')], 'assigned'],
+    ['help wanted, asking for a good first issue', GFI_ISSUE, [held(3, 'help wanted')], 'assigned'],
+    ['two help wanted, asking for a good first issue', GFI_ISSUE, [held(3, 'help wanted'), held(4, 'help wanted')], 'holds-two'],
+    ['a good first issue, asking for a second', GFI_ISSUE, [held(3, 'good first issue')], 'holds-one'],
+    ['one of each, asking for a good first issue', GFI_ISSUE, [held(3, 'good first issue'), held(4, 'help wanted')], 'holds-one'],
+    ['an unlabeled issue does not count', HELP, [held(3, 'bug'), held(4, 'help wanted')], 'assigned'],
+    ['a pull request does not count', HELP, [{ ...held(3, 'help wanted'), pull_request: {} }, held(4, 'help wanted')], 'assigned'],
+    ['this issue does not count', HELP, [held(ISSUE, 'help wanted'), held(4, 'help wanted')], 'assigned'],
+    ['a closed issue does not count', HELP, [{ ...held(3, 'help wanted'), state: 'closed' }, { ...held(4, 'help wanted'), state: 'closed' }], 'assigned'],
+    ['label names in any letter case', HELP, [held(3, 'Help Wanted'), held(4, 'GOOD FIRST ISSUE')], 'holds-two'],
+    ['labels the API gives as strings', HELP, [{ number: 3, labels: ['help wanted'] }, { number: 4, labels: ['good first issue'] }], 'holds-two'],
+]) {
+    test(`holding: ${name}`, async () => {
+        const { s, say, run } = fakeGitHub({ issue, held: { ann: list } });
+        await run(say('ann', '/take'));
+        assert.deepEqual(kinds(s), [expected]);
+        assert.deepEqual(assigned(s), expected === 'assigned' ? ['ann'] : []);
+    });
+}
+
+test('the hold replies link what the person holds', async () => {
+    const two = fakeGitHub({ issue: HELP, held: { ann: [held(3, 'help wanted'), held(4, 'help wanted')] } });
+    await two.run(two.say('ann', '/take'));
+    assert.match(
+        two.s.created[0].body,
+        /\[two issues\]\(https:\/\/github\.com\/jannskiee\/floe\/issues\?q=[^)]*label%3A%22good%20first%20issue%22%2C%22help%20wanted%22%20assignee%3Aann\)/
+    );
+    const one = fakeGitHub({ held: { ann: [3] } });
+    await one.run(one.say('ann', '/take'));
+    assert.match(one.s.created[0].body, /\[a good first issue\]\([^)]*label%3A%22good%20first%20issue%22%20assignee%3Aann\)/);
+    assert.ok(one.s.created[0].body.includes(`[help wanted](${HELP_URL})`));
+});
+
+test('the limit answers each person in a run from their own issues', async () => {
+    const { s, say, run } = fakeGitHub({ issue: HELP, held: { ann: [held(3, 'help wanted'), held(4, 'help wanted')], bob: [] } });
+    say('ann', '/take', { at: T0 });
+    await run(say('bob', '/take', { at: T0 + 1000 }));
+    assert.deepEqual(kinds(s), ['holds-two', 'assigned']);
+    assert.deepEqual(assigned(s), ['bob']);
+});
+
+test('a plain claim at a limit gets the limit, not the how-to-claim hint', async () => {
+    const two = fakeGitHub({ issue: HELP, held: { ann: [held(3, 'help wanted'), held(4, 'help wanted')] } });
+    await two.run(two.say('ann', "I'd like to work on this issue."));
+    assert.deepEqual(kinds(two.s), ['holds-two']);
+    assert.deepEqual(assigned(two.s), []);
+    const one = fakeGitHub({ held: { ann: [3] } });
+    await one.run(one.say('ann', "I'd like to work on this issue."));
+    assert.deepEqual(kinds(one.s), ['holds-one']);
+    assert.deepEqual(assigned(one.s), []);
+});
+
+test('the limit is the number the replies and the contributing guide state', () => {
+    assert.equal(MAX_HELD, 2);
+    assert.match(loadReplies()['holds-two'], /\[two issues\]/);
+    assert.match(read('CONTRIBUTING.md'), /You can hold two issues from these two labels at a time, only one of them a good first issue\./);
+    assert.match(read('AGENTS.md'), /can hold two such issues at a time, only one of them a good first issue\./);
+});
+
+test('an old not-claimable-help reply still marks its comment answered', async () => {
+    const { s, say, run } = fakeGitHub({ issue: HELP });
+    const old = say('ann', '/take', { at: T0 });
+    say(BOT_LOGIN, marker({ kind: 'not-claimable-help', login: 'ann', replyTo: [old.id] }), { at: T0 + 1000, type: 'Bot' });
+    await run(say('carl', 'Thanks for filing this.', { at: T0 + 2000 }));
+    assert.deepEqual(s.created, []);
+    assert.deepEqual(assigned(s), []);
+    const again = say('ann', '/take', { at: T0 + 3000 });
+    await run(again);
+    assert.deepEqual(kinds(s), ['assigned']);
+    assert.deepEqual(parseMarker(s.created[0].body).replyTo, [again.id]);
 });
 
 test('a /take from the holder is already theirs', async () => {
@@ -571,6 +739,11 @@ test('when the issue cannot be read, a command still gets the error reply', asyn
     const quiet = fakeGitHub({ fail: { listComments: boom } });
     await quiet.run(quiet.say('ann', 'Nice work.'));
     assert.deepEqual(kinds(quiet.s), []);
+    // Here issue itself is undefined, so the reply's values must not need it.
+    const noIssue = fakeGitHub({ fail: { get: boom } });
+    await noIssue.run(noIssue.say('ann', '/take'));
+    assert.deepEqual(kinds(noIssue.s), ['error']);
+    assert.equal(noIssue.core.failed, null);
 });
 
 test('a failed reaction does not turn a good claim into an error', async () => {
@@ -659,10 +832,27 @@ test('the holder and the author of an open pull request get no hint', async () =
     assert.deepEqual(kinds(pr.s), []);
 });
 
-test('plain claims get no hint off good first issues', async () => {
-    const { s, say, run } = fakeGitHub({ issue: { labels: [{ name: 'help wanted' }] } });
+test('plain claims get no hint on an issue with neither label', async () => {
+    const { s, say, run } = fakeGitHub({ issue: { labels: [{ name: 'bug' }] } });
     await run(say('ann', "I'd like to work on this issue."));
     assert.deepEqual(kinds(s), []);
+});
+
+test('a plain claim on help wanted is answered as on a good first issue', async () => {
+    const free = fakeGitHub({ issue: { labels: [{ name: 'help wanted' }] } });
+    await free.run(free.say('ann', "Hi! I'd like to work on this issue.", { association: 'CONTRIBUTOR' }));
+    assert.deepEqual(kinds(free.s), ['hint']);
+    assert.deepEqual(assigned(free.s), []);
+    const greeting = fakeGitHub({ issue: { labels: [{ name: 'help wanted' }] } });
+    await greeting.run(greeting.say('ann', 'Hi! /take'));
+    assert.deepEqual(kinds(greeting.s), ['hint']);
+    const taken = fakeGitHub({ issue: { labels: [{ name: 'help wanted' }], assignees: [{ login: 'bob' }] } });
+    await taken.run(taken.say('ann', "I'd like to take this one."));
+    assert.deepEqual(kinds(taken.s), ['taken']);
+    assert.ok(taken.s.created[0].body.includes(HELP_URL));
+    const holder = fakeGitHub({ issue: { labels: [{ name: 'help wanted' }], assignees: [{ login: 'ann' }] } });
+    await holder.run(holder.say('ann', "I'll work on it this weekend."));
+    assert.deepEqual(kinds(holder.s), []);
 });
 
 test('a plain claim a dropped run missed is answered by the next run', async () => {
@@ -715,7 +905,7 @@ test("a marker from another bot account is ignored like a person's", async () =>
 });
 
 test('a pull request among their assignments does not count as a held issue', async () => {
-    const { s, say, run } = fakeGitHub({ held: { ann: [{ number: 3, pull_request: {} }] } });
+    const { s, say, run } = fakeGitHub({ held: { ann: [{ number: 3, pull_request: {}, labels: [{ name: 'good first issue' }] }] } });
     await run(say('ann', '/take'));
     assert.deepEqual(kinds(s), ['assigned']);
 });
@@ -804,8 +994,19 @@ test('the replies use only known placeholders, address the commenter, and keep t
 });
 
 test('every reply renders with the values main() supplies', () => {
-    const vars = Object.fromEntries(PLACEHOLDERS.map((k) => [k, `<${k}>`]));
-    for (const [kind, text] of Object.entries(replies)) assert.doesNotThrow(() => render(text, vars), kind);
+    const issues = [
+        { title: 'Desktop: a label', labels: [{ name: 'good first issue' }] },
+        { title: 'Desktop: a label', labels: [{ name: 'help wanted' }] },
+        { title: 'Desktop: a label', labels: ['help wanted', 'good first issue'] },
+        { title: 'Desktop: a label', labels: [] },
+        { title: 'Desktop: a label' },
+        undefined,
+    ];
+    for (const issue of issues) {
+        const vars = varsFor('ann', issue, 'https://example.test/run');
+        assert.deepEqual(Object.keys(vars).sort(), [...PLACEHOLDERS].sort(), 'varsFor supplies exactly the placeholders');
+        for (const [kind, text] of Object.entries(replies)) assert.doesNotThrow(() => render(text, vars), kind);
+    }
 });
 
 // GitHub's heading anchors: lowercase, punctuation dropped, spaces to hyphens.
@@ -830,10 +1031,13 @@ function anchorsOf(markdown) {
     return anchors;
 }
 
-test('the docs link the same free-issue search the replies do', () => {
+test('the docs link the same two free-issue searches the replies do', () => {
     for (const file of ['README.md', 'CONTRIBUTING.md', '.github/ISSUE_TEMPLATE/config.yml']) {
         assert.ok(read(file).includes(FREE_URL), file);
+        assert.ok(read(file).includes(HELP_URL), file);
     }
+    // has-pr refuses an issue a pull request targets, so neither list offers one.
+    for (const url of [FREE_URL, HELP_URL]) assert.match(url, /no%3Aassignee%20-linked%3Apr$/);
 });
 
 test('every setup link points at a real CONTRIBUTING.md heading', () => {
@@ -899,6 +1103,6 @@ test("claim.yml's if: is exactly the guard the bot relies on", () => {
     assert.ok(m, 'a folded if:');
     assert.equal(
         m[1].replace(/\s+/g, ' ').trim(),
-        "github.repository == 'jannskiee/floe' && !github.event.issue.pull_request && github.event.issue.state == 'open' && github.event.comment.user.type == 'User' && github.event.comment.author_association != 'OWNER' && (contains(github.event.issue.labels.*.name, 'good first issue') || contains(github.event.comment.body, '/take') || contains(github.event.comment.body, '/untake'))"
+        "github.repository == 'jannskiee/floe' && !github.event.issue.pull_request && github.event.issue.state == 'open' && github.event.comment.user.type == 'User' && github.event.comment.author_association != 'OWNER' && (contains(github.event.issue.labels.*.name, 'good first issue') || contains(github.event.issue.labels.*.name, 'help wanted') || contains(github.event.comment.body, '/take') || contains(github.event.comment.body, '/untake'))"
     );
 });
