@@ -20,6 +20,7 @@
 // sender: code allowlisted (refusalCodeOf) or null, saved clamped, verified
 // range checked (verifiedCountOf) or null, rangeOverlaps a boolean.
 
+import type { KeyMode, KeyVerdict } from '../transfer/keySession';
 import type { SenderCallbacks } from '../transfer/sender';
 import type { VisitorEvent } from './visitorState';
 
@@ -59,4 +60,15 @@ export function senderEvents(deps: SenderEventDeps): SenderCallbacks {
                       : { type: 'CHANNEL_CLOSED' }
             ),
     };
+}
+
+/** The link-key session's verdict, as the reducer hears it. Enforcing, anything but a proof
+ *  ends the attempt, a browser that cannot read the certificates included: it has no way
+ *  to say the host is who the link means, and its own event, because its card says the
+ *  trouble is this browser and not the other side (D7, D17). Observe mode (the
+ *  ENFORCE_LINK_KEYS lever) checks and reports and never stops, so to the reducer every
+ *  verdict there is a go. */
+export function keyVerdictEvent(verdict: Exclude<KeyVerdict, 'pending'>, mode: KeyMode): VisitorEvent {
+    if (verdict === 'verified' || mode !== 'enforce') return { type: 'KEY_CHECK_PASSED' };
+    return verdict === 'unavailable' ? { type: 'KEY_CHECK_UNAVAILABLE' } : { type: 'KEY_CHECK_FAILED' };
 }

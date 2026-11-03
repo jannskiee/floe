@@ -139,6 +139,40 @@ describe('the privacy page: the warning a failed check sends', () => {
     });
 });
 
+describe('the privacy page: a request link and the link key', () => {
+    // W2 and T6-3: what the /r page now does with a link that holds one. The sentence says
+    // "a request link that carries one", because no released Floe Desktop makes such a link
+    // yet, which the sentence above it still says (decision D12).
+    it('names the shape, and calls the part after the # a room id', () => {
+        expect(page).not.toContain('#&lt;key&gt;');
+        expect(page).toContain('A request link looks like <InlineCode>floe.one/r/&lt;link id&gt;#&lt;room id&gt;</InlineCode>');
+        expect(page).toContain('The room id after the <InlineCode>#</InlineCode> works like a share link&apos;s and stays out of logs the same way.');
+        expect(page).toContain('it names one link without the room id,');
+    });
+
+    it('says what the page does with a key: keeps it, proves it, and names no file before the proof', () => {
+        expect(page).toContain(
+            "A request link that carries a link key holds it after the room id, as{' '} <InlineCode>#&lt;room id&gt;.&lt;link key&gt;</InlineCode>.",
+        );
+        expect(page).toContain(
+            'The page keeps it in memory and never sends it to any server. It proves it to the computer that made the link, and it names no file until that computer has proved it back; if that proof does not come, it sends no file and says so.',
+        );
+    });
+
+    it('says that page sends the one warning, and the report it means is the visitor\'s own', () => {
+        expect(page).toContain(
+            'Our analytics script does not load on a request link&apos;s page at all, and our error monitoring removes the link id from the address before anything is sent. A link key check that does not pass on that page sends the one warning described under Error monitoring, and nothing else about the check.',
+        );
+        const report = keyCheckReport({ role: 'visitor', path: 'der', outcome: 'silent', mode: 'enforce' });
+        expect(report?.tags['linkkey.role']).toBe('visitor');
+        expect(Object.keys(report?.tags ?? {}).sort()).toEqual(['linkkey.mode', 'linkkey.outcome', 'linkkey.path', 'linkkey.role']);
+    });
+
+    it('still says a link Floe Desktop makes carries no key yet', () => {
+        expect(page).toContain('A room code, and a link made by the CLI or Floe Desktop, carries no link key yet,');
+    });
+});
+
 describe('the privacy page: the tracker', () => {
     it('says floe.one serves a copy the browser checks, and the component loads exactly that', () => {
         expect(page).toContain(

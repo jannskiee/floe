@@ -1,11 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { guardsFor } from './guards';
+import { EVERY_VISITOR_STATE as ALL } from './everyVisitorState';
 import type { VisitorState } from './visitorState';
-
-const ALL: VisitorState[] = [
-    'load', 'V1', 'V2', 'V3', 'V3c', 'V4', 'V5a', 'V5b', 'V5c', 'V6', 'V6a', 'V6b', 'V6c', 'V6d', 'V6e',
-    'V7', 'V8a', 'V8b', 'V9', 'V10', 'V11', 'V11a', 'V11b', 'V12', 'V12a', 'V13',
-];
 
 // The contract columns of spec 07 4.12.1: wake lock and beforeunload are held
 // while an attempt is live (V6, with its limiter-retry sub-state V6c, V7 and
@@ -22,7 +18,7 @@ describe('visitor guards', () => {
         }
         // Every attempt-ending state lets both go, including the three that
         // render Ready again.
-        for (const s of ['V6a', 'V6b', 'V6d', 'V6e', 'V4', 'V13'] as VisitorState[]) {
+        for (const s of ['V1', 'V6a', 'V6b', 'V6d', 'V6e', 'V6f', 'V6g', 'V4', 'V13'] as VisitorState[]) {
             expect(guardsFor(s)).toMatchObject({ wakeLock: false, beforeUnload: false });
         }
     });

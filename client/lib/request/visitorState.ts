@@ -7,7 +7,7 @@
 // rules the reviews carried into it, be a unit test.
 //
 // State ids follow the spec: V1 to V13, plus the sub-states it names (V3c,
-// V5a to V5d, V6a to V6d, V8a, V8b, V11a, V11b, V12a) and 'load' before the
+// V5a to V5d, V6a to V6g, V8a, V8b, V11a, V11b, V12a) and 'load' before the
 // link has been read. V3a (no folder picking) and V3b (Hide my IP over 2 GB)
 // are facts about the Ready view, computed where it renders; V3b's one rule
 // that is a decision, Send refused, lives in sendBlock below.
@@ -15,6 +15,10 @@
 // Peer-derived values reach this module already reduced by the sender to an
 // allowlisted refusal or null, a clamped count and one boolean. The page's own
 // names for them (refusal, savedCount, verifiedCount) are used throughout.
+//
+// The link key stays out of here. It sits in a closure of the controller, next to the
+// peer (RequestVisitor.tsx), and what reaches this module is whether the link holds one
+// and how the check came out: booleans, in events with no value of the key's.
 
 import { REFUSAL_CODES, type RefusalCode } from '../transfer/protocol';
 import type { RelayGateVerdict } from '../relay';
@@ -44,6 +48,8 @@ export type VisitorState =
     | 'V6c' // Refused by the connection limiter, retrying
     | 'V6d' // Canceled before accept (renders as Ready)
     | 'V6e' // Hide my IP could not check for a relay (renders as Ready)
+    | 'V6f' // This page's check of the host's link key failed
+    | 'V6g' // This browser could not read the certificates to check it
     | 'V7' // Waiting for accept
     | 'V8a' // Declined
     | 'V8b' // Timed out
@@ -63,9 +69,11 @@ export type VisitorState =
  *  the browser discarded mid-drop kept, read on its reload, lostRecord.ts).
  *  UNREADABLE is onFailed's third kind. SIGNAL_SENT is the answering peer's
  *  own signal going out, which is when the server may seal the room on this
- *  seat (review 2a L1). */
+ *  seat (review 2a L1). The KEY_CHECK events are the link-key session's: the host
+ *  proved the key, the check failed (a bad proof, or none in time), this browser could
+ *  not read the certificates to check it, or the host refused this page's own proof. */
 export type VisitorEvent =
-    | { type: 'LINK_OK'; roomId: string } // E01
+    | { type: 'LINK_OK'; roomId: string; keyed: boolean } // E01
     | { type: 'LINK_INCOMPLETE' } // E02
     | { type: 'NO_WEBRTC' } // E03
     | { type: 'FILES_ADDED' } // E04
@@ -106,7 +114,7 @@ export type VisitorEvent =
     | { type: 'SOCKET_LOST' } // E26
     | { type: 'PEER_DISCONNECTED' } // E27
     | { type: 'VISIBILITY'; visible: boolean } // E28
-    | { type: 'HASHCHANGE'; roomId: string | null } // E29
+    | { type: 'HASHCHANGE'; roomId: string | null; keyChanged: boolean } // E29
     | { type: 'SOCKET_CONNECT_TIMEOUT' } // E30
     | { type: 'SEND_SETTLED_SILENT' } // E31
     | { type: 'SOCKET_CONNECTED' }
@@ -114,7 +122,11 @@ export type VisitorEvent =
     | { type: 'VERIFIED_COUNT'; verifiedCount: number | null }
     | { type: 'UNREADABLE'; index: number }
     | { type: 'SIGNAL_SENT' }
-    | { type: 'RESTORE_LOST'; arrived: number; total: number };
+    | { type: 'RESTORE_LOST'; arrived: number; total: number }
+    | { type: 'KEY_CHECK_PASSED' }
+    | { type: 'KEY_CHECK_FAILED' }
+    | { type: 'KEY_CHECK_UNAVAILABLE' }
+    | { type: 'KEY_CHECK_REFUSED' };
 
 /** What the page must do, in order. */
 export type VisitorEffect =
@@ -130,9 +142,12 @@ export type VisitorEffect =
     | 'clearSetupTimer'
     | 'startBadgePoll'
     | 'armProbe' // the relay probe, RELAY_PROBE_DELAY_MS after the channel opens
+    | 'armKeyTimer' // the wait for the host's proof, KEY_CHECK_WAIT_MS from the channel opening
+    | 'clearKeyTimer'
     | 'sendFiles'
     | 'startCountdown'
     | 'sendCancelAbort' // the fixed Cancel reason, awaited, then the peer destroyed
+    | 'sendKeyAbort' // the fixed unverified abort, awaited, then the peer destroyed
     | 'destroyPeer'
     | 'disconnectSocket'
     | 'clearTimers'
@@ -143,6 +158,9 @@ export interface VisitorModel {
     state: VisitorState;
     /** The fragment's room id, held for the hashchange comparison only. */
     roomId: string | null;
+    /** The link holds a key, so this page names no file until the host proves it. Whether,
+     *  and nothing else about it: the key itself never reaches this model. */
+    keyed: boolean;
     attempt: number;
     /** This attempt's inputs, fixed at Send. */
     hideIp: boolean;
@@ -161,6 +179,11 @@ export interface VisitorModel {
     /** Room-full answers retried under sealedOwnSeat in this attempt. */
     sealedRetries: number;
     channelOpen: boolean;
+    /** The key check says go. Reaches the page at any point of setup: the host's proof
+     *  usually beats simple-peer's own connect. */
+    keyVerified: boolean;
+    /** The relay verdict said go while the key check had not. */
+    relayProceed: boolean;
     sendStarted: boolean;
     firstMetadataAt: number | null;
     /** The sender's own 1-based index of the last acked file. Arrived is
@@ -188,6 +211,7 @@ export interface VisitorModel {
 export const initialModel: VisitorModel = {
     state: 'load',
     roomId: null,
+    keyed: false,
     attempt: 0,
     hideIp: false,
     total: 0,
@@ -199,6 +223,8 @@ export const initialModel: VisitorModel = {
     sealedOwnSeat: false,
     sealedRetries: 0,
     channelOpen: false,
+    keyVerified: false,
+    relayProceed: false,
     sendStarted: false,
     firstMetadataAt: null,
     ackIndex: 0,
@@ -216,15 +242,18 @@ export const initialModel: VisitorModel = {
 
 /** Every state an attempt can end in. Entering one always disconnects the
  *  socket (E-04): that frees seat 1 for the host's request-reopen and keeps a
- *  late server answer out of the next attempt. */
+ *  late server answer out of the next attempt. V1 is here for the one way an attempt
+ *  reaches it: a host that refused a visitor whose link was cut before its key. */
 export const ATTEMPT_ENDING_STATES: readonly VisitorState[] = [
-    'V4', 'V5a', 'V5b', 'V5c', 'V5d', 'V6a', 'V6b', 'V6d', 'V6e', 'V8a', 'V8b', 'V9',
+    'V1', 'V4', 'V5a', 'V5b', 'V5c', 'V5d', 'V6a', 'V6b', 'V6d', 'V6e', 'V6f', 'V6g', 'V8a', 'V8b', 'V9',
     'V11', 'V11a', 'V11b', 'V12', 'V12a', 'V13',
 ];
 
 /** States that render the Ready view and accept picks and Send. */
 const READY_LIKE: readonly VisitorState[] = ['V3', 'V3c', 'V6b', 'V6d', 'V6e'];
-/** States from which Try again (or Send) starts a new attempt (4.12.4). */
+/** States from which Try again (or Send) starts a new attempt (4.12.4). V6f is not one:
+ *  a retry goes through the same server, so it cannot help, and the card says to ask for
+ *  a new link. Nor is V6g: a retry is the same browser, and the card says to use another. */
 const RETRY_FROM: readonly VisitorState[] = ['V4', 'V5b', 'V5c', 'V8a', 'V8b', 'V9', 'V6a', 'V6d', 'V12a'];
 /** The states with an attempt live. A changed fragment reloads the page in
  *  every OTHER state (E29): the card lists V1 to V5, V8 and V9, and the review
@@ -238,6 +267,9 @@ const TEARDOWN: VisitorEffect[] = ['clearTimers', 'disconnectSocket', 'releaseWa
 /** With the channel open, the fixed Cancel reason goes first, and the effect
  *  that sends it destroys the peer once it has reached the wire. */
 const CANCEL_TEARDOWN: VisitorEffect[] = ['sendCancelAbort', 'clearTimers', 'disconnectSocket', 'releaseWakeLock'];
+/** The same shape for a failed key check: nothing has been named, and the stop is all the
+ *  host hears. */
+const KEY_TEARDOWN: VisitorEffect[] = ['sendKeyAbort', 'clearTimers', 'disconnectSocket', 'releaseWakeLock'];
 
 export type SendBlock = 'empty' | 'reading' | 'relay-cap' | null;
 
@@ -327,6 +359,9 @@ function startAttempt(model: VisitorModel, event: { count: number; size: number;
             ...initialModel,
             state: 'V6',
             roomId: model.roomId,
+            // From the link, not from the attempt: a keyed visitor must not turn keyless
+            // on Send. Its proof starts over, with the peer it is for.
+            keyed: model.keyed,
             attempt: model.attempt + 1,
             hideIp: event.hideIp,
             total: event.count,
@@ -342,6 +377,9 @@ function refusedBeforeAccept(model: VisitorModel, e: Extract<VisitorEvent, { typ
     if (!e.rangeOverlaps) return end(model, 'V11b');
     if (e.refusal === 'declined') return end(model, 'V8a');
     if (e.refusal === 'expired') return end(model, 'V8b');
+    // A host that holds a key refused a page that holds none: the link was cut before its
+    // key, and V1's remedy is the one that works. That card has no new words.
+    if (e.refusal === 'unverified' && !model.keyed) return end(model, 'V1');
     // Nothing can have been saved before the first ack, whatever the frame
     // claims.
     return end(model, 'V11', { stop: { refusal: allowlisted(e.refusal), savedCount: 0 } });
@@ -363,9 +401,12 @@ export function reduce(model: VisitorModel, event: VisitorEvent): Step {
     const s = model.state;
 
     // E29: a different room id in the fragment reloads the page while no
-    // attempt is live.
+    // attempt is live, and so does a key that changed under the same room: that
+    // is another link, and the page holds the old one's key.
     if (event.type === 'HASHCHANGE') {
-        if (!LIVE_ATTEMPT.includes(s) && event.roomId !== model.roomId) return { model, effects: ['reload'] };
+        if (!LIVE_ATTEMPT.includes(s) && (event.roomId !== model.roomId || event.keyChanged)) {
+            return { model, effects: ['reload'] };
+        }
         return stay(model);
     }
     // E28: the guards hook owns what visibility does; the state never moves.
@@ -382,7 +423,7 @@ export function reduce(model: VisitorModel, event: VisitorEvent): Step {
     }
 
     if (s === 'load') {
-        if (event.type === 'LINK_OK') return to(model, 'V3', { roomId: event.roomId });
+        if (event.type === 'LINK_OK') return to(model, 'V3', { roomId: event.roomId, keyed: event.keyed });
         if (event.type === 'LINK_INCOMPLETE') return to(model, 'V1');
         if (event.type === 'NO_WEBRTC') return to(model, 'V2');
         return stay(model);
@@ -415,7 +456,7 @@ export function reduce(model: VisitorModel, event: VisitorEvent): Step {
     if (s === 'V7') return waiting(model, event);
     if (s === 'V10') return sending(model, event);
 
-    // V1, V2, V5a, V5d, V11, V11a, V11b, V12, V13: terminal for this page.
+    // V1, V2, V5a, V5d, V6f, V6g, V11, V11a, V11b, V12, V13: terminal for this page.
     return stay(model);
 }
 
@@ -506,11 +547,42 @@ function connecting(model: VisitorModel, event: VisitorEvent): Step {
             return stay(model);
         case 'CHANNEL_OPEN':
             if (open) return stay(model);
-            return to(model, 'V6', { channelOpen: true }, ['clearSetupTimer', 'startBadgePoll', 'armProbe']);
+            return to(
+                model,
+                'V6',
+                { channelOpen: true },
+                model.keyed && !model.keyVerified
+                    ? ['clearSetupTimer', 'startBadgePoll', 'armProbe', 'armKeyTimer']
+                    : ['clearSetupTimer', 'startBadgePoll', 'armProbe']
+            );
+        case 'KEY_CHECK_PASSED':
+            if (!model.keyed || model.keyVerified) return stay(model);
+            if (model.relayProceed && !model.sendStarted) {
+                return to(model, 'V6', { keyVerified: true, sendStarted: true }, ['clearKeyTimer', 'sendFiles']);
+            }
+            return to(model, 'V6', { keyVerified: true }, ['clearKeyTimer']);
+        case 'KEY_CHECK_FAILED':
+        case 'KEY_CHECK_UNAVAILABLE':
+            // No file has been named on any path here: sendStarted is what would have
+            // named one, and it needs keyVerified, so "Nothing was sent" holds on V6f and V6g.
+            if (!model.keyed || model.keyVerified || model.sendStarted) return stay(model);
+            return to(model, event.type === 'KEY_CHECK_FAILED' ? 'V6f' : 'V6g', {}, [...KEY_TEARDOWN]);
+        case 'KEY_CHECK_REFUSED':
+            // The host refused this page's proof while no send was there to read it, which
+            // is the usual order: a host judges a proof as it lands, and the close that
+            // follows can beat the first metadata, or simple-peer's connect. A running send
+            // reports the same frame with its count, through INCOMPATIBLE.
+            if (!model.keyed || model.sendStarted) return stay(model);
+            return end(model, 'V11', { stop: { refusal: 'unverified', savedCount: 0 } });
         case 'RELAY_VERDICT': {
             if (!open || model.sendStarted) return stay(model);
             const route = event.isRelay ? 'relay' : event.routeKnown === false ? null : 'direct';
-            if (event.action === 'proceed') return to(model, 'V6', { sendStarted: true, route }, ['sendFiles']);
+            if (event.action === 'proceed') {
+                // Both have to say go. The proof usually got here first; when it has not,
+                // KEY_CHECK_PASSED starts the send, and a failure never starts it at all.
+                if (model.keyed && !model.keyVerified) return to(model, 'V6', { relayProceed: true, route });
+                return to(model, 'V6', { sendStarted: true, route }, ['sendFiles']);
+            }
             // The fixed relay reason went out before this event (the probe
             // awaits it, then destroys the peer); what is left is the teardown.
             if (event.action === 'block-over-limit') return end(model, 'V9', { route });

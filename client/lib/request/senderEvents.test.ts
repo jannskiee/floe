@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { senderEvents } from './senderEvents';
+import { keyVerdictEvent, senderEvents } from './senderEvents';
 import type { SenderCallbacks } from '../transfer/sender';
 import type { VisitorEvent } from './visitorState';
 
@@ -104,5 +104,24 @@ describe('sender callbacks to visitor events', () => {
         expect(cb.isDestroyed?.()).toBe(false);
         dead = true;
         expect(cb.isDestroyed?.()).toBe(true);
+    });
+});
+
+// The session's verdict as the reducer hears it. The session decides what a frame proves;
+// this says what the page does about it, and the rollback lever lives here on /r.
+describe('the key check to a visitor event', () => {
+    it('enforcing: a proof goes on, and anything else ends the attempt', () => {
+        expect(keyVerdictEvent('verified', 'enforce')).toEqual({ type: 'KEY_CHECK_PASSED' });
+        expect(keyVerdictEvent('failed', 'enforce')).toEqual({ type: 'KEY_CHECK_FAILED' });
+        // A browser that cannot read the certificates has nothing to check with. It has
+        // no way to say the host is fine, so it stops too, and its card says what is wrong:
+        // this browser, not the other side (D7, D17).
+        expect(keyVerdictEvent('unavailable', 'enforce')).toEqual({ type: 'KEY_CHECK_UNAVAILABLE' });
+    });
+
+    it('observing (ENFORCE_LINK_KEYS off): whatever the check found, the page goes on', () => {
+        expect(keyVerdictEvent('verified', 'observe')).toEqual({ type: 'KEY_CHECK_PASSED' });
+        expect(keyVerdictEvent('failed', 'observe')).toEqual({ type: 'KEY_CHECK_PASSED' });
+        expect(keyVerdictEvent('unavailable', 'observe')).toEqual({ type: 'KEY_CHECK_PASSED' });
     });
 });

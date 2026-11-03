@@ -21,6 +21,10 @@ import { useVisitorGuards } from '@/hooks/useVisitorGuards';
 import { resolveSocketUrl } from '@/lib/socketUrl';
 import { evaluateRelayGate, probeIsRelay, readConnectionType, RELAY_SIZE_LIMIT } from '@/lib/relay';
 import { sendFiles, sendAbortReason, CONTROL_FLUSH_MS } from '@/lib/transfer/sender';
+import { KEY_CHECK_WAIT_MS, SENDER_UNVERIFIED_REASON } from '@/lib/transfer/protocol';
+import { createKeySession, keySessionOf, linkKeyMode, type KeySession, type PeerLike } from '@/lib/transfer/keySession';
+import { sameLinkKey, type LinkKey } from '@/lib/linkKey';
+import { reportLinkKey } from '@/lib/keyCheckReport';
 import { createReconnectBackoff } from '@/lib/reconnectBackoff';
 import { parseRequestLink } from '@/lib/request/requestLink';
 import {
@@ -48,7 +52,7 @@ import { createFlushTracker } from '@/lib/request/flushes';
 import { deliveredBytes, dropEtaSeconds, dropPercent, etaAdvice } from '@/lib/request/eta';
 import { reportMailtoFromLocation } from '@/lib/request/report';
 import { afterSettle, firstStringFrame, watchSend } from '@/lib/request/sendOutcome';
-import { senderEvents } from '@/lib/request/senderEvents';
+import { keyVerdictEvent, senderEvents } from '@/lib/request/senderEvents';
 import {
     adviceLines,
     announcement,
@@ -90,9 +94,14 @@ import { ReportLink } from '@/components/request/ReportLink';
 // Every continuation after an await, and every callback from the socket, the
 // peer or the sender, is gated on the attempt it started under (attempt.ts).
 // A late answer from a finished attempt is dropped rather than written.
+//
+// The link key lives here too, and in no other place: this reads the link, holds the
+// key in a closure next to the peer, and hands it to each attempt's key session. The
+// session owns the peer's frames, so everything this sends goes through it and its own
+// proof leads. What reaches the model is a boolean and how the check came out.
 // ---------------------------------------------------------------------------
 
-type TimerName = 'connect' | 'join' | 'setup' | 'retryJoin' | 'retryConnect' | 'probe';
+type TimerName = 'connect' | 'join' | 'setup' | 'retryJoin' | 'retryConnect' | 'probe' | 'keyCheck';
 
 interface ControllerDeps {
     setModel: (model: VisitorModel) => void;
@@ -119,6 +128,10 @@ function createVisitorController(deps: ControllerDeps) {
     let listeners: Array<[string, (...args: any[]) => void]> = []; // eslint-disable-line @typescript-eslint/no-explicit-any
     let ice: RTCIceServer[] = [...DEFAULT_STUN_SERVERS];
     let lastEndedAt: number | null = null;
+    // The link's key, or null on a bare link. Never in the model, a dispatch, an emit,
+    // storage or a breadcrumb: it reaches each attempt's session and the comparison at a
+    // hash change, and that is all (visitorBoundaries.test.ts).
+    let linkKey: LinkKey | null = null;
     const backoff = createReconnectBackoff();
     const timers = new Map<TimerName, ReturnType<typeof setTimeout>>();
     // Cancel reasons still on their way to the host; a reload waits for them.
@@ -150,7 +163,10 @@ function createVisitorController(deps: ControllerDeps) {
     }
 
     function dispatch(event: VisitorEvent) {
-        if (event.type === 'LINK_OK' || event.type === 'HASHCHANGE') fragmentRoom = event.roomId;
+        if (event.type === 'LINK_OK') fragmentRoom = event.roomId;
+        // A key that changed under the same room is another link, which the discard
+        // record must not land on either.
+        if (event.type === 'HASHCHANGE') fragmentRoom = event.keyChanged ? null : event.roomId;
         const before = model;
         const { model: next, effects } = reduce(model, event);
         if (next === before && effects.length === 0) {
@@ -187,6 +203,12 @@ function createVisitorController(deps: ControllerDeps) {
     /** Dispatch only while `a` is the live attempt. */
     function dispatchFor(a: number, event: VisitorEvent) {
         gate.guard(a, () => dispatch(event));
+    }
+
+    /** The session buildPeer made for this peer, which every peer here has. Through the
+     *  WeakMap, as the main page's, so no second variable can drift from `peer`. */
+    function sessionOf(p: PeerInstance): KeySession {
+        return keySessionOf(p) as KeySession;
     }
 
     function run(effect: VisitorEffect) {
@@ -242,6 +264,21 @@ function createVisitorController(deps: ControllerDeps) {
                 if (p) arm('probe', RELAY_PROBE_DELAY_MS, () => void probeRoute(a, p));
                 return;
             }
+            case 'armKeyTimer': {
+                if (!peer) return;
+                const ks = sessionOf(peer);
+                // Observe mode (the ENFORCE_LINK_KEYS lever) waits for nothing.
+                if (ks.mode !== 'enforce') {
+                    dispatchFor(a, { type: 'KEY_CHECK_PASSED' });
+                    return;
+                }
+                // Silence is a failed check, and its verdict is what ends the attempt.
+                arm('keyCheck', KEY_CHECK_WAIT_MS, () => ks.noteSilent());
+                return;
+            }
+            case 'clearKeyTimer':
+                clearTimer('keyCheck');
+                return;
             case 'sendFiles':
                 startSend(a);
                 return;
@@ -250,6 +287,9 @@ function createVisitorController(deps: ControllerDeps) {
                 return;
             case 'sendCancelAbort':
                 cancelWithReason();
+                return;
+            case 'sendKeyAbort':
+                abortUnverified();
                 return;
             case 'destroyPeer':
                 destroyPeer();
@@ -310,6 +350,24 @@ function createVisitorController(deps: ControllerDeps) {
         // peerOptionsFor pins the whole option set, the relay policy with it.
         const p = new SimplePeer(peerOptionsFor(ice, model.hideIp));
         peer = p;
+        const mode = linkKeyMode('request-visitor');
+        // First, ahead of every other listener: its own 'connect' listener has to run
+        // ahead of the page's for this side's proof to lead, and it has to hear a host's
+        // proof that beats 'connect', as they usually do. With no key it is a pass-through
+        // that attaches nothing, so a bare link keeps simple-peer's own buffering.
+        createKeySession({
+            peer: p as unknown as PeerLike,
+            fileRole: 'sender',
+            key: linkKey,
+            roomId: model.roomId as string,
+            mode,
+            reportRole: 'visitor',
+            onVerdict: (verdict) => dispatchFor(a, keyVerdictEvent(verdict, mode)),
+            onReport: (report) => {
+                reportLinkKey(report);
+                if (report.outcome === 'peer-refused') dispatchFor(a, { type: 'KEY_CHECK_REFUSED' });
+            },
+        });
         p.on('signal', (signal) => {
             if (!gate.isLive(a)) return;
             socket?.emit('signal', { signal, target: null });
@@ -378,6 +436,16 @@ function createVisitorController(deps: ControllerDeps) {
                 const sig = data?.signal;
                 const p = peer;
                 if (!sig || !p || p.destroyed) return;
+                // A page that holds a link key takes one offer and candidates from the
+                // server, and nothing else: the proof's certificate fallback relies on that
+                // one description being the only one. Dropped whole, because simple-peer
+                // destroys the peer over an object with none of its fields. A keyless
+                // session admits everything.
+                const ks = keySessionOf(p);
+                if (!ks || !ks.admitSignal(sig)) {
+                    Sentry.addBreadcrumb({ category: 'webrtc', level: 'warning', message: 'Visitor dropped a signal' });
+                    return;
+                }
                 try {
                     p.signal(sig);
                 } catch {
@@ -404,6 +472,10 @@ function createVisitorController(deps: ControllerDeps) {
      *  (OD-13) and pinned to it by lib/relay.test.ts: the same probe, the
      *  same verdict, and the fixed TEXT abort awaited before destroy. */
     async function probeRoute(a: number, p: PeerInstance) {
+        const ks = sessionOf(p);
+        // This side's proof goes ahead of anything below sends. Settled already unless the
+        // channel refused it, and then a close settles it.
+        await ks.ownKcOut;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const pc = (p as any)._pc as RTCPeerConnection | undefined;
         let isRelay = false;
@@ -430,6 +502,14 @@ function createVisitorController(deps: ControllerDeps) {
         });
         const verdict = evaluateRelayGate({ isRelay, relayEnabled: true, totalSize: size });
         if (verdict.action === 'block-over-limit') {
+            // On a keyed link the reason says something about the drop, so it goes only to a
+            // host that proved the key. A check that fails or a channel that closes in this
+            // wait ends the attempt by its own event: V6f or V6g, with nothing said of the size.
+            if (ks.keyed && ks.mode === 'enforce' && (await ks.settle(KEY_CHECK_WAIT_MS, () => !gate.isLive(a))) !== 'verified') {
+                return;
+            }
+            // A proof that landed between a Cancel and its destroy: nothing follows an abort.
+            if (!gate.isLive(a)) return;
             Sentry.addBreadcrumb({
                 category: 'transfer',
                 message: 'Visitor blocked: relay size limit exceeded',
@@ -440,7 +520,7 @@ function createVisitorController(deps: ControllerDeps) {
             // or the destroy below takes it along and the host sees only a
             // close.
             await sendAbortReason(
-                (d) => p.send(d),
+                (d) => ks.send(d),
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 (p as any)._channel as RTCDataChannel | undefined,
                 RELAY_BLOCK_REASON
@@ -464,6 +544,7 @@ function createVisitorController(deps: ControllerDeps) {
             dispatchFor(a, { type: 'SEND_SETTLED_SILENT' });
             return;
         }
+        const ks = sessionOf(p);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const pc = (p as any)._pc as RTCPeerConnection | undefined;
         const live = () => gate.isLive(a) && !p.destroyed;
@@ -482,23 +563,26 @@ function createVisitorController(deps: ControllerDeps) {
                 },
             })
         );
+        // The session's own proof went out through a send it bound at construction, so
+        // this first string frame is the first metadata and never the proof.
         const send = firstStringFrame(
-            (d) => p.send(d),
+            (d) => ks.send(d),
             () => dispatchFor(a, { type: 'FIRST_METADATA_SENT', now: Date.now() })
         );
+        // Everything a callback reads is declared above: the session replays what came
+        // early inside this call's subscribe, before it returns.
         sendFiles(
             {
                 send,
-                onData: (handler) => {
-                    p.on('data', handler);
-                    return () => p.off('data', handler);
-                },
+                onData: (handler) => ks.onData(handler),
                 channel,
                 sctpMaxMessageSize: pc?.sctp?.maxMessageSize,
             },
             files.map((f) => ({ id: f.id, file: f.file, relativePath: f.relativePath })),
             watch.callbacks,
-            { ackTimeoutMs: FIRST_ACK_TIMEOUT_MS, requireReceived: true }
+            // The reducer has the proof before this runs; with it the engine holds the
+            // same line on its own, and names no file.
+            { ackTimeoutMs: FIRST_ACK_TIMEOUT_MS, requireReceived: true, keyCheck: ks }
         )
             .catch(() => undefined)
             .then(() => {
@@ -518,13 +602,38 @@ function createVisitorController(deps: ControllerDeps) {
         deps.badge.stop();
         if (!p) return;
         closedByUs = p;
+        const ks = sessionOf(p);
         flushes.add(
             (async () => {
                 await sendAbortReason(
-                    (d) => p.send(d),
+                    (d) => ks.send(d),
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     (p as any)._channel as RTCDataChannel | undefined,
                     VISITOR_CANCEL_REASON
+                );
+                p.destroy();
+            })()
+        );
+    }
+
+    /** V6f and V6g: the check of the host failed, so all it hears is the fixed stop with its code,
+     *  awaited, then the destroy. No file name or size went, and none goes in this. Its
+     *  range (buildIncompatible) makes a released host print its own update remedy. */
+    function abortUnverified() {
+        const p = peer;
+        peer = null;
+        deps.badge.stop();
+        if (!p) return;
+        closedByUs = p;
+        const ks = sessionOf(p);
+        flushes.add(
+            (async () => {
+                await sendAbortReason(
+                    (d) => ks.send(d),
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    (p as any)._channel as RTCDataChannel | undefined,
+                    SENDER_UNVERIFIED_REASON,
+                    'unverified'
                 );
                 p.destroy();
             })()
@@ -553,6 +662,26 @@ function createVisitorController(deps: ControllerDeps) {
 
     return {
         dispatch,
+        /** Read the link and the browser once, with no network call (E01 to E03). */
+        load(win: typeof window) {
+            const link = parseRequestLink(win.location.pathname, win.location.hash, win.location.search);
+            if ('error' in link) {
+                dispatch({ type: 'LINK_INCOMPLETE' });
+            } else if (!hasDataChannelSupport(win)) {
+                dispatch({ type: 'NO_WEBRTC' });
+            } else {
+                linkKey = link.key;
+                dispatch({ type: 'LINK_OK', roomId: link.roomId, keyed: link.key !== null });
+            }
+        },
+        /** A fragment-only navigation (E29). The reducer decides what it means; this says
+         *  what changed, and the key stays here. */
+        hashChanged(win: typeof window) {
+            const link = parseRequestLink(win.location.pathname, win.location.hash, win.location.search);
+            const now = 'error' in link ? null : link;
+            const keyChanged = !sameLinkKey(now ? now.key : null, linkKey);
+            dispatch({ type: 'HASHCHANGE', roomId: now ? now.roomId : null, keyChanged });
+        },
         /** A Send or a Try again with this selection. The reducer decides
          *  whether it starts an attempt; the selection is taken only if so. */
         start(type: 'SEND' | 'TRY_AGAIN', selection: RequestFile[], hideIp: boolean, reading: boolean) {
@@ -577,14 +706,6 @@ function createVisitorController(deps: ControllerDeps) {
 }
 
 type VisitorController = ReturnType<typeof createVisitorController>;
-
-/** Read the link and the browser once, with no network call (E01 to E03). */
-function readLink(win: typeof window): VisitorEvent {
-    const link = parseRequestLink(win.location.pathname, win.location.hash);
-    if ('error' in link) return { type: 'LINK_INCOMPLETE' };
-    if (!hasDataChannelSupport(win)) return { type: 'NO_WEBRTC' };
-    return { type: 'LINK_OK', roomId: link.roomId };
-}
 
 function rowsOf(files: RequestFile[]): PathRow[] {
     return files.map((f) => ({ id: f.id, relativePath: f.relativePath, size: f.file.size }));
@@ -637,7 +758,6 @@ export function RequestVisitor({ reportAddress }: { reportAddress: string | null
     // both inputs exist only there; a changed fragment reloads (E29); and the
     // whole attempt is torn down on unmount.
     useEffect(() => {
-        const link = readLink(window);
         // FT-R-DISCARD, on every load and before anything is dispatched:
         // takeLost always removes the tab's discard record and hands its
         // counts back only to the reload Chrome makes of a tab it discarded.
@@ -648,17 +768,14 @@ export function RequestVisitor({ reportAddress }: { reportAddress: string | null
         // page's own only because /r is always entered by a document load (a
         // capability URL, plain anchors only), so keep it that way.
         const lost = takeLost(sessionStore(), (document as Document & { wasDiscarded?: boolean }).wasDiscarded === true);
-        controller.dispatch(link);
+        controller.load(window);
         if (lost) controller.dispatch({ type: 'RESTORE_LOST', arrived: lost.arrived, total: lost.total });
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setEnv({
             canPickFolders: canPickFolders(window, navigator.userAgent),
             coarsePointer: isCoarsePointer(window),
         });
-        const onHash = () => {
-            const link = parseRequestLink(window.location.pathname, window.location.hash);
-            controller.dispatch({ type: 'HASHCHANGE', roomId: 'error' in link ? null : link.roomId });
-        };
+        const onHash = () => controller.hashChanged(window);
         window.addEventListener('hashchange', onHash);
         return () => {
             window.removeEventListener('hashchange', onHash);

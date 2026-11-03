@@ -1,8 +1,26 @@
 import { test, expect, type Page } from '@playwright/test';
+import { randomBytes } from 'crypto';
+import { mkdirSync, readdirSync, writeFileSync } from 'fs';
 import { REQUEST_REPORT_ADDRESS } from '../lib/request/report';
-import { visitorCopy } from '../lib/request/visitorCopy';
+import { refusalCopy, visitorCopy } from '../lib/request/visitorCopy';
+import { ENFORCE_LINK_KEYS, KEY_CHECK_WAIT_MS } from '../lib/transfer/protocol';
 import { UMAMI_INTEGRITY, UMAMI_SRC } from '../lib/umamiPin';
 import { E2E_REPORT_EMAIL } from './report-email';
+import { startScriptedHost } from './request-scripted-host';
+import {
+    channelSent,
+    channelText,
+    countStatsAttempts,
+    partsOfRequestLink,
+    requestLink,
+    startRequestHost,
+    storedByPage,
+    stunOnlyIce,
+    underTheWorker,
+    waitForHostEvent,
+    watchChannel,
+    watchTraffic,
+} from './request-helpers';
 
 // ---------------------------------------------------------------------------
 // The /r visitor page, before any of it does anything.
@@ -22,6 +40,8 @@ import { E2E_REPORT_EMAIL } from './report-email';
 const LINK_ID = 'AAAAAAAAAAA';
 const ROOM_ID = '6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f';
 const LINK = `/r/${LINK_ID}#${ROOM_ID}`;
+const KEY = 'AbCdEfGhIjKlMnOpQrStUg';
+const KEYED_LINK = `/r/${LINK_ID}#${ROOM_ID}.${KEY}`;
 
 // The tracker is a pinned copy on this origin (lib/umamiPin.ts), so what it
 // looks like on a page is one script and the link next/script preloads it with.
@@ -34,19 +54,6 @@ const UMAMI_PRELOAD = 'link[rel="preload"][href^="/vendor/umami-"]';
 /** Every Umami host. The tracker's own file is on this origin, so anything here
  *  is its collector, and no test may reach that. */
 const isUmamiHost = (url: URL) => url.hostname === 'umami.is' || url.hostname.endsWith('.umami.is');
-
-/** `page.waitForFunction` as a boolean: did the condition hold in time? Used
- *  where a timeout is an answer rather than a failure. */
-async function waitFor(
-    page: Page,
-    condition: () => boolean | Promise<boolean>,
-    timeout: number
-): Promise<boolean> {
-    return page
-        .waitForFunction(condition, null, { timeout })
-        .then(() => true)
-        .catch(() => false);
-}
 
 /** Every request that would mean the page reached for the network on load.
  *
@@ -86,45 +93,38 @@ test.describe('request privacy', () => {
         await page.route(isUmamiHost, (route) => route.abort());
     });
 
-    test('E2E-09 no /r entry in Cache Storage', async ({ page }) => {
+    test('E2E-09 no /r entry in Cache Storage, opened from a page the worker controls', async ({ page }) => {
         // This test needs the service worker, and page.route is not promised to
         // see past one, so Umami's own switch keeps the tracker quiet as well.
         await page.addInitScript(() => {
             localStorage.setItem('umami.disabled', '1');
         });
 
-        await page.goto('/');
-
         // components/ServiceWorkerRegistration.tsx gates registration on
         // NODE_ENV === 'production', so under `next dev` there is no worker and
         // no Cache Storage at all. The assertions below are still true there,
-        // just not informative, which is why the non-vacuity check at the end
-        // runs only when a worker actually took control.
-        //
-        // Two waits rather than one long one: a dev run has no registration to
-        // find and gives up after three seconds, while a production run gets a
-        // generous window for install, activate and claim.
-        const registered = await waitFor(
-            page,
-            () => navigator.serviceWorker?.getRegistration().then((r) => !!r),
-            3_000
-        );
-        const controlled =
-            registered && (await waitFor(page, () => !!navigator.serviceWorker.controller, 20_000));
+        // just not informative. With CI set this is a production build, and a
+        // worker that never took control fails here rather than passing on an
+        // empty store. Under a page it controls, every navigation below meets the
+        // worker's fetch handler, which a link opened in a fresh context never does.
+        const controlled = await underTheWorker(page);
 
-        // Twice: the first navigation is the one a worker could cache, the
-        // second is the one it could serve from cache and re-store.
-        await page.goto(LINK);
-        await page.goto(LINK);
-
-        const urls = await page.evaluate(async () => {
-            const out: string[] = [];
-            for (const name of await caches.keys()) {
-                const cache = await caches.open(name);
-                for (const request of await cache.keys()) out.push(request.url);
+        // Every shape of a request link. Twice each: the first navigation is the
+        // one a worker could cache, the second is the one it could serve from
+        // cache and re-store. The one with no fragment has only the /r guard
+        // between it and the store, so that guard's going shows here. The others
+        // have the fragment or the query guard behind it, and show when both go.
+        for (const link of [KEYED_LINK, LINK, `/r/${LINK_ID}`, `/r/${LINK_ID}?k=${KEY}`]) {
+            await page.goto(link);
+            await page.goto(link);
+            if (controlled) {
+                // The worker was in the way of this navigation.
+                expect(await page.evaluate(() => !!navigator.serviceWorker.controller), link).toBe(true);
             }
-            return out;
-        });
+        }
+
+        const { urls, hits } = await storedByPage(page, KEY);
+        expect(hits, 'the link key in browser storage').toEqual([]);
 
         for (const url of urls) {
             expect(url, 'a request link was written to Cache Storage').not.toContain('/r/');
@@ -140,6 +140,301 @@ test.describe('request privacy', () => {
             // than about an empty cache.
             expect(urls.some((u) => new URL(u).pathname === '/')).toBe(true);
         }
+    });
+
+    // The request-link key on a real drop, on a real page. What cannot be seen from a
+    // running page lives in lib/request/visitorBoundaries.test.ts. The Sentry report has no
+    // DSN in an ordinary build: lib/keyCheckReport.test.ts and the same boundary test hold
+    // it, and the opt-in cell below reads it where it leaves the page.
+    test.describe('the link key', () => {
+        const FILE_NAME = 'a-very-particular-name.bin';
+        const FILE_SIZE = 123_457;
+
+        /** A file to pick, and an empty folder for what the host saves. */
+        const scratch = (dir: string) => {
+            const file = `${dir}/${FILE_NAME}`;
+            const out = `${dir}/out`;
+            mkdirSync(out, { recursive: true });
+            writeFileSync(file, randomBytes(FILE_SIZE));
+            return { file, out };
+        };
+
+        test('is in no request, no socket frame, nothing stored and nothing drawn', async ({ page, context }, testInfo) => {
+            await stunOnlyIce(context);
+            const stats = await countStatsAttempts(context);
+            const traffic = watchTraffic(context);
+            traffic.watchSockets(page);
+            const { file, out } = scratch(testInfo.outputDir);
+            const h = startRequestHost({ outDir: out, decide: 'accept', key: true });
+            try {
+                const link = await requestLink(h);
+                const { linkId, room, key } = partsOfRequestLink(link);
+                if (!key) throw new Error('the harness made no key');
+                const controlled = await underTheWorker(page);
+                await page.goto(link);
+                await expect(page.getByText(visitorCopy.readyIntro, { exact: true })).toBeVisible();
+                // The home page above reads the public counter, and this page must not.
+                const statsBefore = await stats();
+                // The key is in this page's address, so what follows checks something.
+                expect(await page.evaluate(() => location.hash)).toContain(key);
+
+                // The one link on the page built from the address.
+                const report = await page.getByRole('link', { name: visitorCopy.reportLink }).getAttribute('href');
+                expect(report).toContain(linkId);
+                expect(report).not.toContain(key);
+                expect(report).not.toContain(room);
+
+                await page.locator('input[type=file]:not([webkitdirectory])').first().setInputFiles(file);
+                await page.getByRole('button', { name: /^Send \d+ files?$/ }).click();
+                await expect(page.getByRole('heading', { name: /^(ALL \d+ FILES|1 FILE) ARRIVED$/ })).toBeVisible({ timeout: 60_000 });
+                await waitForHostEvent(h, 'done', 30_000);
+
+                // Not vacuous: the watchers hear the room, which does go to the signaling
+                // server, and a socket did open.
+                const heard = await traffic.everything();
+                expect(heard).toContain(room);
+                expect(traffic.sockets()).toBeGreaterThan(0);
+                expect(heard, 'this page told a server the key').not.toContain(key);
+
+                expect(await page.content(), 'the key is drawn or in the markup').not.toContain(key);
+                expect(await page.title()).not.toContain(key);
+
+                // A production build has a worker and a store, filled once it has
+                // installed; next dev has neither, and this reads web storage alone.
+                const stored = await storedByPage(page, key);
+                expect(stored.hits, 'the key in browser storage').toEqual([]);
+                if (controlled) expect(stored.entries).toBeGreaterThan(0);
+                test.info().annotations.push({ type: 'cache-storage', description: `${stored.entries} stored responses read` });
+                expect(await stats()).toBe(statsBefore);
+            } finally {
+                h.stop();
+                await h.exited;
+            }
+        });
+
+        for (const kc of ['bad', 'none'] as const) {
+            test(`a host ${kc === 'bad' ? 'under another key' : 'with no proof'}: no file name or size left the page, and the view is V6f`, async ({ page, context }, testInfo) => {
+                test.skip(!ENFORCE_LINK_KEYS, 'ENFORCE_LINK_KEYS is off, and nothing stops');
+                test.setTimeout(KEY_CHECK_WAIT_MS + 60_000);
+                await stunOnlyIce(context);
+                const stats = await countStatsAttempts(context);
+                await watchChannel(context);
+                const traffic = watchTraffic(context);
+                traffic.watchSockets(page);
+                const { file, out } = scratch(testInfo.outputDir);
+                const h = startRequestHost({ outDir: out, decide: 'accept', key: true, kc });
+                try {
+                    const link = await requestLink(h);
+                    const { key } = partsOfRequestLink(link);
+                    if (!key) throw new Error('the harness made no key');
+                    await page.goto(link);
+                    await page.locator('input[type=file]:not([webkitdirectory])').first().setInputFiles(file);
+                    // The page does hold the two values this test looks for.
+                    await expect(page.getByText(FILE_NAME)).toBeVisible();
+                    await page.getByRole('button', { name: /^Send \d+ files?$/ }).click();
+
+                    await expect(page.getByRole('heading', { name: visitorCopy.keyFailedTitle })).toBeVisible({
+                        timeout: KEY_CHECK_WAIT_MS + 30_000,
+                    });
+                    await expect(page.getByText(visitorCopy.keyFailedBody, { exact: true })).toBeVisible();
+                    expect(await waitForHostEvent(h, 'refused', 30_000)).toMatchObject({ code: 'unverified' });
+
+                    // Its proof and its stop, and not one frame more.
+                    await expect.poll(() => channelSent(page)).toEqual(['kc', 'incompatible']);
+                    const words = (await channelText(page)).join('\n');
+                    const heard = await traffic.everything();
+                    for (const what of [FILE_NAME, String(FILE_SIZE)]) {
+                        expect(words, `${what} went down the channel`).not.toContain(what);
+                        expect(heard, `${what} went to a server`).not.toContain(what);
+                    }
+                    expect(words).not.toContain('metadata');
+                    expect(words, 'the key went down the channel').not.toContain(key);
+                    expect(heard, 'this page told a server the key').not.toContain(key);
+
+                    // The host decided nothing and kept nothing.
+                    const names = h.events.map((e) => e.event);
+                    expect(names).not.toContain('deciding');
+                    expect(readdirSync(out)).toEqual([]);
+                    expect(await stats()).toBe(0);
+                } finally {
+                    h.stop();
+                    await h.exited;
+                }
+            });
+        }
+    });
+
+    // O7 on /r (decision W2): this page is where the soak most needs a signal. Opt-in, as
+    // E2E_EXPECT_UMAMI is, because it needs a page with a DSN, which no CI leg has. next dev
+    // takes it from the environment (a production build, at build time):
+    //   E2E_EXPECT_SENTRY=1 NEXT_PUBLIC_SENTRY_DSN=http://floe@127.0.0.1:9/1 pnpm test:e2e request-privacy.spec.ts
+    // Nothing leaves the machine: the route answers every envelope here.
+    test.describe('what Sentry hears on /r', () => {
+        // As above: page.route has to see the envelope, so no worker.
+        test.use({ serviceWorkers: 'block' });
+
+        const FILE_NAME = 'a-very-particular-name.bin';
+
+        /** Every envelope the page sends, as text, answered here. */
+        const envelopes = async (page: Page) => {
+            const seen: string[] = [];
+            await page.route(/\/api\/\d+\/envelope\//, (route) => {
+                seen.push(route.request().postData() ?? '');
+                return route.fulfill({ status: 200, json: {}, headers: { 'access-control-allow-origin': '*' } });
+            });
+            return seen;
+        };
+
+        /** The one event an envelope holding this message carries. */
+        const warningIn = (seen: string[]) => {
+            const lines = seen.filter((text) => text.includes('Link key check failed')).flatMap((text) => text.split('\n'));
+            const events = lines.filter((line) => line.includes('Link key check failed')).map((line) => JSON.parse(line));
+            return events as Array<{
+                level: string;
+                message: string;
+                tags: Record<string, string>;
+                fingerprint: string[];
+                request?: { url?: string };
+                extra?: unknown;
+                user?: unknown;
+            }>;
+        };
+
+        const pickAndSend = async (page: Page, file: string) => {
+            await page.locator('input[type=file]:not([webkitdirectory])').first().setInputFiles(file);
+            await page.getByRole('button', { name: /^Send \d+ files?$/ }).click();
+        };
+
+        const expectOneWarning = async (seen: string[], outcome: string, secrets: string[], path = 'der') => {
+            await expect.poll(() => warningIn(seen).length, { timeout: 20_000 }).toBeGreaterThan(0);
+            // Long enough for a second one to have gone, if a second one were going.
+            await new Promise((resolve) => setTimeout(resolve, 1_500));
+            const events = warningIn(seen);
+            expect(events).toHaveLength(1);
+            const [event] = events;
+            expect(event.level).toBe('warning');
+            expect(event.message).toBe('Link key check failed');
+            expect(event.tags).toMatchObject({
+                'linkkey.role': 'visitor',
+                'linkkey.path': path,
+                'linkkey.outcome': outcome,
+                'linkkey.mode': 'enforce',
+            });
+            expect(event.fingerprint).toEqual(['link-key', 'visitor', outcome, path]);
+            expect(event.request?.url ?? '').toMatch(/\/r\/redacted$/);
+            expect(event.extra ?? {}).toEqual({});
+            // An empty geo is lib/noLocation.ts asking Sentry to work out no location.
+            expect(event.user ?? {}).toEqual({ geo: {} });
+            // And in nothing this page sent Sentry, any event, breadcrumb or span.
+            const everything = seen.join('\n');
+            for (const secret of [...secrets, FILE_NAME]) {
+                expect(everything, 'a report holds what it must not').not.toContain(secret);
+            }
+        };
+
+        for (const [kc, outcome] of [['bad', 'bad-tag'], ['none', 'silent']] as const) {
+            test(`a failed check (${outcome}) sends one warning of four enums, and no link, key or name`, async ({ page, context }, testInfo) => {
+                test.skip(process.env.E2E_EXPECT_SENTRY !== '1', 'needs a build with a Sentry DSN');
+                test.setTimeout(KEY_CHECK_WAIT_MS + 60_000);
+                await stunOnlyIce(context);
+                const seen = await envelopes(page);
+                const file = testInfo.outputPath(FILE_NAME);
+                const out = testInfo.outputPath('out');
+                mkdirSync(out, { recursive: true });
+                writeFileSync(file, randomBytes(4096));
+                const h = startRequestHost({ outDir: out, decide: 'accept', key: true, kc });
+                try {
+                    const link = await requestLink(h);
+                    const { key, room, linkId } = partsOfRequestLink(link);
+                    await page.goto(link);
+                    await pickAndSend(page, file);
+                    await expect(page.getByRole('heading', { name: visitorCopy.keyFailedTitle })).toBeVisible({
+                        timeout: KEY_CHECK_WAIT_MS + 30_000,
+                    });
+                    await expectOneWarning(seen, outcome, [key as string, room, linkId]);
+                } finally {
+                    h.stop();
+                    await h.exited;
+                }
+            });
+        }
+
+        test('a host that refuses this page sends the one warning too, and none of its words', async ({ browser, page, context }, testInfo) => {
+            test.skip(process.env.E2E_EXPECT_SENTRY !== '1', 'needs a build with a Sentry DSN');
+            await stunOnlyIce(context);
+            const seen = await envelopes(page);
+            const file = testInfo.outputPath(FILE_NAME);
+            writeFileSync(file, randomBytes(4096));
+            const h = await startScriptedHost(browser, { proof: 'good', then: 'refuse-close' });
+            try {
+                await page.goto(h.link);
+                await pickAndSend(page, file);
+                await expect(page.getByRole('heading', { name: refusalCopy('unverified', 0, 1).title })).toBeVisible({ timeout: 30_000 });
+                await expectOneWarning(seen, 'peer-refused', [h.key, h.room, 'FLOEPEERTEXT']);
+            } finally {
+                await h.close();
+            }
+        });
+
+        // V6g, for the soak: a browser that cannot read the certificates is told apart from
+        // a host that failed, in the report as on the card. The API is gone and the
+        // description fails the fallback's strict shape, so there was nothing to hash.
+        test('a browser that cannot check sends the one warning, path none', async ({ page, context }, testInfo) => {
+            test.skip(process.env.E2E_EXPECT_SENTRY !== '1', 'needs a build with a Sentry DSN');
+            await stunOnlyIce(context);
+            await context.addInitScript(() => {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                delete (RTCDtlsTransport.prototype as any).getRemoteCertificates;
+                const real = Object.getOwnPropertyDescriptor(RTCPeerConnection.prototype, 'remoteDescription')?.get;
+                Object.defineProperty(RTCPeerConnection.prototype, 'remoteDescription', {
+                    configurable: true,
+                    get(this: RTCPeerConnection) {
+                        const held = real?.call(this);
+                        return held ? { type: held.type, sdp: `${held.sdp}m=text 9 UDP/TLS 0\r\n` } : held;
+                    },
+                });
+            });
+            const seen = await envelopes(page);
+            const file = testInfo.outputPath(FILE_NAME);
+            const out = testInfo.outputPath('out');
+            mkdirSync(out, { recursive: true });
+            writeFileSync(file, randomBytes(4096));
+            const h = startRequestHost({ outDir: out, decide: 'accept', key: true });
+            try {
+                const link = await requestLink(h);
+                const { key, room, linkId } = partsOfRequestLink(link);
+                await page.goto(link);
+                await pickAndSend(page, file);
+                await expect(page.getByRole('heading', { name: visitorCopy.cantCheckTitle })).toBeVisible({ timeout: 30_000 });
+                await expectOneWarning(seen, 'unavailable', [key as string, room, linkId], 'none');
+            } finally {
+                h.stop();
+                await h.exited;
+            }
+        });
+
+        test('a keyed drop that passes sends no warning at all', async ({ page, context }, testInfo) => {
+            test.skip(process.env.E2E_EXPECT_SENTRY !== '1', 'needs a build with a Sentry DSN');
+            await stunOnlyIce(context);
+            const seen = await envelopes(page);
+            const file = testInfo.outputPath(FILE_NAME);
+            const out = testInfo.outputPath('out');
+            mkdirSync(out, { recursive: true });
+            writeFileSync(file, randomBytes(4096));
+            const h = startRequestHost({ outDir: out, decide: 'accept', key: true });
+            try {
+                const { key } = partsOfRequestLink(await requestLink(h));
+                await page.goto(await requestLink(h));
+                await pickAndSend(page, file);
+                await expect(page.getByRole('heading', { name: /^(ALL \d+ FILES|1 FILE) ARRIVED$/ })).toBeVisible({ timeout: 60_000 });
+                await new Promise((resolve) => setTimeout(resolve, 1_500));
+                expect(warningIn(seen)).toEqual([]);
+                expect(seen.join('\n')).not.toContain(key as string);
+            } finally {
+                h.stop();
+                await h.exited;
+            }
+        });
     });
 
     test('E2E-10 no-referrer header and no Umami on /r', async ({ page }) => {
@@ -401,6 +696,31 @@ test.describe('request privacy', () => {
         await expect(
             page.getByText('Copy the whole link again, including everything after the # sign.')
         ).toBeVisible();
+        await page.waitForTimeout(1_000);
+        expect(signaling).toEqual([]);
+    });
+
+    // A link with a key that cannot be read is no bare link into the same room. Twin of the
+    // row in cli/engine/code/testdata/link-shapes.json, on the page itself.
+    for (const [name, link] of [
+        ['a key cut short', `/r/${LINK_ID}#${ROOM_ID}.${KEY.slice(0, 10)}`],
+        ['a k in the query', `/r/${LINK_ID}?k=${KEY}#${ROOM_ID}`],
+        ['a k in the query beside a whole key', `/r/${LINK_ID}?k=${KEY}#${KEYED_LINK.split('#')[1]}`],
+        ['an escape in a keyed fragment', `/r/${LINK_ID}#${ROOM_ID}%2E${KEY}`],
+    ] as const) {
+        test(`E2E-13 ${name} opens no socket, and reads as incomplete`, async ({ page }) => {
+            const signaling = watchSignaling(page);
+            await page.goto(link);
+            await expect(page.getByText(visitorCopy.incompleteTitle)).toBeVisible();
+            await page.waitForTimeout(1_000);
+            expect(signaling).toEqual([]);
+        });
+    }
+
+    test('a whole keyed link opens on Ready, and reaches for nothing until Send', async ({ page }) => {
+        const signaling = watchSignaling(page);
+        await page.goto(KEYED_LINK);
+        await expect(page.getByText(visitorCopy.readyIntro, { exact: true })).toBeVisible();
         await page.waitForTimeout(1_000);
         expect(signaling).toEqual([]);
     });
