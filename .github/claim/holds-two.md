@@ -1,0 +1,1 @@
+@{{login}} you already hold [two issues]({{all_held_url}}), the most anyone can hold here at a time. An issue stops counting when it closes, which merging your pull request for it does. To make room sooner, comment `/untake` on one you have no pull request for. Then start a new comment here with `/take`.

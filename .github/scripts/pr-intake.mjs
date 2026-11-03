@@ -44,7 +44,7 @@
 
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
-import { CLAIM_LABEL, HELP_URL, MAINTAINER, RETURNER_ASSOCIATIONS } from './claim.mjs';
+import { CLAIM_LABEL, HELP_LABEL, HELP_URL, MAINTAINER, RETURNER_ASSOCIATIONS } from './claim.mjs';
 
 // null: every run is a dry run, and pr-intake.yml's token cannot write
 // (pull-requests: read; pr-intake.test.mjs keeps the two in step). The go-live
@@ -397,10 +397,11 @@ export async function planFor(pr, { siblings, repoName, cfg, isReturner }) {
             labels.add(LABEL_COMPETING);
             continue;
         }
-        // The claim bot's own order: help wanted and unlabeled issues are
-        // assigned by hand; a good first issue is for a first pull request.
+        // The claim bot's own order: an issue with neither label is assigned
+        // by hand, help wanted is /take for anyone, and a good first issue is
+        // for a first pull request, whatever else it is labeled.
         if (!issue.labels.includes(CLAIM_LABEL)) {
-            sections.push({ id: 'claim-ask', issue: issue.number });
+            sections.push({ id: issue.labels.includes(HELP_LABEL) ? 'claim-take' : 'claim-ask', issue: issue.number });
             continue;
         }
         const returner = await isReturner(pr);
