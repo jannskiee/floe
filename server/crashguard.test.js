@@ -1839,6 +1839,25 @@ test('a PORT that Node refuses ends the process the way a taken port does', asyn
     }
 });
 
+const turnDomainLines = (srv) => logLines(srv).filter((line) => line.startsWith('TURN_DOMAIN'));
+
+test('a TURN_DOMAIN that holds more than a host name says so once and hands out STUN only', async (t) => {
+    const srv = await startServer({ ...NO_RELAY, TURN_SECRET: 'cg-secret', TURN_DOMAIN: 'https://cg-shape.test:3478' });
+    t.after(() => srv.stop());
+    await assertSurvived(srv, 'that TURN_DOMAIN');
+    assert.deepEqual(turnDomainLines(srv), ['TURN_DOMAIN holds more than a host name, so the coturn relay is off. Set it to the host name alone, such as turn.example.com.']);
+    assert.match((await get(srv, '/api/turn-credentials')).body, /^\[\{"urls":"stun:stun\.l\.google/);
+});
+
+test('a host name alone, or a half-set pair, gets no such line', async (t) => {
+    for (const env of [{ TURN_DOMAIN: 'https://cg-shape.test' }, { TURN_SECRET: 'cg-secret' }, ...['turn.example.test', 'TURN.Example.test', '203.0.113.10', '[2001:db8::1]'].map((TURN_DOMAIN) => ({ TURN_SECRET: 'cg-secret', TURN_DOMAIN }))]) {
+        const srv = await startServer({ ...NO_RELAY, ...env });
+        t.after(() => srv.stop());
+        await assertSurvived(srv, env.TURN_DOMAIN);
+        assert.deepEqual(turnDomainLines(srv), [], env.TURN_DOMAIN);
+    }
+});
+
 // --- CLIENT_URL -----------------------------------------------------------------
 
 test('a CLIENT_URL written with a trailing slash still lets its own web app in', async (t) => {
