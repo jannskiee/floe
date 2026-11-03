@@ -1481,7 +1481,7 @@ export function P2PTransfer() {
                 // problem the receiver's own guard above already fixes.
                 if (wireReasonRef.current) return;
                 if (endedOnKeyCheck()) return;
-                if (transferCompleteRef.current || progressRef.current > 0) {
+                if (transferCompleteRef.current || keyState.acked) {
                     setStatus('Connection interrupted');
                     // A send that was still open stops here. One that was
                     // delivered stays delivered: every file had left this

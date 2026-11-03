@@ -191,6 +191,18 @@ describe('how the sender page uses a stop', () => {
         expect(block).toContain('transferCompleteRef.current = false;');
         expect(block).toContain('progressRef.current = 0;');
     });
+
+    it('latches that the receiver answered a file', () => {
+        const at = page.indexOf('onAck: () => {');
+        expect(at).toBeGreaterThan(-1);
+        expect(page.slice(at, page.indexOf('onFileStart: (i, _total, name) => {', at))).toContain('keyState.acked = true;');
+    });
+
+    it('asks the latch when the connection ends', () => {
+        expect(page).toContain('acked: keyState.acked,');
+        expect(page).toContain('if (transferCompleteRef.current || keyState.acked) {');
+        expect(page).not.toContain('progressRef.current > 0');
+    });
 });
 
 // The send starts inside a timer callback, so nothing awaits it. A throw
