@@ -114,9 +114,16 @@ test.describe('request privacy', () => {
         // cache and re-store. The one with no fragment has only the /r guard
         // between it and the store, so that guard's going shows here. The others
         // have the fragment or the query guard behind it, and show when both go.
+        //
+        // Each from the controlled page, and the second by reload. A goto between
+        // two links that differ only in the fragment, or to the same link again,
+        // stays in the document and never meets the worker, and a new fragment
+        // makes the /r page reload itself a moment later, which destroyed the
+        // evaluate below on macOS (PR #881's run 41643671642).
         for (const link of [KEYED_LINK, LINK, `/r/${LINK_ID}`, `/r/${LINK_ID}?k=${KEY}`]) {
+            await page.goto('/');
             await page.goto(link);
-            await page.goto(link);
+            await page.reload();
             if (controlled) {
                 // The worker was in the way of this navigation.
                 expect(await page.evaluate(() => !!navigator.serviceWorker.controller), link).toBe(true);
