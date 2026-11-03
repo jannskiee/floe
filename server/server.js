@@ -55,6 +55,34 @@ const PROXY_COUNT_INVALID_LINE = process.env.TRUSTED_PROXY_COUNT && !(TRUSTED_PR
       'Set it to the number of reverse proxies in front of this server, or 0 if there are none.'
     : null;
 
+// Each of these features needs both of its variables, and with only one of
+// them set it stays off: turn.js and stats.js test each one for truthiness,
+// so the empty string Compose passes for a variable left out counts as unset
+// here too. One fixed line per half-set pair, naming the variables and never
+// a value, since an operator can paste a secret into the wrong field. Read by
+// name with brackets on purpose: docs-check's env scan takes every dotted
+// read in server/ for a setting and its default.
+const HALF_SET_PAIRS = [
+    [
+        'TURN_SECRET',
+        'TURN_DOMAIN',
+        'Only one of TURN_SECRET and TURN_DOMAIN is set, so the coturn relay is off. Set both, or neither.',
+    ],
+    [
+        'CLOUDFLARE_TURN_KEY_ID',
+        'CLOUDFLARE_TURN_KEY_API_TOKEN',
+        'Only one of CLOUDFLARE_TURN_KEY_ID and CLOUDFLARE_TURN_KEY_API_TOKEN is set, so Cloudflare TURN is off. Set both, or neither.',
+    ],
+    [
+        'UPSTASH_REDIS_REST_URL',
+        'UPSTASH_REDIS_REST_TOKEN',
+        'Only one of UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN is set, so the transfer counter is kept in memory and resets to 0 on restart. Set both, or neither.',
+    ],
+];
+const HALF_SET_LINES = HALF_SET_PAIRS
+    .filter(([a, b]) => !process.env[a] !== !process.env[b])
+    .map(([, , line]) => line);
+
 // Extract the real client IP from an X-Forwarded-For header, discarding
 // client-supplied spoofed entries by only trusting the rightmost N hops.
 function getClientIp(xffHeader, socketAddr) {
@@ -2053,6 +2081,7 @@ if (require.main === module) {
     if (PROXY_COUNT_UNSET_LINE) console.warn(PROXY_COUNT_UNSET_LINE);
     if (PROXY_COUNT_INVALID_LINE) console.warn(PROXY_COUNT_INVALID_LINE);
     if (TURN_DOMAIN_INVALID_LINE) console.warn(TURN_DOMAIN_INVALID_LINE);
+    for (const line of HALF_SET_LINES) console.warn(line);
 
     // Invalid ports throw synchronously, before an 'error' event can fire.
     // Handle that throw through the same fail-fast path as other bind errors.
