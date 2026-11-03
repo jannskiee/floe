@@ -140,6 +140,9 @@ export const SETUP_FAILED_LINE = "The sender couldn't connect"; // W11
 export const HIDE_IP_NO_RELAY_LINE = "The sender couldn't connect: Hide my IP is on and no relay is available";
 export const CONNECTING_LINE = 'Connecting to the sender...'; // W12
 export const SUGGEST_CLOSE_LINE = '2 requests ended without Accept in 10 minutes. Close this link?'; // W13
+// W15: a pairing that failed the link key check reopens the link. No prompt,
+// toast, flash or title goes with it, so this line is all the owner hears of it.
+export const UNVERIFIED_LINE = "A sender couldn't be confirmed and was disconnected";
 // C1, two lines: the news, then the reassurance, quieter.
 export const RECONNECTING_LINE = "Can't reach the Floe server"; // C1, line 1
 export const RECONNECTING_NOTE = 'Reconnecting...'; // C1, line 2
@@ -151,6 +154,7 @@ export const RETRY_NOW = 'Retry now'; // C2
  *  is nobody to blame). */
 export function reopenLine(s: {code: string; missedAt?: number; suggestClose: boolean}, now: number): string {
     if (s.suggestClose) return SUGGEST_CLOSE_LINE;
+    if (s.code === 'unverified') return UNVERIFIED_LINE;
     if (s.code === 'setup-failed') return SETUP_FAILED_LINE;
     if (s.code === 'no-relay' || s.code === 'relay-unknown') return HIDE_IP_NO_RELAY_LINE;
     if (s.code === 'visitor-left') return '';
@@ -158,12 +162,18 @@ export function reopenLine(s: {code: string; missedAt?: number; suggestClose: bo
     return '';
 }
 
+/** X7: the requestUnverifiedCap-th pairing that failed the link key check ended
+ *  the link. Go's constant and this 5 are one number:
+ *  TestUnverifiedCapMatchesTheCopy reads this line. */
+export const UNVERIFIED_ENDED_LINE = "Link closed after 5 senders couldn't be confirmed";
+
 /** endedLine: X1 at the link's own end time, dated when that was another
- *  day, X2 otherwise (the network and server-restart ends were removed by
- *  E-34, and X5, the line after a relaunch, by D-170, so any other code is a
- *  close). */
+ *  day, X7 after too many senders failed the link key check, X2 otherwise (the
+ *  network and server-restart ends were removed by E-34, and X5, the line after
+ *  a relaunch, by D-170, so any other code is a close). */
 export function endedLine(code: string, expiresAt: number, now: number): string {
     if (code === 'expired') return `Link ended at ${fmtAt(expiresAt, now)}`; // X1
+    if (code === 'unverified') return UNVERIFIED_ENDED_LINE; // X7
     return 'Link closed'; // X2
 }
 export const MAKE_ANOTHER_LINK = 'Make another link'; // X3, DN7

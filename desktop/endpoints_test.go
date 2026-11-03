@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jannskiee/floe/cli/engine/code"
+	"github.com/jannskiee/floe/cli/engine/linkkey"
 )
 
 // TestEndpointsDefaults proves an untouched install still talks to Floe's own
@@ -77,7 +80,7 @@ func TestEndpointsFeedShareLinkCleanly(t *testing.T) {
 		{Server: " http://localhost:3001/ "},
 	} {
 		_, web := (&App{cfg: normalizeConfig(cfg)}).endpoints()
-		link := shareLink(web, "deadbeef", "room-1")
+		link := shareLink(web, "deadbeef", "room-1", linkkey.Key{})
 		if strings.Contains(link, "//?s=") {
 			t.Errorf("cfg %+v produced a doubled slash: %q", cfg, link)
 		}
@@ -138,20 +141,25 @@ func TestSettingsChangePanicLeavesMuFree(t *testing.T) {
 	}
 }
 
-// TestShareLink guards the property that matters: the room id is the transfer's
-// only secret, so it must live in the URL fragment, which browsers never send to
-// a server. Anything before the '#' does reach the server, so the room id
-// appearing there would leak it into access logs, Referer headers, and analytics.
+// TestShareLink guards the property that matters: the room id and the link key
+// are the transfer's secrets, so both must live in the URL fragment, which browsers
+// never send to a server. Anything before the '#' does reach the server, so either
+// one appearing there would leak it into access logs, Referer headers, and
+// analytics.
 func TestShareLink(t *testing.T) {
 	const (
 		base   = "https://floe.one"
 		nonce  = "deadbeef"
 		roomID = "6f207790-92a6-4662-bb68-4c4059f75139"
 	)
+	key, err := linkkey.New()
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	got := shareLink(base, nonce, roomID)
+	got := shareLink(base, nonce, roomID, key)
 
-	if want := base + "/?s=" + nonce + "#room=" + roomID; got != want {
+	if want := base + "/?s=" + nonce + "#k=" + key.Encode() + "&room=" + roomID; got != want {
 		t.Errorf("shareLink = %q, want %q", got, want)
 	}
 
@@ -163,10 +171,23 @@ func TestShareLink(t *testing.T) {
 	if strings.Contains(beforeFragment, roomID) {
 		t.Errorf("room id leaked into the server-visible part %q", beforeFragment)
 	}
+	if strings.Contains(beforeFragment, key.Encode()) {
+		t.Errorf("the link key leaked into the server-visible part %q", beforeFragment)
+	}
 	if strings.Contains(got, "?room=") {
 		t.Errorf("shareLink = %q, must not use the leaky ?room= form", got)
 	}
 	if strings.Contains(got, base+"//") {
 		t.Errorf("shareLink = %q, has a double slash after the host", got)
+	}
+
+	// The engine's reader, which a Floe receive and the browser's twin both follow,
+	// takes the same room and the same key back out.
+	resolved, err := code.ResolveLink(base, got)
+	if err != nil {
+		t.Fatalf("the engine cannot read the link: %v", err)
+	}
+	if !resolved.HasKey || resolved.Key != key || resolved.RoomID != roomID {
+		t.Errorf("the link read back as room %q, key present %v, same key %v", resolved.RoomID, resolved.HasKey, resolved.Key == key)
 	}
 }

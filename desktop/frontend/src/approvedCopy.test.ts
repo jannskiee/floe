@@ -208,6 +208,12 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(c.HIDE_IP_NO_RELAY_LINE).toBe(approved('W14'));
         expect(c.reopenLine({code: 'no-relay', suggestClose: false}, NOW)).toBe(approved('W14'));
         expect(c.reopenLine({code: 'relay-unknown', suggestClose: false}, NOW)).toBe(approved('W14'));
+        // W15 and X7 (2026-11-01): a sender that failed the link key check, and the
+        // fifth one, which closes the link. X7 names no time, so it reads alike on any day.
+        expect(c.UNVERIFIED_LINE).toBe(approved('W15'));
+        expect(c.reopenLine({code: 'unverified', suggestClose: false}, NOW)).toBe(approved('W15'));
+        expect(c.endedLine('unverified', END, NOW)).toBe(approved('X7'));
+        expect(c.endedLine('unverified', END, NEXT_DAY)).toBe(approved('X7'));
         // C1 is drawn on two lines: "line 1 / line 2" in the table.
         expect(`${c.RECONNECTING_LINE} / ${c.RECONNECTING_NOTE}`).toBe(bare('C1'));
         expect(`${c.RETRY_NOW} / ${c.CLOSE_LINK}`).toBe(bare('C2'));
@@ -346,15 +352,16 @@ describe.skipIf(!present)(present ? 'the approved desktop copy' : 'the approved 
         expect(c.ANNOUNCE_GUARD_LIFTED).toBe(approved('A2'));
     });
 
-    it('Code receive error rows RX1, RX2 and RX10 match byte for byte', () => {
+    it('Code receive error rows RX1, RX2, RX10 and RX11 match byte for byte', () => {
         // The engine's fixed sentence per code (refusal.go RefusedError.Error()
-        // and CommitError.Error(), approved-copy-cli.txt RX-01 to RX-10) as
+        // and CommitError.Error(), approved-copy-cli.txt RX-01 to RX-11) as
         // ReceiveByCode wraps it, through friendlyError to the status line.
         // RX3 to RX9 are in NOT_RENDERED_HERE: no code receive ends with them.
         const engine: Array<[id: string, sentence: string]> = [
             ['RX1', "receive stopped: a file's path is too deep or too long to save in this folder"],
             ['RX2', 'receive stopped: a file is larger than the save drive can hold'],
             ['RX10', 'received a file in full but could not finish saving it; the complete file was kept in the save folder with a .part ending'],
+            ['RX11', 'receive stopped: the sender could not be confirmed, so nothing was saved'],
         ];
         for (const [id, sentence] of engine) {
             expect(friendlyError(`transfer failed: ${sentence}`), id).toBe(`Error: ${approved(id)}`);

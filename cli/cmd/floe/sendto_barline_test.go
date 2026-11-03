@@ -121,7 +121,7 @@ func TestSendToMidFileOutcomeStartsItsOwnLine(t *testing.T) {
 		name, frame, lines string
 	}{
 		{"disk-full (TL-16)", `{"type":"incompatible","reason":"x","pv":1,"pvMin":1,"code":"disk-full","saved":0}`,
-			"  Their computer ran out of space.\n  Nothing was sent.\n"},
+			"  Their computer ran out of space.\n"},
 		{"the host's close (TL-27)", "",
 			"  Connection lost. 0 of 1 file arrived. Ask them for a new link to send it.\n"},
 	} {
@@ -186,5 +186,5 @@ func TestSendToCtrlCMidFileTakesOneLineBreak(t *testing.T) {
 	if herr := h.wait(t); herr != nil {
 		t.Fatalf("host: %v", herr)
 	}
-	wantOwnLineAfterBar(t, out(), "  You stopped this drop. Nothing was sent.\n")
+	wantOwnLineAfterBar(t, out(), "  You stopped this drop.\n")
 }

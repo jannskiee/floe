@@ -159,18 +159,27 @@ func TestKeyedSendNeedsThePump(t *testing.T) {
 	}
 }
 
-// A walk that fails tells the receiver why and sends no kc at all, because nothing
-// follows an abort (#828). A tree with no file in it ends the same way, silently.
-func TestKeyedSendWalkFailureSendsNoProof(t *testing.T) {
+// A walk that fails tells the receiver why (#828), behind this side's proof: a receiver
+// holding the key reads a stop from a side that has proved nothing as just that, so a
+// file that went missing during the wait would read as a sender it could not confirm.
+// Nothing follows the abort. A tree with no file in it ends silently, with no proof.
+func TestKeyedSendWalkFailureProvesThenSaysWhy(t *testing.T) {
 	p := newOffererPair(t, nil)
 	kc := newKeyCheck(t, false)
 	missing := filepath.Join(t.TempDir(), "gone.bin")
 	if err := SendFilesWithOptions(p.host, []string{missing}, "test", p.sendOpts(&kc)); err == nil {
 		t.Fatal("a send of a missing path returned nil")
 	}
-	m := nextFrame(t, p.visitorMsgs, p.visitorClosed, "the walk's abort")
+	m := nextFrame(t, p.visitorMsgs, p.visitorClosed, "the proof")
+	if !m.IsString || frameType(m) != "kc" {
+		t.Fatalf("the first frame is not the proof: %s", m.Data)
+	}
+	if want := proofOf(t, p.visitor, kc, false); string(m.Data) == string(want) {
+		t.Fatal("the proof is the receiver's")
+	}
+	m = nextFrame(t, p.visitorMsgs, p.visitorClosed, "the walk's abort")
 	if !m.IsString || frameType(m) != "incompatible" || !strings.Contains(string(m.Data), UnreadableFileReason) {
-		t.Fatalf("the first frame is not the walk's abort: %s", m.Data)
+		t.Fatalf("the second frame is not the walk's abort: %s", m.Data)
 	}
 	noFrameFor(t, p.visitorMsgs, 200*time.Millisecond, "after the walk's abort")
 
@@ -179,6 +188,31 @@ func TestKeyedSendWalkFailureSendsNoProof(t *testing.T) {
 		t.Fatalf("an empty tree: %v", err)
 	}
 	noFrameFor(t, p.visitorMsgs, 200*time.Millisecond, "after an empty tree")
+}
+
+// The honest sender whose file went missing while it waited for the peer: a keyed
+// receive reads why, in the words a receive with no key reads, and saves nothing.
+func TestKeyedReceiveReadsAWalkFailureInItsOwnWords(t *testing.T) {
+	for _, enforce := range []bool{false, true} {
+		p := newOffererPair(t, nil)
+		kc := newKeyCheck(t, enforce)
+		out := t.TempDir()
+		recvErr := make(chan error, 1)
+		go func() { recvErr <- ReceiveFilesWithOptions(p.visitor, out, false, "test", "", p.recvOpts(&kc)) }()
+		missing := filepath.Join(t.TempDir(), "gone.bin")
+		if err := SendFilesWithOptions(p.host, []string{missing}, "test", p.sendOpts(&kc)); err == nil {
+			t.Fatal("a send of a missing path returned nil")
+		}
+		err := waitErr(t, recvErr, "the receive")
+		if err == nil || !strings.Contains(err.Error(), UnreadableFileReason) {
+			t.Fatalf("enforce %v: err = %v, want the sender's reason", enforce, err)
+		}
+		var refused *RefusedError
+		if errors.As(err, &refused) || errors.Is(err, ErrSenderNotConfirmed) || err == errSenderStoppedUnproven {
+			t.Fatalf("enforce %v: err = %v reads as a sender it could not confirm", enforce, err)
+		}
+		wantEmptyDir(t, out)
+	}
 }
 
 // A stop that came before anything went out sends nothing, the kc included: the
@@ -1370,6 +1404,7 @@ func TestWaitForProofGivesAnUnprovenStopNoCountAndNoWords(t *testing.T) {
 	}
 	const total = 3
 	words := []byte(`{"type":"incompatible","pv":2,"pvMin":1,"saved":2,"reason":"HOSTILE WORDS"}`)
+	rangeMiss := []byte(`{"type":"incompatible","pv":9,"pvMin":9,"ver":"update at evil.example/floe","reason":"HOSTILE WORDS"}`)
 	coded := incompatibleFrame("", CodeStopped, CodeStopped.WireReason(), 2)
 	unverified := []byte(`{"type":"incompatible","pv":2,"pvMin":2,"code":"unverified","saved":2}`)
 	for i := 0; i < 100; i++ {
@@ -1390,6 +1425,31 @@ func TestWaitForProofGivesAnUnprovenStopNoCountAndNoWords(t *testing.T) {
 		v, err := waitForProof(nil, ks, sendReplies{ackCh: queued(words), kcCh: make(chan []byte, 1), flushed: make(chan struct{}), done: make(chan struct{})}, nil, "", "", total)
 		if v || err != ErrReceiverSilent {
 			t.Fatalf("a stop in its own words: verified %v, err %v, want exactly ErrReceiverSilent", v, err)
+		}
+		// A range miss keeps Floe's own lines, with none of the receiver's text in them
+		// (review 25 F1, the sender's side of it), in the wait and at a close.
+		for _, closed := range []bool{false, true} {
+			done, flushed := make(chan struct{}), make(chan struct{})
+			if closed {
+				done, flushed = shut(), shut()
+			}
+			v, err := waitForProof(nil, ks, sendReplies{ackCh: queued(rangeMiss), kcCh: make(chan []byte, 1), flushed: flushed, done: done}, nil, "", "", total)
+			var compat *CompatError
+			if v || !errors.As(err, &compat) || !compat.LocalTooOld || !fromPeer(err) {
+				t.Fatalf("a range miss, closed %v: verified %v, err %T %v", closed, v, err, err)
+			}
+			if strings.Contains(err.Error(), "evil.example") || strings.Contains(err.Error(), "HOSTILE") {
+				t.Fatalf("a range miss, closed %v: %q holds the unproven receiver's text", closed, err)
+			}
+			if !strings.Contains(err.Error(), "Cannot transfer") || !strings.Contains(err.Error(), "protocol 9") {
+				t.Fatalf("a range miss, closed %v: %q, want Floe's own lines", closed, err)
+			}
+		}
+		// With a good proof beside it the version stands: this side knows who sent it.
+		provenBeside := make(chan []byte, 1)
+		provenBeside <- kcFrame(want)
+		if v, err := waitForProof(nil, ks, sendReplies{ackCh: queued(rangeMiss), kcCh: provenBeside, flushed: make(chan struct{}), done: make(chan struct{})}, nil, "", "", total); v && err != nil && !strings.Contains(err.Error(), "evil.example") {
+			t.Fatalf("a proved range miss lost its version: %q", err)
 		}
 		// With a good proof beside it the count stands, when this wait is the one that reads it.
 		parked := make(chan []byte, 1)
@@ -1543,19 +1603,55 @@ func TestKeyedReceiveStopBeforeTheProofIsFixedWords(t *testing.T) {
 			t.Fatalf("err = %v, want the frame read as it always has", err)
 		}
 	})
-	t.Run("keyed, a range miss keeps Floe's own lines", func(t *testing.T) {
-		kc := newKeyCheck(t, false)
+	// A range miss quotes the frame's ver, and before a proof that is a hostile server's
+	// own text on this side's screen (review 25 F1). The lines stay, without it.
+	const hostileVer = "update at evil.example/floe"
+	rangeMiss := `{"type":"incompatible","pv":9,"pvMin":9,"ver":"` + hostileVer + `","reason":"` + hostile + `"}`
+	receive := func(t *testing.T, key *KeyCheck, before func(p *offererPair)) error {
+		t.Helper()
 		p := newOffererPair(t, nil)
 		out := t.TempDir()
 		recvErr := make(chan error, 1)
-		go func() { recvErr <- ReceiveFilesWithOptions(p.visitor, out, false, "test", "", p.recvOpts(&kc)) }()
-		if err := p.host.SendText(`{"type":"incompatible","pv":9,"pvMin":9,"reason":"` + hostile + `"}`); err != nil {
+		go func() { recvErr <- ReceiveFilesWithOptions(p.visitor, out, false, "test", "", p.recvOpts(key)) }()
+		if before != nil {
+			before(p)
+		}
+		if err := p.host.SendText(rangeMiss); err != nil {
 			t.Fatal(err)
 		}
 		err := waitErr(t, recvErr, "the receive")
+		wantEmptyDir(t, out)
+		return err
+	}
+	t.Run("keyed, a range miss keeps Floe's own lines and none of the sender's", func(t *testing.T) {
+		kc := newKeyCheck(t, false)
+		err := receive(t, &kc, nil)
 		var compat *CompatError
-		if !errors.As(err, &compat) || !compat.LocalTooOld || strings.Contains(err.Error(), hostile) {
-			t.Fatalf("err = %T %v, want a range miss in Floe's own words", err, err)
+		if !errors.As(err, &compat) || !compat.LocalTooOld {
+			t.Fatalf("err = %T %v, want a range miss", err, err)
+		}
+		if strings.Contains(err.Error(), hostile) || strings.Contains(err.Error(), "evil.example") {
+			t.Fatalf("err = %q holds the unproven sender's text", err)
+		}
+		if !strings.Contains(err.Error(), "Cannot transfer") || !strings.Contains(err.Error(), "protocol 9") {
+			t.Fatalf("err = %q, want Floe's own lines", err)
+		}
+	})
+	t.Run("keyed, past the proof, a range miss quotes its version as it always has", func(t *testing.T) {
+		kc := newKeyCheck(t, false)
+		err := receive(t, &kc, func(p *offererPair) {
+			if err := p.host.SendText(string(proofOf(t, p.host, kc, true))); err != nil {
+				t.Fatal(err)
+			}
+		})
+		if !strings.Contains(err.Error(), "evil.example") {
+			t.Fatalf("err = %q, want the version of a sender that proved the key", err)
+		}
+	})
+	t.Run("keyless, a range miss quotes its version as it always has", func(t *testing.T) {
+		err := receive(t, nil, nil)
+		if !strings.Contains(err.Error(), "evil.example") {
+			t.Fatalf("err = %q, want the version: this receive has no key to hold anyone to", err)
 		}
 	})
 }

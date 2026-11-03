@@ -55,6 +55,13 @@ var (
 	ErrKeyCheckUnavailable = errors.New("this connection's certificates could not be read to check the link's key")
 )
 
+// errConnectionGone is certHashes on a connection that has already ended, because the
+// other side closed it or it failed. That is a leave and nothing to do with this
+// side's certificates, so a send and a receive each read it as the close it is, in the
+// words a send or a receive with no key has for the same moment. Unexported, and it
+// reaches no screen.
+var errConnectionGone = errors.New("the connection ended before the link key could be checked")
+
 var errKeyCheckRoomID = errors.New("this link's room id cannot be used in a key check")
 
 // errSenderStoppedUnproven is the stop of a sender that has not proved the key, for
@@ -96,7 +103,8 @@ type certSource interface {
 // certHashes returns the SHA-256 of this side's and the other side's DTLS
 // certificates on dc's connection. Any way of coming up short is
 // ErrKeyCheckUnavailable, with zero hashes: this side cannot prove anything, so a
-// caller holding a key fails closed and never proceeds on a guess.
+// caller holding a key fails closed and never proceeds on a guess. A connection that
+// has ended comes up short too, with its own error (errConnectionGone).
 func certHashes(dc *webrtc.DataChannel) (local, remote [32]byte, err error) {
 	if dc == nil {
 		return [32]byte{}, [32]byte{}, ErrKeyCheckUnavailable
@@ -121,7 +129,11 @@ func certHashes(dc *webrtc.DataChannel) (local, remote [32]byte, err error) {
 // the hash of pion's own slice of the DER the other side presented, read and
 // never kept or changed.
 func certHashesFrom(t certSource) (local, remote [32]byte, err error) {
-	if t.State() != webrtc.DTLSTransportStateConnected {
+	switch t.State() {
+	case webrtc.DTLSTransportStateConnected:
+	case webrtc.DTLSTransportStateClosed, webrtc.DTLSTransportStateFailed:
+		return [32]byte{}, [32]byte{}, errConnectionGone
+	default:
 		return [32]byte{}, [32]byte{}, ErrKeyCheckUnavailable
 	}
 	params, err := t.GetLocalParameters()
@@ -265,7 +277,8 @@ type keySession struct {
 
 // newKeySession computes both tags from the certificates DTLS used on dc's
 // connection. Its errors are fixed text: ErrKeyCheckUnavailable when this side
-// cannot read them, and errKeyCheckRoomID for a room id no link can hold.
+// cannot read them, errConnectionGone when the connection has already ended, and
+// errKeyCheckRoomID for a room id no link can hold.
 func newKeySession(dc *webrtc.DataChannel, kc *KeyCheck, fileSender bool) (*keySession, error) {
 	local, remote, err := certHashes(dc)
 	if err != nil {
@@ -400,7 +413,8 @@ func waitForProof(dc *webrtc.DataChannel, ks *keySession, r sendReplies, stop <-
 // sender holding the key. A code keeps its fixed sentence and loses its count, or a
 // man in the middle could make a visitor read "2 of 3 files were saved" with nothing
 // sent. A frame's own words go too: the sentence is the one for no proof. A range miss
-// stays, because those lines are Floe's own.
+// keeps its lines, which are Floe's own, less the version they quote, which is the
+// frame's own text.
 func unprovenStop(err error) error {
 	var stopped *PeerStoppedError
 	if errors.As(err, &stopped) {
@@ -409,6 +423,10 @@ func unprovenStop(err error) error {
 	var ended *PeerEndedError
 	if errors.As(err, &ended) {
 		return ErrReceiverSilent
+	}
+	var compat *CompatError
+	if errors.As(err, &compat) && compat.fromWire {
+		return &CompatError{LocalTooOld: compat.LocalTooOld, text: compat.unproven, fromWire: true}
 	}
 	return err
 }

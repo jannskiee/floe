@@ -18,6 +18,27 @@ import (
 // (gather-then-exchange) keeps the handshake free of candidate-ordering races.
 func newConnectedPair(t *testing.T) (sender *webrtc.DataChannel, recvCh <-chan *webrtc.DataChannel, closeFn func()) {
 	t.Helper()
+	pcSender, pcReceiver, dc, got := connectPCs(t)
+	return dc, got, func() {
+		pcSender.Close()
+		pcReceiver.Close()
+	}
+}
+
+// newConnectedPCs is newConnectedPair for a test that closes one side on its own: the
+// test's cleanup closes whatever is left.
+func newConnectedPCs(t *testing.T) (pcSender, pcReceiver *webrtc.PeerConnection, sender *webrtc.DataChannel, recvCh <-chan *webrtc.DataChannel) {
+	t.Helper()
+	pcSender, pcReceiver, sender, recvCh = connectPCs(t)
+	t.Cleanup(func() {
+		pcSender.Close()
+		pcReceiver.Close()
+	})
+	return pcSender, pcReceiver, sender, recvCh
+}
+
+func connectPCs(t *testing.T) (*webrtc.PeerConnection, *webrtc.PeerConnection, *webrtc.DataChannel, <-chan *webrtc.DataChannel) {
+	t.Helper()
 
 	se := webrtc.SettingEngine{}
 	se.SetIncludeLoopbackCandidate(true) // ensure connectivity on isolated hosts
@@ -80,10 +101,7 @@ func newConnectedPair(t *testing.T) (sender *webrtc.DataChannel, recvCh <-chan *
 		t.Fatal("sender data channel never opened")
 	}
 
-	return dc, got, func() {
-		pcSender.Close()
-		pcReceiver.Close()
-	}
+	return pcSender, pcReceiver, dc, got
 }
 
 // runTransfer sends srcPaths over a connected pair into a fresh output dir and

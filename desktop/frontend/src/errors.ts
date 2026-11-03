@@ -30,6 +30,10 @@ export const PASSTHROUGH = [
     // Floe uses (linkServerRefusal). Each already names the fix.
     'That link is for floe.one',
     'That link is for another Floe server',
+    // transfer.ErrKeyCheckUnavailable: this side could not read its own connection
+    // to check a link's key, which says nothing about the other side, so the two
+    // link key lines in RULES do not fit it and the copy table has none of its own.
+    "this connection's certificates could not be read",
 ];
 
 // RX10 (D-123): a receive that got a file in full, verified, and could not
@@ -45,26 +49,27 @@ export const RULES: Array<[pattern: string, friendly: string]> = [
     // First of all: a request or drop link pasted into Receive (S1-DSK-07,
     // F-06). Go returns the approved sentence bare, but an older build wrapped
     // it in 'could not resolve "<the link>": ...', and the typo advice of
-    // that rule is wrong for a link that parsed fine.
+    // that rule is wrong for a link that parsed fine. A current build's wrapper
+    // holds no paste (B9), and every rule below reads the words behind it.
     ['request link for sending files', 'Request links open in a web browser'],
     // Before 'could not resolve': the resolve step wraps network failures too
-    // ('could not resolve %q: could not reach signaling server: ...'), and a
+    // ('could not resolve: could not reach signaling server: ...'), and a
     // dead server must not read as a typo in the code.
     ['could not reach signaling server', "Can't reach the server"],
     // Also before 'could not resolve', for the same reason: the lookup's 429
-    // arrives behind that wrapper ('could not resolve %q: server returned 429
-    // when resolving code', Resolve in cli/engine/code/client.go). It is the
+    // arrives behind that wrapper ('could not resolve: server returned 429
+    // when resolving code', ResolveLink in cli/engine/code/client.go). It is the
     // server's limit on lookups from one network, spent by wrong guesses and
     // then met by a correct code too, so "wasn't recognized" sent a person
     // back to recheck a code that was right. The words are Settings Test's
     // own for a 429 (serverprobe.go), with "try" for "test".
     ['server returned 429 when resolving code', 'The server is limiting requests from this network. Wait a minute and try again'],
-    // Every other status the lookup can get (Resolve's 'server returned %d
+    // Every other status the lookup can get (ResolveLink's 'server returned %d
     // when resolving code': a 502 or 503 from a proxy in front of a stopped
     // server, a 500) says nothing about the code, so it is not read as a typo.
     ['when resolving code', "Can't reach the server"],
     // A room link whose #room= value is not a room id, cut short when it was
-    // copied (A4-B27): the engine refuses it in Resolve now, behind the same
+    // copied (A4-B27): the engine refuses it in ResolveLink now, behind the same
     // wrapper, so it says what the server's 'Invalid room ID' below says for
     // a build that predates the check.
     ['room id in this link is incomplete', 'That link is incomplete'],
@@ -103,6 +108,13 @@ export const RULES: Array<[pattern: string, friendly: string]> = [
     // plain send's line, the one the wire reason above already gets (A8b-B3).
     ['They stopped this drop', 'They stopped the transfer'],
     ['The drop stopped on their computer', 'They stopped the transfer'],
+    // The link key check on a Send, which only detects (O4): the receiver's proof
+    // came and was wrong (ErrReceiverNotConfirmed), the receiver refused this side's
+    // (PeerStoppedError for code unverified), or it stopped in its own words and closed
+    // before this side's proof could go out (ErrReceiverSilent, through unprovenStop).
+    ['the receiver could not prove it holds this link', "Couldn't confirm who opened your link. Nothing was sent"],
+    ["Their computer couldn't confirm this link", "Couldn't confirm who opened your link. Nothing was sent"],
+    ["the receiver sent no proof of this link's key", "Couldn't confirm who opened your link. Nothing was sent"],
     ['incomplete file', "A file arrived incomplete and wasn't kept"],
     // The sender caught its own source file changing between the size it
     // announced and the bytes it read, so nothing was delivered. The engine
@@ -149,9 +161,9 @@ export const RULES: Array<[pattern: string, friendly: string]> = [
     ['timed out waiting for delivery', 'The connection dropped before the transfer finished'],
     ['peer disconnected before connecting', 'The receiver left before it started'],
     // A code receive this side stopped on purpose, or could not finish saving
-    // (D-123, approved desktop copy RX1, RX2 and RX10). Each pattern is the
+    // (D-123, approved desktop copy RX1, RX2, RX10 and RX11). Each pattern is the
     // engine's WHOLE sentence (RefusedError.Error() and CommitError.Error()
-    // in cli/engine/transfer/refusal.go, approved CLI copy RX-01 to RX-10),
+    // in cli/engine/transfer/refusal.go, approved CLI copy RX-01 to RX-11),
     // never the shared "receive stopped" prefix: a desktop SENDER is handed
     // text about the other side (PeerStoppedError's "They ..." and "Their
     // ...", a wire reason's "receiver ..."), which cannot contain these
@@ -169,6 +181,9 @@ export const RULES: Array<[pattern: string, friendly: string]> = [
     ["receive stopped: a file's path is too deep or too long to save in this folder", "A file's path is too deep or too long to save in this folder"],
     ['receive stopped: a file is larger than the save drive can hold', 'A file is larger than the save drive can hold'],
     ['received a file in full but could not finish saving it; the complete file was kept in the save folder with a .part ending', COMMIT_KEPT_PART],
+    // RX11: a receive holding a link's key, whose sender did not prove it. Its own
+    // refusal and the sender's own stop end on this one sentence.
+    ['receive stopped: the sender could not be confirmed, so nothing was saved', "Couldn't confirm who sent this link. Nothing was received"],
     ['cannot create', "Can't write to the save folder"],
     ['write error', "Can't write to the save folder"],
     ['failed to send chunk', 'The connection dropped before the transfer finished'],

@@ -370,8 +370,13 @@ func ResolveLink(serverURL, input string) (ResolvedLink, error) {
 	// request link, and each of those used to reach the server in the path;
 	// so can a room id in fullwidth or lookalike letters or without its
 	// hyphens (the increment's review, E3).
+	//
+	// A capital inside a word goes no further either. No phone's autocapitalize makes
+	// one, and it is what a link key's text looks like when it was cut or ran on, which
+	// keyTextAlone cannot call a key: lowercased and sent, it would reach the server, and
+	// the 404 below would quote it.
 	code := strings.ToLower(input)
-	if !codeShape.MatchString(code) || holdsRoomID(code) || keyTextAlone(input) {
+	if !codeShape.MatchString(code) || holdsRoomID(code) || keyTextAlone(input) || midWordCapital.MatchString(input) {
 		return ResolvedLink{}, errNotACode
 	}
 	resp, err := client.Get(serverURL + "/api/code/" + url.PathEscape(code))

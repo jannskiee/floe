@@ -18,6 +18,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/jannskiee/floe/cli/engine/code"
 	"github.com/jannskiee/floe/cli/engine/ice"
+	"github.com/jannskiee/floe/cli/engine/linkkey"
 	"github.com/jannskiee/floe/cli/engine/peer"
 	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/jannskiee/floe/cli/engine/transfer"
@@ -294,6 +295,15 @@ func (a *App) StartSendText(text string, hideIP bool) error {
 	return nil
 }
 
+// emitTransfer sends one event of a Send or a code Receive to the frontend.
+func (a *App) emitTransfer(event string, payload any) {
+	if a.transferEmitFn != nil {
+		a.transferEmitFn(event, payload)
+		return
+	}
+	runtime.EventsEmit(a.ctx, event, payload)
+}
+
 func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 	// Release any sleep inhibitor on every exit (success, error, cancel, panic).
 	// Owner-tagged: a no-op if we never acquired it or a newer transfer holds it.
@@ -308,14 +318,14 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 		if !a.transferActive(g) {
 			return
 		}
-		runtime.EventsEmit(a.ctx, event, payload)
+		a.emitTransfer(event, payload)
 	}
 
 	fail := func(err error) {
 		if !a.transferActive(g) {
 			return // user cancelled, or a newer attempt owns the UI
 		}
-		runtime.EventsEmit(a.ctx, "send:error", err.Error())
+		a.emitTransfer("send:error", err.Error())
 		// The status line above carries the detail; the toast stays generic
 		// because raw engine errors read like stack traces in a notification.
 		a.notifyTransferFailed(g, "Floe - send failed")
@@ -374,12 +384,20 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 		return
 	}
 
+	// The link's key, made once this send holds the room. It goes into the link
+	// and the send's own check below, and nowhere else that leaves this function.
+	key, err := linkkey.New()
+	if err != nil {
+		fail(err)
+		return
+	}
+
 	// Register a short shareable code and emit it to the UI immediately.
 	codePhrase, err := code.Register(server, roomID)
 	if err != nil {
 		codePhrase = ""
 	}
-	link := shareLink(web, uuid.New().String()[:8], roomID)
+	link := shareLink(web, uuid.New().String()[:8], roomID, key)
 	emit("send:code", map[string]string{"code": codePhrase, "link": link})
 
 	// Wait for a receiver to join. This wait is intentionally unbounded (you may
@@ -449,6 +467,9 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 		UpdateHint:  desktopUpdateHint,
 		Messages:    sendEarly.Msgs,
 		Closed:      sendEarly.Closed,
+		// A code receiver holds no key, so Send only detects a wrong proof and
+		// goes on without one; Floe Desktop has no switch to wait for it (O4).
+		KeyCheck: &transfer.KeyCheck{Key: key, RoomID: roomID},
 	}); err != nil {
 		fail(sendEnd(err, hideIP))
 		return
@@ -504,7 +525,7 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 		if !a.transferActive(g) {
 			return
 		}
-		runtime.EventsEmit(a.ctx, event, payload)
+		a.emitTransfer(event, payload)
 	}
 
 	abs, err := resolveReceiveDir(outputDir)
@@ -529,13 +550,13 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 	resolved, err := code.ResolveLink(server, codeOrLink)
 	if err != nil {
 		// A request or drop link (S1-DSK-07, E-10) comes back as the engine's
-		// sentinel, whose text is the approved sentence. Returned bare, never
-		// wrapped: the wrapper below quotes the pasted input, which for these
-		// links is the room id in the fragment.
+		// sentinel, whose text is the approved sentence, returned as it stands.
 		if isRequestLinkPaste(err) {
 			return "", err
 		}
-		return "", fmt.Errorf("could not resolve %q: %w", codeOrLink, err)
+		// Never the paste itself: a link holds its room id and its key (B9).
+		// errors.ts maps this text by the words behind the wrapper.
+		return "", fmt.Errorf("could not resolve: %w", err)
 	}
 	roomID := resolved.RoomID
 	// After ResolveLink, so a request link pasted here keeps its own sentence,
@@ -640,6 +661,11 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 		Messages:   recvEarly.Msgs,
 		Closed:     recvEarly.Closed,
 	}
+	// A link that holds a key is checked; a code, or an old link, has nothing to
+	// check with, and the receive is as it always was.
+	if resolved.HasKey {
+		opts.KeyCheck = &transfer.KeyCheck{Key: resolved.Key, RoomID: resolved.RoomID}
+	}
 	if err := transfer.ReceiveFilesWithOptions(dc, absOutput, true, version, statsURL, opts); err != nil {
 		return "", fmt.Errorf("transfer failed: %w", err)
 	}
@@ -654,8 +680,9 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 // end of its drop (S1-DSK-03b; spec 06 4.5 steps 4 to 16, spec 05 8.12). It
 // runs as the lane's pairFn, on the goroutine that owns sc, and returns with
 // the lane in waiting (the visitor left, setup failed, the request was
-// missed), declined, done or stopped, or with rg gone. The error is for tests;
-// nothing shows it, and no engine or OS text reaches a snapshot (E-42).
+// missed, the visitor failed the link key check), declined, done, stopped or
+// ended, or with rg gone. The error is for tests; nothing shows it, and no
+// engine or OS text reaches a snapshot (E-42).
 //
 // It sits beside receiveByCode on purpose (OD-30): the same engine calls in
 // the other direction, since the host offers and then receives.
@@ -773,7 +800,9 @@ func (a *App) runRequestDrop(rg uint64, sc *signaling.Client, p requestPairing) 
 
 	// g. The receive, into the base folder until Decide accepts with the drop's
 	// own. While it runs the lane never reads sc.PeerLeft: only the channel
-	// closing or the receive returning ends the drop (spec 06 4.17).
+	// closing or the receive returning ends the drop (spec 06 4.17). The link's
+	// key check runs inside it, ahead of OnIncoming and Decide, so a visitor that
+	// has not proved the key never reaches them (D9).
 	quit := make(chan struct{})
 	defer close(quit)
 	watchConnFailed(conn, requestConnFailed(conn), quit) // a visitor that vanished: see requestconn.go
@@ -800,6 +829,7 @@ func (a *App) runRequestDrop(rg uint64, sc *signaling.Client, p requestPairing) 
 		UpdateHint: desktopUpdateHint,
 		Messages:   msgs,
 		Closed:     closed,
+		KeyCheck:   p.kc,
 	}
 	err = transfer.ReceiveFilesWithOptions(dc, p.saveDir, true, version, statsURL, opts)
 	cancelOpen()
@@ -855,6 +885,11 @@ const (
 	requestResultNames = 200
 	// requestProgressEvery throttles request:progress like recv:progress.
 	requestProgressEvery = 100 * time.Millisecond
+	// requestUnverifiedCap is how many pairings a link takes whose visitor failed
+	// the link key check. The server's seating budget binds no server that is
+	// hostile, and each pairing costs this PC a connection and a TURN fetch. X7 in
+	// requestCopy.ts says the number (TestUnverifiedCapMatchesTheCopy).
+	requestUnverifiedCap = 5
 )
 
 // requestDrop is one pairing's own state, from channel open to its end. The
@@ -1041,7 +1076,8 @@ func (a *App) acceptRequestDrop(rg uint64, p requestPairing, d *requestDrop, at 
 // stopped with a fixed code, and its folder removed when nothing was saved in
 // it; a stopped one reports the bytes it saved (E-32). A pairing that made no
 // drop reopens the room and waits again, stays declined, or stops on a
-// refusal this side sent.
+// refusal this side sent; one whose visitor failed the link key check counts
+// toward the end of the link (unverifiedPairing).
 func (a *App) endRequestDrop(rg uint64, sc *signaling.Client, d *requestDrop, err error) error {
 	if d.accepted.Load() && errors.Is(err, transfer.ErrSenderLeft) && !d.ownerCancel.Load() {
 		// The visitor left between Accept's own open check and the engine's:
@@ -1091,6 +1127,14 @@ func (a *App) endRequestDrop(rg uint64, sc *signaling.Client, d *requestDrop, er
 	}
 	var refused *transfer.RefusedError
 	switch {
+	// The link key check's two endings come first, because each also reads as a
+	// case below: the host's refusal as a refusal that uses the link up, the
+	// visitor's own frame as a visitor that left. This side's unreadable
+	// certificates say nothing about the visitor, so they count nothing.
+	case errors.Is(err, transfer.ErrKeyCheckUnavailable):
+		return a.reopenRequest(rg, sc, "setup-failed", err)
+	case errors.Is(err, transfer.ErrSenderNotConfirmed):
+		return a.unverifiedPairing(rg, sc, err)
 	case d.outcome == "declined":
 		return err // the owner picks Keep waiting or Close link
 	case d.outcome == "expired":
@@ -1117,6 +1161,38 @@ func (a *App) endRequestDrop(rg uint64, sc *signaling.Client, d *requestDrop, er
 	res := d.tally.result(d.files, "")
 	a.endDrop(rg, "stopped", "unknown", &res)
 	return err
+}
+
+// unverifiedPairing ends a pairing whose visitor failed the link key check. The
+// engine stopped it before Decide, so nothing was asked and nothing exists on disk,
+// and no prompt, toast, flash or title follows (D9): the link waits again and says
+// so (W15), until the requestUnverifiedCap-th of them on this link ends it (X7). The
+// count changes only inside reqUpdate; the socket goes after it, because
+// releaseRequestSocket takes the lane lock and writes to the network.
+func (a *App) unverifiedPairing(rg uint64, sc *signaling.Client, err error) error {
+	ended := false
+	if !a.reqUpdate(rg, func(l *requestLane) {
+		l.unverified++
+		// W13 outranks W15 only while it is true: this reads the two prompts' ages again,
+		// or two that ended hours ago would hide what just happened.
+		l.suggestClose = l.pruneEndsLocked(&l.promptEnds)
+		if l.unverified >= requestUnverifiedCap {
+			ended = true
+			l.route = ""
+			l.endLocked("ended", "unverified")
+		}
+	}) {
+		return err
+	}
+	if ended {
+		// Unsealed first: this pairing sealed the room, and closing a sealed room leaves
+		// a used marker, so the next visitor would read that a link nobody used has been
+		// used. Closing it open forgets it, and they read that it has ended.
+		_ = sc.RequestReopen()
+		a.releaseRequestSocket(sc, true)
+		return err
+	}
+	return a.reopenRequest(rg, sc, "unverified", err)
 }
 
 // volumeLacksMark reports whether files saved under dir cannot carry the

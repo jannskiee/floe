@@ -43,6 +43,11 @@ var (
 	errSendSilent     = errors.New("Couldn't confirm the receiver. They may need to run floe update, or open the link in a browser.")
 )
 
+// lineQuoteLink goes under the box: a link holds an &, so a terminal refuses it or
+// cuts it unless it is in quotes (TL-37, the owner's answer of 2026-11-03). <link> is
+// the placeholder, never the link.
+const lineQuoteLink = `  In a terminal, put the link in quotes: floe receive "<link>"`
+
 // errLinkTypedAsPath ends a plain send that was given a request link where a
 // path goes, the likeliest mistake of someone who forgot --to. The stat
 // sentence it replaces quoted the path, and so printed the link and its room
@@ -195,6 +200,7 @@ func runSend(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("  Sending   %s\n", summary.Label)
 	transfer.PrintBox(shareRows(codePhrase, link))
+	fmt.Println(lineQuoteLink)
 	fmt.Println()
 	fmt.Println("  Waiting for peer...")
 
