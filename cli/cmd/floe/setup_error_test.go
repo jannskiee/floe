@@ -130,9 +130,9 @@ func runAgainst(t *testing.T, url string, args ...string) string {
 }
 
 // requireEscapedSetupError: the printed line is the setup failure, it carries
-// no raw control or format character, and the token's printable parts are
-// still there, so the diagnostic survives. It checks that property rather
-// than how the escape is spelled.
+// no raw control or format character, and nothing of the token. The token's
+// printable parts used to stay as a diagnostic, and they are also a way for the
+// other side to write a sentence on this screen (final audit, report 27 F3).
 func requireEscapedSetupError(t *testing.T, printed string) {
 	t.Helper()
 	if !strings.Contains(printed, "WebRTC setup failed") {
@@ -144,9 +144,9 @@ func requireEscapedSetupError(t *testing.T, printed string) {
 		}
 	}
 	t.Logf("printed: %s", strings.TrimSuffix(printed, "\n")) // safe to log as is now
-	for _, want := range []string{"[2J", "52;c;ZWNobyBwd25lZA==", "8;;http://evil.example/", "CLICK"} {
-		if !strings.Contains(printed, want) {
-			t.Errorf("the error line lost %q from the token: %q", want, printed)
+	for _, part := range []string{"[2J", "52;c;ZWNobyBwd25lZA==", "8;;http://evil.example/", "CLICK"} {
+		if strings.Contains(printed, part) {
+			t.Errorf("the error line kept %q from the token: %q", part, printed)
 		}
 	}
 }

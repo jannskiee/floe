@@ -16,6 +16,7 @@ import (
 	"github.com/jannskiee/floe/cli/engine/linkkey"
 	"github.com/jannskiee/floe/cli/engine/peer"
 	"github.com/jannskiee/floe/cli/engine/serverurl"
+	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/jannskiee/floe/cli/engine/transfer"
 	"github.com/pion/webrtc/v4"
 	"github.com/spf13/cobra"
@@ -150,12 +151,12 @@ func runSend(cmd *cobra.Command, args []string) error {
 	select {
 	case role := <-sc.Role:
 		if role != "sender" {
-			return fmt.Errorf("expected sender role, got %q (room may already have two peers)", role)
+			return errors.New("expected sender role (room may already have two peers)")
 		}
 	case <-sc.RoomFull:
 		return fmt.Errorf("room is full")
 	case errMsg := <-sc.Errors:
-		return fmt.Errorf("server error: %s", errMsg)
+		return signaling.ServerFrameError(errMsg)
 	case <-sc.PeerLeft:
 		return roleWaitClosed(sc)
 	case <-time.After(roleAssignTimeout):
@@ -218,7 +219,7 @@ func runSend(cmd *cobra.Command, args []string) error {
 		}
 		return peer.ErrPeerLeft
 	case errMsg := <-sc.Errors:
-		return fmt.Errorf("server error: %s", errMsg)
+		return signaling.ServerFrameError(errMsg)
 	}
 
 	// 8. Set up WebRTC as the initiator (sender creates offer + data channel)

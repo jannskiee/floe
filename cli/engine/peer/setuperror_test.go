@@ -170,7 +170,7 @@ func TestSetupErrorWrapsEveryStage(t *testing.T) {
 			_, err = conn.SetupAsSender()
 			return err
 		}},
-		{"sender: bad answer", StageRemoteDescription, "failed to set remote description: ", false, func(t *testing.T) error {
+		{"sender: bad answer", StageRemoteDescription, "failed to set remote description", false, func(t *testing.T) error {
 			sc, _ := signalSink(t)
 			conn, err := New(nil, sc)
 			if err != nil {
@@ -222,7 +222,7 @@ func TestSetupErrorWrapsEveryStage(t *testing.T) {
 			}
 			return nil
 		}},
-		{"receiver: bad offer", StageRemoteDescription, "failed to set remote description: ", false, func(t *testing.T) error {
+		{"receiver: bad offer", StageRemoteDescription, "failed to set remote description", false, func(t *testing.T) error {
 			sc, _ := signalSink(t)
 			conn, err := New(nil, sc)
 			if err != nil {
@@ -337,12 +337,15 @@ func TestSetupErrorIsDisplaySafe(t *testing.T) {
 			}
 			defer conn.Close()
 			err = conn.setRemoteDesc(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: sdp})
-			se := requireSetupError(t, err, StageRemoteDescription, "failed to set remote description: ", true)
-			raw := se.Err.Error()
+			se := requireSetupError(t, err, StageRemoteDescription, "failed to set remote description", false)
+			raw := errors.Unwrap(se.Err).Error()
 			if strings.Contains(raw, marker) || strings.Contains(raw, "AAAA") {
 				embedded++
 			}
 			shown := err.Error()
+			if shown != "failed to set remote description" {
+				t.Errorf("Error() = %q, want the site's own words and nothing of the peer's", shown)
+			}
 			if n := utf8.RuneCountInString(shown); n > 300 {
 				t.Errorf("Error() is %d runes, want at most 300", n)
 			}

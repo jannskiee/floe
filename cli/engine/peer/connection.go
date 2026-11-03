@@ -433,11 +433,11 @@ func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 	// its error can quote the peer's SDP as the remote-description one can.
 	answer, err := conn.pc.CreateAnswer(nil)
 	if err != nil {
-		return nil, &SetupError{Stage: StageAnswer, Err: fmt.Errorf("failed to create answer: %w", err)}
+		return nil, &SetupError{Stage: StageAnswer, Err: &ownWords{"failed to create answer", err}}
 	}
 
 	if err := conn.pc.SetLocalDescription(answer); err != nil {
-		return nil, &SetupError{Stage: StageAnswer, Err: fmt.Errorf("failed to set local description: %w", err)}
+		return nil, &SetupError{Stage: StageAnswer, Err: &ownWords{"failed to set local description", err}}
 	}
 
 	// The answer goes out with a=max-message-size pinned to 1 GB. Chrome caps
@@ -564,7 +564,7 @@ func (conn *Connection) setRemoteDesc(desc webrtc.SessionDescription) error {
 	conn.mu.Unlock()
 
 	if err := conn.pc.SetRemoteDescription(desc); err != nil {
-		return &SetupError{Stage: StageRemoteDescription, Err: fmt.Errorf("failed to set remote description: %w", err)}
+		return &SetupError{Stage: StageRemoteDescription, Err: &ownWords{"failed to set remote description", err}}
 	}
 
 	conn.mu.Lock()

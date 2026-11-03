@@ -152,7 +152,7 @@ export const RULES: Array<[pattern: string, friendly: string]> = [
     // frame on these paths only for a malformed room id ('Invalid room ID'
     // above), and its limits close the socket (errTurnedAway) or answer HTTP
     // 429; the rule that read every other frame as "The server is busy" could
-    // never fire. transfer.go's serverErrorFrame keeps any other frame's
+    // never fire. The engine's ServerFrameError keeps any other frame's
     // words off this line.
     // transfer.ErrNoFiles: StartSend's walk found no file in the selection,
     // before any code was made (A3-B4); the send returns it too, wrapped, if

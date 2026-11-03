@@ -160,8 +160,8 @@ describe('friendlyError', () => {
         // malformed room id, mapped just above, and its limits close the
         // socket or answer HTTP 429 instead. The rule that read every other
         // frame as "The server is busy, try again in a minute" could never
-        // fire, and was wrong for anything it caught. desktop/transfer.go now
-        // keeps an unknown frame's words out of the error (serverErrorFrame),
+        // fire, and was wrong for anything it caught. The engine now
+        // keeps an unknown frame's words out of the error (ServerFrameError),
         // so what reaches this line is its own fixed sentence, passed through.
         const unknown = 'the server answered with an error this version of Floe does not know';
         expect(friendlyError(unknown)).toBe('Error: ' + unknown);
