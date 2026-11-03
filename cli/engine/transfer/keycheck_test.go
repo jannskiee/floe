@@ -317,6 +317,27 @@ func oneFingerprint(alg, value string) webrtc.DTLSParameters {
 	return webrtc.DTLSParameters{Fingerprints: []webrtc.DTLSFingerprint{{Algorithm: alg, Value: value}}}
 }
 
+// A connection that has ended is no failure to read certificates: the other side
+// left, and each caller reads this error as the leave it is. No hash comes with it.
+func TestCertHashesOnAnEndedConnection(t *testing.T) {
+	good := strings.Repeat("ab:", 31) + "ab"
+	for name, state := range map[string]webrtc.DTLSTransportState{
+		"closed": webrtc.DTLSTransportStateClosed,
+		"failed": webrtc.DTLSTransportStateFailed,
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := fakeCerts{state: state, params: oneFingerprint("sha-256", good), remote: []byte("the remote certificate")}
+			local, remote, err := certHashesFrom(f)
+			if !errors.Is(err, errConnectionGone) || errors.Is(err, ErrKeyCheckUnavailable) {
+				t.Fatalf("err = %v, want errConnectionGone", err)
+			}
+			if local != ([32]byte{}) || remote != ([32]byte{}) {
+				t.Fatalf("an ended connection returned hashes %x and %x", local, remote)
+			}
+		})
+	}
+}
+
 // TestCertHashesFailsClosed walks every way the read can come up short. Each one
 // is ErrKeyCheckUnavailable with zero hashes, so a caller holding a key cannot
 // proceed on a hash it does not have.
@@ -334,8 +355,6 @@ func TestCertHashesFailsClosed(t *testing.T) {
 	cases := map[string]fakeCerts{
 		"new":            with(func(f *fakeCerts) { f.state = webrtc.DTLSTransportStateNew }),
 		"connecting":     with(func(f *fakeCerts) { f.state = webrtc.DTLSTransportStateConnecting }),
-		"closed":         with(func(f *fakeCerts) { f.state = webrtc.DTLSTransportStateClosed }),
-		"failed":         with(func(f *fakeCerts) { f.state = webrtc.DTLSTransportStateFailed }),
 		"unknown state":  with(func(f *fakeCerts) { f.state = webrtc.DTLSTransportState(0) }),
 		"params error":   with(func(f *fakeCerts) { f.paramsErr = errors.New("no parameters") }),
 		"no fingerprint": with(func(f *fakeCerts) { f.params = webrtc.DTLSParameters{} }),

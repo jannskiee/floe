@@ -208,7 +208,7 @@ func (r *sendToRun) interrupt() (string, func()) {
 	r.mu.Unlock()
 	line := "\n  " + lineCanceled
 	if acked := int(r.acked.Load()); acked > 0 {
-		line = "\n  " + lineYouStopped + " " + savedSentence(acked-1, int(r.files.Load()))
+		line = "\n  " + strings.Join(append([]string{lineYouStopped}, savedLines(acked-1, int(r.files.Load()), true)...), " ")
 	}
 	return line, func() { abortDrop(dc, conn) }
 }
@@ -619,11 +619,12 @@ func sendToOutcome(err error, files, acked int) (lines []string, keep error) {
 	var ended *transfer.PeerEndedError
 	var compat *transfer.CompatError
 	var pathErr *fs.PathError
+	answered := acked > 0
 	switch {
 	case errors.As(err, &stopped):
-		return refusalLines(stopped.Code, stopped.Saved, files), nil
+		return refusalLines(stopped.Code, stopped.Saved, files, answered), nil
 	case errors.As(err, &ended):
-		return []string{lineUnknownStop, savedSentence(ended.Saved, files)}, nil
+		return append([]string{lineUnknownStop}, savedLines(ended.Saved, files, answered)...), nil
 	case errors.As(err, &compat):
 		// TL-13 names the host as the side to update, which is true only when
 		// it is the side behind. When this CLI is, the remedy is floe update,
@@ -658,26 +659,45 @@ func sendToOutcome(err error, files, acked int) (lines []string, keep error) {
 // TL-26, TL-36): the fixed line for the code, then the saved line, which declined
 // and expired carry in their own line, relay-cap words its own way at 0, and
 // hash-mismatch and unverified follow with their new-link lines. The code is checked
-// against the allowlist again here; an unknown one is TL-26.
-func refusalLines(code transfer.RefusalCode, saved, files int) []string {
+// against the allowlist again here; an unknown one is TL-26. answered: see savedLines.
+// declined and expired each hold "Nothing was sent." in their one line, and an honest
+// host sends them only before its first answer, so past it they read as TL-26.
+func refusalLines(code transfer.RefusalCode, saved, files int, answered bool) []string {
+	after := savedLines(saved, files, answered)
 	c, ok := transfer.ParseRefusalCode(string(code))
 	if !ok {
-		return []string{lineUnknownStop, savedSentence(saved, files)}
+		return append([]string{lineUnknownStop}, after...)
 	}
 	first := (&transfer.PeerStoppedError{Code: c}).Error()
 	switch c {
 	case transfer.CodeDeclined, transfer.CodeExpired:
+		if answered {
+			return append([]string{lineUnknownStop}, after...)
+		}
 		return []string{first}
 	case transfer.CodeRelayCap:
-		if clampCount(saved, files) == 0 {
+		if clampCount(saved, files) == 0 && !answered {
 			return []string{first, lineRelayNothing}
 		}
 	case transfer.CodeHashMismatch:
-		return []string{first, savedSentence(saved, files), lineSendTheRest}
+		return append(append([]string{first}, after...), lineSendTheRest)
 	case transfer.CodeUnverified:
-		return []string{first, savedSentence(saved, files), lineAskLinkMaker}
+		return append(append([]string{first}, after...), lineAskLinkMaker)
 	}
-	return []string{first, savedSentence(saved, files)}
+	return append([]string{first}, after...)
+}
+
+// savedLines is the saved line where it is true. answered is this side's own fact, that
+// the host has answered a file: the first byte goes right behind that answer, so from
+// there "Nothing was sent." would be false whatever count a frame carries, on an honest
+// host too (a disk that fills during file 1). With nothing saved there is then no such
+// line at all, which takes no new words (the owner, 2026-11-03; savedLines in the /r
+// page's visitorCopy.ts is the same rule).
+func savedLines(saved, n int, answered bool) []string {
+	if answered && clampCount(saved, n) == 0 {
+		return nil
+	}
+	return []string{savedSentence(saved, n)}
 }
 
 // clampCount holds a count to [0, n]; the counts it sees came off the wire
