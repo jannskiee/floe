@@ -107,17 +107,22 @@ These are properties of the transfer itself, so they do not change with the clie
   [How a transfer works](/how-it-works/signaling#a-room-holds-exactly-two-people).
 - **The sender stays connected** for the whole transfer. Closing the tab, quitting the app, or
   stopping the process ends it.
-- **Versions do not need to match.** Every release so far speaks the same version of the transfer
-  protocol, so peers on different releases transfer normally. See
-  [Protocol versioning](/reference/transfer-protocol#protocol-versioning). Request links are the
-  exception: they need Floe Desktop 0.3.0 or later, a server that has them turned on, and, to send
-  from the terminal, `floe` 1.11.0 or later.
+- **Versions do not need to match for an ordinary transfer.** Newer apps speak version 2 of the
+  transfer protocol and still accept version 1, so peers on different releases transfer normally.
+  See [Protocol versioning](/reference/transfer-protocol#protocol-versioning). A
+  [link key](/glossary#link-key) is checked only by the web app, `floe receive` 1.12 and later and
+  Floe Desktop 1.1 and later: an older app ignores it. Request links need Floe Desktop 0.3.0 or
+  later and a server that has them turned on. To send from the terminal they need `floe` 1.11.0 or
+  later, or `floe` 1.12 or later for a link from Floe Desktop 1.1 or later.
 
 ## Mixing them
 
 Every combination works, and neither side needs to know what the other is using. Whatever each
 side runs, both join the same [room](/glossary#room) on
-Floe's [server](/glossary#signaling-server), which introduces them.
+Floe's [server](/glossary#signaling-server), which introduces them. What differs is the check: a
+link key is checked only on a link that holds one, by an app new enough to read it, and never on a
+room code. See
+[What the link key checks](/how-it-works/known-limitations#the-signaling-server-is-trusted-to-introduce-you-honestly).
 
 The one asymmetry worth remembering: **a browser recipient needs the link.** There is no place
 to type a room code in the web app, and a browser sender never makes one. Room codes are a desktop

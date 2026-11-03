@@ -44,18 +44,21 @@ channel between the two peers.
    [room code](/glossary#room-code). The web app never does.
 4. The sender displays what it has to share and waits: a link on every surface, a room code on the
    CLI and Floe Desktop, and a QR code on the web app and Floe Desktop. All three surfaces put the
-   room id in the **fragment** of the link. Browsers never send a fragment to a server, so opening
-   the link keeps the room id out of request URLs, `Referer` headers, and analytics.
+   room id in the **fragment** of the link, and the web app, `floe` 1.12 and later and Floe Desktop
+   1.1 and later put a [link key](/glossary#link-key) there too. Browsers never send a fragment to a
+   server, so opening the link keeps both out of request URLs, `Referer` headers, and analytics.
 5. The receiver joins the same room, after resolving the room code with `GET /api/code/:code` if
-   that is what it was given. The server assigns `receiver`, retires the room's code, and tells the
-   sender someone arrived.
+   that is what it was given. A code carries no link key. The server assigns `receiver`, retires the
+   room's code, and tells the sender someone arrived.
 6. The sender creates a WebRTC offer and sends it through the server.
 7. The receiver answers.
 8. Both exchange [ICE](/glossary#ice) candidates as they are gathered, rather than in one batch.
-9. The data channel opens and the signaling server plays no further part.
+9. The data channel opens and the signaling server plays no further part. Each side that holds the
+   link key sends its proof first, as a [`kc`](/reference/transfer-protocol#kc) frame.
 
 Each side fetches the ICE server list from `GET /api/turn-credentials` before it builds its peer
-connection.
+connection. The server takes the room id in every message that needs one and never the link key, so
+a link key needs nothing from the server.
 
 A [request link](/glossary#request-link) turns the first half around. Floe Desktop joins first with
 its host token and receives. The sender, on the page the link opens or in `floe send --to`, comes
@@ -286,6 +289,11 @@ nobody but the app that made the link can take its first seat. The server keeps 
 of the token itself, never the token, and compares digests in constant time. The CLI's engine and
 the server are both pinned to one file of test vectors,
 `cli/engine/signaling/testdata/derivation-vectors.json`.
+
+A link from Floe Desktop 1.1 and later also holds a [link key](/glossary#link-key) behind the room id,
+as `#<room id>.<link key>`. It is random, derives from nothing, and plays no part in taking a seat.
+The server never receives it, and handles a link with one and a link without one alike. See
+[`kc`](/reference/transfer-protocol#kc).
 
 ### The host join {#the-host-join}
 

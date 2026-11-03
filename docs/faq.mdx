@@ -107,10 +107,19 @@ in both directions. A browser recipient always needs the link. See
 
 ### Do both people need the same version?
 
-No. Every release so far speaks the same version of the transfer protocol, the rules two Floe apps
-follow to talk to each other. A mismatch, if one ever comes, is detected before any data moves. Request links are the exception: they need Floe
-Desktop 0.3.0 or later, a server that has them turned on, and, to send from the terminal, `floe`
-1.11.0 or later. See [Protocol versioning](/reference/transfer-protocol#protocol-versioning).
+Not for an ordinary transfer. The transfer protocol is the rules two Floe apps follow to talk to each
+other. The web app, `floe` 1.12 and later and Floe Desktop 1.1 and later speak version 2 of it and
+still accept version 1. A mismatch is detected before any data moves. See
+[Protocol versioning](/reference/transfer-protocol#protocol-versioning).
+
+Some features do need a newer release:
+
+- A [link key](/glossary#link-key) is checked only by the web app, `floe receive` 1.12 and later and
+  Floe Desktop 1.1 and later. An older app ignores it, and the transfer goes ahead with no check.
+- `floe send --link-only` needs `floe` 1.12 or later, and stops a receiver too old to prove the link.
+- Request links need Floe Desktop 0.3.0 or later and a server that has them turned on. To send from
+  the terminal they need `floe` 1.11.0 or later, or `floe` 1.12 or later for a link from Floe Desktop
+  1.1 or later.
 
 ### Which one should I use?
 
@@ -149,9 +158,10 @@ Three limits matter most:
 - A link or a room code is all that protects a transfer, so whoever uses it first receives the
   files. See
   [Anyone with the link or code can receive](/how-it-works/known-limitations#anyone-with-the-link-or-code-can-receive).
-- The signaling server is trusted to introduce the two devices honestly, and no app shows a code
-  to check that. See
-  [The signaling server is trusted to introduce you honestly](/how-it-works/known-limitations#the-signaling-server-is-trusted-to-introduce-you-honestly).
+- The signaling server introduces the two devices, and a [link key](/glossary#link-key) checks that
+  only in part. A room code carries none, a sender that only detects can still hand a server the
+  whole file, and anyone who held the whole link can pass the check. See
+  [What the link key checks](/how-it-works/known-limitations#the-signaling-server-is-trusted-to-introduce-you-honestly).
 - A browser receiver can only take as much as the browser can hold. See
   [A browser receiver is limited by what the browser can hold](/how-it-works/known-limitations#a-browser-receiver-is-limited-by-what-the-browser-can-hold).
 

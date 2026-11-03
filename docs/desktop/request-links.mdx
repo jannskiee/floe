@@ -23,7 +23,9 @@ with [Auto-accept](#auto-accept) on.
 </Info>
 
 **Needs:** Floe Desktop 0.3.0 or later on Windows, open, awake and online while the files arrive, and a server
-that offers request links (Floe's own server does). The sender needs only a browser or the `floe` CLI.
+that offers request links (Floe's own server does). The sender needs only a browser or the `floe` CLI. A link
+from Floe Desktop 1.1 or later holds a [link key](/glossary#link-key), so a sender on the command line needs
+`floe` 1.12 or later.
 
 ## The short version {#the-short-version}
 
@@ -168,8 +170,9 @@ each file, renamed shortcut-type files, and [who sees your IP address](#who-sees
 ## Share the link {#share-the-link}
 
 Floe shows the link with **Copy link** and **Close link**, and a line such as "Ends today, 2:05 PM". A later
-day reads like “Ends Oct 9, 2:05 PM”, and a link made with Auto-accept adds “· Accepts automatically”. A
-request link looks like `https://floe.one/r/<link id>#<key>`.
+day reads like “Ends Oct 9, 2:05 PM”, and a link made with Auto-accept adds “· Accepts automatically”. In Floe
+Desktop 1.1 and later, a request link looks like `https://floe.one/r/<link id>#<room id>.<link key>`. In Floe
+Desktop 1.0.x it looks like `https://floe.one/r/<link id>#<room id>`, with no link key.
 
 <Frame caption="An open link, waiting for files">
   <img src="/images/desktop/request-link-waiting.png" style={{ width: "100%", maxWidth: "476px", borderRadius: "12px" }} alt="Floe Desktop's Request link view with an open link labeled Acme footage, Copy link and Close link buttons, the end time, and Waiting for files." />
@@ -182,17 +185,30 @@ Floe's [terms of use](https://www.floe.one/terms#acceptable-use) make you respon
 to and what you ask them to send. They also rule out asking for files under false pretenses, and
 impersonating a person or an organization.
 
-The part after the `#` is the key that connects their browser to your PC. Browsers do not send it when they
-load a page, so the web server behind floe.one never sees it. The sender's page uses it only when they click
-**Send**, to reach your PC through Floe's [signaling server](/glossary#signaling-server).
+The part after the `#` is what connects their browser to your PC. Browsers do not send it when they load a
+page, so the web server behind floe.one never sees it. It holds two things:
+
+- **The [room](/glossary#room) id.** The sender's page sends it to Floe's [signaling server](/glossary#signaling-server) when they
+  click **Send**, to reach your PC.
+- **The link key,** in Floe Desktop 1.1 and later. It never leaves the page. Once the two computers connect,
+  your Floe and the sender each prove they hold it, and no server receives it.
+
+A link from Floe Desktop 1.1 and later is checked both ways. The sender's page names no file until your Floe
+has proved itself, and your Floe shows no request and saves nothing until the sender has. A link from Floe
+Desktop 1.0.x holds no link key and is checked neither way. What this does not cover is under
+[What the link key cannot see](/how-it-works/known-limitations#what-the-link-key-cannot-see).
+
+From the terminal, a sender needs `floe` 1.12 or later for a link from Floe Desktop 1.1 or later. `floe` 1.11.7
+reads the link key as a damaged link and stops with its `This link looks incomplete` line, and a `floe` older
+than 1.11.0 has no `--to`.
 
 While the link waits, Floe reads "Waiting for files". Floe cannot tell when the link is opened, so a chat
 app's preview of it changes nothing. Floe hears from the sender only when they click **Send**.
 
 The preview gives nothing away. In a chat or mail app, every request link shows the same one: "Floe request
 link" with "Send files [peer](/glossary#peer) to peer. Nothing is stored on a Floe server.". Every link also
-has the same tab title, "Send files - Floe". Neither ever holds the link id or the key, and search engines are
-told not to list the page.
+has the same tab title, "Send files - Floe". Neither ever holds the link id, the room id or the link key, and
+search engines are told not to list the page.
 
 **Close link** ends the link at any time before a drop is accepted. Once files are arriving, **Cancel drop**
 takes its place.
@@ -225,7 +241,9 @@ every message their page can show, is in [Sending through a request link](/web-a
 
 When the sender clicks **Send**, Floe reads "Connecting to the sender...", connects to their computer, and
 then shows the request under **Receive** > **Request link**. On a link made with Auto-accept, only a drop
-that still asks shows one (see [Auto-accept](#auto-accept)).
+that still asks shows one (see [Auto-accept](#auto-accept)). In Floe Desktop 1.1 and later, a sender first has
+to prove it holds the link key, and one that cannot gets no request: see
+[A sender that fails the check](#a-sender-that-fails-the-check).
 
 <Frame caption="A request, with the time left to answer on the Accept button">
   <img src="/images/desktop/request-link-request.png" style={{ width: "100%", maxWidth: "476px", borderRadius: "12px" }} alt="A request in Floe Desktop: Acme footage wants to send you files, 3 files, 2.0 MB, the folder they go into, Accept (9:43), and Decline." />
@@ -289,6 +307,27 @@ while it shows. When two do so on one link within 10 minutes, Floe stops showing
 that link's next requests and asks "2 requests ended without Accept in 10 minutes. Close this link?". The
 flash, the title and the notice stay. Notifications come back once fewer than two such ends fall in the last
 10 minutes, or as soon as you accept a request.
+
+### A sender that fails the check {#a-sender-that-fails-the-check}
+
+In Floe Desktop 1.1 and later, a sender that cannot prove it holds the [link key](/glossary#link-key) is
+stopped before any request appears. Floe shows no prompt, notification, flash or title, and saves nothing. The
+link waits again and reads "A sender couldn't be confirmed and was disconnected". That line is all you hear of
+it, and it stays across a reconnect, unless the line about two requests that ended without Accept is
+showing, which takes its place.
+
+Someone whose copy of the link was cut before its link key fails the check too, so an honest sender can cause
+this line. They need the whole link again.
+
+The fifth such sender closes the link, which then reads "Link closed after 5 senders couldn't be confirmed".
+The next sender reads "This link has ended", not that it was used. **Make link** starts the count again, and a
+reconnect keeps it. The 5 is not a [rate limit](/glossary#rate-limit): a sender that says nothing or leaves does
+not count, so it says nothing about how often someone connects. See
+[A hostile server can close a request link](/how-it-works/known-limitations#a-hostile-server-can-close-a-request-link).
+
+A sender that leaves in the moment the two computers connect can read either way. Floe may treat it as a sender
+who left, with no line, or show "The sender couldn't connect", depending on which close arrives first. Both
+reopen the link, and neither counts toward the 5.
 
 ## Where files go {#where-files-go}
 
@@ -451,6 +490,7 @@ total, as a finished drop's do. See [Contribute to global stats](/desktop/settin
 |---|---|---|
 | Its end time passes | “Link ended at 2:05 PM”, or “Link ended at Oct 15, 3:42 PM” when it was not today. A request or a drop that began before then keeps going. | Click **Make another link** if you need one. |
 | You click **Close link** | “Link closed” | Nothing. |
+| A fifth sender fails the [link key](/glossary#link-key) check, in Floe Desktop 1.1 and later | “Link closed after 5 senders couldn't be confirmed” | Click **Make another link**, and send it over a channel you trust. |
 | A drop finishes or stops | The result card; the link is used up. | Click **Make another link** for the next drop. |
 | You close Floe | Floe asks first, in a dialog titled **Close Floe?**, with **Keep open** and **Close**. See below the table. | Click **Keep open** to keep the link. |
 | Request links are turned off on the server | “Request links are off on this server”, also when you click **Keep waiting** after a decline while they are off. | Try again later. |
@@ -544,6 +584,8 @@ it over 2 GB. See [File size limits](/how-it-works/2gb-limit).
 | “Missed a request at 2:14 PM” | Someone clicked **Send** and the request ended without an answer. The link is still open. On another day it gives the date too, such as “Missed a request at Oct 15, 3:42 PM”. | If you expected files, ask them to send again. |
 | “The sender couldn't connect” | Someone clicked **Send** (or ran `floe send --to`), but the two computers could not finish connecting, or connected and announced no file within 30 seconds. The link waits again. | They can try again. If it keeps happening, see [The transfer never starts](/troubleshooting#the-transfer-never-starts). |
 | “The sender couldn't connect: Hide my IP is on and no relay is available” | Hide my IP is on, and when a sender connected the server had no relay, or Floe could not read its relay list. The link waits again. | Turn off Hide my IP, or add a relay to your server. See [Who sees your IP address](#who-sees-your-ip-address). |
+| “A sender couldn't be confirmed and was disconnected” | In Floe Desktop 1.1 and later, a sender could not prove it holds the link key. You got no request, nothing was saved, and the link waits again. | If you expected them, send the whole link again. See [A sender that fails the check](#a-sender-that-fails-the-check). |
+| “Link closed after 5 senders couldn't be confirmed” | In Floe Desktop 1.1 and later, a fifth sender on this link failed the check. Nothing was saved. | Click **Make another link**. See [A sender that fails the check](#a-sender-that-fails-the-check). |
 | “2 requests ended without Accept in 10 minutes. Close this link?” | Two requests on this link ended without an Accept, so Floe stopped showing Windows notifications for the next ones. The flash, the title and the notice stay. | Close the link if you expect nothing more through it. |
 | “Can't reach the Floe server” with “Reconnecting...” | Floe lost its connection to the server and keeps trying until the link's end time. Meanwhile the sender's page says your computer is not connected. | Check your connection, or click **Retry now**. |
 | “If the connection drops, the current file starts over” | Under the progress, once a drop has run for 1 minute with more than 2 hours left. There is no resume. | Keep the PC awake and online until the drop ends. |
@@ -593,6 +635,9 @@ Every message the sender's page can show is listed in
 A [self-hosted](/glossary#self-hosted) server offers request links only when its policy file, a small settings
 file its operator writes, turns them on,
 and until then **Make link** says "Request links are off on this server". See [Turn on request links](/self-hosting/request-links).
+
+On a server whose web image is older than 1.12.0, a link from Floe Desktop 1.1 and later does not open. See
+[Keep the client and server on one version](/self-hosting/request-links#matching-versions).
 
 ## If something goes wrong {#related}
 

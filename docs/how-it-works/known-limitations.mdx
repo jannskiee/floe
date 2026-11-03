@@ -1,8 +1,8 @@
 ---
 title: "Known limitations"
 sidebarTitle: "Known limitations"
-description: "An honest list of what Floe does not do: what the signaling server could do, what the relay sees, what a browser can hold, and what the file checks miss."
-keywords: ["threat model", "security limits", "mitm", "privacy limits", "caveats", "browser memory", "large files in the browser"]
+description: "An honest list of what Floe does not do: what the link key misses, what the relay sees, what a browser can hold, and what the file checks miss."
+keywords: ["threat model", "security limits", "mitm", "link key", "room code", "signaling server", "privacy limits", "caveats", "browser memory", "large files in the browser"]
 ---
 
 Floe encrypts every transfer end to end and never puts your files on a server. Both of those
@@ -19,34 +19,111 @@ send it only to the person it is for. On a direct connection the other person's 
 your IP address, unless you turn on Hide my IP. A browser that receives can hold only so much, so
 receive very large transfers with Floe Desktop or the CLI, or in smaller batches on a phone.
 
+Floe's server also introduces the two devices, and a [link key](/glossary#link-key) checks that
+introduction on a link that carries one. The check has limits, and the next four sections say
+exactly where they are.
+
 ## Security and privacy {#security-and-privacy}
 
-### The signaling server is trusted to introduce you honestly {#the-signaling-server-is-trusted-to-introduce-you-honestly}
+### What the link key checks {#the-signaling-server-is-trusted-to-introduce-you-honestly}
 
 Floe's [signaling server](/glossary#signaling-server) passes along the short IDs the two devices
 use to agree on encryption keys. It cannot read your files and never sees one. But a server that
 wanted to could swap in IDs of its own, sit between the two [peers](/glossary#peer), and decrypt
 everything.
 
-This is true of every [WebRTC](/glossary#webrtc) application, not just Floe.
-[Encryption](/how-it-works/encryption#what-it-does-not-protect-against) explains how it works.
+A link key is Floe's check for that. A link from the web app, from `floe` 1.12 and later, or from
+Floe Desktop 1.1 and later carries one after the `#`: 128 random bits that no server receives. Once
+the two devices connect, each side that holds the link key proves it, with a proof tied to the
+certificates actually in use on that connection. A server that swapped the IDs does not hold the
+link key, and a proof made on one connection does not pass on another, so it cannot make a proof
+that passes. [Encryption](/how-it-works/encryption#what-it-does-not-protect-against) explains the
+IDs, and [Transfer protocol](/reference/transfer-protocol#kc) has the exact proof.
 
-**What you can do:** [run your own instance](/self-hosting/overview). A server you operate is a
-server you do not have to trust in this sense. On `api.floe.one` you are trusting the same
-operator who publishes the client, which is the ordinary situation for any hosted service.
+What each app does with the link key decides how far that goes:
+
+| Who | What it does with the link key | What a server in the middle can do |
+|---|---|---|
+| A receiver that holds it: a browser, `floe receive` 1.12 and later, or **Receive** in Floe Desktop 1.1 and later | Refuses a sender that cannot prove it, before any file name or byte. | Put nothing on this device. |
+| The page a request link opens, or `floe send --to` 1.12 and later, on a link that holds one | Waits for the proof of the computer that made the link before it names any file. | Learn no file's name or bytes. |
+| `floe send --link-only`, in `floe` 1.12 and later | Makes no code, and waits for the receiver's proof before it names any file. | Learn no file's name, size or bytes. |
+| Floe Desktop 1.1 and later, on a request link it made | Refuses a sender that cannot prove it, before any request shows and before anything is saved. | Put nothing on this PC, and show you no request. |
+| The web app's Send page, `floe send` 1.12 and later, or **Send** in Floe Desktop 1.1 and later | Only detects: it stops on a wrong proof, and goes on when no proof comes. | Take the whole file, by playing a receiver that holds no link key. |
+| `floe receive` before 1.12, **Receive** in Floe Desktop before 1.1, or a web app image before 1.12.0 | Ignores it on a share link. An old web app image cannot open a request link that holds one. | What it could do with no check at all. |
+
+So a request link from Floe Desktop 1.1 and later is checked both ways, and one from Floe Desktop
+1.0.x is checked neither way, because it holds no link key.
+
+**A sender that only detects can lose the whole file.** It cannot tell a server playing a receiver
+from a real receiver with no link key, such as someone who typed the room code, so it goes on. That
+server gets every byte, not only the file's name and size. Its words can reach the sender's screen.
+Its word that it received the files earns the sender's `Verified` row or green check mark, and that
+is only that side's word.
+
+**The receiver is the one who notices.** A receiving page that holds the link key stops after 30
+seconds if the other side connects and says nothing, and says it could not confirm who sent the
+link. So a server that takes the file from the sender and keeps quiet is caught by the receiver,
+not by the sender, whose page says the files were sent. `floe receive` 1.12 and later and **Receive**
+in Floe Desktop 1.1 and later stop after the same 30 seconds, on their usual lines for a sender that
+never starts: `connected, but no data arrived from the sender within 30s` and "The sender never
+started sending". A server that never connects the receiver at all leaves nothing to check, and the
+transfer just never starts.
+
+**What you can do:** when it matters, share the link and not the code, and ask your receiver to open
+it in a browser, `floe receive` 1.12 or later, or Floe Desktop 1.1 or later. With `floe` 1.12 or
+later, send with [`--link-only`](/cli/send#link-only). Ask your receiver whether the files arrived,
+and if they read that the sender could not be confirmed, assume someone else has the files.
+
+### A room code or a link with no link key has no check {#no-link-key-no-check}
+
+A [room code](/glossary#room-code) carries no link key, so a transfer joined by code has no check.
+`floe send` and **Send** in Floe Desktop print the code beside the link, so the person who chooses
+the code is choosing no check. The server also chooses the code's text and the room a code resolves
+to.
+
+A link with no link key has no check either, and nothing on screen tells a checked link from an
+unchecked one. That covers a request link from Floe Desktop 1.0.x and every older share link.
+
+**What you can do:** give the link rather than the code when the check matters, and share from the
+web app, `floe` 1.12 or later, or Floe Desktop 1.1 or later, so that the link holds a link key.
+
+### What the link key cannot see {#what-the-link-key-cannot-see}
+
+The proof says "holds the link", not who. So the check cannot see:
+
+- **Whoever serves the web app's JavaScript.** It holds every link key its pages open. On floe.one
+  that is Vercel and the build, which the same operator publishes. On your own instance it is your
+  web image and the edge in front of it. It is also anything else on the page, such as browser
+  extensions and in-app browsers, and the docs host, which serves script on the same origin.
+- **An edge that can rewrite the page.** For browser peers, a one-domain edge or a proxy that
+  inspects TLS can change the page as well as pass the signaling along.
+- **A stored copy of the page's code.** A script on the same origin can plant an entry in the site's
+  stored copies. An answer from the network overwrites it, but the stored copy runs when the request
+  for that file fails. See [In the browser](/security-privacy#on-your-device-browser).
+- **Anyone who held the whole link.** Everything that held it can pass the check: chat and mail
+  services, link scanners, browser history and its sync, clipboard history, and a photo of the QR
+  code. So can a shell's history, and the process list while `floe receive "<link>"` runs, which is
+  how the line under the box in `floe send` 1.12 and later says to pass it. A server plus any of those
+  goes unnoticed.
+
+**What you can do:** where none of that is good enough, encrypt the file yourself before you send
+it. If you [run your own instance](/self-hosting/overview), the signaling server and the web app are
+in your hands, so the party you trust is you. That changes nothing else on this list. On
+`api.floe.one` you are trusting the same operator who publishes the client, which is the ordinary
+situation for any hosted service.
 
 ### There is no verification code to compare {#there-is-no-verification-code-to-compare}
 
-The usual defense against the previous item is a short verification code, worked out from both
-devices' keys. The two people read it to each other over a channel an attacker does not control,
-such as a phone call. If the codes match, nobody is in the middle.
+A short verification code is the older defense against a server in the middle. It is worked out
+from both devices' keys, and the two people read it to each other over a channel an attacker does
+not control, such as a phone call. If the codes match, nobody is in the middle.
 
 No client computes or displays that code today, in the web app, Floe Desktop or the
-[CLI](/glossary#cli). Until one of them shows it, there is no way to detect the attack described
-above from inside Floe.
+[CLI](/glossary#cli). A link key checks for a server in the middle with nobody reading anything, but only as far as [What the link key checks](#the-signaling-server-is-trusted-to-introduce-you-honestly) says: a sender may only detect, and it shows who holds the link, not who they are.
+A transfer joined by room code, or by a link with no link key, has neither.
 
-**What you can do:** if you need protection against that attack, run your own server or encrypt
-the file yourself before you send it.
+**What you can do:** use a link that carries a link key, or encrypt the file yourself before you
+send it.
 
 ### Anyone with the link or code can receive {#anyone-with-the-link-or-code-can-receive}
 
@@ -61,7 +138,8 @@ network address 10 wrong codes a minute, and a [self-hosted](/glossary#self-host
 receiver joins, when the sender leaves, or after 10 minutes: see
 [How long a code and a link last](/how-it-works/signaling#code-and-link-lifetime). A link carries a
 long random room id instead of words, which is far harder to guess, and it works for as long as
-its sender is still waiting.
+its sender is still waiting. A link key does not change this: whoever holds the whole link holds
+the link key too, and passes the check.
 
 Once a sender and a receiver on two different networks have started connecting, a device on a
 third network is turned away for as long as the [room](/glossary#room) exists. So a link that
@@ -317,6 +395,20 @@ updates outside your active hours.
 **What you can do:** keep the PC plugged in and awake for a long drop, and set Windows Update's
 active hours to cover it. A sender in a browser keeps the tab in front, and pins it for a long
 drop. See [Request links](/desktop/request-links).
+
+### A hostile server can close a request link {#a-hostile-server-can-close-a-request-link}
+
+Floe Desktop 1.1 and later closes a request link once 5 senders on it have failed the
+[link key](/glossary#link-key) check, and the next sender reads that the link has ended. So a
+hostile server can end your link by seating 5 failing senders. That costs you the link and nothing
+else, and it is denial of service such a server already had: it could refuse to introduce anyone.
+
+The 5 is not a rate limit. A sender that says nothing or leaves does not count toward it, so a server
+can also keep your Floe connecting for as long as the link lasts without ever reaching it. The limits
+on how often senders can connect are under [Limits](/self-hosting/request-links#request-link-limits).
+
+**What you can do:** make another link. If it keeps happening on one server, it is worth asking who
+runs that server.
 
 ### Windows decides where a notification appears {#notifications}
 

@@ -70,9 +70,14 @@ Specific to the `send` command.
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--to <link>` | _(none)_ | Send through a [request link](/glossary#request-link) made in Floe Desktop instead of creating a [room code](/glossary#room-code). Put the whole link in quotes, including everything after the `#`. |
+| `--link-only` | `false` | In `floe` 1.12 and later: make no code, and send only to a receiver that proves it holds the link. It has no environment variable. |
 
 With `--to`, no link is printed, so `--web` has no effect, and the request link has to belong to the
 server in effect. See [Send through a request link](/cli/send#send-through-a-request-link).
+
+With `--link-only`, no file is named until the receiver has proved it holds the link's
+[link key](/glossary#link-key), and a receiver that shows no proof within 15 seconds ends the send
+with status 1. See [Send only to a receiver that proves it holds the link](/cli/send#link-only).
 
 ## `floe receive` flags {#floe-receive-flags}
 
@@ -198,7 +203,7 @@ on, such as `PION_LOG_TRACE=ice`, brings all of them back, so set one only while
 - **A send waits as long as it takes.** `floe send` has no time limit of its own while it waits for
   the other side to connect, so give the job a timeout if it must not hang. It does end, with status
   `1`, if its own connection to the signaling server drops while it waits.
-- **Pass the link when the wait may be long.** A room code stops working after 10 minutes at most, and the link works for as long as that `floe send` runs: see [How long a code and a link last](/how-it-works/signaling#code-and-link-lifetime). `floe receive` takes either.
+- **Pass the link when the wait may be long.** A room code stops working after 10 minutes at most, and the link works for as long as that `floe send` runs: see [How long a code and a link last](/how-it-works/signaling#code-and-link-lifetime). `floe receive` takes either. In `floe` 1.12 and later the link [holds an `&`](/cli/send#put-the-link-in-quotes) and a link key, so keep it in quotes, and the process list and any log that repeats the command then hold that link key.
 - **Environment variables.** Set the server once with `FLOE_SERVER`. Set `FLOE_NO_STATS=1` on a job that receives, so test transfers do not add to the public counter, and `FLOE_NO_UPDATE_CHECK=1` if the job runs `floe version`. See [Environment variables](#environment-variables).
 - **Streams.** Status lines, the boxes, the prompt, progress and `Warning:` lines go to stdout. Errors, every refusal line and the `Canceled.` line go to stderr.
 - **Progress in a log.** The progress line is written even when stdout is not a terminal: it is
@@ -256,6 +261,8 @@ A mistake in a command's arguments or flags prints one `Error:` line and no usag
 `floe receive` with no code prints `Error: accepts 1 arg(s), received 0`. Both relay flags at once
 print
 `Error: if any flags in the group [relay-only no-relay] are set none of the others can be; [no-relay relay-only] were all set`.
+`--link-only` with `--to`, in `floe` 1.12 and later, prints
+`Error: if any flags in the group [to link-only] are set none of the others can be; [link-only to] were all set`.
 
 `floe` with no arguments prints help and exits `0`.
 
@@ -271,6 +278,7 @@ meet:
 | Waiting for the other side's offer or answer | 30 seconds, then [`timed out waiting for the peer's offer`](/troubleshooting#timed-out-waiting-for-the-peers-offer), or `timed out waiting for the peer to answer` on the sender |
 | Establishing the connection | 30 seconds more, then [`timed out establishing a connection`](/troubleshooting#timed-out-establishing-a-connection) |
 | The [data channel](/glossary#data-channel) opening once connected | 10 seconds more, then `connected but the data channel did not open` |
+| The other side's proof of the [link key](/glossary#link-key), with `--link-only` or on a `--to` link that holds one, in `floe` 1.12 and later | 15 seconds, then [`Couldn't confirm the receiver`](/troubleshooting#could-not-confirm-the-receiver) or [`Couldn't confirm their computer`](/troubleshooting#could-not-confirm-their-computer) |
 | Receiver connected, sender never starts | 30 seconds, then [`connected, but no data arrived from the sender within 30s`](/troubleshooting#connected-but-no-data-arrived-from-the-sender-within-30s) |
 | Sender waiting for the receiver to accept | 120 seconds, the time to answer `Accept? [Y/n]`, then [`timed out waiting for ack`](/troubleshooting#timed-out-waiting-for-ack). With `--to`, the person at Floe Desktop has 9 minutes 45 seconds to answer, and `floe send --to` waits up to 10 minutes 15 seconds. Then `They did not answer in time. Nothing was sent.` |
 | A transfer that stops making progress | 60 seconds |

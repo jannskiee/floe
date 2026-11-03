@@ -12,8 +12,9 @@ off again without a restart.
 
 <Info>
   Request links need the server and web client images at 1.11.0
-  or later, and Floe Desktop 0.3.0 or later. Codes and [share links](/glossary#share-link) work the same whether request
-  links are on or off.
+  or later, and Floe Desktop 0.3.0 or later. A link from Floe Desktop 1.1 or later needs the web client
+  image at 1.12.0 or later: see [Keep the client and server on one version](#matching-versions). Codes and
+  [share links](/glossary#share-link) work the same whether request links are on or off.
 </Info>
 
 ## The short version {#the-short-version}
@@ -189,6 +190,16 @@ The page a sender opens comes from the web client, not from the signaling server
 images at the same version. Compose does that by default, because `FLOE_IMAGE_TAG` picks both. An
 older client in front of a newer server lets Floe Desktop make links whose page does not exist.
 
+**Update the web image to 1.12.0 before Floe Desktop 1.1 reaches your users.** Every request link
+Floe Desktop 1.1 and later makes holds a [link key](/glossary#link-key) behind a dot after the room
+id, and a web client older than 1.12.0 reads that as an incomplete link. The sender sees "This link
+looks incomplete", the page asks the server nothing, and Floe Desktop shows nothing. It cannot be
+timed to happen together: the Microsoft Store updates Floe Desktop on its own, and a web image moves
+only when you pull it, and never while `FLOE_IMAGE_TAG` names an older version. The signaling server
+needs nothing for the link key, because it never receives one. What else an old image does with a
+link key is under
+[What an older web app shows](/self-hosting/operations#older-web-app-versions).
+
 How the server holds a request link's [room](/glossary#room) is described in
 [Architecture](/reference/architecture#request-rooms).
 
@@ -200,7 +211,8 @@ it supports.
 
 From the [CLI](/glossary#cli), a sender has to name your signaling server as well as the link, with
 `--server` or `FLOE_SERVER`. Without it the send ends with
-`Couldn't connect to their computer. Nothing was sent.` before it contacts any server. See
+`Couldn't connect to their computer. Nothing was sent.` before it contacts any server. A link from
+Floe Desktop 1.1 or later also needs `floe` 1.12 or later. See
 [floe send](/cli/send#send-through-a-request-link).
 
 The page a sender opens shows **Report this link** only when you give the web client an address for

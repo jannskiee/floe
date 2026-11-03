@@ -51,7 +51,8 @@ cli/
     peer/              Pion WebRTC setup
     signaling/         WebSocket signaling client; hosttoken.go makes a request link's token and ids
     ice/               STUN/TURN credential fetch
-    code/              short room-code register and resolve
+    code/              short room-code register and resolve, and the link parsers
+    linkkey/           the link key a link carries in its fragment (transfer/keycheck.go proves it)
     serverurl/         normalizes server URLs, and maps a server to the web app its links use
     verify/            short authentication string from DTLS fingerprints (retained, unwired)
   internal/
@@ -69,8 +70,10 @@ desktop/               Wails app: imports cli/engine/...
   requestauto.go       Auto-accept for one link, and which drops still ask
   requestconn.go       the bound on a peer that vanished mid-transfer
   savedir.go           turns a typed save folder into the absolute folder Floe writes to
+  dropfolder.go        names and makes a drop's own folder, and removes it when a stopped drop saved nothing
+  requestquit.go       the record of a drop Floe is closed during, which the next launch shows as stopped
   endpoints.go         which server and web app this build talks to, and the settings setters
-  reveal.go            Show in folder: the platform commands and the path checks before them
+  reveal.go            Show in folder: the platform commands and the path checks before them, and the default save folder
   serverprobe.go       the Settings Test button, and the check that a server offers request links
   updatecheck.go       once-a-day check for a newer desktop release, notice only
   config.go            desktop.json: persisted settings kept outside the WebView
@@ -81,7 +84,7 @@ desktop/               Wails app: imports cli/engine/...
   power.go             whether this PC may run on a battery (the laptop line on the Receiving view)
   toast_windows.go     Windows notifications, sent through go-toast's COM path
   attention_windows.go the taskbar flash for a waiting request, and the "Floe is in front" rule
-  *_windows.go         the Windows half of a concern (packaged, volume, fatal, and the ones above),
+  *_windows.go         the Windows half of a concern (packaged, volume, fatal, downloads, and the ones above),
   *_other.go           each with a stub that keeps the module building elsewhere
 go.work                joins cli + desktop into one workspace, active for every build
 ```
@@ -161,9 +164,9 @@ verify the connection independently of the server.
       briefly on 2026-08-14 (built, audited across all surface pairings, and
       live on floe.one for a few hours), then removed again the same day
       before the 0.2.4 / v1.10.1 tags, by the same friction call.
-      `engine/verify` + `verify.ts` stay (tested, zero cost). PAKE (3b) is the
-      intended replacement: it does the same MITM check automatically, so the
-      human compare never comes back.
+      `engine/verify` + `verify.ts` stay (tested, zero cost). 3b checks for a
+      middle automatically, within the limits in known-limitations.mdx: the link
+      key for links and PAKE later for codes.
 - [x] The last CALLERS went with the UI. Until then `desktop/app.go` still
       ran `Fingerprints()` + `verify.Code()` per transfer and emitted
       `send:verify` / `recv:verify`, which no frontend has listened for
@@ -171,7 +174,24 @@ verify the connection independently of the server.
       the desktop. `engine/verify` and `Connection.Fingerprints()` are now
       retained but UNWIRED: tested, called by nothing, and waiting for 3b.
 
-**3b - PAKE auto-verification (removes the human compare)**
+**3b - Automatic verification (removes the human compare), in two parts**
+
+*Links: the link key  [DONE on main; web live, `floe` 1.12 and Floe Desktop 1.1 ship it]*
+- [x] A random 128-bit link key in the link's fragment, which no server receives
+      (`engine/linkkey`, `client/lib/linkKey.ts`), in share links and request links
+- [x] A proof over both DTLS certificates actually in use, in a `kc` frame first on
+      the channel (`engine/transfer/keycheck.go`, `client/lib/transfer/keyCheck.ts`).
+      Protocol version 2, minimum 1, so released peers keep working
+- [x] A receiver holding the link key refuses before any name or byte, a request link
+      is checked both ways, and `floe send --link-only` holds its receiver to the link key
+- [ ] The cutover: `ENFORCE_SHARE_LINK_KEY` makes the web sender refuse too. It waits
+      for most people to run a floe that proves the link key. The web sender, plain
+      `floe send` and Desktop Send only detect until then, so a server playing a
+      keyless receiver still gets the file. See docs/how-it-works/known-limitations.mdx
+
+*Room codes: PAKE  [LATER]*
+
+A code carries no link key, so a transfer by code has no check yet.
 - [ ] PAKE (CPace or SPAKE2) keyed by the room code, bound to the DTLS fingerprints,
       run over the data channel before any file bytes (magic-wormhole / croc model)
 - [ ] Move room-word generation to the client so the server never learns the code

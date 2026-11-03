@@ -2,7 +2,7 @@
 title: "floe receive command"
 sidebarTitle: "floe receive"
 description: "Use the floe receive command to accept files from a peer over an encrypted WebRTC connection with a room code or link, with no upload or account."
-keywords: ["floe receive", "accept prompt", "output directory", "save location"]
+keywords: ["floe receive", "accept prompt", "output directory", "save location", "link key", "quote a link"]
 ---
 
 ```bash floe receive
@@ -29,8 +29,11 @@ floe receive olive-tiger-castle
 Receive with the sender's full link:
 
 ```bash Terminal
-floe receive "https://floe.one/#room=6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"
+floe receive "https://floe.one/#k=Xq3vT9bLw2ZkP7mRf1sY8A&room=6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f"
 ```
+
+Keep the quotes: the `&` would otherwise end the command. See
+[Put the link in quotes](/cli/send#put-the-link-in-quotes).
 
 Save to a specific directory:
 
@@ -45,8 +48,13 @@ floe receive olive-tiger-castle -y
 ```
 
 Paste a link the way you were given it. It also works without `https://`, inside `<...>` or quotes
-as a mail program or chat app may wrap it, and in the older `?room=` form. A code is one to four
-words joined by hyphens.
+as a mail program or chat app may wrap it, and in the older `#room=` and `?room=` forms. A code is
+one to four words joined by hyphens.
+
+A link you pass here is on your command line, [link key](/glossary#link-key) included. Your shell
+keeps it in its history, and while the command runs, other users of the same computer can see it in
+the list of running processes. Anything that held the whole link can pass the check: see
+[What the link key cannot see](/how-it-works/known-limitations#what-the-link-key-cannot-see).
 
 A room code is good for one receiver and for at most 10 minutes: see [how long a code and a link last](/how-it-works/signaling#code-and-link-lifetime). When a code or a link is turned down, look the message up under [On the command line](/troubleshooting#on-the-command-line).
 
@@ -98,6 +106,23 @@ nor the average speed. In `floe` 1.11.0 and earlier it counted from the sender's
 When the sender runs a different Floe release from yours, one extra line above the `Incoming` box
 names it, for example `Peer version: desktop-v1.0.4`. A browser sends no version, so the line never
 appears for one. Versions do not need to match.
+
+## The link key check {#the-link-key-check}
+
+`floe receive` 1.12 and later checks a link that holds a [link key](/glossary#link-key). It sends its
+own proof, and shows no prompt and saves nothing until the sender has proved it holds the same link
+key. A sender that cannot prove it ends the receive with one line, with no `Error:` in front:
+
+```text Output
+  Couldn't confirm who sent this link. Nothing was saved. Ask them for a new link.
+```
+
+A sender that connects and says nothing ends it after 30 seconds, with
+[`connected, but no data arrived from the sender within 30s`](/troubleshooting#connected-but-no-data-arrived-from-the-sender-within-30s).
+
+`floe` 1.7.5 to 1.11.7 read the room id and ignore the link key, and 1.6.0 and older cannot read such a link. A room code and a link from an
+older Floe hold no link key, so a receive of either has no check, on any version. See
+[What the link key checks](/how-it-works/known-limitations#the-signaling-server-is-trusted-to-introduce-you-honestly).
 
 ## Confirmation prompt
 
@@ -255,7 +280,7 @@ repeats the link back, and `floe` exits with status 1:
 | `That is a request link for sending files to someone. Open it in a web browser.` | A [request link](/glossary#request-link), one with `/r/` in it, in any shape it was copied, also when a mail program rewrote it. | Open it in a browser, or send through it with `floe send --to`. |
 | `That link is for floe.one, but this Floe is set to use another server. Unset FLOE_SERVER or use --server https://api.floe.one, then try again.` | A floe.one link while `--server` or `FLOE_SERVER` names another server, which never held the link's [room](/glossary#room). | Do what the line says, for this one command. |
 | `That link is for another Floe server, but this Floe is set to use floe.one. Use --server with that server's address, then try again.` | A link from a [self-hosted](/glossary#self-hosted) server while neither `--server` nor `FLOE_SERVER` names a server. | Pass that server with `--server`. |
-| `This link looks incomplete. Copy the whole link again, including everything after the # sign. Put the link in quotes.` | A room link whose room id was cut short or mistyped, or a room id pasted on its own. | Copy the whole link again and put it in quotes. |
+| `This link looks incomplete. Copy the whole link again, including everything after the # sign. Put the link in quotes.` | A room link whose room id was cut short or mistyped, or a room id pasted on its own. In `floe` 1.12 and later, also a link cut anywhere in its link key or at its `&`, a link key that lost its name, and a link key pasted on its own. | Copy the whole link again and put it in quotes. |
 | `That looks like a link to receive from. To receive, use: floe receive <link>` | A link typed as the command, with `receive` left out. | Run it again with `floe receive` in front. |
 
 To send through a request link, see

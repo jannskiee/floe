@@ -54,6 +54,10 @@ The hint names both ways to update because on an install that a
 package manager's upgrade command instead: see
 [Update the CLI](/cli/update#package-manager-installs).
 
+In `floe` 1.12 and later the hint ignores a release whose tag is not exactly `vX.Y.Z`, whether the
+name came from GitHub or from the kept answer. `floe update` stops on such a name too: see
+[Messages](/cli/update#messages).
+
 Set `FLOE_NO_UPDATE_CHECK=1` to skip the check and the hint entirely. Binaries built from
 source report `floe dev` and never check.
 

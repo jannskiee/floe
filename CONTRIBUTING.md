@@ -304,6 +304,7 @@ A run starts the signaling server on `:3001` and the client on `:3000` (with `ne
 
 - Request links are on, through the policy file `client/e2e/fixtures/request-policy-on.json`.
 - The connection, room-code and TURN rate limits are raised to 1,000 a minute.
+- `TRUSTED_PROXY_COUNT` is pinned to 1, because each request-link host in the suite reaches the server through a small local proxy that names a network of its own (`signalingDoor` in `client/e2e/request-helpers.ts`). Otherwise the suite would pass the server's limit of 20 new links per network per day.
 - The Upstash variables are overridden with a dummy local address and token, so no test byte can reach a real counter.
 
 > **Warning:** Stop your own server and client, anything on `:3001` and `:3000`, before a run. A run refuses to start when something already answers there: Playwright stops before any test and says the address "is already used". Do not follow the hint in that message to set `reuseExistingServer:true`, because a server or client you started yourself has none of the setup above:
@@ -323,8 +324,11 @@ Some tests skip themselves unless you set a variable:
 |----------|------------------|
 | `FLOE_E2E_HEAVY=1` | The heavy request-link cells in `e2e/request-heavy.spec.ts`: a folder of 1,000 files, and one file of 4 GiB plus 1 byte. Never run in CI. |
 | `FLOE_E2E_LOCAL_TURN=1` | The one request-link test that sends through a relay with Hide my IP on. Never run in CI. What it needs is under this table. |
+| `FLOE_E2E_FIREFOX=1` | The cells of `e2e/link-key.spec.ts` and `e2e/request-link.spec.ts` that run Firefox. Never run in CI, which installs Chromium alone, so run `pnpm exec playwright install firefox` once first. |
+| `FLOE_E2E_SLOW=1` | The test in `e2e/reconnect.spec.ts` that holds two seats for a minute. Never run in CI. |
 | `E2E_EXPECT_UMAMI=1` | Extra assertions in `e2e/request-privacy.spec.ts` that only hold for a client built with an Umami website ID. |
-| `FLOE_RELEASED_CLI=<path>` | `e2e/back-compat.spec.ts`, which pairs a released `floe` binary at that path with your working tree. Without it the whole file is skipped. |
+| `E2E_EXPECT_SENTRY=1` | The cells of `e2e/request-privacy.spec.ts` that read what Sentry hears on a request link's page. They need a client with a Sentry DSN, so run them as `E2E_EXPECT_SENTRY=1 NEXT_PUBLIC_SENTRY_DSN=http://floe@127.0.0.1:9/1 pnpm test:e2e request-privacy.spec.ts`. Nothing leaves the machine. |
+| `FLOE_RELEASED_CLI=<path>` | `e2e/back-compat.spec.ts`, which pairs a released `floe` binary at that path with your working tree. Without it the whole file is skipped. Set `FLOE_RELEASED_VERSION=<tag>` with it, as CI does: without the tag, the two cells that depend on which side of the link key the binary is on skip themselves. |
 
 `FLOE_E2E_LOCAL_TURN=1` needs:
 
