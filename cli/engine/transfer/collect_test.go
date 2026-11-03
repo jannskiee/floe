@@ -187,3 +187,57 @@ func TestCollectFilesLeavesOutPipesSocketsAndDevices(t *testing.T) {
 		}
 	})
 }
+
+// TestCollectFilesListsARepeatOnce: a path given twice lists its files once,
+// where they first appeared, because the receiver would save the repeat as a
+// numbered second copy. Only an exact repeat goes, the same file under the
+// same name: the same file under another name, and two files that share a
+// name, are both still sent.
+func TestCollectFilesListsARepeatOnce(t *testing.T) {
+	dir := t.TempDir()
+	folder := filepath.Join(dir, "album")
+	if err := os.Mkdir(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a := filepath.Join(folder, "a.txt")
+	b := filepath.Join(dir, "b.txt")
+	other := filepath.Join(t.TempDir(), "a.txt")
+	for _, f := range []string{a, b, other} {
+		if err := os.WriteFile(f, []byte("hello"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Chdir(folder) // for the two relative spellings
+	sep := string(os.PathSeparator)
+	for _, c := range []struct {
+		name  string
+		paths []string
+		want  []string
+	}{
+		// Each of these lists the file twice on main.
+		{"one path twice", []string{a, a}, []string{"a.txt"}},
+		{"a.txt and ./a.txt", []string{"a.txt", "." + sep + "a.txt"}, []string{"a.txt"}},
+		{"a dot inside the path", []string{a, folder + sep + "." + sep + "a.txt"}, []string{"a.txt"}},
+		{"the first place is kept", []string{a, b, a}, []string{"a.txt", "b.txt"}},
+		{"a folder twice", []string{folder, folder}, []string{"album/a.txt"}},
+		{"a folder's files, then one of them by name", []string{folder + sep, a}, []string{"a.txt"}},
+		// Each of these names the file differently each time, so both stay, as on main.
+		{"a folder, then with a trailing separator", []string{folder, folder + sep}, []string{"album/a.txt", "a.txt"}},
+		{"a folder and a file inside it", []string{folder, a}, []string{"album/a.txt", "a.txt"}},
+		{"two files that share a name", []string{a, other}, []string{"a.txt", "a.txt"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			entries, err := collectFiles(c.paths)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			for _, e := range entries {
+				got = append(got, e.displayName)
+			}
+			if strings.Join(got, "|") != strings.Join(c.want, "|") {
+				t.Errorf("collectFiles(%q) names %q, want %q", c.paths, got, c.want)
+			}
+		})
+	}
+}
