@@ -339,7 +339,7 @@ describe('readShareFragment, a link with a key', () => {
     }
 
     it('takes a longer name for what it is: only k is a key', () => {
-        expect(readShareFragment(`#kk=${K}&room=${ROOM}`, '')).toEqual({ room: ROOM, key: null, incomplete: false });
+        expect(readShareFragment(`#kk=abc&room=${ROOM}`, '')).toEqual({ room: ROOM, key: null, incomplete: false });
         expect(readShareFragment(`#room=${ROOM}`, '?kk=1')).toEqual({ room: ROOM, key: null, incomplete: false });
     });
 });
