@@ -80,8 +80,9 @@ var (
 // receiver's coded stop (transfer.PeerStoppedError) is its own fixed sentence
 // about the other side and goes out bare too (A8b-B3): behind the wrapper it
 // read as this side's failure, and errors.ts gives the request-link wording
-// of code stopped the ordinary send's line. Anything else is wrapped.
-func sendEnd(err error, hideIP bool) error {
+// of code stopped the ordinary send's line. answered is this side's own fact, that
+// the receiver has answered a file (PastAnAnswer). Anything else is wrapped.
+func sendEnd(err error, hideIP, answered bool) error {
 	if errors.Is(err, transfer.ErrRelayOverLimit) {
 		if hideIP {
 			return fmt.Errorf("%w. Turn off Hide my IP to send larger files", err)
@@ -90,6 +91,9 @@ func sendEnd(err error, hideIP bool) error {
 	}
 	var stopped *transfer.PeerStoppedError
 	if errors.As(err, &stopped) {
+		if answered {
+			return stopped.PastAnAnswer()
+		}
 		return err
 	}
 	return fmt.Errorf("transfer failed: %w", err)
@@ -442,8 +446,11 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 	defer close(quit)
 	watchConnFailed(conn, conn.Failed(), quit)
 	sendEarly := conn.Early()
+	var answered bool
 	if err := transfer.SendFilesWithOptions(dc, paths, version, transfer.SendOptions{
 		OnProgress: onProgress,
+		// Runs on this goroutine, so sendEnd reads it with no lock.
+		OnAck: func(int) { answered = true },
 		// Fires once when the receiver confirms delivery, with the numbers the
 		// CLI's Verified row reads. The UI shows only a boolean from it.
 		OnDelivered: func(d transfer.Delivered) { emit("send:delivered", d) },
@@ -454,7 +461,7 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 		// goes on without one; Floe Desktop has no switch to wait for it (O4).
 		KeyCheck: &transfer.KeyCheck{Key: key, RoomID: roomID},
 	}); err != nil {
-		fail(sendEnd(err, hideIP))
+		fail(sendEnd(err, hideIP, answered))
 		return
 	}
 	emit("send:done", "Files sent")
