@@ -18,6 +18,7 @@ import (
 	"github.com/jannskiee/floe/cli/engine/code"
 	"github.com/jannskiee/floe/cli/engine/ice"
 	"github.com/jannskiee/floe/cli/engine/peer"
+	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/jannskiee/floe/cli/engine/transfer"
 	"github.com/pion/webrtc/v4"
 	"github.com/spf13/cobra"
@@ -199,7 +200,7 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	case <-sc.RoomFull:
 		return fmt.Errorf("room is full (someone else may already be receiving)")
 	case errMsg := <-sc.Errors:
-		return fmt.Errorf("server error: %s", errMsg)
+		return signaling.ServerFrameError(errMsg)
 	case <-sc.PeerLeft:
 		return roleWaitClosed(sc)
 	case <-time.After(roleAssignTimeout):

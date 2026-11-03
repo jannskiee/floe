@@ -72,24 +72,7 @@ var (
 	// (A8b-B1; errors.ts: "The server is limiting connections from this
 	// network. Wait a minute and try again").
 	errTurnedAway = errors.New("the server turned this connection away: too many connections from this network")
-	// errServerFrame: an error frame on the join whose words this build does
-	// not know (A8b-B2). Fixed, so none of the server's text reaches the
-	// status line; errors.ts passes it through as it stands.
-	errServerFrame = errors.New("the server answered with an error this version of Floe does not know")
 )
-
-// serverErrorFrame is the error for an error frame the server answered the
-// join with. The frame's message is the signaling server's own text,
-// unbounded, and on a self-hosted server whatever that server sends, so it is
-// kept only when it is the one text a Floe server sends here, for a room id
-// that is not a UUID (server.js isValidRoomId), whose words errors.ts reads as
-// an incomplete link. Every other frame becomes errServerFrame.
-func serverErrorFrame(msg string) error {
-	if msg == "Invalid room ID" {
-		return fmt.Errorf("server error: %s", msg)
-	}
-	return errServerFrame
-}
 
 // sendEnd is how runSend words a send that returned an error. The relay cap
 // is a policy block, not a failure: no "transfer failed" wrapper, and when
@@ -367,14 +350,14 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 	select {
 	case role := <-sc.Role:
 		if role != "sender" {
-			fail(fmt.Errorf("expected sender role, got %q", role))
+			fail(errors.New("expected sender role"))
 			return
 		}
 	case <-sc.RoomFull:
 		fail(fmt.Errorf("room is full"))
 		return
 	case errMsg := <-sc.Errors:
-		fail(serverErrorFrame(errMsg))
+		fail(signaling.ServerFrameError(errMsg))
 		return
 	case <-sc.PeerLeft:
 		fail(roleWaitEnd(sc))
@@ -409,7 +392,7 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 		fail(receiverWaitEnd(sc))
 		return
 	case errMsg := <-sc.Errors:
-		fail(serverErrorFrame(errMsg))
+		fail(signaling.ServerFrameError(errMsg))
 		return
 	}
 	emit("send:status", "Sending...")
@@ -601,7 +584,7 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 	case <-sc.RoomFull:
 		return "", fmt.Errorf("room is full (someone else may already be receiving)")
 	case errMsg := <-sc.Errors:
-		return "", serverErrorFrame(errMsg)
+		return "", signaling.ServerFrameError(errMsg)
 	case <-sc.PeerLeft:
 		return "", roleWaitEnd(sc)
 	case <-time.After(20 * time.Second):
