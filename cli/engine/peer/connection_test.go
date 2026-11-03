@@ -163,6 +163,59 @@ func TestCloseIsIdempotent(t *testing.T) {
 	conn.Close()
 }
 
+// A setup wait ends on connected, failed or closed, and never on disconnected,
+// which is 5 s of silence that ICE leaves when the path comes back. A relay that
+// took seconds to answer froze one peer's ICE agent that long just after the
+// other had connected, and ending the setup there lost a path about to work.
+func TestSetupWaitRidesOutDisconnected(t *testing.T) {
+	conn, err := New(nil, &signaling.Client{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer conn.Close()
+
+	answer := func() (error, bool) {
+		select {
+		case got := <-conn.connected:
+			return got, true
+		default:
+			return nil, false
+		}
+	}
+
+	for _, s := range []webrtc.PeerConnectionState{
+		webrtc.PeerConnectionStateNew,
+		webrtc.PeerConnectionStateConnecting,
+		webrtc.PeerConnectionStateDisconnected,
+		webrtc.PeerConnectionStateConnecting,
+		webrtc.PeerConnectionStateDisconnected,
+	} {
+		conn.noteSetup(s)
+		if got, ok := answer(); ok {
+			t.Fatalf("%s answered the setup wait with %v; it must keep waiting", s, got)
+		}
+	}
+
+	conn.noteSetup(webrtc.PeerConnectionStateConnected)
+	if got, ok := answer(); !ok || got != nil {
+		t.Fatalf("connected answered %v, %v; want nil, true", got, ok)
+	}
+
+	for _, tc := range []struct {
+		state webrtc.PeerConnectionState
+		want  string
+	}{
+		{webrtc.PeerConnectionStateFailed, "connection failed (state: failed)"},
+		{webrtc.PeerConnectionStateClosed, "connection failed (state: closed)"},
+	} {
+		conn.noteSetup(tc.state)
+		got, ok := answer()
+		if !ok || got == nil || got.Error() != tc.want {
+			t.Fatalf("%s answered %v, %v; want %q", tc.state, got, ok, tc.want)
+		}
+	}
+}
+
 // Failed is what a transfer wait with no deadline of its own watches to end
 // when a peer vanished without a close (G5-F1), so it must close on the
 // terminal failed state only. Disconnected is the state a network blackout

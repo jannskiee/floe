@@ -251,20 +251,7 @@ func New(iceServers []webrtc.ICEServer, sc *signaling.Client, opts ...Option) (*
 
 	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
 		conn.noteFailed(s)
-		switch s {
-		case webrtc.PeerConnectionStateConnected:
-			select {
-			case conn.connected <- nil:
-			default:
-			}
-		case webrtc.PeerConnectionStateFailed,
-			webrtc.PeerConnectionStateDisconnected,
-			webrtc.PeerConnectionStateClosed:
-			select {
-			case conn.connected <- fmt.Errorf("connection failed (state: %s)", s):
-			default:
-			}
-		}
+		conn.noteSetup(s)
 	})
 
 	go conn.dispatchSignals()
@@ -507,6 +494,31 @@ func (conn *Connection) Failed() <-chan struct{} { return conn.failed }
 func (conn *Connection) noteFailed(s webrtc.PeerConnectionState) {
 	if s == webrtc.PeerConnectionStateFailed {
 		conn.failOnce.Do(func() { close(conn.failed) })
+	}
+}
+
+// noteSetup tells the setup waits how the connection ended up: connected, or
+// failed or closed. It is the part of the state handler a test can drive without
+// waiting out ICE. Disconnected tells them nothing. It is only 5 s of silence, ICE
+// leaves it when the path comes back, and a path that never does reaches failed
+// or the setup's own connectTimeout. Measured 2026-11-03 with a relay answering in
+// seconds: pion sends its checks from the ICE agent's own loop and the TURN
+// client's write blocks on a CreatePermission, so a 4 s answer froze one peer's
+// agent, the other peer heard nothing for 5 s just after it connected, and ending
+// the setup there gave up on a path that was about to work.
+func (conn *Connection) noteSetup(s webrtc.PeerConnectionState) {
+	switch s {
+	case webrtc.PeerConnectionStateConnected:
+		select {
+		case conn.connected <- nil:
+		default:
+		}
+	case webrtc.PeerConnectionStateFailed,
+		webrtc.PeerConnectionStateClosed:
+		select {
+		case conn.connected <- fmt.Errorf("connection failed (state: %s)", s):
+		default:
+		}
 	}
 }
 
