@@ -20,12 +20,16 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { mkdirSync, existsSync } from 'fs';
+import { spawn } from 'child_process';
+import { randomUUID } from 'crypto';
+import { mkdirSync, existsSync, readdirSync } from 'fs';
 import { join, basename } from 'path';
 import { ENFORCE_SHARE_LINK_KEY, MAKE_LINK_KEYS } from '../lib/transfer/protocol';
 import {
     CLI_TIMEOUT_MS,
     KEYED_SHARE_LINK,
+    WEB_URL,
+    cliBinary,
     createFixture,
     fixtureDir,
     removeFixtureDir,
@@ -128,6 +132,53 @@ test('HEAD CLI send → released CLI receive (SHA-256 integrity)', async () => {
         // Mirror image of the previous test: the HEAD sender must still
         // drain and exit 0 on the released receiver's confirmation.
         expect(await waitForExit(sender, CLI_TIMEOUT_MS)).toBe(0);
+    } finally {
+        sender.kill();
+    }
+});
+
+// What a floe from before the link key does with one. That stops being true the day
+// v1.12.0 is the latest release, which is what this job downloads, so these stand aside
+// then and do not go red on every pull request (review 20, findings 1 and 7).
+function releasedPredatesTheKey(): boolean {
+    const m = /^v(\d+)\.(\d+)\./.exec(process.env.FLOE_RELEASED_VERSION ?? '');
+    return m !== null && (Number(m[1]) < 1 || (Number(m[1]) === 1 && Number(m[2]) < 12));
+}
+
+// Its parser takes the whole fragment for a room id and finds none. No network: the
+// server named here answers nothing, and the line is the one a cut link has always had.
+test('released floe send --to a keyed request link: the incomplete line, before any network', async () => {
+    test.skip(!releasedPredatesTheKey(), 'a floe from v1.12.0 on reads the key');
+    const { path: fixturePath } = createFixture(FIXTURE_DIR, 4096);
+    const key = 'AAECAwQFBgcICQoLDA0ODw';
+    const link = `${WEB_URL}/r/AAAAAAAAAAA#${randomUUID()}.${key}`;
+    const proc = spawn(releasedCli(), ['send', fixturePath, '--to', link, '--server', 'http://127.0.0.1:9']);
+    let out = '';
+    proc.stdout?.on('data', (chunk: Buffer) => { out += chunk.toString(); });
+    proc.stderr?.on('data', (chunk: Buffer) => { out += chunk.toString(); });
+    try {
+        expect(await waitForExit(proc, CLI_TIMEOUT_MS)).toBe(1);
+        expect(out).toContain('This link looks incomplete. Copy the whole link again, including everything after the # sign.');
+        expect(out).not.toContain(key);
+    } finally {
+        proc.kill();
+    }
+});
+
+// HEAD waits for a proof a released receiver never sends, then stops with a range only a
+// floe that speaks the key overlaps, so the released one prints its own update remedy
+// (1.10.8 and later; review 20 finding 6).
+test('HEAD floe send --link-only → released floe receive: its update remedy, and nothing saved', async () => {
+    test.skip(!releasedPredatesTheKey(), 'a floe from v1.12.0 on proves the key');
+    const { path: fixturePath } = createFixture(FIXTURE_DIR, 4096);
+    const outputDir = join(FIXTURE_DIR, 'received-link-only');
+    mkdirSync(outputDir, { recursive: true });
+    const { linkPromise, proc: sender } = spawnSend(fixturePath, cliBinary(), ['--link-only']);
+    try {
+        const roomLink = await linkPromise;
+        await expect(spawnReceive(roomLink, outputDir, releasedCli())).rejects.toThrow(/Cannot transfer[\s\S]*floe update/);
+        expect(readdirSync(outputDir)).toEqual([]);
+        expect(await waitForExit(sender, CLI_TIMEOUT_MS)).not.toBe(0);
     } finally {
         sender.kill();
     }

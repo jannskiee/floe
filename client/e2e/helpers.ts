@@ -213,7 +213,7 @@ function captureTranscript(proc: ChildProcess, name: string): void {
  * only when the argument is omitted, so existing call sites keep cliBinary()'s
  * fail-loud contract and back-compat callers can pass a released binary.
  */
-export function spawnSend(path: string, binary: string = cliBinary()): {
+export function spawnSend(path: string, binary: string = cliBinary(), extraArgs: string[] = []): {
     linkPromise: Promise<string>;
     proc: ChildProcess;
 } {
@@ -222,6 +222,7 @@ export function spawnSend(path: string, binary: string = cliBinary()): {
         '--server', SERVER_URL,
         '--web', WEB_URL,
         '--no-relay',
+        ...extraArgs,
     ]);
     captureTranscript(proc, 'floe send transcript');
 
