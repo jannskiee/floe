@@ -298,13 +298,13 @@ func TestPlainSendEndMapsTheKeyCheck(t *testing.T) {
 		{&transfer.PeerStoppedError{Code: transfer.CodeUnverified}, copySendUnverified},
 		{transfer.ErrReceiverSilent, copySendSilent},
 	} {
-		got := plainSendEnd(c.in)
+		got := plainSendEnd(c.in, false)
 		var outcome outcomeError
 		if !errors.As(got, &outcome) || got.Error() != c.want {
 			t.Errorf("%v became %T %v, want the outcome %q", c.in, got, got, c.want)
 		}
 	}
-	if got := plainSendEnd(transfer.ErrKeyCheckUnavailable); got != transfer.ErrKeyCheckUnavailable {
+	if got := plainSendEnd(transfer.ErrKeyCheckUnavailable, false); got != transfer.ErrKeyCheckUnavailable {
 		t.Errorf("ErrKeyCheckUnavailable became %v", got)
 	}
 }
@@ -1451,4 +1451,88 @@ func TestSendToKeyedSilentHostEndsOnTL35(t *testing.T) {
 		t.Fatalf("the abort is %s", abortFrame)
 	}
 	wantNoKey(t, "floe send --to", r.stdout+r.stderr, kc.Key)
+}
+
+// A stop past the receiver's first answer never says nothing was sent. Three codes
+// do, and a middle playing a keyless receiver can send any of them after it has read
+// the whole file. Before an answer the same frames keep their sentences, which are
+// then true (final audit report 27 F1).
+func TestPlainSendEndPastAnAnswer(t *testing.T) {
+	for _, code := range []transfer.RefusalCode{transfer.CodeDeclined, transfer.CodeExpired, transfer.CodeUnverified} {
+		in := &transfer.PeerStoppedError{Code: code, Saved: 1}
+		if got := plainSendEnd(in, true); got != errTheyStopped {
+			t.Errorf("code %s past an answer printed %v, want the plain stop line", code, got)
+		}
+		if got := plainSendEnd(in, false); strings.Contains(got.Error(), "They stopped the transfer") {
+			t.Errorf("code %s before an answer printed %q", code, got)
+		}
+	}
+	// A code whose sentence is true either way stays what it was.
+	full := &transfer.PeerStoppedError{Code: transfer.CodeDiskFull}
+	if got := plainSendEnd(full, true); got != error(full) {
+		t.Errorf("code disk-full past an answer became %v", got)
+	}
+	if got := plainSendEnd(transfer.ErrReceiverNotConfirmed, true); got.Error() != copySendUnverified {
+		t.Errorf("a wrong proof, which is read ahead of the ack's bytes, became %v", got)
+	}
+}
+
+// The same with the real send: the middle acks with no proof, takes every byte and
+// the end, then stops with the code.
+func TestPlainSendStoppedWithTheFileGoneSaysSo(t *testing.T) {
+	for _, code := range []string{"unverified", "declined", "expired"} {
+		t.Run(code, func(t *testing.T) {
+			s := captureStreaming(t)
+			url, seated := plainRoom(t)
+			stubNetwork(t, url)
+			p := filepath.Join(t.TempDir(), "secret-plan.bin")
+			data := make([]byte, 300*1024)
+			if err := os.WriteFile(p, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			r := startCLI(t, p, "--server", url, "--web", "https://files.example.com")
+			var got atomic.Int64
+			plainReceiver(t, url, seated, func(dc *webrtc.DataChannel, early *peer.Early, quit <-chan struct{}) {
+				deadline := time.After(30 * time.Second)
+				for {
+					select {
+					case m := <-early.Msgs:
+						if !m.IsString {
+							got.Add(int64(len(m.Data)))
+							continue
+						}
+						var f struct {
+							Type string `json:"type"`
+							ID   string `json:"id"`
+						}
+						_ = json.Unmarshal(m.Data, &f)
+						switch f.Type {
+						case "metadata":
+							_ = dc.Send([]byte(`{"type":"ack","id":"` + f.ID + `","offset":0,"pv":2,"pvMin":1,"confirms":true}`))
+						case "end":
+							_ = dc.Send([]byte(`{"type":"incompatible","reason":"x","pv":2,"pvMin":1,"code":"` + code + `","saved":0}`))
+							<-quit
+							return
+						}
+					case <-early.Closed:
+						return
+					case <-deadline:
+						t.Error("no end frame")
+						return
+					}
+				}
+			})
+			r.wait(t, 40*time.Second)
+			_, stderr := s.text()
+			if got.Load() != int64(len(data)) {
+				t.Fatalf("the middle got %d of %d bytes, so this ran the wrong path", got.Load(), len(data))
+			}
+			if strings.Contains(stderr, "Nothing was sent") {
+				t.Errorf("the send says nothing was sent with the file gone: %q", stderr)
+			}
+			if !strings.Contains(stderr, errTheyStopped.Error()) {
+				t.Errorf("stderr %q, want %q", stderr, errTheyStopped)
+			}
+		})
+	}
 }

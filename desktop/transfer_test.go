@@ -339,21 +339,21 @@ func TestServerErrorFrameKeepsTheServersWordsOut(t *testing.T) {
 func TestSendEndHandsAPeerStopOverBare(t *testing.T) {
 	for _, code := range transfer.RefusalCodes {
 		stop := &transfer.PeerStoppedError{Code: code}
-		if got := sendEnd(stop, false); got.Error() != stop.Error() {
+		if got := sendEnd(stop, false, false); got.Error() != stop.Error() {
 			t.Errorf("%s: %q, want the bare %q", code, got.Error(), stop.Error())
 		}
 	}
-	if got := sendEnd(&transfer.PeerStoppedError{Code: transfer.CodeStopped}, true).Error(); got != "They stopped this drop." {
+	if got := sendEnd(&transfer.PeerStoppedError{Code: transfer.CodeStopped}, true, false).Error(); got != "They stopped this drop." {
 		t.Errorf("code stopped with Hide my IP on: %q", got)
 	}
-	if got := sendEnd(errors.New("connection closed mid-transfer"), false).Error(); got != "transfer failed: connection closed mid-transfer" {
+	if got := sendEnd(errors.New("connection closed mid-transfer"), false, false).Error(); got != "transfer failed: connection closed mid-transfer" {
 		t.Errorf("any other error: %q, want it wrapped", got)
 	}
 	capped := fmt.Errorf("transfer blocked: %w", transfer.ErrRelayOverLimit)
-	if got := sendEnd(capped, false); got != capped {
+	if got := sendEnd(capped, false, false); got != capped {
 		t.Errorf("the relay cap with Hide my IP off: %q, want it unchanged", got)
 	}
-	if got := sendEnd(capped, true).Error(); !strings.HasSuffix(got, ". Turn off Hide my IP to send larger files") || strings.HasPrefix(got, "transfer failed") {
+	if got := sendEnd(capped, true, false).Error(); !strings.HasSuffix(got, ". Turn off Hide my IP to send larger files") || strings.HasPrefix(got, "transfer failed") {
 		t.Errorf("the relay cap with Hide my IP on: %q", got)
 	}
 }
@@ -2465,5 +2465,25 @@ func TestReceiveByCodeChecksTheLinkServerInOrder(t *testing.T) {
 	wrapper := s[strings.Index(s, "func (a *App) ReceiveByCode("):start]
 	if !strings.Contains(wrapper, "errors.Is(err, errLinkFloeOneOtherServer) || errors.Is(err, errLinkOtherFloeServer)") {
 		t.Fatal("ReceiveByCode no longer keeps the failure toast off a link for another server")
+	}
+}
+
+// A stop past the receiver's first answer never says nothing was sent, and Desktop
+// reads it through errors.ts as the ordinary stop. Before an answer those frames keep
+// their sentences, which are then true (final audit report 27 F1).
+func TestSendEndPastAnAnswer(t *testing.T) {
+	want := (&transfer.PeerStoppedError{Code: transfer.CodeStopped}).Error()
+	for _, code := range []transfer.RefusalCode{transfer.CodeDeclined, transfer.CodeExpired, transfer.CodeUnverified} {
+		stop := &transfer.PeerStoppedError{Code: code}
+		if got := sendEnd(stop, false, true).Error(); got != want {
+			t.Errorf("%s past an answer: %q, want %q", code, got, want)
+		}
+		if got := sendEnd(stop, false, false).Error(); got != stop.Error() {
+			t.Errorf("%s before an answer: %q, want %q", code, got, stop.Error())
+		}
+	}
+	full := &transfer.PeerStoppedError{Code: transfer.CodeDiskFull}
+	if got := sendEnd(full, false, true).Error(); got != full.Error() {
+		t.Errorf("disk-full past an answer: %q", got)
 	}
 }

@@ -1333,6 +1333,39 @@ func TestKeyedReceiveProofDoesNotStopTheIdleClock(t *testing.T) {
 	}
 }
 
+// Frames that mean nothing do not buy a middle more time: the proof a keyed receive
+// is owed has one clock, however much else arrives.
+func TestKeyedReceiveJunkDoesNotRestartTheProofClock(t *testing.T) {
+	orig := receiveIdleTimeout
+	receiveIdleTimeout = 400 * time.Millisecond
+	t.Cleanup(func() { receiveIdleTimeout = orig })
+	p := newOffererPair(t, nil)
+	kc := newKeyCheck(t, false)
+	recvErr := make(chan error, 1)
+	go func() { recvErr <- ReceiveFilesWithOptions(p.visitor, t.TempDir(), true, "test", "", p.recvOpts(&kc)) }()
+	nextFrame(t, p.hostMsgs, p.hostClosed, "the receiver's kc")
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			case <-time.After(50 * time.Millisecond):
+				_ = p.host.SendText(`{"type":"not-a-frame-floe-knows"}`)
+			}
+		}
+	}()
+	select {
+	case err := <-recvErr:
+		if err == nil || !strings.Contains(err.Error(), "no data arrived from the sender") {
+			t.Fatalf("err = %v, want the idle watchdog", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a stream of junk frames held the keyed receive open past its clock")
+	}
+}
+
 // Neither side prints the key, its tag or the room's proof anywhere a person or a
 // log could read it, on success or on a refusal.
 func TestKeyedTransferPrintsNoKey(t *testing.T) {
