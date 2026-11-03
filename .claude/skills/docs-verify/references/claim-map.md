@@ -177,6 +177,9 @@ docs/troubleshooting.mdx "In the browser" quotes what the web app shows, one hea
 ## TURN credential lifetimes
 
 - server/turn.js: the `ttl` local in the coturn HMAC path, `CF_TURN_TTL`, `CF_CACHE_MS`, `CF_STALE_MS` (the stale window derived from `CF_TURN_TTL`), `CF_FETCH_TIMEOUT_MS`, and the `logMintFailure` line the docs quote (`Cloudflare TURN mint failed`).
+- server/turn.js `coturnDomainOk` and server/server.js `TURN_DOMAIN_INVALID_LINE`: a `TURN_DOMAIN` that is not a host name alone turns coturn off, with the fixed line. Docs: docs/self-hosting/configuration.mdx, docs/self-hosting/turn-relay.mdx, docs/reference/http-api.mdx, docs/troubleshooting.mdx, docs/self-hosting/operations.mdx.
+- server/server.js `HALF_SET_PAIRS` and `HALF_SET_LINES`: one fixed line per half-set pair, the truthiness test matching turn.js and stats.js. Docs: the same pages, for the three pairs.
+- server/stats.js `logUpstashFailure` and `upstashFailureReason`: the `Upstash counter ... failed` line, one for an outage across read and update. Docs: docs/self-hosting/operations.mdx, docs/self-hosting/configuration.mdx, docs/troubleshooting.mdx.
 - client/lib/iceList.ts: `ICE_LIST_MAX_AGE_MS` (the main web page reads the list again before a connection once it is this old, or while no read has succeeded), `ICE_LIST_READ_WAIT_MS` (how long a connection waits for that read before it goes on with the list it has) and `iceListStale`. The `/r` page reads the list at every attempt instead. Docs: docs/reference/http-api.mdx `GET /api/turn-credentials`, CLAUDE.md "TURN Credentials".
 - Docs: docs/self-hosting/turn-relay.mdx (the expiry sentence under the coturn setup and "How credentials work"), docs/reference/http-api.mdx `GET /api/turn-credentials`, docs/troubleshooting.mdx "The TURN relay is not working", CLAUDE.md "TURN Credentials".
 

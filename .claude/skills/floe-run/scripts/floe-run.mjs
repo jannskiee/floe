@@ -17,7 +17,7 @@
  * The guard is a sentinel, not an empty string: dotenv refills an UNSET
  * variable and PowerShell's `$env:X = ""` unsets, so both keys are set to a
  * non-empty, unroutable value (port 9 refuses at once, and upstashPost
- * swallows the error). Zero on /api/stats is then necessary but not
+ * logs one line and goes on). Zero on /api/stats is then necessary but not
  * sufficient, which is why `check` also asks the pidfile whether this script
  * set the environment, and why `start` refuses a bound port it does not own
  * instead of adopting it.

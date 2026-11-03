@@ -6658,6 +6658,41 @@
     },
     {
         "surface": "server",
+        "text": "Only one of TURN_SECRET and TURN_DOMAIN is set, so the coturn relay is off. Set both, or neither.",
+        "source": "server/server.js",
+        "anchor": "/self-hosting/operations#the-server-logs-very-little",
+        "why_no_home": null
+    },
+    {
+        "surface": "server",
+        "text": "Only one of CLOUDFLARE_TURN_KEY_ID and CLOUDFLARE_TURN_KEY_API_TOKEN is set, so Cloudflare TURN is off. Set both, or neither.",
+        "source": "server/server.js",
+        "anchor": "/self-hosting/operations#the-server-logs-very-little",
+        "why_no_home": null
+    },
+    {
+        "surface": "server",
+        "text": "Only one of UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN is set, so the transfer counter is kept in memory and resets to 0 on restart. Set both, or neither.",
+        "source": "server/server.js",
+        "anchor": "/self-hosting/operations#the-server-logs-very-little",
+        "why_no_home": null
+    },
+    {
+        "surface": "server",
+        "text": "TURN_DOMAIN holds more than a host name, so the coturn relay is off. Set it to the host name alone, such as turn.example.com.",
+        "source": "server/server.js",
+        "anchor": "/self-hosting/operations#the-server-logs-very-little",
+        "why_no_home": null
+    },
+    {
+        "surface": "server",
+        "text": "Upstash counter {operation} failed ({reason})",
+        "source": "server/stats.js",
+        "anchor": "/self-hosting/operations#the-server-logs-very-little",
+        "why_no_home": null
+    },
+    {
+        "surface": "server",
         "text": "Code not found or expired",
         "source": "server/server.js",
         "anchor": "/reference/http-api#get-api-code-code",

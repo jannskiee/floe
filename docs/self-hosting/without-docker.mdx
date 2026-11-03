@@ -146,5 +146,6 @@ npm --prefix server ls <package-name>
 ## If something goes wrong
 
 - The server prints nothing after `npm start`, or only a line about `TRUSTED_PROXY_COUNT`: that is expected. See [The server logs nothing at all](/troubleshooting#the-server-logs-nothing-at-all).
+- The server prints a line starting `Only one of`, `TURN_DOMAIN holds` or `Upstash counter`: a setting may need fixing. See [The server logs very little](/self-hosting/operations#the-server-logs-very-little).
 - The page loads and the [badge](/glossary#badge) stays on **Offline**: see [The browser cannot connect to my signaling server](/troubleshooting#the-browser-cannot-connect-to-my-signaling-server).
 - The server answers `403` to the browser: `CLIENT_URL` does not match the page's origin. See [Browser requests are blocked, and the server answers HTTP 403](/troubleshooting#browser-requests-are-blocked-and-the-server-answers-http-403).

@@ -43,8 +43,9 @@ const TURN_MAX_REQUESTS = envLimit('MAX_TURN_REQUESTS_PER_IP', 20);
 const TURN_TLS_OFF = /^(off|false|0|no)$/i;
 
 // TURN_DOMAIN is pasted between a scheme and a port below, so it must be a
-// host name alone: a scheme, a port, a path or a bare IPv6 address makes a URL
-// that browsers throw on and pion refuses, and then no transfer starts at all.
+// host name alone: a scheme, a port or a bare IPv6 address makes a URL that
+// browsers throw on and pion refuses, and then no transfer starts at all.
+// Browsers throw on a path too, though pion takes one.
 // A bracketed IPv6 address is a host name here, if it is a real IPv6 address.
 const COTURN_DOMAIN_SHAPE = /^(\[[0-9A-Fa-f:.]+\]|[\p{L}\p{N}._-]+)$/u;
 
