@@ -18,8 +18,8 @@ import {
 // Matched against the PATH and anchored at its end, so a self-hosted base path
 // (https://files.example.com/floe/r/<id>) matches by its suffix and a query or
 // fragment cannot fool either one; one trailing slash is allowed because a
-// browser adds it. The same suffix rules as the engine's code.Resolve (spec 05
-// 8.9), so the frontend pre-check and the Go defense in depth agree.
+// browser adds it. The same suffix rules as the engine's code.ResolveLink (spec
+// 05 8.9), so the frontend pre-check and the Go defense in depth agree.
 const REQUEST_PATH = /(^|\/)r\/[A-Za-z0-9_-]{11}\/?$/;
 const DROP_PATH = /(^|\/)(d|drop)\/[A-Za-z0-9_-]+\/?$/;
 

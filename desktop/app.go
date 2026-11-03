@@ -86,6 +86,11 @@ type App struct {
 	// is held.
 	cfgMu sync.Mutex
 
+	// transferEmitFn is the test seam for the events of a Send and a code
+	// Receive; nil means the Wails runtime, which log.Fatals on the nil context
+	// a bare test App carries.
+	transferEmitFn func(event string, payload any)
+
 	// saveConfigFn is the test seam for the desktop.json write saveSettings
 	// makes; nil means saveConfig.
 	saveConfigFn func(appConfig) error

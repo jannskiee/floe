@@ -11,13 +11,14 @@ package main
 // never run under l.mu. The close guard reads l.live, an atomic, and never
 // waits on l.mu (S1-DSK-04).
 //
-// Privacy: the host token, the link, the link id and the room id live in
-// memory only: the link, which carries the link id and the room id, in this
-// struct, and the token in the lane goroutine's own variables. The link reaches
-// the screen through the snapshot's Link field and nothing else; the token
-// reaches nothing but the one join frame the engine writes. None of them is
-// logged, persisted or put in an error. Every snapshot code is a key the
-// frontend maps to fixed copy.
+// Privacy: the host token, the link, the link id, the room id and the link key
+// live in memory only: the link, which carries the link id, the room id and the
+// key, and the key check in this struct, and the token in the lane goroutine's own
+// variables. The link reaches the screen through the snapshot's Link field and
+// nothing else; the token reaches nothing but the one join frame the engine writes;
+// the key leaves this PC only inside the link, in its fragment, which no browser
+// sends to a server. None of them is logged, persisted or put in an error. Every
+// snapshot code is a key the frontend maps to fixed copy.
 //
 // RequestLinkSupport lives in serverprobe.go, with its concern (S1-DSK-02).
 // No Settings switch stands before the lane (H7 S-1): Make link is the
@@ -33,7 +34,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/jannskiee/floe/cli/engine/ice"
+	"github.com/jannskiee/floe/cli/engine/linkkey"
 	"github.com/jannskiee/floe/cli/engine/signaling"
+	"github.com/jannskiee/floe/cli/engine/transfer"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -62,8 +65,9 @@ type RequestLinkSnapshot struct {
 	Seq uint64 `json:"seq"`
 	// PromptGen identifies the prompt an AnswerRequest answers.
 	PromptGen uint64 `json:"promptGen"`
-	// Link is web + "/r/" + linkId + "#" + roomId; "" until waiting. It lives
-	// in memory and on screen only, never in a file or a log.
+	// Link is web + "/r/" + linkId + "#" + roomId + "." + the link key; "" until
+	// waiting. It lives in memory and on screen only, never in a file or a log,
+	// and it is the one field that holds the key.
 	Link string `json:"link"`
 	// Label is the owner's own label, which never leaves this PC.
 	Label   string `json:"label"`
@@ -221,11 +225,21 @@ type requestLane struct {
 	// is the per-process counter; only ever read and bumped under mu.
 	seq uint64
 
-	// The link, in memory only; endLocked forgets it. It carries the link id
-	// and the room id, so never print the lane (a %v of it would show them).
-	// The host token is not kept here: the lane goroutine joins with its own
-	// copy, and no snapshot carries it (TestRequestSnapshotNeverCarriesToken).
+	// The link, in memory only; endLocked forgets it. It carries the link id,
+	// the room id and the link key, so never print the lane (a %v of it would
+	// show them). The host token is not kept here: the lane goroutine joins with
+	// its own copy, and no snapshot carries it
+	// (TestRequestSnapshotNeverCarriesToken).
 	link string
+	// kc is the key check of that link, set with it and forgotten with it, and
+	// handed to each pairing: the pairFn seam takes only (rg, sc), so the key
+	// cannot ride the token's locals. By pointer, because a printed value in an
+	// unexported field shows the key's bytes (transfer.KeyCheck's type comment).
+	kc *transfer.KeyCheck
+	// unverified counts this link's pairings whose visitor failed the key check
+	// (unverifiedPairing). Make link resets it and a reconnect keeps it, so a
+	// server that drops the host's socket gets no new tries.
+	unverified int
 
 	label     string // display label: trimmed, at most requestLabelMax runes
 	saveDir   string
@@ -280,8 +294,8 @@ type requestLane struct {
 
 	// pairFn is the pairing body, run on user-connected by the goroutine that
 	// owns sc: runRequestDrop (S1-DSK-03b), through pairRequest. Its contract:
-	// it returns with the lane in waiting, declined, done or stopped (or rg
-	// gone); it registers its peer connection with setRequestConn and clears
+	// it returns with the lane in waiting, declined, done, stopped or ended (or
+	// rg gone); it registers its peer connection with setRequestConn and clears
 	// it before returning; and for every acceptDrop that returned true it
 	// releases the wake hold, even when rg has moved on: through endDrop, or
 	// with requestWakeRelease for an Accept the engine found abandoned before
@@ -409,6 +423,7 @@ func (l *requestLane) setStateLocked(state, code string) {
 func (l *requestLane) endLocked(state, code string) {
 	l.setStateLocked(state, code)
 	l.link = ""
+	l.kc = nil
 	l.prompt = nil
 	l.reconnectUntil = time.Time{}
 	// A link that ended needs no goroutine: wake it, so it lets go of its
@@ -610,11 +625,11 @@ func displayLabel(label string) string {
 	return strings.TrimSpace(s)
 }
 
-// requestLinkFor builds the link: web + "/r/" + linkID + "#" + roomID. The room
-// id rides in the fragment, which a browser never sends to a server; the link
-// id names the page only and never reaches the signaling server.
-func requestLinkFor(web, linkID, roomID string) string {
-	return web + "/r/" + linkID + "#" + roomID
+// requestLinkFor builds the link: web + "/r/" + linkID + "#" + roomID + "." + key.
+// The room id and the key ride in the fragment, which a browser never sends to a
+// server; the link id names the page only and never reaches the signaling server.
+func requestLinkFor(web, linkID, roomID string, key linkkey.Key) string {
+	return web + "/r/" + linkID + "#" + roomID + "." + key.Encode()
 }
 
 // joinCode maps a host join result to the snapshot code (step 3g): only the
@@ -704,6 +719,7 @@ func (a *App) MakeRequestLink(label string, saveDir string, lifetime string, aut
 	l.expiresAt = time.Time{}
 	l.route, l.result, l.missedAt, l.suggestClose, l.battery = "", nil, time.Time{}, false, false
 	l.promptEnds, l.ownerStop = nil, false
+	l.unverified = 0
 	l.autoEnds = nil
 	l.autoAsks = ""
 	l.label = displayLabel(label)
@@ -780,7 +796,7 @@ func (a *App) runRequestLink(rg uint64, stop <-chan struct{}, hideIP bool, lifet
 	// serves its web app on the server's own origin. The base comes only from
 	// the owner's settings or serverurl.Web (endpoints), never from anything
 	// the server sends, so a server cannot steer the link, and with it the room
-	// id in the fragment, to a page of its choosing.
+	// id and the key in the fragment, to a page of its choosing.
 	// e: Hide my IP needs a relay; the list is read once and dropped (L13).
 	if hideIP {
 		hasRelay, degraded, err := l.relayFn(server)
@@ -796,8 +812,8 @@ func (a *App) runRequestLink(rg uint64, stop <-chan struct{}, hideIP bool, lifet
 			return
 		}
 	}
-	// f: the token, the derived room id and the link id, all from the engine
-	// (L-06), in memory only.
+	// f: the token, the derived room id, the link id and the link key, all from
+	// the engine (L-06), in memory only.
 	life, ok := l.lifetimeFn(lifetime)
 	if !ok {
 		a.reqFail(rg, "unknown")
@@ -811,6 +827,11 @@ func (a *App) runRequestLink(rg uint64, stop <-chan struct{}, hideIP bool, lifet
 	roomID := signaling.RoomIDFromToken(hostToken)
 	linkID, err := signaling.NewLinkID()
 	if err != nil || roomID == "" {
+		a.reqFail(rg, "unknown")
+		return
+	}
+	key, err := linkkey.New()
+	if err != nil {
 		a.reqFail(rg, "unknown")
 		return
 	}
@@ -834,9 +855,11 @@ func (a *App) runRequestLink(rg uint64, stop <-chan struct{}, hideIP bool, lifet
 		a.reqFail(rg, joinCode(res))
 		return
 	}
-	link := requestLinkFor(web, linkID, roomID)
+	link := requestLinkFor(web, linkID, roomID, key)
+	kc := &transfer.KeyCheck{Key: key, RoomID: roomID}
 	if !a.reqUpdate(rg, func(l *requestLane) {
 		l.link = link
+		l.kc = kc
 		l.setStateLocked("waiting", "")
 	}) {
 		a.releaseRequestSocket(sc, false)
@@ -1021,13 +1044,14 @@ func (a *App) expireRequest(rg uint64, sc *signaling.Client) {
 // re-creates the reservation silently (E-06). The state the socket loss
 // interrupted comes back after the re-join: a declined link stays declined,
 // because the server kept its room sealed (spec 04 5.7) and only the owner's
-// Keep waiting reopens it (T17); anything else waits again. It returns the
-// new socket, or nil when the link ended.
+// Keep waiting reopens it (T17); W15 stays too, since it is all the owner hears of a
+// failed check (D9); anything else waits again. It returns the new socket, or nil when
+// the link ended.
 func (a *App) reconnect(rg uint64, stop <-chan struct{}, server, roomID, hostToken string, expiresAt time.Time, attempt int) (*signaling.Client, int) {
 	l := a.lane()
 	back, backCode := "waiting", ""
 	if !a.reqUpdate(rg, func(l *requestLane) {
-		if l.state == "declined" {
+		if l.state == "declined" || l.code == "unverified" {
 			back, backCode = l.state, l.code
 		}
 		l.setStateLocked("reconnecting", "")
@@ -1104,8 +1128,8 @@ func (a *App) reconnect(rg uint64, stop <-chan struct{}, server, roomID, hostTok
 // requestPairing is what one pairing reads when its visitor arrives: the
 // link's own server, the Hide my IP and global stats switches as they are
 // right now (read under a.mu, then released), and the link's label, base
-// folder, Auto-accept choice, end time and stop channel (read under the lane
-// lock).
+// folder, Auto-accept choice, end time, stop channel and key check (read under
+// the lane lock).
 type requestPairing struct {
 	server      string
 	hideIP      bool
@@ -1115,13 +1139,16 @@ type requestPairing struct {
 	autoAccept  bool
 	expiresAt   time.Time
 	stop        <-chan struct{}
+	kc          *transfer.KeyCheck
 }
 
 // pairRequest is the default pairFn: it reads the pairing, then runs the drop
-// (runRequestDrop, transfer.go).
+// (runRequestDrop, transfer.go). A lane with no key has no link to pair for, and
+// a nil key check would be a keyless receive, which takes anyone, so there is no
+// pairing without one.
 func (a *App) pairRequest(rg uint64, sc *signaling.Client) {
 	p, ok := a.requestPairingFor(rg)
-	if !ok {
+	if !ok || p.kc == nil {
 		return
 	}
 	_ = a.runRequestDrop(rg, sc, p)
@@ -1142,7 +1169,7 @@ func (a *App) requestPairingFor(rg uint64) (requestPairing, bool) {
 	}
 	return requestPairing{
 		server: l.server, hideIP: hideIP, reportStats: reportStats,
-		label: l.label, saveDir: l.saveDir, autoAccept: l.autoAccept, expiresAt: l.expiresAt, stop: l.stop,
+		label: l.label, saveDir: l.saveDir, autoAccept: l.autoAccept, expiresAt: l.expiresAt, stop: l.stop, kc: l.kc,
 	}, true
 }
 
@@ -1187,7 +1214,8 @@ func (a *App) setDropCancel(rg uint64, cancel func(), rec *dropRecord) bool {
 
 // reopenRequest ends a pairing that made no drop: request-reopen on the link's
 // socket, then waiting with code (visitor-left, setup-failed, no-relay,
-// relay-unknown, or "" for a missed request, whose missedAt is already set).
+// relay-unknown, unverified, or "" for a missed request, whose missedAt is
+// already set).
 // The reopen goes first, so a snapshot that says waiting never precedes it.
 func (a *App) reopenRequest(rg uint64, sc *signaling.Client, code string, cause error) error {
 	if !a.requestActive(rg) {

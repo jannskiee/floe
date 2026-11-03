@@ -1142,6 +1142,22 @@ describe('a request link pasted into CODE', () => {
         expect(screen.queryByText(cp2)).toBeNull();
     });
 
+    it('a keyed link reaches ReceiveByCode whole, key and all', async () => {
+        const keyed = `http://localhost:3000/?s=abc#k=AAECAwQFBgcICQoLDA0ODw&room=${room}`;
+        await paste(keyed);
+        await waitFor(() => expect(wails.go.ReceiveByCode).toHaveBeenCalledWith(keyed, '', false, true));
+        expect(screen.queryByText(cp2)).toBeNull();
+    });
+
+    it('a keyed request link opens in the browser whole, because the page needs its key', async () => {
+        const keyed = `https://floe.one/r/Xk3p9Q0aB1c#${room}.AAECAwQFBgcICQoLDA0ODw`;
+        const user = await paste(keyed);
+        await user.click(await screen.findByRole('button', {name: 'Open in browser'}));
+        const open = (window as unknown as {runtime: {BrowserOpenURL: ReturnType<typeof vi.fn>}}).runtime.BrowserOpenURL;
+        expect(open).toHaveBeenCalledWith(keyed);
+        expect(wails.go.ReceiveByCode).not.toHaveBeenCalled();
+    });
+
     it('a three-word code still calls ReceiveByCode', async () => {
         await paste('amber-otter-cloud');
         await waitFor(() => expect(wails.go.ReceiveByCode).toHaveBeenCalledWith('amber-otter-cloud', '', false, true));

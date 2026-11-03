@@ -4,6 +4,7 @@ package main
 // it.
 
 import (
+	"github.com/jannskiee/floe/cli/engine/linkkey"
 	"github.com/jannskiee/floe/cli/engine/serverurl"
 )
 
@@ -13,14 +14,15 @@ import (
 // a self-hosted server and it interoperates with peers on that server instead.
 const defaultServer = "https://api.floe.one"
 
-// shareLink builds the browser link for a send. The room id is the transfer's only
-// secret, so it goes in the URL fragment: browsers never send a fragment to a
-// server, strip it from the Referer header, and ignore it in analytics. The nonce
-// goes in the query instead. It carries no information, and it makes every link a
-// distinct document so a phone that already has Floe open joins the new room rather
-// than reusing a stale tab. Mirrors client/components/P2PTransfer.tsx.
-func shareLink(base, nonce, roomID string) string {
-	return base + "/?s=" + nonce + "#room=" + roomID
+// shareLink builds the browser link for a send. The link key and the room id are
+// the transfer's secrets, so they go in the URL fragment, the key first: browsers
+// never send a fragment to a server, strip it from the Referer header, and ignore
+// it in analytics. The nonce goes in the query instead. It carries no information,
+// and it makes every link a distinct document so a phone that already has Floe open
+// joins the new room rather than reusing a stale tab. Mirrors
+// client/lib/roomLink.ts.
+func shareLink(base, nonce, roomID string, key linkkey.Key) string {
+	return base + "/?s=" + nonce + "#k=" + key.Encode() + "&room=" + roomID
 }
 
 // endpoints resolves the signaling origin and the share-link origin to use for

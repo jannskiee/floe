@@ -81,6 +81,15 @@ describe('parsePastedLink', () => {
         expect(parsePastedLink('"javascript:alert(1)//r/Xk3p9Q0aB1c"')).toBeNull();
     });
 
+    it('parsePastedLink keeps a keyed request link whole, because the browser needs its key', () => {
+        const fragment = `#${room}.AAECAwQFBgcICQoLDA0ODw`;
+        for (const link of [`https://floe.one/r/Xk3p9Q0aB1c${fragment}`, `<https://floe.one/r/Xk3p9Q0aB1c${fragment}>`, `floe.one/r/Xk3p9Q0aB1c${fragment}`]) {
+            expect(parsePastedLink(link)).toEqual({kind: 'request', href: `https://floe.one/r/Xk3p9Q0aB1c${fragment}`});
+        }
+        // A keyed share link is a room link: Receive takes it.
+        expect(parsePastedLink(`https://floe.one/?s=abc#k=AAECAwQFBgcICQoLDA0ODw&room=${room}`)).toBeNull();
+    });
+
     it('parsePastedLink rejects a 10-character id, a #room= link and non-http schemes', () => {
         expect(kind(`https://floe.one/r/Xk3p9Q0aB1#${room}`)).toBeNull(); // 10 characters
         expect(kind(`https://floe.one/r/Xk3p9Q0aB1cc#${room}`)).toBeNull(); // 12 characters

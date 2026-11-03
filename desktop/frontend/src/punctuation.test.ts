@@ -49,7 +49,8 @@ describe('no line ends in a period (D-167)', () => {
             copy.reopenLine({code: 'no-relay', suggestClose: false}, NOW),
             copy.reopenLine({code: '', missedAt: END, suggestClose: false}, NOW),
             copy.reopenLine({code: '', suggestClose: true}, NOW),
-            ...['expired', 'app-closed', 'closed'].map((c) => copy.endedLine(c, END, NOW)),
+            copy.reopenLine({code: 'unverified', suggestClose: false}, NOW),
+            ...['expired', 'app-closed', 'closed', 'unverified'].map((c) => copy.endedLine(c, END, NOW)),
             copy.promptHeading(''), copy.promptHeading('Acme footage'), copy.promptSize(12, 38 * GB),
             ...['low-space', 'relay-over-cap', 'auto-floor', 'auto-no-mark', 'auto-unknown', 'auto-route-unknown'].map((c) =>
                 copy.warningLine(c, {freeBytes: 31 * GB, totalBytes: 38 * GB}, 'D:\\Footage\\Floe')),
