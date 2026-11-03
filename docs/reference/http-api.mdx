@@ -88,7 +88,8 @@ its own address.
 
 The response is a **JSON array**, not an object. What is in it depends on how the server is
 configured, in a fixed order. Cloudflare Realtime TURN comes first, if both Cloudflare variables
-are set. Then coturn, if both `TURN_SECRET` and `TURN_DOMAIN` are set. Then Google's public STUN
+are set. Then coturn, if both `TURN_SECRET` and `TURN_DOMAIN` are set and `TURN_DOMAIN` is a hostname
+alone. Then Google's public STUN
 servers.
 
 <CodeGroup>

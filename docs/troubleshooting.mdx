@@ -1028,7 +1028,7 @@ Each line names the step that failed:
 | `WebRTC setup failed: failed to set remote description:` and the [WebRTC](/glossary#webrtc) library's words | The connection details the other app sent could not be used. No current Floe app sends details like that. | Ask the other person to update Floe, or to use another Floe app. |
 | `WebRTC setup failed: failed to send offer:` or `failed to send answer:`, and a reason | The connection to the server closed while `floe` was handing over its connection details. | Check your network, then run the command again. |
 | `WebRTC setup failed: failed to create data channel:`, `failed to create offer:`, `failed to create answer:` or `failed to set local description:`, and a reason | `floe` could not set up its own side of the connection. | Run the command again. If it repeats, report it. |
-| `failed to create peer connection:` and a reason, with no `WebRTC setup failed:` in front | `floe` could not set up its side of the connection, usually because a relay address the server handed out is not valid. | Run the command again. On your own server, check that `TURN_DOMAIN` is a bare hostname such as `turn.example.com`, with no `https://`. |
+| `failed to create peer connection:` and a reason, with no `WebRTC setup failed:` in front | `floe` could not set up its side of the connection, usually because a relay address the server handed out is not valid. | Run the command again. On your own server, check that `TURN_DOMAIN` is a bare hostname such as `turn.example.com`, with no `https://`: a server image of version 1.11.7 or earlier hands such a value out. |
 | `closed before the connection was established`, also with no `WebRTC setup failed:` in front | The connection was closed on this computer before the two devices finished connecting, for example because the other app opened a second channel, which no Floe app does. | Run the command again. If it repeats with the same person, ask them to update Floe. |
 
 Floe Desktop can show `failed to create peer connection:` as well, after `Error: `. The same fix
@@ -2124,7 +2124,7 @@ be made and the coturn pair is not set. One of `CLOUDFLARE_TURN_KEY_ID` and
 With `TURN_SECRET` and `TURN_DOMAIN` both set, a failed request falls back to the coturn entries
 instead.
 
-- Both variables are read once at startup.
+- Both variables are read once at startup. With only one of them set, the server logs a line starting `Only one of`. A server image of version 1.11.7 or earlier logs nothing.
 - An answer is reused for 5 minutes.
 - If Cloudflare stops answering, the server keeps serving the last good answer for up to about 23
   hours after it was made.
@@ -2134,7 +2134,8 @@ instead.
 **Self-hosted coturn.** The bundled service uses host networking, so it needs a Linux host with a
 public IP, a domain, and a TLS certificate (unless you set `TURN_TLS=off`). `TURN_SECRET` and
 `TURN_DOMAIN` have to match coturn's `static-auth-secret` and `realm`. With only one of the two set,
-the server offers no relay and says nothing.
+the server offers no relay and logs a line starting `Only one of`. A `TURN_DOMAIN` with a scheme, a port
+or a path turns the relay off too, and logs a line starting `TURN_DOMAIN holds`. A server image of version 1.11.7 or earlier logs neither.
 
 Fix the variables, then restart the server so that it reads them: `docker compose up -d`, or a
 plain restart without Docker. See [TURN relay](/self-hosting/turn-relay).
@@ -2181,7 +2182,10 @@ A few startup lines can appear. `request links: on` means the policy file turned
 or is unreadable means they stayed off. A server started with Node directly and without
 `TRUSTED_PROXY_COUNT` writes one line saying which proxy count is in use. A server given a word or
 a negative number for it writes one line saying 0 is in use. A `MAX_*` variable that is not a
-whole number of at least 1 gets one line naming it and the default now in use.
+whole number of at least 1 gets one line naming it and the default now in use. Half of a pair of
+variables gets a line starting `Only one of`, and a `TURN_DOMAIN` that holds more than a hostname a
+line starting `TURN_DOMAIN holds`. Upstash settings that do not work get one `Upstash counter` line:
+`read failed` at startup, or `update failed` at the first report. A server image of version 1.11.7 or earlier writes none of these last three.
 
 Use `GET /health`, which returns `{"status":"healthy","uptime":<seconds>,"features":[...]}`, to
 confirm the server is alive and to see whether a restart landed.

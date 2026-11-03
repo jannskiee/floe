@@ -903,6 +903,9 @@ yet has no section of its own so far.
 | `Maximum Connections Per IP` | [Other settings](/self-hosting/unraid#other-settings) |
 | `Maximum Open Connections Per IP` | [Other settings](/self-hosting/unraid#other-settings) |
 | `{NAME} is not a whole number of at least 1. Using the default, {n}.` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |
+| `Only one of CLOUDFLARE_TURN_KEY_ID and CLOUDFLARE_TURN_KEY_API_TOKEN is set, so Cloudflare TURN is off. Set both, or neither.` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |
+| `Only one of TURN_SECRET and TURN_DOMAIN is set, so the coturn relay is off. Set both, or neither.` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |
+| `Only one of UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN is set, so the transfer counter is kept in memory and resets to 0 on restart. Set both, or neither.` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |
 | `Origin not allowed` | [Behavior shared by every endpoint](/reference/http-api#behavior-shared-by-every-endpoint) |
 | `policy file not found, request links off` | [Turn request links on](/self-hosting/request-links#request-links) |
 | `policy file unreadable, keeping previous policy` | [How the server reads the file](/self-hosting/request-links#how-the-server-reads-the-file) |
@@ -924,8 +927,10 @@ yet has no section of its own so far.
 | `Trusted Proxy Count` | [Direct LAN installation](/self-hosting/unraid#direct-lan-installation) |
 | `TRUSTED_PROXY_COUNT is not a whole number, so the default of 0 is in use. Set it to the number of reverse proxies in front of this server, or 0 if there are none.` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |
 | `TRUSTED_PROXY_COUNT is not set, so the default of {n} is in use. Set it to the number of reverse proxies in front of this server, or 0 if there are none.` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |
+| `TURN_DOMAIN holds more than a host name, so the coturn relay is off. Set it to the host name alone, such as turn.example.com.` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |
 | `Unhandled error ({origin}), server still serving:` | [Operations](/self-hosting/operations) |
 | `Unhandled error ({origin}), server still serving: {error}` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |
+| `Upstash counter {operation} failed ({reason})` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |
 | `Web client for Floe encrypted peer-to-peer file transfer. Install Floe-Server first, then set that server template's Client URL to this app's exact browser origin.` | [Add the templates to Unraid](/self-hosting/unraid#add-the-templates-to-unraid) |
 | `Web UI Port` | [Direct LAN installation](/self-hosting/unraid#direct-lan-installation) |
 | `WebSocket close {n} Server shutting down` | [Operations](/self-hosting/operations) |

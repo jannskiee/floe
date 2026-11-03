@@ -129,7 +129,7 @@ done. `client/next-env.d.ts` is tracked: run
   process you did not start.
 - The server got `UPSTASH_REDIS_REST_URL=http://127.0.0.1:9` and a non-empty
   token, so dotenv cannot refill them from `server/.env`; port 9 refuses
-  instantly and `upstashPost` swallows the error, so startup never blocks.
+  instantly and `upstashPost` logs one `Upstash counter read failed` line and goes on, so startup never blocks.
 - `GET /api/stats` read `{"totalBytes":0}` right after `/health`, and again two
   seconds later (`initStats` is fire-and-forget). With real credentials it
   reads about 200 GB. Neither switch changes this proof or the sentinel.
