@@ -48,6 +48,9 @@ func TestMain(m *testing.M) {
 	// tests run on, and it would silently swallow every toast a test expects.
 	// TestNotifySkippedWhileFloeInFront sets it itself.
 	floeInFrontFn = func() bool { return false }
+	// Pin the Windows Downloads known folder seam so tests take their Downloads
+	// folder from the temporary home, not from the machine the test runs on.
+	knownDownloadsFn = func() string { return "" }
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)

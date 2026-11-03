@@ -115,3 +115,40 @@ func TestSafeLeaf(t *testing.T) {
 		}
 	}
 }
+
+// TestDefaultReceiveDirFollowsAMovedDownloadsFolder: a blank Save to goes to
+// the Downloads folder Windows names, wherever it is. A missing, relative or
+// empty answer keeps today's rule: the home folder's Downloads, else home.
+func TestDefaultReceiveDirFollowsAMovedDownloadsFolder(t *testing.T) {
+	home, moved := t.TempDir(), filepath.Join(t.TempDir(), "Downloads") // moved stands in for a Downloads on another drive
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+	if err := os.Mkdir(moved, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	prev := knownDownloadsFn
+	t.Cleanup(func() { knownDownloadsFn = prev })
+	at := func(named string) string {
+		knownDownloadsFn = func() string { return named }
+		return defaultReceiveDir()
+	}
+
+	if got := at(moved); got != moved {
+		t.Fatalf("defaultReceiveDir = %q, want the Downloads folder Windows names, %q", got, moved)
+	}
+	for _, named := range []string{filepath.Join(home, "gone"), ".", ""} {
+		if got := at(named); got != home {
+			t.Errorf("with %q named and no Downloads at home, defaultReceiveDir = %q, want %q", named, got, home)
+		}
+	}
+	atHome := filepath.Join(home, "Downloads")
+	if err := os.Mkdir(atHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got := at(""); got != atHome {
+		t.Errorf("with nothing named, defaultReceiveDir = %q, want %q", got, atHome)
+	}
+	if got := at(moved); got != moved {
+		t.Errorf("with a Downloads left at home, defaultReceiveDir = %q, want the one Windows names, %q", got, moved)
+	}
+}
