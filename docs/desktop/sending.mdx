@@ -98,6 +98,9 @@ send it:
   `Error: cannot walk <folder>: cannot read <path>: <reason>`.
 - A file or folder you added that is gone, for example one you moved or deleted after you added it:
   `Error: cannot read <path>: <reason>`.
+- A pipe, a socket or a device you added directly:
+  `Error: cannot send <path>: it is a pipe, a socket or a device, not a file`. Inside a folder, such an entry is
+  left out.
 
 A link to a file inside a folder is sent as that file, at the file's own size. A folder you add directly
 that is itself a link is walked like any folder.

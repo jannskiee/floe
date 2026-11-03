@@ -209,6 +209,12 @@ connects, because Floe does not follow links to folders. A path you give that is
 folder is sent as that folder, under the name you typed. `floe` 1.11.0 and earlier sized a linked
 file by the link itself, which could stop the transfer partway.
 
+Floe sends only regular files and folders. A pipe, a socket or a device that you name directly stops
+the send before it connects, with `Error: cannot send <path>: it is a pipe, a socket or a device, not a file`.
+Inside a folder, such entries, and links that point to them, are left out of the transfer without a
+message. `floe` 1.11.7 and earlier send a pipe or a device that you name directly as an empty file,
+and a socket or a pipe inside a folder stops or hangs the send.
+
 The receiver checks where each file would go before saving it. It refuses a file nested more than
 32 levels deep, a path too long for it to save, or a file too large for its drive.
 `floe receive` 1.11.0 or later and Floe Desktop 0.3.0 or later make these checks. `floe send` then
@@ -233,8 +239,11 @@ the data. See [File checks](/how-it-works/file-checks#delivery-confirmation).
 
 ### Stop a send with Ctrl+C {#ctrl-c}
 
-Press `Ctrl+C` at any time to stop. `floe send` prints `Canceled.` and exits with status 130. Once
-the two devices are connected, it first tells the receiver that the sender stopped and closes the
+Press `Ctrl+C` at any time to stop. `floe send` prints `Canceled.` and exits with status 130. On
+macOS and Linux, a hangup does the same: closing the terminal, losing the SSH session, or `SIGHUP`,
+unless you started `floe` with `nohup`. `floe` 1.11.7 and earlier stop at once on a hangup and tell the
+receiver nothing. Once
+the two devices are connected, `floe send` first tells the receiver that the sender stopped and closes the
 connection, which takes about a second at most. What the other side sees depends on how far it had
 got:
 
@@ -294,14 +303,23 @@ These end the send with status 1:
 | Message | What it means | What to do |
 |---|---|---|
 | `Error: cannot read report.pdf:` and the reason | A path you gave does not exist or cannot be read. Floe checks every path before it connects. | Check the path, then run the command again. |
-| `Error: no files to send` | The folders you gave hold no files. | See [`no files to send`](/troubleshooting#no-files-to-send). |
+| `Error: no files to send` | The folders you gave hold no files. A pipe, a socket or a device inside them does not count. | See [`no files to send`](/troubleshooting#no-files-to-send). |
+| `Error: cannot send /dev/zero: it is a pipe, a socket or a device, not a file` | A path you gave is not a regular file or folder. Checked before Floe connects. | Send a regular file. To send a device's contents, copy them to a file first. |
 | `Error: cannot walk project:` and the reason | A folder could not be listed, or it holds a link to a folder or a link that points nowhere. Checked before Floe connects. | Fix the permission or the link, or leave it out. |
-| `Error: error sending notes.txt: open notes.txt:` and the reason | A file could not be opened when its turn came. The files before it were delivered. | Fix that file's permissions, then send what did not arrive. |
-| `Error: error sending notes.txt: error reading file:` and the reason | A file could not be read partway through, for example because its drive was unplugged. The files before it were delivered. | Check the file, then send what did not arrive. |
+| `Error: error sending notes.txt: open notes.txt:` and the reason | A file could not be opened when its turn came. The files before it were delivered. The receiver is told that a file could not be read. | Fix that file's permissions, then send what did not arrive. |
+| `Error: error sending notes.txt: error reading file:` and the reason | A file could not be read partway through, for example because its drive was unplugged. The files before it were delivered. The receiver is told that a file could not be read. | Check the file, then send what did not arrive. |
 | `Error: error sending app.log: the file grew while it was being sent (announced 1048576 bytes); send it again once it stops changing` | The file changed on disk while Floe read it, and the receiver was told so. The other form says `shrank`. | Wait until the program writing the file has finished, then send it again. |
 | `Error: the connection to the server was lost before the peer connected` | Your connection to Floe's server dropped while `floe send` waited. | Run `floe send` again and share the new code. |
 | `Error: --relay-only needs a TURN relay and https://floe.example.com offers none; drop the flag, or configure a relay on the server` | You passed `--relay-only`, and the server has no relay. Checked before the code is made. | See [`--relay-only needs a TURN relay`](/troubleshooting#relay-only-needs-a-turn-relay). |
+| `Error: --iface matches no network interface on this computer; check the name, or drop the flag` | No network interface on this computer has a name you passed to `--iface`. Checked before the code is made. | Check the name, or drop the flag. See [`--iface`](/cli/flags#global-flags). |
 | `Error: failed to connect to signaling server:` and the reason | `floe` could not reach Floe's server. | See [`failed to connect to signaling server`](/troubleshooting#failed-to-connect-to-signaling-server). |
+
+When the receiver is told that a file could not be read, `floe receive` prints
+`Error: The sender stopped: a file could not be read on their device. Ask them to check it and send again.`,
+and Floe Desktop and a browser show the same sentence. On a slow link the notice may not get out in
+time, and the receiver sees a closed connection instead. Through a request link, their Floe Desktop
+shows only “The sender stopped this drop”, or, before they accept, goes back to waiting with no line. `floe` 1.11.7 and earlier close the connection without
+telling the receiver.
 
 ## Send only to a receiver that proves it holds the link {#link-only}
 
@@ -418,7 +436,7 @@ terminal.
 ### Exit status {#send-through-a-request-link-exit-status}
 
 `floe send --to` exits with status 0 only after their Floe confirms that every file arrived.
-`Ctrl+C` exits with status 130, and every other outcome prints its fixed lines, listed under
+`Ctrl+C`, `SIGTERM` and, on macOS and Linux, a hangup exit with status 130, and every other outcome prints its fixed lines, listed under
 [Messages](#messages-from-floe-send-to), and exits with status 1. Each outcome is one of those
 lines, never the other side's own words.
 
@@ -456,7 +474,9 @@ key.
 
 ### Ctrl+C {#send-through-a-request-link-ctrl-c}
 
-`Ctrl+C` stops the send and exits with status 130, with one line:
+`Ctrl+C` stops the send and exits with status 130. On macOS and Linux, a hangup (a closed
+terminal, a lost SSH session, or `SIGHUP`) does the same unless `floe` runs under `nohup`. `floe`
+1.11.7 and earlier stop at once on a hangup. Otherwise either prints one line:
 
 - before they accept: `Canceled. Nothing was sent.`
 - after they accept: `You stopped this drop.` and how many files were saved, such as

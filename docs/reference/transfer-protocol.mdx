@@ -430,7 +430,8 @@ A sender that stops says why in `reason` alone, apart from a failed [`kc`](#kc),
 the code `unverified`:
 
 - Every sender does so for the 2 GB [relay](/glossary#relay) cap.
-- A Go sender does so for a source file that changed while it was being sent.
+- A Go sender does so for a source file that changed while it was being sent, and for a file it can no longer
+  read. `floe` 1.11.7 and earlier and Floe Desktop 1.0.4 and earlier close the connection without a word for the second.
 - floe.one's send page does so for a file it can no longer read, for its own 2-minute wait for
   an ack, and for an error of its own. It also does so for a connection that needs the relay while
   [**Network relay fallback**](/glossary#network-relay-fallback) is off.
