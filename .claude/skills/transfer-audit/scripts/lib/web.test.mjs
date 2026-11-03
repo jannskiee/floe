@@ -1138,6 +1138,7 @@ function scriptedPage(frames, { stepMs = 0 } = {}) {
                     audit.pcs = frame.connected
                         ? [{ connectionState: 'connected' }]
                         : [];
+                    if (frame.everConnected) audit.everConnected = true;
                     globalThis.window = { __floeAudit: audit };
                     const value = fn(arg);
                     if (value) return { jsonValue: async () => value };
@@ -1619,6 +1620,22 @@ test('a sender whose own room refused it is rejoin-failed: at once on the give-u
         assert.ok(back.marks.connected > 0);
         assert.deepEqual(back.notes, []);
     });
+
+    await t.test(
+        'a connection that closed between two polls still counts as connected',
+        async () => {
+            // The relay cap's refusal came 33 ms after the connect, and the page closed
+            // its peer before a poll saw it: 60 s of connect-timeout on a correct run.
+            const leg = pageLeg(
+                'receiver',
+                [{ text: 'transfer blocked', everConnected: true }],
+                { timeoutLookMs: 100 },
+                { stepMs: 100 }
+            );
+            await leg.awaitConnected(1000);
+            assert.ok(leg.marks.connected > 0);
+        }
+    );
 
     await t.test(
         'a receiver page never reads a sender status as its own',

@@ -402,6 +402,11 @@ export function AUDIT_INIT({ relayOnly = false } = {}) {
         force,
         '            super(cfg, ...rest);',
         '            audit.pcs.push(this);',
+        // Kept, because a refusal can end the connection between two polls: the
+        // relay cap's came 33 ms after the connect, with the page closing its peer.
+        "            this.addEventListener('connectionstatechange', () => {",
+        "                if (this.connectionState === 'connected') audit.everConnected = true;",
+        '            });',
         '            this.__floeCand = { local: [], remote: [] };',
         "            this.addEventListener('datachannel', (e) => track(e.channel));",
         "            this.addEventListener('icecandidate', (e) =>",
@@ -1172,7 +1177,10 @@ export class WebLeg extends Leg {
                     const a = window.__floeAudit;
                     if (
                         a &&
-                        a.pcs.some((pc) => pc.connectionState === 'connected')
+                        (a.everConnected ||
+                            a.pcs.some(
+                                (pc) => pc.connectionState === 'connected'
+                            ))
                     )
                         return true;
                     const text =
