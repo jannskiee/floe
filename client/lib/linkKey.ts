@@ -133,7 +133,8 @@ export interface ShareFragment {
  * Three more shapes count as holding a k, as they do for ResolveLink in
  * cli/engine/code: a fragment that holds one only once decoded (a mail client encoded it
  * whole), one behind a semicolon, and a name that was k before something changed it, or
- * a k moved into the query. And a share link's nonce with nothing behind it is a link
+ * a k moved into the query. So does a key that lost its name, or a k= inside a value
+ * (holdsLostKey). And a share link's nonce with nothing behind it is a link
  * whose fragment was lost whole: no other page of this site has an ?s=, and opening the
  * sending page from it is what B14 exists to stop. cli/engine/code/testdata/link-shapes.json
  * holds the two parsers together.
@@ -153,6 +154,7 @@ export function readShareFragment(hash: string, search: string): ShareFragment {
         return { room: rooms[0], key, incomplete: false };
     }
     if (namesDamagedKey(fragment) || namesDamagedKey(decodedParams) || namesDamagedKey(query)) return cut;
+    if (holdsLostKey(fragment, query) || holdsLostKey(decodedParams, query)) return cut;
     if (raw === '' && query.has('s') && !query.has('room')) return cut;
     const room = getRoomFromUrl(hash, search);
     const incomplete = fragment.has('room') && (room === null || !isValidRoomId(room));
@@ -176,6 +178,29 @@ function decodedFragment(raw: string): string {
 export function namesDamagedKey(params: URLSearchParams): boolean {
     for (const name of params.keys()) {
         if (name.replace(/^[^\p{L}\p{Nd}]+|[^\p{L}\p{Nd}]+$/gu, '').toLowerCase() === 'k') return true;
+    }
+    return false;
+}
+
+// A whole key's text: 22 characters, the last with no bits past the sixteenth byte.
+const KEY_SHAPED = /^[A-Za-z0-9_-]{21}[AQgw]$/;
+// A k= inside a value, where something encoded the # or & in front of it.
+const KEY_IN_VALUE = /(?:^|[^A-Za-z0-9_-])k=/;
+
+/**
+ * Whether a link about to be read with no key still holds one somewhere: a fragment
+ * parameter, name or value, that is a whole key's text (its name or its = was lost), or
+ * a value that holds a k= (its # was encoded, which also puts it in the request line).
+ * The query's names and values are not read for the key's text: a query can hold
+ * anything a sharing tool adds, and a false match there would refuse a good link. No
+ * keyless link Floe writes holds either. Twin of holdsLostKey in cli/engine/code/client.go.
+ */
+export function holdsLostKey(fragment: URLSearchParams, query: URLSearchParams): boolean {
+    for (const [name, value] of fragment) {
+        if (KEY_SHAPED.test(name) || KEY_SHAPED.test(value) || KEY_IN_VALUE.test(value)) return true;
+    }
+    for (const value of query.values()) {
+        if (KEY_IN_VALUE.test(value)) return true;
     }
     return false;
 }
