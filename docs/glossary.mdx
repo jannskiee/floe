@@ -2,7 +2,7 @@
 title: "Glossary"
 sidebarTitle: "Glossary"
 description: "Plain definitions of the words Floe and these docs use, from share link and relay to WebRTC and STUN, each with a link to the page that explains it."
-keywords: ["glossary", "definitions", "what does it mean", "terms", "jargon", "what is a relay", "what is webrtc"]
+keywords: ["glossary", "definitions", "what does it mean", "terms", "jargon", "what is a relay", "what is webrtc", "what is a link key"]
 ---
 
 This page explains the words you meet in Floe and in these docs, in one or two plain sentences
@@ -81,7 +81,8 @@ PC that made it. It has `/r/` in its address and takes one drop. See
 
 Three words, such as `olive-tiger-castle`, that the receiver can type in place of a link.
 `floe send` and Floe Desktop show one, and it works for 10 minutes at most. The web app neither
-makes nor accepts room codes. See
+makes nor accepts room codes. It carries no [link key](#link-key), so a transfer joined with one has
+no check. See
 [How a transfer works](/how-it-works/signaling#code-and-link-lifetime).
 
 ### SHA-256 matched {#sha-256-matched}
@@ -110,7 +111,8 @@ no size limit on it, and most transfers are direct. See
 ### encrypted end to end {#encrypted-end-to-end}
 
 Scrambled on your device and unscrambled only on the other person's, so nothing in between can
-read your files. That includes Floe's own servers, and every transfer works this way. See
+read your files, as long as the two devices were introduced honestly. That includes Floe's own
+servers, and every transfer works this way. See
 [Encryption](/how-it-works/encryption).
 
 ### Floe's server / signaling server {#signaling-server}
@@ -131,6 +133,14 @@ The number that identifies your connection on the internet. It can show your int
 roughly where you are. On a direct connection the other person's device learns it. See
 [Known limitations](/how-it-works/known-limitations#the-other-person-learns-your-ip-address).
 
+### link key {#link-key}
+
+A random value in a link, after the `#`, that no server receives. Each side that holds it proves so
+once the devices connect, which lets a receiver catch a server that steps in between. Links from the
+web app, `floe` 1.12 and later and Floe Desktop 1.1 and later carry one, and a room code does not. It
+proves someone holds the link, not who they are. See
+[What the link key checks](/how-it-works/known-limitations#the-signaling-server-is-trusted-to-introduce-you-honestly).
+
 ### peer-to-peer {#peer-to-peer}
 
 Sent from one device to the other, with no server in between that stores the files or can read
@@ -148,9 +158,10 @@ this one server: some name it, and some are the settings that allow or require i
 ### room / room id {#room}
 
 The private meeting point on Floe's server for one transfer. It holds two devices, one sender and
-one receiver, and turns a third away. Its room id is a long random code, and a share link carries
-it after the `#`. Whoever has the room id can join while the room has a free place, so it is the
-part of the link to keep private. See [How a transfer works](/how-it-works/signaling#a-room-holds-exactly-two-people).
+one receiver, and turns a third away. Its room id is a long random code that the server knows, and
+a link carries it after the `#`. Whoever has the room id can join while the room has a free place,
+so keep the part of the link after the `#` private. It is not the [link key](#link-key), which sits
+beside it and which no server receives. See [How a transfer works](/how-it-works/signaling#a-room-holds-exactly-two-people).
 
 ### self-hosted {#self-hosted}
 
@@ -254,7 +265,8 @@ relay, they mean the relay. See [Relay fallback](/how-it-works/relay-connection)
 ### URL fragment {#url-fragment}
 
 The part of a web address after the `#`. A browser does not send it when it requests a page, so
-the room id Floe keeps there stays out of web server logs. See
+the room id and the [link key](#link-key) Floe keeps there stay out of web server logs. A script on
+the page can still read it. See
 [Security and privacy](/security-privacy#the-room-secret-stays-out-of-every-server-log).
 
 ### WebRTC {#webrtc}

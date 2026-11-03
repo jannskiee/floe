@@ -150,7 +150,7 @@ content `{"requestLinks": true}`, uncomment the server's `volumes` example in
 `GET /health` then lists `"features":["request-1"]`. The server re-reads the file
 every 60 seconds, so turning request links off again needs no restart.
 
-Three things catch people out:
+Four things catch people out:
 
 - Mount the folder, not the file. An edit puts a new file in place of the old one,
   and a mount of the single file keeps showing the old one.
@@ -162,6 +162,10 @@ Three things catch people out:
   `http://localhost:3000` itself. Left blank otherwise, it builds the link from the
   server address, and the server does not serve the page a sender opens. On one
   domain, leave it blank.
+- Update the web image to 1.12.0 before Floe Desktop 1.1 reaches your users. Every
+  request link Floe Desktop 1.1 and later makes holds a link key, and an older image
+  reads that as an incomplete link. The Microsoft Store updates Floe Desktop on its
+  own, and a pinned `FLOE_IMAGE_TAG` stays behind until you change it.
 
 The full steps, the limits, and the rule about matching versions are in
 [Turn on request links](https://www.floe.one/docs/self-hosting/request-links).

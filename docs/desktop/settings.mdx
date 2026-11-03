@@ -363,15 +363,18 @@ notice is dismissed, and disappears once you are up to date.
 
 ### Transfer protocol
 
-The version of the wire format the app speaks. Today the row reads `Version 1`. Point at the label and it
-reads "If a transfer won't start, update the older app".
+The version of the wire format the app speaks. In Floe Desktop 1.1 and later the row reads `Version 2`, and in
+Floe Desktop 1.0.x it reads `Version 1`. Point at the label and it reads "If a transfer won't start, update the
+older app".
 
 You do not need to match versions with the person on the other end. Compatibility is a range check, not an
-exact match, so different releases transfer normally. If a future release ever does change the format in a
-way the two sides cannot bridge, they detect it **before any file data moves**. The older side's message
+exact match, and version 2 still accepts version 1, so different releases transfer normally. When two sides
+cannot bridge the format, they detect it **before any file data moves**. The older side's message
 includes "Cannot transfer: your floe is too old for this peer." and, in Floe Desktop, says to update Floe from
 the Microsoft Store or floe.one/download. The newer side's message includes "Cannot transfer: peer's floe is too old."
-and asks the other side to update (the [peer](/glossary#peer) is the app on the other end).
+and asks the other side to update (the [peer](/glossary#peer) is the app on the other end). Floe Desktop 1.0.x
+shows the older side's message when `floe send --link-only`, in `floe` 1.12 or later, stops it because it cannot
+prove it holds the link.
 
 ### Server in use
 
@@ -389,7 +392,8 @@ Transfer protocol: 1
 Server: api.floe.one (default)
 ```
 
-With your own server, the `Server:` line has its full address, and a `Share links:` line follows when that
+Floe Desktop 1.1 and later write `Transfer protocol: 2`. With your own server, the `Server:` line has its full
+address, and a `Share links:` line follows when that
 address is set. Those are the details to include in a bug report. They name your server, so check them before
 you post them in public.
 

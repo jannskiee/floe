@@ -106,12 +106,13 @@ The panel offers three ways to hand the transfer over:
   in browsers that offer one. If the share sheet fails for any reason other than you closing it,
   the page copies the link instead.
 
-The whole link is the key to this transfer, so always share all of it. It looks like
-`https://www.floe.one/?s=8262e1b4#room=<uuid>`, where `<uuid>` stands for the room id, a long
-random code. Your browser makes the [room](/glossary#room) id itself, and it sits after the `#`. A
-browser leaves that part out when it requests a page, so it stays out of the web host's logs and
-out of the address passed on to the next site you visit. Floe's server does receive it, because
-joining the room is how the two devices find each other. The `?s=` value is 8 random characters,
+Always share the whole link: it is what lets the other person in. It looks like
+`https://www.floe.one/?s=8262e1b4#k=<link key>&room=<room id>`. The [room](/glossary#room) id is a
+long random code, and the [link key](/glossary#link-key) is another that the other side uses to
+check your page. Your browser makes both, and they sit after the `#`. A browser leaves that part out
+when it requests a page, so they stay out of the web host's logs and out of the address passed on to
+the next site you visit. Floe's server does receive the room id, because joining the room is how the
+two devices find each other. It never receives the link key. The `?s=` value is 8 random characters,
 digits and the letters a to f, that carry no information. They only make each link a distinct page, so a
 phone that already has Floe open does not reuse a stale tab.
 
@@ -126,6 +127,13 @@ The link works for as long as this page stays open and connected to Floe's serve
 The link is all that protects the transfer. Whoever opens it first gets the files, and this page
 does not ask you to approve them, so send it over a channel you trust. See
 [Known limitations](/how-it-works/known-limitations#anyone-with-the-link-or-code-can-receive).
+
+The link key lets a receiver check your page. It does not let this page hold the receiver to it.
+This page stops on a proof that is wrong, and goes on when no proof comes, because `floe receive`
+before 1.12 and Floe Desktop before 1.1 have none to give. So a server that plays such a receiver
+gets the whole file, this page says the files were sent, and that server's report can turn the check
+mark green. See
+[What the link key checks](/how-it-works/known-limitations#the-signaling-server-is-trusted-to-introduce-you-honestly).
 
 <Info>
 A [share link](/glossary#share-link) is not a request link. A request link, made in Floe Desktop,
@@ -193,13 +201,16 @@ Once it is running, three things show progress:
 - Each file row gets a green check once that file has left your browser, and a spinner while it is
   the one moving.
 
-Two things can stop a running transfer from your side:
+Three things can stop a running transfer from your side:
 
 - **A file you queued can no longer be read**, because it was moved, renamed, or on a drive that
   went away. Floe stops at that file and names it. See
   [Troubleshooting](/troubleshooting#could-not-read-a-file).
 - **The other side does not accept a file within 2 minutes.** The card shows
   [`Transfer timed out waiting for receiver. Please try again.`](/troubleshooting#transfer-timed-out-waiting-for-receiver-please-try-again)
+- **The other side's proof of the link key is wrong.** The card shows
+  [“Floe couldn't confirm the person who opened your link, so nothing was sent. Make a new link and send it again.”](/troubleshooting#floe-could-not-confirm-the-person-who-opened-your-link)
+  The link stops working, and the message stays until you reload.
 
 When your page stops by itself, it tells the other side why and closes the connection. The rows
 before the file that stopped keep their checks, so you can see which files still have to go.
@@ -314,3 +325,6 @@ from the [terminal](/cli/send) or from [Floe Desktop](/desktop/sending). See
   [Reconnecting to your link](/troubleshooting#reconnecting-to-your-link).
 - "The connection closed before the transfer finished.": see
   [Troubleshooting](/troubleshooting#the-connection-closed-before-the-transfer-finished).
+- "Floe couldn't confirm the person who opened your link", "The other side couldn't confirm this
+  link", or "This browser can't check this link": see
+  [Troubleshooting](/troubleshooting#floe-could-not-confirm-the-person-who-opened-your-link).

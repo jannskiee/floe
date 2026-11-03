@@ -54,7 +54,7 @@ Floe Desktop runs on Windows 10 and 11 (x64). The Microsoft Store build is signe
 
 Prefer a direct download? An installer and a portable build are on the [download page](https://www.floe.one/download). Setup details are in the [desktop installation guide](https://www.floe.one/docs/desktop/installation).
 
-Request links let one person send files straight to your PC. You make a one-time link in Floe Desktop, and they open it in a browser or run `floe send <files> --to <link>`. The browser page is supported in current Chrome and Edge on a computer. Nothing is saved until you accept, unless you turn on Auto-accept for that link. To make a link, see [Request links](https://www.floe.one/docs/desktop/request-links). If someone sent you one, see [Sending through a request link](https://www.floe.one/docs/web-app/request-links).
+Request links let one person send files straight to your PC. You make a one-time link in Floe Desktop, and they open it in a browser or run `floe send <files> --to "<link>"`, which needs `floe` 1.12 or later for a link from Floe Desktop 1.1 or later. The browser page is supported in current Chrome and Edge on a computer. Nothing is saved until you accept, unless you turn on Auto-accept for that link. To make a link, see [Request links](https://www.floe.one/docs/desktop/request-links). If someone sent you one, see [Sending through a request link](https://www.floe.one/docs/web-app/request-links).
 
 ## CLI
 
@@ -68,7 +68,7 @@ curl -fsSL https://floe.one/install.sh | sh   # Linux, or macOS without Homebrew
 
 Send with `floe send photo.jpg`, receive with `floe receive olive-tiger-castle`, and update with `floe update`. An install that Homebrew, Scoop, or winget owns updates through that package manager instead, and `floe update` prints the command to run.
 
-Senders in the CLI and the desktop app produce both a short code and a browser link, so the receiver can join from any client. `floe send <files> --to <link>` sends through a [request link](https://www.floe.one/docs/cli/send#send-through-a-request-link) made in Floe Desktop instead of creating a code. Other install channels, checksum verification, and PATH setup are covered in [Install the CLI](https://www.floe.one/docs/cli/installation).
+Senders in the CLI and the desktop app produce both a short code and a browser link, so the receiver can join from any client. `floe send <files> --to "<link>"` sends through a [request link](https://www.floe.one/docs/cli/send#send-through-a-request-link) made in Floe Desktop instead of creating a code. Other install channels, checksum verification, and PATH setup are covered in [Install the CLI](https://www.floe.one/docs/cli/installation).
 
 ## Self-hosting
 

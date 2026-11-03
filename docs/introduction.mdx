@@ -31,8 +31,8 @@ one sending. See [Sending through a request link](/web-app/request-links).
 ## Pick a Floe
 
 There are three: the web app, Floe Desktop and the `floe` [CLI](/glossary#cli), a command you type in
-a terminal. All three send to each other in any direction, so this is a question of convenience
-rather than compatibility.
+a terminal. Current versions of all three send to each other in any direction, so this is a question
+of convenience rather than compatibility.
 
 <Columns cols={3}>
   <Card title="Web app" icon="globe" href="/web-app/sending">
@@ -52,8 +52,9 @@ Not sure which? See [Which Floe to use](/choosing-floe).
 
 **Encrypted [end to end](/glossary#encrypted-end-to-end).** Your files are encrypted on your device
 and decrypted only on the other one, so nobody in between can read them, Floe's own servers
-included. That rests on one piece of trust, explained under
-[The signaling server is trusted to introduce you honestly](/how-it-works/known-limitations#the-signaling-server-is-trusted-to-introduce-you-honestly).
+included. That rests on Floe's server introducing the two devices honestly. A
+[link key](/glossary#link-key) checks that on a link that carries one, and only so far: see
+[What the link key checks](/how-it-works/known-limitations#the-signaling-server-is-trusted-to-introduce-you-honestly).
 The connection is a [WebRTC](/glossary#webrtc) [data channel](/glossary#data-channel). See
 [Security and privacy](/security-privacy), and
 [what Floe does not protect against](/how-it-works/known-limitations) for the honest other half.

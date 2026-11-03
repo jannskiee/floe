@@ -50,8 +50,8 @@ are complete.
 The **Code or link** field accepts any of these:
 
 - A room code, three words such as `olive-tiger-castle`. Capital letters do not matter.
-- A share link, for example `https://floe.one/#room=...`.
-- A link from an older Floe release that used `?room=` instead.
+- A share link, for example `https://floe.one/#k=<link key>&room=<room id>`.
+- A link from an older Floe release, with `#room=` or `?room=` and no [link key](/glossary#link-key).
 
 So whatever the sender copied, pasting it works, including a link that lost its `https://` or arrived
 wrapped in angle brackets or quotes. Press `Enter` in the field instead of clicking if you prefer.
@@ -59,8 +59,18 @@ wrapped in angle brackets or quotes. Press `Enter` in the field instead of click
 A room code works for one receiver, and for 10 minutes at most. See
 [How a transfer works](/how-it-works/signaling#code-and-link-lifetime).
 
-A link cut short partway through its room id, the part after `#room=`, reads `Error: That link is incomplete`.
-Copy the whole link again, including everything after the `#`.
+In Floe Desktop 1.1 and later, a link cut short partway through its link key or its room id reads
+`Error: That link is incomplete`. Copy the whole link again, including everything after the `#`. Floe Desktop
+1.0.x reads a link cut in its link key as "That code wasn't recognized".
+
+Floe Desktop 1.1 and later checks a link that holds a link key. Before it saves anything, the sender has to
+prove it holds the same link key. A sender that cannot prove it gets
+[`Error: Couldn't confirm who sent this link. Nothing was received`](/troubleshooting#could-not-confirm-who-sent-this-link-in-floe-desktop),
+and a sender that connects and says nothing gets
+[`Error: The sender never started sending`](/troubleshooting#connected-but-the-sender-never-started-sending)
+after 30 seconds. Floe Desktop 1.0.x reads the room id and ignores the link key. A room code or an older link
+holds no link key, so it has no check, and nothing on screen tells them apart. See
+[What the link key checks](/how-it-works/known-limitations#the-signaling-server-is-trusted-to-introduce-you-honestly).
 
 A share link names the server that holds its [room](/glossary#room), and Floe checks it against the server it
 is set to use before it connects. A code carries no server, so it is never refused this way:
@@ -302,3 +312,5 @@ once, with the bytes of the files it saved under their final names, and only wit
   Ask for a new link.
 - [`Error: The sender never started sending`](/troubleshooting#connected-but-the-sender-never-started-sending):
   Floe connected and nothing arrived for 30 seconds. Ask the sender to try again.
+- [`Error: Couldn't confirm who sent this link. Nothing was received`](/troubleshooting#could-not-confirm-who-sent-this-link-in-floe-desktop):
+  in Floe Desktop 1.1 and later, the sender could not prove it holds the link key. Ask for a new link.

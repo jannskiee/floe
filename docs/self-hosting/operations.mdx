@@ -122,8 +122,20 @@ The web app at floe.one always runs the newest code, and it is the one the rest 
 describe. A web app you host changes only when you pull a newer image. Until then its pages show the
 wording of the version they run, and this table lists each place where that differs.
 
-| Where | What these docs describe | What version 1.11.0 or earlier shows |
+<Warning>
+  Update the web image to 1.12.0 before Floe Desktop 1.1 reaches your users. The Microsoft Store
+  updates Floe Desktop on its own, so it cannot be timed to happen together, and a pinned
+  `FLOE_IMAGE_TAG` stays behind until you change it. From then on, an older image can open no request
+  link Floe Desktop makes. The first rows of the table say what breaks.
+</Warning>
+
+| Where | What these docs describe | What an older version shows |
 |---|---|---|
+| [Sending through a request link](/web-app/request-links#send-and-wait): a request link from Floe Desktop 1.1 or later, which holds a [link key](/glossary#link-key) | The page reads the link, checks the computer that made it, and sends. | Version 1.11.7 or earlier: the link is dead in a browser. The page reads “This link looks incomplete”, asks the server nothing, and Floe Desktop shows nothing. Before 1.11.0 the address answers 404. |
+| [floe send](/cli/send#link-only): `floe send --link-only` into a browser | The page proves the link key, and the files arrive. | Version 1.11.7 or earlier: the page has no proof to give. After about 16 seconds `floe send` says `Couldn't confirm the receiver. They may need to run floe update, or open the link in a browser.`, though the browser is what is old. The page says “The sender stopped the transfer.”, or on 1.10.0 and 1.9.1 “Could not connect. Ask the sender to enable "Network Relay" and try again.” |
+| [Receiving files](/web-app/receiving#open-the-link): a share link from `floe` 1.12 or later or Floe Desktop 1.1 or later, which holds a link key | The page checks that the sender holds the link key before it accepts a file. | Version 1.11.7 or earlier: the files arrive with a matching SHA-256 and the link key unread. Nothing breaks, nothing is checked, and the person cannot tell. |
+| [Sending files](/web-app/sending#create-the-link): the link the Send page makes | The link holds a link key: `?s=8262e1b4#k=<link key>&room=<room id>`. | Version 1.11.7 or earlier: the link has no link key, `?s=8262e1b4#room=<room id>`, so no receiver can check it. |
+| [Sending through a request link](/web-app/request-links#when-their-floe-stops-the-drop): a drop that stops after they accepted, with nothing saved | No line says what was saved, because part of a file may have gone. | Version 1.11.7 or earlier: a line reads “Nothing was sent.”, under “You stopped this drop.” too. |
 | [Troubleshooting](/troubleshooting#open-in-your-browser): “Open in your browser” on a request link | The card says to open the link in current Chrome or Edge on a computer. | Version 1.11.0 only: the card says “Open Floe in Chrome or Safari for the best experience.” instead. Open the link in current Chrome or Edge on a computer all the same. |
 | [Troubleshooting](/troubleshooting#the-transfer-never-starts): a browser opens the link after the sender left | The page says “The sender is not connected”. | No message there: the page stays on “Waiting for the sender to start”. |
 | [Troubleshooting](/troubleshooting#link-invalid): the “Link Invalid” card | The card reads “This link is incomplete, already in use, or locked to the networks that first used it.” | The card reads “This link is either expired, already in use, or does not exist.” The causes are the same. |

@@ -29,6 +29,16 @@ the newest code on `main`, and the web-app pages of these docs describe that. An
 `latest` can therefore word some things differently until the next release, as
 [What an older web app shows](/self-hosting/operations#older-web-app-versions) lists.
 
+Update the web image to 1.12.0 before Floe Desktop 1.1 reaches your users. Every request link Floe
+Desktop 1.1 and later makes holds a [link key](/glossary#link-key), and an older image reads that as
+an incomplete link. The Microsoft Store updates Floe Desktop on its own, and a pinned tag stays behind
+until you change it. See
+[Keep the client and server on one version](/self-hosting/request-links#matching-versions).
+
+The web image also decides how far a link key can be trusted, because whoever serves the page's
+JavaScript holds every link key its pages open. See
+[What the link key cannot see](/how-it-works/known-limitations#what-the-link-key-cannot-see).
+
 `main` only advances by merged pull request, and every image is smoke-tested on real hardware
 before the tag moves. It moves only when a merge touches `client/`, `server/`, or the image
 pipeline itself, so a docs-only merge starts no build and leaves it where it is. For the same

@@ -325,14 +325,14 @@
         "surface": "web",
         "text": "Floe couldn't confirm the person who opened your link, so nothing was sent. Make a new link and send it again.",
         "source": "client/lib/linkKeyCopy.ts",
-        "anchor": null,
+        "anchor": "/troubleshooting#floe-could-not-confirm-the-person-who-opened-your-link",
         "why_no_home": null
     },
     {
         "surface": "web",
         "text": "Floe couldn't confirm who sent this link, so nothing was received. Ask them for a new link.",
         "source": "client/lib/linkKeyCopy.ts",
-        "anchor": null,
+        "anchor": "/troubleshooting#floe-could-not-confirm-who-sent-this-link",
         "why_no_home": null
     },
     {
@@ -815,7 +815,7 @@
         "surface": "web",
         "text": "The other side couldn't confirm this link, so nothing was sent. Make a new link and send it again.",
         "source": "client/lib/linkKeyCopy.ts",
-        "anchor": null,
+        "anchor": "/troubleshooting#the-other-side-could-not-confirm-this-link",
         "why_no_home": null
     },
     {
@@ -955,14 +955,14 @@
         "surface": "web",
         "text": "This browser can't check this link, so nothing was received. Open it in a current version of Chrome, Edge, Firefox or Safari.",
         "source": "client/lib/linkKeyCopy.ts",
-        "anchor": null,
+        "anchor": "/troubleshooting#this-browser-cannot-check-this-link",
         "why_no_home": null
     },
     {
         "surface": "web",
         "text": "This browser can't check this link, so nothing was sent. Open Floe in a current version of Chrome, Edge, Firefox or Safari.",
         "source": "client/lib/linkKeyCopy.ts",
-        "anchor": null,
+        "anchor": "/troubleshooting#this-browser-cannot-check-this-link",
         "why_no_home": null
     },
     {
@@ -1263,7 +1263,7 @@
         "surface": "web-request",
         "text": "Ask the person who made this link for a new one.",
         "source": "client/lib/request/visitorCopy.ts",
-        "anchor": null,
+        "anchor": "/web-app/request-links#when-their-floe-stops-the-drop",
         "why_no_home": null
     },
     {
@@ -1410,28 +1410,28 @@
         "surface": "web-request",
         "text": "Couldn't confirm their computer",
         "source": "client/lib/request/visitorCopy.ts",
-        "anchor": null,
+        "anchor": "/troubleshooting#could-not-confirm-their-computer",
         "why_no_home": null
     },
     {
         "surface": "web-request",
         "text": "This browser can't check this link",
         "source": "client/lib/request/visitorCopy.ts",
-        "anchor": null,
+        "anchor": "/troubleshooting#this-browser-cannot-check-this-link",
         "why_no_home": null
     },
     {
         "surface": "web-request",
         "text": "Nothing was sent. Open this link in a current version of Chrome, Edge, Firefox or Safari.",
         "source": "client/lib/request/visitorCopy.ts",
-        "anchor": null,
+        "anchor": "/troubleshooting#this-browser-cannot-check-this-link",
         "why_no_home": null
     },
     {
         "surface": "web-request",
         "text": "Couldn't confirm their computer. Nothing was sent. Ask the person who made this link for a new one.",
         "source": "client/lib/request/visitorCopy.ts",
-        "anchor": null,
+        "anchor": "/troubleshooting#could-not-confirm-their-computer",
         "why_no_home": null
     },
     {
@@ -1592,7 +1592,7 @@
         "surface": "web-request",
         "text": "Nothing was sent. Ask the person who made this link for a new one.",
         "source": "client/lib/request/visitorCopy.ts",
-        "anchor": null,
+        "anchor": "/troubleshooting#could-not-confirm-their-computer",
         "why_no_home": null
     },
     {
@@ -1830,7 +1830,7 @@
         "surface": "web-request",
         "text": "Their computer couldn't confirm this link",
         "source": "client/lib/request/visitorCopy.ts",
-        "anchor": null,
+        "anchor": "/troubleshooting#their-computer-could-not-confirm-this-link",
         "why_no_home": null
     },
     {

@@ -67,8 +67,8 @@ yet has no section of its own so far.
 | “End-to-end encrypted. Files are never stored on a server.” | [Saving what arrives](/web-app/receiving#saving-what-arrives) |
 | “Files go through it only when a direct connection isn't possible; most transfers stay direct. 2 GB limit when relayed. Learn more” | [Decide whether the relay is allowed](/web-app/sending#decide-whether-the-relay-is-allowed) |
 | “Files stream in below” | [While you wait](/web-app/receiving#while-you-wait) |
-| “Floe couldn't confirm the person who opened your link, so nothing was sent. Make a new link and send it again.” | Not explained yet |
-| “Floe couldn't confirm who sent this link, so nothing was received. Ask them for a new link.” | Not explained yet |
+| “Floe couldn't confirm the person who opened your link, so nothing was sent. Make a new link and send it again.” | [Floe couldn't confirm the person who opened your link](/troubleshooting#floe-could-not-confirm-the-person-who-opened-your-link) |
+| “Floe couldn't confirm who sent this link, so nothing was received. Ask them for a new link.” | [Floe couldn't confirm who sent this link](/troubleshooting#floe-could-not-confirm-who-sent-this-link) |
 | “Folders cannot be sent from this page. Add the files inside it, or zip it first.” | [Add your files](/web-app/sending#add-your-files) |
 | “For machines without Store access: the installer and a portable zip (unzip and run floe-desktop.exe). These builds are not signed, so the first time you run one, Windows SmartScreen shows a warning: choose "More info", then "Run anyway".” | [Choose a channel](/desktop/installation#choose-a-channel) |
 | “From the Microsoft Store it installs with no warnings, and updates arrive automatically.” | [Choose a channel](/desktop/installation#choose-a-channel) |
@@ -141,7 +141,7 @@ yet has no section of its own so far.
 | “Something went wrong while sending, so the transfer was stopped. Reload the page, add the files again, and share the new link.” | [Something went wrong while sending](/troubleshooting#something-went-wrong-while-sending) |
 | “That link points at nothing here. If you were sent a Floe link, check that you copied the whole thing.” | [Page not found](/troubleshooting#page-not-found) |
 | “The connection closed before the transfer finished.” | [The connection closed before the transfer finished.](/troubleshooting#the-connection-closed-before-the-transfer-finished) |
-| “The other side couldn't confirm this link, so nothing was sent. Make a new link and send it again.” | Not explained yet |
+| “The other side couldn't confirm this link, so nothing was sent. Make a new link and send it again.” | [The other side couldn't confirm this link](/troubleshooting#the-other-side-could-not-confirm-this-link) |
 | “The other side discarded a file that did not match what was sent. Try sending again.” | [When it finishes](/web-app/sending#when-it-finishes) |
 | “The other side rejected the transfer.” | [A banner that starts with receiver](/troubleshooting#a-banner-that-starts-with-receiver) |
 | “The receiver asked to resume "\{name\}" from a position that is not a number, which is not possible. Please try again.” | [The receiver asked to resume](/troubleshooting#the-receiver-asked-to-resume) |
@@ -162,8 +162,8 @@ yet has no section of its own so far.
 | “The sender's SHA-256 for a file could not be read, so the file was discarded. Ask the sender to try again.” | [A file did not match what was sent, so it was discarded. Ask the sender to try again.](/troubleshooting#a-file-did-not-match-what-was-sent) |
 | “This browser cannot receive files through Floe because WebRTC is missing or turned off. Open the link in a current version of Chrome, Edge, Firefox or Safari.” | [Which browsers work?](/faq#which-browsers-work) |
 | “This browser cannot send files through Floe because WebRTC is missing or turned off. Use a current version of Chrome, Edge, Firefox or Safari.” | [Which browsers work?](/faq#which-browsers-work) |
-| “This browser can't check this link, so nothing was received. Open it in a current version of Chrome, Edge, Firefox or Safari.” | Not explained yet |
-| “This browser can't check this link, so nothing was sent. Open Floe in a current version of Chrome, Edge, Firefox or Safari.” | Not explained yet |
+| “This browser can't check this link, so nothing was received. Open it in a current version of Chrome, Edge, Firefox or Safari.” | [This browser can't check this link](/troubleshooting#this-browser-cannot-check-this-link) |
+| “This browser can't check this link, so nothing was sent. Open Floe in a current version of Chrome, Edge, Firefox or Safari.” | [This browser can't check this link](/troubleshooting#this-browser-cannot-check-this-link) |
 | “This browser ran out of memory while receiving, so the transfer was stopped. Receive large files on a computer with Floe Desktop (Windows) or the Floe CLI, which save straight to disk.” | [This browser ran out of memory while receiving](/troubleshooting#this-browser-ran-out-of-memory) |
 | “This browser ran out of room for the files it is receiving, so the transfer was stopped. A private or Incognito window holds much less than a normal one, so receive in a normal window, or receive large files on a computer with Floe Desktop (Windows) or the Floe CLI, which save straight to disk.” | [This browser ran out of room for the files it is receiving](/troubleshooting#this-browser-ran-out-of-room) |
 | “This in-app browser has limited support for file transfers. Open Floe in Chrome or Safari for the best experience.” | [If Floe says Open in your browser](/web-app/receiving#if-floe-says-open-in-your-browser) |
@@ -207,7 +207,7 @@ yet has no section of its own so far.
 | “\{App\}’s browser has limited support for file transfers. Open the link in current Chrome or Edge on a computer.” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
 | “ARRIVED” | [When the files arrive](/web-app/request-links#when-the-files-arrive) |
 | “Ask for a new link.” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
-| “Ask the person who made this link for a new one.” | Not explained yet |
+| “Ask the person who made this link for a new one.” | [When their Floe stops the drop](/web-app/request-links#when-their-floe-stops-the-drop) |
 | “Ask them for a new link to send the rest.” | [When their Floe stops the drop](/web-app/request-links#when-their-floe-stops-the-drop) |
 | “Ask them for a new link.” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
 | “\{a\} of 1 file arrived. Ask them for a new link to send it.” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
@@ -230,8 +230,8 @@ yet has no section of its own so far.
 | “Could not read a file” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
 | “Could not read a file. "\{your path\}" may have been moved or renamed, or its drive disconnected.” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
 | “Couldn't check for a relay. Try again, or turn off Hide my IP to send directly.” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
-| “Couldn't confirm their computer” | Not explained yet |
-| “Couldn't confirm their computer. Nothing was sent. Ask the person who made this link for a new one.” | Not explained yet |
+| “Couldn't confirm their computer” | [Couldn't confirm their computer](/troubleshooting#could-not-confirm-their-computer) |
+| “Couldn't confirm their computer. Nothing was sent. Ask the person who made this link for a new one.” | [Couldn't confirm their computer](/troubleshooting#could-not-confirm-their-computer) |
 | “Couldn't connect to their computer. Nothing was sent.” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
 | “Couldn’t copy. Press and hold the link above to copy it.” | [Open in your browser](/troubleshooting#open-in-your-browser) |
 | “\{count\} FILES, \{size\}” | [What the page shows](/web-app/request-links#what-the-page-shows) |
@@ -254,8 +254,8 @@ yet has no section of its own so far.
 | “More data arrived than they accepted” | [When their Floe stops the drop](/web-app/request-links#when-their-floe-stops-the-drop) |
 | “More data arrived than they accepted. If files changed after you chose them, ask them for a new link.” | [When their Floe stops the drop](/web-app/request-links#when-their-floe-stops-the-drop) |
 | “Nothing was sent.” | [When their Floe stops the drop](/web-app/request-links#when-their-floe-stops-the-drop) |
-| “Nothing was sent. Ask the person who made this link for a new one.” | Not explained yet |
-| “Nothing was sent. Open this link in a current version of Chrome, Edge, Firefox or Safari.” | Not explained yet |
+| “Nothing was sent. Ask the person who made this link for a new one.” | [Couldn't confirm their computer](/troubleshooting#could-not-confirm-their-computer) |
+| “Nothing was sent. Open this link in a current version of Chrome, Edge, Firefox or Safari.” | [This browser can't check this link](/troubleshooting#this-browser-cannot-check-this-link) |
 | “Nothing was sent. Send 2 GB or less.” | [When their Floe stops the drop](/web-app/request-links#when-their-floe-stops-the-drop) |
 | “Open in your browser” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
 | “Open the link in current Chrome or Edge on a computer.” | [Open in your browser](/troubleshooting#open-in-your-browser) |
@@ -292,7 +292,7 @@ yet has no section of its own so far.
 | “Their app reports every file's SHA-256 matched.” | [When the files arrive](/web-app/request-links#when-the-files-arrive) |
 | “Their computer blocked saving a file” | [When their Floe stops the drop](/web-app/request-links#when-their-floe-stops-the-drop) |
 | “Their computer could not save a file” | [When their Floe stops the drop](/web-app/request-links#when-their-floe-stops-the-drop) |
-| “Their computer couldn't confirm this link” | Not explained yet |
+| “Their computer couldn't confirm this link” | [Their computer couldn't confirm this link](/troubleshooting#their-computer-could-not-confirm-this-link) |
 | “Their computer is not connected right now” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
 | “Their computer is not connected right now. They may have closed Floe. Your files stay selected.” | [Their computer is not connected right now](/troubleshooting#their-computer-is-not-connected-right-now) |
 | “Their computer ran out of space” | [When their Floe stops the drop](/web-app/request-links#when-their-floe-stops-the-drop) |
@@ -308,7 +308,7 @@ yet has no section of its own so far.
 | “This browser cannot pick folders. Drag the folder in, or zip it first.” | [Pick files](/web-app/request-links#pick-files) |
 | “This browser cannot send through Floe” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
 | “This browser cannot send through Floe. Open the link in current Chrome or Edge.” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
-| “This browser can't check this link” | Not explained yet |
+| “This browser can't check this link” | [This browser can't check this link](/troubleshooting#this-browser-cannot-check-this-link) |
 | “This computer may have slept. If the connection drops, the file that was moving starts over.” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
 | “This connection needs a relay, and relayed drops are capped at 2 GB. Send 2 GB or less, or try another network.” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
 | “This drop has more than 10,000 files. Zip them first.” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
