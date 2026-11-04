@@ -21,22 +21,14 @@
  */
 
 import { test, expect, type Browser, type BrowserContext } from '@playwright/test';
+import { createHash } from 'crypto';
 import { RELAY_SIZE_LIMIT } from '../lib/relay';
 import { RELAY_OFF_REASON } from '../lib/senderSelfStop';
 import { RELAY_BLOCK_REASON } from '../lib/request/constants';
 import {
     browserSenderSetup,
-    createFixture,
-    fixtureDir,
-    removeFixtureDir,
     sha256OfBlobUrl,
 } from './helpers';
-
-const FIXTURE_DIR = fixtureDir('floe-e2e-relay-gate');
-
-test.afterAll(() => {
-    removeFixtureDir(FIXTURE_DIR);
-});
 
 /** The name of the file the init script sizes up past the cap. The page's
  *  dedupe key is name+size+modified time, so the spoofed size keeps it its
@@ -92,7 +84,9 @@ async function optedOutContext(ctx: BrowserContext): Promise<BrowserContext> {
 test('a small send over a relayed route lands whole, with the relay badge up', async ({ browser }) => {
     // The 2 GB + 1 byte spoof only touches a file named OVER_CAP, so a
     // different name keeps this a plain send.
-    const { path: fixturePath, sha256: expectedHash } = createFixture(FIXTURE_DIR, 1024);
+    const buffer = Buffer.from(Array(1024).fill(7));
+    const expectedHash = createHash('sha256').update(buffer).digest('hex');
+    const fixture = { name: 'small-file.bin', mimeType: 'application/octet-stream', buffer };
 
     const senderCtx = await relayedSender(browser);
     const receiverCtx = await optedOutContext(await browser.newContext());
@@ -100,7 +94,7 @@ test('a small send over a relayed route lands whole, with the relay badge up', a
     const receiverPage = await receiverCtx.newPage();
 
     try {
-        const link = await browserSenderSetup(senderPage, fixturePath);
+        const link = await browserSenderSetup(senderPage, fixture);
         await receiverPage.goto(link);
 
         // Relay fallback is on and the batch is under the cap, so the gate
@@ -113,9 +107,9 @@ test('a small send over a relayed route lands whole, with the relay badge up', a
 
         await expect(senderPage.getByText('All Files Sent!').first()).toBeVisible({ timeout: 10_000 });
 
-        // The badge is ConnectionStatusBadge's label: it polls its own peer's
-        // stats, which are the real ones, so it reads the host route this
-        // machine actually took, the one the transfer just used.
+        // The badge is ConnectionStatusBadge's label: useConnectionType calls
+        // pc.getStats(), which is the patched prototype, so the badge reads
+        // the spoofed relay candidate.
         await expect(senderPage.getByText('Relay', { exact: true })).toBeVisible({ timeout: 10_000 });
     } finally {
         await senderCtx.close();
@@ -124,7 +118,8 @@ test('a small send over a relayed route lands whole, with the relay badge up', a
 });
 
 test('a relayed route with relay fallback off fails the send and names the reason', async ({ browser }) => {
-    const { path: fixturePath } = createFixture(FIXTURE_DIR, 1024);
+    const buffer = Buffer.from(Array(1024).fill(7));
+    const fixture = { name: 'small-file.bin', mimeType: 'application/octet-stream', buffer };
 
     const senderCtx = await relayedSender(browser);
     const receiverCtx = await optedOutContext(await browser.newContext());
@@ -135,17 +130,14 @@ test('a relayed route with relay fallback off fails the send and names the reaso
         // The untick is the only move this test makes on the page: with it,
         // the 2 s probe wait is on, so the window the block acts in is the
         // whole two seconds the send waits for the route.
-        const link = await browserSenderSetup(senderPage, fixturePath, { relayFallback: false });
+        const link = await browserSenderSetup(senderPage, fixture, { relayFallback: false });
         await receiverPage.goto(link);
 
         // The gate blocks before any byte is read, so the page ends on the
         // banner, not a progress bar.
         await expect(senderPage.getByText('Connection failed. This link was made with Network relay fallback off.')).toBeVisible({ timeout: 30_000 });
+        await expect(senderPage.getByText('Connection failed', { exact: true })).toBeVisible({ timeout: 30_000 });
 
-        // The status sentence is the receiver's to show: a sender's transfer
-        // bar reads its label from how the send ended, never from the status,
-        // and it only renders while progress is up, which this send never is.
-        await expect(receiverPage.getByText('Connection failed')).toBeVisible({ timeout: 30_000 });
         // The sender's abort frame carries the reason, verbatim, and it
         // arrives with the close.
         await expect(receiverPage.getByText(RELAY_OFF_REASON)).toBeVisible({ timeout: 30_000 });
