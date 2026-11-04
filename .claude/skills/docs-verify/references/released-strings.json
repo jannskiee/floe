@@ -1,7 +1,7 @@
 {
     "refs": {
-        "cli": "6e462b647e8c0f8f21a2097f307a81815c6264a5",
-        "desktop": "6e462b647e8c0f8f21a2097f307a81815c6264a5"
+        "cli": "3dcd77284056f4dcbb21b4334024bf4061976193",
+        "desktop": "3dcd77284056f4dcbb21b4334024bf4061976193"
     },
     "cli": {
         "cli/cmd/floe/interrupt.go": [
@@ -273,7 +273,8 @@
             "Error: update failed: failed to fetch checksums: HTTP {n} fetching {address}",
             "cannot create temp file",
             "cannot locate current executable",
-            "cannot resolve executable path"
+            "cannot resolve executable path",
+            "extraction failed: {cause}"
         ]
     },
     "desktop": {

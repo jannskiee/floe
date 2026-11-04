@@ -5713,6 +5713,13 @@
     },
     {
         "surface": "cli",
+        "text": "extraction failed: {cause}",
+        "source": "cli/internal/selfupdate/selfupdate.go",
+        "anchor": "/cli/update#messages",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
         "text": "Error: update failed: permission denied writing to {dir}",
         "source": "cli/internal/selfupdate/install.go",
         "anchor": "/cli/update#messages",
