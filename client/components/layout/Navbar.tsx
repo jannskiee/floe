@@ -75,7 +75,13 @@ export const Navbar = () => {
     const scrollToSection = (id: string) => {
         const element = document.getElementById(id);
         if (element) {
-            element.scrollIntoView({ behavior: 'smooth' });
+            // No `behavior`: the CSS scroll-behavior on <html> decides, so
+            // reduced-motion users get an instant jump instead of a smooth scroll.
+            element.scrollIntoView();
+            // Move keyboard focus into the section so Tab continues from there
+            // instead of the button. preventScroll keeps the focus from
+            // re-aiming the scroll at the heading.
+            element.querySelector<HTMLElement>('h2')?.focus({ preventScroll: true });
         }
     };
 
@@ -170,7 +176,14 @@ export const Navbar = () => {
                         // links back to the homepage anchors (middle-click friendly), plain
                         // anchors like the wordmark above.
                         return isHome ? (
-                            <button key={section.id} onClick={() => scrollToSection(section.id)} className={pillClass}>
+                            <button
+                                key={section.id}
+                                onClick={() => scrollToSection(section.id)}
+                                // The filled pill is visual only. aria-current says the same to a screen
+                                // reader: 'location', a place within this page, as LegalToc's list does.
+                                aria-current={activeSection === section.id ? 'location' : undefined}
+                                className={pillClass}
+                            >
                                 {section.label}
                             </button>
                         ) : (
