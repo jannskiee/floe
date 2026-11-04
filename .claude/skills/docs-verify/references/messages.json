@@ -5720,6 +5720,13 @@
     },
     {
         "surface": "cli",
+        "text": "The latest release has an unexpected version name, so floe update stopped. Reinstall with the steps at floe.one/docs/cli/installation instead.",
+        "source": "cli/internal/selfupdate/version.go",
+        "anchor": "/cli/update#messages",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
         "text": "Error: update failed: permission denied writing to {dir}",
         "source": "cli/internal/selfupdate/install.go",
         "anchor": "/cli/update#messages",

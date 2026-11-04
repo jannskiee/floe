@@ -275,6 +275,9 @@
             "cannot locate current executable",
             "cannot resolve executable path",
             "extraction failed: {cause}"
+        ],
+        "cli/internal/selfupdate/version.go": [
+            "The latest release has an unexpected version name, so floe update stopped. Reinstall with the steps at floe.one/docs/cli/installation instead."
         ]
     },
     "desktop": {
