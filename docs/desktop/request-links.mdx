@@ -615,7 +615,7 @@ When a drop stops, the card reads **DROP STOPPED** with one of these, and **Make
 | “Windows couldn't write to the folder” | Windows refused a write into the drop's folder. | Check the save folder, then send a new link. |
 | “Windows blocked Floe from saving a file” | Floe could not move a finished file into place, often because another program held it. Floe retried for 5 minutes first. | A second line says "The complete file was kept with a .part ending". The file is complete: remove the `.part` ending to use it. |
 | “You stopped this drop · 4 of 12 files saved” | You clicked **Cancel drop**. | Nothing, or send a new link for the rest. |
-| “The sender stopped this drop · 4 of 12 files saved” | The sender stopped sending. | Nothing, unless they want to send the rest. |
+| “The sender stopped this drop · 4 of 12 files saved” | The sender stopped sending, or their device could no longer read a file. | Nothing, unless they want to send the rest. |
 | “The drop reached the 24-hour limit · 4 of 12 files saved” | A single drop stops at 24 hours. | Send a new link for the rest. |
 | “Floe was closed · 4 of 12 files saved” | Shown the next time Floe starts: Floe was closed, by you or by Windows, while the drop arrived. | Send a new link for the rest. |
 | “4 of 12 files saved” | The drop stopped for another reason, such as a lost connection. | Send a new link for the rest. |

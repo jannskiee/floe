@@ -298,6 +298,11 @@ was writing, and exits with status 130. Files that finished before that stay. If
 file stalls, `floe` exits after 5 seconds anyway and leaves it, and it is safe to delete. A second
 `Ctrl+C` during those seconds does nothing.
 
+On macOS and Linux, a hangup works like `Ctrl+C`. Closing the terminal, losing the SSH session, or
+sending `SIGHUP` prints `Canceled.`, exits with status 130 and tells the sender. `floe` 1.11.7 and
+earlier stop at once on a hangup, tell the sender nothing and leave the `.part` file. A `floe receive`
+started under `nohup` ignores the hangup and keeps going.
+
 Once the two sides are connected, the sender is told you stopped: a `floe send` 1.11.0 or later
 ends with `Error: They stopped the transfer.`
 
@@ -326,5 +331,8 @@ stops at once with `Error: cannot create output directory` and the reason, while
 works. `floe` 1.11.0 and earlier created the folder before connecting. A folder that exists but
 that you cannot write to passes that check and fails at the first file, after you accepted, with
 `Error: write error: could not finish writing a file, so it was not kept`.
+
+When no network interface matches any `--iface` name, `floe receive` also stops at once, while the code still works, with
+`Error: --iface matches no network interface on this computer; check the name, or drop the flag`. `floe` 1.11.7 and earlier accept any name, and the connection fails after pairing.
 
 See [CLI flags reference](/cli/flags) for the global flags that matter here (`--server`, `--no-relay`, `--relay-only`, `--iface`).

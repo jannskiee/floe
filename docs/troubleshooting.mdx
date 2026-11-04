@@ -428,7 +428,7 @@ are likely to see:
 | “Transfer blocked: relay connections are capped at 2 GB. Ask the sender to send 2 GB or less, or to try a network that allows a direct connection.” | The connection is relayed, and a sender in the browser picked more than 2 GB. | Do what the banner says. |
 | “transfer blocked: relay connections are capped at 2 GB (selected 2.5 GB)” | The same cap, from `floe send` or Floe Desktop. | Ask them to send 2 GB or less at a time. |
 | “the sender's copy of "report.pdf" changed while it was being sent, so nothing further was sent” | A file changed on their computer while `floe send` or Floe Desktop was sending it. | Ask them to send it again once it stops changing. |
-| “The sender stopped: a file could not be read on their device. Ask them to check it and send again.” | A file they picked in the browser was moved, renamed, or deleted. | Do what the banner says. |
+| “The sender stopped: a file could not be read on their device. Ask them to check it and send again.” | A file they were sending was moved, renamed, or deleted, or its drive was unplugged. `floe send` 1.11.7 and earlier and Floe Desktop 1.0.4 and earlier close the connection without saying so. | Do what the banner says. |
 | “The sender stopped after waiting 2 minutes for this device to answer. Ask them to send again.” | Your page did not take the file in time. | Do what the banner says. |
 | “The sender stopped because of an error on their side. Ask them to send again.” | The sending page hit an error it did not expect. | Do what the banner says. |
 
@@ -758,6 +758,7 @@ two-space indent, with no prefix. `Ctrl+C` prints `Canceled.` and exits with sta
 | [`Warning: ... Using STUN only.`](#warning-could-not-reach-signaling-server-for-turn-credentials-using-stun-only) | `floe` could not get the relay details. | Check the server address, or wait a minute. |
 | [`Warning: could not generate short code`](#warning-could-not-generate-short-code), from `floe send` | The server gave no room code. | Share the link instead. |
 | [`--relay-only needs a TURN relay`](#relay-only-needs-a-turn-relay) | The server offers no relay. | Drop the flag, or add a relay to the server. |
+| [`--iface matches no network interface`](/cli/flags#global-flags) | No network interface on this computer has a name you gave. | Check the name, or drop the flag. |
 | [`timed out waiting for the peer's offer`](#timed-out-waiting-for-the-peers-offer) or its twin | The other side sent nothing for 30 seconds. | Ask them to bring Floe to the front. |
 | [`timed out establishing a connection`](#timed-out-establishing-a-connection) | No network path worked within 30 seconds. | Allow the relay on both sides. |
 | [`the other side left before the connection was established`](#the-other-side-left-before-the-connection-was-established) | The other person left while connecting. | Run it again when they are ready. |
@@ -778,14 +779,14 @@ two-space indent, with no prefix. `Ctrl+C` prints `Canceled.` and exits with sta
 | [`timed out waiting for delivery confirmation from peer`](#timed-out-waiting-for-delivery-confirmation-from-peer), from `floe send` | The receiver went quiet after the last file. | Ask what arrived. |
 | [`the connection closed before the receiver confirmed delivery`](#the-connection-closed-before-the-receiver-confirmed-delivery), from `floe send` | The receiving app did not say every file was saved. | Ask what arrived. |
 | [`the file shrank while it was being sent`](#the-file-shrank-or-grew-while-it-was-being-sent), or `grew`, from `floe send` | A file changed on disk while it was read. | Send it again once it stops changing. |
-| [`cannot read` or `cannot send` and a path](#cannot-read-a-path), from `floe send` | A path does not exist, or is a link to a folder. | Check the path. |
+| [`cannot read` or `cannot send` and a path](#cannot-read-a-path), from `floe send` | A path does not exist, is a link to a folder, or is a pipe, socket or device. | Check the path. |
 | [`receive stopped: a file's path is too deep or too long`](#receive-stopped-path-too-deep-or-too-long), from `floe receive` | A path in the transfer is too deep or long to save. | Ask the sender to zip it first. |
 | [`rejected the sender's file description`](#rejected-the-senders-file-description) and similar lines, from `floe receive` | The sending app sent something that cannot be right. | Ask the sender to send again or update Floe. |
 | [`a file did not match the SHA-256`](#a-file-did-not-match-the-sha-256), from `floe receive` | A file failed its SHA-256 check and was deleted. | Ask the sender to send it again. |
 | [`write error`](#write-error), from `floe receive` | The drive filled up, or a write failed. | Free space or choose another folder. |
 | [`received a file in full but could not finish saving it`](#received-a-file-in-full-but-could-not-finish-saving-it), from `floe receive` | Another program held the finished file. | Remove the `.part` ending from it. |
 | [`Cannot transfer: your floe is too old for this peer.`](#cannot-transfer-your-floe-is-too-old-for-this-peer) | The two apps speak protocol versions that do not overlap. | Update the side the message names. |
-| [`no files to send`](#no-files-to-send), from `floe send` | Every path is an empty folder. | Send at least one file. |
+| [`no files to send`](#no-files-to-send), from `floe send` | Every path is a folder with no file in it. | Send at least one file. |
 | [`floe` is not found after installing](#floe-is-not-found-after-installing) | Your terminal does not search the install folder yet. | Open a new terminal. |
 | [`Cannot update a dev build.`](#cannot-update-a-dev-build), from `floe update` | The binary has no release version. | Install a release build. |
 | [`installed via homebrew`](#installed-via-homebrew-run-brew-upgrade-floe-to-update), from `floe update` | A package manager owns this binary. | Run the command the line names. |
@@ -1175,7 +1176,10 @@ floe receive olive-tiger-castle --iface Ethernet
 ```
 
 Repeat the flag or separate names with commas for several. It is an allowlist, not a preference,
-so remove it again when you change networks, or the connection fails outright.
+so remove it again when you change networks. When no interface matches any of the names, `floe` stops before it
+pairs, with `Error: --iface matches no network interface on this computer; check the name, or drop the flag`.
+An adapter that exists but is down passes that check, and the connection then fails outright.
+`floe` 1.11.7 and earlier accept any name, and the connection fails after pairing.
 
 `floe` already ignores link-local addresses, which covers dead auto-configured adapters. A VPN
 adapter with a routable address, such as Tailscale's `100.x` range, is still tried.
@@ -1250,9 +1254,13 @@ From `floe receive`, as `Error: The sender stopped.` The sender pressed `Ctrl+C`
 Files that finished are kept, and the file that was arriving is deleted.
 
 A sender that stops for another reason says so, and `floe receive` prints its words. Examples are
-`the sender's copy of "report.pdf" changed while it was being sent, so nothing further was sent`
-and the relay cap in
-[`relay connections are capped at 2 GB`](#relay-connections-are-capped-at-2-gb).
+`the sender's copy of "report.pdf" changed while it was being sent, so nothing further was sent`,
+`The sender stopped: a file could not be read on their device. Ask them to check it and send again.`
+when a file was moved, deleted, or on a drive that was unplugged, and the relay cap in
+[`relay connections are capped at 2 GB`](#relay-connections-are-capped-at-2-gb). A `floe send` 1.11.7
+or earlier, or a Floe Desktop 1.0.4 or earlier, whose file cannot be read gives no reason, so
+`floe receive` prints one of the lines under
+[`connection closed before any file arrived`](#connection-closed-before-any-file-arrived).
 
 Ask whether they meant to stop, then ask them to send again whatever did not arrive.
 
@@ -1339,6 +1347,7 @@ when you click **Send**. Each line names the path:
 |---|---|---|
 | `cannot read` and a path | A file or folder you added does not exist or cannot be opened, for example on a drive that was unplugged. | Check the path, or add the file again. |
 | `cannot walk` and a folder, then `cannot send` and a path ending `it is a link to a folder, which Floe does not follow` | A folder you send holds a link to another folder: a symbolic link or a junction, which are shortcuts the file system follows. | Send the folder the link points to on its own. |
+| `cannot send` and a path ending `it is a pipe, a socket or a device, not a file` | The path you named is not a regular file or folder. Inside a folder, such entries are left out without a message. | Send a regular file. To send a device's contents, copy them to a file first. |
 | `cannot walk` and a folder, then `cannot read` and a path | A link inside that folder points nowhere. | Remove the link, or restore what it pointed to. |
 | `cannot walk` and a folder, then another reason | A folder inside what you send could not be listed. | Check that you can open that folder. |
 
@@ -1445,7 +1454,8 @@ wording, and then the `You:` and `Peer:` lines are what to go by.
 
 From `floe send`, before it contacts any server. Floe Desktop shows "The folders you chose have no
 files to send" when you click **Send**, before a code is made. Every path you gave is an empty
-folder, or a folder that holds only empty folders. A path that does not exist stops earlier, with
+folder, or a folder that holds only empty folders, or only pipes, sockets or devices, which Floe
+leaves out. A path that does not exist stops earlier, with
 [`cannot read`](#cannot-read-a-path) and the path.
 
 Check the paths, and make sure there is at least one file in what you send.
@@ -1551,6 +1561,7 @@ Request-link messages carry no prefix.
 | [“The API answered HTTP 404”](#the-test-button-says-the-api-answered-with-an-http-error), Settings, **Test** | `/api/` is not reaching the server. | Forward `/api/` to the server. |
 | [“Connected, but this server has no relay”](#the-test-button-says-the-server-has-no-turn-relay), Settings, **Test** | The server works but offers no relay. | Leave **Hide my IP address** off, or add a relay. |
 | [“That address answered HTTP 404 (likely the web app, not the server)”](#the-test-button-says-it-may-be-the-web-app-rather-than-the-signaling-server), Settings, **Test** | You entered the web app's address. | Enter the signaling server's address. |
+| [“That address redirects to https://”](#the-test-button-says-the-address-redirects-to-https), Settings, **Test** | You entered `http://`, and the server redirects to `https://`. | Start the address with `https://`. |
 | [No right-click menu setting](#there-is-no-right-click-menu-setting), Settings | This is the Microsoft Store build. | Install the build from GitHub if you need it. |
 | [The right-click menu switch turns itself off](#the-switch-for-the-right-click-menu-keeps-turning-itself-off), Settings | Windows refused the registry entry. | Send from the Floe window instead. |
 | [“Floe could not start.”](#floe-will-not-start), a dialog | WebView2 is missing, or something else failed at startup. | Install WebView2, or report the text. |
@@ -1701,9 +1712,10 @@ Ask the sender to start a new transfer.
 
 On the **Receive** tab, as `Error: transfer failed: ` and the sender's own sentence, without its
 closing period. `The sender stopped` means they pressed `Ctrl+C` in `floe send` 1.11.1 or later. A
-sender in the browser names its reason instead:
+sender in the browser names its reason instead, and so does a `floe send` or Floe Desktop for a file it
+can no longer read:
 
-- `The sender stopped: a file could not be read on their device. Ask them to check it and send again`
+- `The sender stopped: a file could not be read on their device. Ask them to check it and send again`, when a file was moved, deleted, or on a drive that was unplugged. `floe send` 1.11.7 and earlier and Floe Desktop 1.0.4 and earlier close the connection without it
 - `The sender stopped after waiting 2 minutes for this device to answer. Ask them to send again`
 - `The sender stopped because of an error on their side. Ask them to send again`
 - `The sender has Network relay fallback off, and this connection needs the relay. Ask them to reload, leave it on, and share a new link`
@@ -1949,6 +1961,28 @@ with the same page, cannot pass itself off as a healthy server.
 
 Enter the signaling server's address, which is `http://localhost:3001` in that default setup.
 **Server address** always wants the signaling server.
+
+### The Test button says the address redirects to https:// {#the-test-button-says-the-address-redirects-to-https}
+
+In Settings, after you click **Test**:
+
+```text Status line
+Error: That address redirects to https://. Start it with https:// and test again
+```
+
+You entered an `http://` address, and it answered with a redirect to `https://` on the same host
+name, on any port. A reverse proxy that moves plain HTTP to HTTPS does this, such as the nginx
+sample in [Run behind one domain](/self-hosting/reverse-proxy) with a 301, or Caddy with a 308.
+Test never follows a redirect, so it stops there.
+
+Change the start of **Server address** from `http://` to `https://`, for example
+`https://floe.example.com`, and click **Test** again. If your proxy serves HTTPS on another port,
+put that port in the address too, for example `https://floe.example.com:8443`. A redirect to a
+different host, such as a Wi-Fi sign-in page, still shows the
+[HTTP status line](#the-test-button-says-it-may-be-the-web-app-rather-than-the-signaling-server).
+
+Floe Desktop 1.0.4 and earlier show the HTTP status line for this redirect too, such as
+`Error: That address answered HTTP 301 (likely the web app, not the server)`.
 
 ### There is no right-click menu setting {#there-is-no-right-click-menu-setting}
 
