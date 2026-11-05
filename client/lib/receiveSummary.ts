@@ -99,3 +99,15 @@ export function receiverTabMatters(input: {
 export function bulkDownloadShown(input: { received: number; busy: boolean }): boolean {
     return input.received > 1 && !input.busy;
 }
+
+/**
+ * Whether the browser runs on iOS: today's user agent test, plus a user
+ * agent that names a Mac on a device with more than one touch point.
+ * Safari on an iPad asks for desktop sites by default, so its user agent
+ * names a Mac. A Mac reports no touch points and an iPad reports five,
+ * which tells the two apart. The bar is more than one, not more than zero:
+ * Chrome's touch emulation reports one point.
+ */
+export function isIosDevice(userAgent: string, maxTouchPoints: number): boolean {
+    return /iPhone|iPad|iPod/.test(userAgent) || (/Mac/.test(userAgent) && maxTouchPoints > 1);
+}
