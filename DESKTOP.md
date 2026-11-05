@@ -176,7 +176,7 @@ verify the connection independently of the server.
 
 **3b - Automatic verification (removes the human compare), in two parts**
 
-*Links: the link key  [DONE on main; web live, `floe` 1.12 and Floe Desktop 1.1 ship it]*
+*Links: the link key  [SHIPPED: web, `floe` 1.12, Floe Desktop 1.1]*
 - [x] A random 128-bit link key in the link's fragment, which no server receives
       (`engine/linkkey`, `client/lib/linkKey.ts`), in share links and request links
 - [x] A proof over both DTLS certificates actually in use, in a `kc` frame first on

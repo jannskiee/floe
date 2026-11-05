@@ -62,8 +62,12 @@ export const metadata: Metadata = {
 // Rechecked on 2026-11-03, for the link key on a request link: what the /r page reads
 // and checks (lib/request/requestLink.ts, components/RequestVisitor.tsx,
 // lib/request/visitorState.ts) and the warning it sends, the same one by the same helper
-// (lib/keyCheckReport.ts, role visitor). No released Floe Desktop makes such a link yet,
-// so the sentence in How the transfer works stands (it changes with Desktop 1.1).
+// (lib/keyCheckReport.ts, role visitor).
+// Rechecked on 2026-11-05, for floe 1.12 and Floe Desktop 1.1, which make and check keyed
+// links (cli/engine/linkkey, cli/engine/transfer/keycheck.go), and for the log sentence, read
+// from the floe.one VM that day: the running Caddy has no access log on any server, and neither
+// its journal over 7 days nor PM2's log held a /api/code/ path. A code travels in that path, so
+// turning a request log on there has to change the sentence.
 // Rechecked on 2026-10-14: the browser's Sentry reports carry breadcrumbs
 // (the SDK's default clicks, navigations, fetch and XHR addresses and console
 // lines), each scrubbed of the room link by beforeBreadcrumb
@@ -183,15 +187,19 @@ export default function PrivacyPolicy() {
                     The encryption is WebRTC&apos;s own (DTLS), with keys that exist only on the two
                     devices for that one transfer. The codes the two devices use to recognize each
                     other (their certificate fingerprints) pass through our signaling server. A link
-                    made in the web app also carries a random link key in its fragment, which no
-                    server receives. Once the two devices connect, each one that holds the link key
+                    made in the web app, <InlineCode>floe</InlineCode> 1.12 or later, or Floe Desktop
+                    1.1 or later also carries a random link key in its fragment, which no server
+                    receives. Once the two devices connect, each one that holds the link key
                     proves it to the other, tied to the certificates actually in use, and the
                     receiving device stops the transfer before any file arrives if the sender cannot.
                     So a server that swaps the fingerprints on such a link is caught. A room code, and
-                    a link made by the CLI or Floe Desktop, carries no link key yet, and a sender in
-                    the browser does not yet refuse a receiver that cannot show the link key, and
-                    sends a file&apos;s name and size before that check has finished, so in those cases
-                    you are still trusting that server; the full list of what Floe
+                    a link made by an older <InlineCode>floe</InlineCode> or Floe Desktop, carries no
+                    link key, and <InlineCode>floe</InlineCode> before 1.12 and Floe Desktop before 1.1
+                    do not check the link key when receiving. A sender on a share link does not yet
+                    refuse a receiver that cannot show the link key, unless you use{' '}
+                    <InlineCode>floe send --link-only</InlineCode>, and it sends a file&apos;s name and
+                    size before that check has finished, so in those cases you are still trusting that
+                    server; the full list of what Floe
                     does not protect against is in{' '}
                     <LegalLink href="https://www.floe.one/docs/how-it-works/known-limitations">
                         Known limitations
@@ -372,7 +380,8 @@ export default function PrivacyPolicy() {
                     and a self-hosted copy of Floe ships with both turned off.
                 </p>
                 <p>
-                    The link you share carries its room id, and on a link made in the web app a link
+                    The link you share carries its room id, and on a link made in the web app,{' '}
+                    <InlineCode>floe</InlineCode> 1.12 or later, or Floe Desktop 1.1 or later, a link
                     key, in the URL fragment (the part after the{' '}
                     <InlineCode>#</InlineCode>). Browsers never include the fragment in HTTP requests,
                     so it stays out of hosting logs and referrer headers, and our analytics script is
@@ -386,8 +395,9 @@ export default function PrivacyPolicy() {
                     Floe Desktop, when it registers the three-word code that stands in for the link.
                     Both are held in memory only: the room is dropped when the last device leaves it,
                     and a code&apos;s mapping to its room id is dropped when the receiver joins or the
-                    room closes, and about ten minutes after the code was made at the latest. Neither
-                    is written to a log. Our signaling server never receives the link key, which stays
+                    room closes, and about ten minutes after the code was made at the latest. Our
+                    signaling server does not write either to its log, and the proxy in front of it
+                    keeps no request log. Our signaling server never receives the link key, which stays
                     in the link and in the memory of the page that read it.
                 </p>
                 <p>
