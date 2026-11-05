@@ -1,7 +1,7 @@
 {
     "refs": {
-        "cli": "v1.11.7",
-        "desktop": "desktop-v1.0.4"
+        "cli": "3dcd77284056f4dcbb21b4334024bf4061976193",
+        "desktop": "3dcd77284056f4dcbb21b4334024bf4061976193"
     },
     "cli": {
         "cli/cmd/floe/interrupt.go": [
@@ -12,6 +12,7 @@
         ],
         "cli/cmd/floe/main.go": [
             "Connected",
+            "Error: --iface matches no network interface on this computer; check the name, or drop the flag",
             "Error: --relay-only needs a TURN relay and {server} offers none; drop the flag, or configure a relay on the server",
             "Error: --relay-only needs a TURN relay, and the connection details from {server} could not be read; check --server, or drop the flag",
             "Error: failed to connect to signaling server: cannot connect to signaling server at {wss address}/ws: websocket: bad handshake (HTTP 403). A reverse proxy in front of the server may be changing the Host header: make it pass Host through unchanged.",
@@ -24,6 +25,7 @@
         ],
         "cli/cmd/floe/receive.go": [
             "Connecting to sender...",
+            "Couldn't confirm who sent this link. Nothing was saved. Ask them for a new link.",
             "Error: cannot create output directory {dir}: {reason}",
             "That link is for another Floe server, but this Floe is set to use floe.one. Use --server with that server's address, then try again.",
             "That link is for floe.one, but this Floe is set to use another server. Unset FLOE_SERVER or use --server https://api.floe.one, then try again.",
@@ -31,9 +33,12 @@
             "this code or link is no longer active; ask the sender for a new one"
         ],
         "cli/cmd/floe/send.go": [
-            "Error: expected sender role, got \"{role}\" (room may already have two peers)",
+            "Couldn't confirm the person who opened your link. Nothing was sent. Make a new link and try again.",
+            "Couldn't confirm the receiver. They may need to run floe update, or open the link in a browser.",
+            "Error: expected sender role (room may already have two peers)",
             "Error: failed to create peer connection: {reason}",
             "Error: failed to fetch ICE credentials: {reason}",
+            "In a terminal, put the link in quotes: floe receive \"<link>\"",
             "That looks like a request link, not a file. To send to it, use: floe send <files> --to <link>",
             "They stopped the transfer.",
             "Waiting for peer...",
@@ -46,6 +51,7 @@
             "1 of 1 file was saved.",
             "A file name or folder path is too long to send. Shorten it or zip it first.",
             "All {count} files arrived",
+            "Ask the person who made this link for a new one.",
             "Ask them for a new link to send the rest.",
             "Canceled. Nothing was sent.",
             "Connecting...",
@@ -53,6 +59,7 @@
             "Connection lost. {arrived} of 1 file arrived. Ask them for a new link to send it.",
             "Connection lost. {a} of {n} files arrived. Ask them for a new link to send the other one.",
             "Connection lost. {a} of {n} files arrived. Ask them for a new link to send the other {k}.",
+            "Couldn't confirm their computer. Nothing was sent.",
             "Couldn't connect to their computer. Nothing was sent.",
             "Joining the request link...",
             "Nothing was sent.",
@@ -114,7 +121,7 @@
         "cli/engine/peer/connection.go": [
             "Error: WebRTC setup failed: connected but the data channel did not open",
             "Error: WebRTC setup failed: failed to create data channel",
-            "Error: WebRTC setup failed: failed to set remote description: {text from the WebRTC library}",
+            "Error: WebRTC setup failed: failed to set remote description",
             "Error: WebRTC setup failed: timed out establishing a connection",
             "Error: WebRTC setup failed: timed out waiting for the peer to answer",
             "Error: WebRTC setup failed: timed out waiting for the peer's offer",
@@ -129,15 +136,23 @@
             "the connection to the server was lost before the peer connected",
             "the other side left before the connection was established"
         ],
+        "cli/engine/signaling/servererror.go": [
+            "Error: the server answered with an error this version of Floe does not know"
+        ],
         "cli/engine/transfer/collect.go": [
-            "cannot send {path}: it is a link to a folder, which Floe does not follow"
+            "cannot send {path}: it is a link to a folder, which Floe does not follow",
+            "cannot send {path}: it is a pipe, a socket or a device, not a file"
         ],
         "cli/engine/transfer/control.go": [
             "Error: receiver rejected the file description: {detail}",
-            "The sender stopped."
+            "The sender stopped.",
+            "The sender stopped: a file could not be read on their device. Ask them to check it and send again."
         ],
         "cli/engine/transfer/decide.go": [
             "the sender left before the transfer was accepted"
+        ],
+        "cli/engine/transfer/keycheck.go": [
+            "this connection's certificates could not be read to check the link's key"
         ],
         "cli/engine/transfer/partial.go": [
             "too many files named like \"{name}\""
@@ -258,10 +273,20 @@
             "Error: update failed: failed to fetch checksums: HTTP {n} fetching {address}",
             "cannot create temp file",
             "cannot locate current executable",
-            "cannot resolve executable path"
+            "cannot resolve executable path",
+            "extraction failed: {cause}"
+        ],
+        "cli/internal/selfupdate/version.go": [
+            "The latest release has an unexpected version name, so floe update stopped. Reinstall with the steps at floe.one/docs/cli/installation instead."
         ]
     },
     "desktop": {
+        "cli/engine/signaling/servererror.go": [
+            "the server answered with an error this version of Floe does not know"
+        ],
+        "cli/engine/transfer/keycheck.go": [
+            "the sender stopped the transfer"
+        ],
         "cli/engine/transfer/refusal.go": [
             "A file arrived but their computer blocked saving it",
             "A file is too large for the drive they save to",
@@ -424,6 +449,8 @@
             "Both people need Floe open at the same time",
             "Can't reach the server",
             "Can't write to the save folder",
+            "Couldn't confirm who opened your link. Nothing was sent",
+            "Couldn't confirm who sent this link. Nothing was received",
             "Couldn't connect the two devices",
             "That code wasn't recognized",
             "That link is incomplete",
@@ -450,6 +477,7 @@
             "A file didn't match what was sent and was deleted",
             "A file is too large for this drive",
             "A file name or folder path was too long for Windows",
+            "A sender couldn't be confirmed and was disconnected",
             "About Auto-accept",
             "About {n} {day or days} at this speed, past the 24-hour limit",
             "Accept",
@@ -523,6 +551,7 @@
             "Keep waiting for the right sender?",
             "Label",
             "Link closed",
+            "Link closed after 5 senders couldn't be confirmed",
             "Link ended at {time}",
             "Link ends",
             "Make another link",
@@ -632,6 +661,7 @@
             "Start the address with https:// or http://",
             "That address answered HTTP {n} (likely the web app, not the server)",
             "That address isn't a Floe server",
+            "That address redirects to https://. Start it with https:// and test again",
             "The API answered HTTP {n} (check that your proxy forwards /api/)",
             "The server didn't return usable connection details",
             "The server is limiting requests from this network. Wait a minute and test again",
@@ -647,13 +677,12 @@
             "That link is for another Floe server. Set its address as Server address in Settings, then try again",
             "That link is for floe.one, but Floe is set to use another server. Clear Server address in Settings, then try again",
             "could not stage the text: {reason}",
-            "expected sender role, got \"{role}\"",
+            "expected sender role",
             "failed to create peer connection: {rest}",
             "no files selected",
             "nothing to send",
             "room is full",
             "room is full (someone else may already be receiving)",
-            "the server answered with an error this version of Floe does not know",
             "this code or link is no longer active; ask the sender for a new one",
             "transfer blocked: relay connections are capped at {n} GB (selected {size}). Turn off Hide my IP to send larger files"
         ]
@@ -684,6 +713,8 @@
                 "You stopped this drop.",
                 "Your Floe needs an update to send to this link.",
                 "Run `floe update` to upgrade.",
+                "Couldn't confirm their computer. Nothing was sent.",
+                "Ask the person who made this link for a new one.",
                 "Waiting for them to accept. They have {} min to answer.",
                 "the request-link send ended; its outcome is printed above",
                 "cannot read {}: {}",
@@ -763,9 +794,11 @@
                 "The sender couldn't connect: Hide my IP is on and no relay is available",
                 "Connecting to the sender...",
                 "2 requests ended without Accept in 10 minutes. Close this link?",
+                "A sender couldn't be confirmed and was disconnected",
                 "Can't reach the Floe server",
                 "Reconnecting...",
                 "Retry now",
+                "Link closed after 5 senders couldn't be confirmed",
                 "Link ended at {}",
                 "Link closed",
                 "Make another link",

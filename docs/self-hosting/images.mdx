@@ -18,9 +18,9 @@ Both are public, so `docker pull` needs no login. Both run as the unprivileged u
 
 | Tag | Points at | Use it when |
 |-----|-----------|-------------|
-| `latest` | The newest release | **The default.** What you get if you change nothing. |
-| `1.11.7` | One exact release | You want to control when you move between versions. |
-| `1.11` | The newest patch of a minor line | You want patches automatically but not minor bumps. |
+| `latest` | The newest release | **The default.** A running instance moves to it only when you pull. |
+| `1.12.0` | One exact release | You want to control when you move between versions. |
+| `1.12` | The newest patch of a minor line | You want patches automatically but not minor bumps. |
 | `main` | The newest build from `main` | You want changes before they are released. |
 | `sha-<7 characters>` | One exact commit, named by the first 7 characters of its id | You want a build that can never move under you. |
 
@@ -31,8 +31,8 @@ the newest code on `main`, and the web-app pages of these docs describe that. An
 
 Update the web image to 1.12.0 before Floe Desktop 1.1 reaches your users. Every request link Floe
 Desktop 1.1 and later makes holds a [link key](/glossary#link-key), and an older image reads that as
-an incomplete link. The Microsoft Store updates Floe Desktop on its own, and a pinned tag stays behind
-until you change it. See
+an incomplete link. The Microsoft Store updates Floe Desktop on its own, and a web image moves only
+when you pull it, and never while `FLOE_IMAGE_TAG` names an older version. See
 [Keep the client and server on one version](/self-hosting/request-links#matching-versions).
 
 The web image also decides how far a link key can be trusted, because whoever serves the page's
@@ -48,10 +48,10 @@ merge to `main` that touched those folders. A commit that was never built has no
 Pin a tag with `FLOE_IMAGE_TAG`:
 
 ```dotenv .env
-FLOE_IMAGE_TAG=1.11.7
+FLOE_IMAGE_TAG=1.12.0
 ```
 
-The variable is `FLOE_IMAGE_TAG`, not `FLOE_VERSION`. `FLOE_VERSION` belongs to the [CLI](/glossary#cli)'s install script (see [Install the CLI](/cli/installation)) and is written with a leading `v`, as in `v1.11.7`. Image tags carry no `v`, so reusing that name would resolve to a tag that does not exist.
+The variable is `FLOE_IMAGE_TAG`, not `FLOE_VERSION`. `FLOE_VERSION` belongs to the [CLI](/glossary#cli)'s install script (see [Install the CLI](/cli/installation)) and is written with a leading `v`, as in `v1.12.0`. Image tags carry no `v`, so reusing that name would resolve to a tag that does not exist.
 
 ## Pinning a digest
 
@@ -59,8 +59,8 @@ A tag can be repointed. A digest cannot, so it is the strongest pin. Read the di
 for both images:
 
 ```bash Terminal
-docker buildx imagetools inspect ghcr.io/jannskiee/floe-server:1.11.7
-docker buildx imagetools inspect ghcr.io/jannskiee/floe-client:1.11.7
+docker buildx imagetools inspect ghcr.io/jannskiee/floe-server:1.12.0
+docker buildx imagetools inspect ghcr.io/jannskiee/floe-client:1.12.0
 ```
 
 Take the digest each one prints and pin both services with it, in place of their tags. Take both
