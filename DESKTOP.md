@@ -324,9 +324,10 @@ receiver, which is deliberate (share a link and wait) and cancelable.
 
 ## Release history
 
-Current release: `desktop-v1.1.0` (Microsoft Store 9NBQ8ZQ1065L + GitHub
-pre-release), shipped 2026-11-04. Cut from the same commit as CLI `v1.12.0` and
-paired by need: both carry the link key, and `cli/engine` changed with it.
+Current release: `desktop-v1.1.0`, tagged 2026-11-05: a GitHub pre-release at
+once, and the Microsoft Store build (9NBQ8ZQ1065L) once it passes certification.
+Cut from the same commit as CLI `v1.12.0` and paired by need: both carry the link
+key, and `cli/engine` changed with it.
 
 The list below is the verified order the first public release (0.1.0 Beta)
 actually followed. Steps 1-3 shipped the GitHub Beta; the plan then pivoted

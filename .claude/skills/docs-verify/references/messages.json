@@ -4747,6 +4747,13 @@
     },
     {
         "surface": "desktop",
+        "text": "the sender stopped the transfer",
+        "source": "cli/engine/transfer/keycheck.go",
+        "anchor": "/troubleshooting#the-sender-stopped-in-floe-desktop",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
         "text": "Type or paste text to send",
         "source": "desktop/frontend/src/App.tsx",
         "anchor": "/desktop/sending#send-a-text-note",
@@ -6982,7 +6989,7 @@
         "surface": "cli",
         "text": "Error: the server answered with an error this version of Floe does not know",
         "source": "cli/engine/signaling/servererror.go",
-        "anchor": "/troubleshooting#webrtc-setup-failed",
+        "anchor": "/troubleshooting#the-server-answered-with-an-error-floe-does-not-know",
         "why_no_home": null
     },
     {

@@ -18,7 +18,7 @@ Both are public, so `docker pull` needs no login. Both run as the unprivileged u
 
 | Tag | Points at | Use it when |
 |-----|-----------|-------------|
-| `latest` | The newest release | **The default.** What you get if you change nothing. |
+| `latest` | The newest release | **The default.** A running instance moves to it only when you pull. |
 | `1.12.0` | One exact release | You want to control when you move between versions. |
 | `1.12` | The newest patch of a minor line | You want patches automatically but not minor bumps. |
 | `main` | The newest build from `main` | You want changes before they are released. |
@@ -31,8 +31,8 @@ the newest code on `main`, and the web-app pages of these docs describe that. An
 
 Update the web image to 1.12.0 before Floe Desktop 1.1 reaches your users. Every request link Floe
 Desktop 1.1 and later makes holds a [link key](/glossary#link-key), and an older image reads that as
-an incomplete link. The Microsoft Store updates Floe Desktop on its own, and a pinned tag stays behind
-until you change it. See
+an incomplete link. The Microsoft Store updates Floe Desktop on its own, and a web image moves only
+when you pull it, and never while `FLOE_IMAGE_TAG` names an older version. See
 [Keep the client and server on one version](/self-hosting/request-links#matching-versions).
 
 The web image also decides how far a link key can be trusted, because whoever serves the page's
