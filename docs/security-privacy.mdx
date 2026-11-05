@@ -38,8 +38,9 @@ What it does:
 
 - Put two devices in a [room](/glossary#room) and decide which one sends. For a
   [request link](/glossary#request-link), the Floe Desktop that made it is the one that receives.
-- Pass the connection-setup messages between them. It checks the size and shape of each one,
-  forwards it, and keeps no copy.
+- Pass the connection-setup messages between them ([WebRTC](/glossary#webrtc) offers, answers and
+  [ICE](/glossary#ice) candidates, which carry each device's network addresses). It checks the size
+  and shape of each one, forwards it, and keeps no copy.
 - Hand out relay credentials, the temporary user name and password a device needs to use the
   relay, when a relay is configured. Each set is valid for 24 hours and is not tied to you or to an
   account. On floe.one a new set is minted from Cloudflare every few minutes
@@ -47,6 +48,9 @@ What it does:
 - Map a three-word [room code](/glossary#room-code) to a room id when a sender asks for one, for
   10 minutes at most. See
   [How long a code and a link last](/how-it-works/signaling#code-and-link-lifetime).
+- Check the web address each connection says it comes from (its Origin) against an allow-list. The
+  first one it refuses on each connection path since its last restart goes to its log, with the host
+  that connection asked for, and no other Origin does.
 - Keep a single running total of bytes transferred, for the counter on the homepage.
 
 What it never does:
@@ -70,7 +74,7 @@ none of it is written to a log. The byte total under
 | What | Held until |
 | --- | --- |
 | The room id, and which two connections are seated in the room | The last device leaves the room |
-| A room code and the room id it stands for | The code is retired, which is about 10 minutes after it was made at the latest |
+| A room code and the room id it stands for | The code is retired when the receiver joins or the room closes, and about 10 minutes after it was made at the latest |
 | Your IP address | You disconnect, and for rate limiting about 2 minutes after your last request |
 | The room seal: a keyed hash of the network address of each device that has sent connection-setup messages through the room, never the address itself | The room closes |
 | For a request link: a hash of its secret token, never the token, with the times the link was made, joined, left and is due to end | The link ends, or about 10 minutes after the Floe Desktop that made it disconnects |
