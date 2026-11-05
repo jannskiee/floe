@@ -32,6 +32,8 @@
 
 Floe sends files directly from one device to another over an encrypted WebRTC connection. There is no account and no upload: files are never stored on a server, so both people need to be online at the same time. The signaling server only helps the two devices find each other. When a direct path is blocked, a TURN relay carries the transfer, still encrypted end to end, up to 2 GB per relayed transfer.
 
+A link also carries a link key that no server receives, so a receiver can catch a signaling server that steps in between. A room code carries no link key, and [Known limitations](https://www.floe.one/docs/how-it-works/known-limitations) says what the check misses.
+
 Each file is checked when it arrives, against its size and, when the sender provides one, its SHA-256. A file that fails is deleted and the transfer stops (see [File checks](https://www.floe.one/docs/how-it-works/file-checks)). Floe does not scan files for malware.
 
 The desktop app and the CLI contain no analytics or telemetry. They send only two things: an anonymous byte count, which the receiving side reports to the public counter, and an update check against GitHub. The desktop app checks at most once a day, and never in the Microsoft Store build. The CLI checks only when you run `floe version` or `floe update`. Both can be turned off. The floe.one website uses cookieless, anonymous analytics and error monitoring, described in [Security and privacy](https://www.floe.one/docs/security-privacy).

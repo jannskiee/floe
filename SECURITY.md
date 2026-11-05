@@ -42,6 +42,8 @@ This policy covers everything that ships from this repository:
 
 The signaling server sets up connections and never carries file data. Files go straight between the two devices, encrypted end to end (WebRTC data channels). When a direct path is blocked, a relay (a TURN server) passes the encrypted data along and cannot read it. Floe infrastructure never stores or inspects file data.
 
+What Floe does not protect against, including what the link key misses, is listed in [Known limitations](https://www.floe.one/docs/how-it-works/known-limitations). A way around the link key's check, or the key reaching a server or a log, is in scope.
+
 ## Supported Versions
 
 Security fixes land on `main` and ship in the next release of the affected component. Please make sure you are on the most recent release of the component you are reporting against.

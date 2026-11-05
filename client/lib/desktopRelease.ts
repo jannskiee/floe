@@ -14,8 +14,8 @@
  */
 
 // Bump these two together on every desktop release.
-export const DESKTOP_VERSION = '1.0.4';
-export const DESKTOP_RELEASE_DATE = 'Oct 28, 2026';
+export const DESKTOP_VERSION = '1.1.0';
+export const DESKTOP_RELEASE_DATE = 'Nov 5, 2026';
 
 /**
  * The Microsoft Store listing: the primary Windows install path. The Store

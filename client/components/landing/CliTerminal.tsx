@@ -188,7 +188,7 @@ export function CliTerminal() {
                         {shownStage >= 4 && (
                             <div>
                                 <span className="text-zinc-500">{'  Link'}</span>
-                                {'   https://floe.one/#room=7f3a…'}
+                                {'   https://floe.one/#k=9xQ2…&room=7f3a…'}
                             </div>
                         )}
                         {shownStage >= 5 && (
