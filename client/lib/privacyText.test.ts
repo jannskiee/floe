@@ -187,6 +187,26 @@ describe('the privacy page: what is logged', () => {
     });
 });
 
+// The home page's answer, in the words the owner approved on 2026-11-05. It says what is
+// checked and what is not, so no sentence here may suggest more.
+describe('the home page FAQ: is this secure', () => {
+    const faq = read('../components/layout/FAQSection.tsx')
+        .replace(/&apos;/g, "'")
+        .replace(/<code className=\{ANSWER_CODE\}>|<\/code>/g, '')
+        .replace(/\s+/g, ' ');
+
+    it('says what the link key checks and when you are still trusting the server', () => {
+        expect(faq).toContain(
+            "The two devices find each other through Floe's signaling server. A link now carries a key that no server receives, and the receiving device checks it, so a server that steps in between is caught; request links are checked in both directions. A room code or a link from an older Floe carries no key, and a sender does not yet refuse a receiver that cannot show the key, unless you use floe send --link-only, so in those cases you are still trusting that server."
+        );
+    });
+
+    it('no longer says that no Floe app can check the server', () => {
+        expect(faq).not.toContain('verification code');
+        expect(faq).not.toContain('not to swap them');
+    });
+});
+
 describe('the privacy page: the tracker', () => {
     it('says floe.one serves a copy the browser checks, and the component loads exactly that', () => {
         expect(page).toContain(
