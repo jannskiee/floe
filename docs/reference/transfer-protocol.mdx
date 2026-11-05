@@ -276,7 +276,7 @@ Sender to receiver, before each file.
 
 A receiver refuses a `metadata` it cannot read and stops the transfer:
 
-- an `index` or `total` that is not a whole number of at least 1
+- an `index` or `total` that is not a whole number of at least 1, or an `index` greater than `total`
 - an `id` or `fileName` that is not a string
 - a `pv` or `pvMin` that is not a whole number
 - a size that is not a byte count, or a total below the file size
@@ -476,7 +476,7 @@ A drop refused at its first `metadata` gets `over-approved` before anyone is ask
 data has arrived. Only a client that is not Floe's sends such a drop.
 
 Each code travels with a stock `reason` for peers that show it as written, which floe.one's send
-page does for every code but `hash-mismatch`:
+page does for every code but `hash-mismatch` and `unverified`:
 
 | `code` | Its stock `reason` |
 |---|---|

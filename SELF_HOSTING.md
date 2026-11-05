@@ -165,7 +165,8 @@ Four things catch people out:
 - Update the web image to 1.12.0 before Floe Desktop 1.1 reaches your users. Every
   request link Floe Desktop 1.1 and later makes holds a link key, and an older image
   reads that as an incomplete link. The Microsoft Store updates Floe Desktop on its
-  own, and a pinned `FLOE_IMAGE_TAG` stays behind until you change it.
+  own, and a web image moves only when you pull it, and never while `FLOE_IMAGE_TAG`
+  names an older version.
 
 The full steps, the limits, and the rule about matching versions are in
 [Turn on request links](https://www.floe.one/docs/self-hosting/request-links).
@@ -212,7 +213,7 @@ docker compose pull
 docker compose up -d
 ```
 
-If you pinned `FLOE_IMAGE_TAG`, set it to `1.11.1` or a later tag first.
+If you pinned `FLOE_IMAGE_TAG`, set it to `1.12.0` or a later tag first.
 Then check four things:
 
 - **The `Host` header.** The WebSocket origin check is new in this version. If the
