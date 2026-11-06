@@ -114,7 +114,7 @@ import {SettingAction, SettingRow, SettingField} from './components/SettingsPrim
 import {ProgressRow, StatusLine, FooterNote, Dropzone, FileList, FileSummary, VerifiedMark} from './components/TransferBits';
 import SharePanel from './components/SharePanel';
 import HistoryView from './components/HistoryView';
-import RequestLinkView, {DECLINED_LINE_ID, LABEL_INPUT_ID, PROMPT_ACTIONS_ID, PROMPT_HEADING_ID} from './components/RequestLinkView';
+import RequestLinkView, {DECLINED_LINE_ID, ignoreRepeat, LABEL_INPUT_ID, PROMPT_ACTIONS_ID, PROMPT_HEADING_ID} from './components/RequestLinkView';
 import {useCardPin} from './cardPin';
 import {useCopied} from './copied';
 
@@ -1131,6 +1131,25 @@ function App() {
             target?.focus();
         });
     }, [barUp]);
+
+    // The same rule for the Send tab's action slot, which swaps Send for Cancel
+    // and back, so the button the keyboard pressed unmounts as a send starts
+    // and again as it ends. Focus goes to Cancel, then to the active Files or
+    // Text tab, never to Send, which a held Enter would press again. With
+    // another screen showing neither exists, and nothing moves. Asked in the
+    // frame, so a handoff of its own (Start over's to the lockup) wins.
+    const wasSending = useRef(sending);
+    useEffect(() => {
+        if (wasSending.current === sending) return;
+        wasSending.current = sending;
+        requestAnimationFrame(() => {
+            if (document.activeElement && document.activeElement !== document.body) return;
+            const target = sending
+                ? document.getElementById('floe-send-cancel')
+                : document.getElementById('floe-send-kind');
+            target?.focus();
+        });
+    }, [sending]);
 
     // The undo timer is the one thing here that outlives a render, so it needs an
     // explicit teardown. (Started in the click handler, never in an effect: this
@@ -2563,7 +2582,7 @@ function App() {
                                             to do first, and DOM order matches it, so the tab order needs no
                                             correction. */}
                                         {sending ? (
-                                            <Button variant="outline" size="lg" className="w-full" onClick={cancel}>
+                                            <Button id="floe-send-cancel" variant="outline" size="lg" className="w-full" onKeyDown={ignoreRepeat} onClick={cancel}>
                                                 <X/> Cancel
                                             </Button>
                                         ) : (

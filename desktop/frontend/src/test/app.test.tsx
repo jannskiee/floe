@@ -10,7 +10,7 @@
  * None of them is a coverage exercise.
  */
 import {StrictMode, act} from 'react';
-import {cleanup, render, screen, waitFor, within} from '@testing-library/react';
+import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {describe, expect, it, vi} from 'vitest';
 import App from '../App';
@@ -2414,6 +2414,115 @@ describe('the Send tab while a receive runs', () => {
         await user.click(screen.getByRole('button', {name: 'Remove a.txt'}));
         expect(screen.getByRole('button', {name: 'Send 1 item'})).toBeTruthy();
         expect(screen.getByRole('button', {name: 'Clear 1 item'})).toBeTruthy();
+    });
+});
+
+/**
+ * Send and Cancel share one slot on the Send tab, so the button the keyboard
+ * pressed unmounts as a send starts and again as it ends. Focus goes to the
+ * new state's own control, by the undo bar's rule: only when it fell to the
+ * page, so a focus the owner put somewhere else stays there.
+ */
+describe('focus across a send', () => {
+    const FILE = 'C:\\Users\\test\\a.txt';
+    const sendKind = () => document.getElementById('floe-send-kind');
+    // A few animation frames, so a focus move either change scheduled has run.
+    const frames = () => act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+
+    it('Enter on Send lands on Cancel, which ignores a held key, and Enter on Cancel lands on Files', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        act(() => { wails.emit('files:open', [FILE]); });
+        const send = await screen.findByRole('button', {name: 'Send 1 item'});
+        act(() => send.focus());
+        await user.keyboard('{Enter}');
+        await waitFor(() => expect(wails.go.StartSend).toHaveBeenCalledTimes(1));
+        const cancel = await screen.findByRole('button', {name: 'Cancel'});
+        await waitFor(() => expect(document.activeElement).toBe(cancel));
+        // The Enter that pressed Send may still be held: its repeats land here.
+        expect(fireEvent.keyDown(cancel, {key: 'Enter', repeat: true})).toBe(false);
+        expect(fireEvent.keyDown(cancel, {key: 'Enter'})).toBe(true);
+        expect(wails.go.CancelTransfer).not.toHaveBeenCalled();
+
+        await user.keyboard('{Enter}');
+        expect(wails.go.CancelTransfer).toHaveBeenCalledTimes(1);
+        expect(screen.getByText('Canceled')).toBeTruthy();
+        await waitFor(() => expect(document.activeElement).toBe(sendKind()));
+        expect(sendKind()?.textContent).toBe('Files');
+    });
+
+    it('a send that ends while focus is on Cancel lands on Files', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        act(() => { wails.emit('files:open', [FILE]); });
+        await user.click(await screen.findByRole('button', {name: 'Send 1 item'}));
+        await waitFor(() => expect(wails.go.StartSend).toHaveBeenCalledTimes(1));
+        const cancel = await screen.findByRole('button', {name: 'Cancel'});
+        act(() => cancel.focus());
+        act(() => { wails.emit('send:done'); });
+        expect(await screen.findByText('Sent 1 item')).toBeTruthy();
+        await waitFor(() => expect(document.activeElement).toBe(sendKind()));
+    });
+
+    it('leaves focus on the lockup when a send starts and ends from there', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        act(() => { wails.emit('files:open', [FILE]); });
+        expect(await screen.findByRole('button', {name: 'Send 1 item'})).toBeTruthy();
+        const lockup = document.getElementById('floe-lockup')!;
+        act(() => lockup.focus());
+        await user.keyboard('{Control>}{Enter}{/Control}');
+        await waitFor(() => expect(wails.go.StartSend).toHaveBeenCalledTimes(1));
+        expect(await screen.findByRole('button', {name: 'Cancel'})).toBeTruthy();
+        await frames();
+        expect(document.activeElement).toBe(lockup);
+        act(() => { wails.emit('send:done'); });
+        expect(await screen.findByText('Sent 1 item')).toBeTruthy();
+        await frames();
+        expect(document.activeElement).toBe(lockup);
+    });
+
+    it('Start over during a send still hands focus to the lockup', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        act(() => { wails.emit('files:open', [FILE]); });
+        await user.click(await screen.findByRole('button', {name: 'Send 1 item'}));
+        await waitFor(() => expect(wails.go.StartSend).toHaveBeenCalledTimes(1));
+        act(() => {
+            wails.emit('send:progress', {
+                fileName: 'a.txt', fileIndex: 1, fileCount: 1, fileBytes: 10, fileSize: 100,
+                totalBytes: 10, grandTotal: 100, savedName: '',
+            });
+        });
+        act(() => { (document.activeElement as HTMLElement | null)?.blur(); });
+        await user.keyboard('{Control>}r{/Control}');
+        const dialog = await screen.findByRole('dialog');
+        expect(within(dialog).getByText('Starting over cancels the transfer')).toBeTruthy();
+        await user.click(within(dialog).getByRole('button', {name: 'Start over'}));
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        await frames();
+        expect(document.activeElement).toBe(document.getElementById('floe-lockup'));
+    });
+
+    it('a send that ends while History is open moves nothing', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        act(() => { wails.emit('files:open', [FILE]); });
+        await user.click(await screen.findByRole('button', {name: 'Send 1 item'}));
+        await waitFor(() => expect(wails.go.StartSend).toHaveBeenCalledTimes(1));
+        await frames();
+        await user.click(screen.getByRole('button', {name: 'History'}));
+        // A click on empty space: focus on no control, as a mouse leaves it.
+        act(() => { (document.activeElement as HTMLElement | null)?.blur(); });
+        expect(document.activeElement).toBe(document.body);
+        act(() => { wails.emit('send:done'); });
+        await frames();
+        expect(document.activeElement).toBe(document.body);
     });
 });
 
