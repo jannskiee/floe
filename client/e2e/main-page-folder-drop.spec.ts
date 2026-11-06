@@ -7,15 +7,14 @@
 
 import { test, expect, type Locator } from '@playwright/test';
 import { createHash } from 'crypto';
-import { mkdirSync, rmSync, existsSync } from 'fs';
+import { mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
-import { sha256OfFile, spawnReceive } from './helpers';
+import { SHARE_LINK_TEXT, fixtureDir, removeFixtureDir, sha256OfFile, spawnReceive } from './helpers';
 
-const OUT_ROOT = join(tmpdir(), 'floe-main-folder-drop');
+const OUT_ROOT = fixtureDir('floe-e2e-main-folder-drop');
 
 test.afterAll(() => {
-    try { rmSync(OUT_ROOT, { recursive: true, force: true }); } catch { /* ignore */ }
+    removeFixtureDir(OUT_ROOT);
 });
 
 const TREE = { 'a.txt': 'alpha\n', 'day1/b.txt': 'bravo, day one\n' };
@@ -71,7 +70,7 @@ test('a folder dropped on the Send page arrives with its structure', async ({ pa
     await expect(page.getByText('photos/a.txt', { exact: true }).first()).toBeVisible();
     await expect(page.getByText('photos/day1/b.txt', { exact: true }).first()).toBeVisible();
     await page.locator('button', { hasText: 'Create secure link (2 files)' }).click();
-    const linkEl = page.locator('code').filter({ hasText: '#room=' });
+    const linkEl = page.locator('code').filter({ hasText: SHARE_LINK_TEXT });
     await expect(linkEl).toBeVisible({ timeout: 10_000 });
     const link = (await linkEl.textContent())!.trim();
 
