@@ -23,8 +23,28 @@ const notAFile = os.ModeNamedPipe | os.ModeSocket | os.ModeDevice | os.ModeCharD
 
 // collectFiles expands all paths: plain files are added directly,
 // directories are walked and each file inside is added with its relative path.
+// The same on-disk file listed more than once under the same send name
+// (repeated args, ./a vs a, overlapping globs) is kept only once (#729).
 func collectFiles(paths []string) ([]fileEntry, error) {
 	var entries []fileEntry
+	// listed is every file collected so far, by where it is on disk and
+	// the name it will be sent under. A path given twice (a.txt a.txt,
+	// ./a.txt beside a.txt, a glob that overlaps a named file, a folder
+	// named twice) would list one file under one name twice, and the
+	// receiver would save the second copy as "a (1).txt". Only that exact
+	// repeat is skipped and the first is kept, so no name is lost: "album"
+	// and "album/" name the same files differently, as do a folder and a
+	// file inside it, and both still go. The request page (mergeSelection)
+	// and Floe Desktop (mergePaths) keep the first of a repeat too.
+	listed := make(map[[2]string]bool)
+	add := func(onDisk string, e fileEntry) {
+		key := [2]string{onDisk, e.displayName}
+		if listed[key] {
+			return
+		}
+		listed[key] = true
+		entries = append(entries, e)
+	}
 	for _, p := range paths {
 		info, err := os.Stat(p)
 		if err != nil {
@@ -35,7 +55,7 @@ func collectFiles(paths []string) ([]fileEntry, error) {
 			if info.Mode()&notAFile != 0 {
 				return nil, fmt.Errorf("cannot send %s: it is a pipe, a socket or a device, not a file", p)
 			}
-			entries = append(entries, fileEntry{
+			add(absolute(p), fileEntry{
 				absPath:     p,
 				displayName: filepath.Base(p),
 				size:        info.Size(),
@@ -51,6 +71,10 @@ func collectFiles(paths []string) ([]fileEntry, error) {
 		if resolved, err := filepath.EvalSymlinks(p); err == nil {
 			root = resolved
 		}
+		// Build top from p, not root: EvalSymlinks rewrites spelling (macOS
+		// /var to /private/var, a Windows 8.3 name to the long one), so a key
+		// from root would miss the same file named directly.
+		top := absolute(p)
 		walkErr := filepath.Walk(root, func(path string, fi os.FileInfo, err error) error {
 			if err != nil || fi.IsDir() {
 				return err
@@ -82,7 +106,7 @@ func collectFiles(paths []string) ([]fileEntry, error) {
 			// under root, seen from the folder that holds p.
 			under, _ := filepath.Rel(root, path)
 			rel, _ := filepath.Rel(filepath.Dir(p), filepath.Join(p, under))
-			entries = append(entries, fileEntry{
+			add(filepath.Join(top, under), fileEntry{
 				absPath:     path,
 				displayName: filepath.ToSlash(rel), // use forward slashes in metadata
 				size:        fi.Size(),
@@ -94,4 +118,15 @@ func collectFiles(paths []string) ([]fileEntry, error) {
 		}
 	}
 	return entries, nil
+}
+
+// absolute is p as a clean absolute path, so two spellings of one path
+// (a.txt, ./a.txt, dir/./a.txt) compare equal. filepath.Abs fails only
+// when the working directory cannot be read, and the cleaned path is the
+// best left then.
+func absolute(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
+	}
+	return filepath.Clean(p)
 }
