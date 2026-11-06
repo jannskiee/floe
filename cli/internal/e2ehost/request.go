@@ -504,6 +504,17 @@ func (h *requestHost) visit(step decideStep) visitOutcome {
 	case <-h.sc.Down:
 		h.ev.fail("signaling")
 	}
+	// A stale peer-disconnected from the visit before this one must not end
+	// this visit's setup before it starts. A declined page's socket can close
+	// after the harness has sent request-reopen, so the drop waits until here:
+	// the server writes a leaving visitor's peer-disconnected before the next
+	// visitor's user-connected on this one socket, and the read loop pushes
+	// them in that order. A visitor that request-reopen evicted sends none
+	// later.
+	select {
+	case <-h.sc.PeerLeft:
+	default:
+	}
 	h.emit("user-connected", nil)
 	if step.skipOffer {
 		return h.stall(step)
@@ -703,21 +714,11 @@ func runRequest(ev *events, stdin io.Reader, args []string) {
 		}
 		if outcome == visitEvicted {
 			// Already reopened by the harness; the next step takes the next
-			// visitor. A stale peer-disconnected is dropped as below.
-			select {
-			case <-h.sc.PeerLeft:
-			default:
-			}
+			// visitor.
 			continue
 		}
 		if !cfg.keepWaiting {
 			break
-		}
-		// A stale peer-disconnected from the visit that just ended must not
-		// end the next visit's setup before it starts.
-		select {
-		case <-h.sc.PeerLeft:
-		default:
 		}
 		if err := h.sc.RequestReopen(); err != nil {
 			ev.fail("reopen")
