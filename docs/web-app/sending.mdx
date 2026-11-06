@@ -39,18 +39,27 @@ Floe sets no size limit on a [direct connection](/glossary#direct-connection), o
 straight from your device to theirs. See [File size limits](/how-it-works/2gb-limit) for when a cap
 applies, and for what a browser on the receiving end can hold.
 
-<Warning>
-This page cannot send a folder. It has no folder picker, and a folder dropped on it is refused at
-the drop with "Folders cannot be sent from this page. Add the files inside it, or zip it first.",
-and nothing from that drop is added. Zip the folder first, or send it from
-[Floe Desktop](/desktop/sending) or the [CLI](/cli/send), both of which walk the folder for you.
-Floe Desktop or the CLI on the other side rebuilds it, and a browser rebuilds it only inside
-**Download ZIP**.
-</Warning>
+### Drop a folder
 
-The one page in the browser that does take folders is the page a
-[request link](/glossary#request-link) opens: see
-[Sending through a request link](/web-app/request-links).
+This page has no folder picker, but you can drop a folder on it. Floe reads every file inside and
+lists each one by its path, such as `photos/day1/b.txt`. While it reads, **Create secure link** is
+off. Floe Desktop or the CLI on the other side rebuilds the folder, and a browser rebuilds it only
+inside **Download ZIP**.
+
+A drop with a folder in it is added whole or not at all:
+
+- More than 10,000 files: "This drop has more than 10,000 files. Zip them first."
+- A file Floe cannot read: "Some files in this folder could not be read. Nothing was added."
+- A path too long to announce: "A file name or folder path is too long to send. Shorten it or zip
+  it first." See [Limits](/reference/limits).
+- Empty folders are left out, and the page says "Empty folders are not sent."
+
+A browser that cannot read a folder's contents refuses it at the drop with "This browser cannot
+send a folder. Add the files inside it, or zip it first." Zip the folder first, or send it from
+[Floe Desktop](/desktop/sending) or the [CLI](/cli/send).
+
+The page a [request link](/glossary#request-link) opens takes folders too, with a folder picker:
+see [Sending through a request link](/web-app/request-links).
 
 ## Decide whether the relay is allowed
 
