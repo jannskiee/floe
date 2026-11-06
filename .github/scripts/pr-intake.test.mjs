@@ -343,9 +343,10 @@ const bodyText = (body) => body.slice(0, body.lastIndexOf(MARKER_PREFIX)).trimEn
 
 // ---------------------------------------------------------------- pure rules
 
-test('the sweep ships as a dry run: LIVE_SINCE is set only by the go-live pull request', () => {
-    assert.equal(LIVE_SINCE, null);
-    assert.equal(DEFAULTS.liveSince, null);
+test('the sweep is live: the go-live pull request set LIVE_SINCE to a time in milliseconds', () => {
+    assert.equal(LIVE_SINCE, Date.parse('2026-11-06T10:00:00Z'));
+    assert.ok(Number.isFinite(LIVE_SINCE));
+    assert.equal(DEFAULTS.liveSince, LIVE_SINCE);
 });
 
 test('titleIsConventional accepts the house style and nothing else', () => {

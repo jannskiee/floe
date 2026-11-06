@@ -22,7 +22,8 @@ You can have at most two open pull requests here at a time, drafts included. Unt
 ### What happens after you open it
 
 - **CI waits for approval at first.** GitHub holds the CI runs of a pull request from a fork until the maintainer approves them, and until your first pull request here is merged, each new push waits for approval again. Until then the only check you see is Vercel's, and it fails, which is expected (see the next point).
-- **The Vercel check fails on forks.** It is expected to fail on a pull request from a fork and is not required: `CI green` is the only check that gates the merge.
+- **The Vercel check fails on forks.** It is expected to fail on a pull request from a fork and is not required, and a change to `docs/` adds a Mintlify Preview (fork) check that shows as neutral: `CI green` is the only check that gates the merge.
+- **A bot leaves notes.** Usually within an hour, Floe's intake check adds one comment to your pull request with notes for it, such as who holds the linked issue or how the title should read, and updates it as things change. It never closes, assigns or approves anything; the maintainer reviews every pull request.
 - **Review follows the issue.** The maintainer reviews your change against the issue's own tests and acceptance list, and runs those tests on your branch. Requested changes come as numbered steps.
 - **The first match wins.** When two pull requests target one unassigned issue, the first one that matches the issue is merged, and the other is closed with thanks.
 - **Keep "Allow edits and access to secrets by maintainers" ticked.** The maintainer may push a small fix to your branch instead of asking for another round, or land it in a follow-up pull request after yours is merged (for example the issue's tests or the changelog line).

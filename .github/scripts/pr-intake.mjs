@@ -8,10 +8,11 @@
 // Repo guardrails job.
 //
 // Rules the code below keeps, each with a reason:
-// - Until the owner's go-live pull request sets LIVE_SINCE, every run is a dry
-//   run: its plan goes to the job summary and the log, and nothing to GitHub
-//   (research item 13: one week of dry runs first). After that only a schedule
-//   or push run on main writes; a manual dispatch always previews.
+// - Until the owner's go-live pull request set LIVE_SINCE, every run was a
+//   dry run: its plan went to the job summary and the log, and nothing to
+//   GitHub (research item 13: one week of dry runs first). LIVE_SINCE null
+//   makes it one again. Live, only a schedule or push run on main writes; a
+//   manual dispatch always previews.
 // - A pull request's title, body, branch, file paths and comments are only
 //   matched against the fixed patterns here. None of them reaches a comment,
 //   the job summary or the log (a log line starting with :: would be read as a
@@ -46,13 +47,13 @@ import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { CLAIM_LABEL, HELP_LABEL, HELP_URL, MAINTAINER, RETURNER_ASSOCIATIONS } from './claim.mjs';
 
-// null: every run is a dry run, and pr-intake.yml's token cannot write
-// (pull-requests: read; pr-intake.test.mjs keeps the two in step). The go-live
-// pull request sets the moment, in milliseconds (Date.parse('...Z')), from
-// which new pull requests get the comment and the labels, and raises the
-// token to write. The ones opened before it were answered by hand, as
-// LAUNCH_AT says for the claim bot.
-export const LIVE_SINCE = null;
+// The moment, in milliseconds (Date.parse('...Z')), from which new pull
+// requests get the comment and the labels. The ones opened before it were
+// answered by hand, as LAUNCH_AT says for the claim bot. The go-live pull
+// request set it and raised pr-intake.yml's token to pull-requests: write
+// together (pr-intake.test.mjs keeps the two in step). null makes every run a
+// dry run again, and then the token goes back to read.
+export const LIVE_SINCE = Date.parse('2026-11-06T10:00:00Z');
 
 // The github-actions bot: GraphQL Bot.databaseId and REST user.id, both
 // 41898282 (read 2026-10-28 on issue 784's claim reply).
