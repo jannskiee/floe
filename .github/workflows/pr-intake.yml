@@ -8,17 +8,18 @@
 # Every rule lives in .github/scripts/pr-intake.mjs (tested in ci.yml's Repo
 # guardrails job) and every text is a file in .github/intake/.
 #
-# A dry run until LIVE_SINCE in pr-intake.mjs is set by a reviewed pull
-# request: until then every run writes its plan to the job summary and the log
-# and nothing to GitHub, and the token below cannot write either. The go-live
-# pull request sets LIVE_SINCE and raises pull-requests to write together
-# (pr-intake.test.mjs keeps the two in step). After that only a schedule or
-# push run on main writes; a manual dispatch always previews.
+# Live since the go-live pull request set LIVE_SINCE in pr-intake.mjs and
+# raised pull-requests to write below, together (pr-intake.test.mjs keeps the
+# two in step). Only a schedule or push run on main writes; a manual dispatch
+# always previews. LIVE_SINCE null with pull-requests: read makes it a dry run
+# again: every run then writes its plan to the job summary and the log, and
+# nothing to GitHub.
 #
 # Not a CI job and not in CI green: moderation never gates a merge, and no pull
-# request runs this file. Scheduled runs drift (5-minute crons were measured 6
-# to 27 minutes apart), and GitHub disables the whole workflow after 60 days
-# without repository activity: gh workflow enable pr-intake.yml.
+# request runs this file. Scheduled runs drift (in the dry run this 30-minute
+# cron fired a median 344 minutes apart, at most 624), and GitHub disables the
+# whole workflow after 60 days without repository activity: gh workflow enable
+# pr-intake.yml.
 # To stop it at once: gh workflow disable pr-intake.yml (and gh run cancel <id>
 # for a run in progress), then a revert pull request.
 name: PR intake
@@ -41,9 +42,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
-      # Read the pull requests and their comments. Read-only for the dry run;
-      # live, write lets the sweep comment on them and set their labels.
-      pull-requests: read
+      # Read the pull requests and their comments, comment on them and set
+      # their labels. Read for a dry run.
+      pull-requests: write
       # Read the linked issues' assignees and labels (a GraphQL query).
       issues: read
       # The checkout below, and the commit history the claim and
