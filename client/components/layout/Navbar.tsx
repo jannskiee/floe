@@ -75,7 +75,8 @@ export const Navbar = () => {
     const scrollToSection = (id: string) => {
         const element = document.getElementById(id);
         if (element) {
-            element.scrollIntoView({ behavior: 'smooth' });
+            element.scrollIntoView();
+            element.querySelector<HTMLElement>('h2')?.focus({ preventScroll: true });
         }
     };
 

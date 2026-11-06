@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
 // ---------------------------------------------------------------------------
 // The home page header follows the reader: the section button for the part of
@@ -30,4 +30,44 @@ test('the home page header marks the section in view with aria-current', async (
     // section is current and nothing is marked.
     await page.evaluate(() => window.scrollTo(0, 0));
     await expect(nav.locator('[aria-current]')).toHaveCount(0);
+});
+
+test.describe('a section button', () => {
+    const button = (page: Page, name: string) => page.getByRole('button', { name, exact: true });
+    const scrollBehavior = (page: Page) =>
+        page.evaluate(() => getComputedStyle(document.documentElement).scrollBehavior);
+
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/#faq');
+        await expect(button(page, 'FAQ')).toHaveAttribute('aria-current', 'location');
+    });
+
+    test('moves keyboard focus to its section', async ({ page }) => {
+        await button(page, 'About').focus();
+        await page.keyboard.press('Enter');
+        const heading = page.getByRole('heading', { level: 2, name: 'Your files never make a stop.' });
+        await expect(heading).toBeFocused();
+        await expect(heading).toHaveCSS('outline-style', 'none');
+        await page.keyboard.press('Tab');
+        await expect(page.getByRole('link', { name: 'Read the overview' })).toBeFocused();
+    });
+
+    test('jumps under reduced motion', async ({ page }) => {
+        await page.emulateMedia({ reducedMotion: 'reduce' });
+        expect(await scrollBehavior(page)).toBe('auto');
+        // Read in the click's own task, when a smooth scroll has hardly moved.
+        const top = await button(page, 'About').evaluate((el: HTMLElement) => {
+            el.click();
+            return document.getElementById('about')!.getBoundingClientRect().top;
+        });
+        expect(top).toBeCloseTo(112, -1); // scroll-mt-28
+    });
+
+    test('otherwise scrolls smoothly and lands on its section', async ({ page }) => {
+        expect(await scrollBehavior(page)).toBe('smooth');
+        await button(page, 'About').click();
+        await expect
+            .poll(() => page.evaluate(() => document.getElementById('about')!.getBoundingClientRect().top))
+            .toBeCloseTo(112, -1);
+    });
 });
