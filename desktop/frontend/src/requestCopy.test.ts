@@ -78,6 +78,17 @@ describe('waiting, reconnecting and ended lines', () => {
         expect(reopenLine({code: 'no-relay', suggestClose: true}, NOW)).toBe('2 requests ended without Accept in 10 minutes. Close this link?');
     });
 
+    it('says a sender was turned away when the link key check failed (W15)', () => {
+        // An unverified pairing: no prompt, toast, flash or title (D9), so this
+        // line is all the owner hears of it, and it names no one's fault.
+        const w15 = "A sender couldn't be confirmed and was disconnected";
+        expect(reopenLine({code: 'unverified', suggestClose: false}, NOW)).toBe(w15);
+        expect(copy.UNVERIFIED_LINE).toBe(w15);
+        expect(reopenLine({code: 'unverified', missedAt: MISSED, suggestClose: false}, NOW)).toBe(w15);
+        // E-40's question still outranks it, as it does every reopen reason.
+        expect(reopenLine({code: 'unverified', suggestClose: true}, NOW)).toBe('2 requests ended without Accept in 10 minutes. Close this link?');
+    });
+
     it('maps missedAt to fixed copy', () => {
         expect(reopenLine({code: '', missedAt: MISSED, suggestClose: false}, NOW)).toBe('Missed a request at 2:14 PM');
     });
@@ -121,6 +132,14 @@ describe('waiting, reconnecting and ended lines', () => {
 
     it('maps closed to fixed copy', () => {
         expect(endedLine('closed', END, NOW)).toBe('Link closed');
+    });
+
+    it('maps unverified to fixed copy (X7), which names no time on any day', () => {
+        // The 5 is Go's requestUnverifiedCap: TestUnverifiedCapMatchesTheCopy reads this file.
+        const x7 = "Link closed after 5 senders couldn't be confirmed";
+        expect(endedLine('unverified', END, NOW)).toBe(x7);
+        expect(endedLine('unverified', END, NOW + 7 * 86400000)).toBe(x7);
+        expect(copy.UNVERIFIED_ENDED_LINE).toBe(x7);
     });
 
     it('maps app-closed to fixed copy', () => {

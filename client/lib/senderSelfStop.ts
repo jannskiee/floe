@@ -11,9 +11,9 @@
 //
 // The carrier is the frame every peer already reads: `incompatible` as TEXT
 // with an overlapping pv range, from incompatibleMessage, the same frame the
-// relay-cap reason has used since PR #429. No code rides on it: the twelve
-// RefusalCodes name why a RECEIVER stopped, and no released receiver reads a
-// code on a sender's frame. Every receiver shows the reason itself: the
+// relay-cap reason has used since PR #429. No code rides on it: the RefusalCodes
+// name why a RECEIVER stopped, all but unverified, and no released receiver reads
+// a code on a sender's frame. Every receiver shows the reason itself: the
 // browser receiver in its banner, floe 1.11.0 after "Error: ", Floe Desktop
 // 0.3.0 after "Error: transfer failed: ". The literal frames and what each of
 // those receivers makes of them are pinned in

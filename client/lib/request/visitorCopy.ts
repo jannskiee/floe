@@ -209,6 +209,22 @@ export const visitorCopy = {
     needsUpdate: 'Their Floe needs an update.',
     /** C-110. */
     lostTitle: 'Connection lost',
+    /** C-56: V6f, this page's own check of the computer that answered the link failed:
+     *  a proof that does not check out, or none in time. It says what the page could not do
+     *  and accuses nobody. NEW 2026-11-01. */
+    keyFailedTitle: "Couldn't confirm their computer",
+    /** C-57. Nothing was named on any path to V6f: sendFiles has not run. NEW 2026-11-01. */
+    keyFailedBody: 'Nothing was sent. Ask the person who made this link for a new one.',
+    /** C-58: V6g, this browser could not read the connection's certificates, so it had
+     *  nothing to check the host with. It never claims the other side failed (D7).
+     *  NEW 2026-11-03. */
+    cantCheckTitle: "This browser can't check this link",
+    /** C-59. Nothing was named on any path to V6g, as on V6f, and a new link would not help
+     *  this browser, so it says what would. NEW 2026-11-03. */
+    cantCheckBody: 'Nothing was sent. Open this link in a current version of Chrome, Edge, Firefox or Safari.',
+    /** The line after the saved line on the unverified row, and C-57's second sentence.
+     *  NEW 2026-11-01. */
+    askForNewLink: 'Ask the person who made this link for a new one.',
     /** C-112: V12a. */
     lostBeforeAccept: 'Connection lost. Nothing was sent.',
     /** C-122: only when the host's verified count equals the file count. Never
@@ -241,7 +257,7 @@ export const visitorCopy = {
     srRelayLimit: 'Relay limit. This connection needs a relay, and relayed drops are capped at 2 GB.',
 } as const;
 
-/** The refusal titles of 4.15.2, keyed by the twelve allowlisted codes. A Map,
+/** The refusal titles of 4.15.2, keyed by the thirteen allowlisted codes. A Map,
  *  not an object: no peer string can reach a prototype key. declined and
  *  expired are the V8 sentences. */
 const REFUSAL_TITLES: ReadonlyMap<string, string> = new Map([
@@ -257,6 +273,7 @@ const REFUSAL_TITLES: ReadonlyMap<string, string> = new Map([
     ['over-approved', 'More data arrived than they accepted'],
     ['stopped', 'They stopped this drop.'],
     ['time-limit', 'This drop reached the 24-hour limit'],
+    ['unverified', "Their computer couldn't confirm this link"],
 ]);
 
 /** 4.15.2's unknown or missing code: anything the page does not know,
@@ -274,6 +291,15 @@ function savedLine(saved: number, total: number): string {
     return total === 1 ? `${saved} of 1 file was saved.` : `${saved} of ${total} files were saved.`;
 }
 
+/** The saved line where it is true. `acked` is this page's own fact, that the host has
+ *  answered a file: the first byte goes right behind that answer, so from there "Nothing was
+ *  sent." would be false whatever count a frame carries, on a host that is honest too (a disk
+ *  that fills during file 1). With nothing saved the card then has no such line at all, which
+ *  takes no new words (owner, D17). */
+function savedLines(saved: number, total: number, acked: boolean): string[] {
+    return acked && saved === 0 ? [] : [savedLine(saved, total)];
+}
+
 export interface RefusalCopy {
     title: string;
     lines: string[];
@@ -283,18 +309,24 @@ export interface RefusalCopy {
 
 /** The card for a refusal code. `refusal` is typed loosely on purpose: the
  *  lookup is the allowlist, so a raw or hostile value lands on the unknown
- *  row, and `saved` is clamped here whatever the caller did. */
-export function refusalCopy(refusal: unknown, saved: unknown, total: number): RefusalCopy {
+ *  row, and `saved` is clamped here whatever the caller did.
+ *
+ *  `acked`: see savedLines. declined and expired are V8's sentences, each of which holds
+ *  "Nothing was sent." in its title, and an honest host sends them only before its first
+ *  answer. Past it, only a hostile host does, and they read as the unknown row. */
+export function refusalCopy(refusal: unknown, saved: unknown, total: number, acked = false): RefusalCopy {
     const code = typeof refusal === 'string' && REFUSAL_TITLES.has(refusal) ? refusal : null;
-    const title = code === null ? UNKNOWN_REFUSAL : (REFUSAL_TITLES.get(code) as string);
-    if (code === 'declined' || code === 'expired') return { title, lines: [], showArrived: false };
+    const v8 = code === 'declined' || code === 'expired';
+    const title = code === null || (v8 && acked) ? UNKNOWN_REFUSAL : (REFUSAL_TITLES.get(code) as string);
+    if (v8 && !acked) return { title, lines: [], showArrived: false };
     const count = clampCount(saved, total);
     const lines =
-        code === 'relay-cap' && count === 0 ? [visitorCopy.relayCapNothing] : [savedLine(count, total)];
+        code === 'relay-cap' && count === 0 && !acked ? [visitorCopy.relayCapNothing] : savedLines(count, total, acked);
     if (code === 'hash-mismatch') lines.push(visitorCopy.askForTheRest);
     // The fix a heading used to carry is a line after the saved line (D-136).
     if (code === 'path-too-long') lines.push(visitorCopy.zipNested);
     if (code === 'over-approved') lines.push(visitorCopy.filesChanged);
+    if (code === 'unverified') lines.push(visitorCopy.askForNewLink);
     return { title, lines, showArrived: count > 0 };
 }
 
@@ -444,6 +476,10 @@ export function statusCopy(model: VisitorModel, ctx: StatusContext): StatusCopy 
             return card('active', visitorCopy.connecting, [visitorCopy.limiterRetry], 'cancel');
         case 'V6a':
             return card('ended', visitorCopy.couldNotConnect, [], 'try-again', { one: true });
+        case 'V6f':
+            return card('ended', visitorCopy.keyFailedTitle, [visitorCopy.keyFailedBody]);
+        case 'V6g':
+            return card('ended', visitorCopy.cantCheckTitle, [visitorCopy.cantCheckBody]);
         case 'V7': {
             const elapsed = model.firstMetadataAt === null ? 0 : ctx.now - model.firstMetadataAt;
             return card('active', visitorCopy.waitingTitle, [countdownLine(answerMinutesLeft(elapsed))], 'cancel', {
@@ -461,18 +497,23 @@ export function statusCopy(model: VisitorModel, ctx: StatusContext): StatusCopy 
         case 'V11': {
             // An unreadable local file (C-130): the visitor's own path, and the
             // saved line from the visitor's own count, since no host count
-            // came with it.
+            // came with it. Past the host's answer the read can have failed part of
+            // the way through a file, so savedLines holds there too.
             const unreadable = model.unreadableIndex > 0 ? ctx.pathAt(model.unreadableIndex) : undefined;
             if (model.stop === null && unreadable !== undefined) {
-                return card('ended', visitorCopy.unreadableTitle, [unreadableLine(unreadable), savedLine(arrived, total)], null, {
-                    showArrived: arrived > 0,
-                });
+                return card(
+                    'ended',
+                    visitorCopy.unreadableTitle,
+                    [unreadableLine(unreadable), ...savedLines(arrived, total, model.ackIndex > 0)],
+                    null,
+                    { showArrived: arrived > 0 }
+                );
             }
-            const r = refusalCopy(model.stop?.refusal ?? null, model.stop?.savedCount ?? 0, total);
+            const r = refusalCopy(model.stop?.refusal ?? null, model.stop?.savedCount ?? 0, total, model.ackIndex > 0);
             return card('ended', r.title, r.lines, null, { showArrived: r.showArrived });
         }
         case 'V11a':
-            return card('ended', visitorCopy.stoppedByYou, [savedLine(arrived, total)], null, {
+            return card('ended', visitorCopy.stoppedByYou, savedLines(arrived, total, model.ackIndex > 0), null, {
                 showArrived: arrived > 0,
             });
         case 'V11b':
@@ -528,12 +569,19 @@ export function announcement(model: VisitorModel, ctx: StatusContext): string {
                 : `Connection lost. ${arrivedCount(model)} of ${model.total} files arrived.`;
         case 'V9':
             return visitorCopy.srRelayLimit;
+        case 'V1':
+            // V1's own card, reached by an attempt the page had been announcing: a host
+            // refused a link that was cut before its key. At load it has nothing behind it,
+            // and stays as quiet as it was.
+            return model.attempt > 0 ? visitorCopy.incompleteTitle : '';
         case 'V4':
         case 'V5a':
         case 'V5b':
         case 'V5c':
         case 'V5d':
         case 'V6a':
+        case 'V6f':
+        case 'V6g':
         case 'V8a':
         case 'V8b':
         case 'V11':

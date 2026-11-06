@@ -6,10 +6,10 @@ import { UMAMI_BEFORE_SEND, loadsUmami, umamiBeforeSend, umamiPayloadAllowed } f
 const LINK_ID = 'Ab3dE_f9-xY';
 const ROOM_ID = '6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f';
 
-/** A pageview as the live cloud.umami.is script builds it: url is the absolute
- *  page URL with the hash and search already stripped (the two exclude flags),
- *  referrer is the previous page's path on the same origin, or the whole URL
- *  from another one, or '' on a direct visit. */
+/** A pageview as the pinned tracker (public/vendor) builds it: url is the
+ *  absolute page URL with the hash and search already stripped (the two exclude
+ *  flags), referrer is the previous page's path on the same origin, or the whole
+ *  URL from another one, or '' on a direct visit. */
 function pageview(url: string, referrer = '') {
     return {
         website: '00000000-0000-4000-8000-000000000000',
@@ -111,11 +111,52 @@ describe('umamiPayloadAllowed', () => {
 });
 
 describe('umamiBeforeSend', () => {
-    it('returns the payload itself to send it and false to drop it', () => {
-        const kept = pageview('https://floe.one/privacy');
-        expect(umamiBeforeSend('event', kept)).toBe(kept);
+    it('returns what to send, the payload without its title, and false to drop it', () => {
+        const { title: _title, ...kept } = pageview('https://floe.one/privacy');
+        expect(_title).toBeDefined();
+        expect(umamiBeforeSend('event', pageview('https://floe.one/privacy'))).toEqual(kept);
         expect(umamiBeforeSend('event', pageview(`https://floe.one/r/${LINK_ID}`))).toBe(false);
         expect(umamiBeforeSend('identify', pageview('https://floe.one/', `/r/${LINK_ID}`))).toBe(false);
+    });
+
+    it('drops the title from every payload the tracker builds', () => {
+        // The tracker copies document.title into every payload, and Floe has no
+        // use for it. A page title is Floe's own words today, so this is latent,
+        // and it stays out before a title ever names a file or a link.
+        const page = pageview('https://floe.one/');
+        for (const [type, payload] of [
+            ['event', page],
+            ['event', { ...page, name: 'transfer-received', data: { files: 3 } }],
+            ['identify', { ...page, data: { plan: 'x' } }],
+            ['performance', { ...page, ttfb: 12, fcp: 30 }],
+            ['event', { ...page, title: '' }],
+        ] as const) {
+            const out = umamiBeforeSend(type, payload);
+            expect(out, type).not.toBe(false);
+            expect(out, type).not.toHaveProperty('title');
+            expect(out, type).toEqual(
+                Object.fromEntries(Object.entries(payload).filter(([key]) => key !== 'title'))
+            );
+        }
+    });
+
+    it('leaves the object it was given as it was', () => {
+        const page = pageview('https://floe.one/');
+        const before = structuredClone(page);
+        umamiBeforeSend('event', page);
+        expect(page).toEqual(before);
+    });
+
+    it('still judges a payload with no title, and reads only the top level', () => {
+        const { title: _title, ...untitled } = pageview('https://floe.one/');
+        expect(_title).toBeDefined();
+        expect(umamiBeforeSend('event', untitled)).toEqual(untitled);
+        // A named event's data is what the caller chose to report.
+        const named = { ...untitled, name: 'x', data: { title: 'kept' } };
+        expect(umamiBeforeSend('event', named)).toEqual(named);
+        // What it cannot read is dropped, as umamiPayloadAllowed says.
+        expect(umamiBeforeSend('event', undefined)).toBe(false);
+        expect(umamiBeforeSend('event', 'https://floe.one/')).toBe(false);
     });
 
     it('is the hook UmamiScript names, installed under that name', () => {

@@ -87,6 +87,14 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	fmt.Print("Checking for updates... ")
 
 	latest, err := latestVersion()
+	// Checked before any line prints or compares the tag. LatestVersion refuses a
+	// bad one itself; this holds for whatever answers through that seam. The
+	// refusal goes out unwrapped, on a line of its own, because it is a whole
+	// sentence and the check did not fail: the release's name did.
+	if errors.Is(err, selfupdate.ErrUnexpectedTag) || (err == nil && !selfupdate.IsReleaseTag(latest)) {
+		fmt.Println()
+		return selfupdate.ErrUnexpectedTag
+	}
 	if err != nil {
 		return fmt.Errorf("failed to check for updates: %w", err)
 	}

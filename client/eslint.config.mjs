@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Third-party bytes pinned by hash (lib/umamiPin.ts): there is nothing to fix.
+    "public/vendor/**",
   ]),
 ]);
 

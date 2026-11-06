@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"type\":\"kc\",\"tag\":\"xJgBMZk3OsXxCjLFjYdncS5CaBBliB8cBpai84L62Zc\"}")

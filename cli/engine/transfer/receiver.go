@@ -187,6 +187,12 @@ type ReceiveOptions struct {
 	// 1, the universal sanity limits in limits.go, runs either way and has no
 	// field here on purpose.
 	Limits *ReceiveLimits
+	// KeyCheck, when set, is the link's key: this receive sends its proof as soon
+	// as it starts, and requires the sender's before the first metadata, before
+	// any callback, prompt, Decide or ack. Its Enforce is ignored, because a
+	// receiver holding a key always requires the sender's proof. Nil is a keyless
+	// receive, which sends nothing new and ignores a sender's kc.
+	KeyCheck *KeyCheck
 	// UpdateHint replaces the CLI-only local update instruction in protocol
 	// compatibility errors. Leave empty for the default CLI wording.
 	UpdateHint string
@@ -255,6 +261,31 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 		msgCh, done = ch, d
 	}
 
+	// The link key, when this receive holds one. Its own proof goes first, and
+	// awaitingProof closes every way past it in the loop below: nothing is parsed,
+	// asked, acked or written for a sender until its proof has checked out.
+	var ks *keySession
+	kcOK := false
+	if opts.KeyCheck != nil {
+		var err error
+		ks, err = newKeySession(dc, opts.KeyCheck, false)
+		if errors.Is(err, errConnectionGone) {
+			// The sender left before this receive began, so there is nobody to tell: the
+			// close the loop below reads on a receive with no key, in the same words.
+			return closedError(nil, "", 0, FileInfo{}, 0)
+		}
+		if err != nil {
+			// This side's own fault, so it goes back bare: a RefusedError with this
+			// code prints a sentence that blames the sender (D7).
+			AbortWithCode(dc, localVer, CodeUnverified, CodeUnverified.WireReason(), 0)
+			return err
+		}
+		// A failed Send is a closed channel, which the loop reports. BINARY,
+		// because a receiver's frames are.
+		_ = dc.Send(ks.own)
+	}
+	awaitingProof := func() bool { return ks != nil && !kcOK }
+
 	var currentFile *os.File // the .part staging file the bytes are written to
 	var currentInfo FileInfo
 	var currentDisplayName string // displayText(currentInfo.FileName): every print, callback and error uses this, never the raw name
@@ -316,6 +347,11 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 	// so a slow human can never trip it either.
 	stallTimer := time.NewTimer(receiveIdleTimeout)
 	defer stallTimer.Stop()
+	// The proof a key is owed has one clock, from here. Restarting it per frame let
+	// a middle hold a keyed receive open for as long as it kept sending frames that
+	// mean nothing (final audit report 27 F2). An honest sender's proof meets it: it
+	// sends nothing else first, so the idle clock already asked this much of it.
+	proofBy := time.Now().Add(receiveIdleTimeout)
 
 	for {
 		// Prefer draining buffered messages over reacting to a close: a normal
@@ -329,7 +365,9 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 			// timer semantics this module's go directive activates; lowering
 			// the directive (or GODEBUG=asynctimerchan=1) would let a stale
 			// expiry misfire the very next select.
-			if waitingForFirst {
+			if awaitingProof() {
+				stallTimer.Reset(time.Until(proofBy))
+			} else if waitingForFirst {
 				stallTimer.Reset(receiveIdleTimeout)
 			} else {
 				stallTimer.Reset(receiveStallTimeout)
@@ -380,7 +418,13 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 		// path, so the frame carries path-too-long and a current sender shows
 		// its fixed sentence. The reason is the one this frame has always
 		// carried, for peers that print it.
+		//
+		// Before the link key's proof it is simply no proof, whatever it holds:
+		// the same refusal as any other frame in the proof's place.
 		if msg.IsString && len(msg.Data) > controlMsgMax {
+			if awaitingProof() {
+				return refuseUnverified(dc, localVer)
+			}
 			detail := fmt.Sprintf("control message is %d bytes, limit %d", len(msg.Data), controlMsgMax)
 			AbortWithCode(dc, localVer, CodePathTooLong, "receiver rejected the file description: "+detail, filesReceived)
 			return fmt.Errorf("rejected the sender's control message: %d bytes, limit %d", len(msg.Data), controlMsgMax)
@@ -409,7 +453,26 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 		if isControl {
 			switch msgType {
 
+			case "kc":
+				// The sender's proof of the link key. A receive without the key
+				// drops it, as a released receiver does with any unknown type, and
+				// so does one that has already checked a proof: the first one wins.
+				if !awaitingProof() {
+					continue
+				}
+				if !ks.verify(msg.Data) {
+					return refuseUnverified(dc, localVer)
+				}
+				kcOK = true
+
 			case "incompatible":
+				// A sender that could not confirm this side, or found it silent,
+				// says so with this code: fixed words here, with or without a key,
+				// never the sender's. Only while it is true that nothing was saved;
+				// past a committed file the frame reads as any other stop below.
+				if filesReceived == 0 && senderSaysUnverified(msg.Data) {
+					return ErrSenderNotConfirmed
+				}
 				// The sender is stopping on purpose and said why. Until now this
 				// was classified as control purely so it was never written as
 				// file data, then dropped, so the reason it carries went
@@ -428,10 +491,25 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				// pv/pvMin with THIS surface update hint when they do not, so a
 				// desktop receiver is never told to run a command it does not have.
 				// A *CompatError, so its lines print as Floe's own (OwnLines).
-				_, localTooOld := CheckCompat(MinProtocolVersion, ProtocolVersion, incompat.PvMin, incompat.Pv)
+				overlap, localTooOld := CheckCompat(MinProtocolVersion, ProtocolVersion, incompat.PvMin, incompat.Pv)
+				// Before the link key's proof a stop is told in fixed words: the
+				// sender's own are from a side that has proved nothing. A range miss
+				// keeps its lines, which are Floe's own, less the version they quote,
+				// which is that side's own text too.
+				if awaitingProof() {
+					if overlap {
+						return errSenderStoppedUnproven
+					}
+					incompat.Ver = ""
+				}
 				return &CompatError{LocalTooOld: localTooOld, text: compatErrorFromIncompatible(localVer, opts.UpdateHint, incompat)}
 
 			case "metadata":
+				// Before the parse, Layer 1, OnIncoming, Decide, the prompt and any
+				// ack, so an unproven sender gets no answer about its file at all.
+				if awaitingProof() {
+					return refuseUnverified(dc, localVer)
+				}
 				info, err := parseMetadata(string(msg.Data))
 				if err != nil {
 					// classifyControl already proved this is a metadata object, so a failure
@@ -999,6 +1077,12 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 		// A string that was not a recognized control message is never file data.
 		if msg.IsString {
 			continue
+		}
+
+		// A binary frame is file data, or an honest proof in the wrong framing,
+		// and neither belongs ahead of the proof.
+		if awaitingProof() {
+			return refuseUnverified(dc, localVer)
 		}
 
 		if currentFile == nil {

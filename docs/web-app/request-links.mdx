@@ -34,7 +34,7 @@ Everything you send in one go is one [drop](/glossary#drop), and a link takes on
 <Steps>
   <Step title="Open the whole link">
     Open it in your browser, Chrome or Edge on a computer where you can. Everything after the `#` is part of
-    the link: a link cut short there shows "This link looks incomplete".
+    the link, and your browser leaves it out when it loads the page: a link cut short there shows "This link looks incomplete".
   </Step>
   <Step title="Pick files or folders">
     Drop them on the drop area, or use **Choose files** or **Choose folder**.
@@ -94,6 +94,13 @@ attempt is under way, from **Send** to its end, the page ignores the new link.
 Click **Send**. The page reads "Connecting to their computer". It has up to 20 seconds to reach
 Floe's [server](/glossary#signaling-server), which introduces the two computers. Once the server has
 let you in, the two computers have up to 75 seconds to connect.
+
+A link from Floe Desktop 1.1 and later holds a [link key](/glossary#link-key) behind the [room](/glossary#room) id, as
+`/r/<link id>#<room id>.<link key>`. The page then gives their computer up to 15 seconds to prove it
+holds the same link key, and names no file before that. A computer that cannot prove it learns no file's name or bytes,
+and the page says "Couldn't confirm their computer". A link from Floe Desktop 1.0.x holds no link key
+and has no such check, and nothing on the page tells the two apart. See
+[What the link key checks](/how-it-works/known-limitations#the-signaling-server-is-trusted-to-introduce-you-honestly).
 
 Then the page reads "Waiting for them to accept" with a countdown, such as "They have 9 min to answer.
 Keep this page open." The minutes refresh every 15 seconds. In the last minute the line reads "They have
@@ -234,7 +241,7 @@ version, where a few of them read differently: see
 | Message | What it means | What to do |
 |---|---|---|
 | “Open in your browser”, with “Open the link in current Chrome or Edge on a computer.” and a box titled “To use this phone instead” | The link was opened inside another app's built-in browser, such as a chat app's. Nothing of the page loads until you continue. | Open the link in current Chrome or Edge on a computer, or follow the steps in the box to open it in your phone's own browser. See [Open in your browser](/troubleshooting#open-in-your-browser). |
-| “This link looks incomplete”, then “Copy the whole link again, including everything after the # sign.” | The link was cut short, often at the `#`. | Copy the whole link again from where you got it. |
+| “This link looks incomplete”, then “Copy the whole link again, including everything after the # sign.” | The link was cut short, often at the `#` or at the dot before its [link key](/glossary#link-key). It also shows after **Send** when their Floe asked for a link key and this link had lost it. | Copy the whole link again from where you got it. If a whole link on a [self-hosted](/glossary#self-hosted) server still reads this, its web app is older than 1.12.0: tell the person who made the link. |
 | “This browser cannot send through Floe”, then “Open the link in current Chrome or Edge.” | This browser lacks WebRTC, the feature Floe uses to connect two computers. It is the one thing the page checks for. | Open the link in current Chrome or Edge. |
 | “This browser cannot pick folders. Drag the folder in, or zip it first.” | This browser has no working folder picker, or a folder you dropped could not be read as one. | Do what the message says. |
 | “Empty folders are not sent.” | A folder you dropped held an empty folder. The files are still selected. | Nothing. Zip the folder first if the empty folders matter. |
@@ -248,6 +255,8 @@ version, where a few of them read differently: see
 | “Request links are turned off right now” | The server has turned request links off. A link that was waiting for a sender when that happened has ended. | Click **Try again** later: your files stay selected. If the page then says "This link has ended", ask for a new link. |
 | “Request links are not available on this Floe server.” | The server did not answer the page within 10 seconds, as a server older than request links does not. | Click **Try again**: your files stay selected. If it says the same, ask the person who made the link. |
 | “Couldn't connect to their computer. Nothing was sent.” | The page could not reach Floe's server within 20 seconds, or the two computers did not connect within 75 seconds after it did. | Click **Try again**. If it keeps happening, a network on one side may be blocking the connection. |
+| “Couldn't confirm their computer”, then “Nothing was sent. Ask the person who made this link for a new one.” | The link holds a link key, and the computer that answered proved nothing within 15 seconds, or its proof was wrong. It accuses nobody: a damaged link reads the same. | Ask the person who made it for a new link, over a channel you trust. See [Couldn't confirm their computer](/troubleshooting#could-not-confirm-their-computer). |
+| “This browser can't check this link”, then “Nothing was sent. Open this link in a current version of Chrome, Edge, Firefox or Safari.” | The link holds a link key, and this browser could not read the connection's certificates. It says nothing about their computer, and a new link would not help. | Open the link in another browser. |
 | “This Floe server has no relay right now. Turn off Hide my IP to send directly.” | Hide my IP needs a relay, and the server's list has none. | Turn off Hide my IP to send directly. |
 | “Couldn't check for a relay. Try again, or turn off Hide my IP to send directly.” | Hide my IP needs a relay, and the page could not get the server's relay list. The request failed, or the server was limiting requests from your network. | Click **Send** again: the page asks the server on every try. If it comes back, wait 1 minute, or turn off Hide my IP. |
 | “Too many connections from this network. Trying again shortly.” | The server is limiting connections from your network for a moment. | Wait: the page tries again by itself. |
@@ -255,11 +264,11 @@ version, where a few of them read differently: see
 | “They did not answer in time. Nothing was sent.” | Nobody clicked **Accept** or **Decline** in time. The link stays open. | Ask them to be at their PC, then send again. |
 | “Relay limit”, then “This connection needs a relay, and relayed drops are capped at 2 GB. Send 2 GB or less, or try another network.” | Your selection is over 2 GB, and the connection goes through the relay. Either the networks allow nothing else, or their Floe has Hide my IP on. Nothing was sent. | Click **Back to files**, then **Clear**, and pick 2 GB or less. Or try another network, or ask them to turn off Hide my IP. See [File size limits](/how-it-works/2gb-limit). |
 | “This computer may have slept. If the connection drops, the file that was moving starts over.” | While the tab was in the background, more than 30 seconds went missing from the page's clock, which usually means the computer slept. | Keep the computer awake until the last file arrives. The line stays for the rest of the visit. |
-| “You stopped this drop.”, then how many files were saved | You clicked **Cancel** after they accepted, and then **Stop**. | Ask for a new link to send the rest. |
+| “You stopped this drop.”, then how many files were saved, when any were | You clicked **Cancel** after they accepted, and then **Stop**. Part of a file may have gone by then, so with nothing saved no card says “Nothing was sent.” | Ask for a new link to send the rest. |
 | “Their Floe needs an update.” | Their Floe is too old to work with this page. | Ask them to update Floe. |
 | “Connection lost”, then for example “4 of 12 files arrived. Ask them for a new link to send the other 8.” | The connection dropped after they accepted, or the browser unloaded the tab during the drop. | Do what the message says. See [Keep the page open](#keep-the-page-open). |
 | “Connection lost. Nothing was sent.” | The connection dropped before they accepted. | Click **Try again**. |
-| “Could not read a file”, then the file's path and “may have been moved or renamed, or its drive disconnected.” | A file you picked could not be read when its turn came. On Windows, Chrome and Edge cannot read a file whose full path is over 260 characters. | Check the file. If they had not accepted yet, reload the page and send again through the same link. Otherwise ask for a new link to send the rest. |
+| “Could not read a file”, then the file's path and “may have been moved or renamed, or its drive disconnected.”, and [the line about what was saved](#when-their-floe-stops-the-drop) | A file you picked could not be read when its turn came. On Windows, Chrome and Edge cannot read a file whose full path is over 260 characters. | Check the file. If they had not accepted yet, reload the page and send again through the same link. Otherwise ask for a new link to send the rest. |
 
 A few notes on these:
 
@@ -274,7 +283,9 @@ A few notes on these:
 
 The page shows one of these messages, then a line with how many files were saved, then the files that
 arrived under **ARRIVED**. The line reads, for example, "4 of 12 files were saved." For a single file it
-reads "1 of 1 file was saved.", and when nothing was saved, "Nothing was sent."
+reads "1 of 1 file was saved." When nothing was saved before they accepted, it reads "Nothing was sent."
+After they accept, part of a file may already have gone, so with nothing saved there is no such line:
+no card says "Nothing was sent." once their Floe has answered a file.
 
 | Message | What it means | What to do |
 |---|---|---|
@@ -288,7 +299,8 @@ reads "1 of 1 file was saved.", and when nothing was saved, "Nothing was sent."
 | “More data arrived than they accepted”, and after the count “If files changed after you chose them, ask them for a new link.” | Your browser sent more than the count and size they accepted. | Do what the message says. |
 | “They stopped this drop.” | They clicked **Cancel drop**, or closed the link or quit Floe while your request was waiting. | Ask them before you send again. |
 | “This drop reached the 24-hour limit” | A single drop stops at 24 hours. | Ask for a new link and send fewer files. |
-| “The drop stopped on their computer.” | Their Floe stopped the drop for another reason. | Ask them what happened. |
+| “Their computer couldn't confirm this link”, and after the count “Ask the person who made this link for a new one.” | Their Floe holds a [link key](/glossary#link-key), and this page's proof of it failed. | Do what the message says. |
+| “The drop stopped on their computer.” | Their Floe stopped the drop for another reason. A decline or a missed answer that comes after they accepted a file reads this way too, and no honest Floe sends one. | Ask them what happened. |
 
 ## If something goes wrong {#if-something-goes-wrong}
 
@@ -298,3 +310,5 @@ reads "1 of 1 file was saved.", and when nothing was saved, "Nothing was sent."
   [Troubleshooting](/troubleshooting#this-link-has-already-been-used).
 - "They did not answer in time. Nothing was sent.": they have 9 minutes 45 seconds to answer. See
   [Troubleshooting](/troubleshooting#they-did-not-answer-in-time).
+- "Couldn't confirm their computer": the link's [link key](/glossary#link-key) check failed, and
+  nothing was sent. See [Troubleshooting](/troubleshooting#could-not-confirm-their-computer).

@@ -77,16 +77,23 @@ func PMHint(pm string) string {
 	return ""
 }
 
+// executable is a var so a test can point Apply at a temp file, not the test binary.
+var executable = os.Executable
+
 // Apply downloads, verifies the SHA-256 checksum, and replaces the running
 // binary with the given version. The new binary is extracted into a writable
 // temp dir, then installed in place: directly when the install dir is writable,
-// or via sudo when it is root-owned (e.g. /usr/local/bin).
+// or via sudo when it is root-owned (e.g. /usr/local/bin). A version that is not
+// a plain vX.Y.Z is refused with ErrUnexpectedTag before it can reach a URL.
 func Apply(version string) error {
+	if !IsReleaseTag(version) {
+		return ErrUnexpectedTag
+	}
 	asset, format := assetName(version)
 	assetURL := fmt.Sprintf("%s/%s/%s", baseURL, version, asset)
 	checksumsURL := fmt.Sprintf("%s/%s/checksums.txt", baseURL, version)
 
-	exe, err := os.Executable()
+	exe, err := executable()
 	if err != nil {
 		return fmt.Errorf("cannot locate current executable: %w", err)
 	}

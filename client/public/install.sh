@@ -105,18 +105,19 @@ echo "Downloading floe ${FLOE_VERSION} (${GOOS}/${GOARCH})..."
 curl -fsSL "${DOWNLOAD_URL}" -o "${TMP_DIR}/${ARCHIVE}"
 curl -fsSL "${CHECKSUMS_URL}" -o "${TMP_DIR}/checksums.txt"
 
-# Verify SHA-256 checksum
-EXPECTED="$(grep " ${ARCHIVE}" "${TMP_DIR}/checksums.txt" | awk '{print $1}')"
+# Verify SHA-256 checksum. A download that cannot be checked is not installed.
+# Only the line for exactly this name counts, compared as a string: a longer name
+# that holds this one, or a name the dots of this one would match as a pattern, is
+# another file. The carriage return is for a checksums.txt that a proxy rewrote.
+EXPECTED="$(awk -v a="${ARCHIVE}" '{ sub(/\r$/, "") } $2 == a { print $1; exit }' "${TMP_DIR}/checksums.txt")"
 if [ -n "${EXPECTED}" ]; then
-  HASH_COMPARED=1
   if command -v sha256sum >/dev/null 2>&1; then
     ACTUAL="$(sha256sum "${TMP_DIR}/${ARCHIVE}" | awk '{print $1}')"
   elif command -v shasum >/dev/null 2>&1; then
     ACTUAL="$(shasum -a 256 "${TMP_DIR}/${ARCHIVE}" | awk '{print $1}')"
   else
-    echo "Warning: no sha256 tool found, skipping checksum verification." >&2
-    ACTUAL="${EXPECTED}"
-    HASH_COMPARED=0
+    echo "Error: no SHA-256 tool found (sha256sum or shasum), so the download could not be verified. Install one and run this again." >&2
+    exit 1
   fi
   if [ "${ACTUAL}" != "${EXPECTED}" ]; then
     echo "Checksum verification failed!" >&2
@@ -124,11 +125,10 @@ if [ -n "${EXPECTED}" ]; then
     echo "  Got:      ${ACTUAL}" >&2
     exit 1
   fi
-  if [ "${HASH_COMPARED}" = 1 ]; then
-    echo "Checksum verified."
-  fi
+  echo "Checksum verified."
 else
-  echo "Warning: checksum not found for ${ARCHIVE}, skipping verification." >&2
+  echo "Error: checksums.txt has no line for ${ARCHIVE}, so the download could not be verified." >&2
+  exit 1
 fi
 
 # Extract binary from archive

@@ -41,6 +41,9 @@ func TestOriginFromServer(t *testing.T) {
 		{"https://floe.example.com/signal", "https://floe.example.com"},
 		{"https://floe.example.com:8443/x/y", "https://floe.example.com:8443"},
 		{"api.floe.one", "api.floe.one"},
+		// A link typed as the server: nothing behind the host goes in the header.
+		{"http://floe.example.com#k=AAECAwQFBgcICQoLDA0ODw&room=r", "http://floe.example.com"},
+		{"http://floe.example.com?k=AAECAwQFBgcICQoLDA0ODw", "http://floe.example.com"},
 	}
 	for _, c := range cases {
 		if got := originFromServer(c.in); got != c.want {

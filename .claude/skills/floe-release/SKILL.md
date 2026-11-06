@@ -56,15 +56,16 @@ and 8 are for.
 Never reuse a `v*` number: the `release-tags` ruleset blocks deletion and
 update of `refs/tags/v*` for everyone, so a pushed CLI tag is permanent,
 failed run or not. Since 2026-10-26 a second ruleset, `release-tag-writers`
-(25870867), restricts creating `v*` and `desktop-v*` tags, and moving or
-deleting `desktop-v*` ones, to its bypass, the repository admin role. So only
-the owner's own credentials can push a release tag: no installed app, and no
-workflow on its `GITHUB_TOKEN`, can. Nobody can move or delete a `v*` tag, the
-owner included. A `desktop-v*` tag
-whose run failed can still be deleted and re-cut with the same number ("If a
-workflow fails" under step 4), but only while the tag has no published
-release. Releases are immutable since the same day: once one is published its
-assets and tag are locked, and deleting it burns its tag name for good. A
+(25870867), restricts creating a tag, and moving or deleting one, to its bypass,
+the repository admin role. It named only `v*` and `desktop-v*` until 2026-11-01,
+when it was widened to every tag (`~ALL`); `release-tags` stays on `v*`, so that
+bypass can still move or delete a `desktop-v*` tag. So only the owner's own
+credentials can push a tag of any name: no installed app, and no workflow on its
+`GITHUB_TOKEN`, can. Nobody can move or delete a `v*` tag, the owner included. A
+`desktop-v*` tag whose run failed can still be deleted and re-cut with the same
+number ("If a workflow fails" under step 4), but only while the tag has no
+published release. Releases are immutable since 2026-10-26: once one is published
+its assets and tag are locked, and deleting it burns its tag name for good. A
 number the Store has accepted can never be reused or lowered either.
 
 ## 1. Code merges
@@ -129,6 +130,22 @@ owner-run line like the others; write a temp file and rename it over the
 real one) turns request links off for every installed build within 60 s,
 and `/health` then lists no `request-1`. Name it in the release plan before
 the tag, so nobody has to look it up while something is wrong.
+
+The link key adds levers and a floor. Name these before the tag too:
+
+| Symptom | Lever |
+| --- | --- |
+| A browser refuses honest peers, on either page | `ENFORCE_LINK_KEYS` false in `client/lib/transfer/protocol.ts` |
+| New web links trouble old receivers | `MAKE_LINK_KEYS` false in the same file |
+| Floe Desktop refuses honest visitors on a request link | `POLICY_FILE` as above, then the next `desktop-v*`. The web levers cannot help: the Go host still enforces |
+| `floe receive` refuses honest senders | None but the next `v*`. A room code carries no key, so it works around this, and the docs must not offer it as advice on a failed check |
+| A bad web deploy | A Vercel promote, no older than the floor below |
+
+Each web lever is two lines, the constant and its pin in `protocol.test.ts`, and the specs stand aside by themselves (`ENFORCE_LINK_KEYS` off: 75 passed, 100 skipped; `MAKE_LINK_KEYS` off: 20 passed, 55 skipped, over the specs that read them). CI on main took 35 minutes when that was measured, so a lever is about 40.
+
+**The floor for a promote.** From the moment `desktop-v1.1.0` exists, no Vercel promote of a deployment older than `7399fea` (#876): the old page reads a request link's `#<room>.<k>` as incomplete, so every request link Floe Desktop 1.1 makes would open on the Link Invalid card. Below `6a1b9ed` (#871) a keyed share link also joins with no check, silently, and web links lose their key.
+
+No lever exists for a bad `v1.12.0` beyond the next number. Say so in the message before the tag.
 
 ## 2. One prep PR: changelog + pins
 

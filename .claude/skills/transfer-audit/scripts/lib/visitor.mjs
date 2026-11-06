@@ -360,7 +360,7 @@ export class Visitor {
             titles: this.titles,
             samples: this.samples.length,
             candidates: candidateCensus(this.samples),
-            dcBytes: bytesMovedFrom(this.samples),
+            dcBytes: bytesMovedFrom(this.samples, 'sender'),
             // Status only, never a body: the body carries TURN credentials.
             turnFetches: this.turnFetches.map((f) => ({ t: f.t, status: f.status })),
             policy,

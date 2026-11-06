@@ -5,16 +5,49 @@ package selfupdate
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// LatestVersion fetches the latest release tag from GitHub (e.g. "v1.2.0").
+// ErrUnexpectedTag is the fixed line floe update stops with when the latest
+// release's tag is not a plain vX.Y.Z. It never names the tag, which is not
+// Floe's own text and can be any length.
+var ErrUnexpectedTag = errors.New("The latest release has an unexpected version name, so floe update stopped. Reinstall with the steps at floe.one/docs/cli/installation instead.")
+
+// releaseTag is the one shape of tag this package accepts. A tag arrives from
+// GitHub or from the cache file, and goes into the download URLs and the output.
+// CompareVersions reads almost anything as a version, so before this check a
+// release published under 9.9.9 was offered and installed by every floe, outside
+// the rule that keeps a v* tag in place, and a tag holding ../ could walk its URLs
+// out of this repository's releases (B1). In Go's regexp $ is the end of the text,
+// never a line feed before it, and \d is ASCII only.
+var releaseTag = regexp.MustCompile(`^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$`)
+
+// IsReleaseTag reports whether tag is exactly vX.Y.Z. A number too large for an
+// int fails too: CompareVersions could not order it, and the pattern alone would
+// let a 10 KB run of digits through to the output.
+func IsReleaseTag(tag string) bool {
+	m := releaseTag.FindStringSubmatch(tag)
+	if m == nil {
+		return false
+	}
+	for _, n := range m[1:] {
+		if _, err := strconv.Atoi(n); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// LatestVersion fetches the latest release tag from GitHub (e.g. "v1.2.0"). Any
+// tag that is not a plain vX.Y.Z is refused with ErrUnexpectedTag.
 func LatestVersion() (string, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	req, err := http.NewRequest("GET", apiURL, nil)
@@ -41,6 +74,9 @@ func LatestVersion() (string, error) {
 	}
 	if rel.TagName == "" {
 		return "", fmt.Errorf("no tag_name in GitHub API response")
+	}
+	if !IsReleaseTag(rel.TagName) {
+		return "", ErrUnexpectedTag
 	}
 	return rel.TagName, nil
 }
@@ -137,10 +173,18 @@ func fromCache() (string, bool) {
 	if age := time.Since(c.CheckedAt); age < 0 || age > cacheTTL {
 		return "", false
 	}
+	// A bad value is a miss too (B13): floe 1.11.7 and earlier saved whatever tag
+	// GitHub named, and anything on this account can edit the file.
+	if !IsReleaseTag(c.Latest) {
+		return "", false
+	}
 	return c.Latest, true
 }
 
 func writeCache(latest string) {
+	if !IsReleaseTag(latest) {
+		return
+	}
 	p := cacheFilePath()
 	if p == "" {
 		return

@@ -1,14 +1,14 @@
 import { test, expect, type Page } from '@playwright/test';
 import { createHash, randomBytes } from 'crypto';
-import { writeFileSync, mkdirSync, rmSync } from 'fs';
+import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
+import { SHARE_LINK_TEXT, fixtureDir, removeFixtureDir } from './helpers';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-const FIXTURE_DIR = join(tmpdir(), 'floe-e2e');
+const FIXTURE_DIR = fixtureDir('floe-e2e');
 
 function createFixture(size: number): { path: string; sha256: string } {
     mkdirSync(FIXTURE_DIR, { recursive: true });
@@ -52,7 +52,7 @@ async function senderSetup(
     await senderPage.locator('button', { hasText: /create secure link/i }).click();
 
     // Generated link appears in the <code> element
-    const linkEl = senderPage.locator('code').filter({ hasText: '#room=' });
+    const linkEl = senderPage.locator('code').filter({ hasText: SHARE_LINK_TEXT });
     await expect(linkEl).toBeVisible({ timeout: 10_000 });
     return (await linkEl.textContent())!.trim();
 }
@@ -62,9 +62,7 @@ async function senderSetup(
 // ---------------------------------------------------------------------------
 
 test.afterAll(() => {
-    try {
-        rmSync(FIXTURE_DIR, { recursive: true, force: true });
-    } catch { /* ignore */ }
+    removeFixtureDir(FIXTURE_DIR);
 });
 
 test('transfers a 50 MB binary file with SHA-256 integrity check', async ({ browser }) => {
@@ -80,7 +78,7 @@ test('transfers a 50 MB binary file with SHA-256 integrity check', async ({ brow
 
     try {
         const link = await senderSetup(senderPage, fixturePath);
-        expect(link).toContain('#room=');
+        expect(link).toMatch(SHARE_LINK_TEXT);
 
         await receiverPage.goto(link);
 

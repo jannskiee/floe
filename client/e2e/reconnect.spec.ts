@@ -18,19 +18,18 @@
  */
 
 import { test, expect, type BrowserContext, type WebSocketRoute } from '@playwright/test';
-import { rmSync } from 'fs';
 import { randomUUID } from 'crypto';
-import { basename, join } from 'path';
-import { tmpdir } from 'os';
+import { basename } from 'path';
 import { io as ioClient, type Socket } from 'socket.io-client';
-import { SERVER_URL, createFixture, sha256OfBlobUrl, browserSenderSetup } from './helpers';
+import { MAKE_LINK_KEYS } from '../lib/transfer/protocol';
+import { KEYED_SHARE_LINK, SERVER_URL, createFixture, fixtureDir, removeFixtureDir, sha256OfBlobUrl, browserSenderSetup } from './helpers';
 
-const FIXTURE_DIR = join(tmpdir(), 'floe-e2e-reconnect');
+const FIXTURE_DIR = fixtureDir('floe-e2e-reconnect');
 // Small on purpose: these tests exercise room lifecycle, not throughput.
 const FIXTURE_SIZE = 1024 * 1024;
 
 test.afterAll(() => {
-    try { rmSync(FIXTURE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    removeFixtureDir(FIXTURE_DIR);
 });
 
 test('sender link survives a signaling blip (client re-joins on reconnect)', async ({ browser }) => {
@@ -209,6 +208,8 @@ test('a receiver that joins while the sender is offline gets the files once the 
 
     try {
         const link = await browserSenderSetup(senderPage, fixturePath);
+        // Keyed, so the seat given back below also rebuilds a session and its gate.
+        if (MAKE_LINK_KEYS) expect(link).toMatch(KEYED_SHARE_LINK);
         await dropSender(senderCtx, senderPage);
 
         // The sender's socket is gone, so the receiver takes the first seat
@@ -304,73 +305,81 @@ test('a sender whose re-join is refused keeps trying, and its link works once th
     }
 });
 
-test('a receiver whose re-join is refused after a blip keeps its link until its old seat frees', async ({ browser }) => {
-    // The old socket holds its seat until the server's heartbeat gives up on
-    // it (about 45 s), so the second half of this test waits that out.
-    test.setTimeout(150_000);
-    const receiverCtx = await optedOutContext(await browser.newContext());
-    const receiverPage = await receiverCtx.newPage();
-    const holders: Socket[] = [];
+// Both shapes of a link a person can hold: a re-join builds a new peer, with a new
+// session and a new signal gate, and a keyed page has to read its key from the same
+// place every time (joinedKeyRef).
+for (const [shape, fragment] of [
+    ['no key', (roomId: string) => `#room=${roomId}`],
+    ['a key', (roomId: string) => `#k=AAECAwQFBgcICQoLDA0ODw&room=${roomId}`],
+] as const) {
+    test(`a receiver whose re-join is refused after a blip keeps its link until its old seat frees (${shape})`, async ({ browser }) => {
+        // The old socket holds its seat until the server's heartbeat gives up on
+        // it (about 45 s), so the second half of this test waits that out.
+        test.setTimeout(150_000);
+        const receiverCtx = await optedOutContext(await browser.newContext());
+        const receiverPage = await receiverCtx.newPage();
+        const holders: Socket[] = [];
 
-    // A network switch, as the server sees it: the page's WebSocket goes, and
-    // the server's end of it stays open and silent until the heartbeat. Only
-    // the page side is closed below; with onClose set, Playwright does not
-    // pass that close on to the server. setOffline cannot model this: the
-    // server hears that close at once.
-    //
-    // The page's session opens over HTTP polling and then upgrades to this
-    // WebSocket: the page sends "2probe", the server answers "3probe", and the
-    // page's "5" makes the WebSocket its transport. A close before that "5"
-    // only fails the upgrade, and the page carries on over polling, never
-    // disconnected, so nothing re-joins and the seat never frees. That was
-    // every ubuntu failure of this test (five runs on 2026-10-14 and 15; the
-    // trace of main's run 38687849686 forwards "2probe" and "3probe" within
-    // 0.46 s of the page opening and never a "5"). So the page's frames are
-    // forwarded here, and only a socket that has carried the "5" is closed.
-    const pageSides: { ws: WebSocketRoute; upgraded: boolean }[] = [];
-    await receiverPage.routeWebSocket(/\/socket\.io\//, (ws) => {
-        const side = { ws, upgraded: false };
-        const server = ws.connectToServer();
-        ws.onMessage((message) => {
-            if (message === '5') side.upgraded = true;
-            server.send(message);
+        // A network switch, as the server sees it: the page's WebSocket goes, and
+        // the server's end of it stays open and silent until the heartbeat. Only
+        // the page side is closed below; with onClose set, Playwright does not
+        // pass that close on to the server. setOffline cannot model this: the
+        // server hears that close at once.
+        //
+        // The page's session opens over HTTP polling and then upgrades to this
+        // WebSocket: the page sends "2probe", the server answers "3probe", and the
+        // page's "5" makes the WebSocket its transport. A close before that "5"
+        // only fails the upgrade, and the page carries on over polling, never
+        // disconnected, so nothing re-joins and the seat never frees. That was
+        // every ubuntu failure of this test (five runs on 2026-10-14 and 15; the
+        // trace of main's run 38687849686 forwards "2probe" and "3probe" within
+        // 0.46 s of the page opening and never a "5"). So the page's frames are
+        // forwarded here, and only a socket that has carried the "5" is closed.
+        const pageSides: { ws: WebSocketRoute; upgraded: boolean }[] = [];
+        await receiverPage.routeWebSocket(/\/socket\.io\//, (ws) => {
+            const side = { ws, upgraded: false };
+            const server = ws.connectToServer();
+            ws.onMessage((message) => {
+                if (message === '5') side.upgraded = true;
+                server.send(message);
+            });
+            ws.onClose(() => {});
+            pageSides.push(side);
         });
-        ws.onClose(() => {});
-        pageSides.push(side);
+
+        try {
+            const roomId = randomUUID();
+            // The sending seat, held by a socket that never offers, so the page
+            // stays connecting: the window in which its reconnect re-joins.
+            const sender = await seatHolder(roomId);
+            holders.push(sender);
+            let arrivals = 0;
+            sender.on('user-connected', () => { arrivals += 1; });
+
+            await receiverPage.goto(`/?s=e2e${fragment(roomId)}`);
+            await expect.poll(() => arrivals, { timeout: 15_000 }).toBe(1);
+            const transport = () => pageSides.find((side) => side.upgraded);
+            await expect.poll(() => transport() !== undefined, { timeout: 15_000 }).toBe(true);
+
+            await transport()!.ws.close();
+
+            // The page reconnects at once under a new socket while its old one
+            // still holds the receiving seat, so the re-join is answered
+            // room-full. That used to put up the final Link Invalid card at once,
+            // over a link that works again within the minute.
+            await receiverPage.waitForTimeout(8_000);
+            await expect(receiverPage.getByText('Link Invalid')).toHaveCount(0);
+
+            // Once the server gives up on the old socket, a retry takes the seat
+            // and the sending side hears of it.
+            await expect.poll(() => arrivals, { timeout: 90_000 }).toBeGreaterThanOrEqual(2);
+            await expect(receiverPage.getByText('Link Invalid')).toHaveCount(0);
+        } finally {
+            holders.forEach((s) => s.disconnect());
+            await receiverCtx.close();
+        }
     });
-
-    try {
-        const roomId = randomUUID();
-        // The sending seat, held by a socket that never offers, so the page
-        // stays connecting: the window in which its reconnect re-joins.
-        const sender = await seatHolder(roomId);
-        holders.push(sender);
-        let arrivals = 0;
-        sender.on('user-connected', () => { arrivals += 1; });
-
-        await receiverPage.goto(`/?s=e2e#room=${roomId}`);
-        await expect.poll(() => arrivals, { timeout: 15_000 }).toBe(1);
-        const transport = () => pageSides.find((side) => side.upgraded);
-        await expect.poll(() => transport() !== undefined, { timeout: 15_000 }).toBe(true);
-
-        await transport()!.ws.close();
-
-        // The page reconnects at once under a new socket while its old one
-        // still holds the receiving seat, so the re-join is answered
-        // room-full. That used to put up the final Link Invalid card at once,
-        // over a link that works again within the minute.
-        await receiverPage.waitForTimeout(8_000);
-        await expect(receiverPage.getByText('Link Invalid')).toHaveCount(0);
-
-        // Once the server gives up on the old socket, a retry takes the seat
-        // and the sending side hears of it.
-        await expect.poll(() => arrivals, { timeout: 90_000 }).toBeGreaterThanOrEqual(2);
-        await expect(receiverPage.getByText('Link Invalid')).toHaveCount(0);
-    } finally {
-        holders.forEach((s) => s.disconnect());
-        await receiverCtx.close();
-    }
-});
+}
 
 test('a sender whose room stays taken is told its link stopped working', async ({ browser }) => {
     // Holds two seats for a minute, so it is opt-in: FLOE_E2E_SLOW=1.

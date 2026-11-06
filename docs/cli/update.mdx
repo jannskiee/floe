@@ -43,10 +43,10 @@ Updated to 1.y.y
 `Update available: 1.10.11 -> v1.11.0`. When nothing newer exists, `floe update` prints
 `Already up to date (1.x.x)` after the first two lines and stops.
 
-`floe update` installs nothing when the checksum does not match. Unlike the install scripts, it also
-installs nothing when the release lists no checksum for the archive. It gives GitHub 10 seconds to
-say which release is newest, 30 seconds for `checksums.txt`, and 5 minutes for the whole archive,
-and an update that runs out of time installs nothing.
+`floe update` installs nothing when the checksum does not match, or when the release lists no
+checksum for the archive, and the install scripts stop in the same two cases. `floe update` gives
+GitHub 10 seconds to say which release is newest, 30 seconds for `checksums.txt`, and 5 minutes for
+the whole archive, and an update that runs out of time installs nothing.
 
 On macOS and Linux, if `floe` lives in a folder you cannot write to, such as `/usr/local/bin` (the
 install script's usual place), the final swap needs `sudo`. One more line then comes before
@@ -77,7 +77,8 @@ It prints the same first lines and, when a newer release exists, ends with
 
 `floe update` always installs the latest release. To install a particular version, run the install
 script with `FLOE_VERSION`: see [One-line installer](/cli/installation#one-line-installer). A later
-`floe update` then offers to move you to the latest one.
+`floe update` then offers to move you to the latest one. `floe` 1.12 and later install a release only
+when its tag is exactly `vX.Y.Z`. `floe` 1.11.7 and earlier install one under any tag name.
 
 On macOS 12, stay on 1.11.1: later releases need macOS 13 Ventura, and `floe update` installs them
 anyway. Keep 1.11.1 with the install script's `FLOE_VERSION`, or
@@ -138,12 +139,14 @@ Each of these ends `floe update` with status 1, and nothing is installed:
 | Message | What it means | What to do |
 |---|---|---|
 | `Error: Cannot update a dev build.` | This `floe` was built from source or with `go install`. | Install a release build. See [`Cannot update a dev build.`](/troubleshooting#cannot-update-a-dev-build) |
+| `Error: The latest release has an unexpected version name, so floe update stopped. Reinstall with the steps at floe.one/docs/cli/installation instead.` | In `floe` 1.12 and later, the latest release's tag is not exactly `vX.Y.Z`, such as `9.9.9` or `v1.2.3-rc1`. Nothing is downloaded. | Reinstall with the steps at [Install the CLI](/cli/installation). |
 | ``Error: installed via homebrew - run `brew upgrade floe` to update`` | A package manager owns this `floe`. The line names `scoop` or `winget` when one of those does. | Run the command it names. See [`installed via homebrew`](/troubleshooting#installed-via-homebrew-run-brew-upgrade-floe-to-update) |
 | `Error: failed to check for updates: GitHub API returned 403` | GitHub turned the request away, for example because of its limit on requests made without an account, which a shared network or a CI runner reaches quickly. | Try again later, or download the release by hand: see [Install from a release archive](/cli/installation#install-from-a-release-archive). |
 | `Error: failed to check for updates:` and another cause | `floe` could not reach GitHub, or could not read its answer, for example while offline or behind a proxy. | Check your connection, then try again. |
 | `Error: update failed: checksum mismatch for floe_X.Y.Z_linux_amd64.tar.gz:`, then an `expected` and a `got` line | The download did not match the release's `checksums.txt`. | Run `floe update` again. |
-| `Error: update failed: checksum not found in checksums.txt for floe_X.Y.Z_linux_amd64.tar.gz` | The release lists no checksum for your archive, and `floe update` installs nothing without one. | Install that release another way, such as the install script. |
+| `Error: update failed: checksum not found in checksums.txt for floe_X.Y.Z_linux_amd64.tar.gz` | The release lists no checksum for your archive, and `floe update` installs nothing without one. The install scripts stop on it too. | [Install from a release archive](/cli/installation#install-from-a-release-archive) and check it against the release's attestation. |
 | `Error: update failed: download failed:` or `failed to fetch checksums:`, and the cause | The archive or `checksums.txt` could not be downloaded, for example `HTTP 404`. | Check your connection, then try again. |
+| `Error: update failed: extraction failed:` and the cause | The archive downloaded and its checksum matched, but `floe` could not unpack the new binary from it into your temporary folder. | Check that the drive has space, then try again. If it keeps failing, [install from a release archive](/cli/installation#install-from-a-release-archive). |
 | `Error: update failed: /usr/local/bin is not writable and sudo is not available; re-run as root, or reinstall with the install script` | The folder that holds `floe` is not yours to write to, and the machine has no `sudo`. | Do what the line says. |
 | `Error: update failed: permission denied writing to /usr/local/bin` | You ran `floe update` as root, and the system still refused a write into the folder that holds `floe`. | Find out what protects that folder. |
 | `Error: update failed: cannot rename current binary:` and the cause | On Windows, `floe` could not move its own running file aside. | Try again. If it keeps failing, run the install script instead. |
@@ -166,13 +169,19 @@ the answer.
 
 ## Version compatibility
 
-You do not need to match versions with the person on the other end. Floe peers on different
-releases interoperate, so a version difference by itself is never a problem. If a release ever
-changes the transfer protocol in a breaking way, Floe detects it before any data moves and tells
-whichever side is older to update. See
-[Protocol versioning](/reference/transfer-protocol#protocol-versioning) for the details.
+You do not need to match versions with the person on the other end for an ordinary transfer. Floe
+peers on different releases interoperate, down to the floors the [Changelog](/changelog) states, so
+a version difference by itself is rarely a problem. If a release ever changes the transfer protocol
+in a breaking way, Floe detects it before any data moves and tells whichever side is older to update.
+See [Protocol versioning](/reference/transfer-protocol#protocol-versioning) for the details.
 
-Request links are the one exception. They are a newer feature, not a protocol change:
-`floe send --to` needs `floe` 1.11.0 or later (an older `floe` stops with
-`Error: unknown flag: --to`). The link itself comes from Floe Desktop 0.3.0 or later, on a server
-that offers request links.
+A few things do need a newer `floe`:
+
+- A [link key](/glossary#link-key) is checked by `floe receive` 1.12 and later. An older one ignores
+  it, and the transfer goes ahead with no check.
+- `floe send --link-only` needs `floe` 1.12 or later on the sending side and a receiver that can
+  prove the link. It stops a `floe receive` older than 1.12, which tells its user to update from 1.10.8
+  on. See [Send only to a receiver that proves it holds the link](/cli/send#link-only).
+- `floe send --to` needs `floe` 1.11.0 or later (an older `floe` stops with
+  `Error: unknown flag: --to`), and `floe` 1.12 or later for a link from Floe Desktop 1.1 or later.
+  The link itself comes from Floe Desktop 0.3.0 or later, on a server that offers request links.

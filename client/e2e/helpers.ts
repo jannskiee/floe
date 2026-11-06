@@ -17,7 +17,8 @@
 
 import { expect, test, type Page } from '@playwright/test';
 import { createHash, randomBytes } from 'crypto';
-import { writeFileSync, mkdirSync, readFileSync } from 'fs';
+import { writeFileSync, mkdirSync, readFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
 import { join, dirname } from 'path';
 import { spawn, type ChildProcess } from 'child_process';
 
@@ -29,6 +30,34 @@ export const SERVER_URL = 'http://localhost:3001';
 export const WEB_URL = 'http://localhost:3000';
 /** Max time to wait for CLI process output / completion. */
 export const CLI_TIMEOUT_MS = 60_000;
+
+/** How a share link reads on a page, with a link key (#k=<k>&room=<id>) or
+ *  without one (#room=<id>). For a locator's hasText. */
+export const SHARE_LINK_TEXT = /[#&]room=/;
+
+/** A link the web app made, whole: its nonce, its key first, then its room. */
+export const KEYED_SHARE_LINK = /\/\?s=[^#]+#k=[A-Za-z0-9_-]{21}[AQgw]&room=[0-9a-f-]{36}$/;
+
+/** The room of a share link of either shape. Never hash.replace(/^#room=/, ''): on a
+ *  keyed link that reads "k=<k>" as the room, and the receiver shows Link Invalid. */
+export function roomOfShareLink(link: string): string {
+    const room = new URLSearchParams(new URL(link).hash.replace(/^#/, '')).get('room');
+    if (!room) throw new Error('a share link with no room in its fragment');
+    return room;
+}
+
+/** The link key of a share link. */
+export function keyOfShareLink(link: string): string {
+    const key = new URLSearchParams(new URL(link).hash.replace(/^#/, '')).get('k');
+    if (!key) throw new Error('a share link with no key in its fragment');
+    return key;
+}
+
+/** The same link with another key in its fragment, the room and the rest as they were. */
+export function withKey(link: string, key: string): string {
+    const { origin, pathname, search } = new URL(link);
+    return `${origin}${pathname}${search}#k=${key}&room=${roomOfShareLink(link)}`;
+}
 
 /**
  * Path of the CLI binary built by global-setup. Throws when the suite runs
@@ -61,10 +90,35 @@ export function writeRandomFile(filePath: string, size: number): string {
     return createHash('sha256').update(data).digest('hex');
 }
 
+// One folder per worker process. With --repeat-each the file runs in several
+// workers at once, and a shared folder was rewritten and removed under the
+// others (ENOENT, or a digest that no longer matched the file sent).
+//
+// The path only. Playwright's runner also loads every spec to list its tests,
+// and a folder made there is never removed.
+export function fixtureDir(name: string): string {
+    return join(tmpdir(), `${name}-${process.pid}`);
+}
+
+// A CLI process killed at teardown can hold a file open for a moment, so
+// rmSync may throw EBUSY/EPERM. maxRetries gives the OS time to release the
+// handle; any remaining error is swallowed. A leaked temp directory must
+// never fail an otherwise green suite. Same retries as global-teardown.ts.
+export function removeFixtureDir(dir: string): void {
+    try {
+        rmSync(dir, {
+            recursive: true,
+            force: true,
+            maxRetries: 5,
+            retryDelay: 200,
+        });
+    } catch { /* ignore */ }
+}
+
 /**
  * Create `fixture-<size>.bin` with random content inside `dir`.
- * Every spec passes its own dir (e.g. join(tmpdir(), 'floe-cli-interop')) so
- * one spec's afterAll rmSync can never race another spec's fixtures.
+ * Every spec passes the directory fixtureDir returns for its own name, so
+ * one spec's removeFixtureDir can never race another spec's fixtures.
  */
 export function createFixture(dir: string, size: number): { path: string; sha256: string } {
     const filePath = join(dir, `fixture-${size}.bin`);
@@ -93,10 +147,14 @@ export async function sha256OfBlobUrl(page: Page, blobUrl: string): Promise<stri
 /** Load the browser sender page, pick a file, and return the room URL.
  *  `relayFallback: false` unticks Network relay fallback before Create, which
  *  keeps the 2 s wait between the WebRTC connect and the first byte
- *  (lib/relay.ts relayProbeDelayMs) for a test that acts inside it. */
+ *  (lib/relay.ts relayProbeDelayMs) for a test that acts inside it.
+ *
+ *  The fixture is a path, or an in-memory file Playwright's setInputFiles
+ *  takes as { name, mimeType, buffer }, so a spec that fakes a file's size
+ *  in the page (e2e/relay-gate.spec.ts) needs no temp folder. */
 export async function browserSenderSetup(
     page: Page,
-    fixturePath: string,
+    fixturePath: string | { name: string; mimeType: string; buffer: Buffer },
     opts: { relayFallback?: boolean } = {}
 ): Promise<string> {
     await page.goto('/');
@@ -108,7 +166,7 @@ export async function browserSenderSetup(
         await expect(page.getByRole('checkbox', { name: /network relay fallback/i })).not.toBeChecked();
     }
     await page.locator('button', { hasText: /create secure link/i }).click();
-    const linkEl = page.locator('code').filter({ hasText: '#room=' });
+    const linkEl = page.locator('code').filter({ hasText: SHARE_LINK_TEXT });
     await expect(linkEl).toBeVisible({ timeout: 10_000 });
     return (await linkEl.textContent())!.trim();
 }
@@ -159,7 +217,7 @@ function captureTranscript(proc: ChildProcess, name: string): void {
  * only when the argument is omitted, so existing call sites keep cliBinary()'s
  * fail-loud contract and back-compat callers can pass a released binary.
  */
-export function spawnSend(path: string, binary: string = cliBinary()): {
+export function spawnSend(path: string, binary: string = cliBinary(), extraArgs: string[] = []): {
     linkPromise: Promise<string>;
     proc: ChildProcess;
 } {
@@ -168,6 +226,7 @@ export function spawnSend(path: string, binary: string = cliBinary()): {
         '--server', SERVER_URL,
         '--web', WEB_URL,
         '--no-relay',
+        ...extraArgs,
     ]);
     captureTranscript(proc, 'floe send transcript');
 
@@ -183,8 +242,9 @@ export function spawnSend(path: string, binary: string = cliBinary()): {
 
         proc.stdout?.on('data', (chunk: Buffer) => {
             stdout += chunk.toString();
-            // Room link always contains #room=
-            const match = stdout.match(/https?:\/\/\S*#room=[^\s]+/);
+            // A room link always holds room=: first on a released CLI's link
+            // (#room=), and behind the key on a current one's (#k=...&room=).
+            const match = stdout.match(/https?:\/\/\S*[#&]room=[^\s]+/);
             if (match) {
                 clearTimeout(timer);
                 resolve(match[0].trim());

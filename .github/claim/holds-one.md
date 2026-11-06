@@ -1,1 +1,1 @@
-@{{login}} you already hold [a good first issue]({{held_url}}), and each person can hold only one at a time. To switch to this one, comment `/untake` on that one first, then `/take` here.
+@{{login}} you already hold [a good first issue]({{held_url}}), and each person can hold only one good first issue at a time. If it has no pull request of yours yet and you'd rather do this one, comment `/untake` on that one first, then `/take` here. If your pull request for it is open, keep it, and take an issue labeled [help wanted]({{help_url}}) next if you hold fewer than two issues.

@@ -452,7 +452,7 @@ on their own), then Cells, Versions, Infra, Safety, Failures and flakes,
 Legend; `run.json` carries the same data (schemaVersion 1) with room links
 and codes redacted to hashes. Per-cell evidence lives under
 `<run>/cells/<id>/attempt-N/` (`attempt.json` with phases and the signature,
-`route.json`, `outputs.json`, and `sender/` and `receiver/` with transcripts, UIA logs, `desktop.json.bak` and captures); it keeps the raw room link and stays on this machine. A browser leg's evidence also carries `turnFetches` (the status code of every `/api/turn-credentials` answer, never a body) and `candidates` (the candidate types the page gathered and the peer sent), which a connect timeout on a relay cell needs.
+`route.json`, `outputs.json`, and `sender/` and `receiver/` with transcripts, UIA logs, `desktop.json.bak` and captures); it keeps the raw room link and its link key, and stays on this machine. A browser leg's evidence also carries `turnFetches` (the status code of every `/api/turn-credentials` answer, never a body) and `candidates` (the candidate types the page gathered and the peer sent), which a connect timeout on a relay cell needs.
 
 Verdicts: PASS needs sha256 equality on every file (on disk for CLI and
 desktop, per blob URL for the browser), completion text on both sides plus
@@ -792,7 +792,7 @@ that no other lane does, every one of them learned from that run:
   answers with the innermost matching elements, because an element's
   textContent carries its descendants' and the page root would otherwise
   answer every loose pattern first, and a share link is parsed as a URL
-  with a `#room=` fragment before the receiver is driven with it.
+  with a `room` in its fragment before the receiver is driven with it.
 - **The relay forcer.** Every other mode takes `hideIP` from the
   desktop.json it launches with, but the operator starts this one and the
   audit never writes its config, so an `H-REL-*` cell with a desktop side

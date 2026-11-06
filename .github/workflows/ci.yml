@@ -923,6 +923,33 @@ jobs:
           test -x "$FLOE_RELEASED_CLI"
           pnpm exec playwright test e2e/back-compat.spec.ts
 
+      # Once v1.12.0 is the latest release, the run above is a floe that proves the
+      # link key, and nothing would hold what a web change does to a floe that does
+      # not. The web sender only detects until the cutover exactly because those
+      # floes are still out there, so this stays pinned by tag until that release.
+      - name: Download the last floe from before the link key
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=v1.11.7
+          dest="$RUNNER_TEMP/floe-before-key"
+          mkdir -p "$dest"
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir "$dest" \
+            --pattern 'floe_*_linux_amd64.tar.gz' --pattern 'checksums.txt'
+          cd "$dest" || exit 1
+          sha256sum --check <(grep linux_amd64.tar.gz checksums.txt)
+          tar -xzf floe_*_linux_amd64.tar.gz floe
+          chmod +x floe
+          echo "FLOE_BEFORE_KEY_CLI=$dest/floe" >> "$GITHUB_ENV"
+
+      - name: Run back-compat E2E tests against the floe from before the link key
+        working-directory: client
+        env:
+          FLOE_RELEASED_VERSION: v1.11.7
+        run: |
+          test -x "$FLOE_BEFORE_KEY_CLI"
+          FLOE_RELEASED_CLI="$FLOE_BEFORE_KEY_CLI" pnpm exec playwright test e2e/back-compat.spec.ts --output=test-results/before-key
+
       - name: Upload Playwright evidence
         # Same reasoning as the e2e leg: keep first-attempt traces and CLI
         # transcripts from retry-passed (green) runs.

@@ -18,6 +18,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/jannskiee/floe/cli/engine/code"
 	"github.com/jannskiee/floe/cli/engine/ice"
+	"github.com/jannskiee/floe/cli/engine/linkkey"
 	"github.com/jannskiee/floe/cli/engine/peer"
 	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/jannskiee/floe/cli/engine/transfer"
@@ -71,24 +72,7 @@ var (
 	// (A8b-B1; errors.ts: "The server is limiting connections from this
 	// network. Wait a minute and try again").
 	errTurnedAway = errors.New("the server turned this connection away: too many connections from this network")
-	// errServerFrame: an error frame on the join whose words this build does
-	// not know (A8b-B2). Fixed, so none of the server's text reaches the
-	// status line; errors.ts passes it through as it stands.
-	errServerFrame = errors.New("the server answered with an error this version of Floe does not know")
 )
-
-// serverErrorFrame is the error for an error frame the server answered the
-// join with. The frame's message is the signaling server's own text,
-// unbounded, and on a self-hosted server whatever that server sends, so it is
-// kept only when it is the one text a Floe server sends here, for a room id
-// that is not a UUID (server.js isValidRoomId), whose words errors.ts reads as
-// an incomplete link. Every other frame becomes errServerFrame.
-func serverErrorFrame(msg string) error {
-	if msg == "Invalid room ID" {
-		return fmt.Errorf("server error: %s", msg)
-	}
-	return errServerFrame
-}
 
 // sendEnd is how runSend words a send that returned an error. The relay cap
 // is a policy block, not a failure: no "transfer failed" wrapper, and when
@@ -96,8 +80,9 @@ func serverErrorFrame(msg string) error {
 // receiver's coded stop (transfer.PeerStoppedError) is its own fixed sentence
 // about the other side and goes out bare too (A8b-B3): behind the wrapper it
 // read as this side's failure, and errors.ts gives the request-link wording
-// of code stopped the ordinary send's line. Anything else is wrapped.
-func sendEnd(err error, hideIP bool) error {
+// of code stopped the ordinary send's line. answered is this side's own fact, that
+// the receiver has answered a file (PastAnAnswer). Anything else is wrapped.
+func sendEnd(err error, hideIP, answered bool) error {
 	if errors.Is(err, transfer.ErrRelayOverLimit) {
 		if hideIP {
 			return fmt.Errorf("%w. Turn off Hide my IP to send larger files", err)
@@ -106,6 +91,9 @@ func sendEnd(err error, hideIP bool) error {
 	}
 	var stopped *transfer.PeerStoppedError
 	if errors.As(err, &stopped) {
+		if answered {
+			return stopped.PastAnAnswer()
+		}
 		return err
 	}
 	return fmt.Errorf("transfer failed: %w", err)
@@ -294,6 +282,15 @@ func (a *App) StartSendText(text string, hideIP bool) error {
 	return nil
 }
 
+// emitTransfer sends one event of a Send or a code Receive to the frontend.
+func (a *App) emitTransfer(event string, payload any) {
+	if a.transferEmitFn != nil {
+		a.transferEmitFn(event, payload)
+		return
+	}
+	runtime.EventsEmit(a.ctx, event, payload)
+}
+
 func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 	// Release any sleep inhibitor on every exit (success, error, cancel, panic).
 	// Owner-tagged: a no-op if we never acquired it or a newer transfer holds it.
@@ -308,14 +305,14 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 		if !a.transferActive(g) {
 			return
 		}
-		runtime.EventsEmit(a.ctx, event, payload)
+		a.emitTransfer(event, payload)
 	}
 
 	fail := func(err error) {
 		if !a.transferActive(g) {
 			return // user cancelled, or a newer attempt owns the UI
 		}
-		runtime.EventsEmit(a.ctx, "send:error", err.Error())
+		a.emitTransfer("send:error", err.Error())
 		// The status line above carries the detail; the toast stays generic
 		// because raw engine errors read like stack traces in a notification.
 		a.notifyTransferFailed(g, "Floe - send failed")
@@ -357,14 +354,14 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 	select {
 	case role := <-sc.Role:
 		if role != "sender" {
-			fail(fmt.Errorf("expected sender role, got %q", role))
+			fail(errors.New("expected sender role"))
 			return
 		}
 	case <-sc.RoomFull:
 		fail(fmt.Errorf("room is full"))
 		return
 	case errMsg := <-sc.Errors:
-		fail(serverErrorFrame(errMsg))
+		fail(signaling.ServerFrameError(errMsg))
 		return
 	case <-sc.PeerLeft:
 		fail(roleWaitEnd(sc))
@@ -374,12 +371,20 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 		return
 	}
 
+	// The link's key, made once this send holds the room. It goes into the link
+	// and the send's own check below, and nowhere else that leaves this function.
+	key, err := linkkey.New()
+	if err != nil {
+		fail(err)
+		return
+	}
+
 	// Register a short shareable code and emit it to the UI immediately.
 	codePhrase, err := code.Register(server, roomID)
 	if err != nil {
 		codePhrase = ""
 	}
-	link := shareLink(web, uuid.New().String()[:8], roomID)
+	link := shareLink(web, uuid.New().String()[:8], roomID, key)
 	emit("send:code", map[string]string{"code": codePhrase, "link": link})
 
 	// Wait for a receiver to join. This wait is intentionally unbounded (you may
@@ -391,7 +396,7 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 		fail(receiverWaitEnd(sc))
 		return
 	case errMsg := <-sc.Errors:
-		fail(serverErrorFrame(errMsg))
+		fail(signaling.ServerFrameError(errMsg))
 		return
 	}
 	emit("send:status", "Sending...")
@@ -441,16 +446,22 @@ func (a *App) runSend(g uint64, paths []string, hideIP bool) {
 	defer close(quit)
 	watchConnFailed(conn, conn.Failed(), quit)
 	sendEarly := conn.Early()
+	var answered bool
 	if err := transfer.SendFilesWithOptions(dc, paths, version, transfer.SendOptions{
 		OnProgress: onProgress,
+		// Runs on this goroutine, so sendEnd reads it with no lock.
+		OnAck: func(int) { answered = true },
 		// Fires once when the receiver confirms delivery, with the numbers the
 		// CLI's Verified row reads. The UI shows only a boolean from it.
 		OnDelivered: func(d transfer.Delivered) { emit("send:delivered", d) },
 		UpdateHint:  desktopUpdateHint,
 		Messages:    sendEarly.Msgs,
 		Closed:      sendEarly.Closed,
+		// A code receiver holds no key, so Send only detects a wrong proof and
+		// goes on without one; Floe Desktop has no switch to wait for it (O4).
+		KeyCheck: &transfer.KeyCheck{Key: key, RoomID: roomID},
 	}); err != nil {
-		fail(sendEnd(err, hideIP))
+		fail(sendEnd(err, hideIP, answered))
 		return
 	}
 	emit("send:done", "Files sent")
@@ -504,7 +515,7 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 		if !a.transferActive(g) {
 			return
 		}
-		runtime.EventsEmit(a.ctx, event, payload)
+		a.emitTransfer(event, payload)
 	}
 
 	abs, err := resolveReceiveDir(outputDir)
@@ -526,19 +537,20 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 	// One snapshot for the whole receive, for the same reason as runSend.
 	server, _ := a.endpoints()
 
-	roomID, err := code.Resolve(server, codeOrLink)
+	resolved, err := code.ResolveLink(server, codeOrLink)
 	if err != nil {
 		// A request or drop link (S1-DSK-07, E-10) comes back as the engine's
-		// sentinel, whose text is the approved sentence. Returned bare, never
-		// wrapped: the wrapper below quotes the pasted input, which for these
-		// links is the room id in the fragment.
+		// sentinel, whose text is the approved sentence, returned as it stands.
 		if isRequestLinkPaste(err) {
 			return "", err
 		}
-		return "", fmt.Errorf("could not resolve %q: %w", codeOrLink, err)
+		// Never the paste itself: a link holds its room id and its key (B9).
+		// errors.ts maps this text by the words behind the wrapper.
+		return "", fmt.Errorf("could not resolve: %w", err)
 	}
-	// After Resolve, so a request link pasted here keeps its own sentence,
-	// and before the first network call for a link (Resolve reads a link
+	roomID := resolved.RoomID
+	// After ResolveLink, so a request link pasted here keeps its own sentence,
+	// and before the first network call for a link (ResolveLink reads a link
 	// locally; only a code, which has no host, went to the server).
 	if err := linkServerRefusal(codeOrLink, server); err != nil {
 		return "", err
@@ -579,7 +591,7 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 	case <-sc.RoomFull:
 		return "", fmt.Errorf("room is full (someone else may already be receiving)")
 	case errMsg := <-sc.Errors:
-		return "", serverErrorFrame(errMsg)
+		return "", signaling.ServerFrameError(errMsg)
 	case <-sc.PeerLeft:
 		return "", roleWaitEnd(sc)
 	case <-time.After(20 * time.Second):
@@ -639,6 +651,11 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 		Messages:   recvEarly.Msgs,
 		Closed:     recvEarly.Closed,
 	}
+	// A link that holds a key is checked; a code, or an old link, has nothing to
+	// check with, and the receive is as it always was.
+	if resolved.HasKey {
+		opts.KeyCheck = &transfer.KeyCheck{Key: resolved.Key, RoomID: resolved.RoomID}
+	}
 	if err := transfer.ReceiveFilesWithOptions(dc, absOutput, true, version, statsURL, opts); err != nil {
 		return "", fmt.Errorf("transfer failed: %w", err)
 	}
@@ -653,8 +670,9 @@ func (a *App) receiveByCode(g uint64, codeOrLink string, outputDir string, hideI
 // end of its drop (S1-DSK-03b; spec 06 4.5 steps 4 to 16, spec 05 8.12). It
 // runs as the lane's pairFn, on the goroutine that owns sc, and returns with
 // the lane in waiting (the visitor left, setup failed, the request was
-// missed), declined, done or stopped, or with rg gone. The error is for tests;
-// nothing shows it, and no engine or OS text reaches a snapshot (E-42).
+// missed, the visitor failed the link key check), declined, done, stopped or
+// ended, or with rg gone. The error is for tests; nothing shows it, and no
+// engine or OS text reaches a snapshot (E-42).
 //
 // It sits beside receiveByCode on purpose (OD-30): the same engine calls in
 // the other direction, since the host offers and then receives.
@@ -772,7 +790,9 @@ func (a *App) runRequestDrop(rg uint64, sc *signaling.Client, p requestPairing) 
 
 	// g. The receive, into the base folder until Decide accepts with the drop's
 	// own. While it runs the lane never reads sc.PeerLeft: only the channel
-	// closing or the receive returning ends the drop (spec 06 4.17).
+	// closing or the receive returning ends the drop (spec 06 4.17). The link's
+	// key check runs inside it, ahead of OnIncoming and Decide, so a visitor that
+	// has not proved the key never reaches them (D9).
 	quit := make(chan struct{})
 	defer close(quit)
 	watchConnFailed(conn, requestConnFailed(conn), quit) // a visitor that vanished: see requestconn.go
@@ -799,6 +819,7 @@ func (a *App) runRequestDrop(rg uint64, sc *signaling.Client, p requestPairing) 
 		UpdateHint: desktopUpdateHint,
 		Messages:   msgs,
 		Closed:     closed,
+		KeyCheck:   p.kc,
 	}
 	err = transfer.ReceiveFilesWithOptions(dc, p.saveDir, true, version, statsURL, opts)
 	cancelOpen()
@@ -854,6 +875,11 @@ const (
 	requestResultNames = 200
 	// requestProgressEvery throttles request:progress like recv:progress.
 	requestProgressEvery = 100 * time.Millisecond
+	// requestUnverifiedCap is how many pairings a link takes whose visitor failed
+	// the link key check. The server's seating budget binds no server that is
+	// hostile, and each pairing costs this PC a connection and a TURN fetch. X7 in
+	// requestCopy.ts says the number (TestUnverifiedCapMatchesTheCopy).
+	requestUnverifiedCap = 5
 )
 
 // requestDrop is one pairing's own state, from channel open to its end. The
@@ -1040,7 +1066,8 @@ func (a *App) acceptRequestDrop(rg uint64, p requestPairing, d *requestDrop, at 
 // stopped with a fixed code, and its folder removed when nothing was saved in
 // it; a stopped one reports the bytes it saved (E-32). A pairing that made no
 // drop reopens the room and waits again, stays declined, or stops on a
-// refusal this side sent.
+// refusal this side sent; one whose visitor failed the link key check counts
+// toward the end of the link (unverifiedPairing).
 func (a *App) endRequestDrop(rg uint64, sc *signaling.Client, d *requestDrop, err error) error {
 	if d.accepted.Load() && errors.Is(err, transfer.ErrSenderLeft) && !d.ownerCancel.Load() {
 		// The visitor left between Accept's own open check and the engine's:
@@ -1090,6 +1117,14 @@ func (a *App) endRequestDrop(rg uint64, sc *signaling.Client, d *requestDrop, er
 	}
 	var refused *transfer.RefusedError
 	switch {
+	// The link key check's two endings come first, because each also reads as a
+	// case below: the host's refusal as a refusal that uses the link up, the
+	// visitor's own frame as a visitor that left. This side's unreadable
+	// certificates say nothing about the visitor, so they count nothing.
+	case errors.Is(err, transfer.ErrKeyCheckUnavailable):
+		return a.reopenRequest(rg, sc, "setup-failed", err)
+	case errors.Is(err, transfer.ErrSenderNotConfirmed):
+		return a.unverifiedPairing(rg, sc, err)
 	case d.outcome == "declined":
 		return err // the owner picks Keep waiting or Close link
 	case d.outcome == "expired":
@@ -1116,6 +1151,38 @@ func (a *App) endRequestDrop(rg uint64, sc *signaling.Client, d *requestDrop, er
 	res := d.tally.result(d.files, "")
 	a.endDrop(rg, "stopped", "unknown", &res)
 	return err
+}
+
+// unverifiedPairing ends a pairing whose visitor failed the link key check. The
+// engine stopped it before Decide, so nothing was asked and nothing exists on disk,
+// and no prompt, toast, flash or title follows (D9): the link waits again and says
+// so (W15), until the requestUnverifiedCap-th of them on this link ends it (X7). The
+// count changes only inside reqUpdate; the socket goes after it, because
+// releaseRequestSocket takes the lane lock and writes to the network.
+func (a *App) unverifiedPairing(rg uint64, sc *signaling.Client, err error) error {
+	ended := false
+	if !a.reqUpdate(rg, func(l *requestLane) {
+		l.unverified++
+		// W13 outranks W15 only while it is true: this reads the two prompts' ages again,
+		// or two that ended hours ago would hide what just happened.
+		l.suggestClose = l.pruneEndsLocked(&l.promptEnds)
+		if l.unverified >= requestUnverifiedCap {
+			ended = true
+			l.route = ""
+			l.endLocked("ended", "unverified")
+		}
+	}) {
+		return err
+	}
+	if ended {
+		// Unsealed first: this pairing sealed the room, and closing a sealed room leaves
+		// a used marker, so the next visitor would read that a link nobody used has been
+		// used. Closing it open forgets it, and they read that it has ended.
+		_ = sc.RequestReopen()
+		a.releaseRequestSocket(sc, true)
+		return err
+	}
+	return a.reopenRequest(rg, sc, "unverified", err)
 }
 
 // volumeLacksMark reports whether files saved under dir cannot carry the

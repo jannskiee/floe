@@ -52,8 +52,33 @@ const UPSTASH_FETCH_TIMEOUT_MS = 10_000;
 
 let cachedTotal = 0;
 
+let upstashFailureLogged = false;
+
+function upstashFailureReason(error) {
+    const code = error?.cause?.code;
+    if (typeof code === 'string' && /^[A-Z][A-Z0-9_]*$/.test(code)) {
+        return code;
+    }
+
+    const name = error?.name;
+    if (typeof name === 'string' && /^[A-Za-z][A-Za-z0-9_]*$/.test(name)) {
+        return name;
+    }
+
+    return 'error';
+}
+
+function logUpstashFailure(command, reason) {
+    if (upstashFailureLogged) return;
+
+    upstashFailureLogged = true;
+    const operation = command[0] === 'GET' ? 'read' : 'update';
+    console.error(`Upstash counter ${operation} failed (${reason})`);
+}
+
 async function upstashPost(command) {
     if (!UPSTASH_URL || !UPSTASH_TOKEN) return null;
+
     try {
         const resp = await fetch(UPSTASH_URL, {
             method: 'POST',
@@ -64,13 +89,25 @@ async function upstashPost(command) {
             body: JSON.stringify(command),
             signal: AbortSignal.timeout(UPSTASH_FETCH_TIMEOUT_MS),
         });
-        if (!resp.ok) return null;
+
+        if (!resp.ok) {
+            const reason = Number.isInteger(resp.status)
+                ? `status ${resp.status}`
+                : 'error';
+
+            logUpstashFailure(command, reason);
+            return null;
+        }
+
         const { result } = await resp.json();
+        upstashFailureLogged = false;
         return result;
-    } catch {
+    } catch (error) {
+        logUpstashFailure(command, upstashFailureReason(error));
         return null;
     }
 }
+
 
 // The total only moves up. A report that lands while the startup GET is on its
 // way is counted in cachedTotal already, and that GET may have been read before

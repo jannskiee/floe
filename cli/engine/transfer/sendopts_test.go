@@ -171,6 +171,9 @@ func TestNewSendOptionsAreOffByDefault(t *testing.T) {
 		(SendOptions{}).PeerVersionReleaseOnly {
 		t.Fatal("a zero SendOptions turns NoSummary, OnAck, Stop or PeerVersionReleaseOnly on")
 	}
+	if (SendOptions{}).KeyCheck != nil || (SendOptions{}).OnKeyVerified != nil || (ReceiveOptions{}).KeyCheck != nil {
+		t.Fatal("a zero SendOptions or ReceiveOptions turns the link-key check on")
+	}
 
 	var delivered []Delivered
 	printed, err := deliverTwo(t, SendOptions{OnDelivered: func(d Delivered) { delivered = append(delivered, d) }})

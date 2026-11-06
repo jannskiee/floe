@@ -20,12 +20,19 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { mkdirSync, rmSync, existsSync } from 'fs';
+import { spawn } from 'child_process';
+import { randomUUID } from 'crypto';
+import { mkdirSync, existsSync, readdirSync } from 'fs';
 import { join, basename } from 'path';
-import { tmpdir } from 'os';
+import { ENFORCE_SHARE_LINK_KEY, MAKE_LINK_KEYS } from '../lib/transfer/protocol';
 import {
     CLI_TIMEOUT_MS,
+    KEYED_SHARE_LINK,
+    WEB_URL,
+    cliBinary,
     createFixture,
+    fixtureDir,
+    removeFixtureDir,
     sha256OfFile,
     sha256OfBlobUrl,
     browserSenderSetup,
@@ -46,7 +53,7 @@ process.env.FLOE_NO_UPDATE_CHECK = '1';
 // released binary; everywhere else the file reports as skipped.
 test.skip(!process.env.FLOE_RELEASED_CLI, 'FLOE_RELEASED_CLI is not set (back-compat CI job only)');
 
-const FIXTURE_DIR = join(tmpdir(), 'floe-back-compat');
+const FIXTURE_DIR = fixtureDir('floe-back-compat');
 // Same 12 MB as cli-interop: large enough to exercise the 8 MB backpressure loop.
 const FIXTURE_SIZE = 12 * 1024 * 1024;
 
@@ -72,7 +79,7 @@ test.beforeAll(() => {
 });
 
 test.afterAll(() => {
-    try { rmSync(FIXTURE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    removeFixtureDir(FIXTURE_DIR);
 });
 
 test('released CLI send → HEAD CLI receive (SHA-256 integrity)', async () => {
@@ -83,7 +90,9 @@ test('released CLI send → HEAD CLI receive (SHA-256 integrity)', async () => {
     const { linkPromise, proc: sender } = spawnSend(fixturePath, releasedCli());
     try {
         const roomLink = await linkPromise;
-        expect(roomLink).toContain('#room=');
+        // A released floe prints #room= today and #k=...&room= from v1.12.0 on, and this
+        // job reads whichever release is the latest.
+        expect(roomLink).toMatch(/[#&]room=/);
 
         await spawnReceive(roomLink, outputDir);
 
@@ -109,7 +118,10 @@ test('HEAD CLI send → released CLI receive (SHA-256 integrity)', async () => {
     const { linkPromise, proc: sender } = spawnSend(fixturePath);
     try {
         const roomLink = await linkPromise;
-        expect(roomLink).toContain('#room=');
+        // HEAD's link leads with its key. The released receiver reads only room=
+        // out of it, and drops the kc that comes ahead of the metadata.
+        expect(roomLink).toContain('#k=');
+        expect(roomLink).toContain('&room=');
 
         await spawnReceive(roomLink, outputDir, releasedCli());
 
@@ -120,6 +132,59 @@ test('HEAD CLI send → released CLI receive (SHA-256 integrity)', async () => {
         // Mirror image of the previous test: the HEAD sender must still
         // drain and exit 0 on the released receiver's confirmation.
         expect(await waitForExit(sender, CLI_TIMEOUT_MS)).toBe(0);
+    } finally {
+        sender.kill();
+    }
+});
+
+// What a floe from before the link key does with one. That stops being true the day
+// v1.12.0 is the latest release, which is what this job downloads, so these stand aside
+// then and do not go red on every pull request (review 20, findings 1 and 7).
+function releasedPredatesTheKey(): boolean {
+    const m = /^v(\d+)\.(\d+)\./.exec(process.env.FLOE_RELEASED_VERSION ?? '');
+    return m !== null && (Number(m[1]) < 1 || (Number(m[1]) === 1 && Number(m[2]) < 12));
+}
+
+// A local run can set FLOE_RELEASED_CLI alone, and the binary may well be from before
+// the key, so the reason says what is missing and not what it would mean.
+function pinReason(whenNewer: string): string {
+    return process.env.FLOE_RELEASED_VERSION ? whenNewer : 'FLOE_RELEASED_VERSION is not set, so this cannot tell which side of the key the binary is on';
+}
+
+// Its parser takes the whole fragment for a room id and finds none. No network: the
+// server named here answers nothing, and the line is the one a cut link has always had.
+test('released floe send --to a keyed request link: the incomplete line, before any network', async () => {
+    test.skip(!releasedPredatesTheKey(), pinReason('a floe from v1.12.0 on reads the key'));
+    const { path: fixturePath } = createFixture(FIXTURE_DIR, 4096);
+    const key = 'AAECAwQFBgcICQoLDA0ODw';
+    const link = `${WEB_URL}/r/AAAAAAAAAAA#${randomUUID()}.${key}`;
+    const proc = spawn(releasedCli(), ['send', fixturePath, '--to', link, '--server', 'http://127.0.0.1:9']);
+    let out = '';
+    proc.stdout?.on('data', (chunk: Buffer) => { out += chunk.toString(); });
+    proc.stderr?.on('data', (chunk: Buffer) => { out += chunk.toString(); });
+    try {
+        expect(await waitForExit(proc, CLI_TIMEOUT_MS)).toBe(1);
+        expect(out).toContain('This link looks incomplete. Copy the whole link again, including everything after the # sign.');
+        expect(out).not.toContain(key);
+    } finally {
+        proc.kill();
+    }
+});
+
+// HEAD waits for a proof a released receiver never sends, then stops with a range only a
+// floe that speaks the key overlaps, so the released one prints its own update remedy
+// (1.10.8 and later; review 20 finding 6).
+test('HEAD floe send --link-only → released floe receive: its update remedy, and nothing saved', async () => {
+    test.skip(!releasedPredatesTheKey(), pinReason('a floe from v1.12.0 on proves the key'));
+    const { path: fixturePath } = createFixture(FIXTURE_DIR, 4096);
+    const outputDir = join(FIXTURE_DIR, 'received-link-only');
+    mkdirSync(outputDir, { recursive: true });
+    const { linkPromise, proc: sender } = spawnSend(fixturePath, cliBinary(), ['--link-only']);
+    try {
+        const roomLink = await linkPromise;
+        await expect(spawnReceive(roomLink, outputDir, releasedCli())).rejects.toThrow(/Cannot transfer[\s\S]*floe update/);
+        expect(readdirSync(outputDir)).toEqual([]);
+        expect(await waitForExit(sender, CLI_TIMEOUT_MS)).not.toBe(0);
     } finally {
         sender.kill();
     }
@@ -165,6 +230,7 @@ test('released CLI send → HEAD browser receive (SHA-256 integrity)', async ({ 
 });
 
 test('HEAD browser send → released CLI receive (SHA-256 integrity)', async ({ browser }) => {
+    test.skip(ENFORCE_SHARE_LINK_KEY, 'from the cutover a sending page refuses a floe older than 1.12, which is what the cutover is for');
     const { path: fixturePath, sha256: expectedHash } = createFixture(FIXTURE_DIR, FIXTURE_SIZE);
     // Pre-create: only HEAD's receive is known to create --output itself.
     const outputDir = join(FIXTURE_DIR, 'received-browser-to-released');
@@ -174,15 +240,21 @@ test('HEAD browser send → released CLI receive (SHA-256 integrity)', async ({ 
     const page = await ctx.newPage();
 
     try {
-        // The client renders a #room= fragment link; v1.7.5's resolver
-        // parses both ?room= and #room=, so it is handed over as-is.
+        // The client renders a keyed link, #k=<k>&room=<id>. A released resolver
+        // reads the fragment's room by name and has never heard of k, so the
+        // link is handed over as-is, and the page's kc is a frame it drops.
         const roomLink = await browserSenderSetup(page, fixturePath);
+        if (MAKE_LINK_KEYS) expect(roomLink).toMatch(KEYED_SHARE_LINK);
 
         await spawnReceive(roomLink, outputDir, releasedCli());
 
         const receivedPath = join(outputDir, basename(fixturePath));
         expect(existsSync(receivedPath)).toBe(true);
         expect(sha256OfFile(receivedPath)).toBe(expectedHash);
+
+        // It sends no proof back, and until the cutover a page only detects, so
+        // the send ends as it always has and the page has nothing to say about it.
+        await expect(page.getByText(/couldn't confirm|can't check/i)).toHaveCount(0);
     } finally {
         await ctx.close();
     }

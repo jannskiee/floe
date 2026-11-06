@@ -131,7 +131,12 @@ The web app's main page and Floe Desktop draw the check mark without words. A sc
 it as "SHA-256 matched". A request link's page writes a sentence instead, and the CLI a row.
 
 On the sending side the mark is the receiver's report, not a check your own app made: your app
-sent the SHA-256, and the other side says every file matched it. The web app's Send page says
+sent the SHA-256, and the other side says every file matched it. Whoever is on the other end can say
+so, so it does not show who received the files. A [link key](/glossary#link-key) does not settle
+that on this side: your app only detects a wrong proof, and a party with no link key can still earn
+the mark. See
+[What the link key checks](/how-it-works/known-limitations#the-signaling-server-is-trusted-to-introduce-you-honestly).
+The web app's Send page says
 "All Files Sent!" as soon as the last byte leaves, before that report, so its check mark is gray
 for a moment and turns green when the report arrives. See
 [When it finishes](/web-app/sending#when-it-finishes).

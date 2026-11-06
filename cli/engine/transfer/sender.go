@@ -1,6 +1,8 @@
 // Package transfer implements the Floe data channel protocol for sending files.
 //
 // Protocol (same as the web app — must stay compatible for CLI↔Browser):
+//  0. Either way, ahead of anything else: kc JSON, only from a side that holds the
+//     link's key (keycheck.go). A sender's is TEXT and a receiver's BINARY.
 //  1. Sender → Receiver: metadata JSON  (file name, size, index, total, pv, pvMin, ver)
 //  2. Receiver → Sender: ack JSON       (ready: offset for resume, pv, pvMin, ver; Go receivers add confirms)
 //     OR:       incompatible JSON       (sent instead of ack when protocol ranges do not overlap)
@@ -221,6 +223,9 @@ type CompatError struct {
 	// here; false means the peer is the side that is behind.
 	LocalTooOld bool
 	text        string
+	// unproven is text without the frame's own version string, for a side holding a
+	// link key whose peer has proved nothing (unprovenStop). Set with fromWire.
+	unproven string
 	// fromWire marks the one read off the receiver's incompatible frame, which
 	// the send returns as it came (fromPeer). The first ack's is this sender's
 	// own check and keeps the file name in front of it, as it always has.
@@ -288,7 +293,9 @@ func abortFromPeer(raw []byte, localVer, updateHint string, total int) error {
 	// The same CheckCompat that picked the text above, so the type can never
 	// disagree with the words.
 	if ok, localTooOld := CheckCompat(MinProtocolVersion, ProtocolVersion, incompat.PvMin, incompat.Pv); !ok {
-		return &CompatError{LocalTooOld: localTooOld, text: text, fromWire: true}
+		unnamed := incompat
+		unnamed.Ver = ""
+		return &CompatError{LocalTooOld: localTooOld, text: text, unproven: compatErrorFromIncompatible(localVer, updateHint, unnamed), fromWire: true}
 	}
 	return &PeerEndedError{Saved: savedCountIn(fields, total), text: text}
 }
@@ -578,6 +585,17 @@ type SendOptions struct {
 	// False prints the line for any version that differs from this build's,
 	// through displayText, as the plain send always has.
 	PeerVersionReleaseOnly bool
+	// KeyCheck, when set, is the link's key: this send proves it holds it, in a
+	// TEXT kc ahead of anything else it sends, and judges the receiver's proof,
+	// when it waits for it (Enforce) and when it does not (a detecting send, whose
+	// receiver may hold no key). It needs Messages and Closed: errKeyCheckNeedsPump
+	// refuses it without them. Nil is a keyless send, which sends nothing new.
+	KeyCheck *KeyCheck
+	// OnKeyVerified fires once on an enforcing send, on the send's goroutine, when
+	// the receiver's proof has checked out and before the relay gate and the first
+	// metadata, so a caller can say it is waiting for an answer only once that is
+	// true. Nil for every caller with no use for it.
+	OnKeyVerified func()
 }
 
 // releaseShape is a Floe release string as the builds stamp it: the CLI's
@@ -646,8 +664,17 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 		// The walk failed: a path is already gone or unreadable. Tell the
 		// receiver why, or all it sees is a close it reads as a network
 		// fault. A Stop that has closed stays silent, as the caller's own
-		// abort is the one the peer reads.
+		// abort is the one the peer reads. A send holding a link key proves it first,
+		// as it does ahead of everything it sends: a receiver holding the key reads a
+		// stop from a side that has proved nothing as just that, so a file that went
+		// missing during the wait for the peer would read as a sender it could not
+		// confirm. With no proof to give, the abort goes alone.
 		if !stopRequested(opts.Stop) {
+			if opts.KeyCheck != nil {
+				if ks, ksErr := newKeySession(dc, opts.KeyCheck, true); ksErr == nil {
+					_ = dc.SendText(string(ks.own))
+				}
+			}
 			abortReason(dc, localVer, UnreadableFileReason, true)
 		}
 		return err
@@ -665,6 +692,68 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 	// gate's abort included: the caller's own abort is the one the peer reads.
 	if stopRequested(opts.Stop) {
 		return ErrSendStopped
+	}
+
+	// The link key, when this send holds one: its kc leads everything it sends,
+	// and an enforcing send then waits for the receiver's proof. All of it comes
+	// before the relay gate, so a relay-cap abort, which carries the size, never
+	// reaches a receiver an enforcing send has not confirmed (DV5). Nothing is
+	// sent at all when this side cannot compute a proof.
+	var ks *keySession
+	var replies sendReplies
+	if opts.KeyCheck != nil {
+		if opts.Messages == nil || opts.Closed == nil {
+			return errKeyCheckNeedsPump
+		}
+		var err error
+		ks, err = newKeySession(dc, opts.KeyCheck, true)
+		if errors.Is(err, errConnectionGone) {
+			// The receiver left before this send said anything, during a long file walk
+			// say: the wait's own ending, in its own words.
+			return errClosedAwaitingReceiver
+		}
+		if err != nil {
+			return err
+		}
+		replies = wireReplies(dc, opts, true)
+		if err := dc.SendText(string(ks.own)); err != nil {
+			stop := refusalAfterSendError(replies.done, replies.ackCh, replies.flushed, localVer, opts.UpdateHint, len(files))
+			// The flush above has moved whatever arrived before the close.
+			proved := false
+			select {
+			case raw := <-replies.kcCh:
+				if !ks.verify(raw) {
+					return ErrReceiverNotConfirmed
+				}
+				proved = true
+			default:
+			}
+			if stop != nil {
+				if !proved {
+					return unprovenStop(stop)
+				}
+				return stop
+			}
+			// A kc is far under any message size, so a Send that fails here is a
+			// channel that has closed: the wait's own ending, in its own words.
+			return errClosedAwaitingReceiver
+		}
+		if opts.KeyCheck.Enforce {
+			verified, err := waitForProof(dc, ks, replies, opts.Stop, localVer, opts.UpdateHint, len(files))
+			if verified && opts.OnKeyVerified != nil {
+				opts.OnKeyVerified()
+			}
+			if err != nil {
+				return err
+			}
+		} else if err := detectProof(dc, ks, replies.kcCh, opts.Stop, localVer); err != nil {
+			return err
+		}
+		// The wait can take a while, and a stop in it or just after it is the
+		// caller's to tell, again before the relay gate's abort.
+		if stopRequested(opts.Stop) {
+			return ErrSendStopped
+		}
 	}
 
 	// Relay size cap: decide before wiring acks or sending any metadata. The
@@ -695,93 +784,11 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 		}
 	}
 
-	// ackCh receives JSON ack messages from the receiver.
-	// Accept ack as either string or binary: the CLI receiver sends binary for
-	// browser compatibility, CLI-to-CLI also works.
-	// Non-blocking: a full buffer means a stray/duplicate message arrived;
-	// dropping it is safe because the ack loop already matched its ID.
-	ackCh := make(chan []byte, 4)
-	// flushed is closed once every frame that arrived before the channel
-	// closed is in ackCh, so a wait that sees the close can still read the
-	// refusal a receiver sends just before it closes (stopBeforeClose).
-	flushed := make(chan struct{})
-	if opts.Messages != nil && opts.Closed != nil {
-		// The pump was installed with the data channel, so the receiver's first
-		// ack cannot have arrived before anyone was listening. Forwarding into
-		// ackCh rather than reading opts.Messages directly leaves every deadline
-		// below exactly as it was.
-		go func() {
-			defer close(flushed)
-			forward := func(msg webrtc.DataChannelMessage) {
-				select {
-				case ackCh <- msg.Data:
-				default:
-				}
-			}
-			for {
-				select {
-				case msg, ok := <-opts.Messages:
-					if !ok {
-						return
-					}
-					forward(msg)
-				case <-opts.Closed:
-					// A refusal is the last frame a receiver sends before it
-					// closes, and both can be ready here at once: a random pick
-					// used to return with the refusal still in Messages. The
-					// pump fills Messages before it closes Closed (pion delivers
-					// a message before the close, from one read goroutine), so
-					// moving what is queued now leaves nothing behind.
-					for {
-						select {
-						case msg, ok := <-opts.Messages:
-							if !ok {
-								return
-							}
-							forward(msg)
-						default:
-							return
-						}
-					}
-				}
-			}
-		}()
-	} else {
-		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-			select {
-			case ackCh <- msg.Data:
-			default:
-			}
-		})
-		// pion runs OnMessage before OnClose on the same read goroutine, so
-		// every frame is in ackCh by the time done fires.
-		close(flushed)
+	// A keyed send wired its replies above, before its kc went out.
+	if ks == nil {
+		replies = wireReplies(dc, opts, false)
 	}
-
-	// done is closed when the data channel closes, letting every wait below
-	// fail fast instead of burning its full deadline. pion fires OnClose on
-	// GRACEFUL closes only (remote dc.Close/pc.Close/browser tab close send a
-	// close notification): a kill -9 or dead network does not error the read
-	// chain promptly (sctp retransmits by design; an ICE failure closes the
-	// association only indirectly, when a pending retransmission finds no
-	// candidate pair), so the 120 s ack wait and the 60 s no-progress windows
-	// of the backpressure and delivery waits remain the backstop for ungraceful
-	// death.
-	//
-	// Taken from the pump when there is one. Registering our own OnClose would
-	// REPLACE the pump's, since pion keeps a single handler per event, and the
-	// pump needs its own close signal to be sure its send can never block.
-	var done <-chan struct{}
-	if opts.Closed != nil {
-		done = opts.Closed
-	} else {
-		d := make(chan struct{})
-		var closeOnce sync.Once
-		dc.OnClose(func() {
-			closeOnce.Do(func() { close(d) })
-		})
-		done = d
-	}
+	ackCh, flushed, done := replies.ackCh, replies.flushed, replies.done
 
 	// Backpressure: pion calls OnBufferedAmountLow once the send buffer drains
 	// to bufferedAmountLowWater. The send loop blocks on sendMore whenever the
@@ -809,15 +816,16 @@ func SendFilesWithOptions(dc *webrtc.DataChannel, paths []string, localVer strin
 	var confirms bool
 	var sentSoFar int64
 	for i, entry := range files {
-		if err := sendFile(dc, ackCh, sendMore, done, flushed, entry, i+1, len(files), totalBytes, localVer, onAck, sentSoFar, chunk, &confirms, opts); err != nil {
+		if err := sendFile(dc, ackCh, sendMore, done, flushed, entry, i+1, len(files), totalBytes, localVer, onAck, sentSoFar, chunk, &confirms, ks, replies.kcCh, opts); err != nil {
 			// A refusal the PEER sent is returned as it came. The wrap named
 			// entry.displayName, which is the file the sender had already moved
 			// on to: a receiver refuses file N after its end marker, and the
 			// frame lands while file N+1 waits for its ack, so the wrong file
 			// was blamed in every multi-file batch (F-SHA-3). The wrap still
 			// belongs on this sender's own failures, where the name is the
-			// whole point.
-			if fromPeer(err) {
+			// whole point. The key check's own ending is about the receiver
+			// and takes no name either.
+			if fromPeer(err) || keyCheckEnded(err) {
 				return err
 			}
 			return fmt.Errorf("error sending %s: %w", entry.displayName, err)
@@ -981,12 +989,139 @@ drainLoop:
 	return nil
 }
 
+// sendReplies is where a send reads what its receiver says. ackCh takes every frame
+// but a keyed send's first kc, which waits in kcCh, a slot of one that a keyless
+// send does not have; flushed closes once every frame that arrived before the
+// channel closed has been moved, and done is the close itself.
+type sendReplies struct {
+	ackCh   chan []byte
+	kcCh    chan []byte
+	flushed chan struct{}
+	done    <-chan struct{}
+}
+
+// wireReplies starts reading the receiver's frames. keyed needs the pump, which the
+// caller has already checked for.
+func wireReplies(dc *webrtc.DataChannel, opts SendOptions, keyed bool) sendReplies {
+	// ackCh receives JSON ack messages from the receiver.
+	// Accept ack as either string or binary: the CLI receiver sends binary for
+	// browser compatibility, CLI-to-CLI also works.
+	// Non-blocking: a full buffer means a stray/duplicate message arrived;
+	// dropping it is safe because the ack loop already matched its ID.
+	ackCh := make(chan []byte, 4)
+	// kcCh parks the receiver's first kc, so no reader of ackCh has to know the
+	// frame, and a later kc goes nowhere: the first one wins, as on the browser.
+	// One slot and one send, so the forwarder never blocks on it. A nil channel
+	// when keyless, where a kc is one more stray frame for ackCh's readers to drop.
+	var kcCh chan []byte
+	if keyed {
+		kcCh = make(chan []byte, 1)
+	}
+	// flushed is closed once every frame that arrived before the channel
+	// closed is in ackCh, so a wait that sees the close can still read the
+	// refusal a receiver sends just before it closes (stopBeforeClose).
+	flushed := make(chan struct{})
+	if opts.Messages != nil && opts.Closed != nil {
+		// The pump was installed with the data channel, so the receiver's first
+		// ack cannot have arrived before anyone was listening. Forwarding into
+		// ackCh rather than reading opts.Messages directly leaves every deadline
+		// below exactly as it was.
+		go func() {
+			defer close(flushed)
+			kcRouted := false
+			forward := func(msg webrtc.DataChannelMessage) {
+				if kcCh != nil {
+					if typ, ok := classifyControl(msg.Data); ok && typ == "kc" {
+						if !kcRouted {
+							kcRouted = true
+							kcCh <- msg.Data
+						}
+						return
+					}
+				}
+				select {
+				case ackCh <- msg.Data:
+				default:
+				}
+			}
+			for {
+				select {
+				case msg, ok := <-opts.Messages:
+					if !ok {
+						return
+					}
+					forward(msg)
+				case <-opts.Closed:
+					// A refusal is the last frame a receiver sends before it
+					// closes, and both can be ready here at once: a random pick
+					// used to return with the refusal still in Messages. The
+					// pump fills Messages before it closes Closed (pion delivers
+					// a message before the close, from one read goroutine), so
+					// moving what is queued now leaves nothing behind.
+					for {
+						select {
+						case msg, ok := <-opts.Messages:
+							if !ok {
+								return
+							}
+							forward(msg)
+						default:
+							return
+						}
+					}
+				}
+			}
+		}()
+	} else {
+		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
+			select {
+			case ackCh <- msg.Data:
+			default:
+			}
+		})
+		// pion runs OnMessage before OnClose on the same read goroutine, so
+		// every frame is in ackCh by the time done fires.
+		close(flushed)
+	}
+
+	// done is closed when the data channel closes, letting every wait below
+	// fail fast instead of burning its full deadline. pion fires OnClose on
+	// GRACEFUL closes only (remote dc.Close/pc.Close/browser tab close send a
+	// close notification): a kill -9 or dead network does not error the read
+	// chain promptly (sctp retransmits by design; an ICE failure closes the
+	// association only indirectly, when a pending retransmission finds no
+	// candidate pair), so the 120 s ack wait and the 60 s no-progress windows
+	// of the backpressure and delivery waits remain the backstop for ungraceful
+	// death.
+	//
+	// Taken from the pump when there is one. Registering our own OnClose would
+	// REPLACE the pump's, since pion keeps a single handler per event, and the
+	// pump needs its own close signal to be sure its send can never block.
+	var done <-chan struct{}
+	if opts.Closed != nil {
+		done = opts.Closed
+	} else {
+		d := make(chan struct{})
+		var closeOnce sync.Once
+		dc.OnClose(func() {
+			closeOnce.Do(func() { close(d) })
+		})
+		done = d
+	}
+	return sendReplies{ackCh: ackCh, kcCh: kcCh, flushed: flushed, done: done}
+}
+
+// errClosedAwaitingReceiver is the close during a wait for the receiver: a decline
+// (the receiver's [Y/n] prompt closes the channel) or a receiver that exited.
+var errClosedAwaitingReceiver = errors.New("connection closed while waiting for the receiver (transfer declined or receiver exited)")
+
 // sendFile handles the full send sequence for a single file. confirms is set
 // from the first file's ack only (parseAckConfirms) and left alone after.
 // onAck is SendFilesWithOptions' wrapper of opts.OnAck, which also restarts
 // the summary clock, so this calls onAck and never opts.OnAck. stop is
-// opts.Stop: seen before every write and in every wait.
-func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, done <-chan struct{}, flushed <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onAck func(int), baseTotal int64, chunk int, confirms *bool, opts SendOptions) (err error) {
+// opts.Stop: seen before every write and in every wait. ks and kcCh are the
+// link key's session and proof slot, nil on a keyless send.
+func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struct{}, done <-chan struct{}, flushed <-chan struct{}, entry fileEntry, index, total int, totalBytes int64, localVer string, onAck func(int), baseTotal int64, chunk int, confirms *bool, ks *keySession, kcCh <-chan []byte, opts SendOptions) (err error) {
 	onProgress, updateHint, stop := opts.OnProgress, opts.UpdateHint, opts.Stop
 	ackTimeout := ackTimeoutOrDefault(opts.AckTimeout)
 	if stopRequested(stop) {
@@ -1035,6 +1170,13 @@ func sendFile(dc *webrtc.DataChannel, ackCh <-chan []byte, sendMore <-chan struc
 	if stopRequested(stop) {
 		return ErrSendStopped
 	}
+	// So is the receiver's proof, if it is here by now: a wrong one means no file
+	// is ever named to that side. Later files have nothing left to look at.
+	if index == 1 {
+		if err := detectProof(dc, ks, kcCh, stop, localVer); err != nil {
+			return err
+		}
+	}
 	if err := dc.SendText(string(metaJSON)); err != nil {
 		if stop := refusalAfterSendError(done, ackCh, flushed, localVer, updateHint, total); stop != nil {
 			return stop
@@ -1080,6 +1222,16 @@ ackLoop:
 			if _, typ, ok := controlFields(raw); ok && typ == "ack" {
 				var ack ackMsg
 				if err := json.Unmarshal(raw, &ack); err == nil && ack.ID == fileID {
+					// A detecting send's last look at the receiver's proof, ahead
+					// of everything the ack sets off, so a wrong one is never
+					// reported as a yes and never followed by a file byte. The
+					// pump parked any kc sent ahead of this ack before it
+					// forwarded the ack.
+					if index == 1 {
+						if err := detectProof(dc, ks, kcCh, stop, localVer); err != nil {
+							return err
+						}
+					}
 					// The receiver took this file. Reported before the checks
 					// below, which are about what it asked for and not about
 					// whether it answered, as the browser's onAck is.
@@ -1129,7 +1281,7 @@ ackLoop:
 			if err := stopBeforeClose(ackCh, flushed, localVer, updateHint, total); err != nil {
 				return err
 			}
-			return fmt.Errorf("connection closed while waiting for the receiver (transfer declined or receiver exited)")
+			return errClosedAwaitingReceiver
 		case <-ackDeadline:
 			return ErrAckTimeout
 		case <-stop:
@@ -1324,12 +1476,12 @@ ackLoop:
 	}
 	// Growth is probed off the descriptor, never a second Stat. A descriptor that
 	// stats as 0 and still yields bytes (a log created moments earlier, or a
-	// /proc, /sys or character-device path, all of which collectFiles accepts) is
-	// exactly what a re-stat cannot see, and capping it silently would send an
-	// empty file that both ends reported as a success.
+	// /proc or /sys path) is exactly what a re-stat cannot see, and capping it
+	// silently would send an empty file that both ends reported as a success.
 	//
 	// Only for a regular file. A FIFO or a character device would block this
-	// read forever, and collectFiles accepts whatever os.Stat succeeded on.
+	// read forever. collectFiles refuses a pipe, a socket and a device, so the
+	// guard only covers one that turned into one after the walk.
 	if info.Mode().IsRegular() {
 		var probe [1]byte
 		if n, _ := f.Read(probe[:]); n > 0 {

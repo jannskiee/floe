@@ -17,18 +17,15 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { randomUUID } from 'crypto';
-import { rmSync } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
-import { createFixture, browserSenderSetup } from './helpers';
+import { createFixture, fixtureDir, removeFixtureDir, browserSenderSetup, roomOfShareLink } from './helpers';
 
-const FIXTURE_DIR = join(tmpdir(), 'floe-e2e-refused-connect');
+const FIXTURE_DIR = fixtureDir('floe-e2e-refused-connect');
 const BANNER = 'Too many refreshes. Reconnecting';
 const SEPARATOR = '\x1e';
 const REFUSAL = '44{"message":"Rate limit exceeded"}';
 
 test.afterAll(() => {
-    try { rmSync(FIXTURE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    removeFixtureDir(FIXTURE_DIR);
 });
 
 interface Wire {
@@ -62,13 +59,18 @@ async function onTheWire(page: Page): Promise<Wire> {
     await page.route(/\/socket\.io\/\?.*transport=polling/, async (route) => {
         if (route.request().method() !== 'GET') return route.continue();
         let response;
+        let text: string;
         try {
             response = await route.fetch();
+            text = await response.text();
         } catch {
-            // The page went offline or closed with this poll in flight.
+            // The page went offline or closed with this poll in flight. Playwright
+            // drops a fetched body when the context closes, after the page is gone
+            // and every assertion has run, so aborting here adds no reconnect or
+            // join-room that a test counts.
             return route.abort().catch(() => {});
         }
-        const packets = (await response.text()).split(SEPARATOR);
+        const packets = text.split(SEPARATOR);
         const answer = packets.findIndex((p) => p.startsWith('40'));
         if (armed && answer >= 0) {
             packets[answer] = REFUSAL;
@@ -116,7 +118,7 @@ test('a sender whose reconnect is refused joins its room again exactly once', as
     try {
         const wire = await onTheWire(page);
         const link = await browserSenderSetup(page, fixturePath);
-        const roomId = new URL(link).hash.replace('#room=', '');
+        const roomId = roomOfShareLink(link);
         await expect(page.getByText('Ready', { exact: true })).toBeVisible({ timeout: 10_000 });
 
         // Drop the socket, and refuse the reconnect that follows.

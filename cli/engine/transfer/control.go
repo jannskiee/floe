@@ -133,12 +133,15 @@ const controlMsgMax = 1000
 // else was already safe. What was not safe, and is what the framing gate on
 // the receive path fixes, is a JSON file whose "type" IS one of these.
 //
-// The receive loop is the only caller, and it acts on "metadata", "end" and
-// "incompatible" (a sender's abort). "ack" and "received" flow the other way
-// and never come through here: the sender decodes the receiver's frames on its
-// own (the ack wait in sendFile, abortFromPeer and parseReceived) under the same
-// controlMsgMax bound. A stray "ack" or "received" that does reach the receive
-// loop matches no arm of its switch and is dropped.
+// The receive loop acts on "metadata", "end", "incompatible" (a sender's abort)
+// and "kc", the link key's proof (keycheck.go), which a receiver without the key
+// skips: exactly what a released receiver does with it, an unknown type being a
+// string it skips. "ack" and "received" flow the other way and never come through
+// the loop's arms: the sender decodes the receiver's frames on its own (the ack
+// wait in sendFile, abortFromPeer and parseReceived) under the same controlMsgMax
+// bound, and asks here only for a keyed send's kc (wireReplies). A stray "ack" or
+// "received" that does reach the receive loop matches no arm of its switch and is
+// dropped.
 //
 // "type" is read by its exact key from a map of RAW values, so no other key's
 // value is ever converted here: decoding into interface{} turned a number out
@@ -161,7 +164,7 @@ func classifyControl(data []byte) (msgType string, isControl bool) {
 		return "", false
 	}
 	switch t {
-	case "metadata", "end", "ack", "received", "incompatible":
+	case "metadata", "end", "ack", "received", "incompatible", "kc":
 		return t, true
 	}
 	return "", false
@@ -231,6 +234,9 @@ func parseMetadata(text string) (FileInfo, error) {
 	}
 	if m.Index < 1 || m.Total < 1 {
 		return FileInfo{}, fmt.Errorf("file index %d of %d is not a position in a batch", m.Index, m.Total)
+	}
+	if m.Index > m.Total {
+		return FileInfo{}, fmt.Errorf("the file index is past the end of its batch")
 	}
 	// Zero means "not announced" (pre-1.5.0 senders) and is fine; a batch that
 	// is smaller than one of its own files is not, and the desktop preview

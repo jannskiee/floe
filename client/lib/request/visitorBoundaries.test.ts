@@ -14,7 +14,9 @@ import { REQUEST_ACK_TIMEOUT_MS, REQUEST_ACK_GRACE_MS } from '../transfer/protoc
 // is the Playwright privacy spec's.
 
 const CLIENT = fileURLToPath(new URL('../../', import.meta.url));
-const read = (rel: string) => readFileSync(CLIENT + rel, 'utf8');
+// Normalized: a test below matches across a line break, and a Windows checkout with
+// Git's default settings reads CRLF.
+const read = (rel: string) => readFileSync(CLIENT + rel, 'utf8').replace(/\r\n/g, '\n');
 
 /** Every production source reachable only from /r. Test files are left out:
  *  they name the forbidden things on purpose. */
@@ -132,12 +134,12 @@ describe('the /r page boundaries', () => {
             for (const args of callArgs(src, 'sendAbortReason')) {
                 // The import line names the function without calling it.
                 const third = splitArgs(args)[2];
-                expect(['RELAY_BLOCK_REASON', 'VISITOR_CANCEL_REASON'], `${file}: ${args}`).toContain(third);
+                expect(['RELAY_BLOCK_REASON', 'SENDER_UNVERIFIED_REASON', 'VISITOR_CANCEL_REASON'], `${file}: ${args}`).toContain(third);
                 seen.add(third);
             }
         }
-        // Both aborts exist, so the check above is not vacuous.
-        expect([...seen].sort()).toEqual(['RELAY_BLOCK_REASON', 'VISITOR_CANCEL_REASON']);
+        // All three aborts exist, so the check above is not vacuous.
+        expect([...seen].sort()).toEqual(['RELAY_BLOCK_REASON', 'SENDER_UNVERIFIED_REASON', 'VISITOR_CANCEL_REASON']);
     });
 
     it('the first-ack timer is the shared ack clock plus its grace', () => {
@@ -157,6 +159,7 @@ describe('the /r page boundaries', () => {
         const args = calls[0];
         expect(args).toContain('ackTimeoutMs: FIRST_ACK_TIMEOUT_MS');
         expect(args).toContain('requireReceived: true');
+        expect(args).toContain('keyCheck: ks');
         // No deadline of its own under requireReceived (E-36): isDestroyed is
         // the only way out of a host that neither answers nor closes. The
         // callbacks are built beside the call and passed through watchSend.
@@ -256,7 +259,7 @@ describe('the /r page boundaries', () => {
         for (const [file, src] of Object.entries(sources)) {
             for (const args of callArgs(src, 'Sentry.addBreadcrumb')) {
                 crumbs++;
-                for (const word of ['relativePath', 'name', 'path', 'roomId', 'linkId', 'href', 'location', 'reason']) {
+                for (const word of ['relativePath', 'name', 'path', 'roomId', 'linkId', 'href', 'location', 'reason', 'key', 'tag']) {
                     expect(args.includes(word), `${file}: ${word} in ${args}`).toBe(false);
                 }
             }
@@ -432,5 +435,300 @@ describe('the /r page boundaries', () => {
         // Drawn from the prop and written nowhere else, so /r cannot show both.
         expect(guard).toContain('{stepsTitle}');
         expect(guard.match(/How to open in your browser/g)).toHaveLength(1);
+    });
+});
+
+// What the /r page does with a link key, read as text. The key lives in one closure of
+// the controller, next to the peer. A rule here is one a running page cannot show, because
+// what it guards against is silent: a key that reaches a report, a frame that leads the
+// proof, a listener that attaches after the first frame, a signal that skips the gate.
+// e2e/request-link.spec.ts and e2e/request-privacy.spec.ts drive the real page.
+describe('the /r page and the link key', () => {
+    // Comments may name what they guard against; the rules are about code.
+    const code = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/\s\/\/.*$/gm, '');
+    const visitor = code(read('components/RequestVisitor.tsx'));
+    const state = code(read('lib/request/visitorState.ts'));
+
+    /** From `head` to the brace that closes the block it opens. */
+    function block(src: string, head: string): string {
+        const at = src.indexOf(head);
+        expect(at, head).toBeGreaterThan(-1);
+        let depth = 0;
+        for (let i = at + head.length - 1; i < src.length; i++) {
+            if (src[i] === '{') depth++;
+            else if (src[i] === '}' && --depth === 0) return src.slice(at, i + 1);
+        }
+        throw new Error(`unbalanced block: ${head}`);
+    }
+
+    const controller = block(visitor, 'function createVisitorController(deps: ControllerDeps) {');
+    const rendered = visitor.slice(visitor.indexOf('export function RequestVisitor('));
+    const buildPeer = block(controller, 'function buildPeer(a: number) {');
+    const startSend = block(controller, 'function startSend(a: number) {');
+    const signalHandler = block(controller, "on('signal', (data: any) => {");
+
+    describe('where the key is', () => {
+        it('the model and its events hold no key: the reducer knows a boolean and no more', () => {
+            expect(state).not.toMatch(/\blinkKey\b/);
+            expect(state).not.toMatch(/\bLinkKey\b/);
+            expect(state).not.toContain("from '../linkKey'");
+            const names = new Set(state.match(/\b\w*[Kk]ey\w*\b/g) ?? []);
+            expect([...names].sort()).toEqual([
+                'armKeyTimer',
+                'clearKeyTimer',
+                'keyChanged',
+                'keyVerified',
+                'keyed',
+                'sendKeyAbort',
+            ]);
+            // Every event type it takes names no value of the key's.
+            for (const type of ['KEY_CHECK_PASSED', 'KEY_CHECK_FAILED', 'KEY_CHECK_UNAVAILABLE', 'KEY_CHECK_REFUSED']) {
+                expect(state).toContain(`{ type: '${type}' }`);
+            }
+            expect(state).toContain("{ type: 'LINK_OK'; roomId: string; keyed: boolean }");
+            expect(state).toContain("{ type: 'HASHCHANGE'; roomId: string | null; keyChanged: boolean }");
+        });
+
+        it('it is one closure variable of the controller, with one writer and two readers', () => {
+            expect(controller.match(/let linkKey: LinkKey \| null = null;/g)).toHaveLength(1);
+            // Past the imports, one of which names the module.
+            expect(visitor.slice(visitor.indexOf('type TimerName')).match(/\blinkKey\b/g)).toHaveLength(4);
+            expect(controller.match(/\blinkKey\b/g)).toHaveLength(4);
+            expect(controller.match(/\blinkKey = /g)).toHaveLength(1);
+            // The session, and the comparison at a hash change.
+            expect(buildPeer).toContain('key: linkKey,');
+            expect(block(controller, 'hashChanged(win: typeof window) {')).toContain('sameLinkKey(');
+        });
+
+        it('the page cannot turn it into its characters or its bytes', () => {
+            for (const [file, src] of Object.entries(requestSources())) {
+                expect(src.includes('linkKeyText'), `${file} names linkKeyText`).toBe(false);
+                expect(src.includes('linkKeyBytes'), `${file} names linkKeyBytes`).toBe(false);
+            }
+        });
+
+        it('only the controller reads the link, from the raw address, all three parts of it', () => {
+            for (const [file, src] of Object.entries(requestSources())) {
+                if (file === 'components/RequestVisitor.tsx' || file === 'lib/request/requestLink.ts') continue;
+                expect(src.includes('parseRequestLink('), `${file} reads the link`).toBe(false);
+            }
+            const reads = callArgs(visitor, 'parseRequestLink');
+            expect(reads).toHaveLength(2);
+            expect(callArgs(controller, 'parseRequestLink')).toHaveLength(2);
+            for (const args of reads) {
+                expect(args).toBe('win.location.pathname, win.location.hash, win.location.search');
+            }
+            expect(rendered).not.toContain('parseRequestLink');
+            expect(rendered).toContain('controller.load(window);');
+            expect(rendered).toContain('controller.hashChanged(window)');
+        });
+
+        it('a dispatch carries a boolean of it, and never the thing', () => {
+            const dispatches = [...callArgs(controller, 'dispatch'), ...callArgs(controller, 'dispatchFor'), ...callArgs(rendered, 'controller.dispatch')];
+            expect(dispatches.length).toBeGreaterThan(10);
+            for (const args of dispatches) expect(args, args).not.toMatch(/\blinkKey\b/);
+            const load = block(controller, 'load(win: typeof window) {');
+            expect(load).toContain("keyed: link.key !== null");
+            expect(load.match(/link\.key\b/g)).toHaveLength(2);
+        });
+
+        it('a socket emit carries none of it', () => {
+            for (const [file, src] of Object.entries(requestSources())) {
+                for (const args of callArgs(code(src), '.emit')) {
+                    expect(args, `${file}: ${args}`).not.toMatch(/\b(?:linkKey|key|ks)\b/);
+                }
+            }
+        });
+
+        it('nothing of it renders', () => {
+            expect(rendered).not.toMatch(/\b(?:linkKey|LinkKey|ks)\b/);
+        });
+    });
+
+    describe('a session is the first thing on the peer', () => {
+        it('one, in buildPeer, right after new SimplePeer and ahead of any listener', () => {
+            expect(visitor.match(/createKeySession\(/g)).toHaveLength(1);
+            expect(buildPeer).toContain('createKeySession({');
+            const built = buildPeer.indexOf('new SimplePeer(');
+            const session = buildPeer.indexOf('createKeySession({');
+            const listener = buildPeer.search(/\bp\.on\(/);
+            expect(built).toBeGreaterThan(-1);
+            expect(session).toBeGreaterThan(built);
+            expect(listener).toBeGreaterThan(session);
+            // Nothing awaits between them.
+            expect(buildPeer.slice(built, session)).not.toMatch(/\bawait\b/);
+        });
+
+        it('with this peer, this file role, the link it read and the mode the lever gives', () => {
+            const session = callArgs(buildPeer, 'createKeySession')[0];
+            expect(session).toContain('peer: p as unknown as PeerLike,');
+            expect(session).toContain("fileRole: 'sender',");
+            expect(session).toContain('key: linkKey,');
+            expect(session).toContain('roomId: model.roomId as string,');
+            expect(session).toContain('mode,');
+            expect(session).toContain("reportRole: 'visitor',");
+            expect(buildPeer).toContain("const mode = linkKeyMode('request-visitor');");
+            expect(visitor.match(/linkKeyMode\(/g)).toHaveLength(1);
+        });
+
+        it('its verdict reaches the reducer through the one tested mapping, for this attempt only', () => {
+            const session = callArgs(buildPeer, 'createKeySession')[0];
+            expect(session).toContain('onVerdict: (verdict) => dispatchFor(a, keyVerdictEvent(verdict, mode)),');
+        });
+
+        it('its report is the page\'s one event call, enums only, by one name', () => {
+            const session = callArgs(buildPeer, 'createKeySession')[0];
+            expect(session).toContain('reportLinkKey(report);');
+            expect(callArgs(visitor, 'reportLinkKey')).toEqual(['report']);
+            // A refusal for this code ends the attempt at once, when no send is there to read it.
+            expect(session).toContain("if (report.outcome === 'peer-refused') dispatchFor(a, { type: 'KEY_CHECK_REFUSED' });");
+            // What keeps a key or a peer's value out of it: only the helper calls Sentry.
+            for (const [file, src] of Object.entries(requestSources())) {
+                if (file === 'components/RequestVisitor.tsx') continue;
+                expect(src.includes('reportLinkKey('), file).toBe(false);
+            }
+            expect(visitor).not.toContain('withScope');
+            expect(visitor).not.toContain('Link key check failed');
+        });
+    });
+
+    describe('nothing goes around the session on a keyed peer', () => {
+        it('no raw send and no raw data listener', () => {
+            expect(visitor).not.toMatch(/\bp\.send\(/);
+            expect(visitor).not.toMatch(/\bp\.on\('data'/);
+            expect(visitor).not.toMatch(/\bp\.off\('data'/);
+        });
+
+        it('the send takes send and onData from the session, and hands it the check', () => {
+            expect(startSend).toContain('(d) => ks.send(d),');
+            expect(startSend).toContain('onData: (handler) => ks.onData(handler),');
+            const args = callArgs(startSend, 'sendFiles')[0];
+            expect(args).toContain('keyCheck: ks');
+        });
+
+        it('every abort sends through the session, with its own proof ahead of the words', () => {
+            const aborts = callArgs(visitor, 'sendAbortReason');
+            expect(aborts).toHaveLength(3);
+            for (const args of aborts) expect(splitArgs(args)[0]).toBe('(d) => ks.send(d)');
+        });
+
+        it('the abort of a failed check carries the fixed reason and the code, and waits for the wire', () => {
+            const abort = block(controller, 'function abortUnverified() {');
+            expect(abort).toContain("SENDER_UNVERIFIED_REASON,\n                    'unverified'");
+            expect(abort.indexOf('flushes.add(')).toBeGreaterThan(-1);
+            expect(abort.indexOf('flushes.add(')).toBeLessThan(abort.indexOf('SENDER_UNVERIFIED_REASON'));
+            // Each needle present first: indexOf answers -1 for one that is gone, and -1 is
+            // less than anything, so a comparison alone could not fail on what it names.
+            expect(abort.indexOf('await sendAbortReason(')).toBeGreaterThan(-1);
+            expect(abort.indexOf('await sendAbortReason(')).toBeLessThan(abort.indexOf('p.destroy()'));
+            expect(abort.indexOf('closedByUs = p;')).toBeGreaterThan(-1);
+            expect(abort.indexOf('closedByUs = p;')).toBeLessThan(abort.indexOf('flushes.add('));
+        });
+
+        it('the wait is the shared clock, and its end goes through the session', () => {
+            expect(visitor.match(/\bKEY_CHECK_WAIT_MS\b/g)?.length).toBeGreaterThanOrEqual(2);
+            const arm = controller.slice(controller.indexOf("case 'armKeyTimer':"));
+            const body = arm.slice(0, arm.indexOf('return;\n            }\n'));
+            expect(body).toContain("arm('keyCheck', KEY_CHECK_WAIT_MS, () => ks.noteSilent());");
+            // No literal for it anywhere in the controller. The render half has its own
+            // 15 s, the Waiting countdown's refresh.
+            expect(controller).not.toMatch(/\b15[_]?000\b/);
+        });
+
+        it('a relay block goes only to a host that proved the key', () => {
+            const probe = block(controller, 'async function probeRoute(a: number, p: PeerInstance) {');
+            const branch = probe.slice(probe.indexOf("if (verdict.action === 'block-over-limit') {"));
+            expect(branch.indexOf('ks.settle(')).toBeGreaterThan(-1);
+            expect(branch.indexOf('ks.settle(')).toBeLessThan(branch.indexOf('await sendAbortReason('));
+            expect(branch).toContain("if (ks.keyed && ks.mode === 'enforce' &&");
+        });
+
+        // No rule above sees a fresh read of the address: they follow linkKey and link.key.
+        // Comments are stripped, because several of them name these words to say why not.
+        it('the address is read in the two places that parse it, and goes nowhere by itself', () => {
+            const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
+            const sources = requestSources();
+            let hashReads = 0;
+            for (const [file, source] of Object.entries(sources)) {
+                const code = strip(source);
+                hashReads += (code.match(/location\.hash/g) ?? []).length;
+                for (const banned of ['location.href', 'document.URL', 'dispatchEvent(', 'postMessage(']) {
+                    expect(code.includes(banned), `${file} holds ${banned}`).toBe(false);
+                }
+            }
+            expect(hashReads).toBe(2);
+            const parses = strip(sources['components/RequestVisitor.tsx']).match(
+                /parseRequestLink\(win\.location\.pathname, win\.location\.hash, win\.location\.search\)/g
+            );
+            expect(parses).toHaveLength(2);
+        });
+
+        it('a proof that lands after the attempt ended sends no relay reason behind it', () => {
+            const probe = block(controller, 'async function probeRoute(a: number, p: PeerInstance) {');
+            const wait = probe.indexOf('ks.settle(KEY_CHECK_WAIT_MS');
+            const asked = probe.indexOf('if (!gate.isLive(a)) return;', wait);
+            const said = probe.indexOf('RELAY_BLOCK_REASON');
+            expect(wait).toBeGreaterThan(-1);
+            expect(asked).toBeGreaterThan(wait);
+            expect(said).toBeGreaterThan(asked);
+        });
+
+        it('the route probe waits for its own proof to go out, before anything it may send', () => {
+            const probe = block(controller, 'async function probeRoute(a: number, p: PeerInstance) {');
+            const first = probe.slice(probe.indexOf('{') + 1).trim();
+            expect(first.startsWith('const ks = sessionOf(p);')).toBe(true);
+            expect(probe.indexOf('await ks.ownKcOut;')).toBeGreaterThan(-1);
+            expect(probe.indexOf('await ks.ownKcOut;')).toBeLessThan(probe.indexOf('getStats'));
+        });
+    });
+
+    describe('every signal goes through the gate', () => {
+        it('admitSignal, ahead of p.signal, through the session of that peer', () => {
+            const admit = signalHandler.indexOf('admitSignal(sig)');
+            const apply = signalHandler.indexOf('p.signal(sig)');
+            expect(admit).toBeGreaterThan(-1);
+            expect(apply).toBeGreaterThan(admit);
+            expect(signalHandler.slice(0, admit)).toContain('keySessionOf(p)');
+            expect(signalHandler.slice(admit, apply)).toContain('return;');
+        });
+
+        it('one place applies a signal', () => {
+            expect(visitor.match(/\.signal\(/g)).toHaveLength(1);
+        });
+    });
+
+    // The session replays what came early inside the subscribe. PR-3 met this as a
+    // ReferenceError on every tampered link: a handler read a const of the caller declared
+    // below the subscribe, in its temporal dead zone.
+    describe('what a replayed frame can reach is already declared', () => {
+        it('the send: everything its callbacks read is ahead of the call that subscribes', () => {
+            const at = startSend.indexOf('sendFiles(');
+            expect(at).toBeGreaterThan(-1);
+            for (const name of ['const watch =', 'const send =', 'const live =']) {
+                expect(startSend.indexOf(name), name).toBeGreaterThan(-1);
+                expect(startSend.indexOf(name), name).toBeLessThan(at);
+            }
+            // At this function's own depth: a const inside a later callback is its own.
+            expect(startSend.slice(at)).not.toMatch(/\n {8}(?:const|let)\s/);
+        });
+
+        it('the session: what its callbacks read is ahead of it', () => {
+            const session = buildPeer.indexOf('createKeySession({');
+            expect(buildPeer.indexOf('const mode =')).toBeLessThan(session);
+            expect(buildPeer.indexOf('peer = p;')).toBeLessThan(session);
+        });
+    });
+
+    describe('reading the address again', () => {
+        it('a hash change names the room and whether the key changed, through one comparison', () => {
+            const hash = block(controller, 'hashChanged(win: typeof window) {');
+            expect(hash).toContain("type: 'HASHCHANGE'");
+            expect(hash).toContain('const keyChanged = !sameLinkKey(');
+        });
+
+        it('a key that changed takes the discard record with it, as a changed room does', () => {
+            const write = block(controller, 'function dispatch(event: VisitorEvent) {');
+            expect(write).toContain("if (event.type === 'HASHCHANGE') fragmentRoom = event.keyChanged ? null : event.roomId;");
+        });
     });
 });

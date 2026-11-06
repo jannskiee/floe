@@ -42,11 +42,22 @@ var (
 	ErrClosed = errors.New("closed before the connection was established")
 )
 
-// maxSetupErrorRunes caps SetupError's text. The one site whose text embeds
-// peer bytes is the remote description, where pion quotes the offending SDP
-// token, and 300 is the cap every other peer string on an error path respects
-// (maxDisplayReason in the transfer package).
+// maxSetupErrorRunes caps SetupError's text, 300 being the cap every peer string
+// on an error path respects (maxDisplayReason in the transfer package). No text
+// holds peer bytes since ownWords, so this and DisplayText are the last stop.
 const maxSetupErrorRunes = 300
+
+// ownWords is a setup failure whose cause can quote what the other side wrote:
+// pion/sdp puts the offending SDP token in its error, up to the 1 MB a signal can
+// carry, and that side has proved nothing yet (final audit, reports 27 F3 and 29
+// F2). The text is the site's own and the cause stays for errors.As.
+type ownWords struct {
+	text  string
+	cause error
+}
+
+func (e *ownWords) Error() string { return e.text }
+func (e *ownWords) Unwrap() error { return e.cause }
 
 // SetupError is what SetupAsSender and SetupAsReceiver return when the
 // session cannot be set up. Stage says where, for errors.As; Err is the error
@@ -55,10 +66,8 @@ const maxSetupErrorRunes = 300
 // Error() is Err's text through transfer.DisplayText, with no prefix and no
 // stage: the CLI and the desktop key their sentences on these texts byte for
 // byte, and a caller that wants fixed copy matches the type instead and never
-// shows the string. Every text is short and local except the remote
-// description's; DisplayText replaces control and bidi runes and caps the
-// whole string, so nothing a peer put in its SDP can paint a terminal or
-// reorder a line, and the local texts pass through untouched.
+// shows the string. Every text is short and local; DisplayText replaces control
+// and bidi runes and caps the whole string, should one ever not be.
 type SetupError struct {
 	Stage string
 	Err   error

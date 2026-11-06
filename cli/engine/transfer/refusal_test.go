@@ -51,8 +51,8 @@ func TestIsDiskFull(t *testing.T) {
 // near misses a case-folding or trimming decoder would accept all fail, as
 // they do in the browser's REFUSAL_CODES.has.
 func TestRefusalCodesRoundTrip(t *testing.T) {
-	if len(RefusalCodes) != 12 {
-		t.Fatalf("RefusalCodes has %d entries, want 12", len(RefusalCodes))
+	if len(RefusalCodes) != 13 {
+		t.Fatalf("RefusalCodes has %d entries, want 13", len(RefusalCodes))
 	}
 	seen := map[RefusalCode]bool{}
 	for _, c := range RefusalCodes {
@@ -77,7 +77,7 @@ func TestRefusalCodesRoundTrip(t *testing.T) {
 
 // TestRefusalCodeListMatchesTS pins the literal list, in order, that
 // client/lib/transfer/protocol.test.ts pins for REFUSAL_CODES ("REFUSAL_CODES
-// pins the twelve codes in the same order as refusal.go"). The order is the
+// pins the thirteen codes in the same order as refusal.go"). The order is the
 // byte order of the wire values, so the two lists can be compared whole.
 func TestRefusalCodeListMatchesTS(t *testing.T) {
 	want := []string{
@@ -92,6 +92,7 @@ func TestRefusalCodeListMatchesTS(t *testing.T) {
 		"save-blocked",
 		"stopped",
 		"time-limit",
+		"unverified",
 		"write-failed",
 	}
 	got := make([]string, 0, len(RefusalCodes))
@@ -106,50 +107,71 @@ func TestRefusalCodeListMatchesTS(t *testing.T) {
 	}
 }
 
-// TestRefusalWireReasons: the stock reason for every code is something a peer
-// without code can print verbatim: non-empty, plain ASCII, short, receiver-
-// voiced, and naming no path, no file and no surface. The two that shipped
-// before the list existed are pinned byte for byte, because tests on both
-// sides and the transfer audit match them.
-func TestRefusalWireReasons(t *testing.T) {
+// checkWireReasonShape holds one wire reason to what a peer without code can
+// print verbatim: non-empty, plain ASCII, short, voiced by the side that sends
+// it, and naming no path, no file and no surface.
+func checkWireReasonShape(t *testing.T, label, voice, r string) {
+	t.Helper()
 	surfaces := []string{"cli", "desktop", "browser", "terminal", "app", "web", "floe"}
-	for _, c := range RefusalCodes {
-		r := c.WireReason()
-		if r == "" {
-			t.Errorf("%s: empty wire reason", c)
-			continue
+	if r == "" {
+		t.Errorf("%s: empty wire reason", label)
+		return
+	}
+	if n := utf8.RuneCountInString(r); n >= 120 {
+		t.Errorf("%s: wire reason is %d runes, want under 120", label, n)
+	}
+	for _, ch := range r {
+		if ch > unicode.MaxASCII || !unicode.IsPrint(ch) {
+			t.Errorf("%s: wire reason has a non-ASCII or non-printable rune %U", label, ch)
 		}
-		if n := utf8.RuneCountInString(r); n >= 120 {
-			t.Errorf("%s: wire reason is %d runes, want under 120", c, n)
-		}
-		for _, ch := range r {
-			if ch > unicode.MaxASCII || !unicode.IsPrint(ch) {
-				t.Errorf("%s: wire reason has a non-ASCII or non-printable rune %U", c, ch)
-			}
-		}
-		if !strings.HasPrefix(r, "receiver") {
-			t.Errorf("%s: wire reason %q is not receiver-voiced", c, r)
-		}
-		if strings.ContainsAny(r, `/\:%`) {
-			t.Errorf("%s: wire reason %q looks like it names a path or a verb", c, r)
-		}
-		lower := strings.ToLower(r)
-		for _, s := range surfaces {
-			for _, w := range strings.Fields(lower) {
-				if strings.Trim(w, ".,'") == s {
-					t.Errorf("%s: wire reason %q names a surface (%q)", c, r, s)
-				}
+	}
+	if !strings.HasPrefix(r, voice) {
+		t.Errorf("%s: wire reason %q is not %s-voiced", label, r, voice)
+	}
+	if strings.ContainsAny(r, `/\:%`) {
+		t.Errorf("%s: wire reason %q looks like it names a path or a verb", label, r)
+	}
+	lower := strings.ToLower(r)
+	for _, s := range surfaces {
+		for _, w := range strings.Fields(lower) {
+			if strings.Trim(w, ".,'") == s {
+				t.Errorf("%s: wire reason %q names a surface (%q)", label, r, s)
 			}
 		}
 	}
+}
+
+// TestRefusalWireReasons: the stock reason for every code is receiver-voiced
+// and has the shape checkWireReasonShape states. The two that shipped before
+// the list existed are pinned byte for byte, because tests on both sides and
+// the transfer audit match them.
+func TestRefusalWireReasons(t *testing.T) {
+	for _, c := range RefusalCodes {
+		checkWireReasonShape(t, string(c), "receiver", c.WireReason())
+	}
 	if got := CodeWriteFailed.WireReason(); got != "receiver could not finish writing a file" {
 		t.Errorf("write-failed wire reason = %q", got)
+	}
+	if got := CodeUnverified.WireReason(); got != "receiver could not confirm the sender holds this link" {
+		t.Errorf("unverified wire reason = %q", got)
 	}
 	if got := CodeHashMismatch.WireReason(); got != "receiver discarded a file because its SHA-256 did not match" {
 		t.Errorf("hash-mismatch wire reason = %q", got)
 	}
 	if got := RefusalCode("nope").WireReason(); got != CodeStopped.WireReason() {
 		t.Errorf("unknown code wire reason = %q, want the stopped sentence", got)
+	}
+}
+
+// TestSenderUnverifiedReason: unverified is the one code either side may send.
+// The sender's abort cannot use WireReason, which every code words from the
+// receiver's side, so it has a constant of its own with the same shape rules,
+// its voice being the sender's. client/lib/transfer/protocol.ts pins the same
+// text (TestKeyCheckConstantsMatchTS).
+func TestSenderUnverifiedReason(t *testing.T) {
+	checkWireReasonShape(t, "unverified from a sender", "sender", senderUnverifiedReason)
+	if senderUnverifiedReason != "sender could not confirm the receiver holds this link" {
+		t.Errorf("senderUnverifiedReason = %q", senderUnverifiedReason)
 	}
 }
 
@@ -169,6 +191,7 @@ func TestPeerStoppedErrorSentencesAreFixed(t *testing.T) {
 		CodeSaveBlocked:           "A file arrived but their computer blocked saving it.",
 		CodeStopped:               "They stopped this drop.",
 		CodeTimeLimit:             "This drop reached the 24-hour limit, so their Floe stopped it.",
+		CodeUnverified:            "Their computer couldn't confirm this link.",
 		CodeWriteFailed:           "Their computer could not save a file.",
 	}
 	if len(want) != len(RefusalCodes) {
@@ -196,10 +219,10 @@ func TestPeerStoppedErrorSentencesAreFixed(t *testing.T) {
 }
 
 // TestRefusedErrorSentencesAreFixed pins the receive-side sentence for every
-// code, byte for byte: RX-01 to RX-09 of the approved CLI copy (D-123) for the
-// nine codes that print "receive stopped: " and a fixed sentence, and the
-// unchanged write-failed, disk-full and hash-mismatch sentences. Err never
-// leaks into any of them, and neither does the code's own slug.
+// code, byte for byte: RX-01 to RX-09 of the approved CLI copy (D-123) and
+// RX-11 for the ten codes that print "receive stopped: " and a fixed sentence,
+// and the unchanged write-failed, disk-full and hash-mismatch sentences. Err
+// never leaks into any of them, and neither does the code's own slug.
 func TestRefusedErrorSentencesAreFixed(t *testing.T) {
 	cause := errors.New("open C:\\Users\\someone\\secret.part: The device is not ready.")
 	want := map[RefusalCode]string{
@@ -212,6 +235,7 @@ func TestRefusedErrorSentencesAreFixed(t *testing.T) {
 		CodeDeclined:              "receive stopped: the transfer was declined",                                    // RX-07
 		CodeStopped:               "receive stopped: the transfer was stopped on this computer",                    // RX-08
 		CodeSaveBlocked:           "receive stopped: a finished file could not be moved into place",                // RX-09
+		CodeUnverified:            "receive stopped: the sender could not be confirmed, so nothing was saved",      // RX-11
 		// Unchanged by D-123: the desktop maps the "write error" prefix to its
 		// save-folder sentence, and the hash sentences pass through.
 		CodeWriteFailed:  "write error: could not finish writing a file, so it was not kept",

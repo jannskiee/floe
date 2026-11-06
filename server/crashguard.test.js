@@ -1839,6 +1839,88 @@ test('a PORT that Node refuses ends the process the way a taken port does', asyn
     }
 });
 
+const turnDomainLines = (srv) => logLines(srv).filter((line) => line.startsWith('TURN_DOMAIN'));
+
+test('a TURN_DOMAIN that holds more than a host name says so once and hands out STUN only', async (t) => {
+    const srv = await startServer({ ...NO_RELAY, TURN_SECRET: 'cg-secret', TURN_DOMAIN: 'https://cg-shape.test:3478' });
+    t.after(() => srv.stop());
+    await assertSurvived(srv, 'that TURN_DOMAIN');
+    assert.deepEqual(turnDomainLines(srv), ['TURN_DOMAIN holds more than a host name, so the coturn relay is off. Set it to the host name alone, such as turn.example.com.']);
+    assert.match((await get(srv, '/api/turn-credentials')).body, /^\[\{"urls":"stun:stun\.l\.google/);
+});
+
+test('a host name alone, or a half-set pair, gets no such line', async (t) => {
+    for (const env of [{ TURN_DOMAIN: 'https://cg-shape.test' }, { TURN_SECRET: 'cg-secret' }, ...['turn.example.test', 'TURN.Example.test', '203.0.113.10', '[2001:db8::1]'].map((TURN_DOMAIN) => ({ TURN_SECRET: 'cg-secret', TURN_DOMAIN }))]) {
+        const srv = await startServer({ ...NO_RELAY, ...env });
+        t.after(() => srv.stop());
+        await assertSurvived(srv, env.TURN_DOMAIN);
+        assert.deepEqual(turnDomainLines(srv), [], env.TURN_DOMAIN);
+    }
+});
+
+// --- variables that come in pairs ---------------------------------------------
+// Whole, like the TRUSTED_PROXY_COUNT lines: each names its two variables and
+// what is off, and carries no value.
+const HALF_SET = {
+    coturn:
+        'Only one of TURN_SECRET and TURN_DOMAIN is set, so the coturn relay is off. Set both, or neither.',
+    cloudflare:
+        'Only one of CLOUDFLARE_TURN_KEY_ID and CLOUDFLARE_TURN_KEY_API_TOKEN is set, so Cloudflare TURN is off. Set both, or neither.',
+    upstash:
+        'Only one of UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN is set, so the transfer counter is kept in memory and resets to 0 on restart. Set both, or neither.',
+};
+
+function halfSetLines(srv) {
+    return logLines(srv).filter((line) => line.startsWith('Only one of'));
+}
+
+test('a server given only one of a pair says once that the feature is off', async (t) => {
+    // NO_RELAY in every start: dotenv never overrides a variable that is
+    // already there, even empty, so server/.env cannot fill in the other half.
+    // startServer empties both Upstash variables itself.
+    const starts = [
+        [{ TURN_SECRET: 'cg-half-secret' }, HALF_SET.coturn],
+        [{ TURN_DOMAIN: 'turn.half.test' }, HALF_SET.coturn],
+        [{ CLOUDFLARE_TURN_KEY_ID: 'cg-half-key-id' }, HALF_SET.cloudflare],
+        [{ CLOUDFLARE_TURN_KEY_API_TOKEN: 'cg-half-api-token' }, HALF_SET.cloudflare],
+        [{ UPSTASH_REDIS_REST_URL: 'http://127.0.0.1:9' }, HALF_SET.upstash],
+        [{ UPSTASH_REDIS_REST_TOKEN: 'cg-half-redis-token' }, HALF_SET.upstash],
+    ];
+
+    for (const [env, line] of starts) {
+        const what = `a start with only ${Object.keys(env)[0]}`;
+        const srv = await startServer({ ...NO_RELAY, ...env });
+        t.after(() => srv.stop());
+        await assertSurvived(srv, what);
+        assert.deepEqual(halfSetLines(srv), [line], what);
+        assertLogsCarryNone(srv, Object.values(env), what);
+    }
+});
+
+test('a server given both or neither of each pair says nothing about them', async (t) => {
+    // Neither is what every deployment file ships. Both: a coturn pair, and
+    // the closed-port Upstash sentinel Playwright uses, so the startup read
+    // fails at once. Cloudflare stays empty: a server holding both keys
+    // mints from the real API as soon as anything asks it for credentials.
+    const starts = [
+        NO_RELAY,
+        {
+            ...NO_RELAY,
+            TURN_SECRET: 'cg-both-secret',
+            TURN_DOMAIN: 'turn.both.test',
+            UPSTASH_REDIS_REST_URL: 'http://127.0.0.1:9',
+            UPSTASH_REDIS_REST_TOKEN: 'cg-both-token',
+        },
+    ];
+
+    for (const env of starts) {
+        const srv = await startServer(env);
+        t.after(() => srv.stop());
+        await assertSurvived(srv, 'a start with both or neither of each pair');
+        assert.deepEqual(halfSetLines(srv), []);
+    }
+});
+
 // --- CLIENT_URL -----------------------------------------------------------------
 
 test('a CLIENT_URL written with a trailing slash still lets its own web app in', async (t) => {

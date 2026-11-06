@@ -3,6 +3,11 @@
 # review load. Security updates are unaffected by this schedule: they open
 # as soon as an advisory lands and have their own separate internal PR
 # limit, so the monthly cadence only throttles routine version bumps.
+#
+# Every updater waits 7 days after a version is published (cooldown), as
+# zizmor's dependabot-cooldown audit asks. Security updates ignore it. To take
+# one package sooner, use the cooldown key exclude, never default-days: 0.
+# default-days is the only cooldown length docker and github-actions honor.
 version: 2
 updates:
   # client/ (pnpm, packageManager pnpm@11.1.2), server/ (plain npm) and
@@ -20,6 +25,8 @@ updates:
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "chore(deps)"
     groups:
@@ -51,6 +58,8 @@ updates:
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "chore(deps)"
     # Wails is never Dependabot's call for a routine bump. ci.yml pins
@@ -87,6 +96,8 @@ updates:
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "chore(deps)"
     # A Node major is never Dependabot's call. Only even-numbered Node releases
@@ -115,6 +126,8 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "chore(ci)"
     groups:

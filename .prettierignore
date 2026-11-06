@@ -12,6 +12,9 @@ dist
 build
 coverage
 
+# Third-party bytes pinned by hash (client/lib/umamiPin.ts)
+client/public/vendor
+
 # IDE & System Files (WebStorm & Mac/Windows)
 .idea
 .vscode

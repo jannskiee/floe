@@ -1142,6 +1142,22 @@ describe('a request link pasted into CODE', () => {
         expect(screen.queryByText(cp2)).toBeNull();
     });
 
+    it('a keyed link reaches ReceiveByCode whole, key and all', async () => {
+        const keyed = `http://localhost:3000/?s=abc#k=AAECAwQFBgcICQoLDA0ODw&room=${room}`;
+        await paste(keyed);
+        await waitFor(() => expect(wails.go.ReceiveByCode).toHaveBeenCalledWith(keyed, '', false, true));
+        expect(screen.queryByText(cp2)).toBeNull();
+    });
+
+    it('a keyed request link opens in the browser whole, because the page needs its key', async () => {
+        const keyed = `https://floe.one/r/Xk3p9Q0aB1c#${room}.AAECAwQFBgcICQoLDA0ODw`;
+        const user = await paste(keyed);
+        await user.click(await screen.findByRole('button', {name: 'Open in browser'}));
+        const open = (window as unknown as {runtime: {BrowserOpenURL: ReturnType<typeof vi.fn>}}).runtime.BrowserOpenURL;
+        expect(open).toHaveBeenCalledWith(keyed);
+        expect(wails.go.ReceiveByCode).not.toHaveBeenCalled();
+    });
+
     it('a three-word code still calls ReceiveByCode', async () => {
         await paste('amber-otter-cloud');
         await waitFor(() => expect(wails.go.ReceiveByCode).toHaveBeenCalledWith('amber-otter-cloud', '', false, true));
@@ -2251,6 +2267,40 @@ describe('shortcuts behind a dialog', () => {
         await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
         await press(user, '{Control>}z{/Control}');
         expect(await screen.findByRole('button', {name: 'Send 1 item'})).toBeTruthy();
+    });
+});
+
+
+describe('shortcuts while a switch has focus', () => {
+    async function focusIn(find: () => Promise<HTMLElement>) {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getByRole('button', {name: 'Settings'}));
+        const el = await find();
+        act(() => { el.focus(); });
+        return user;
+    }
+    const hideIP = () => screen.findByRole('checkbox', {name: /^Hide my IP address/});
+
+    it('Ctrl+H shows History', async () => {
+        const user = await focusIn(hideIP);
+        await user.keyboard('{Control>}h{/Control}');
+        expect(await screen.findByText('No transfers yet')).toBeTruthy();
+    });
+
+    it.each([['o', 'SelectFiles'], ['v', 'PasteFiles'], ['r', 'CancelTransfer']])('Ctrl+%s calls %s', async (key, binding) => {
+        const user = await focusIn(hideIP);
+        await user.keyboard(`{Control>}${key}{/Control}`);
+        await waitFor(() => expect(wails.go[binding]).toHaveBeenCalledTimes(1));
+    });
+
+    it('a text field still holds all four', async () => {
+        const user = await focusIn(() => screen.findByLabelText('Server address'));
+        for (const key of 'ovhr') await user.keyboard(`{Control>}${key}{/Control}`);
+        await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+        for (const b of ['SelectFiles', 'PasteFiles', 'CancelTransfer']) expect(wails.go[b]).not.toHaveBeenCalled();
+        expect(screen.queryByText('No transfers yet')).toBeNull();
     });
 });
 

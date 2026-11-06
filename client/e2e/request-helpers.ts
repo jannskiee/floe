@@ -15,11 +15,13 @@
  */
 
 import type { BrowserContext, Page, PlaywrightWorkerOptions, WebSocketRoute } from '@playwright/test';
-import { createHash } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { closeSync, openSync, readdirSync, readSync, statSync } from 'fs';
+import { connect, createServer, type AddressInfo } from 'net';
 import { join, relative, sep } from 'path';
 import { spawn, type ChildProcess } from 'child_process';
 import { E2E_HOST_BINARY } from './cli-binary';
+import { describeHarness } from './harness-redact';
 import { SERVER_URL, WEB_URL } from './helpers';
 
 export interface RequestHostEvent {
@@ -65,6 +67,10 @@ export interface RequestHostOptions {
     /** -close-before-visit: the host closes its link right after joining,
      *  with nobody seated (Close link while it waits), and exits 0. */
     closeBeforeVisit?: boolean;
+    /** -key: the link is #<room>.<key>, and the engine checks the visitor with that key. */
+    key?: boolean;
+    /** -kc, with key: bad runs the engine under another key, none with no key at all. */
+    kc?: 'bad' | 'none';
 }
 
 export interface RequestHost {
@@ -81,36 +87,54 @@ export interface RequestHost {
 }
 
 /**
- * The harness fields that carry the link or the room id: `link` on the link
- * event and `roomId` on joined (cli/internal/e2ehost/request.go). describe()
- * replaces them, so a failed wait never puts either into a Playwright error,
- * report or CI artifact.
+ * A door to the signaling server that names a network of its own.
+ *
+ * The server allows 20 new links per network address per 24 hours (REQUEST_CREATES_PER_DAY,
+ * a constant on purpose, with no switch), and this suite makes more than that from one
+ * machine in one run. So each host comes through a door like this, which does what the
+ * proxy in front of the production server does: it says who connected, in an
+ * X-Forwarded-For the server reads as the rate key (playwright.config.ts pins
+ * TRUSTED_PROXY_COUNT to 1 for this). Only the first request on a connection carries it,
+ * and a WebSocket is one request. Listening with no host binds in this tick (with one, it
+ * waits on a lookup), so the port can be read at once and the callers stay synchronous;
+ * the signaling server it leads to listens on every address the same way.
  */
-const SECRET_FIELDS = ['link', 'roomId'];
-const REDACTED = '<redacted>';
-/** In the stderr tail: a room id (UUID-shaped, RoomIDFromToken) and a link's
- *  `/r/<linkId>` path, whether or not an event announced them. */
-const TAIL_SECRETS = [/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, /\/r\/[A-Za-z0-9_-]+/g];
-
-/**
- * The events with SECRET_FIELDS redacted and every other field kept, then the
- * stderr tail with TAIL_SECRETS replaced. A tail cut at its start loses the cut
- * line, which could hold the end of a value no pattern would match.
- */
-function describeHarness(events: RequestHostEvent[], stderrTail: string, stderrCut: boolean): string {
-    const shown = events.map((e) => {
-        const copy: RequestHostEvent = { ...e };
-        for (const field of SECRET_FIELDS) if (field in copy) copy[field] = REDACTED;
-        return copy;
+export function signalingDoor(): { url: string; close(): void } {
+    const [a, b, c] = randomBytes(3);
+    const address = `10.${a}.${b}.${c}`;
+    const server = createServer((client) => {
+        const upstream = connect(Number(new URL(SERVER_URL).port), '127.0.0.1');
+        client.on('error', () => upstream.destroy());
+        upstream.on('error', () => client.destroy());
+        client.on('close', () => upstream.destroy());
+        upstream.on('close', () => client.destroy());
+        client.once('data', (first: Buffer) => {
+            const line = first.indexOf('\r\n') + 2;
+            upstream.write(first.subarray(0, line));
+            upstream.write(`X-Forwarded-For: ${address}\r\n`);
+            upstream.write(first.subarray(line));
+            client.pipe(upstream);
+            upstream.pipe(client);
+        });
     });
-    let tail = stderrCut ? stderrTail.slice(stderrTail.indexOf('\n') + 1 || stderrTail.length) : stderrTail;
-    for (const re of TAIL_SECRETS) tail = tail.replace(re, REDACTED);
-    return `${JSON.stringify(shown)}${tail ? ` stderr tail: ${tail}` : ''}`;
+    server.listen(0);
+    const { port } = server.address() as AddressInfo;
+    return { url: `http://127.0.0.1:${port}`, close: () => server.close() };
+}
+
+/** The three parts of a keyed or bare request link, for a test that needs them apart. */
+export function partsOfRequestLink(link: string): { linkId: string; room: string; key: string | null } {
+    const url = new URL(link);
+    const [room, key] = url.hash.slice(1).split('.');
+    return { linkId: url.pathname.split('/').pop() ?? '', room, key: key ?? null };
 }
 
 /** Start the harness in request mode. Every stdout line must parse as JSON. */
 export function startRequestHost(opts: RequestHostOptions): RequestHost {
-    const args = ['request', '-server', SERVER_URL, '-web', WEB_URL, '-out', opts.outDir];
+    const door = signalingDoor();
+    const args = ['request', '-server', door.url, '-web', WEB_URL, '-out', opts.outDir];
+    if (opts.key) args.push('-key');
+    if (opts.kc) args.push(`-kc=${opts.kc}`);
     if (opts.decide) args.push('-decide', opts.decide);
     if (opts.fastTimers) args.push('-fast-timers');
     if (opts.keepWaiting) args.push('-keep-waiting');
@@ -158,6 +182,7 @@ export function startRequestHost(opts: RequestHostOptions): RequestHost {
     });
     host.exited = new Promise<number | null>((resolve) => {
         const done = (code: number | null) => {
+            door.close();
             host.closed = true;
             host.waiters.splice(0).forEach((w) => w());
             resolve(code);
@@ -391,6 +416,159 @@ export async function forwardSocketFrames(page: Page): Promise<SocketFrames> {
             }
         },
     };
+}
+
+/**
+ * What a page puts on its data channels, in order, read where simple-peer hands it to the
+ * browser, so a wrapper around peer.send cannot hide a frame: a control frame by its type,
+ * anything else as text or binary:<bytes>. A receiver frames control as binary, so a small
+ * one is read by content. channelText is the control frames as they were written.
+ */
+export async function watchChannel(context: BrowserContext): Promise<void> {
+    await context.addInitScript(() => {
+        const sent: string[] = [];
+        const text: string[] = [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const w = window as any;
+        w.__channelSent = sent;
+        w.__channelText = text;
+        const typeOf = (frame: string): string | null => {
+            try {
+                const parsed = JSON.parse(frame);
+                return typeof parsed?.type === 'string' ? parsed.type : null;
+            } catch {
+                return null;
+            }
+        };
+        const real = RTCDataChannel.prototype.send;
+        RTCDataChannel.prototype.send = function (this: RTCDataChannel, data: unknown) {
+            if (typeof data === 'string') {
+                sent.push(typeOf(data) ?? 'text');
+                text.push(data);
+            } else {
+                const bytes = data as ArrayBufferView;
+                const small = bytes.byteLength <= 1000 ? new TextDecoder().decode(bytes) : null;
+                const type = small === null ? null : typeOf(small);
+                sent.push(type ?? `binary:${bytes.byteLength}`);
+                if (type !== null && small !== null) text.push(small);
+            }
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            return (real as any).call(this, data);
+        } as typeof RTCDataChannel.prototype.send;
+    });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const channelSent = (page: Page): Promise<string[]> => page.evaluate(() => (window as any).__channelSent ?? []);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const channelText = (page: Page): Promise<string[]> => page.evaluate(() => (window as any).__channelText ?? []);
+
+/**
+ * Every request a context makes and every socket frame it sends or hears, polling included.
+ * A navigation's URL is read up to its #: the browser sends no fragment, and Playwright
+ * reports it on the request anyway.
+ */
+export function watchTraffic(context: BrowserContext) {
+    const urls: string[] = [];
+    const bodies: string[] = [];
+    const headers: Promise<void>[] = [];
+    const heardHeaders: string[] = [];
+    const answers: Promise<void>[] = [];
+    const frames: string[] = [];
+    let sockets = 0;
+    context.on('request', (request) => {
+        urls.push(request.url().split('#')[0]);
+        const body = request.postData();
+        if (body) bodies.push(body);
+        // A request a service worker answered never resolves allHeaders() in Chromium, so
+        // the headers Playwright already holds stand in for it after a moment.
+        const asSent = Promise.race([
+            request.allHeaders(),
+            new Promise<Record<string, string>>((resolve) => setTimeout(() => resolve(request.headers()), 2_000)),
+        ]);
+        headers.push(
+            asSent.then(
+                (all) => void heardHeaders.push(Object.values(all).join('\n')),
+                () => undefined,
+            ),
+        );
+    });
+    // What the server said over polling, the half of a socket no frame event reports.
+    context.on('response', (response) => {
+        if (!/\/socket\.io\/\?.*transport=polling/.test(response.url())) return;
+        answers.push(
+            response.text().then(
+                (text) => void bodies.push(text),
+                () => undefined,
+            ),
+        );
+    });
+    return {
+        /** Call before the page navigates: a socket opened earlier goes unseen. */
+        watchSockets(page: Page) {
+            page.on('websocket', (ws) => {
+                sockets += 1;
+                urls.push(ws.url());
+                const hear = (frame: { payload: string | Buffer }) =>
+                    frames.push(typeof frame.payload === 'string' ? frame.payload : frame.payload.toString('latin1'));
+                ws.on('framesent', hear);
+                ws.on('framereceived', hear);
+            });
+        },
+        sockets: () => sockets,
+        /** Everything this context said to or heard from a server, as one string. */
+        async everything(): Promise<string> {
+            await Promise.all([...headers, ...answers]);
+            return [...urls, ...bodies, ...heardHeaders, ...frames].join('\n');
+        },
+    };
+}
+
+/** What the page keeps in the browser that holds this text, with the count of stored responses. */
+export function storedByPage(page: Page, secret: string) {
+    return page.evaluate(async (needle) => {
+        const hits: string[] = [];
+        const urls: string[] = [];
+        let entries = 0;
+        for (const name of await caches.keys()) {
+            const cache = await caches.open(name);
+            for (const request of await cache.keys()) {
+                entries += 1;
+                urls.push(request.url);
+                if (request.url.includes(needle)) hits.push(`cache url in ${name}`);
+                const response = await cache.match(request);
+                if (response && (await response.text()).includes(needle)) hits.push(`cache body in ${name}`);
+            }
+        }
+        for (const store of [localStorage, sessionStorage]) {
+            for (let i = 0; i < store.length; i += 1) {
+                const key = store.key(i) as string;
+                if (key.includes(needle) || (store.getItem(key) ?? '').includes(needle)) hits.push('web storage');
+            }
+        }
+        if (document.cookie.includes(needle)) hits.push('cookie');
+        return { entries, hits, urls };
+    }, secret);
+}
+
+/**
+ * Make the worker control this page, on a build that has one, so what follows meets its
+ * navigate guard. In a fresh context no worker is in the way, so a store read afterward
+ * could not show the leak it names. lib/serviceWorkerRegistration.ts registers the worker
+ * in a production build only: returns false under next dev, and throws on CI if it never
+ * takes control, where a pass would then say nothing. Polled, not waitForFunction, which
+ * takes the promise getRegistration returns as truthy whatever it resolves to.
+ */
+export async function underTheWorker(page: Page): Promise<boolean> {
+    await page.goto('/');
+    if (!process.env.CI) return page.evaluate(() => !!navigator.serviceWorker?.controller);
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    const deadline = Date.now() + 30_000;
+    while (!(await page.evaluate(() => !!navigator.serviceWorker.controller))) {
+        if (Date.now() > deadline) throw new Error('the worker never took control of this page');
+        await page.waitForTimeout(100);
+    }
+    return true;
 }
 
 /** Outgoing Socket.IO event frames with this event name. */

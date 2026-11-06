@@ -17,27 +17,31 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { mkdirSync, rmSync, existsSync } from 'fs';
+import { randomBytes } from 'crypto';
+import { mkdirSync, existsSync } from 'fs';
 import { join, basename } from 'path';
-import { tmpdir } from 'os';
 import {
     createFixture,
+    fixtureDir,
+    removeFixtureDir,
     sha256OfFile,
     sha256OfBlobUrl,
     browserSenderSetup,
+    cliBinary,
     spawnSend,
     spawnReceive,
     collectStdout,
     waitForExit,
     CLI_TIMEOUT_MS,
 } from './helpers';
+import { KEY_FAILED_RECEIVER } from '../lib/linkKeyCopy';
 
-const FIXTURE_DIR = join(tmpdir(), 'floe-cli-interop');
+const FIXTURE_DIR = fixtureDir('floe-cli-interop');
 // File size: large enough to exercise the 8 MB backpressure loop (~12 MB).
 const FIXTURE_SIZE = 12 * 1024 * 1024;
 
 test.afterAll(() => {
-    try { rmSync(FIXTURE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    removeFixtureDir(FIXTURE_DIR);
 });
 
 test('Direction 1: CLI send → browser receive (SHA-256 integrity)', async ({ browser }) => {
@@ -163,5 +167,44 @@ test('Direction 2: browser send → CLI receive (SHA-256 integrity)', async ({ b
         expect(sha256OfFile(receivedPath)).toBe(expectedHash);
     } finally {
         await ctx.close();
+    }
+});
+
+// floe send --link-only tells a person to "open the link in a browser" when a receiver
+// proves nothing, and nothing else held that road open (final audit report 29 F8).
+test('floe send --link-only delivers to a page holding the key', async ({ browser }) => {
+    const { path: fixturePath, sha256: expectedHash } = createFixture(FIXTURE_DIR, 256 * 1024);
+    const { linkPromise, proc } = spawnSend(fixturePath, cliBinary(), ['--link-only']);
+    const roomLink = await linkPromise;
+    expect(roomLink).toContain('#k=');
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    try {
+        await page.goto(roomLink);
+        const downloadLink = page.locator('a[download]').first();
+        await expect(downloadLink).toBeVisible({ timeout: 60_000 });
+        expect(await sha256OfBlobUrl(page, (await downloadLink.getAttribute('href'))!)).toBe(expectedHash);
+        expect(await waitForExit(proc, CLI_TIMEOUT_MS)).toBe(0);
+    } finally {
+        await ctx.close();
+        proc.kill();
+    }
+});
+
+test('floe send --link-only gives a page with a tampered key nothing', async ({ browser }) => {
+    const { path: fixturePath } = createFixture(FIXTURE_DIR, 256 * 1024);
+    const { linkPromise, proc } = spawnSend(fixturePath, cliBinary(), ['--link-only']);
+    const roomLink = await linkPromise;
+    const wrong = randomBytes(16).toString('base64url');
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    try {
+        await page.goto(roomLink.replace(/#k=[A-Za-z0-9_-]{22}/, `#k=${wrong}`));
+        await expect(page.getByText(KEY_FAILED_RECEIVER, { exact: true })).toBeVisible({ timeout: 60_000 });
+        await expect(page.locator('a[download]')).toHaveCount(0);
+        expect(await waitForExit(proc, CLI_TIMEOUT_MS)).not.toBe(0);
+    } finally {
+        await ctx.close();
+        proc.kill();
     }
 });

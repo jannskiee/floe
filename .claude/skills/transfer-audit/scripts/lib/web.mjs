@@ -402,6 +402,11 @@ export function AUDIT_INIT({ relayOnly = false } = {}) {
         force,
         '            super(cfg, ...rest);',
         '            audit.pcs.push(this);',
+        // Kept, because a refusal can end the connection between two polls: the
+        // relay cap's came 33 ms after the connect, with the page closing its peer.
+        "            this.addEventListener('connectionstatechange', () => {",
+        "                if (this.connectionState === 'connected') audit.everConnected = true;",
+        '            });',
         '            this.__floeCand = { local: [], remote: [] };',
         "            this.addEventListener('datachannel', (e) => track(e.channel));",
         "            this.addEventListener('icecandidate', (e) =>",
@@ -554,13 +559,22 @@ export function candidateCensus(samples = []) {
  * sender-to-receiver control frames always as text. Counting every message
  * turned a correct refusal into cap-not-enforced. A sample from an older init
  * script, without the binary counters, falls back to every byte.
+ *
+ * With a role, only the way files go. A receiver's own frames are binary (its
+ * link-key proof, 65 B, and its acks), so on a keyed page the binary bytes it
+ * sent are never a file's, and counting them turned the cap's correct refusal
+ * into cap-not-enforced on 2026-11-03. The same goes for what a sender hears.
  */
-export function bytesMovedFrom(samples = []) {
+export function bytesMovedFrom(samples = [], role = null) {
     for (let i = samples.length - 1; i >= 0; i--) {
         const dc = samples[i] && samples[i].dcBytes;
         if (!dc) continue;
         if (typeof dc.binIn === 'number' || typeof dc.binOut === 'number') {
-            return (Number(dc.binIn) || 0) + (Number(dc.binOut) || 0);
+            const binIn = Number(dc.binIn) || 0;
+            const binOut = Number(dc.binOut) || 0;
+            if (role === 'receiver') return binIn;
+            if (role === 'sender') return binOut;
+            return binIn + binOut;
         }
         return (Number(dc.in) || 0) + (Number(dc.out) || 0);
     }
@@ -802,11 +816,33 @@ export function classifySample(sample) {
     return null;
 }
 
-/** Pure: samples, then the last decisive status event, then the pill. */
-export function webRoute({ samples = [], events = [], pill = null } = {}) {
+/**
+ * Pure: a relay-forced page whose peer has closed with no selected pair ever read. The
+ * relay cap's refusal can close it within 33 ms of the connect (S-REL-C2W-cap3g,
+ * 2026-11-03). Under the relay policy all it gathered was relay, so relay is the only
+ * way it can have connected. Only once closed: a live peer still has a pair to read,
+ * and that is the better evidence.
+ */
+function forcedPageClosed(samples) {
+    const last = samples[samples.length - 1];
+    const pcs = samples.flatMap((s) => (s && s.pcs) || []);
+    if (!last || !last.pcs || !last.pcs.length) return null;
+    if (!last.pcs.every((pc) => pc.connectionState === 'closed')) return null;
+    if (!pcs.every((pc) => pc.policy === 'relay' || pc.policy === null)) return null;
+    const gathered = pcs.flatMap((pc) => (pc.cand && pc.cand.local) || []);
+    if (!gathered.length || !gathered.every((t) => t === 'relay')) return null;
+    return { t: last.t ?? null, source: 'candidates', local: 'relay', remote: null, verdict: 'relay' };
+}
+
+/** Pure: samples, a forced page that closed, then the last decisive status event, then the pill. */
+export function webRoute({ samples = [], events = [], pill = null, relayOnly = false } = {}) {
     for (const s of samples) {
         const r = classifySample(s);
         if (r) return r;
+    }
+    if (relayOnly) {
+        const closed = forcedPageClosed(samples);
+        if (closed) return closed;
     }
     const last = [...events]
         .reverse()
@@ -891,7 +927,7 @@ export class WebLeg extends Leg {
     /** Bytes that crossed the page's data channels so far (never throws). */
     bytesMoved() {
         try {
-            return bytesMovedFrom(this.samples);
+            return bytesMovedFrom(this.samples, this.role);
         } catch {
             return 0;
         }
@@ -1025,7 +1061,7 @@ export class WebLeg extends Leg {
                     .click({ timeout: this.budget(LINK_TIMEOUT_MS) });
                 const linkEl = page
                     .locator('code')
-                    .filter({ hasText: '#room=' });
+                    .filter({ hasText: /[#&]room=/ });
                 await linkEl.waitFor({
                     state: 'visible',
                     timeout: this.budget(LINK_TIMEOUT_MS),
@@ -1172,7 +1208,10 @@ export class WebLeg extends Leg {
                     const a = window.__floeAudit;
                     if (
                         a &&
-                        a.pcs.some((pc) => pc.connectionState === 'connected')
+                        (a.everConnected ||
+                            a.pcs.some(
+                                (pc) => pc.connectionState === 'connected'
+                            ))
                     )
                         return true;
                     const text =
@@ -1260,6 +1299,7 @@ export class WebLeg extends Leg {
         try {
             const last = this.samples.at(-1);
             return webRoute({
+                relayOnly: this.relayOnly,
                 samples: this.samples,
                 events: last ? last.status : [],
                 pill: last ? last.pill : null,
@@ -1677,7 +1717,7 @@ export class WebLeg extends Leg {
             screenshots: this.screenshots,
             staleBundle: this.staleBundle,
             zipPath: this.zipPath,
-            dcBytes: bytesMovedFrom(this.samples),
+            dcBytes: bytesMovedFrom(this.samples, this.role),
             pairBytes: pairBytesFrom(this.samples),
             turnFetches: this.turnFetches.slice(),
             candidates: candidateCensus(this.samples),

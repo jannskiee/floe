@@ -21,14 +21,14 @@ func keepICEIP(ip net.IP) bool {
 	return !ip.IsLinkLocalUnicast()
 }
 
-// makeInterfaceAllowFilter builds an ICE interface filter that keeps only the
+// MakeInterfaceAllowFilter builds an ICE interface filter that keeps only the
 // interfaces whose name contains one of the given substrings (case-insensitive).
 // It is used for the opt-in `--iface` flag so power users on machines with many
 // virtual/VPN adapters (VMware, WSL, Tailscale) can pin ICE to their real NIC,
 // e.g. `--iface Ethernet`. The link-local IP filter above already handles the
 // common case; this is the manual override for the rest. Returns nil (no filter)
 // for an empty allowlist so the default behavior is unchanged.
-func makeInterfaceAllowFilter(names []string) func(string) bool {
+func MakeInterfaceAllowFilter(names []string) func(string) bool {
 	var wanted []string
 	for _, n := range names {
 		n = strings.ToLower(strings.TrimSpace(n))

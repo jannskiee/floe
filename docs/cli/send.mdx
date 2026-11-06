@@ -2,7 +2,7 @@
 title: "floe send command"
 sidebarTitle: "floe send"
 description: "Use the floe send command to share files or folders peer-to-peer from your terminal over an encrypted WebRTC connection, with no upload or account."
-keywords: ["floe send", "send a folder", "room code", "share code", "command line", "request link"]
+keywords: ["floe send", "send a folder", "room code", "share code", "command line", "request link", "link key", "link-only", "quote a link"]
 ---
 
 ```bash floe send
@@ -48,11 +48,16 @@ After reading your files, `floe send` shows a summary of what will be sent, then
   Sending   3 files · 11.8 MB
   ─────────────────────────────────────────────────
   Code   olive-tiger-castle
-  Link   https://floe.one/#room=6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f
+  Link   https://floe.one/#k=Xq3vT9bLw2ZkP7mRf1sY8A&room=6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f
   ─────────────────────────────────────────────────
+  In a terminal, put the link in quotes: floe receive "<link>"
 
   Waiting for peer...
 ```
+
+That is `floe` 1.12 and later. `floe` 1.11.7 and earlier print a link with no
+[link key](/glossary#link-key), `https://floe.one/#room=6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f`, and
+no line about quotes.
 
 Both lead to the same [room](/glossary#room), the meeting point on Floe's server for this one
 transfer. Share one of them:
@@ -65,6 +70,14 @@ transfer. Share one of them:
 See [how long a code and a link last](/how-it-works/signaling#code-and-link-lifetime) for what ends
 each one early. For a single file, the `Sending` line shows the file's name in place of the count.
 
+In `floe` 1.12 and later the two are not equal. A receiver who opens the link in a browser, in
+`floe receive` 1.12 or later, or in Floe Desktop 1.1 or later checks that your side holds the link
+key. The code carries none, so choosing the code is choosing no check. Your own `floe send` only
+detects: it stops on a proof that is wrong and goes on when no proof comes. So a server that plays a
+receiver with no link key gets the whole file, and the `Sent` box still prints.
+[`--link-only`](#link-only) closes that gap. See
+[What the link key checks](/how-it-works/known-limitations#the-signaling-server-is-trusted-to-introduce-you-honestly).
+
 `floe send` waits for the other side with no time limit, for as long as its own connection to Floe's
 [signaling server](/glossary#signaling-server) lasts. If that connection drops while it waits (the
 computer sleeps, the network changes, the server restarts), it ends with
@@ -76,6 +89,24 @@ The code and the link are all that protect the transfer. Whoever enters the code
 If the server does not hand out a code, for example because it is limiting requests from your
 network, `floe send` prints a line that starts with `Warning: could not generate short code:` and
 gives the cause. The panel then shows the `Link` row alone and the send goes on: share the link.
+
+### Put the link in quotes {#put-the-link-in-quotes}
+
+A share link with a link key holds an `&`, which a terminal reads as the end of a command, so a link
+passed to `floe receive` goes in quotes. What an unquoted one does:
+
+| Where | What happens |
+|---|---|
+| bash, with `floe` 1.12 and later | The shell cuts the link at the `&`. `floe` prints `This link looks incomplete. Copy the whole link again, including everything after the # sign. Put the link in quotes.`, and does not print the link back. |
+| bash, with `floe` 1.11.7 and earlier | The shell cuts it the same way. `floe` prints `Error: could not resolve "https://floe.one/#k=<link key>": URL does not contain a room id (#room= or ?room=)`, which puts the link key on your own screen. |
+| Windows PowerShell 5.1 | PowerShell refuses the line before `floe` runs: `The ampersand (&) character is not allowed.` |
+| cmd.exe | `floe` runs on the cut link, as in bash, and then cmd.exe prints `'room' is not recognized as an internal or external command`. |
+
+On floe.one the link is 93 columns wide with its indent, so an 80-column terminal wraps it. A line
+break that gets into a copy reads as an incomplete link in `floe` 1.12 and later, with the
+`This link looks incomplete` line, and the link key is not printed. A space that gets into an
+unquoted copy reaches `floe` as a second word, and it prints `Error: accepts 1 arg(s), received 2`.
+Copy the link again, whole.
 
 Once the receiver connects, Floe sets up the connection and sends the files in the order you listed
 them, each with a live progress bar:
@@ -112,16 +143,17 @@ the box below counts 1 MB as 1,048,576 bytes, so the two can differ slightly.
 
 The `Verified   SHA-256 matched` row is the receiver's report that every file matched the
 [SHA-256](/glossary#sha-256), a fingerprint of the file's contents, that your `floe` sent with it.
-It is not a check made on your side. It appears when the receiver is `floe receive` 1.11.0 or later,
-Floe Desktop 0.3.0 or later, or a browser, and every file matched. Otherwise the box holds the
-`Sent` and `Time` rows alone. See [File checks](/how-it-works/file-checks).
+It is not a check made on your side, and it says nothing about who the receiver is. It appears when
+the receiver is `floe receive` 1.11.0 or later, Floe Desktop 0.3.0 or later, or a browser, and every
+file matched. Otherwise the box holds the `Sent` and `Time` rows alone. See
+[File checks](/how-it-works/file-checks).
 
 `Time` counts from the moment the receiver accepted, so the time they took to answer is in neither
 the time nor the average speed. In `floe` 1.11.0 and earlier it counted from the moment the
 connection came up.
 
 When the receiver runs a different Floe release from yours, one extra line names it as the transfer
-starts, for example `Peer version: desktop-v1.0.4`. A browser sends no version, so the line never
+starts, for example `Peer version: desktop-v1.1.0`. A browser sends no version, so the line never
 appears for one. Versions do not need to match.
 
 ## What the other person sees {#what-the-other-person-sees}
@@ -177,6 +209,12 @@ connects, because Floe does not follow links to folders. A path you give that is
 folder is sent as that folder, under the name you typed. `floe` 1.11.0 and earlier sized a linked
 file by the link itself, which could stop the transfer partway.
 
+Floe sends only regular files and folders. A pipe, a socket or a device that you name directly stops
+the send before it connects, with `Error: cannot send <path>: it is a pipe, a socket or a device, not a file`.
+Inside a folder, such entries, and links that point to them, are left out of the transfer without a
+message. `floe` 1.11.7 and earlier send a pipe or a device that you name directly as an empty file,
+and a socket or a pipe inside a folder stops or hangs the send.
+
 The receiver checks where each file would go before saving it. It refuses a file nested more than
 32 levels deep, a path too long for it to save, or a file too large for its drive.
 `floe receive` 1.11.0 or later and Floe Desktop 0.3.0 or later make these checks. `floe send` then
@@ -201,8 +239,11 @@ the data. See [File checks](/how-it-works/file-checks#delivery-confirmation).
 
 ### Stop a send with Ctrl+C {#ctrl-c}
 
-Press `Ctrl+C` at any time to stop. `floe send` prints `Canceled.` and exits with status 130. Once
-the two devices are connected, it first tells the receiver that the sender stopped and closes the
+Press `Ctrl+C` at any time to stop. `floe send` prints `Canceled.` and exits with status 130. On
+macOS and Linux, a hangup does the same: closing the terminal, losing the SSH session, or `SIGHUP`,
+unless you started `floe` with `nohup`. `floe` 1.11.7 and earlier stop at once on a hangup and tell the
+receiver nothing. Once
+the two devices are connected, `floe send` first tells the receiver that the sender stopped and closes the
 connection, which takes about a second at most. What the other side sees depends on how far it had
 got:
 
@@ -229,7 +270,8 @@ seconds and reported a stalled transfer, and a browser waited until its connecti
 | Message | What it means | What to do |
 |---|---|---|
 | `Error: They stopped the transfer.` | The receiver pressed `Ctrl+C` in `floe receive` 1.11.0 or later. Files it had already saved stay on its side. | Agree on when to try again, then run `floe send` again. See [`They stopped the transfer.`](/troubleshooting#they-stopped-the-transfer) |
-| `Error: They declined. Nothing was sent.` | The receiver answered `n` at the `floe receive` prompt. | Ask them before you send again. |
+| `Error: They declined. Nothing was sent.` | The receiver answered `n` at the `floe receive` prompt. In `floe` 1.12 and later, a decline that comes after the receiver answered a file reads `Error: They stopped the transfer.`, because a file may have gone by then. | Ask them before you send again. |
+| `Couldn't confirm the person who opened your link. Nothing was sent. Make a new link and try again.` | In `floe` 1.12 and later, the receiver's proof of the [link key](/glossary#link-key) was wrong, or it could not confirm yours. No file's bytes went, though the first file's name and size can have. This line has no `Error:` in front. | Do what the line says, over a channel you trust. See [`Couldn't confirm the person who opened your link`](/troubleshooting#could-not-confirm-the-person-who-opened-your-link-cli). |
 | `Error: error sending report.pdf: connection closed while waiting for the receiver (transfer declined or receiver exited)` | The receiver's side closed or went away before it accepted, or a `floe receive` 1.11.0 or earlier answered `n`. | Ask them, then run `floe send` again. See [`connection closed while waiting for the receiver`](/troubleshooting#connection-closed-while-waiting-for-the-receiver-transfer-declined-or-receiver-exited) |
 | `Error: error sending report.pdf: timed out waiting for ack` | The receiver did not accept within 120 seconds. | Run `floe send` again when they are at the prompt, or have them pass `-y`. See [`timed out waiting for ack`](/troubleshooting#timed-out-waiting-for-ack) |
 | `Error: the other side left before the connection was established` | The receiver joined and then left before the connection came up. | Run `floe send` again and share the new code. See [`the other side left`](/troubleshooting#the-other-side-left-before-the-connection-was-established) |
@@ -261,14 +303,56 @@ These end the send with status 1:
 | Message | What it means | What to do |
 |---|---|---|
 | `Error: cannot read report.pdf:` and the reason | A path you gave does not exist or cannot be read. Floe checks every path before it connects. | Check the path, then run the command again. |
-| `Error: no files to send` | The folders you gave hold no files. | See [`no files to send`](/troubleshooting#no-files-to-send). |
+| `Error: no files to send` | The folders you gave hold no files. A pipe, a socket or a device inside them does not count. | See [`no files to send`](/troubleshooting#no-files-to-send). |
+| `Error: cannot send /dev/zero: it is a pipe, a socket or a device, not a file` | A path you gave is not a regular file or folder. Checked before Floe connects. | Send a regular file. To send a device's contents, copy them to a file first. |
 | `Error: cannot walk project:` and the reason | A folder could not be listed, or it holds a link to a folder or a link that points nowhere. Checked before Floe connects. | Fix the permission or the link, or leave it out. |
-| `Error: error sending notes.txt: open notes.txt:` and the reason | A file could not be opened when its turn came. The files before it were delivered. | Fix that file's permissions, then send what did not arrive. |
-| `Error: error sending notes.txt: error reading file:` and the reason | A file could not be read partway through, for example because its drive was unplugged. The files before it were delivered. | Check the file, then send what did not arrive. |
+| `Error: error sending notes.txt: open notes.txt:` and the reason | A file could not be opened when its turn came. The files before it were delivered. The receiver is told that a file could not be read. | Fix that file's permissions, then send what did not arrive. |
+| `Error: error sending notes.txt: error reading file:` and the reason | A file could not be read partway through, for example because its drive was unplugged. The files before it were delivered. The receiver is told that a file could not be read. | Check the file, then send what did not arrive. |
 | `Error: error sending app.log: the file grew while it was being sent (announced 1048576 bytes); send it again once it stops changing` | The file changed on disk while Floe read it, and the receiver was told so. The other form says `shrank`. | Wait until the program writing the file has finished, then send it again. |
 | `Error: the connection to the server was lost before the peer connected` | Your connection to Floe's server dropped while `floe send` waited. | Run `floe send` again and share the new code. |
 | `Error: --relay-only needs a TURN relay and https://floe.example.com offers none; drop the flag, or configure a relay on the server` | You passed `--relay-only`, and the server has no relay. Checked before the code is made. | See [`--relay-only needs a TURN relay`](/troubleshooting#relay-only-needs-a-turn-relay). |
+| `Error: --iface matches no network interface on this computer; check the name, or drop the flag` | No network interface on this computer has a name you passed to `--iface`. Checked before the code is made. | Check the name, or drop the flag. See [`--iface`](/cli/flags#global-flags). |
 | `Error: failed to connect to signaling server:` and the reason | `floe` could not reach Floe's server. | See [`failed to connect to signaling server`](/troubleshooting#failed-to-connect-to-signaling-server). |
+
+When the receiver is told that a file could not be read, `floe receive` prints
+`Error: The sender stopped: a file could not be read on their device. Ask them to check it and send again.`,
+and Floe Desktop and a browser show the same sentence. On a slow link the notice may not get out in
+time, and the receiver sees a closed connection instead. Through a request link, their Floe Desktop
+shows only “The sender stopped this drop”, or, before they accept, goes back to waiting with no line. `floe` 1.11.7 and earlier close the connection without
+telling the receiver.
+
+## Send only to a receiver that proves it holds the link {#link-only}
+
+```bash floe send --link-only
+floe send <file|folder> [file|folder...] --link-only
+```
+
+**Needs:** `floe` 1.12 or later. An older `floe` stops with `Error: unknown flag: --link-only`.
+
+`--link-only` makes no code, so the panel has a `Link` row alone. It names no file until the receiver
+has proved it holds the link's [link key](/glossary#link-key), so a server in the middle learns no
+file's name, size or bytes. It has no environment variable: it is a choice about one transfer.
+
+It proves nothing about who the receiver is: anyone holding the whole link can pass. See
+[What the link key cannot see](/how-it-works/known-limitations#what-the-link-key-cannot-see).
+
+The receiver needs the whole link, in a browser on floe.one or on a web app image of 1.12.0 or later,
+in `floe receive` 1.12 or later, or in Floe Desktop 1.1 or later. Anything else has no proof to give.
+
+| Message | What it means | What to do |
+|---|---|---|
+| `Couldn't confirm the receiver. They may need to run floe update, or open the link in a browser.` | No proof came within 15 seconds. The receiver may run an older Floe, or a browser on an older web app image, which does not read the link key. | Ask them what they opened it with. See [`Couldn't confirm the receiver`](/troubleshooting#could-not-confirm-the-receiver). |
+| `Couldn't confirm the person who opened your link. Nothing was sent. Make a new link and try again.` | A proof came and was wrong. | Do what the line says, over a channel you trust. |
+
+Neither line has `Error:` in front, and both end the send with status 1.
+
+A receiver too old to prove the link is told to update. `floe receive` from 1.10.8 to 1.11.7 prints
+`Cannot transfer: your floe is too old for this peer.` and ``Run `floe update` to upgrade.`` One older
+than that prints
+`connection closed before any file arrived (the sender canceled, or the transfer was blocked)`.
+
+`--link-only` and `--to` cannot be used together, and `floe` stops before any network call with
+`Error: if any flags in the group [to link-only] are set none of the others can be; [link-only to] were all set`.
 
 ## Send through a request link {#send-through-a-request-link}
 
@@ -276,8 +360,10 @@ These end the send with status 1:
 floe send <file|folder> [file|folder...] --to "<request link>"
 ```
 
-**Needs:** `floe` 1.11.0 or later, and a request link from someone whose Floe Desktop is open. An
-older `floe` stops with `Error: unknown flag: --to`, and `floe update` fixes that. See
+**Needs:** `floe` 1.11.0 or later, and a request link from someone whose Floe Desktop is open. A link
+from Floe Desktop 1.1 or later holds a [link key](/glossary#link-key) and needs `floe` 1.12 or later:
+`floe` 1.11.7 stops on it with the `This link looks incomplete` line below. A `floe` older than 1.11.0
+stops with `Error: unknown flag: --to`, and `floe update` fixes both. See
 [Install the CLI](/cli/installation).
 
 Someone who uses Floe Desktop can make a [request link](/desktop/request-links) so that one person
@@ -287,20 +373,23 @@ give it to `floe send` with `--to` and send from your terminal. Floe registers n
 link: the files go only to the computer that made the link.
 
 ```bash Terminal
-floe send shoot --to "https://floe.one/r/<link id>#<key>"
+floe send shoot --to "https://floe.one/r/<link id>#<room id>.<link key>"
 ```
 
-Put the whole link in quotes, including everything after the `#`: that part is the key that reaches
-their computer. A link without it stops at once, before Floe contacts any server, with:
+Put the whole link in quotes, including everything after the `#`: the room id there reaches their
+computer, and the link key checks it. A link with nothing after the `#` stops at once, before Floe
+contacts any server, with:
 
 ```text Output
   This link looks incomplete. Copy the whole link again, including everything after the # sign. Put the link in quotes.
 ```
 
+A link cut before its link key gets as far as their computer, which refuses it, and ends on the same line.
+
 <Warning>
-  The whole link, key included, is on your command line. Your shell keeps it in its history, and
-  while the command runs, other users of the same computer can see it in the list of running
-  processes. Anyone with the whole link can send through it while it is open.
+  The whole link, room id and link key included, is on your command line. Your shell keeps it in its
+  history, and while the command runs, other users of the same computer can see it in the list of
+  running processes. Anyone with the whole link can send through it while it is open.
 </Warning>
 
 Floe checks your files, connects to their computer, and asks them to accept:
@@ -312,6 +401,11 @@ Floe checks your files, connects to their computer, and asks them to accept:
   Connected (direct)
   Waiting for them to accept. They have 9 min to answer.
 ```
+
+On a link with a link key, in `floe` 1.12 and later, the `Waiting` line appears only once their computer
+has proved it holds the link key. `floe` waits up to 15 seconds for that, and names no file until then. A
+link from Floe Desktop 1.0.x holds no link key, so it has no such check and no such wait. See
+[What the link key checks](/how-it-works/known-limitations#the-signaling-server-is-trusted-to-introduce-you-honestly).
 
 Their Floe Desktop shows the request: how many files and their total size, and the folder they will
 go into. Nothing is written to their computer until they click **Accept**, unless they made the link
@@ -334,7 +428,7 @@ and every one matched. It is their report, not a check made on your side. The `S
 send is not printed.
 
 When their Floe is a different version from yours, a `Peer version:` line names it as they accept,
-for example `Peer version: desktop-v1.0.4`. Through a request link the line appears only for a
+for example `Peer version: desktop-v1.1.0`. Through a request link the line appears only for a
 version shaped like a Floe release (three numbers, with an optional `v` or `desktop-v` in front) or
 `dev`. Any other text prints no line, so the other side cannot put words of its own on your
 terminal.
@@ -342,7 +436,7 @@ terminal.
 ### Exit status {#send-through-a-request-link-exit-status}
 
 `floe send --to` exits with status 0 only after their Floe confirms that every file arrived.
-`Ctrl+C` exits with status 130, and every other outcome prints its fixed lines, listed under
+`Ctrl+C`, `SIGTERM` and, on macOS and Linux, a hangup exit with status 130, and every other outcome prints its fixed lines, listed under
 [Messages](#messages-from-floe-send-to), and exits with status 1. Each outcome is one of those
 lines, never the other side's own words.
 
@@ -375,15 +469,22 @@ status 1:
 
 A link and a path swapped, with the file after `--to`, stops on the `This link looks incomplete`
 line above. So does `--to` with nothing after it, such as `--to "$LINK"` with `LINK` unset. Neither
-case prints the usual `cannot read` error, which would repeat the link and its key.
+case prints the usual `cannot read` error, which would repeat the link, with its room id and its link
+key.
 
 ### Ctrl+C {#send-through-a-request-link-ctrl-c}
 
-`Ctrl+C` stops the send and exits with status 130, with one line:
+`Ctrl+C` stops the send and exits with status 130. On macOS and Linux, a hangup (a closed
+terminal, a lost SSH session, or `SIGHUP`) does the same unless `floe` runs under `nohup`. `floe`
+1.11.7 and earlier stop at once on a hangup. Otherwise either prints one line:
 
 - before they accept: `Canceled. Nothing was sent.`
 - after they accept: `You stopped this drop.` and how many files were saved, such as
-  `You stopped this drop. 4 of 12 files were saved.` or `You stopped this drop. Nothing was sent.`
+  `You stopped this drop. 4 of 12 files were saved.`
+
+With nothing saved after they accept, `floe` 1.12 and later print `You stopped this drop.` alone,
+because part of a file may have gone. `floe` 1.11.7 and earlier print
+`You stopped this drop. Nothing was sent.` there.
 
 Once connected, their computer is told that you stopped, and the files that arrived stay there.
 
@@ -404,6 +505,7 @@ Each of these ends the command with status 1.
 | `Request links are not available on this Floe server.` | The server did not answer within 10 seconds, which is what a server older than 1.11.0 does: it has no request links. | Check that `--server` or `FLOE_SERVER` names the server the link was made on. |
 | `This link looks incomplete. Copy the whole link again, including everything after the # sign. Put the link in quotes.` | What follows `--to` is not a whole request link: it was cut short, often at the `#`, or a request link was typed where a file goes. | Copy the whole link again and put it in quotes. |
 | `Couldn't connect to their computer. Nothing was sent.` | The two computers could not finish connecting, or Floe's server could not be reached. It is also the line for a link and a server that do not match. | Check the server against the link, then run the command again. If it keeps happening, a network on one side may be blocking the connection. |
+| `Couldn't confirm their computer. Nothing was sent.` | In `floe` 1.12 and later, on a link with a link key: the computer that answered proved nothing within 15 seconds, or its proof was wrong, or this side could not read its own connection. | Ask the person who made the link for a new one, over a channel you trust. See [`Couldn't confirm their computer`](/troubleshooting#could-not-confirm-their-computer). |
 | `They declined. Nothing was sent.` | They clicked **Decline**. | Ask them before you send again. |
 | `They did not answer in time. Nothing was sent.` | Nobody clicked **Accept** or **Decline** in time. The link stays open. | Ask them to be at their PC, then run the command again. |
 | `Connection lost. Nothing was sent.` | The connection dropped after their computer connected and before they accepted. | Run the command again. |
@@ -411,8 +513,8 @@ Each of these ends the command with status 1.
 | `This drop has more than 10,000 files. Zip them first.` | A drop can hold up to 10,000 files. Floe checks this before it contacts any server. | Zip them and send the archive. |
 | `A file name or folder path is too long to send. Shorten it or zip it first.` | A file's name, or its folder path and name together, are too long to send. Floe checks this before it contacts any server. | Shorten the name, or zip it and send the archive. |
 | `The server is limiting connections from this network. Wait a minute and try again.` | The server turned the connection away by its limits on one network address, before the link was checked. See [the server is limiting connections from this network](/troubleshooting#the-server-is-limiting-connections-from-this-network-cli). | Wait a minute, then run the command again. |
-| `Their Floe needs an update to receive from this link.` | Their Floe Desktop is too old for your `floe`. It cannot appear today: every Floe release so far speaks the same transfer protocol version. | Ask them to update Floe Desktop. |
-| `Your Floe needs an update to send to this link.`, then ``Run `floe update` to upgrade.`` | Your `floe` is too old for their Floe Desktop. It cannot appear today, for the same reason. | Run `floe update`. |
+| `Their Floe needs an update to receive from this link.` | Their Floe Desktop is too old for your `floe`. No released Floe Desktop causes it: every release so far still accepts protocol version 1. | Ask them to update Floe Desktop. |
+| `Your Floe needs an update to send to this link.`, then ``Run `floe update` to upgrade.`` | Your `floe` is too old for their Floe Desktop. `floe` 1.11.7 prints it for a link cut before its link key, when a Floe Desktop 1.1 or later refuses it. | Run `floe update`, and copy the whole link again. |
 
 "This link has already been used" also covers three more cases:
 
@@ -426,7 +528,9 @@ ends about 30 seconds after the last word from it, on one of the two `Connection
 
 When their Floe stops the drop, `floe send --to` prints one of these, then how many files were
 saved, such as `4 of 12 files were saved.` (`1 of 1 file was saved.` for a single file) or
-`Nothing was sent.`:
+`Nothing was sent.` In `floe` 1.12 and later, once they have accepted, part of a file may have gone,
+so with nothing saved there is no such line. A decline or a missed answer that comes after they
+accepted then reads `The drop stopped on their computer.`
 
 | Message | What it means | What to do |
 |---|---|---|
@@ -440,6 +544,7 @@ saved, such as `4 of 12 files were saved.` (`1 of 1 file was saved.` for a singl
 | `More data arrived than they accepted. If files changed after you chose them, ask them for a new link.` | Your `floe` sent more than the count and size they accepted. | Ask them for a new link, and send once the files have stopped changing. |
 | `They stopped this drop.` | They clicked **Cancel drop**, or closed the link or quit Floe while your request was waiting. | Ask them before you send again. |
 | `This drop reached the 24-hour limit, so their Floe stopped it.` | A single drop stops at 24 hours. | Ask for a new link and send fewer files. |
+| `Their computer couldn't confirm this link.`, and after the count `Ask the person who made this link for a new one.` | In `floe` 1.12 and later, their Floe holds a link key and your `floe`'s proof of it failed. | Do what the line says. |
 | `The drop stopped on their computer.` | Their Floe stopped the drop for another reason. | Ask them what happened. |
 
 A few outcomes print the same `Error:` line as a plain send, described under
@@ -453,4 +558,4 @@ A few outcomes print the same `Error:` line as a plain send, described under
 
 ## Flags
 
-See [CLI flags reference](/cli/flags) for `--server`, `--no-relay`, `--relay-only`, `--web`, and `--iface`, and for `--to`, the one flag of `floe send` itself. To run `floe send` from a script or a CI job, see [In scripts and CI](/cli/flags#in-scripts).
+See [CLI flags reference](/cli/flags) for `--server`, `--no-relay`, `--relay-only`, `--web`, and `--iface`, and for `--to` and `--link-only`, the two flags of `floe send` itself. To run `floe send` from a script or a CI job, see [In scripts and CI](/cli/flags#in-scripts).

@@ -9,10 +9,12 @@ import {
     peerOptionsFor,
     lostRecordOf,
     ATTEMPT_ENDING_STATES,
+    type VisitorEffect,
     type VisitorModel,
     type VisitorEvent,
     type VisitorState,
 } from './visitorState';
+import { EVERY_VISITOR_STATE } from './everyVisitorState';
 import { announcement, statusCopy, type StatusContext } from './visitorCopy';
 import { lostSyncStep } from './lostRecord';
 import { RELAY_SIZE_LIMIT } from '../relay';
@@ -59,7 +61,7 @@ function step(model: VisitorModel, event: VisitorEvent) {
 
 describe('visitor state: load rows', () => {
     it('(load) + E01 goes to V3', () => {
-        const r = step(initialModel, { type: 'LINK_OK', roomId: ROOM });
+        const r = step(initialModel, { type: 'LINK_OK', roomId: ROOM, keyed: false });
         expect(r.model.state).toBe('V3');
         expect(r.effects).toEqual([]);
     });
@@ -666,29 +668,29 @@ describe('visitor state: visibility and hash rows', () => {
     const reloadFrom: VisitorState[] = ['V1', 'V2', 'V3', 'V3c', 'V4', 'V5a', 'V5b', 'V5c', 'V8a', 'V8b', 'V9'];
     for (const s of reloadFrom) {
         it(`${s} + E29 (different roomId) reloads`, () => {
-            const r = step(modelIn(s), { type: 'HASHCHANGE', roomId: '11111111-1111-4111-8111-111111111111' });
+            const r = step(modelIn(s), { type: 'HASHCHANGE', roomId: '11111111-1111-4111-8111-111111111111', keyChanged: false });
             expect(r.effects).toEqual(['reload']);
         });
     }
     // WP-W1 review F4: the idle states that show Ready or Try again. Ignoring a
     // changed fragment there let the next Send join the OLD room while the
     // address bar showed the new one.
-    for (const s of ['V6a', 'V6b', 'V6d', 'V6e', 'V12a', 'V11', 'V11a', 'V11b', 'V12', 'V13'] as VisitorState[]) {
+    for (const s of ['V6a', 'V6b', 'V6d', 'V6e', 'V6f', 'V6g', 'V12a', 'V11', 'V11a', 'V11b', 'V12', 'V13'] as VisitorState[]) {
         it(`${s} + E29 (different roomId) reloads`, () => {
-            const r = step(modelIn(s), { type: 'HASHCHANGE', roomId: '11111111-1111-4111-8111-111111111111' });
+            const r = step(modelIn(s), { type: 'HASHCHANGE', roomId: '11111111-1111-4111-8111-111111111111', keyChanged: false });
             expect(r.effects).toEqual(['reload']);
         });
     }
     it('E29 with the same roomId changes nothing', () => {
-        expect(step(modelIn('V3'), { type: 'HASHCHANGE', roomId: ROOM }).effects).toEqual([]);
+        expect(step(modelIn('V3'), { type: 'HASHCHANGE', roomId: ROOM, keyChanged: false }).effects).toEqual([]);
     });
     it('E29 in V1 with a link that now parses reloads', () => {
         const v1 = { ...initialModel, state: 'V1' as const };
-        expect(step(v1, { type: 'HASHCHANGE', roomId: ROOM }).effects).toEqual(['reload']);
+        expect(step(v1, { type: 'HASHCHANGE', roomId: ROOM, keyChanged: false }).effects).toEqual(['reload']);
     });
     it('E29 never reloads a live attempt', () => {
         for (const s of ['V6', 'V6c', 'V7', 'V10'] as VisitorState[]) {
-            expect(step(modelIn(s), { type: 'HASHCHANGE', roomId: null }).effects).toEqual([]);
+            expect(step(modelIn(s), { type: 'HASHCHANGE', roomId: null, keyChanged: false }).effects).toEqual([]);
         }
     });
 });
@@ -699,11 +701,8 @@ describe("visitor state: a discarded tab's reload (FT-R-DISCARD)", () => {
     // RESTORE_LOST, before anything else can happen.
     const OTHER_ROOM = '11111111-1111-4111-8111-111111111111';
     const CTX: StatusContext = { pathAt: () => undefined, route: null, now: 0 };
-    const ready = () => step(initialModel, { type: 'LINK_OK', roomId: ROOM }).model;
-    const EVERY_STATE: VisitorState[] = [
-        'load', 'V1', 'V2', 'V3', 'V3c', 'V4', 'V5a', 'V5b', 'V5c', 'V6', 'V6a', 'V6b', 'V6c', 'V6d', 'V6e',
-        'V7', 'V8a', 'V8b', 'V9', 'V10', 'V11', 'V11a', 'V11b', 'V12', 'V12a', 'V13',
-    ];
+    const ready = () => step(initialModel, { type: 'LINK_OK', roomId: ROOM, keyed: false }).model;
+    const EVERY_STATE = EVERY_VISITOR_STATE;
 
     it('V3 + RESTORE_LOST goes to V12 with the counts and no effects', () => {
         const r = step(ready(), { type: 'RESTORE_LOST', arrived: 1, total: 2 });
@@ -788,8 +787,8 @@ describe("visitor state: a discarded tab's reload (FT-R-DISCARD)", () => {
         sync(); // Sending at the first ack: 0 of 3
         on({ type: 'ACK', index: 2, now: 1 });
         on({ type: 'PROGRESS', percent: 40 });
-        on({ type: 'HASHCHANGE', roomId: OTHER_ROOM });
-        on({ type: 'HASHCHANGE', roomId: ROOM });
+        on({ type: 'HASHCHANGE', roomId: OTHER_ROOM, keyChanged: false });
+        on({ type: 'HASHCHANGE', roomId: ROOM, keyChanged: false });
         on({ type: 'ACK', index: 3, now: 2 });
         on({ type: 'RECEIVED', now: 3 });
         expect(ops).toEqual(['write 0/3', 'write 1/3', 'keep', 'clear', 'write 1/3', 'write 2/3', 'clear']);
@@ -875,7 +874,7 @@ describe('visitor state: the rules carried from the reviews', () => {
     it('nothing before Send opens a socket or fetches ICE', () => {
         const opening = ['startAttempt', 'buildPeer', 'connectSocket', 'emitJoin', 'retryJoin', 'retryConnect'];
         const idle: VisitorEvent[] = [
-            { type: 'LINK_OK', roomId: ROOM },
+            { type: 'LINK_OK', roomId: ROOM, keyed: false },
             { type: 'FILES_ADDED' },
             { type: 'PICK_REFUSED' },
             { type: 'CLEAR' },
@@ -903,7 +902,7 @@ describe('visitor state: the rules carried from the reviews', () => {
             { type: 'INCOMPATIBLE', refusal: 'stopped', savedCount: 1, rangeOverlaps: true },
             { type: 'CANCEL' }, { type: 'SETUP_TIMEOUT' }, { type: 'SOCKET_CONNECTED' },
         ];
-        for (const s of ['V5a', 'V5b', 'V5c', 'V11', 'V11a', 'V11b', 'V12', 'V13'] as VisitorState[]) {
+        for (const s of ['V5a', 'V5b', 'V5c', 'V6f', 'V6g', 'V11', 'V11a', 'V11b', 'V12', 'V13'] as VisitorState[]) {
             const before = modelIn(s);
             for (const e of late) expect(step(before, e)).toEqual({ model: before, effects: [] });
         }
@@ -928,6 +927,9 @@ describe('visitor state: the rules carried from the reviews', () => {
             [modelIn('V6', { hideIp: true, joinEmitted: false }), { type: 'ICE_READY', hasTurn: false, listRead: false }], // V6e
             [modelIn('V6'), { type: 'CANCEL' }], // V6d
             [modelIn('V7'), { type: 'CANCEL' }], // V6d
+            [modelIn('V6', { keyed: true, channelOpen: true }), { type: 'KEY_CHECK_FAILED' }], // V6f
+            [modelIn('V6', { keyed: true, channelOpen: true }), { type: 'KEY_CHECK_UNAVAILABLE' }], // V6g
+            [modelIn('V7'), { type: 'INCOMPATIBLE', refusal: 'unverified', savedCount: 0, rangeOverlaps: true }], // V1
             [modelIn('V7'), { type: 'INCOMPATIBLE', refusal: 'declined', savedCount: 0, rangeOverlaps: true }], // V8a
             [modelIn('V7'), { type: 'INCOMPATIBLE', refusal: 'expired', savedCount: 0, rangeOverlaps: true }], // V8b
             [modelIn('V7'), { type: 'ACK_TIMEOUT', index: 1 }], // V8b
@@ -949,13 +951,372 @@ describe('visitor state: the rules carried from the reviews', () => {
             expect(r.effects).toContain('clearTimers');
             expect(r.effects).toContain('releaseWakeLock');
             // The peer goes too, either at once or after the fixed abort.
-            expect(r.effects.includes('destroyPeer') || r.effects.includes('sendCancelAbort')).toBe(true);
+            expect(
+                r.effects.includes('destroyPeer') || r.effects.includes('sendCancelAbort') || r.effects.includes('sendKeyAbort')
+            ).toBe(true);
             reached.add(r.model.state);
         }
         expect([...reached].sort()).toEqual(
-            ['V4', 'V5a', 'V5b', 'V5c', 'V5d', 'V6a', 'V6b', 'V6d', 'V6e', 'V8a', 'V8b', 'V9', 'V11', 'V11a', 'V11b', 'V12', 'V12a', 'V13'].sort()
+            ['V1', 'V4', 'V5a', 'V5b', 'V5c', 'V5d', 'V6a', 'V6b', 'V6d', 'V6e', 'V6f', 'V6g', 'V8a', 'V8b', 'V9', 'V11', 'V11a', 'V11b', 'V12', 'V12a', 'V13'].sort()
         );
         expect([...ATTEMPT_ENDING_STATES].sort()).toEqual([...reached].sort());
+    });
+});
+
+describe('visitor state: the link key', () => {
+    // A keyed link's visitor names no file until the host has proved the key, and the
+    // model knows that much and no more: a boolean for the link, one for the proof, and
+    // one for the relay's answer while it waits. The key itself is the controller's
+    // (RequestVisitor.tsx), which is what visitorBoundaries.test.ts holds.
+    const PROCEED: VisitorEvent = { type: 'RELAY_VERDICT', action: 'proceed', isRelay: false, routeKnown: true };
+    const keyed = (state: VisitorState = 'V6', patch: Partial<VisitorModel> = {}) => modelIn(state, { keyed: true, ...patch });
+    const FIRED: VisitorEffect[] = ['sendKeyAbort', 'clearTimers', 'disconnectSocket', 'releaseWakeLock'];
+    const OTHER_ROOM = '11111111-1111-4111-8111-111111111111';
+
+    it('(load) + E01 carries whether the link holds a key', () => {
+        expect(step(initialModel, { type: 'LINK_OK', roomId: ROOM, keyed: true }).model.keyed).toBe(true);
+        expect(step(initialModel, { type: 'LINK_OK', roomId: ROOM, keyed: false }).model.keyed).toBe(false);
+        expect(initialModel).toMatchObject({ keyed: false, keyVerified: false, relayProceed: false });
+    });
+
+    // Or a keyed visitor silently turns keyless on Send: no wait, no check, and the file
+    // goes to whoever answered.
+    describe('an attempt keeps the link and starts the proof again', () => {
+        const fromReady: VisitorState[] = ['V3', 'V3c', 'V6b', 'V6d', 'V6e'];
+        const fromRetry: VisitorState[] = ['V4', 'V5b', 'V5c', 'V8a', 'V8b', 'V9', 'V6a', 'V12a'];
+        for (const s of fromReady) {
+            it(`${s} + Send keeps keyed`, () => {
+                const r = step(keyed(s, { keyVerified: true, relayProceed: true }), SEND);
+                expect(r.model.state).toBe('V6');
+                expect(r.model).toMatchObject({ keyed: true, keyVerified: false, relayProceed: false, sendStarted: false });
+                expect(r.effects).toEqual(['startAttempt']);
+            });
+        }
+        for (const s of [...fromRetry, 'V6d' as const]) {
+            it(`${s} + Try again keeps keyed`, () => {
+                const r = step(keyed(s, { keyVerified: true, relayProceed: true }), TRY);
+                expect(r.model.state).toBe('V6');
+                expect(r.model).toMatchObject({ keyed: true, keyVerified: false, relayProceed: false, sendStarted: false });
+            });
+        }
+        it('a keyless attempt stays keyless', () => {
+            expect(step(modelIn('V3'), SEND).model.keyed).toBe(false);
+            expect(step(modelIn('V4'), TRY).model.keyed).toBe(false);
+        });
+    });
+
+    describe('sendFiles runs only when the relay verdict and the key check both say go', () => {
+        it('CHANNEL_OPEN arms the wait on a keyed visitor with no proof yet', () => {
+            const r = step(keyed(), { type: 'CHANNEL_OPEN' });
+            expect(r.effects).toEqual(['clearSetupTimer', 'startBadgePoll', 'armProbe', 'armKeyTimer']);
+            expect(r.model).toMatchObject({ state: 'V6', channelOpen: true, keyVerified: false });
+        });
+
+        it('CHANNEL_OPEN arms no wait once the proof is in: it usually beats connect', () => {
+            const r = step(keyed('V6', { keyVerified: true }), { type: 'CHANNEL_OPEN' });
+            expect(r.effects).toEqual(['clearSetupTimer', 'startBadgePoll', 'armProbe']);
+        });
+
+        it('a bare link arms no wait, as today', () => {
+            const r = step(modelIn('V6'), { type: 'CHANNEL_OPEN' });
+            expect(r.effects).toEqual(['clearSetupTimer', 'startBadgePoll', 'armProbe']);
+        });
+
+        it('the proof ahead of the channel is held, and sends nothing', () => {
+            const r = step(keyed(), { type: 'KEY_CHECK_PASSED' });
+            expect(r.model).toMatchObject({ state: 'V6', keyVerified: true, sendStarted: false });
+            expect(r.effects).not.toContain('sendFiles');
+        });
+
+        it('the relay verdict ahead of the proof is held, and sends nothing', () => {
+            const r = step(keyed('V6', { channelOpen: true }), PROCEED);
+            expect(r.model).toMatchObject({ state: 'V6', relayProceed: true, route: 'direct', sendStarted: false });
+            expect(r.effects).toEqual([]);
+        });
+
+        it('the proof after the verdict starts the send and ends the wait', () => {
+            const r = step(keyed('V6', { channelOpen: true, relayProceed: true }), { type: 'KEY_CHECK_PASSED' });
+            expect(r.model).toMatchObject({ state: 'V6', keyVerified: true, sendStarted: true });
+            expect(r.effects).toEqual(['clearKeyTimer', 'sendFiles']);
+        });
+
+        it('the verdict after the proof starts the send', () => {
+            const r = step(keyed('V6', { channelOpen: true, keyVerified: true }), PROCEED);
+            expect(r.model).toMatchObject({ state: 'V6', sendStarted: true, route: 'direct' });
+            expect(r.effects).toEqual(['sendFiles']);
+        });
+
+        it('a bare link proceeds at the verdict, as today', () => {
+            const r = step(modelIn('V6', { channelOpen: true }), PROCEED);
+            expect(r.model.sendStarted).toBe(true);
+            expect(r.effects).toEqual(['sendFiles']);
+        });
+
+        // Every order the three can arrive in. The verdict only counts on an open channel,
+        // which the probe guarantees (it is armed by CHANNEL_OPEN).
+        const orders: VisitorEvent[][] = [
+            [{ type: 'KEY_CHECK_PASSED' }, { type: 'CHANNEL_OPEN' }, PROCEED],
+            [{ type: 'CHANNEL_OPEN' }, { type: 'KEY_CHECK_PASSED' }, PROCEED],
+            [{ type: 'CHANNEL_OPEN' }, PROCEED, { type: 'KEY_CHECK_PASSED' }],
+        ];
+        for (const order of orders) {
+            it(`in the order ${order.map((e) => e.type).join(', ')} it starts exactly once, last`, () => {
+                let m = keyed();
+                const started: boolean[] = [];
+                for (const e of order) {
+                    const r = step(m, e);
+                    started.push(r.effects.includes('sendFiles'));
+                    m = r.model;
+                }
+                expect(started).toEqual([false, false, true]);
+                expect(m.sendStarted).toBe(true);
+                // And a repeat of any of them starts nothing more.
+                for (const e of order) expect(step(m, e).effects).not.toContain('sendFiles');
+            });
+        }
+
+        it('the first metadata moves on to Waiting, as today', () => {
+            const r = step(keyed('V6', { channelOpen: true, keyVerified: true, sendStarted: true }), {
+                type: 'FIRST_METADATA_SENT',
+                now: 5,
+            });
+            expect(r.model.state).toBe('V7');
+        });
+    });
+
+    describe('a check that failed', () => {
+        it('V6 + KEY_CHECK_FAILED goes to V6f: the abort, then every teardown but the destroy it does itself', () => {
+            const r = step(keyed('V6', { channelOpen: true }), { type: 'KEY_CHECK_FAILED' });
+            expect(r.model.state).toBe('V6f');
+            expect(r.effects).toEqual(FIRED);
+        });
+
+        it('ahead of the channel too: a bad proof usually beats connect', () => {
+            const r = step(keyed(), { type: 'KEY_CHECK_FAILED' });
+            expect(r.model.state).toBe('V6f');
+            expect(r.effects).toEqual(FIRED);
+        });
+
+        it('V6c + KEY_CHECK_FAILED goes to V6f', () => {
+            expect(step(keyed('V6c'), { type: 'KEY_CHECK_FAILED' }).model.state).toBe('V6f');
+        });
+
+        it('after the relay verdict too, with nothing started', () => {
+            const r = step(keyed('V6', { channelOpen: true, relayProceed: true }), { type: 'KEY_CHECK_FAILED' });
+            expect(r.model.state).toBe('V6f');
+            expect(r.effects).not.toContain('sendFiles');
+        });
+
+        it('has no say once the proof stood or the send started, or on a bare link', () => {
+            for (const m of [
+                keyed('V6', { keyVerified: true, channelOpen: true }),
+                keyed('V6', { keyVerified: true, sendStarted: true, channelOpen: true }),
+                // Unreachable through the reducer, and held all the same: a started send names a file.
+                keyed('V6', { sendStarted: true, channelOpen: true }),
+                modelIn('V6', { channelOpen: true }),
+                keyed('V7', { keyVerified: true }),
+                keyed('V10', { keyVerified: true }),
+            ]) {
+                expect(step(m, { type: 'KEY_CHECK_FAILED' })).toEqual({ model: m, effects: [] });
+            }
+        });
+
+        it('is the end of this page: V6f takes no Send, no Try again and nothing late', () => {
+            // A retry goes through the same server, so it cannot help (RETRY_FROM).
+            const v6f = keyed('V6f');
+            const late: VisitorEvent[] = [
+                SEND, TRY, { type: 'BACK_TO_FILES' }, { type: 'CANCEL' }, { type: 'CHANNEL_CLOSED' }, { type: 'PEER_ERROR' },
+                { type: 'KEY_CHECK_PASSED' }, { type: 'KEY_CHECK_FAILED' }, { type: 'KEY_CHECK_REFUSED' }, PROCEED,
+                { type: 'ACK', index: 1, now: 1 }, { type: 'RECEIVED', now: 1 }, { type: 'SETUP_TIMEOUT' },
+                { type: 'INCOMPATIBLE', refusal: 'unverified', savedCount: 0, rangeOverlaps: true },
+            ];
+            for (const e of late) expect(step(v6f, e), e.type).toEqual({ model: v6f, effects: [] });
+        });
+
+        it('V6f holds no guard and holds its place: it is an ending, and an announced one', () => {
+            expect(ATTEMPT_ENDING_STATES).toContain('V6f');
+        });
+    });
+
+    // D17: a browser that cannot read the certificates has its own card, because a new link
+    // will not help it. Everything else about the ending is V6f's.
+    describe('a browser that cannot check', () => {
+        it('V6 + KEY_CHECK_UNAVAILABLE goes to V6g: the same abort and teardown as a failed check', () => {
+            const r = step(keyed('V6', { channelOpen: true }), { type: 'KEY_CHECK_UNAVAILABLE' });
+            expect(r.model.state).toBe('V6g');
+            expect(r.effects).toEqual(FIRED);
+        });
+
+        it('ahead of the channel, in V6c, and after the relay verdict, with nothing started', () => {
+            expect(step(keyed(), { type: 'KEY_CHECK_UNAVAILABLE' }).model.state).toBe('V6g');
+            expect(step(keyed('V6c'), { type: 'KEY_CHECK_UNAVAILABLE' }).model.state).toBe('V6g');
+            const r = step(keyed('V6', { channelOpen: true, relayProceed: true }), { type: 'KEY_CHECK_UNAVAILABLE' });
+            expect(r.model.state).toBe('V6g');
+            expect(r.effects).not.toContain('sendFiles');
+        });
+
+        it('has no say once the proof stood or the send started, or on a bare link', () => {
+            for (const m of [
+                keyed('V6', { keyVerified: true, channelOpen: true }),
+                keyed('V6', { keyVerified: true, sendStarted: true, channelOpen: true }),
+                keyed('V6', { sendStarted: true, channelOpen: true }),
+                modelIn('V6', { channelOpen: true }),
+                keyed('V7', { keyVerified: true }),
+                keyed('V10', { keyVerified: true }),
+            ]) {
+                expect(step(m, { type: 'KEY_CHECK_UNAVAILABLE' })).toEqual({ model: m, effects: [] });
+            }
+        });
+
+        it('is the end of this page: V6g takes no Send, no Try again and nothing late', () => {
+            const v6g = keyed('V6g');
+            const late: VisitorEvent[] = [
+                SEND, TRY, { type: 'BACK_TO_FILES' }, { type: 'CANCEL' }, { type: 'CHANNEL_CLOSED' }, { type: 'PEER_ERROR' },
+                { type: 'KEY_CHECK_PASSED' }, { type: 'KEY_CHECK_FAILED' }, { type: 'KEY_CHECK_UNAVAILABLE' }, { type: 'KEY_CHECK_REFUSED' }, PROCEED,
+                { type: 'ACK', index: 1, now: 1 }, { type: 'RECEIVED', now: 1 }, { type: 'SETUP_TIMEOUT' },
+                { type: 'INCOMPATIBLE', refusal: 'unverified', savedCount: 0, rangeOverlaps: true },
+            ];
+            for (const e of late) expect(step(v6g, e), e.type).toEqual({ model: v6g, effects: [] });
+        });
+
+        it('V6g is an ending, as V6f is', () => {
+            expect(ATTEMPT_ENDING_STATES).toContain('V6g');
+        });
+
+        it('a later verdict does not move V6f to V6g, or back', () => {
+            expect(step(keyed('V6f'), { type: 'KEY_CHECK_UNAVAILABLE' }).model.state).toBe('V6f');
+            expect(step(keyed('V6g'), { type: 'KEY_CHECK_FAILED' }).model.state).toBe('V6g');
+        });
+    });
+
+    describe('what the wait leaves as it was', () => {
+        it('Cancel in the wait is an ordinary Cancel: the fixed reason, and Ready', () => {
+            const r = step(keyed('V6', { channelOpen: true }), { type: 'CANCEL' });
+            expect(r.model.state).toBe('V6d');
+            expect(r.effects).toEqual(['sendCancelAbort', 'clearTimers', 'disconnectSocket', 'releaseWakeLock']);
+        });
+
+        it('the channel going in the wait is an ordinary lost connection, with a Try again', () => {
+            const r = step(keyed('V6', { channelOpen: true }), { type: 'CHANNEL_CLOSED' });
+            expect(r.model.state).toBe('V6a');
+            expect(r.effects).toContain('clearTimers');
+        });
+
+        it('a relay block in the wait is V9, as today', () => {
+            const r = step(keyed('V6', { channelOpen: true }), {
+                type: 'RELAY_VERDICT',
+                action: 'block-over-limit',
+                isRelay: true,
+            });
+            expect(r.model.state).toBe('V9');
+        });
+
+        it('a bare link hears none of it', () => {
+            for (const e of [{ type: 'KEY_CHECK_PASSED' }, { type: 'KEY_CHECK_FAILED' }, { type: 'KEY_CHECK_REFUSED' }] as VisitorEvent[]) {
+                const m = modelIn('V6', { channelOpen: true });
+                expect(step(m, e), e.type).toEqual({ model: m, effects: [] });
+            }
+        });
+
+        it('a second proof changes nothing', () => {
+            const m = keyed('V6', { keyVerified: true, channelOpen: true });
+            expect(step(m, { type: 'KEY_CHECK_PASSED' })).toEqual({ model: m, effects: [] });
+        });
+    });
+
+    describe('the host refused this page before any file was named', () => {
+        it('V6 + KEY_CHECK_REFUSED ends on the refusal card, with nothing saved', () => {
+            const r = step(keyed('V6', { channelOpen: true }), { type: 'KEY_CHECK_REFUSED' });
+            expect(r.model.state).toBe('V11');
+            expect(r.model.stop).toEqual({ refusal: 'unverified', savedCount: 0 });
+            expect(r.effects).toEqual(['clearTimers', 'disconnectSocket', 'releaseWakeLock', 'destroyPeer']);
+        });
+
+        it('with a proof in hand, and ahead of the channel', () => {
+            expect(step(keyed('V6', { keyVerified: true }), { type: 'KEY_CHECK_REFUSED' }).model.state).toBe('V11');
+            expect(step(keyed('V6'), { type: 'KEY_CHECK_REFUSED' }).model.state).toBe('V11');
+        });
+
+        it('leaves a running send to the send: its report carries the count', () => {
+            for (const m of [
+                keyed('V6', { keyVerified: true, sendStarted: true, channelOpen: true }),
+                keyed('V7', { keyVerified: true }),
+                keyed('V10', { keyVerified: true }),
+            ]) {
+                expect(step(m, { type: 'KEY_CHECK_REFUSED' })).toEqual({ model: m, effects: [] });
+            }
+        });
+    });
+
+    describe('a host that refuses as unverified', () => {
+        const UNVERIFIED: VisitorEvent = { type: 'INCOMPATIBLE', refusal: 'unverified', savedCount: 5, rangeOverlaps: true };
+
+        it('a visitor with no key has a link that was cut: V1, the existing card', () => {
+            const running = modelIn('V6', { channelOpen: true, sendStarted: true });
+            for (const m of [running, modelIn('V7')]) {
+                const r = step(m, UNVERIFIED);
+                expect(r.model.state, m.state).toBe('V1');
+                expect(r.effects).toEqual(['clearTimers', 'disconnectSocket', 'releaseWakeLock', 'destroyPeer']);
+            }
+            expect(ATTEMPT_ENDING_STATES).toContain('V1');
+        });
+
+        it('a visitor that holds a key gets the row of its own, with nothing saved before accept', () => {
+            const running = keyed('V6', { keyVerified: true, channelOpen: true, sendStarted: true });
+            for (const m of [running, keyed('V7', { keyVerified: true })]) {
+                const r = step(m, UNVERIFIED);
+                expect(r.model.state, m.state).toBe('V11');
+                expect(r.model.stop).toEqual({ refusal: 'unverified', savedCount: 0 });
+            }
+        });
+
+        it('past the first ack it is a stop like any other, with the count it carried', () => {
+            for (const m of [keyed('V10', { keyVerified: true }), modelIn('V10')]) {
+                const r = step(m, UNVERIFIED);
+                expect(r.model.state).toBe('V11');
+                expect(r.model.stop).toEqual({ refusal: 'unverified', savedCount: 3 });
+            }
+        });
+
+        it('a version range miss is read first, as it is for every code', () => {
+            expect(step(modelIn('V7'), { ...UNVERIFIED, rangeOverlaps: false } as VisitorEvent).model.state).toBe('V11b');
+        });
+
+        it('every other code reads as it did on a visitor with no key', () => {
+            const r = step(modelIn('V7'), { type: 'INCOMPATIBLE', refusal: 'disk-full', savedCount: 0, rangeOverlaps: true });
+            expect(r.model.state).toBe('V11');
+        });
+
+        it('V1 reached this way is the end of the page, as V1 at load is', () => {
+            const v1 = step(modelIn('V7'), UNVERIFIED).model;
+            expect(step(v1, TRY)).toEqual({ model: v1, effects: [] });
+            expect(step(v1, SEND)).toEqual({ model: v1, effects: [] });
+            // The whole link pasted into this tab: the same room, and now a key.
+            expect(step(v1, { type: 'HASHCHANGE', roomId: ROOM, keyChanged: true }).effects).toEqual(['reload']);
+        });
+    });
+
+    describe('E29: a fragment whose key alone changed', () => {
+        const idle: VisitorState[] = [
+            'V1', 'V2', 'V3', 'V3c', 'V4', 'V5a', 'V5b', 'V5c', 'V5d', 'V6a', 'V6b', 'V6d', 'V6e', 'V6f', 'V6g',
+            'V8a', 'V8b', 'V9', 'V11', 'V11a', 'V11b', 'V12', 'V12a', 'V13',
+        ];
+        for (const s of idle) {
+            it(`${s}: reloads like a changed room`, () => {
+                expect(step(modelIn(s), { type: 'HASHCHANGE', roomId: ROOM, keyChanged: true }).effects).toEqual(['reload']);
+            });
+        }
+        it('the same room and the same key change nothing', () => {
+            expect(step(modelIn('V3'), { type: 'HASHCHANGE', roomId: ROOM, keyChanged: false }).effects).toEqual([]);
+        });
+        it('another room still reloads, whatever the key did', () => {
+            expect(step(modelIn('V3'), { type: 'HASHCHANGE', roomId: OTHER_ROOM, keyChanged: false }).effects).toEqual(['reload']);
+        });
+        it('a live attempt stays in the link it joined', () => {
+            for (const s of ['V6', 'V6c', 'V7', 'V10'] as VisitorState[]) {
+                expect(step(modelIn(s), { type: 'HASHCHANGE', roomId: ROOM, keyChanged: true }).effects, s).toEqual([]);
+            }
+        });
     });
 });
 

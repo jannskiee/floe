@@ -45,8 +45,12 @@ differently: see [What an older web app shows](/self-hosting/operations#older-we
 | [“Open in your browser”](#open-in-your-browser), a card in place of the page | The link opened inside another app's built-in browser. | Open the link in Chrome, Safari, Edge, or Firefox. |
 | [Nothing happens](#the-transfer-never-starts), on either page | The sender left, the recipient has not answered, or no network path exists. | Check the three causes in order. |
 | [The badge stays on Offline](#the-badge-stays-on-offline), on either page | The page cannot reach Floe's server. | Try another network or turn off blocking extensions, then reload. |
-| [A page that asks for files](#the-link-opens-the-send-page), from a link you were sent | The link lost its end, the part from `#room=` on. | Ask for the whole link again. |
+| [A page that asks for files](#the-link-opens-the-send-page), from a link you were sent | A link from `floe` lost its end, the part from the `#` on. | Ask for the whole link again. |
 | [“Link Invalid”](#link-invalid), a card on the page you receive on | Someone else holds the link, it was cut short, or your network changed. | Close other tabs and reload, or copy the whole link again. |
+| [“Floe couldn't confirm who sent this link”](#floe-could-not-confirm-who-sent-this-link), page you receive on | The other side did not prove it holds the [link key](/glossary#link-key). | Ask for a new link, and tell the sender what you saw. |
+| [“Floe couldn't confirm the person who opened your link”](#floe-could-not-confirm-the-person-who-opened-your-link), page you send from | The other side's proof of the link key was wrong. | Make a new link and send it again. |
+| [“The other side couldn't confirm this link”](#the-other-side-could-not-confirm-this-link), page you send from | The other side holds the link key and refused your page's proof. | Make a new link and send it again. |
+| [“This browser can't check this link”](#this-browser-cannot-check-this-link), either page | This browser could not read the connection's certificates. | Open the link or Floe in a current browser. |
 | [“The sender is not connected”](#the-sender-is-not-connected), page you receive on | Nobody is on the sending side of the link. | Wait a minute or two, reload once, then ask for a new link. |
 | [Refused after a network change](#a-device-that-changed-networks-is-refused), either page | Your device came back on a new network partway through. | Start a new transfer. |
 | [“Too many refreshes. Reconnecting”](#too-many-refreshes-reconnecting), either page | Too many connections from your network in a minute, or open at once. | Wait a minute without reloading. |
@@ -145,8 +149,9 @@ server, see
 ### The link opens a page that asks for files {#the-link-opens-the-send-page}
 
 You opened a link someone sent you, and the card's label reads Send, with an area to drop files. The
-link lost its end, the part from `#room=` on, which some chat and mail apps cut off. Without it the
-page cannot tell which transfer you meant, so it opens as a new send.
+link lost its end, the part from the `#` on, which some chat and mail apps cut off. Without it the
+page cannot tell which transfer you meant, so it opens as a new send. That is a link from `floe`. A
+link from the web app or Floe Desktop that lost the same part shows "Link Invalid".
 
 Ask the sender to send the link again, and copy all of it, including everything after the `#` sign.
 
@@ -158,7 +163,9 @@ Three things produce it:
 
 - **Someone is already connected on this link,** including you in another tab. A room takes one
   sender and one receiver.
-- **The link was cut short or altered,** so the room id in it is no longer complete.
+- **The link was cut short or altered,** so the room id or the [link key](/glossary#link-key) in it
+  is no longer complete. That includes a link cut at its `&`, a link key that lost its `k=`, and a link
+  from the web app or Floe Desktop that lost everything from the `#` on.
 - **The device is on a third network.** Once a sender and a receiver on two different networks
   have started connecting, the room turns away a device from any other network. That catches a
   phone that moved from Wi-Fi to mobile data. See
@@ -173,6 +180,61 @@ was cut. Otherwise ask the sender to start a new transfer.
 
 A link whose sender has simply left does not show this card. The page says
 ["The sender is not connected"](#the-sender-is-not-connected) instead.
+
+### "Floe couldn't confirm who sent this link" {#floe-could-not-confirm-who-sent-this-link}
+
+On the page you receive on, as a red banner: "Floe couldn't confirm who sent this link, so nothing
+was received. Ask them for a new link." The link holds a [link key](/glossary#link-key), and the side
+that connected did not prove it holds the same one. Its proof was wrong, a file came ahead of the
+proof, it said nothing for 30 seconds, or it stopped because it could not confirm your page. Nothing
+was received, and no file's name reached the page.
+
+The line does not say who is at fault. A link damaged on its way to you reads the same as a server
+stepping in between. A sender's page does not wait for the proof, so it can read "All Files Sent!" at
+this moment. Tell the sender what you saw, and if their screen says the files were sent, assume
+someone else has them. See
+[What the link key checks](/how-it-works/known-limitations#the-signaling-server-is-trusted-to-introduce-you-honestly).
+
+The message stays once it shows. Losing the connection to the server, or someone else opening the
+link, does not clear it, and the page does not go back to waiting. Ask for a new link, over another
+channel if you can.
+
+### "Floe couldn't confirm the person who opened your link" {#floe-could-not-confirm-the-person-who-opened-your-link}
+
+On the page you send from, as a red banner: "Floe couldn't confirm the person who opened your link,
+so nothing was sent. Make a new link and send it again." The other side sent a proof of the
+[link key](/glossary#link-key), and it was wrong. Your page stopped before any file's bytes went. The
+first file's name and size can have gone, because this page does not wait for the proof before it
+names a file.
+
+The message stays once it shows, and the page takes no new connection on this link. Reload, add the
+files again, and share the new link. See
+[What the link key checks](/how-it-works/known-limitations#the-signaling-server-is-trusted-to-introduce-you-honestly).
+
+### "The other side couldn't confirm this link" {#the-other-side-could-not-confirm-this-link}
+
+On the page you send from, as a red banner: "The other side couldn't confirm this link, so nothing
+was sent. Make a new link and send it again." The other side holds the
+[link key](/glossary#link-key), and it refused your page's proof, often because its copy of the link
+was changed on the way. After the other side has answered a file, the same stop reads "The other side
+rejected the transfer." instead, because a file may have gone by then.
+
+Reload, add the files again, and share the new link.
+
+### "This browser can't check this link" {#this-browser-cannot-check-this-link}
+
+On either page, as a red banner, and on a request link's page as a card. The browser could not read
+the connection's certificates, so it cannot check the [link key](/glossary#link-key). It says nothing
+about the other side, and a new link would not help. No file's bytes moved. From the page you send from, the first file's
+name and size can have gone. The sentence depends on the page:
+
+| Page | The sentence |
+|---|---|
+| The page you receive on | “This browser can't check this link, so nothing was received. Open it in a current version of Chrome, Edge, Firefox or Safari.” |
+| The page you send from | “This browser can't check this link, so nothing was sent. Open Floe in a current version of Chrome, Edge, Firefox or Safari.” |
+| A request link's page | “This browser can't check this link”, then “Nothing was sent. Open this link in a current version of Chrome, Edge, Firefox or Safari.” |
+
+Do what the sentence says, in another browser.
 
 ### "The sender is not connected" {#the-sender-is-not-connected}
 
@@ -366,7 +428,7 @@ are likely to see:
 | “Transfer blocked: relay connections are capped at 2 GB. Ask the sender to send 2 GB or less, or to try a network that allows a direct connection.” | The connection is relayed, and a sender in the browser picked more than 2 GB. | Do what the banner says. |
 | “transfer blocked: relay connections are capped at 2 GB (selected 2.5 GB)” | The same cap, from `floe send` or Floe Desktop. | Ask them to send 2 GB or less at a time. |
 | “the sender's copy of "report.pdf" changed while it was being sent, so nothing further was sent” | A file changed on their computer while `floe send` or Floe Desktop was sending it. | Ask them to send it again once it stops changing. |
-| “The sender stopped: a file could not be read on their device. Ask them to check it and send again.” | A file they picked in the browser was moved, renamed, or deleted. | Do what the banner says. |
+| “The sender stopped: a file could not be read on their device. Ask them to check it and send again.” | A file they were sending was moved, renamed, or deleted, or its drive was unplugged. `floe send` 1.11.7 and earlier and Floe Desktop 1.0.4 and earlier close the connection without saying so. | Do what the banner says. |
 | “The sender stopped after waiting 2 minutes for this device to answer. Ask them to send again.” | Your page did not take the file in time. | Do what the banner says. |
 | “The sender stopped because of an error on their side. Ask them to send again.” | The sending page hit an error it did not expect. | Do what the banner says. |
 
@@ -679,7 +741,11 @@ two-space indent, with no prefix. `Ctrl+C` prints `Canceled.` and exits with sta
 | [`code "olive-tiger-castle" not found`](#code-olive-tiger-castle-not-found-or-expired-codes-expire-after-10-minutes), from `floe receive` | The code was used, its sender left, it expired, or it was mistyped. | Ask for the link, or for a new code. |
 | [`server returned 429 when resolving code`](#server-returned-429-when-resolving-code), from `floe receive` | Too many wrong codes from your network in a minute. | Wait a minute, check the code, try again. |
 | [`This link looks incomplete`](#this-link-looks-incomplete), from `floe receive` or `floe send --to` | The link was cut short or mistyped. | Copy the whole link again, in quotes. |
-| [`invalid URL` or `URL does not contain a room id`](#could-not-resolve-invalid-url), from `floe receive` | What you pasted is not a usable room link. | Paste the whole link, or type the code. |
+| [`invalid URL` or `URL does not contain a room id`](#could-not-resolve-invalid-url), from `floe receive` | What you pasted is not a usable room link, or, before `floe` 1.12, a shell cut it at its `&`. | Paste the whole link in quotes, or type the code. |
+| [`Couldn't confirm who sent this link`](#could-not-confirm-who-sent-this-link-cli), from `floe receive` 1.12 and later | The sender did not prove it holds the [link key](/glossary#link-key). | Ask for a new link. |
+| [`Couldn't confirm the person who opened your link`](#could-not-confirm-the-person-who-opened-your-link-cli), from `floe send` 1.12 and later | The receiver's proof of the link key was wrong, or it refused yours. | Make a new link and send it again. |
+| [`Couldn't confirm the receiver`](#could-not-confirm-the-receiver), from `floe send --link-only` | The receiver showed no proof within 15 seconds. | Ask what they opened the link with. |
+| [`this connection's certificates could not be read`](#this-connections-certificates-could-not-be-read), from `floe` 1.12 and later, apart from `--to`, or Floe Desktop 1.1 and later | This side could not read its own connection. | Run it again. |
 | [`invalid response from code API`](#invalid-response-from-code-api), from `floe receive` or `floe send` | Something other than a Floe server answered about the code. | With `floe receive`, paste the link instead. Check the server address. |
 | [`this code or link is no longer active`](#this-code-is-no-longer-active-ask-for-a-new-one), from `floe receive` | The sender is no longer in the transfer. | Ask for a new code or link. |
 | [`room is full`](#room-is-full-someone-else-may-already-be-receiving), from `floe receive` | Someone else already joined this transfer. | Ask for a transfer of your own. |
@@ -692,6 +758,7 @@ two-space indent, with no prefix. `Ctrl+C` prints `Canceled.` and exits with sta
 | [`Warning: ... Using STUN only.`](#warning-could-not-reach-signaling-server-for-turn-credentials-using-stun-only) | `floe` could not get the relay details. | Check the server address, or wait a minute. |
 | [`Warning: could not generate short code`](#warning-could-not-generate-short-code), from `floe send` | The server gave no room code. | Share the link instead. |
 | [`--relay-only needs a TURN relay`](#relay-only-needs-a-turn-relay) | The server offers no relay. | Drop the flag, or add a relay to the server. |
+| [`--iface matches no network interface`](/cli/flags#global-flags) | No network interface on this computer has a name you gave. | Check the name, or drop the flag. |
 | [`timed out waiting for the peer's offer`](#timed-out-waiting-for-the-peers-offer) or its twin | The other side sent nothing for 30 seconds. | Ask them to bring Floe to the front. |
 | [`timed out establishing a connection`](#timed-out-establishing-a-connection) | No network path worked within 30 seconds. | Allow the relay on both sides. |
 | [`the other side left before the connection was established`](#the-other-side-left-before-the-connection-was-established) | The other person left while connecting. | Run it again when they are ready. |
@@ -712,14 +779,14 @@ two-space indent, with no prefix. `Ctrl+C` prints `Canceled.` and exits with sta
 | [`timed out waiting for delivery confirmation from peer`](#timed-out-waiting-for-delivery-confirmation-from-peer), from `floe send` | The receiver went quiet after the last file. | Ask what arrived. |
 | [`the connection closed before the receiver confirmed delivery`](#the-connection-closed-before-the-receiver-confirmed-delivery), from `floe send` | The receiving app did not say every file was saved. | Ask what arrived. |
 | [`the file shrank while it was being sent`](#the-file-shrank-or-grew-while-it-was-being-sent), or `grew`, from `floe send` | A file changed on disk while it was read. | Send it again once it stops changing. |
-| [`cannot read` or `cannot send` and a path](#cannot-read-a-path), from `floe send` | A path does not exist, or is a link to a folder. | Check the path. |
+| [`cannot read` or `cannot send` and a path](#cannot-read-a-path), from `floe send` | A path does not exist, is a link to a folder, or is a pipe, socket or device. | Check the path. |
 | [`receive stopped: a file's path is too deep or too long`](#receive-stopped-path-too-deep-or-too-long), from `floe receive` | A path in the transfer is too deep or long to save. | Ask the sender to zip it first. |
 | [`rejected the sender's file description`](#rejected-the-senders-file-description) and similar lines, from `floe receive` | The sending app sent something that cannot be right. | Ask the sender to send again or update Floe. |
 | [`a file did not match the SHA-256`](#a-file-did-not-match-the-sha-256), from `floe receive` | A file failed its SHA-256 check and was deleted. | Ask the sender to send it again. |
 | [`write error`](#write-error), from `floe receive` | The drive filled up, or a write failed. | Free space or choose another folder. |
 | [`received a file in full but could not finish saving it`](#received-a-file-in-full-but-could-not-finish-saving-it), from `floe receive` | Another program held the finished file. | Remove the `.part` ending from it. |
 | [`Cannot transfer: your floe is too old for this peer.`](#cannot-transfer-your-floe-is-too-old-for-this-peer) | The two apps speak protocol versions that do not overlap. | Update the side the message names. |
-| [`no files to send`](#no-files-to-send), from `floe send` | Every path is an empty folder. | Send at least one file. |
+| [`no files to send`](#no-files-to-send), from `floe send` | Every path is a folder with no file in it. | Send at least one file. |
 | [`floe` is not found after installing](#floe-is-not-found-after-installing) | Your terminal does not search the install folder yet. | Open a new terminal. |
 | [`Cannot update a dev build.`](#cannot-update-a-dev-build), from `floe update` | The binary has no release version. | Install a release build. |
 | [`installed via homebrew`](#installed-via-homebrew-run-brew-upgrade-floe-to-update), from `floe update` | A package manager owns this binary. | Run the command the line names. |
@@ -786,15 +853,74 @@ id was cut short or mistyped, or what you pasted holds a room id in a shape `flo
 as a room id on its own. `floe` stops before it contacts any server, and never prints the link
 back. Floe Desktop says ["That link is incomplete"](#that-link-is-incomplete).
 
-Copy the whole link again and put it in quotes, as the line says.
+In `floe` 1.12 and later the same goes for a link's [link key](/glossary#link-key). That covers a link
+cut in its link key or at its `&`, a line break in a copied link, a link key that lost its `k=`, and
+a link key pasted on its own. `floe send --to` in 1.11.7 prints this line for any request link from Floe Desktop 1.1 or later,
+because it cannot read the link key behind the dot, and the whole link does not help there. Run
+`floe update`.
+
+Copy the whole link again and put it in quotes, as the line says. See
+[Put the link in quotes](/cli/send#put-the-link-in-quotes).
 
 ### `invalid URL` or `URL does not contain a room id (#room= or ?room=)` {#could-not-resolve-invalid-url}
 
 From `floe receive`, after `could not resolve` and what you pasted. `invalid URL` means it starts
 like a link but cannot be read as one. `URL does not contain a room id` means the address is a Floe
-page with no room in it, such as the home page.
+page with no room in it, such as the home page, or a link a shell cut short. A share link with a
+[link key](/glossary#link-key) holds an `&`, and a shell ends the command there.
 
-Paste the whole link from the sender, or type the code.
+`floe` 1.11.7 and earlier print such a cut link back, link key included, as
+`Error: could not resolve "https://floe.one/#k=<link key>": URL does not contain a room id (#room= or ?room=)`.
+That stays on your own screen and in your scrollback. `floe` 1.12 and later print
+[`This link looks incomplete`](#this-link-looks-incomplete) instead.
+
+Paste the whole link from the sender, in quotes, or type the code. A code carries no link key, so a
+receive by code has no check.
+
+### `Couldn't confirm who sent this link. Nothing was saved. Ask them for a new link.` {#could-not-confirm-who-sent-this-link-cli}
+
+From `floe receive` 1.12 and later, on a two-space indent with no `Error: `. The link holds a
+[link key](/glossary#link-key), and the sender did not prove it holds the same one, or it stopped
+because it could not confirm this side. You got no prompt, and nothing was saved.
+
+The line does not say who is at fault. A link damaged on its way to you reads the same as a server
+stepping in between. Ask the sender for a new link, over another channel if you can, and tell them
+what you saw. A sender may not wait for the proof, so their `floe send` can still have printed its
+`Sent` box. See
+[What the link key checks](/how-it-works/known-limitations#the-signaling-server-is-trusted-to-introduce-you-honestly).
+
+### `Couldn't confirm the person who opened your link. Nothing was sent. Make a new link and try again.` {#could-not-confirm-the-person-who-opened-your-link-cli}
+
+From `floe send` 1.12 and later, on a two-space indent with no `Error: `. The other side's proof of
+the [link key](/glossary#link-key) was wrong, or it holds the link key and refused your proof, before
+it answered a file. No file's bytes went. The first file's name and size can have gone, because a
+plain `floe send` does not wait for the proof before it names a file.
+
+Run `floe send` again and share the new link, over a channel you trust. To name no file before the
+proof, add [`--link-only`](/cli/send#link-only).
+
+### `Couldn't confirm the receiver. They may need to run floe update, or open the link in a browser.` {#could-not-confirm-the-receiver}
+
+From `floe send --link-only`, on a two-space indent with no `Error: `, after about 15 seconds. The
+receiver showed no proof of the [link key](/glossary#link-key), so no file was named. Nothing else
+says why. The usual cause is a receiver that cannot give a proof:
+
+- `floe receive` before 1.12, or **Receive** in Floe Desktop before 1.1. It prints its own update line.
+- A browser on a web app image older than 1.12.0. There the browser is what is old, so opening the
+  link in a browser does not help: see
+  [What an older web app shows](/self-hosting/operations#older-web-app-versions).
+- A link that lost its link key on the way.
+
+Ask the other person what they opened the link with, and to update it. See
+[Send only to a receiver that proves it holds the link](/cli/send#link-only).
+
+### `this connection's certificates could not be read to check the link's key` {#this-connections-certificates-could-not-be-read}
+
+From `floe` 1.12 and later after `Error: `, and from Floe Desktop 1.1 and later after
+`Error: transfer failed: `. This side could not read its own connection's certificates, so it has no
+proof to give and stops. It says nothing about the other side, and it should be rare.
+
+Start the transfer again. If it repeats, report it.
 
 ### `invalid response from code API` {#invalid-response-from-code-api}
 
@@ -861,9 +987,10 @@ From `floe`, before it does anything. The command is missing a word, or has one 
 |---|---|---|
 | `Error: unknown command "olive-tiger-castle" for "floe"`, then `Run 'floe --help' for usage.` | The word `receive` was left out. | Run `floe receive olive-tiger-castle`. |
 | `That looks like a link to receive from. To receive, use: floe receive <link>` | A room link was typed without `receive`. | Run `floe receive` with the link in quotes. |
-| `Error: accepts 1 arg(s), received 3` | `floe receive` got three words, usually a code typed with spaces. | Type the code with hyphens between the words. |
+| `Error: accepts 1 arg(s), received 3` | `floe receive` got three words, usually a code typed with spaces. A link with a space in it, with no quotes, reads `received 2`. | Type the code with hyphens between the words, or copy the link again and put it in quotes. |
 | `Error: requires at least 1 arg(s), only received 0` | `floe send` was given nothing to send. | Name the files or folders to send. |
 | `Error: if any flags in the group [relay-only no-relay] are set none of the others can be; [no-relay relay-only] were all set` | `--relay-only` and `--no-relay` were both given. | Keep one of the two. |
+| `Error: if any flags in the group [to link-only] are set none of the others can be; [link-only to] were all set` | In `floe` 1.12 and later, `--link-only` and `--to` were both given. | Keep one of the two. |
 
 ### `cannot create output directory` {#cannot-create-output-directory}
 
@@ -1025,10 +1152,10 @@ Each line names the step that failed:
 
 | Line | What it means | What to do |
 |---|---|---|
-| `WebRTC setup failed: failed to set remote description:` and the [WebRTC](/glossary#webrtc) library's words | The connection details the other app sent could not be used. No current Floe app sends details like that. | Ask the other person to update Floe, or to use another Floe app. |
+| `WebRTC setup failed: failed to set remote description` | The other app's connection details could not be used, and no current Floe app sends such details. Before `floe` 1.12 and Floe Desktop 1.1, the line goes on with the [WebRTC](/glossary#webrtc) library's words, which can quote the other side. | Ask the other person to update Floe, or to use another Floe app. |
 | `WebRTC setup failed: failed to send offer:` or `failed to send answer:`, and a reason | The connection to the server closed while `floe` was handing over its connection details. | Check your network, then run the command again. |
 | `WebRTC setup failed: failed to create data channel:`, `failed to create offer:`, `failed to create answer:` or `failed to set local description:`, and a reason | `floe` could not set up its own side of the connection. | Run the command again. If it repeats, report it. |
-| `failed to create peer connection:` and a reason, with no `WebRTC setup failed:` in front | `floe` could not set up its side of the connection, usually because a relay address the server handed out is not valid. | Run the command again. On your own server, check that `TURN_DOMAIN` is a bare hostname such as `turn.example.com`, with no `https://`. |
+| `failed to create peer connection:` and a reason, with no `WebRTC setup failed:` in front | `floe` could not set up its side of the connection, usually because a relay address the server handed out is not valid. | Run the command again. On your own server, check that `TURN_DOMAIN` is a bare hostname such as `turn.example.com`, with no `https://`: a server image of version 1.11.7 or earlier hands such a value out. |
 | `closed before the connection was established`, also with no `WebRTC setup failed:` in front | The connection was closed on this computer before the two devices finished connecting, for example because the other app opened a second channel, which no Floe app does. | Run the command again. If it repeats with the same person, ask them to update Floe. |
 
 Floe Desktop can show `failed to create peer connection:` as well, after `Error: `. The same fix
@@ -1049,7 +1176,10 @@ floe receive olive-tiger-castle --iface Ethernet
 ```
 
 Repeat the flag or separate names with commas for several. It is an allowlist, not a preference,
-so remove it again when you change networks, or the connection fails outright.
+so remove it again when you change networks. When no interface matches any of the names, `floe` stops before it
+pairs, with `Error: --iface matches no network interface on this computer; check the name, or drop the flag`.
+An adapter that exists but is down passes that check, and the connection then fails outright.
+`floe` 1.11.7 and earlier accept any name, and the connection fails after pairing.
 
 `floe` already ignores link-local addresses, which covers dead auto-configured adapters. A VPN
 adapter with a routable address, such as Tailscale's `100.x` range, is still tried.
@@ -1124,9 +1254,13 @@ From `floe receive`, as `Error: The sender stopped.` The sender pressed `Ctrl+C`
 Files that finished are kept, and the file that was arriving is deleted.
 
 A sender that stops for another reason says so, and `floe receive` prints its words. Examples are
-`the sender's copy of "report.pdf" changed while it was being sent, so nothing further was sent`
-and the relay cap in
-[`relay connections are capped at 2 GB`](#relay-connections-are-capped-at-2-gb).
+`the sender's copy of "report.pdf" changed while it was being sent, so nothing further was sent`,
+`The sender stopped: a file could not be read on their device. Ask them to check it and send again.`
+when a file was moved, deleted, or on a drive that was unplugged, and the relay cap in
+[`relay connections are capped at 2 GB`](#relay-connections-are-capped-at-2-gb). A `floe send` 1.11.7
+or earlier, or a Floe Desktop 1.0.4 or earlier, whose file cannot be read gives no reason, so
+`floe receive` prints one of the lines under
+[`connection closed before any file arrived`](#connection-closed-before-any-file-arrived).
 
 Ask whether they meant to stop, then ask them to send again whatever did not arrive.
 
@@ -1213,6 +1347,7 @@ when you click **Send**. Each line names the path:
 |---|---|---|
 | `cannot read` and a path | A file or folder you added does not exist or cannot be opened, for example on a drive that was unplugged. | Check the path, or add the file again. |
 | `cannot walk` and a folder, then `cannot send` and a path ending `it is a link to a folder, which Floe does not follow` | A folder you send holds a link to another folder: a symbolic link or a junction, which are shortcuts the file system follows. | Send the folder the link points to on its own. |
+| `cannot send` and a path ending `it is a pipe, a socket or a device, not a file` | The path you named is not a regular file or folder. Inside a folder, such entries are left out without a message. | Send a regular file. To send a device's contents, copy them to a file first. |
 | `cannot walk` and a folder, then `cannot read` and a path | A link inside that folder points nowhere. | Remove the link, or restore what it pointed to. |
 | `cannot walk` and a folder, then another reason | A folder inside what you send could not be listed. | Check that you can open that folder. |
 
@@ -1239,7 +1374,7 @@ From `floe receive`. Each of these means the sending app sent something that can
 | `rejected the sender's file description:` and a detail | The sending app gave a size or a position that cannot be right. | Ask the sender to update Floe. |
 | `incomplete file "report.pdf": received 1048576 of 2097152 bytes` | Fewer bytes of the file arrived than announced, so it was deleted. | Ask the sender to send it again. |
 | `sender exceeded the announced size of "report.pdf"` | More bytes arrived than announced, so the file was deleted. | Ask the sender to send it again once it stops changing. |
-| `the sender stopped the transfer` | The sender stopped with a message `floe` could not read. | Ask the sender to send again. |
+| `the sender stopped the transfer` | The sender stopped with a message `floe` could not read. In `floe` 1.12 and later, also any stop from a sender that has not proved the link key. | Ask the sender to send again. |
 | `transfer abandoned while completing "report.pdf"` | The receive was stopped while it saved that file. | Check the save folder, then ask for what is missing. |
 
 ### `a file did not match the SHA-256 the sender computed, so it was not kept` {#a-file-did-not-match-the-sha-256}
@@ -1280,9 +1415,13 @@ still to come.
 
 ### `Cannot transfer: your floe is too old for this peer.` {#cannot-transfer-your-floe-is-too-old-for-this-peer}
 
-In any Floe app, before any file moves. It appears only when the two apps speak transfer protocol
-versions that do not overlap. A different release number is never the cause by itself. Every
-release so far speaks protocol 1, so two released versions cannot produce it today.
+In any Floe app, before any file moves. It appears when the two apps speak transfer protocol
+versions that do not overlap. A different release number is never the cause by itself. Every release
+still accepts protocol 1, so an ordinary transfer does not produce it. One stop does, on purpose:
+`floe send --link-only`, in `floe` 1.12 and later, stops a receiver that cannot prove it holds the
+link, with a stop only protocol 2 can read. A `floe receive` from 1.10.8 to 1.11.7, or Floe Desktop
+1.0.x, then prints this. A `floe receive` older than 1.10.8 prints
+[`connection closed before any file arrived`](#connection-closed-before-any-file-arrived) instead.
 
 Each app words it its own way. Each form has a line with both sides as `You:` and `Peer:`, then
 the remedy:
@@ -1315,7 +1454,8 @@ wording, and then the `You:` and `Peer:` lines are what to go by.
 
 From `floe send`, before it contacts any server. Floe Desktop shows "The folders you chose have no
 files to send" when you click **Send**, before a code is made. Every path you gave is an empty
-folder, or a folder that holds only empty folders. A path that does not exist stops earlier, with
+folder, or a folder that holds only empty folders, or only pipes, sockets or devices, which Floe
+leaves out. A path that does not exist stops earlier, with
 [`cannot read`](#cannot-read-a-path) and the path.
 
 Check the paths, and make sure there is at least one file in what you send.
@@ -1385,6 +1525,8 @@ Request-link messages carry no prefix.
 | [“The server is limiting requests from this network. Wait a minute and try again”](#the-server-is-limiting-requests-from-this-network), **Receive** | Too many wrong codes from your network in a minute. | Wait a minute, then try again. |
 | [“That link is incomplete”](#that-link-is-incomplete), **Receive** | The end of the link was cut off. | Copy the whole link again. |
 | [“That link is for floe.one” or “That link is for another Floe server”](#that-link-is-for-another-server-in-floe-desktop), **Receive** | The link and your **Server address** disagree. | Do what the line says. |
+| [“Couldn't confirm who sent this link. Nothing was received”](#could-not-confirm-who-sent-this-link-in-floe-desktop), **Receive** in Floe Desktop 1.1 and later | The sender did not prove it holds the [link key](/glossary#link-key). | Ask for a new link. |
+| [“Couldn't confirm who opened your link. Nothing was sent”](#could-not-confirm-who-opened-your-link), **Send** in Floe Desktop 1.1 and later | The other side's proof of the link key was wrong, or it refused yours. | Click **Send** again for a new link. |
 | [“this code or link is no longer active”](#this-code-is-no-longer-active-ask-for-a-new-one), **Receive** | The sender is no longer in the transfer. | Ask for a new code or link. |
 | [“room is full”](#room-is-full-someone-else-may-already-be-receiving), **Receive** | Someone else already joined this transfer. | Ask for a transfer of your own. |
 | [“Can't reach the server”](#could-not-reach-the-server), **Send** or **Receive** | The app lost, or never had, its connection to the server. | Check your network and the **Server address**. |
@@ -1419,6 +1561,7 @@ Request-link messages carry no prefix.
 | [“The API answered HTTP 404”](#the-test-button-says-the-api-answered-with-an-http-error), Settings, **Test** | `/api/` is not reaching the server. | Forward `/api/` to the server. |
 | [“Connected, but this server has no relay”](#the-test-button-says-the-server-has-no-turn-relay), Settings, **Test** | The server works but offers no relay. | Leave **Hide my IP address** off, or add a relay. |
 | [“That address answered HTTP 404 (likely the web app, not the server)”](#the-test-button-says-it-may-be-the-web-app-rather-than-the-signaling-server), Settings, **Test** | You entered the web app's address. | Enter the signaling server's address. |
+| [“That address redirects to https://”](#the-test-button-says-the-address-redirects-to-https), Settings, **Test** | You entered `http://`, and the server redirects to `https://`. | Start the address with `https://`. |
 | [No right-click menu setting](#there-is-no-right-click-menu-setting), Settings | This is the Microsoft Store build. | Install the build from GitHub if you need it. |
 | [The right-click menu switch turns itself off](#the-switch-for-the-right-click-menu-keeps-turning-itself-off), Settings | Windows refused the registry entry. | Send from the Floe window instead. |
 | [“Floe could not start.”](#floe-will-not-start), a dialog | WebView2 is missing, or something else failed at startup. | Install WebView2, or report the text. |
@@ -1446,10 +1589,31 @@ Wait a minute, check the code with the sender, and try again.
 
 ### "That link is incomplete" {#that-link-is-incomplete}
 
-On the **Receive** tab. The link you pasted names a room id that is not complete, usually because
-the end of the link was cut off when it was copied.
+On the **Receive** tab. The link you pasted names a room id that is not complete, or, in Floe Desktop 1.1
+and later, a [link key](/glossary#link-key) that is not, usually because the end of the link was cut off when it was copied.
 
 Copy the whole link again and paste it.
+
+### "Couldn't confirm who sent this link. Nothing was received" {#could-not-confirm-who-sent-this-link-in-floe-desktop}
+
+On the **Receive** tab, in Floe Desktop 1.1 and later. The link holds a
+[link key](/glossary#link-key), and the sender did not prove it holds the same one, or it stopped
+because it could not confirm this side. Nothing was saved.
+
+The line does not say who is at fault. A link damaged on its way to you reads the same as a server
+stepping in between. Ask the sender for a new link, over another channel if you can, and tell them
+what you saw, because their screen may say the files were sent. See
+[What the link key checks](/how-it-works/known-limitations#the-signaling-server-is-trusted-to-introduce-you-honestly).
+
+### "Couldn't confirm who opened your link. Nothing was sent" {#could-not-confirm-who-opened-your-link}
+
+On the **Send** tab, in Floe Desktop 1.1 and later. The other side's proof of the
+[link key](/glossary#link-key) was wrong, or it holds the link key and refused your proof, before it
+answered a file. No file's bytes went. The first file's name and size can have gone, because **Send**
+does not wait for the proof before it names a file. Past an answer, the same stop reads
+["They stopped the transfer"](#they-stopped-the-transfer-in-floe-desktop).
+
+Click **Send** again for a new code and link, and share the link over a channel you trust.
 
 ### "That link is for floe.one" or "That link is for another Floe server" {#that-link-is-for-another-server-in-floe-desktop}
 
@@ -1489,7 +1653,8 @@ On the **Send** or **Receive** tab, after `Error: `, while Floe joins the transf
 other person. The server turned the transfer away with an error of its own. A Floe signaling server
 sends only one error at that step, for a link whose room id is not valid, and Floe Desktop has its
 own line for that one. So this points at a **Server address** that is not a Floe signaling server.
-Floe Desktop never shows the server's own words.
+Floe Desktop never shows the server's own words. `floe` 1.12 and later print the same line for such
+an error, after `Error: `, in place of the server's words.
 
 If you set a **Server address** in Settings, check it with **Test**, or clear it to go back to Floe's
 server.
@@ -1547,12 +1712,14 @@ Ask the sender to start a new transfer.
 
 On the **Receive** tab, as `Error: transfer failed: ` and the sender's own sentence, without its
 closing period. `The sender stopped` means they pressed `Ctrl+C` in `floe send` 1.11.1 or later. A
-sender in the browser names its reason instead:
+sender in the browser names its reason instead, and so does a `floe send` or Floe Desktop for a file it
+can no longer read:
 
-- `The sender stopped: a file could not be read on their device. Ask them to check it and send again`
+- `The sender stopped: a file could not be read on their device. Ask them to check it and send again`, when a file was moved, deleted, or on a drive that was unplugged. `floe send` 1.11.7 and earlier and Floe Desktop 1.0.4 and earlier close the connection without it
 - `The sender stopped after waiting 2 minutes for this device to answer. Ask them to send again`
 - `The sender stopped because of an error on their side. Ask them to send again`
 - `The sender has Network relay fallback off, and this connection needs the relay. Ask them to reload, leave it on, and share a new link`
+- `the sender stopped the transfer`, in Floe Desktop 1.1 and later, for any stop from a sender that has not proved the [link key](/glossary#link-key). It carries none of the sender's words
 
 Files that finished are kept, and the file that was arriving is deleted.
 
@@ -1571,7 +1738,9 @@ Check with the recipient before you send again.
 
 On the **Send** tab. The receiving app ended the transfer on purpose and told Floe Desktop so. It
 is the line for someone pressing `Ctrl+C` in `floe receive` 1.11.0 or later, and for a receiver
-that stopped because more data arrived for a file than was announced. Floe Desktop 0.3.0 showed
+that stopped because more data arrived for a file than was announced. In Floe Desktop 1.1 and later
+a decline, a missed answer or a failed link key check reads this way too once the receiver has
+answered a file, because a file may have gone. Floe Desktop 0.3.0 showed
 the `Ctrl+C` case as `Error: transfer failed: They stopped this drop`. In every case the files
 they had already saved stay saved.
 
@@ -1794,6 +1963,28 @@ with the same page, cannot pass itself off as a healthy server.
 Enter the signaling server's address, which is `http://localhost:3001` in that default setup.
 **Server address** always wants the signaling server.
 
+### The Test button says the address redirects to https:// {#the-test-button-says-the-address-redirects-to-https}
+
+In Settings, after you click **Test**:
+
+```text Status line
+Error: That address redirects to https://. Start it with https:// and test again
+```
+
+You entered an `http://` address, and it answered with a redirect to `https://` on the same host
+name, on any port. A reverse proxy that moves plain HTTP to HTTPS does this, such as the nginx
+sample in [Run behind one domain](/self-hosting/reverse-proxy) with a 301, or Caddy with a 308.
+Test never follows a redirect, so it stops there.
+
+Change the start of **Server address** from `http://` to `https://`, for example
+`https://floe.example.com`, and click **Test** again. If your proxy serves HTTPS on another port,
+put that port in the address too, for example `https://floe.example.com:8443`. A redirect to a
+different host, such as a Wi-Fi sign-in page, still shows the
+[HTTP status line](#the-test-button-says-it-may-be-the-web-app-rather-than-the-signaling-server).
+
+Floe Desktop 1.0.4 and earlier show the HTTP status line for this redirect too, such as
+`Error: That address answered HTTP 301 (likely the web app, not the server)`.
+
 ### There is no right-click menu setting {#there-is-no-right-click-menu-setting}
 
 In Settings: the **Windows** section, and with it **Show in right-click menu**, is missing. That is
@@ -1855,6 +2046,10 @@ a reload empties your file selection.
 | [“Request links are turned off right now”](#request-links-are-turned-off-right-now), sender's page or `floe send --to` | The server has request links turned off. | Click **Try again** later. |
 | [“Request links are not available on this Floe server.”](#request-links-are-not-available-on-this-floe-server), sender's page or `floe send --to` | The server does not answer request links. | Ask which server their Floe uses. |
 | [“They did not answer in time. Nothing was sent.”](#they-did-not-answer-in-time), sender's page | The person who made the link did not click **Accept** in time. | Ask them to be at their PC, then send again. |
+| [“Couldn't confirm their computer”](#could-not-confirm-their-computer), sender's page or `floe send --to` 1.12 and later | The computer that answered did not prove it holds the [link key](/glossary#link-key). | Ask for a new link. |
+| [“Their computer couldn't confirm this link”](#their-computer-could-not-confirm-this-link), sender's page or `floe send --to` 1.12 and later | Their Floe refused the sender's proof of the link key. | Ask for a new link. |
+| [“This browser can't check this link”](#this-browser-cannot-check-this-link), sender's page | This browser could not read the connection's certificates. | Open the link in another browser. |
+| [“A sender couldn't be confirmed and was disconnected”](#a-sender-could-not-be-confirmed), Floe Desktop 1.1 and later | A sender on your link failed the link key check. | Send the whole link again if you expected them. |
 | [“Request links are off on this server”](#request-links-are-turned-off-on-this-server), Floe Desktop | The server has request links turned off. | Try again later. |
 | [“This Floe server doesn't offer request links”](#this-floe-server-doesnt-offer-request-links), Floe Desktop | The server is older than 1.11.0, from before request links. | Ask whoever runs it to update it. |
 | [“This network reached today's link limit”](#this-network-made-too-many-request-links-today), Floe Desktop | 20 new links from one network in 24 hours. | Wait, then make the link again. |
@@ -1883,8 +2078,11 @@ online, then ask them to try again.
 
 On the sender's page, followed by "Ask them for a new link." `floe send --to` prints "This link
 has ended. Ask them for a new link." The link was closed before anyone used it: the person who made
-it clicked **Close link** or quit Floe, or its end time passed. The message stays for about a day
-afterward. The card has no **Try again**, because the link will not come back.
+it clicked **Close link** or quit Floe, or its end time passed. On Floe Desktop 1.1 and later, the
+link also ends this way after 5 senders fail its [link key](/glossary#link-key) check: see
+["A sender couldn't be confirmed and was disconnected"](#a-sender-could-not-be-confirmed). The
+message stays for about a day afterward. The card has no **Try again**, because the link will not
+come back.
 
 Ask the person who made it for a new link.
 
@@ -1933,6 +2131,39 @@ On the sender's page, with a **Back to files** button. The person who made the l
 their computer, and a missed request does not close the link.
 
 Ask them to be at their PC, then go back to your files and send again.
+
+### "Couldn't confirm their computer" {#could-not-confirm-their-computer}
+
+On the sender's page, followed by "Nothing was sent. Ask the person who made this link for a new
+one." `floe send --to` 1.12 and later prints `Couldn't confirm their computer. Nothing was sent.` The
+link holds a [link key](/glossary#link-key), and the computer that answered did not prove it holds the
+same one: its proof was wrong, or none came within 15 seconds. No file was named.
+
+The line accuses nobody. A link changed on its way to you reads the same as a server stepping in
+between. Ask the person who made the link for a new one, over another channel if you can. See
+[What the link key checks](/how-it-works/known-limitations#the-signaling-server-is-trusted-to-introduce-you-honestly).
+
+### "Their computer couldn't confirm this link" {#their-computer-could-not-confirm-this-link}
+
+On the sender's page and from `floe send --to` 1.12 and later, then how many files were saved, then
+"Ask the person who made this link for a new one." Their Floe holds a [link key](/glossary#link-key)
+and refused the proof it got from your side, usually because your copy of the link was changed on the
+way. A link cut before its link key reads "This link looks incomplete" instead: see
+[Send files through a request link](/web-app/request-links#messages-on-the-senders-page).
+
+Do what the line says.
+
+### "A sender couldn't be confirmed and was disconnected" {#a-sender-could-not-be-confirmed}
+
+In Floe Desktop 1.1 and later, on a link that is waiting again. Someone connected to your link and did
+not prove they hold its [link key](/glossary#link-key). You got no request, no notification and no
+flash, nothing was saved, and the link still works. The cause can be a sender whose copy of the link
+was changed or cut, or a server stepping in between.
+
+The fifth such sender on one link closes it, with "Link closed after 5 senders couldn't be confirmed",
+and the next sender reads ["This link has ended"](#this-link-has-ended). If you expected someone, send
+them the whole link again, and if the link closed, click **Make another link**. See
+[A sender that fails the check](/desktop/request-links#a-sender-that-fails-the-check).
 
 ### "Request links are off on this server" {#request-links-are-turned-off-on-this-server}
 
@@ -2124,7 +2355,7 @@ be made and the coturn pair is not set. One of `CLOUDFLARE_TURN_KEY_ID` and
 With `TURN_SECRET` and `TURN_DOMAIN` both set, a failed request falls back to the coturn entries
 instead.
 
-- Both variables are read once at startup.
+- Both variables are read once at startup. With only one of them set, the server logs a line starting `Only one of`. A server image of version 1.11.7 or earlier logs nothing.
 - An answer is reused for 5 minutes.
 - If Cloudflare stops answering, the server keeps serving the last good answer for up to about 23
   hours after it was made.
@@ -2134,7 +2365,8 @@ instead.
 **Self-hosted coturn.** The bundled service uses host networking, so it needs a Linux host with a
 public IP, a domain, and a TLS certificate (unless you set `TURN_TLS=off`). `TURN_SECRET` and
 `TURN_DOMAIN` have to match coturn's `static-auth-secret` and `realm`. With only one of the two set,
-the server offers no relay and says nothing.
+the server offers no relay and logs a line starting `Only one of`. A `TURN_DOMAIN` with a scheme, a port
+or a path turns the relay off too, and logs a line starting `TURN_DOMAIN holds`. A server image of version 1.11.7 or earlier logs neither.
 
 Fix the variables, then restart the server so that it reads them: `docker compose up -d`, or a
 plain restart without Docker. See [TURN relay](/self-hosting/turn-relay).
@@ -2181,7 +2413,10 @@ A few startup lines can appear. `request links: on` means the policy file turned
 or is unreadable means they stayed off. A server started with Node directly and without
 `TRUSTED_PROXY_COUNT` writes one line saying which proxy count is in use. A server given a word or
 a negative number for it writes one line saying 0 is in use. A `MAX_*` variable that is not a
-whole number of at least 1 gets one line naming it and the default now in use.
+whole number of at least 1 gets one line naming it and the default now in use. Half of a pair of
+variables gets a line starting `Only one of`, and a `TURN_DOMAIN` that holds more than a hostname a
+line starting `TURN_DOMAIN holds`. Upstash settings that do not work get one `Upstash counter` line:
+`read failed` at startup, or `update failed` at the first report. A server image of version 1.11.7 or earlier writes none of these last three.
 
 Use `GET /health`, which returns `{"status":"healthy","uptime":<seconds>,"features":[...]}`, to
 confirm the server is alive and to see whether a restart landed.

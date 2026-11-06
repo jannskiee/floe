@@ -1,7 +1,8 @@
 // The /take claim bot: everything .github/workflows/claim.yml does after its
 // checkout of main. A contributor starts a comment with /take on a good first
-// issue and is assigned, usually within a minute, or gets one of the fixed
-// replies in .github/claim/ saying why not; /untake gives the issue back.
+// issue or a help wanted issue and is assigned, usually within a minute, or
+// gets one of the fixed replies in .github/claim/ saying why not; /untake gives
+// the issue back.
 // Tests: claim.test.mjs beside this file, run by ci.yml's Repo guardrails job.
 // A live smoke test on 2026-10-27 measured 13 s from comment to assignment,
 // and one run that waited about 5 minutes for a GitHub runner.
@@ -28,6 +29,13 @@ import { readdirSync, readFileSync } from 'node:fs';
 
 export const CLAIM_LABEL = 'good first issue';
 export const HELP_LABEL = 'help wanted';
+// How many issues with either label one person can hold. It matches the two
+// open pull requests an account can have here, and a returner can start a second
+// issue while a pull request waits for review. holds-two.md, CONTRIBUTING.md and
+// AGENTS.md say the number in words (claim.test.mjs keeps them equal). The owner
+// moved help wanted from hand assignment to /take on 2026-11-03 (D4 dropped), for
+// anyone, with this limit.
+export const MAX_HELD = 2;
 export const MAINTAINER = 'jannskiee';
 export const BOT_LOGIN = 'github-actions[bot]';
 
@@ -55,17 +63,24 @@ export const OWNER_GRACE_MS = 10 * 60 * 1000;
 
 const REPO_URL = 'https://github.com/jannskiee/floe';
 const CONTRIBUTING_URL = `${REPO_URL}/blob/main/CONTRIBUTING.md`;
-// Good first issues that nobody holds and no pull request targets. The same
-// search is linked from CONTRIBUTING.md, README.md and the issue chooser
+// Issues of each label that nobody holds and no pull request targets. The same
+// two searches are linked from CONTRIBUTING.md, README.md and the issue chooser
 // (claim.test.mjs keeps the copies equal). -linked:pr also hides an issue
 // whose only linked pull request was closed: a closing reference outlives the
 // close (measured 2026-10-27). The bot still assigns such an issue; to list
 // it again, edit the closed pull request's body to drop its "Closes #N".
 export const FREE_URL = `${REPO_URL}/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22%20no%3Aassignee%20-linked%3Apr`;
-export const HELP_URL = `${REPO_URL}/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22help%20wanted%22%20no%3Aassignee`;
+export const HELP_URL = `${REPO_URL}/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22help%20wanted%22%20no%3Aassignee%20-linked%3Apr`;
 
 export function heldUrl(login) {
     return `${REPO_URL}/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22%20assignee%3A${encodeURIComponent(login)}`;
+}
+
+// The issues MAX_HELD counts. A comma between labels means either one in the
+// search box (measured on the issues page 2026-11-03), unlike the REST filter
+// heldIssues reads.
+export function allHeldUrl(login) {
+    return `${REPO_URL}/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22%2C%22help%20wanted%22%20assignee%3A${encodeURIComponent(login)}`;
 }
 
 // The setup section of CONTRIBUTING.md the go-ahead links, by the title prefix
@@ -95,11 +110,11 @@ export function setupFor(title) {
 export const KINDS = [
     'assigned',
     'already-yours',
-    'not-claimable-help',
     'not-claimable',
     'returner',
     'released',
     'holds-one',
+    'holds-two',
     'taken',
     'has-pr',
     'hint',
@@ -110,7 +125,7 @@ export const KINDS = [
     'error',
 ];
 const ACTING = new Set(['assigned', 'untaken']);
-export const PLACEHOLDERS = ['login', 'free_url', 'help_url', 'held_url', 'setup_name', 'setup_url', 'run_url'];
+export const PLACEHOLDERS = ['login', 'free_url', 'free_name', 'help_url', 'held_url', 'all_held_url', 'setup_name', 'setup_url', 'run_url'];
 
 export function loadReplies(dir = new URL('../claim/', import.meta.url)) {
     const replies = {};
@@ -160,10 +175,10 @@ export function parseCommand(body) {
 
 // Every claim on Floe before the bot was plain language ("I'd like to work on
 // this", "Could you please assign it to me?"). Such a comment on a good first
-// issue is answered once, with how to claim or the reason /take would refuse,
-// and never acted on, so a phrase this misreads costs one reply. A /take that
-// is not at the start ("Hi! /take") is answered the same way, so it is never
-// lost in silence.
+// issue or a help wanted issue is answered once, with how to claim or the reason
+// /take would refuse, and never acted on, so a phrase this misreads costs one
+// reply. A /take that is not at the start ("Hi! /take") is answered the same way,
+// so it is never lost in silence.
 const CLAIM_PATTERNS = [
     /\bwork(?:ing)? on (?:this|it)\b/i,
     /\b(?:i'?d|i would|i'?ll|i will|let me|can i|could i|may i)\s+(?:(?:really\s+)?(?:like|love) to\s+)?(?:take(?!\s+a\s+(?:look|peek))\b|work on\b|pick (?:this |it )?up\b|tackle\b|claim\b)/i,
@@ -204,21 +219,27 @@ export function mentionsUntake(body) {
 }
 
 // The /take rules, first match wins. Each question is asked only when the
-// rules before it have passed, because most of them cost an API call.
+// rules before it have passed, because most of them cost an API call. An issue
+// with both labels follows the good first issue rules, so a good first issue
+// stays for a first pull request however else it is labeled; research item 26
+// says never to label one both ways, and none is today.
 export async function decideTake(q) {
     if (q.isAssignee) return 'already-yours';
-    if (!q.isGoodFirstIssue) return q.isHelpWanted ? 'not-claimable-help' : 'not-claimable';
-    if (q.returnerByAssociation || (await q.hasCommits())) return 'returner';
+    if (!q.isGoodFirstIssue && !q.isHelpWanted) return 'not-claimable';
+    if (q.isGoodFirstIssue && (q.returnerByAssociation || (await q.hasCommits()))) return 'returner';
     if (await q.releasedByMaintainer()) return 'released';
     if (q.hasAssignee) return 'taken';
     if (await q.otherOpenPullRequest()) return 'has-pr';
-    // Last, so the reply's advice (give that one back, then /take this one)
-    // is true: this issue is free in every other way.
-    if (await q.holdsAnotherGoodFirstIssue()) return 'holds-one';
+    // Last, so the replies' advice (give one back, then /take this one) is
+    // true: this issue is free in every other way.
+    if (q.isGoodFirstIssue && (await q.holdsAnotherGoodFirstIssue())) return 'holds-one';
+    if (await q.holdsTheLimit()) return 'holds-two';
     return 'assign';
 }
 
 const lower = (s) => String(s ?? '').toLowerCase();
+// REST gives a label as an object, and the API allows a plain string.
+const labelsOf = (issue) => new Set((issue?.labels ?? []).map((l) => lower(typeof l === 'string' ? l : l?.name)));
 const loginsOf = (users) => new Set((users ?? []).map((u) => lower(u?.login)));
 const isBotReply = (c) => c.user?.login === BOT_LOGIN && c.user?.type === 'Bot';
 const byTime = (a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.id - b.id;
@@ -270,8 +291,9 @@ export async function main({ github, context, core, now = Date.now(), replies = 
     comments.sort(byTime);
 
     let assignees = loginsOf(issue.assignees);
-    const labels = new Set((issue.labels ?? []).map((l) => lower(typeof l === 'string' ? l : l.name)));
+    const labels = labelsOf(issue);
     const isGoodFirstIssue = labels.has(CLAIM_LABEL);
+    const isHelpWanted = labels.has(HELP_LABEL);
 
     // What the bot has already said on this issue.
     const answered = new Set();
@@ -303,7 +325,7 @@ export async function main({ github, context, core, now = Date.now(), replies = 
         if (command) work.push({ comment: c, kind: command });
         else if (assignees.has(lower(c.user.login)) && mentionsUntake(c.body)) {
             work.push({ comment: c, kind: 'untake-hint' });
-        } else if (isGoodFirstIssue && (looksLikeClaim(c.body) || mentionsTake(c.body))) {
+        } else if ((isGoodFirstIssue || isHelpWanted) && (looksLikeClaim(c.body) || mentionsTake(c.body))) {
             work.push({ comment: c, kind: 'hint' });
         }
     }
@@ -317,6 +339,32 @@ export async function main({ github, context, core, now = Date.now(), replies = 
     let events;
     const commitsBy = new Map();
     const heldBy = new Map();
+    // The other open issues this person holds with either label. No labels
+    // parameter: GitHub's filter means every label at once, so asking for both
+    // finds nothing and the limit would never fire (measured 2026-11-03: the two
+    // together returned 0 issues, each alone 10). Only assignees and labels are
+    // read, never a pull request, so one with several "Closes" lines unlocks
+    // nothing and the order of two claims changes nothing. An issue the owner
+    // assigned with neither label is not counted.
+    const heldIssues = async (login) => {
+        if (!heldBy.has(lower(login))) {
+            const held = await github.paginate(github.rest.issues.listForRepo, {
+                owner,
+                repo,
+                assignee: login,
+                state: 'open',
+                per_page: 100,
+            });
+            heldBy.set(
+                lower(login),
+                held
+                    .filter((i) => !i.pull_request && i.number !== number)
+                    .map(labelsOf)
+                    .filter((names) => names.has(CLAIM_LABEL) || names.has(HELP_LABEL))
+            );
+        }
+        return heldBy.get(lower(login));
+    };
     const openPullRequestAuthors = async () => {
         if (!pullRequests) {
             const data = await github.graphql(
@@ -345,7 +393,7 @@ export async function main({ github, context, core, now = Date.now(), replies = 
         isAssignee: assignees.has(lower(login)),
         hasAssignee: assignees.size > 0,
         isGoodFirstIssue,
-        isHelpWanted: labels.has(HELP_LABEL),
+        isHelpWanted,
         returnerByAssociation: RETURNER_ASSOCIATIONS.includes(association),
         hasCommits: async () => {
             if (!commitsBy.has(lower(login))) {
@@ -367,20 +415,8 @@ export async function main({ github, context, core, now = Date.now(), replies = 
                     ![lower(login), BOT_LOGIN].includes(lower((e.assigner ?? e.actor)?.login))
             );
         },
-        holdsAnotherGoodFirstIssue: async () => {
-            if (!heldBy.has(lower(login))) {
-                const held = await github.paginate(github.rest.issues.listForRepo, {
-                    owner,
-                    repo,
-                    assignee: login,
-                    state: 'open',
-                    labels: CLAIM_LABEL,
-                    per_page: 100,
-                });
-                heldBy.set(lower(login), held.some((i) => !i.pull_request && i.number !== number));
-            }
-            return heldBy.get(lower(login));
-        },
+        holdsAnotherGoodFirstIssue: async () => (await heldIssues(login)).some((names) => names.has(CLAIM_LABEL)),
+        holdsTheLimit: async () => (await heldIssues(login)).length >= MAX_HELD,
         otherOpenPullRequest: async () => (await openPullRequestAuthors()).some((a) => a !== lower(login)),
     });
 
@@ -487,13 +523,19 @@ export async function main({ github, context, core, now = Date.now(), replies = 
     if (unanswered > 0) core.setFailed(`issue ${number}: ${unanswered} command(s) got no reply`);
 }
 
-function varsFor(login, issue, runUrl) {
+// issue is undefined when the issue could not be read, and the error reply is
+// rendered from these values all the same.
+export function varsFor(login, issue, runUrl) {
     const setup = setupFor(issue?.title);
+    const names = labelsOf(issue);
+    const helpOnly = names.has(HELP_LABEL) && !names.has(CLAIM_LABEL);
     return {
         login,
-        free_url: FREE_URL,
+        free_url: helpOnly ? HELP_URL : FREE_URL,
+        free_name: helpOnly ? 'help wanted issues' : 'good first issues',
         help_url: HELP_URL,
         held_url: heldUrl(login),
+        all_held_url: allHeldUrl(login),
         setup_name: setup.name,
         setup_url: setup.url,
         run_url: runUrl,

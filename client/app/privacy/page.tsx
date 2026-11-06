@@ -53,6 +53,21 @@ export const metadata: Metadata = {
 // the request link save folder (desktop/requestlink.go requestDefaultDirFn).
 // Rechecked on 2026-10-19: nine reason labels, since ReceiveFailure gained
 // 'storage-full' (lib/transfer/receiveFailure.ts).
+// Rechecked on 2026-11-02, for the link key on a share link: what a link carries and
+// what the receiving page checks (lib/linkKey.ts, lib/transfer/keyCheck.ts,
+// lib/transfer/keySession.ts, components/P2PTransfer.tsx), the warning a failed check
+// sends (lib/keyCheckReport.ts), and ten reason labels, with 'unverified'
+// (TRANSFER_FAILED_REASONS in lib/peerErrors.ts, which lib/privacyText.test.ts ties
+// to the word).
+// Rechecked on 2026-11-03, for the link key on a request link: what the /r page reads
+// and checks (lib/request/requestLink.ts, components/RequestVisitor.tsx,
+// lib/request/visitorState.ts) and the warning it sends, the same one by the same helper
+// (lib/keyCheckReport.ts, role visitor).
+// Rechecked on 2026-11-05, for floe 1.12 and Floe Desktop 1.1, which make and check keyed
+// links (cli/engine/linkkey, cli/engine/transfer/keycheck.go), and for the log sentence, read
+// from the floe.one VM that day: the running Caddy has no access log on any server, and neither
+// its journal over 7 days nor PM2's log held a /api/code/ path. A code travels in that path, so
+// turning a request log on there has to change the sentence.
 // Rechecked on 2026-10-14: the browser's Sentry reports carry breadcrumbs
 // (the SDK's default clicks, navigations, fetch and XHR addresses and console
 // lines), each scrubbed of the room link by beforeBreadcrumb
@@ -98,6 +113,13 @@ export const metadata: Metadata = {
 // (lib/sentryDataCollection.ts, equal to what 10.x made of sendDefaultPii
 // false), and the reports of base and head production builds, compared field
 // by field, held nothing the section does not cover (the owner kept the text).
+// Rechecked on 2026-11-01: the tracker is the pinned copy in public/vendor
+// (lib/umamiPin.ts, components/UmamiScript.tsx), which reports to Umami's
+// collector, and umamiBeforeSend (lib/analyticsPath.ts) takes the title out of
+// every payload. A click breadcrumb holds no aria-label, title or alt
+// (lib/scrubUrl.ts dropSelectorWords, which also covers the page load's
+// lcp.element and cls.source attributes). The worker (public/sw.js, floe-cache-v7)
+// answers from its store only when fetch rejects, for documents and build files alike.
 // When a flag, label, hostname or number changes, this page changes with it.
 const toc = [
     { id: 'transfer', label: 'How the transfer works' },
@@ -117,7 +139,7 @@ export default function PrivacyPolicy() {
         <LegalShell
             document="privacy"
             title="Privacy policy"
-            dates={[{ label: 'Last updated', iso: '2026-10', text: 'October 2026' }]}
+            dates={[{ label: 'Last updated', iso: '2026-11', text: 'November 2026' }]}
             historyHref="https://github.com/jannskiee/floe/commits/main/client/app/privacy/page.tsx"
             toc={toc}
             intro={
@@ -164,9 +186,20 @@ export default function PrivacyPolicy() {
                 <p>
                     The encryption is WebRTC&apos;s own (DTLS), with keys that exist only on the two
                     devices for that one transfer. The codes the two devices use to recognize each
-                    other (their certificate fingerprints) pass through our signaling server, so you
-                    are trusting that server not to swap them, and no Floe app shows a verification
-                    code to check it today. This is true of every WebRTC application; the full list of what Floe
+                    other (their certificate fingerprints) pass through our signaling server. A link
+                    made in the web app, <InlineCode>floe</InlineCode> 1.12 or later, or Floe Desktop
+                    1.1 or later also carries a random link key in its fragment, which no server
+                    receives. Once the two devices connect, each one that holds the link key
+                    proves it to the other, tied to the certificates actually in use, and the
+                    receiving device stops the transfer before any file arrives if the sender cannot.
+                    So a server that swaps the fingerprints on such a link is caught. A room code, and
+                    a link made by an older <InlineCode>floe</InlineCode> or Floe Desktop, carries no
+                    link key, and <InlineCode>floe</InlineCode> before 1.12 and Floe Desktop before 1.1
+                    do not check the link key when receiving. A sender on a share link does not yet
+                    refuse a receiver that cannot show the link key, unless you use{' '}
+                    <InlineCode>floe send --link-only</InlineCode>, and it sends a file&apos;s name and
+                    size before that check has finished, so in those cases you are still trusting that
+                    server; the full list of what Floe
                     does not protect against is in{' '}
                     <LegalLink href="https://www.floe.one/docs/how-it-works/known-limitations">
                         Known limitations
@@ -347,7 +380,9 @@ export default function PrivacyPolicy() {
                     and a self-hosted copy of Floe ships with both turned off.
                 </p>
                 <p>
-                    The link you share carries its room id in the URL fragment (the part after the{' '}
+                    The link you share carries its room id, and on a link made in the web app,{' '}
+                    <InlineCode>floe</InlineCode> 1.12 or later, or Floe Desktop 1.1 or later, a link
+                    key, in the URL fragment (the part after the{' '}
                     <InlineCode>#</InlineCode>). Browsers never include the fragment in HTTP requests,
                     so it stays out of hosting logs and referrer headers, and our analytics script is
                     configured to drop it as well; what our error monitoring receives is described
@@ -360,19 +395,26 @@ export default function PrivacyPolicy() {
                     Floe Desktop, when it registers the three-word code that stands in for the link.
                     Both are held in memory only: the room is dropped when the last device leaves it,
                     and a code&apos;s mapping to its room id is dropped when the receiver joins or the
-                    room closes, and about ten minutes after the code was made at the latest. Neither
-                    is written to a log.
+                    room closes, and about ten minutes after the code was made at the latest. Our
+                    signaling server does not write either to its log, and the proxy in front of it
+                    keeps no request log. Our signaling server never receives the link key, which stays
+                    in the link and in the memory of the page that read it.
                 </p>
                 <p>
-                    A request link looks like <InlineCode>floe.one/r/&lt;link id&gt;#&lt;key&gt;</InlineCode>
-                    . The key after the <InlineCode>#</InlineCode> is the link&apos;s room id: it works
-                    like a share link&apos;s and stays out of logs the same way. The link id before
-                    it is part of the page
-                    address, so Vercel&apos;s request logs see it; it names one link without the key, so
-                    a report or a block can point at that one link, and our signaling server never
-                    receives it. Our analytics script does not load on a request link&apos;s page at
-                    all, and our error monitoring removes the link id from the address before anything
-                    is sent. Mail security services that rewrite links may see the whole link.
+                    A request link looks like <InlineCode>floe.one/r/&lt;link id&gt;#&lt;room id&gt;</InlineCode>
+                    . The room id after the <InlineCode>#</InlineCode> works like a share link&apos;s
+                    and stays out of logs the same way. The link id before it is part of the page
+                    address, so Vercel&apos;s request logs see it; it names one link without the room id,
+                    so a report or a block can point at that one link, and our signaling server never
+                    receives it. A request link that carries a link key holds it after the room id, as{' '}
+                    <InlineCode>#&lt;room id&gt;.&lt;link key&gt;</InlineCode>. The page keeps it in
+                    memory and never sends it to any server. It proves it to the computer that made the
+                    link, and it names no file until that computer has proved it back; if that proof
+                    does not come, it sends no file and says so. Our analytics script does not load on
+                    a request link&apos;s page at all, and our error monitoring removes the link id from
+                    the address before anything is sent. A link key check that does not pass on that
+                    page sends the one warning described under Error monitoring, and nothing else about
+                    the check. Mail security services that rewrite links may see the whole link.
                 </p>
                 <p>
                     Please refer to each provider&apos;s privacy policy regarding data handling:{' '}
@@ -439,6 +481,7 @@ export default function PrivacyPolicy() {
                         'Error stack traces and browser metadata (browser version, OS, device type, approximate device memory, language, and time zone)',
                         'Connection type (direct or relay), whether relay fallback was on, transfer progress, file count, and total size, sent with an error report or with a page performance trace that falls in the 10% sample',
                         'A short trail of what happened just before: clicks, page changes, the addresses of network requests, and console lines, with the room link removed from each',
+                        'One warning when a link key check does not pass: which side it was, how the check read the certificate, the outcome, and whether the page was set to stop on it, each a fixed label, with no link, no key, and nothing the other device sent',
                     ]}
                 />
                 <p>
@@ -450,7 +493,9 @@ export default function PrivacyPolicy() {
                 <p>
                     Sentry does <strong>not</strong> capture file names or file contents, and Floe
                     sends it nothing that names you: there are no accounts, so there is no name or
-                    email address to send. The room link is stripped from every error
+                    email address to send. A click is recorded without the label of what you clicked,
+                    because the labels of Floe&apos;s Remove and Download buttons name a file. The room
+                    link, its link key included, is stripped from every error
                     report, breadcrumb, and performance trace before it is sent, and on a request
                     link&apos;s page the link id in the address is removed as well.{' '}
                     <LegalLink href="https://sentry.io/privacy/">Sentry Privacy Policy</LegalLink>.
@@ -466,7 +511,7 @@ export default function PrivacyPolicy() {
                 </p>
                 <LegalList
                     items={[
-                        'Transfer outcomes: for a completed transfer, the number of files, the total size in bytes, whether you were sending or receiving, and whether the connection was direct or relayed; for a failure, your role, one of nine fixed labels (for example "ice-failed" or "out-of-memory"), and, when you were sending, the file count and total size',
+                        'Transfer outcomes: for a completed transfer, the number of files, the total size in bytes, whether you were sending or receiving, and whether the connection was direct or relayed; for a failure, your role, one of ten fixed labels (for example "ice-failed" or "out-of-memory"), and, when you were sending, the file count and total size',
                         "Which download button you clicked on the download page, the homepage, or the navigation bar, and, when Floe opens inside another app's built-in browser (such as Facebook or Instagram), the name of that app and whether it was Android or iOS",
                         'Standard page view data: the page path, referring site, browser, operating system, device type, screen size, and language',
                         'Your approximate location (country, region, and city), derived from your IP address by Umami, which does not store the address',
@@ -479,18 +524,26 @@ export default function PrivacyPolicy() {
                     visitor for a while without keeping the address, and the hash is tied to
                     floe.one, so it cannot follow you to other websites. File names and file contents
                     are never recorded. It is configured to drop the URL fragment and the query string
-                    before reporting a page view, so the room link never reaches it. Umami does not
+                    before reporting a page view, so the room link never reaches it, and Floe takes the
+                    page title out of everything it sends. Umami does not
                     load on a request link&apos;s page at all. If your browser sends the Do Not Track
                     signal, Umami records nothing at all for your visit.{' '}
                     <LegalLink href="https://umami.is/privacy">Umami Privacy Policy</LegalLink>.
+                </p>
+                <p>
+                    The script that does this does not load from Umami. floe.one serves its own copy of
+                    it, which we read through before using, and your browser refuses to run that copy
+                    if any of its bytes have changed. Its reports still go from your browser to
+                    Umami&apos;s service.
                 </p>
             </LegalSection>
 
             <LegalSection id="browser" index={sectionIndex(toc, 'browser')} title="The web app on your device">
                 <p>
                     The web app keeps a few small things in your browser, and none of them leave it.
-                    So that floe.one loads quickly and can open without a network, your browser caches
-                    the app&apos;s pages and build files, the same files every visitor downloads; that
+                    So that floe.one can open without a network, your browser caches the app&apos;s
+                    pages and build files, the same files every visitor downloads, and uses those copies
+                    only when it cannot reach the network; that
                     cache never holds file data, anything from our API, or a request link&apos;s page. Your &quot;Contribute to
                     global stats&quot; choice is remembered in this browser&apos;s local storage, and a
                     timestamp is kept for the life of the tab to avoid reload loops after a new version

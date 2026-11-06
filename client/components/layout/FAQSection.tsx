@@ -207,10 +207,13 @@ export const FAQSection = () => {
                             encrypted with DTLS, built into WebRTC, with keys that exist only on
                             those two devices. Whether your connection is direct or relayed,
                             everything in between, the relay included, handles only encrypted
-                            packets. Two limits are worth knowing. The codes the two devices use to recognize each other (their certificate
-                            fingerprints) pass through Floe&apos;s signaling server, so you are
-                            trusting that server not to swap them, and no Floe app shows a
-                            verification code to check it today. And the link or code is all that protects a transfer: whoever
+                            packets. Two limits are worth knowing. The two devices find each other through
+                            Floe&apos;s signaling server. A link now carries a key that no server receives,
+                            and the receiving device checks it, so a server that steps in between is
+                            caught; request links are checked in both directions. A room code or a link
+                            from an older Floe carries no key, and a sender does not yet refuse a receiver
+                            that cannot show the key, unless you use <code className={ANSWER_CODE}>floe send --link-only</code>, so
+                            in those cases you are still trusting that server. And the link or code is all that protects a transfer: whoever
                             uses it first, while the sender is waiting, receives the files, so send it
                             over a channel you trust. The full list of what Floe does not protect against is in{' '}
                             <a

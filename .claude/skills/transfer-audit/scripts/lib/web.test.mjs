@@ -170,6 +170,19 @@ test('classifySample: relay on either side wins, host pairs are direct', () => {
 
 test('webRoute: samples, then the last decisive event, then the pill', () => {
     assert.equal(webRoute({}), null);
+    // A relay-forced page that closed before a poll read its pair: S-REL-C2W-cap3g, where
+    // the refusal came within 33 ms of the connect. What it gathered is the proof.
+    const closedForced = [{ t: 7, pcs: [{ policy: 'relay', connectionState: 'closed', pair: null, cand: { local: ['relay'], remote: ['host', 'srflx'] } }] }];
+    const viaCandidates = webRoute({ samples: closedForced, relayOnly: true, events: [{ t: 8, detail: 'relay' }] });
+    assert.equal(viaCandidates.source, 'candidates');
+    assert.equal(viaCandidates.local, 'relay');
+    assert.equal(viaCandidates.verdict, 'relay');
+    // Not on an unforced page, not while the peer is live, not with anything else gathered.
+    assert.equal(webRoute({ samples: closedForced }), null);
+    assert.equal(webRoute({ samples: [{ t: 7, pcs: [{ policy: 'relay', connectionState: 'connected', pair: null, cand: { local: ['relay'] } }] }], relayOnly: true }), null);
+    assert.equal(webRoute({ samples: [{ t: 7, pcs: [{ policy: 'relay', connectionState: 'closed', pair: null, cand: { local: ['host', 'relay'] } }] }], relayOnly: true }), null);
+    assert.equal(webRoute({ samples: [{ t: 7, pcs: [{ policy: 'all', connectionState: 'closed', pair: null, cand: { local: ['relay'] } }] }], relayOnly: true }), null);
+    assert.equal(webRoute({ samples: [{ t: 7, pcs: [{ policy: 'relay', connectionState: 'closed', pair: null, cand: { local: [] } }] }], relayOnly: true }), null);
     const viaStats = webRoute({
         samples: [sample([pc(null, null)]), sample([pc('host', 'srflx')])],
         events: [{ t: 1, detail: 'relay' }],
@@ -627,6 +640,19 @@ test('bytesMovedFrom counts only binary frames, so a text refusal reason is not 
     assert.equal(bytesMovedFrom([sample([], { dcBytes: { in: 0, out: 64, messages: 1, binIn: 0, binOut: 64 } })]), 64);
 });
 
+test('bytesMovedFrom with a role counts only the way files go, so a keyed page\'s own proof is not file data', () => {
+    // S-REL-C2W-cap3g on 2026-11-03: the page sent its 65 B kc, binary as a receiver's
+    // frames are, and the sender refused at the cap with no file byte moved.
+    const proof = [sample([], { dcBytes: { in: 208, out: 65, messages: 2, binIn: 0, binOut: 65 } })];
+    assert.equal(bytesMovedFrom(proof, 'receiver'), 0);
+    assert.equal(bytesMovedFrom(proof), 65, 'with no role it stays both ways');
+    // A chunk that arrived on a receiver counts, and a chunk a sender sent does.
+    assert.equal(bytesMovedFrom([sample([], { dcBytes: { in: 4096, out: 65, messages: 2, binIn: 4096, binOut: 65 } })], 'receiver'), 4096);
+    assert.equal(bytesMovedFrom([sample([], { dcBytes: { in: 65, out: 4096, messages: 2, binIn: 65, binOut: 4096 } })], 'sender'), 4096);
+    // What a sender hears from a Go receiver is binary too, and is not a file.
+    assert.equal(bytesMovedFrom([sample([], { dcBytes: { in: 65, out: 0, messages: 1, binIn: 65, binOut: 0 } })], 'sender'), 0);
+});
+
 test('bytesMovedFrom counts data-channel bytes, pairBytesFrom keeps the pair counters for the record', () => {
     assert.equal(bytesMovedFrom([]), 0);
     assert.equal(bytesMovedFrom([sample([], { dcBytes: null })]), 0);
@@ -835,7 +861,7 @@ test(
             const link = await leg.link();
             assert.match(
                 link,
-                /^https:\/\/www\.floe\.one\/.*#room=[0-9a-f-]{36}$/
+                /^https:\/\/www\.floe\.one\/.*[#&]room=[0-9a-f-]{36}$/
             );
             const audit = await leg.page.evaluate(() => {
                 const a = window.__floeAudit;
@@ -856,7 +882,7 @@ test(
             }
             assert.equal(pill, 'Ready');
             console.log(
-                `live: link ${link.replace(/#room=.*/, '#room=<redacted>')}, pill ${pill}, pcs ${audit.pcs}, status events ${audit.status}`
+                `live: link ${link.replace(/#.*/, '#<redacted>')}, pill ${pill}, pcs ${audit.pcs}, status events ${audit.status}`
             );
         } finally {
             await leg.stop('live test');
@@ -1138,6 +1164,7 @@ function scriptedPage(frames, { stepMs = 0 } = {}) {
                     audit.pcs = frame.connected
                         ? [{ connectionState: 'connected' }]
                         : [];
+                    if (frame.everConnected) audit.everConnected = true;
                     globalThis.window = { __floeAudit: audit };
                     const value = fn(arg);
                     if (value) return { jsonValue: async () => value };
@@ -1619,6 +1646,22 @@ test('a sender whose own room refused it is rejoin-failed: at once on the give-u
         assert.ok(back.marks.connected > 0);
         assert.deepEqual(back.notes, []);
     });
+
+    await t.test(
+        'a connection that closed between two polls still counts as connected',
+        async () => {
+            // The relay cap's refusal came 33 ms after the connect, and the page closed
+            // its peer before a poll saw it: 60 s of connect-timeout on a correct run.
+            const leg = pageLeg(
+                'receiver',
+                [{ text: 'transfer blocked', everConnected: true }],
+                { timeoutLookMs: 100 },
+                { stepMs: 100 }
+            );
+            await leg.awaitConnected(1000);
+            assert.ok(leg.marks.connected > 0);
+        }
+    );
 
     await t.test(
         'a receiver page never reads a sender status as its own',

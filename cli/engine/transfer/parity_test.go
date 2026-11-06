@@ -76,7 +76,7 @@ const parityTable = `
 {"decoder":"metadataGuard","name":"total-0","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":0,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"reject","ts":"reject"}
 {"decoder":"metadataGuard","name":"totalBytes-below-fileSize","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":2,\"pv\":1,\"pvMin\":1}","go":"reject","ts":"reject"}
 {"decoder":"metadataGuard","name":"totalBytes-absent","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"pv\":1,\"pvMin\":1}","go":"accept","ts":"accept"}
-{"decoder":"metadataGuard","name":"pv-disjoint","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":2,\"pvMin\":2}","go":"reject","ts":"reject"}
+{"decoder":"metadataGuard","name":"pv-disjoint","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":3,\"pvMin\":3}","go":"reject","ts":"reject"}
 {"decoder":"metadataGuard","name":"pv-absent-legacy","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4}","go":"accept","ts":"accept"}
 {"decoder":"metadataGuard","name":"pv-string","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":\"1\",\"pvMin\":1}","go":"reject","ts":"reject"}
 {"decoder":"metadataGuard","name":"name-number","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":7,\"fileSize\":4,\"index\":1,\"total\":1,\"totalBytes\":4,\"pv\":1,\"pvMin\":1}","go":"reject","ts":"reject"}
@@ -141,6 +141,40 @@ const parityTable = `
 {"decoder":"ackConfirms","name":"over-cap","frame":"{\"type\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":true,\"pad\":\"\"}","padTo":1001,"padChar":"x","go":"none","ts":"none"}
 {"decoder":"ackConfirms","name":"type-key-case","frame":"{\"TYPE\":\"ack\",\"id\":\"a\",\"offset\":0,\"pv\":1,\"pvMin\":1,\"confirms\":true}","go":"none","ts":"none"}
 {"decoder":"ackConfirms","name":"not-ack","frame":"{\"type\":\"received\",\"confirms\":true}","go":"none","ts":"none"}
+{"decoder":"classifyControl","name":"kc","frame":"{\"type\":\"kc\"}","go":"kc","ts":"kc"}
+{"decoder":"classifyControl","name":"kc-with-tag","frame":"{\"type\":\"kc\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"kc","ts":"kc"}
+{"decoder":"classifyControl","name":"kc-upper-type","frame":"{\"type\":\"KC\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"none","ts":"none"}
+{"decoder":"refusalCodeOf","name":"unverified","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"unverified\"}","go":"accept","ts":"accept"}
+{"decoder":"refusalCodeOf","name":"unverified-range-2","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":2,\"pvMin\":2,\"code\":\"unverified\"}","go":"accept","ts":"accept"}
+{"decoder":"refusalCodeOf","name":"unverified-upper-case","frame":"{\"type\":\"incompatible\",\"reason\":\"x\",\"pv\":1,\"pvMin\":1,\"code\":\"UNVERIFIED\"}","go":"reject","ts":"reject"}
+{"decoder":"metadataGuard","name":"index-above-total","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":2,\"total\":1,\"totalBytes\":4,\"pv\":2,\"pvMin\":1}","go":"reject","ts":"reject"}
+{"decoder":"metadataGuard","name":"index-equals-total","frame":"{\"type\":\"metadata\",\"id\":\"a\",\"fileName\":\"a.bin\",\"fileSize\":4,\"index\":2,\"total\":2,\"totalBytes\":8,\"pv\":2,\"pvMin\":1}","go":"accept","ts":"accept"}
+{"decoder":"keyCheck","name":"valid","frame":"{\"type\":\"kc\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"tag","ts":"tag"}
+{"decoder":"keyCheck","name":"valid-alt","frame":"{\"type\":\"kc\",\"tag\":\"xJgBMZk3OsXxCjLFjYdncS5CaBBliB8cBpai84L62Zc\"}","go":"tag","ts":"tag"}
+{"decoder":"keyCheck","name":"tag-absent","frame":"{\"type\":\"kc\"}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-null","frame":"{\"type\":\"kc\",\"tag\":null}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-42","frame":"{\"type\":\"kc\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-44","frame":"{\"type\":\"kc\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-padded","frame":"{\"type\":\"kc\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-plus","frame":"{\"type\":\"kc\",\"tag\":\"+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-slash","frame":"{\"type\":\"kc\",\"tag\":\"/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-dot","frame":"{\"type\":\"kc\",\"tag\":\".AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-last-char-B","frame":"{\"type\":\"kc\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB\"}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-number","frame":"{\"type\":\"kc\",\"tag\":7}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-array","frame":"{\"type\":\"kc\",\"tag\":[\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"]}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-object","frame":"{\"type\":\"kc\",\"tag\":{\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-true","frame":"{\"type\":\"kc\",\"tag\":true}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"tag-key-case","frame":"{\"type\":\"kc\",\"TAG\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"duplicate-bad-then-good","frame":"{\"type\":\"kc\",\"tag\":\"x\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"tag","ts":"tag"}
+{"decoder":"keyCheck","name":"duplicate-good-then-bad","frame":"{\"type\":\"kc\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"tag\":\"x\"}","go":"malformed","ts":"malformed"}
+{"decoder":"keyCheck","name":"extra-field","frame":"{\"type\":\"kc\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"x\":1}","go":"tag","ts":"tag"}
+{"decoder":"keyCheck","name":"escaped-valid","frame":"{\"type\":\"kc\",\"tag\":\"\\u0041AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"tag","ts":"tag"}
+{"decoder":"keyCheck","name":"leading-whitespace","frame":" {\"type\":\"kc\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"tag","ts":"tag"}
+{"decoder":"keyCheck","name":"type-upper","frame":"{\"type\":\"KC\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"none","ts":"none"}
+{"decoder":"keyCheck","name":"trailing-garbage","frame":"{\"type\":\"kc\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}x","go":"none","ts":"none"}
+{"decoder":"keyCheck","name":"over-cap","frame":"{\"type\":\"kc\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"pad\":\"\"}","padTo":1001,"padChar":"x","go":"none","ts":"none"}
+{"decoder":"keyCheck","name":"cap-exact","frame":"{\"type\":\"kc\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"pad\":\"\"}","padTo":1000,"padChar":"x","go":"tag","ts":"tag"}
+{"decoder":"keyCheck","name":"not-kc","frame":"{\"type\":\"ack\",\"tag\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}","go":"none","ts":"none"}
 `
 
 // PARITY-TABLE-END
@@ -260,6 +294,23 @@ func goAckConfirmsDecision(frame []byte) string {
 	return "absent"
 }
 
+// goKeyCheckDecision is classifyControl and then parseKC in the table's
+// vocabulary, the order a receive reads a kc frame in: none when the frame is
+// not a kc control frame at all, tag for a canonical tag, malformed for anything
+// else of that type.
+func goKeyCheckDecision(frame []byte) string {
+	if typ, ok := classifyControl(frame); !ok || typ != "kc" {
+		return "none"
+	}
+	switch _, kind := parseKC(frame); kind {
+	case kcTag:
+		return "tag"
+	case kcMalformed:
+		return "malformed"
+	}
+	return "none"
+}
+
 func loadParityRows(t *testing.T) []parityRow {
 	t.Helper()
 	var rows []parityRow
@@ -306,6 +357,8 @@ func TestDecoderParityGoDecisions(t *testing.T) {
 			got = goReceivedVerifiedDecision([]byte(frame))
 		case "ackConfirms":
 			got = goAckConfirmsDecision([]byte(frame))
+		case "keyCheck":
+			got = goKeyCheckDecision([]byte(frame))
 		default:
 			t.Fatalf("row %s names an unknown decoder %q", row.Name, row.Decoder)
 		}

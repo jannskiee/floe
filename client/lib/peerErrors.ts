@@ -14,6 +14,8 @@
 // (e2e/peer-error-text.spec.ts reproduces it). What leaves this module is a
 // fixed sentence and a code from simple-peer's own list.
 
+import type { ReceiveFailureCode } from './transfer/receiveFailure';
+
 export type PeerErrorReason =
     | 'relay-disabled'
     | 'abort'
@@ -64,6 +66,25 @@ export function classifyPeerError(
 }
 
 /**
+ * Every label a transfer-failed event can carry: classifyPeerError's, 'peer-reason' for
+ * a stop the peer reported, a ReceiveFailure by its code, and 'unverified' for the
+ * link-key check on either side. The privacy page counts them in a word, and
+ * privacyText.test.ts holds that word to this list's length.
+ */
+export const TRANSFER_FAILED_REASONS = [
+    'relay-disabled',
+    'abort',
+    'ice-failed',
+    'conn-failed',
+    'unknown',
+    'peer-reason',
+    'out-of-memory',
+    'storage-full',
+    'internal',
+    'unverified',
+] as const satisfies readonly (PeerErrorReason | 'peer-reason' | Exclude<ReceiveFailureCode, 'channel-closed'> | 'unverified')[];
+
+/**
  * Every code simple-peer 9 puts on an error it raises (`err.code`, set by
  * err-code with Object.defineProperty, so it shadows a DOMException's own
  * numeric code). peerErrors.test.ts reads the installed library and fails
@@ -104,9 +125,10 @@ export function peerErrorCodeOf(err: unknown): string {
 }
 
 /**
- * What the page shows for a peer error it has no closer wording for. The
- * connection failed before any file moved, so each sentence says what that
- * side can do next. Never the error's own text.
+ * What the page shows for a peer error it has no closer wording for. Usually the
+ * connection failed before any file moved, though a peer's error can also beat the
+ * close mid-file, and neither sentence claims either way. Each says what that side
+ * can do next. Never the error's own text.
  */
 export const RECEIVER_PEER_ERROR =
     'Connection failed. Reload the page to try again. If it fails again, ask the sender for a new link.';

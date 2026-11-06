@@ -11,16 +11,15 @@
 
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { createHash } from 'crypto';
-import { mkdirSync, readFileSync, rmSync } from 'fs';
+import { mkdirSync, readFileSync } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
 import { unzipSync } from 'fflate';
-import { writeRandomFile } from './helpers';
+import { SHARE_LINK_TEXT, fixtureDir, removeFixtureDir, writeRandomFile } from './helpers';
 
-const FIXTURE_DIR = join(tmpdir(), 'floe-e2e-download-zip');
+const FIXTURE_DIR = fixtureDir('floe-e2e-download-zip');
 
 test.afterAll(() => {
-    try { rmSync(FIXTURE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    removeFixtureDir(FIXTURE_DIR);
 });
 
 async function optedOutContext(ctx: BrowserContext): Promise<BrowserContext> {
@@ -34,7 +33,7 @@ async function senderSetup(page: Page, paths: string[]): Promise<string> {
     await page.goto('/');
     await page.locator('input[type="file"]').setInputFiles(paths);
     await page.locator('button', { hasText: /create secure link/i }).click();
-    const linkEl = page.locator('code').filter({ hasText: '#room=' });
+    const linkEl = page.locator('code').filter({ hasText: SHARE_LINK_TEXT });
     await expect(linkEl).toBeVisible({ timeout: 10_000 });
     return (await linkEl.textContent())!.trim();
 }

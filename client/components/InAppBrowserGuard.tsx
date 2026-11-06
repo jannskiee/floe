@@ -42,8 +42,10 @@ export function InAppBrowserGuard({
     useEffect(() => {
         const ua = navigator.userAgent;
         const app = detectInAppBrowser(ua);
+        // Only where the overlay draws it: this is the whole link, key and all, and every
+        // other browser would hold it in React state for nothing.
         // eslint-disable-next-line react-hooks/set-state-in-effect
-        setInit({ detectedApp: app, android: isAndroid(ua), currentUrl: window.location.href, ready: true });
+        setInit({ detectedApp: app, android: isAndroid(ua), currentUrl: app ? window.location.href : '', ready: true });
         if (app) {
             try {
                 (window as UmamiWindow).umami?.track('in-app-browser-detected', {

@@ -55,6 +55,22 @@ func TestSummarizeMultiFile(t *testing.T) {
 	}
 }
 
+// TestSummarizeCountsARepeatOnce: the Sending line counts a path given twice
+// once, because Summarize walks with collectFiles, as the send does.
+func TestSummarizeCountsARepeatOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "a.txt")
+	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Summarize([]string{path, path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Label != "a.txt · 5 Bytes" || s.TotalBytes != 5 {
+		t.Fatalf("Summarize = %q, %d bytes; want %q, 5", s.Label, s.TotalBytes, "a.txt · 5 Bytes")
+	}
+}
+
 // TestDisplayText pins the display sanitizer: the on-disk rune mapping, a rune
 // cap with an ellipsis, and nothing else. The Windows-only rules do not apply,
 // because a name on screen is not stored anywhere. Every row is also checked

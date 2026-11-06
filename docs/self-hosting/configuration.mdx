@@ -117,7 +117,7 @@ See [How the client finds the server](/self-hosting/build-time-url).
 
 ### `FLOE_IMAGE_TAG` {#floe-image-tag}
 
-Which published image tag both containers run, for example `1.11.7`, `1.11`, `main`, or `sha-` followed by the first 7 characters of a commit. See [Container images](/self-hosting/images). Not to be confused with `FLOE_VERSION`, which belongs to the [CLI](/glossary#cli) installer and carries a leading `v`.
+Which published image tag both containers run, for example `1.12.0`, `1.12`, `main`, or `sha-` followed by the first 7 characters of a commit. See [Container images](/self-hosting/images). Not to be confused with `FLOE_VERSION`, which belongs to the [CLI](/glossary#cli) installer and carries a leading `v`.
 
 ### `NEXT_PUBLIC_SITE_URL` {#next-public-site-url}
 
@@ -222,7 +222,7 @@ Absolute path to the request-link policy file, a small JSON file such as `{"requ
 
 ### `CLOUDFLARE_TURN_KEY_ID` {#cloudflare-turn-key-id}
 
-Turn Token ID of a [Cloudflare Realtime TURN](https://developers.cloudflare.com/realtime/turn/) key. With the API token below, the server mints TURN credentials, each valid for 24 hours, from Cloudflare's managed network, so you need no public IP, extra ports, or TLS certificates. Takes precedence over the coturn variables. Both Cloudflare variables are read once at startup, and setting only one of them leaves Cloudflare unused with no warning.
+Turn Token ID of a [Cloudflare Realtime TURN](https://developers.cloudflare.com/realtime/turn/) key. With the API token below, the server mints TURN credentials, each valid for 24 hours, from Cloudflare's managed network, so you need no public IP, extra ports, or TLS certificates. Takes precedence over the coturn variables. Both Cloudflare variables are read once at startup, and setting only one of them leaves Cloudflare unused, with one line in the log saying so. A server image of version 1.11.7 or earlier logs nothing.
 
 ### `CLOUDFLARE_TURN_KEY_API_TOKEN` {#cloudflare-turn-key-api-token}
 
@@ -230,11 +230,11 @@ API token that pairs with `CLOUDFLARE_TURN_KEY_ID`. Keep it secret.
 
 ### `TURN_SECRET` {#turn-secret}
 
-Shared HMAC secret for self-hosted coturn credentials. Used when the Cloudflare variables are unset, and as the fallback when Cloudflare returns nothing usable. Needs `TURN_DOMAIN` as well: with only one of the two set, coturn is skipped with no warning. If no TURN option is configured, the server returns STUN-only and no relay is offered. Must match coturn's `static-auth-secret`.
+Shared HMAC secret for self-hosted coturn credentials. Used when the Cloudflare variables are unset, and as the fallback when Cloudflare returns nothing usable. Needs `TURN_DOMAIN` as well: with only one of the two set, coturn is skipped, with one line in the log saying so. A server image of version 1.11.7 or earlier logs nothing. If no TURN option is configured, the server returns STUN-only and no relay is offered. Must match coturn's `static-auth-secret`.
 
 ### `TURN_DOMAIN` {#turn-domain}
 
-Public hostname of your self-hosted TURN server (for example `turn.your-domain.com`). Must match coturn's `realm`.
+Public hostname of your self-hosted TURN server (for example `turn.your-domain.com`). Must match coturn's `realm`. Give the hostname alone: with a scheme, a port or a path, the server turns the coturn relay off, logs one line saying so and, without Cloudflare TURN, hands out the default STUN servers. A server image of version 1.11.7 or earlier hands those addresses out and logs nothing, and a client that refuses them starts no transfer: a browser refuses all three, and `floe` and Floe Desktop refuse a scheme or a port.
 
 ### `TURN_TLS` {#turn-tls}
 
@@ -246,7 +246,7 @@ REST URL of an [Upstash Redis](https://upstash.com) database, used to durably pe
 
 ### `UPSTASH_REDIS_REST_TOKEN` {#upstash-redis-rest-token}
 
-REST token that pairs with `UPSTASH_REDIS_REST_URL`. Both must be set together for durable stats. Use the **Standard** token, the one the Upstash console shows by default, not the **Read Only** token. The server needs write access to increment the counter; with a read-only token, writes are silently rejected and the total never persists.
+REST token that pairs with `UPSTASH_REDIS_REST_URL`. Both must be set together for durable stats: with only one of them set, the counter stays in memory and the server logs one line saying so. Use the **Standard** token, the one the Upstash console shows by default, not the **Read Only** token. The server needs write access to increment the counter; with a read-only token, writes are refused and the total never persists. The server logs one `Upstash counter update failed (...)` line when that happens; see [Operations](/self-hosting/operations#the-server-logs-very-little). A server image of version 1.11.7 or earlier logs nothing in either case.
 
 ### `MAX_REPORT_BYTES` {#max-report-bytes}
 

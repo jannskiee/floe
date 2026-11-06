@@ -92,6 +92,11 @@ const (
 	// (review lens B, L1).
 	lineThisFloeOld = "Your Floe needs an update to send to this link."
 	lineRunUpdate   = "Run `floe update` to upgrade."
+	// The link key (TL-35, TL-36): this visitor could not confirm the host, and
+	// the last line of the host's refusal of this visitor, whose first line is
+	// the engine's sentence for the code.
+	lineUnverified   = "Couldn't confirm their computer. Nothing was sent."
+	lineAskLinkMaker = "Ask the person who made this link for a new one."
 )
 
 // lineWaiting is WAIT's first line (D-144 (6)): the host's decision window
@@ -203,7 +208,7 @@ func (r *sendToRun) interrupt() (string, func()) {
 	r.mu.Unlock()
 	line := "\n  " + lineCanceled
 	if acked := int(r.acked.Load()); acked > 0 {
-		line = "\n  " + lineYouStopped + " " + savedSentence(acked-1, int(r.files.Load()))
+		line = "\n  " + strings.Join(append([]string{lineYouStopped}, savedLines(acked-1, int(r.files.Load()), true)...), " ")
 	}
 	return line, func() { abortDrop(dc, conn) }
 }
@@ -326,10 +331,11 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 	// quotes the path, so a request link typed where a path goes (the --to
 	// value and the path swapped) ends on TL-09 instead, and the link, room
 	// id and all, is never printed back (review lens B re-check N5), in every
-	// shape that carries the room id (looksLikeRequestLink, FU-46).
+	// shape that carries the room id (looksLikeRequestLink, FU-46). A share
+	// link does too, whose fragment holds the room id and the key.
 	for _, p := range args {
 		if _, err := os.Stat(p); err != nil {
-			if looksLikeRequestLink(p) {
+			if looksLikeRequestLink(p) || pathLooksLikeRoomLink(p) {
 				return r.fail(cmd, lineIncompleteLink)
 			}
 			return r.keep(cmd, fmt.Errorf("cannot read %s: %w", p, err))
@@ -337,10 +343,12 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 	}
 
 	// TL-09, before the walk and before any network, so an incomplete link
-	// never reaches anyone. The link id is dropped here; only the room id
-	// ever leaves this machine, in request-join, and only to a server that
-	// can hold the link's room (code.LinkServerMismatch, TL-10).
-	_, roomID, err := code.ParseRequestLink(flagTo)
+	// never reaches anyone. Only the room id ever leaves this machine, in
+	// request-join, and only to a server that can hold the link's room
+	// (code.LinkServerMismatch, TL-10). The link's key stays here, and whether
+	// it has one decides whether the host is checked: a bare link is from a Floe
+	// Desktop that makes no key, and there is nothing to check it with.
+	link, err := code.ParseRequestLink(flagTo)
 	if err != nil {
 		return r.fail(cmd, lineIncompleteLink)
 	}
@@ -380,19 +388,14 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 	}
 	defer sc.Close()
 	// The peer exists before the join (spec 07 4.8): the host offers the
-	// moment the server seats this visitor. pion's pc and datachannel scopes
-	// go off first, since peer.New reads pion's levels from the environment:
-	// pc's "dropping candidate" line quotes a ufrag the host chose, and
-	// datachannel's "Failed to handle DCEP" line a channel label and protocol
-	// it wrote (quietPeerConnectionLog).
-	quietPeerConnectionLog()
+	// moment the server seats this visitor.
 	conn, err := peer.New(iceServers, sc, peerOptions()...)
 	if err != nil {
 		return r.fail(cmd, lineCouldNotConnect)
 	}
 	defer conn.Close()
 
-	switch requestJoin(sc, roomID) {
+	switch requestJoin(sc, link.RoomID) {
 	case signaling.VisitorJoined:
 	case signaling.VisitorHostAbsent:
 		return r.fail(cmd, lineHostAbsent)
@@ -434,12 +437,17 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 	r.say(connectedLine(conn.ConnectionType()))
 	// TL-11: a relayed drop over the cap ends here, before WAIT, on today's
 	// sentence, and the host is told why exactly as the send's own gate tells
-	// it (a text abort with the gate's words, then the flush).
+	// it (a text abort with the gate's words, then the flush). On a keyed link
+	// the host has not proved itself yet, so it hears the cap and not this
+	// drop's size (DV5).
 	if err := relayGateFor(dc, totalBytes); err != nil {
-		transfer.AbortSend(dc, version, err.Error())
+		reason := err.Error()
+		if link.HasKey {
+			reason = transfer.ErrRelayOverLimit.Error()
+		}
+		transfer.AbortSend(dc, version, reason)
 		return r.keep(cmd, err)
 	}
-	r.say("  " + lineWaiting)
 
 	var acceptedAt time.Time
 	var delivered transfer.Delivered
@@ -456,10 +464,26 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 	quit := make(chan struct{})
 	defer close(quit)
 	closeOnFailed(conn, quit)
-	err = transfer.SendFilesWithOptions(dc, args, version,
-		sendToOptions(conn.Early(), r.stop, onAck, func(d transfer.Delivered) { delivered = d }))
+	opts := sendToOptions(conn.Early(), r.stop, onAck, func(d transfer.Delivered) { delivered = d })
+	// The link decides. A keyed one holds the host to its key before any file is
+	// named, and WAIT says it is waiting for an answer only once the host's proof
+	// has checked out (DV2), so a failed check never claims it was. A bare one has
+	// no check and no wait.
+	if link.HasKey {
+		opts.KeyCheck = &transfer.KeyCheck{Key: link.Key, RoomID: link.RoomID, Enforce: true}
+		opts.OnKeyVerified = func() { r.say("  " + lineWaiting) }
+	} else {
+		r.say("  " + lineWaiting)
+	}
+	err = transfer.SendFilesWithOptions(dc, args, version, opts)
 
 	if err != nil {
+		// A keyed host refused a visitor holding no key: the link was cut before
+		// its key, and the remedy is the whole link (PLAN.md "New copy").
+		var stopped *transfer.PeerStoppedError
+		if !link.HasKey && errors.As(err, &stopped) && stopped.Code == transfer.CodeUnverified {
+			return r.fail(cmd, lineIncompleteLink)
+		}
 		lines, keep := sendToOutcome(err, files, int(r.acked.Load()))
 		if keep != nil {
 			return r.keep(cmd, keep)
@@ -590,11 +614,12 @@ func sendToOutcome(err error, files, acked int) (lines []string, keep error) {
 	var ended *transfer.PeerEndedError
 	var compat *transfer.CompatError
 	var pathErr *fs.PathError
+	answered := acked > 0
 	switch {
 	case errors.As(err, &stopped):
-		return refusalLines(stopped.Code, stopped.Saved, files), nil
+		return refusalLines(stopped.Code, stopped.Saved, files, answered), nil
 	case errors.As(err, &ended):
-		return []string{lineUnknownStop, savedSentence(ended.Saved, files)}, nil
+		return append([]string{lineUnknownStop}, savedLines(ended.Saved, files, answered)...), nil
 	case errors.As(err, &compat):
 		// TL-13 names the host as the side to update, which is true only when
 		// it is the side behind. When this CLI is, the remedy is floe update,
@@ -612,6 +637,10 @@ func sendToOutcome(err error, files, acked int) (lines []string, keep error) {
 		errors.Is(err, transfer.ErrNoFiles),
 		errors.As(err, &pathErr):
 		return nil, err
+	case errors.Is(err, transfer.ErrReceiverNotConfirmed),
+		errors.Is(err, transfer.ErrReceiverSilent),
+		errors.Is(err, transfer.ErrKeyCheckUnavailable):
+		return []string{lineUnverified}, nil
 	case acked == 0 && errors.Is(err, transfer.ErrAckTimeout):
 		// TL-15: the same sentence as the host's expired.
 		return []string{(&transfer.PeerStoppedError{Code: transfer.CodeExpired}).Error()}, nil
@@ -622,27 +651,48 @@ func sendToOutcome(err error, files, acked int) (lines []string, keep error) {
 }
 
 // refusalLines is the host's refusal as the approved copy prints it (TL-14 to
-// TL-26): the fixed line for the code, then the saved line, which declined and
-// expired carry in their own line, relay-cap words its own way at 0, and
-// hash-mismatch follows with the new-link line. The code is checked against
-// the allowlist again here; an unknown one is TL-26.
-func refusalLines(code transfer.RefusalCode, saved, files int) []string {
+// TL-26, TL-36): the fixed line for the code, then the saved line, which declined
+// and expired carry in their own line, relay-cap words its own way at 0, and
+// hash-mismatch and unverified follow with their new-link lines. The code is checked
+// against the allowlist again here; an unknown one is TL-26. answered: see savedLines.
+// declined and expired each hold "Nothing was sent." in their one line, and an honest
+// host sends them only before its first answer, so past it they read as TL-26.
+func refusalLines(code transfer.RefusalCode, saved, files int, answered bool) []string {
+	after := savedLines(saved, files, answered)
 	c, ok := transfer.ParseRefusalCode(string(code))
 	if !ok {
-		return []string{lineUnknownStop, savedSentence(saved, files)}
+		return append([]string{lineUnknownStop}, after...)
 	}
 	first := (&transfer.PeerStoppedError{Code: c}).Error()
 	switch c {
 	case transfer.CodeDeclined, transfer.CodeExpired:
+		if answered {
+			return append([]string{lineUnknownStop}, after...)
+		}
 		return []string{first}
 	case transfer.CodeRelayCap:
-		if clampCount(saved, files) == 0 {
+		if clampCount(saved, files) == 0 && !answered {
 			return []string{first, lineRelayNothing}
 		}
 	case transfer.CodeHashMismatch:
-		return []string{first, savedSentence(saved, files), lineSendTheRest}
+		return append(append([]string{first}, after...), lineSendTheRest)
+	case transfer.CodeUnverified:
+		return append(append([]string{first}, after...), lineAskLinkMaker)
 	}
-	return []string{first, savedSentence(saved, files)}
+	return append([]string{first}, after...)
+}
+
+// savedLines is the saved line where it is true. answered is this side's own fact, that
+// the host has answered a file: the first byte goes right behind that answer, so from
+// there "Nothing was sent." would be false whatever count a frame carries, on an honest
+// host too (a disk that fills during file 1). With nothing saved there is then no such
+// line at all, which takes no new words (the owner, 2026-11-03; savedLines in the /r
+// page's visitorCopy.ts is the same rule).
+func savedLines(saved, n int, answered bool) []string {
+	if answered && clampCount(saved, n) == 0 {
+		return nil
+	}
+	return []string{savedSentence(saved, n)}
 }
 
 // clampCount holds a count to [0, n]; the counts it sees came off the wire

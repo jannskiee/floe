@@ -18,6 +18,11 @@
 // to speak as that socket, and the SDK copies the request URL onto every
 // http.client span and XHR breadcrumb, so it is redacted like the room id.
 //
+// A link can also carry a link key: #k=<k>&room=<id> on a share link, #<id>.<k>
+// on a request link. It proves a peer holds the link, so it goes wherever the
+// room id goes: with the fragment, and by the same rules where text holds it
+// with the '#' gone or behind a quote.
+//
 // Accepts absolute or relative URLs and never throws.
 
 // One request-link path segment, matched case-insensitively and only where a
@@ -43,14 +48,60 @@ function redactRequestPath(path: string): string {
 
 // A /r path can also ride in a query value (?next=/r/<id>). URLSearchParams
 // hands each value back decoded, so %2F and %72 are caught by the same test.
-// The query is rebuilt only when a value matches, so every other URL keeps its
+// A whole link can too, which is how a script reports the page it is on:
+// fetch('https://collector.example/hit?u=' + encodeURIComponent(location.href)).
+// The SDK then writes that URL onto a breadcrumb and a span, and decoded it holds
+// everything a link holds, so it takes a link's own rule. A value that holds none
+// of a link's marks, such as ?color=%23fff, stays.
+// The query is rebuilt only when a value changes, so every other URL keeps its
 // query byte for byte.
 function redactRequestQuery(u: URL): void {
     const params = [...u.searchParams];
-    if (!params.some(([, value]) => REQUEST_PATH_SHAPE.test(value))) return;
-    u.search = new URLSearchParams(
-        params.map(([key, value]) => [key, REQUEST_PATH_SHAPE.test(value) ? redactRequestPath(value) : value])
-    ).toString();
+    const redacted = params.map(([key, value]) => [key, redactQueryValue(value)]);
+    if (redacted.every(([, value], i) => value === params[i][1])) return;
+    u.search = new URLSearchParams(redacted).toString();
+}
+
+function redactQueryValue(value: string): string {
+    if (REQUEST_PATH_SHAPE.test(value)) return redactRequestPath(value);
+    if (LINK_PARAM_START.test(value) || KEYED_ROOM_SHAPE.test(value) || FRAGMENT_ROOM_ID_SHAPE.test(value)) {
+        return scrubUrl(value) ?? '';
+    }
+    return value;
+}
+
+// A link's two parameters, as text can hold them where no URL parser finds them.
+// With the '#' lost, "k=<k>&room=<id>" parses as a path: new URL makes it
+// "/k=<k>&room=<id>", both secrets intact. So this rule runs on the raw string,
+// ahead of any parser. A name counts as a parameter when nothing word-like sits
+// in front of it, which takes in the start of a token, the URL delimiters, a
+// quote, a bracket, a colon and a slash, and leaves "bank=1", "x-k=1", "a.k=1"
+// and "bathroom=3" alone. Its value runs to the next delimiter.
+const LINK_PARAM = /(^|[^\w%.-])(k|room)=[^&#\s"'<>()]*/gi;
+
+// The same start as a plain test: no /g, so it keeps no lastIndex between calls.
+const LINK_PARAM_START = /(^|[^\w%.-])(?:k|room)=/i;
+
+// The other link's fragment with the same '#' gone, as location.hash.slice(1)
+// hands it on: a room id, a dot and a key. The key's exact shape, so that
+// "<id>.png" stays. A bare room id with no mark at all cannot be told from any
+// other UUID, so it stays too, as it always has.
+const KEYED_ROOM = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[A-Za-z0-9_-]{21}[AQgw](?![A-Za-z0-9_-])/gi;
+
+// The same shape as a plain test, as above.
+const KEYED_ROOM_SHAPE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[A-Za-z0-9_-]{21}[AQgw](?![A-Za-z0-9_-])/i;
+
+// A room id right after a '#', the mark of a request link's fragment.
+const FRAGMENT_ROOM_ID_SHAPE = /#[0-9a-f]{8}-[0-9a-f]{4}-/i;
+
+// A link percent-encoded inside a URL, as a query value holds one: %23k%3D, k%3D,
+// room%3D or %23<id>. Only says a string is worth parsing: scrubUrl decodes the
+// value and redactQueryValue judges it. An encoded link in text no URL rule applies
+// to stays, since nothing the SDK writes has that shape.
+const ENCODED_LINK_HINT = /(?:^|[^\w%.-]|%[0-9a-f]{2})(?:k|room)%3d|%23[0-9a-f]{8}-[0-9a-f]{4}-/i;
+
+function redactLinkParams(text: string): string {
+    return text.replace(LINK_PARAM, '$1$2=redacted').replace(KEYED_ROOM, 'redacted');
 }
 
 export function scrubUrl(url: string | undefined | null): string | undefined {
@@ -59,9 +110,12 @@ export function scrubUrl(url: string | undefined | null): string | undefined {
     // A dummy base lets relative URLs ("/path?room=x") parse too; we strip it
     // back off afterwards.
     const BASE = 'http://scrub.invalid';
+    // String(): this header's "never throws" is for a value the SDK did not type.
+    const text = redactLinkParams(String(url));
     try {
-        const u = new URL(url, BASE);
+        const u = new URL(text, BASE);
         if (u.searchParams.has('room')) u.searchParams.set('room', 'redacted');
+        if (u.searchParams.has('k')) u.searchParams.set('k', 'redacted');
         if (u.searchParams.has('sid')) u.searchParams.set('sid', 'redacted');
         redactRequestQuery(u);
         u.pathname = redactRequestPath(u.pathname);
@@ -79,14 +133,11 @@ export function scrubUrl(url: string | undefined | null): string | undefined {
         // ask: the room redaction must stay on the query side and the request
         // redaction on the path side, or a ?room= value containing "/r/" would
         // rewrite itself.
-        const withoutHash = url.replace(/#.*$/, '');
+        const withoutHash = text.replace(/#[\s\S]*$/, '');
         const q = withoutHash.indexOf('?');
         const path = q >= 0 ? withoutHash.slice(0, q) : withoutHash;
         const query = q >= 0 ? withoutHash.slice(q) : '';
-        return (
-            redactRequestPath(path) +
-            query.replace(/([?&])room=[^&]*/i, '$1room=redacted').replace(/([?&])sid=[^&]*/i, '$1sid=redacted')
-        );
+        return redactRequestPath(path) + query.replace(/([?&])(room|k|sid)=[^&]*/gi, '$1$2=redacted');
     }
 }
 
@@ -176,6 +227,9 @@ export function scrubTransactionEvent<T extends ScrubbableTransaction>(event: T)
 export interface ScrubbableErrorEvent {
     request?: { url?: string };
     transaction?: string;
+    message?: string;
+    logentry?: unknown;
+    extra?: unknown;
     exception?: { values?: { value?: string; stacktrace?: { frames?: { filename?: string; abs_path?: string }[] } }[] };
     breadcrumbs?: unknown;
 }
@@ -192,7 +246,10 @@ export interface ScrubbableErrorEvent {
 // value and the event's breadcrumbs are text anything on the page can write (a
 // third-party or extension script that logs location.href or the link), so the
 // value takes the free-text rule and each breadcrumb scrubEventBreadcrumb's
-// (deep QA A4-06, W3 R5-04).
+// (deep QA A4-06, W3 R5-04). The same goes for what a throw of anything but an
+// Error becomes: the SDK writes a thrown string to event.message and a thrown
+// object to event.extra.__serialized__ (eventbuilder.js, @sentry/browser 11.8.0),
+// and an Error's name is its exception's type.
 //
 // It never throws, whatever the shape. A hook that throws loses its event, and
 // worse: the SDK reports the throw as an error event of its own, which skips
@@ -203,12 +260,16 @@ export function scrubErrorEvent<T extends ScrubbableErrorEvent>(event: T): T {
     if (typeof event.request?.url === 'string') event.request.url = scrubUrl(event.request.url);
     scrubRequestReferer(event.request);
     if (typeof event.transaction === 'string') event.transaction = scrubTransactionName(event.transaction);
+    if (typeof event.message === 'string') event.message = scrubText(event.message);
+    if (isObject(event.logentry)) event.logentry = scrubCopy(event.logentry, 0);
+    if (isObject(event.extra)) event.extra = scrubCopy(event.extra, 0);
     if (Array.isArray(event.breadcrumbs)) event.breadcrumbs = event.breadcrumbs.map((crumb: unknown) => scrubEventBreadcrumb(crumb));
     const values: unknown = event.exception?.values;
     if (!Array.isArray(values)) return event;
     for (const value of values) {
         if (!isObject(value)) continue;
         if (typeof value.value === 'string') value.value = scrubText(value.value);
+        if (typeof value.type === 'string') value.type = scrubText(value.type);
         if (!isObject(value.stacktrace)) continue;
         const frames = value.stacktrace.frames;
         if (!Array.isArray(frames)) continue;
@@ -421,8 +482,9 @@ function scrubBreadcrumbs(event: ScrubbableServerRequest): void {
     event.breadcrumbs = crumbs.map((crumb: unknown) => scrubEventBreadcrumb(crumb));
 }
 
-// A copy of value with every string scrubbed by the free-text rule. A property
-// that throws when read, or anything past MAX_BREADCRUMB_DEPTH, is left out.
+// A copy of value with every string scrubbed by the free-text rule, a key's name
+// included, since {[location.href]: 1} is an object anything on a page can throw. A
+// property that throws when read, or anything past MAX_BREADCRUMB_DEPTH, is left out.
 function scrubCopy(value: unknown, depth: number): unknown {
     if (typeof value === 'string') return scrubText(value);
     if (!isObject(value)) return value;
@@ -430,11 +492,36 @@ function scrubCopy(value: unknown, depth: number): unknown {
     try {
         if (Array.isArray(value)) return value.map((item: unknown) => scrubCopy(item, depth + 1));
         const out: Record<string, unknown> = {};
-        for (const key of Object.keys(value)) out[key] = scrubCopy(value[key], depth + 1);
+        for (const key of Object.keys(value)) out[scrubText(key)] = scrubCopy(value[key], depth + 1);
         return out;
     } catch {
         return undefined;
     }
+}
+
+// An element's own words in a selector. The SDK writes an element's aria-label,
+// title and alt into the selector it makes (htmlTreeAsString in
+// @sentry/browser-utils 11.8.0) with no escaping: a click breadcrumb's message,
+// lcp.element and cls.source.N on a page load, a standalone web-vital span's
+// name, [HTMLElement: ...] for a logged node. Floe's Remove button names a file
+// the sender picked, and its Download button names one the other peer chose. So
+// the words go wherever text can hold them, and the attribute's bare name stays,
+// which still says what kind of thing was clicked.
+//
+// A value can hold '"]' and anything shaped like the next element after it, so
+// nothing from the first such attribute to the last '"]' can be told from a
+// name, and all of it goes. Past the last '"]' there is no value to hide in, only
+// the page's own structure, so that stays. With no '"]' after it, the rest of the
+// string goes. type and name are not on the list: neither is ever a person's
+// words in Floe's markup.
+const SELECTOR_WORDS_OPEN = /\[(aria-label|title|alt)="/;
+
+function dropSelectorWords(text: string): string {
+    const open = SELECTOR_WORDS_OPEN.exec(text);
+    if (!open) return text;
+    const close = text.lastIndexOf('"]');
+    const rest = close > open.index ? text.slice(close + 2) : '';
+    return `${text.slice(0, open.index)}[${open[1]}]${dropSelectorWords(rest)}`;
 }
 
 // A query parameter or fragment key named room, the legacy and the current
@@ -454,7 +541,7 @@ const URL_TOKEN = /^(?:[a-z][a-z0-9+.-]*:\/\/|[/?#])/i;
 // fragment at all, "(https://floe.one/r/<id>)". Such a token is only rewritten
 // when it also holds a fragment, a room= parameter or a /r segment. Anchored
 // on "://" rather than any '/': an element selector can hold a '/' and then a
-// '#' (div.w-1/2.bg-[#fff], img[alt="a/b#c"]) and must come back as it was.
+// '#' (div.w-1/2.bg-[#fff], input[name="a/b#c"]) and must come back as it was.
 // No SDK producer writes a page URL without its scheme.
 const EMBEDDED_URL = /:\/\//;
 
@@ -467,10 +554,11 @@ const EMBEDDED_URL = /:\/\//;
 // fragment. The fix that covered request.url and url.full left these
 // descriptions carrying the whole receiver link.
 //
-// Fail-closed but exact: a string with no '#' and no room= parameter cannot
-// hold the secret in any link shape, so it comes back byte for byte (mark and
-// paint names, resource paths, selectors, free text; the URL parser would
-// otherwise normalize a path like /a/../b). Anything else is split on
+// Fail-closed but exact: a string with no '#' and no room= or k= parameter
+// cannot hold the secret in any link shape, so it comes back byte for byte (mark
+// and paint names, resource paths, selectors, free text; the URL parser would
+// otherwise normalize a path like /a/../b), but for the words of an element in a
+// selector (dropSelectorWords), which go first. Anything else is split on
 // whitespace, and every token that is URL-shaped, holds a URL, or carries a
 // room= parameter goes through scrubUrl, which drops the fragment whatever it
 // holds (a bare #<id> included) and redacts ?room=.
@@ -480,16 +568,20 @@ const EMBEDDED_URL = /:\/\//;
 // the bare path, and so is the url of a fetch. The check is made per token as
 // well as per string, so a string that qualifies because of one token never
 // has its other URL tokens normalized.
+//
+// A token that holds a link parameter or a room id but is not URL-shaped keeps
+// everything else, as in free text below.
 function scrubDescription(description: string): string {
-    if (!mayHoldSecret(description)) return description;
-    return description
+    const clean = dropSelectorWords(description);
+    if (!mayHoldSecret(clean)) return clean;
+    return clean
         .split(/(\s+)/)
-        .map((token) =>
-            mayHoldSecret(token) &&
-            (URL_TOKEN.test(token) || EMBEDDED_URL.test(token) || ROOM_PARAM.test(token) || SESSION_PARAM.test(token))
+        .map((token) => {
+            if (!mayHoldSecret(token)) return token;
+            return URL_TOKEN.test(token) || EMBEDDED_URL.test(token) || ROOM_PARAM.test(token) || SESSION_PARAM.test(token)
                 ? (scrubUrl(token) ?? '')
-                : token
-        )
+                : scrubUnshapedToken(token);
+        })
         .join('');
 }
 
@@ -504,13 +596,21 @@ const FRAGMENT_SECRET = /^#(?:[a-z][a-z0-9_]*=|[0-9a-f]{8}-[0-9a-f]{4}-|(?:\/|%2
 
 // A room id after a '#' inside a token that is not URL-shaped, as in
 // Chromium's "'#<id>' is not a valid selector" when a script hands a /r
-// fragment, a bare room id, to querySelector (C1-04). Only the id goes; the
-// quotes and the rest of the message stay.
-const FRAGMENT_ROOM_ID = /#[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+// fragment, a bare room id, to querySelector (C1-04). A keyed request link's
+// fragment goes on past a dot (#<id>.<k>), and whatever follows that dot goes
+// with the id, of any length, so a damaged key is covered too. The quotes and
+// the rest of the message stay.
+const FRAGMENT_ROOM_ID = /#[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\.[^\s'"`<>()]*)?/gi;
+
+// A token no URL rule applies to: only its link parameters and its room id go.
+function scrubUnshapedToken(token: string): string {
+    return redactLinkParams(token.replace(FRAGMENT_ROOM_ID, '#redacted'));
+}
 
 function scrubText(text: string): string {
-    if (!mayHoldSecret(text)) return text;
-    return text
+    const clean = dropSelectorWords(text);
+    if (!mayHoldSecret(clean)) return clean;
+    return clean
         .split(/(\s+)/)
         .map((token) => {
             if (!mayHoldSecret(token)) return token;
@@ -519,7 +619,7 @@ function scrubText(text: string): string {
                 ROOM_PARAM.test(token) ||
                 SESSION_PARAM.test(token) ||
                 (URL_TOKEN.test(token) && (!token.startsWith('#') || FRAGMENT_SECRET.test(token)));
-            return urlish ? (scrubUrl(token) ?? '') : token.replace(FRAGMENT_ROOM_ID, '#redacted');
+            return urlish ? (scrubUrl(token) ?? '') : scrubUnshapedToken(token);
         })
         .join('');
 }
@@ -528,13 +628,20 @@ function scrubText(text: string): string {
 // open a query value (?next=r%2F<id>) right after its '='.
 const REQUEST_PATH_HINT = /(^|[/=]|%2f)(?:r|%72)(?:\/|%2f)[^/]/i;
 
-// Whether a string can hold the room id (a fragment or a room= parameter), a
+// Whether a string can hold the room id or the link key (a fragment, a room= or
+// k= parameter, <id>.<k> on its own, or a link percent-encoded inside a URL), a
 // signaling session id (a sid= parameter) or a request-link id (a /r/<linkId>
-// path). Nothing else is touched, and only a URL-shaped token is ever
-// rewritten for a /r segment, so free text such as "r/abc" stays.
+// path). Nothing else is touched, and only a URL-shaped token is ever rewritten for
+// a /r segment, so free text such as "r/abc" stays.
 function mayHoldSecret(value: string): boolean {
     return (
-        value.includes('#') || ROOM_PARAM.test(value) || SESSION_PARAM.test(value) || REQUEST_PATH_HINT.test(value)
+        value.includes('#') ||
+        ROOM_PARAM.test(value) ||
+        LINK_PARAM_START.test(value) ||
+        KEYED_ROOM_SHAPE.test(value) ||
+        ENCODED_LINK_HINT.test(value) ||
+        SESSION_PARAM.test(value) ||
+        REQUEST_PATH_HINT.test(value)
     );
 }
 

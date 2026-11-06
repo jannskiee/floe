@@ -35,11 +35,11 @@ function makeFile(sizeBytes: number, name = 'test.bin'): File {
 describe('sender: a version mismatch is rebuilt from the frame', () => {
     it('shows the browser remedy instead of the neutral wire wording', async () => {
         const wire =
-            "Cannot transfer: your floe is too old for this peer.\n  You: protocol 1  Peer: protocol 2 (1.11.0)\n  Update Floe to continue.";
+            "Cannot transfer: your floe is too old for this peer.\n  You: protocol 1-2  Peer: protocol 3 (1.11.0)\n  Update Floe to continue.";
         const errors: string[] = [];
         await sendFiles(
             scriptedDeps(() =>
-                JSON.stringify({ type: 'incompatible', reason: wire, pv: 2, pvMin: 2, ver: '1.11.0' })
+                JSON.stringify({ type: 'incompatible', reason: wire, pv: 3, pvMin: 3, ver: '1.11.0' })
             ),
             [{ id: 'x', file: makeFile(16, 'a.bin') }],
             { onError: (m) => errors.push(m) }
@@ -47,7 +47,7 @@ describe('sender: a version mismatch is rebuilt from the frame', () => {
         expect(errors).toHaveLength(1);
         expect(errors[0]).toContain('your browser is running an older version of Floe');
         expect(errors[0]).toContain('Refresh the page to get the latest version.');
-        expect(errors[0]).toContain('Peer: protocol 2 (1.11.0)');
+        expect(errors[0]).toContain('Peer: protocol 3 (1.11.0)');
         expect(errors[0]).not.toContain('Update Floe to continue.');
     });
 
@@ -70,7 +70,7 @@ describe('sender: a version mismatch is rebuilt from the frame', () => {
         const errors: string[] = [];
         await sendFiles(
             scriptedDeps(() =>
-                JSON.stringify({ type: 'incompatible', reason: 'x', pv: 2, pvMin: 2, ver })
+                JSON.stringify({ type: 'incompatible', reason: 'x', pv: 3, pvMin: 3, ver })
             ),
             [{ id: 'x', file: makeFile(16, 'a.bin') }],
             { onError: (m) => errors.push(m) }
@@ -204,7 +204,7 @@ describe('sender: rejection text is display-safe', () => {
         const ver = 'v\u202e' + 'x'.repeat(850);
         const errors: string[] = [];
         await sendFiles(
-            scriptedDeps((id) => JSON.stringify({ type: 'ack', id, offset: 0, pv: 2, pvMin: 2, ver })),
+            scriptedDeps((id) => JSON.stringify({ type: 'ack', id, offset: 0, pv: 3, pvMin: 3, ver })),
             [{ id: 'x', file: makeFile(16, 'a.bin') }],
             { onError: (m) => errors.push(m) });
         expect(errors).toHaveLength(1);
@@ -1372,7 +1372,7 @@ describe('sender: visitor options', () => {
         // what compatErrorFromIncompatible splits on; an overlapping range is a
         // deliberate abort.
         const miss = visitorDeps({
-            onEnd: (deliver) => deliver(JSON.stringify({ type: 'incompatible', reason: 'x', pv: 2, pvMin: 2 })),
+            onEnd: (deliver) => deliver(JSON.stringify({ type: 'incompatible', reason: 'x', pv: 3, pvMin: 3 })),
         });
         await within(sendFiles(miss.deps, entries(1), {
             onStopped: (s) => stops.push(s),

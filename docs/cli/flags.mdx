@@ -59,7 +59,11 @@ only when your web app has its own hostname.
 VMware, WSL, Hyper-V) slows connection setup; see
 [slow to connect](/troubleshooting#slow-to-connect-when-a-vpn-or-virtual-machine-is-running). Your
 system lists the names: `Get-NetAdapter` in PowerShell on Windows, `ip link` on Linux, `ifconfig` on
-macOS. `floe` does not check the name, so one that matches no interface is accepted without a word.
+macOS. If no interface on this computer matches any name you give, `floe` stops before it pairs, with
+`Error: --iface matches no network interface on this computer; check the name, or drop the flag`,
+and exits with status 1. The check reads names only, so an adapter that exists but is down passes it.
+`floe` 1.11.7 and earlier do not check the name, so one that matches no interface is accepted without a
+word, and the connection fails after pairing.
 
 The desktop app has equivalents for three of these. `--server` and `--web` are **Server address** and **Share link address**, under Advanced in **Settings**, and `--relay-only` is the **Hide my IP address** toggle under Privacy. `--no-relay` and `--iface` have no desktop equivalent: Floe Desktop can require the relay but never refuse it. See [Desktop app settings](/desktop/settings).
 
@@ -70,9 +74,14 @@ Specific to the `send` command.
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--to <link>` | _(none)_ | Send through a [request link](/glossary#request-link) made in Floe Desktop instead of creating a [room code](/glossary#room-code). Put the whole link in quotes, including everything after the `#`. |
+| `--link-only` | `false` | In `floe` 1.12 and later: make no code, and send only to a receiver that proves it holds the link. It has no environment variable. |
 
 With `--to`, no link is printed, so `--web` has no effect, and the request link has to belong to the
 server in effect. See [Send through a request link](/cli/send#send-through-a-request-link).
+
+With `--link-only`, no file is named until the receiver has proved it holds the link's
+[link key](/glossary#link-key), and a receiver that shows no proof within 15 seconds ends the send
+with status 1. See [Send only to a receiver that proves it holds the link](/cli/send#link-only).
 
 ## `floe receive` flags {#floe-receive-flags}
 
@@ -93,7 +102,7 @@ Specific to the `update` command.
 | `--check` | `false` | Report whether a newer release exists and exit without installing it. |
 
 **`--check`.** On an up-to-date binary the flag changes nothing: `floe update` prints
-`Already up to date (1.11.7)` and stops either way (the installed version carries no leading `v`).
+`Already up to date (1.12.0)` and stops either way (the installed version carries no leading `v`).
 On a [package manager](/glossary#package-manager) install the update guard runs first, so `--check`
 stops with the upgrade command for your package manager instead of a version report. On a build
 compiled from source, it stops with `Error: Cannot update a dev build.` See
@@ -106,7 +115,7 @@ These come from the CLI framework rather than from Floe itself.
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--help`<br />`-h` | `false` | Print usage and exit. Works on every command, so `floe send --help` and `floe receive --help` each print that command's own flags. |
-| `--version`<br />`-v` | `false` | Print the installed version and exit, for example `floe 1.11.7`. Root only: `floe --version` works, `floe send --version` does not. See [Alternatives](/cli/version#alternatives). |
+| `--version`<br />`-v` | `false` | Print the installed version and exit, for example `floe 1.12.0`. Root only: `floe --version` works, `floe send --version` does not. See [Alternatives](/cli/version#alternatives). |
 
 `floe help` comes from the same place, and so does the `floe completion` command, below.
 
@@ -186,7 +195,7 @@ on, such as `PION_LOG_TRACE=ice`, brings all of them back, so set one only while
   piped stdin gives it an empty answer, which accepts, so `echo | floe receive <code>` receives
   without `-y`. Leaving `-y` out therefore does not stop a job from receiving. Pass it anyway, so
   the intent is on the command line rather than in the shell's plumbing.
-- **Exit codes.** `0` is success, `1` is any error, and `130` is an interrupt (`Ctrl+C` or `SIGTERM`). There are no others. See [Exit codes](#exit-codes).
+- **Exit codes.** `0` is success, `1` is any error, and `130` is an interrupt (`Ctrl+C`, `SIGTERM`, or on macOS and Linux a hangup). There are no others. See [Exit codes](#exit-codes).
 - **What success means for a send.** It depends on the receiver. See
   [File checks](/how-it-works/file-checks#delivery-confirmation).
   - `floe send --to` exits `0` only after the other side's Floe confirmed that every file arrived.
@@ -198,7 +207,7 @@ on, such as `PION_LOG_TRACE=ice`, brings all of them back, so set one only while
 - **A send waits as long as it takes.** `floe send` has no time limit of its own while it waits for
   the other side to connect, so give the job a timeout if it must not hang. It does end, with status
   `1`, if its own connection to the signaling server drops while it waits.
-- **Pass the link when the wait may be long.** A room code stops working after 10 minutes at most, and the link works for as long as that `floe send` runs: see [How long a code and a link last](/how-it-works/signaling#code-and-link-lifetime). `floe receive` takes either.
+- **Pass the link when the wait may be long.** A room code stops working after 10 minutes at most, and the link works for as long as that `floe send` runs: see [How long a code and a link last](/how-it-works/signaling#code-and-link-lifetime). `floe receive` takes either. In `floe` 1.12 and later the link [holds an `&`](/cli/send#put-the-link-in-quotes) and a link key, so keep it in quotes, and the process list and any log that repeats the command then hold that link key.
 - **Environment variables.** Set the server once with `FLOE_SERVER`. Set `FLOE_NO_STATS=1` on a job that receives, so test transfers do not add to the public counter, and `FLOE_NO_UPDATE_CHECK=1` if the job runs `floe version`. See [Environment variables](#environment-variables).
 - **Streams.** Status lines, the boxes, the prompt, progress and `Warning:` lines go to stdout. Errors, every refusal line and the `Canceled.` line go to stderr.
 - **Progress in a log.** The progress line is written even when stdout is not a terminal: it is
@@ -241,9 +250,9 @@ The browser and Floe Desktop have a switch of their own for the same report. See
 
 | Code | Meaning |
 |------|---------|
-| `0` | Success. For `floe send --to`, only after the other side's Floe confirmed that every file arrived. Also `floe receive` stopped with `Ctrl+C` or `SIGTERM` after its summary box printed. |
-| `1` | Any error: a usage mistake, a failed transfer, a code that would not resolve, a declined transfer, a refused link, or `floe update` refusing to update this install. Every outcome of `floe send --to` but success and `Ctrl+C`. |
-| `130` | Interrupted, by `Ctrl+C` or by `SIGTERM`, as described below the table. |
+| `0` | Success. For `floe send --to`, only after the other side's Floe confirmed that every file arrived. Also `floe receive` stopped with `Ctrl+C`, `SIGTERM` or, on macOS and Linux, a hangup after its summary box printed. A second signal then exits `130` at once. |
+| `1` | Any error: a usage mistake, a failed transfer, a code that would not resolve, a declined transfer, a refused link, or `floe update` refusing to update this install. Every outcome of `floe send --to` but success and an interrupt. |
+| `130` | Interrupted, by `Ctrl+C`, by `SIGTERM`, or on macOS and Linux by a hangup (`SIGHUP`), as described below the table. |
 
 On `130`, Floe prints `Canceled.` to stderr and removes the `.part` file it was writing, waiting at
 most 5 seconds for that before it exits. Once connected, a plain `floe send` first tells the
@@ -251,11 +260,23 @@ receiver that the sender stopped, and `floe receive` tells the sender, each with
 `floe send --to` prints its own line instead, `Canceled. Nothing was sent.` or
 `You stopped this drop.` with how many files were saved.
 
+On macOS and Linux, a hangup counts as an interrupt. Closing the terminal window, losing the SSH
+session, or sending `SIGHUP` stops `floe` the same way as `Ctrl+C`, as described above. A closed
+terminal cannot show the line, but the exit status and the notice to the other side are the same.
+`floe` 1.11.7 and earlier stop at once on a hangup: they tell the other side nothing and leave the
+`.part` file. A `floe` started under `nohup` ignores the hangup and keeps going:
+
+```bash Terminal
+nohup floe send ./backup.tar > floe.log 2>&1 &
+```
+
 A mistake in a command's arguments or flags prints one `Error:` line and no usage text, and exits `1`. For example,
 `floe send` with no file prints `Error: requires at least 1 arg(s), only received 0`, and
 `floe receive` with no code prints `Error: accepts 1 arg(s), received 0`. Both relay flags at once
 print
 `Error: if any flags in the group [relay-only no-relay] are set none of the others can be; [no-relay relay-only] were all set`.
+`--link-only` with `--to`, in `floe` 1.12 and later, prints
+`Error: if any flags in the group [to link-only] are set none of the others can be; [link-only to] were all set`.
 
 `floe` with no arguments prints help and exits `0`.
 
@@ -271,6 +292,7 @@ meet:
 | Waiting for the other side's offer or answer | 30 seconds, then [`timed out waiting for the peer's offer`](/troubleshooting#timed-out-waiting-for-the-peers-offer), or `timed out waiting for the peer to answer` on the sender |
 | Establishing the connection | 30 seconds more, then [`timed out establishing a connection`](/troubleshooting#timed-out-establishing-a-connection) |
 | The [data channel](/glossary#data-channel) opening once connected | 10 seconds more, then `connected but the data channel did not open` |
+| The other side's proof of the [link key](/glossary#link-key), with `--link-only` or on a `--to` link that holds one, in `floe` 1.12 and later | 15 seconds, then [`Couldn't confirm the receiver`](/troubleshooting#could-not-confirm-the-receiver) or [`Couldn't confirm their computer`](/troubleshooting#could-not-confirm-their-computer) |
 | Receiver connected, sender never starts | 30 seconds, then [`connected, but no data arrived from the sender within 30s`](/troubleshooting#connected-but-no-data-arrived-from-the-sender-within-30s) |
 | Sender waiting for the receiver to accept | 120 seconds, the time to answer `Accept? [Y/n]`, then [`timed out waiting for ack`](/troubleshooting#timed-out-waiting-for-ack). With `--to`, the person at Floe Desktop has 9 minutes 45 seconds to answer, and `floe send --to` waits up to 10 minutes 15 seconds. Then `They did not answer in time. Nothing was sent.` |
 | A transfer that stops making progress | 60 seconds |

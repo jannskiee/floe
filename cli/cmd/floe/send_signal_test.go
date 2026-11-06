@@ -14,6 +14,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -46,34 +47,71 @@ func TestPlainSendRealSignalChild(t *testing.T) {
 		var heard heardFromSender
 		heard.listen(early, quit, 20*time.Second, nil)
 	})
+	sig := syscall.SIGINT
+	if os.Getenv("FLOE_SEND_SIGNAL_CHILD") == "HUP" {
+		sig = syscall.SIGHUP
+	}
 	go func() {
 		<-reached
-		_ = syscall.Kill(os.Getpid(), syscall.SIGINT)
+		_ = syscall.Kill(os.Getpid(), sig)
 	}()
 	os.Args = []string{"floe", "send", src, "--server", url}
 	main()
 	t.Fatal("main returned: neither exit came")
 }
 
-// TestPlainSendRealSignal: a real SIGINT to the real main(), while the
-// receiver has not answered, exits 130 with "Canceled." alone on stderr.
+// TestPlainSendRealSignal: a real SIGINT, or a SIGHUP (a closed terminal), to
+// the real main(), while the receiver has not answered, exits 130 with
+// "Canceled." alone on stderr.
 func TestPlainSendRealSignal(t *testing.T) {
 	if os.Getenv("FLOE_SEND_SIGNAL_CHILD") != "" {
 		t.Skip("the parent only")
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestPlainSendRealSignalChild$", "-test.count=1", "-test.timeout=60s")
-	cmd.Env = append(os.Environ(), "FLOE_SEND_SIGNAL_CHILD=1", "FLOE_NO_STATS=1")
-	var stdout, stderr strings.Builder
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
-	code := 0
-	var ee *exec.ExitError
-	if errors.As(err, &ee) {
-		code = ee.ExitCode()
-	} else if err != nil {
-		t.Fatalf("the child did not run: %v", err)
+	for _, sig := range []string{"INT", "HUP"} {
+		t.Run(sig, func(t *testing.T) {
+			if sig == "HUP" && signal.Ignored(syscall.SIGHUP) {
+				t.Skip("this process started with SIGHUP ignored")
+			}
+			cmd := exec.Command(os.Args[0], "-test.run=^TestPlainSendRealSignalChild$", "-test.count=1", "-test.timeout=60s")
+			cmd.Env = append(os.Environ(), "FLOE_SEND_SIGNAL_CHILD="+sig, "FLOE_NO_STATS=1")
+			var stdout, stderr strings.Builder
+			cmd.Stdout, cmd.Stderr = &stdout, &stderr
+			err := cmd.Run()
+			code := 0
+			var ee *exec.ExitError
+			if errors.As(err, &ee) {
+				code = ee.ExitCode()
+			} else if err != nil {
+				t.Fatalf("the child did not run: %v", err)
+			}
+			if got := pionLog.ReplaceAllString(stderr.String(), ""); code != 130 || got != canceledAlone {
+				t.Fatalf("exit %d, stderr %q; want 130 and %q\nstdout:\n%s", code, got, canceledAlone, stdout.String())
+			}
+		})
 	}
-	if got := pionLog.ReplaceAllString(stderr.String(), ""); code != 130 || got != canceledAlone {
-		t.Fatalf("exit %d, stderr %q; want 130 and %q\nstdout:\n%s", code, got, canceledAlone, stdout.String())
+}
+
+// TestHangupIgnoredChild runs main() as nohup starts it.
+func TestHangupIgnoredChild(t *testing.T) {
+	if os.Getenv("FLOE_NOHUP_CHILD") == "" || !signal.Ignored(syscall.SIGHUP) {
+		t.Skip("runs only as the child of TestHangupStaysIgnoredUnderNohup")
+	}
+	os.Args = []string{"floe"} // prints the help, and main returns
+	main()
+	if !signal.Ignored(syscall.SIGHUP) {
+		t.Fatal("main stopped ignoring SIGHUP, so nohup no longer protects floe")
+	}
+}
+
+// TestHangupStaysIgnoredUnderNohup passes on main too: it guards nohup.
+func TestHangupStaysIgnoredUnderNohup(t *testing.T) {
+	if os.Getenv("FLOE_NOHUP_CHILD") != "" {
+		t.Skip("the parent only")
+	}
+	cmd := exec.Command("nohup", os.Args[0], "-test.run=^TestHangupIgnoredChild$", "-test.timeout=60s", "-test.v")
+	cmd.Env = append(os.Environ(), "FLOE_NOHUP_CHILD=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "--- PASS: TestHangupIgnoredChild") {
+		t.Fatalf("the child under nohup did not pass: %v\n%s", err, out)
 	}
 }

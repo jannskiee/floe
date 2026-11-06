@@ -89,12 +89,31 @@ describe('friendlyError', () => {
         );
     });
 
+    it('reads a failed resolve the same with the paste left out of its wrapper (B9)', () => {
+        // receiveByCode quoted the paste until a link could carry a key. Every rule
+        // matches on the words behind the wrapper, so each still lands where it did,
+        // on what a current build sends. These are the sentences ResolveLink returns.
+        for (const [inner, shown] of [
+            ['could not reach signaling server: dial tcp: refused', "Can't reach the server"],
+            ['server returned 429 when resolving code', 'The server is limiting requests from this network. Wait a minute and try again'],
+            ['server returned 503 when resolving code', "Can't reach the server"],
+            ['the room id in this link is incomplete or mistyped', 'That link is incomplete'],
+            ['code "olive-tiger-castle" not found: it was already used, the sender left, or it expired (a code lasts 10 minutes at most)', "That code wasn't recognized"],
+            ['code not recognized: a code is words joined by hyphens, like olive-tiger-castle', "That code wasn't recognized"],
+            ['URL does not contain a room id (#room= or ?room=)', "That code wasn't recognized"],
+            ['invalid URL', "That code wasn't recognized"],
+        ] as const) {
+            expect(friendlyError('could not resolve: ' + inner), inner).toBe('Error: ' + shown);
+        }
+    });
+
     it('names a room link cut short as incomplete in both places the check has run', () => {
         // A4-B27: a #room= value that is not a room id. Releases up to 1.11.0
         // hand it to the server, whose join answers 'Invalid room ID'; the
-        // engine now refuses it in Resolve, and receiveByCode wraps that
-        // sentence in 'could not resolve "<the link>": ...'. The rule sits
-        // above 'could not resolve', whose typo advice is wrong for a link.
+        // engine now refuses it in ResolveLink, and receiveByCode wraps that
+        // sentence. An older build's wrapper quoted the link, so both forms are
+        // read here. The rule sits above 'could not resolve', whose typo advice is
+        // wrong for a link.
         const incomplete = 'Error: That link is incomplete';
         expect(friendlyError('server error: Invalid room ID')).toBe(incomplete);
         expect(
@@ -107,7 +126,7 @@ describe('friendlyError', () => {
     });
 
     it('reads the code-not-found sentence in both wordings the engine has had', () => {
-        // Resolve's 404 sentence as receiveByCode wraps it: the one releases up
+        // ResolveLink's 404 sentence as an older receiveByCode wrapped it: the one releases up
         // to 1.11.0 print, and the one that names the real causes. The desktop
         // ships its own engine, so only one of them reaches a given build, and
         // both must read the same here whichever lands first.
@@ -141,8 +160,8 @@ describe('friendlyError', () => {
         // malformed room id, mapped just above, and its limits close the
         // socket or answer HTTP 429 instead. The rule that read every other
         // frame as "The server is busy, try again in a minute" could never
-        // fire, and was wrong for anything it caught. desktop/transfer.go now
-        // keeps an unknown frame's words out of the error (serverErrorFrame),
+        // fire, and was wrong for anything it caught. The engine now
+        // keeps an unknown frame's words out of the error (ServerFrameError),
         // so what reaches this line is its own fixed sentence, passed through.
         const unknown = 'the server answered with an error this version of Floe does not know';
         expect(friendlyError(unknown)).toBe('Error: ' + unknown);
@@ -227,7 +246,7 @@ describe('friendlyError', () => {
         // only for the setup waits of SetupAsSender and SetupAsReceiver
         // (the conn.connected channel, read nowhere else), so this text never
         // describes a transfer that had started. desktop/transfer.go wraps it.
-        for (const state of ['failed', 'disconnected', 'closed']) {
+        for (const state of ['failed', 'closed']) {
             expect(friendlyError(`WebRTC setup failed: connection failed (state: ${state})`)).toBe(
                 "Error: Couldn't connect the two devices",
             );
@@ -380,10 +399,10 @@ describe('friendlyError', () => {
 describe('a code receive this side stopped (D-123)', () => {
     // The engine's own sentences for a receive this side stopped on purpose,
     // or could not finish saving: RefusedError.Error() and CommitError.Error()
-    // in cli/engine/transfer/refusal.go (approved-copy-cli.txt RX-01 to RX-10),
+    // in cli/engine/transfer/refusal.go (approved-copy-cli.txt RX-01 to RX-11),
     // quoted because Go cannot be imported here. ReceiveByCode wraps each in
     // 'transfer failed: ' (desktop/transfer.go). The second column is the
-    // approved desktop row (RX1, RX2 and RX10), which approvedCopy.test.ts
+    // approved desktop row (RX1, RX2, RX10 and RX11), which approvedCopy.test.ts
     // ties to the frozen table.
     const RX: Array<[engine: string, shown: string]> = [
         ["receive stopped: a file's path is too deep or too long to save in this folder", "A file's path is too deep or too long to save in this folder"],
@@ -392,6 +411,7 @@ describe('a code receive this side stopped (D-123)', () => {
             'received a file in full but could not finish saving it; the complete file was kept in the save folder with a .part ending',
             "A received file couldn't be saved, so it was kept with a .part ending",
         ],
+        ['receive stopped: the sender could not be confirmed, so nothing was saved', "Couldn't confirm who sent this link. Nothing was received"],
     ];
     // RX3 to RX9: sentences no code receive can end with. ReceiveByCode sets
     // no ReceiveLimits and no Decide, which alone raise over-approved,
@@ -417,7 +437,7 @@ describe('a code receive this side stopped (D-123)', () => {
             expect(friendlyError(engine), engine).toBe('Error: ' + shown);
             expect(friendlyError('Error: transfer failed: ' + engine), engine).toBe('Error: ' + shown);
         }
-        // Three sentences, three different lines.
+        // Four sentences, four different lines.
         expect(SHOWN.size).toBe(RX.length);
     });
 
@@ -498,6 +518,51 @@ describe('a code receive this side stopped (D-123)', () => {
                 expect(SHOWN.has(friendlyError(wrapped)), wrapped).toBe(false);
             }
         }
+    });
+});
+
+describe('the link key check', () => {
+    // The engine's fixed sentences (cli/engine/transfer/keycheck.go and refusal.go),
+    // quoted because Go cannot be imported here, in the forms desktop/transfer.go
+    // hands over: sendEnd leaves a coded stop bare and wraps the rest, and
+    // receiveByCode wraps everything.
+    const sendLine = "Error: Couldn't confirm who opened your link. Nothing was sent";
+    const receiveLine = "Error: Couldn't confirm who sent this link. Nothing was received";
+
+    it('a send whose receiver failed the check gets the Send line, either way it heard', () => {
+        // ErrReceiverNotConfirmed: the receiver's proof came and was wrong.
+        expect(friendlyError("transfer failed: the receiver could not prove it holds this link's key, so nothing was sent")).toBe(sendLine);
+        // PeerStoppedError for code unverified: the receiver refused this side's proof.
+        expect(friendlyError("Their computer couldn't confirm this link.")).toBe(sendLine);
+        // ErrReceiverSilent: a receiver that stopped in its own words and closed before this
+        // send's proof went out. Engine words with no line of their own otherwise.
+        expect(friendlyError("transfer failed: the receiver sent no proof of this link's key in time, so nothing was sent")).toBe(sendLine);
+    });
+
+    it('a keyed receive that refused its sender gets RX11, wrapped or bare', () => {
+        expect(friendlyError('transfer failed: receive stopped: the sender could not be confirmed, so nothing was saved')).toBe(receiveLine);
+        expect(friendlyError('receive stopped: the sender could not be confirmed, so nothing was saved')).toBe(receiveLine);
+    });
+
+    it('keeps the bare "receive stopped" of an empty code out of RX11', () => {
+        expect(friendlyError('transfer failed: receive stopped')).toBe('Error: transfer failed: receive stopped');
+    });
+
+    it('passes this side\'s own unreadable certificates through in the engine\'s words', () => {
+        // ErrKeyCheckUnavailable says nothing about the other side, so neither line
+        // above fits, and the copy table has no line of its own for it.
+        const engine = "this connection's certificates could not be read to check the link's key";
+        expect(PASSTHROUGH.some((p) => engine.includes(p))).toBe(true);
+        expect(friendlyError(engine)).toBe('Error: ' + engine);
+        expect(friendlyError('transfer failed: ' + engine)).toBe('Error: transfer failed: ' + engine);
+    });
+
+    it('reads the two other ways the check can end on a code Send or Receive', () => {
+        // errClosedAwaitingReceiver: existing words, the existing line.
+        expect(friendlyError('transfer failed: connection closed while waiting for the receiver (transfer declined or receiver exited)')).toBe('Error: The receiver left or declined');
+        // errSenderStoppedUnproven: a keyed receive's fixed words for a stop in the
+        // sender's own words before any proof. It has no rule, as it never had.
+        expect(friendlyError('transfer failed: the sender stopped the transfer')).toBe('Error: transfer failed: the sender stopped the transfer');
     });
 });
 

@@ -37,8 +37,17 @@ const (
 // string exactly, and https://API.floe.one or https://api.floe.one:443 used to
 // print a share link at the API host (A4-B20). Userinfo, any other port and
 // the path stay as typed: a path is case-sensitive.
+//
+// A fragment goes, on any address: callers append a path, so it can mean nothing here,
+// and a link typed in place of a server would otherwise carry its room id and key into
+// the error that names the server, and, behind no slash, into the Origin header of the
+// upgrade.
 func Normalize(s string) string {
-	s = strings.TrimRight(strings.TrimSpace(s), "/")
+	s = strings.TrimSpace(s)
+	if cut := strings.IndexByte(s, '#'); cut >= 0 {
+		s = s[:cut]
+	}
+	s = strings.TrimRight(s, "/")
 	i := strings.Index(s, "://")
 	if i < 0 {
 		return s
@@ -48,7 +57,7 @@ func Normalize(s string) string {
 		return s
 	}
 	rest := s[i+3:]
-	end := strings.IndexAny(rest, "/?#")
+	end := strings.IndexAny(rest, "/?")
 	if end < 0 {
 		end = len(rest)
 	}

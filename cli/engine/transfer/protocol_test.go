@@ -24,19 +24,47 @@ func goRefusalDecision(frame []byte) string {
 
 // TestProtocolVersionPinnedToClient anchors the two constants to the browser
 // client's PROTOCOL_VERSION and MIN_PROTOCOL_VERSION (client/lib/transfer/
-// protocol.ts): both are 1. The browser pins the same numbers in the
+// protocol.ts): 2 and 1. The browser pins the same numbers in the
 // "constants" block of client/lib/transfer/protocol.test.ts, each test naming
 // the other, so a bump cannot land on one side without touching a test that
 // points at its twin.
 func TestProtocolVersionPinnedToClient(t *testing.T) {
-	if ProtocolVersion != 1 {
-		t.Errorf("ProtocolVersion = %d, want 1 (mirrors PROTOCOL_VERSION in client/lib/transfer/protocol.ts)", ProtocolVersion)
+	if ProtocolVersion != 2 {
+		t.Errorf("ProtocolVersion = %d, want 2 (mirrors PROTOCOL_VERSION in client/lib/transfer/protocol.ts)", ProtocolVersion)
 	}
 	if MinProtocolVersion != 1 {
 		t.Errorf("MinProtocolVersion = %d, want 1 (mirrors MIN_PROTOCOL_VERSION in client/lib/transfer/protocol.ts)", MinProtocolVersion)
 	}
 	if MinProtocolVersion > ProtocolVersion {
 		t.Errorf("MinProtocolVersion %d > ProtocolVersion %d: the supported range is empty", MinProtocolVersion, ProtocolVersion)
+	}
+}
+
+// TestProtocol2StillMeetsEveryReleasedPeer is decision PV in one test: this
+// build's range overlaps a released peer's 1-1 and a legacy peer that sends no
+// range, and misses only a range wholly above it. A keyed abort's 2-2 overlaps
+// this build, so it reaches a peer that speaks kc as a code, and a released
+// peer, whose range it misses, takes it for a newer peer and prints its own
+// update remedy.
+func TestProtocol2StillMeetsEveryReleasedPeer(t *testing.T) {
+	for _, c := range []struct {
+		name                    string
+		pvMin, pv               int
+		wantOK, wantLocalTooOld bool
+	}{
+		{"released peers, 1-1", 1, 1, true, false},
+		{"legacy peers, no range", 0, 0, true, false},
+		{"this build, 1-2", 1, 2, true, false},
+		{"a keyed abort, 2-2", 2, 2, true, false},
+		{"a range above this build, 3-3", 3, 3, false, true},
+	} {
+		ok, localTooOld := CheckCompat(MinProtocolVersion, ProtocolVersion, c.pvMin, c.pv)
+		if ok != c.wantOK || localTooOld != c.wantLocalTooOld {
+			t.Errorf("%s: CheckCompat = (%v, %v), want (%v, %v)", c.name, ok, localTooOld, c.wantOK, c.wantLocalTooOld)
+		}
+	}
+	if ok, localTooOld := CheckCompat(1, 1, 2, 2); ok || !localTooOld {
+		t.Errorf("a released receiver reads a keyed abort as (%v, %v), want a range miss that says it is too old", ok, localTooOld)
 	}
 }
 
@@ -110,8 +138,8 @@ func TestCompatErrorMessage(t *testing.T) {
 	// The sender must reconstruct it from its own protocol range and hint.
 	msg6 := compatErrorFromIncompatible("v1.5.5", appHint, incompatibleMsg{
 		Reason: "receiver-perspective message",
-		Pv:     2,
-		PvMin:  2,
+		Pv:     3,
+		PvMin:  3,
 		Ver:    "v2.0.0",
 	})
 	if !strings.Contains(msg6, appHint) || strings.Contains(msg6, "receiver-perspective") {
@@ -167,7 +195,7 @@ func TestCompatErrorMessageSanitizesPeerStrings(t *testing.T) {
 	}
 
 	// A current peer's ver is capped before it is embedded in the rebuilt message.
-	rebuilt := compatErrorFromIncompatible("v1", "", incompatibleMsg{Ver: strings.Repeat("v", 10*1024), Pv: 2, PvMin: 2})
+	rebuilt := compatErrorFromIncompatible("v1", "", incompatibleMsg{Ver: strings.Repeat("v", 10*1024), Pv: 3, PvMin: 3})
 	if n := utf8.RuneCountInString(rebuilt); n >= 500 {
 		t.Errorf("rebuilt message is %d runes for a 10 KB ver, want under 500", n)
 	}

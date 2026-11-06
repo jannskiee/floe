@@ -30,7 +30,15 @@ itself. A link made in the web app works while the sender's page stays open and 
 Floe's [server](/glossary#signaling-server), which introduces the two devices. See
 [How long a code and a link last](/how-it-works/signaling#code-and-link-lifetime).
 
-An older Floe link that carries `?room=` in place of `#room=` still opens the same way.
+A link from the web app, from `floe` 1.12 and later or from Floe Desktop 1.1 and later holds a
+[link key](/glossary#link-key) after the `#`, which no server receives. The page then checks that
+the sender holds the same link key before it accepts a file. If the sender cannot prove it, or
+connects and says nothing for 30 seconds, nothing is received and the page says
+"[Floe couldn't confirm who sent this link, so nothing was received. Ask them for a new link.](/troubleshooting#floe-could-not-confirm-who-sent-this-link)"
+
+A link from an older Floe has no link key, and so has no check. It carries `#room=`, or `?room=`
+before that, and it still opens the same way. Nothing on the page tells the two apart. See
+[A room code or a link with no link key has no check](/how-it-works/known-limitations#no-link-key-no-check).
 
 ### If Floe says "Open in your browser" {#if-floe-says-open-in-your-browser}
 
@@ -214,7 +222,8 @@ What you see when the sender leaves depends on how far things had got:
 
 In the second case the banner can also read "The sender ended the transfer. Ask them to start it
 again." When the sender's side stopped with a reason, the banner shows that reason instead. A
-sender in the browser gives one when it stops by itself or refuses a relayed path. See
+sender in the browser gives one when it stops by itself or refuses a relayed path, and a `floe send` or
+Floe Desktop gives one for a file it can no longer read. See
 [Troubleshooting](/troubleshooting#the-sender-ended-the-transfer).
 
 In the third case the badge goes back to **Offline**, the progress row goes away, and the files
@@ -256,11 +265,15 @@ A link from a [self-hosted](/glossary#self-hosted) Floe also needs that server's
 [Use a self-hosted server](/cli/self-hosted-server).
 
 ```bash Terminal
-floe receive "https://www.floe.one/?s=8262e1b4#room=3f2b9c1e-7a4d-4c2e-9b1f-8e6d5c4b3a21"
+floe receive "https://www.floe.one/?s=8262e1b4#k=Xq3vT9bLw2ZkP7mRf1sY8A&room=3f2b9c1e-7a4d-4c2e-9b1f-8e6d5c4b3a21"
 ```
 
+Keep the quotes: the `&` in the link would otherwise end the command. See
+[Put the link in quotes](/cli/send#put-the-link-in-quotes).
+
 If the sender gave you a [room code](/glossary#room-code) instead, three words, pass that. The
-browser has no field for one.
+browser has no field for one. A room code carries no link key, so a transfer joined with one has no
+check.
 
 ```bash Terminal
 floe receive olive-tiger-castle
@@ -276,3 +289,7 @@ See [floe receive](/cli/receive) and [Receive files in the desktop app](/desktop
   [The transfer never starts](/troubleshooting#the-transfer-never-starts).
 - "Connection failed. Ask the sender to try again.": see
   [Troubleshooting](/troubleshooting#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again).
+- "Floe couldn't confirm who sent this link": see
+  [Troubleshooting](/troubleshooting#floe-could-not-confirm-who-sent-this-link).
+- "This browser can't check this link": see
+  [Troubleshooting](/troubleshooting#this-browser-cannot-check-this-link).

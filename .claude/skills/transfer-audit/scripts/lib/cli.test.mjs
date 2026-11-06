@@ -38,6 +38,7 @@ import { PhaseError } from './surfaces.mjs';
 import { killAllStarted } from './proc.mjs';
 import {
     CliLeg,
+    LINK_RE,
     MARKERS,
     REFUSAL_PREFIX,
     buildArgs,
@@ -342,6 +343,11 @@ test('parsers on synthetic shapes', () => {
         '  ─────\n  Code   olive-tiger-castle-moon\n  Link   https://floe.one/#room=abc\n  ─────\n';
     assert.equal(parseCode(box), 'olive-tiger-castle-moon');
     assert.equal(parseLink(box), 'https://floe.one/#room=abc');
+    // B11: the HEAD CLI leads with the key, and a released one has none.
+    const keyed = 'https://floe.one/#k=AbC_dEf-GhIjKlMnOpQrSw&room=abc';
+    assert.equal(parseLink(`  Link   ${keyed}\n`), keyed);
+    assert.ok(LINK_RE.test(keyed));
+    assert.ok(!LINK_RE.test('https://floe.one/#k=AbC_dEf-GhIjKlMnOpQrSw'), 'a link with no room is no link');
     assert.equal(
         parseCode(
             '  Warning: could not generate short code: x\n  Link   https://floe.one/#room=abc\n'

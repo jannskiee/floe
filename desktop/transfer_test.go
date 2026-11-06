@@ -26,6 +26,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/jannskiee/floe/cli/engine/code"
+	"github.com/jannskiee/floe/cli/engine/linkkey"
 	"github.com/jannskiee/floe/cli/engine/peer"
 	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/jannskiee/floe/cli/engine/transfer"
@@ -337,21 +339,21 @@ func TestServerErrorFrameKeepsTheServersWordsOut(t *testing.T) {
 func TestSendEndHandsAPeerStopOverBare(t *testing.T) {
 	for _, code := range transfer.RefusalCodes {
 		stop := &transfer.PeerStoppedError{Code: code}
-		if got := sendEnd(stop, false); got.Error() != stop.Error() {
+		if got := sendEnd(stop, false, false); got.Error() != stop.Error() {
 			t.Errorf("%s: %q, want the bare %q", code, got.Error(), stop.Error())
 		}
 	}
-	if got := sendEnd(&transfer.PeerStoppedError{Code: transfer.CodeStopped}, true).Error(); got != "They stopped this drop." {
+	if got := sendEnd(&transfer.PeerStoppedError{Code: transfer.CodeStopped}, true, false).Error(); got != "They stopped this drop." {
 		t.Errorf("code stopped with Hide my IP on: %q", got)
 	}
-	if got := sendEnd(errors.New("connection closed mid-transfer"), false).Error(); got != "transfer failed: connection closed mid-transfer" {
+	if got := sendEnd(errors.New("connection closed mid-transfer"), false, false).Error(); got != "transfer failed: connection closed mid-transfer" {
 		t.Errorf("any other error: %q, want it wrapped", got)
 	}
 	capped := fmt.Errorf("transfer blocked: %w", transfer.ErrRelayOverLimit)
-	if got := sendEnd(capped, false); got != capped {
+	if got := sendEnd(capped, false, false); got != capped {
 		t.Errorf("the relay cap with Hide my IP off: %q, want it unchanged", got)
 	}
-	if got := sendEnd(capped, true).Error(); !strings.HasSuffix(got, ". Turn off Hide my IP to send larger files") || strings.HasPrefix(got, "transfer failed") {
+	if got := sendEnd(capped, true, false).Error(); !strings.HasSuffix(got, ". Turn off Hide my IP to send larger files") || strings.HasPrefix(got, "transfer failed") {
 		t.Errorf("the relay cap with Hide my IP on: %q", got)
 	}
 }
@@ -507,15 +509,16 @@ func pairingFake(t *testing.T) *fakeSignalServer {
 
 // dropApp is a lane on a pairing fake with a link waiting. before runs on the
 // App before Make link, while no lane goroutine exists yet, so a test can set
-// a switch or a seam there without racing the lane.
-func dropApp(t *testing.T, before func(a *App)) (a *App, rec *snapRecorder, f *fakeSignalServer, room, base string) {
+// a switch or a seam there without racing the lane. room is the link's room id
+// and key together, read off the link the way a visitor reads it.
+func dropApp(t *testing.T, before func(a *App)) (a *App, rec *snapRecorder, f *fakeSignalServer, room *transfer.KeyCheck, base string) {
 	t.Helper()
 	return dropAppWith(t, false, before)
 }
 
 // dropAppWith is dropApp for a link made with the given Auto-accept switch
 // (D-173): false, what every older caller makes, asks for every drop.
-func dropAppWith(t *testing.T, autoAccept bool, before func(a *App)) (a *App, rec *snapRecorder, f *fakeSignalServer, room, base string) {
+func dropAppWith(t *testing.T, autoAccept bool, before func(a *App)) (a *App, rec *snapRecorder, f *fakeSignalServer, room *transfer.KeyCheck, base string) {
 	t.Helper()
 	f = pairingFake(t)
 	a, rec = laneApp(t, f)
@@ -525,12 +528,31 @@ func dropAppWith(t *testing.T, autoAccept bool, before func(a *App)) (a *App, re
 	base = filepath.Join(t.TempDir(), "Floe requests")
 	a.MakeRequestLink("Acme footage", base, "24h", autoAccept)
 	s := waitState(t, a, 10*time.Second, "waiting")
-	i := strings.Index(s.Link, "#")
-	if i < 0 {
-		t.Fatal("the link carries no room")
-	}
-	return a, rec, f, s.Link[i+1:], base
+	return a, rec, f, linkRoom(t, s.Link), base
 }
+
+// linkRoom reads the room id and the key out of a request link, as a visitor
+// does. The parser's errors are fixed text, so failing on one prints no key.
+func linkRoom(t *testing.T, link string) *transfer.KeyCheck {
+	t.Helper()
+	parsed, err := code.ParseRequestLink(link)
+	if err != nil {
+		t.Fatalf("the link does not parse: %v", err)
+	}
+	if !parsed.HasKey {
+		t.Fatal("the link carries no key")
+	}
+	return &transfer.KeyCheck{Key: parsed.Key, RoomID: parsed.RoomID}
+}
+
+// visitorProof is what connectAsync sends as soon as the channel is open.
+type visitorProof int
+
+const (
+	proofHonest visitorProof = iota // the proof of a visitor holding the whole link
+	proofNone                       // nothing: the test sends what it means to
+	proofBad                        // an honest proof under another key, the only lie LinkKeyProof can tell
+)
 
 // testVisitor is the other end of a drop: a request-join socket, then a peer
 // connection that answers the host's offer. The data channel is reached only
@@ -543,24 +565,31 @@ type testVisitor struct {
 	sendBin   func([]byte) error
 	closeDC   func() error
 	sendFiles func(paths []string, o transfer.SendOptions) error
+
+	kc     *transfer.KeyCheck // the link's room id and key, from joinVisitor
+	proves visitorProof       // set before connect; the zero value proves the key
+	// proofOf builds a proof on this connection, for a test that writes its own
+	// frames. fileSender is which side of the transfer this visitor is playing.
+	proofOf func(kc transfer.KeyCheck, fileSender bool) ([]byte, error)
 }
 
 // joinVisitor takes the visitor seat of room.
-func joinVisitor(t *testing.T, f *fakeSignalServer, room string) *testVisitor {
+func joinVisitor(t *testing.T, f *fakeSignalServer, room *transfer.KeyCheck) *testVisitor {
 	t.Helper()
 	sc, err := signaling.Connect(f.url())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(sc.Close)
-	if res, _ := sc.RequestJoin(room); res != signaling.VisitorJoined {
+	if res, _ := sc.RequestJoin(room.RoomID); res != signaling.VisitorJoined {
 		t.Fatalf("request-join: %s", res)
 	}
-	return &testVisitor{sc: sc}
+	return &testVisitor{sc: sc, kc: room}
 }
 
 // connectAsync answers the host's offer on its own goroutine; the channel
-// carries the setup's error, nil once the data channel is open.
+// carries the setup's error, nil once the data channel is open and the visitor's
+// proof (v.proves) has gone out, ahead of anything the test sends.
 func (v *testVisitor) connectAsync(t *testing.T) <-chan error {
 	out := make(chan error, 1)
 	conn, err := peer.New(nil, v.sc)
@@ -583,6 +612,29 @@ func (v *testVisitor) connectAsync(t *testing.T) <-chan error {
 		v.sendFiles = func(paths []string, o transfer.SendOptions) error {
 			o.Messages, o.Closed = v.early.Msgs, v.early.Closed
 			return transfer.SendFilesWithOptions(dc, paths, "visitor", o)
+		}
+		v.proofOf = func(kc transfer.KeyCheck, fileSender bool) ([]byte, error) {
+			return transfer.LinkKeyProof(dc, kc, fileSender)
+		}
+		if v.proves != proofNone {
+			kc := *v.kc
+			if v.proves == proofBad {
+				other, err := linkkey.New()
+				if err != nil {
+					out <- err
+					return
+				}
+				kc.Key = other
+			}
+			proof, err := transfer.LinkKeyProof(dc, kc, true)
+			if err != nil {
+				out <- err
+				return
+			}
+			if err := dc.SendText(string(proof)); err != nil {
+				out <- err
+				return
+			}
 		}
 		out <- nil
 	}()
@@ -2388,7 +2440,7 @@ func TestStartSendWalksTheFolderBeforeAnythingStarts(t *testing.T) {
 }
 
 // TestReceiveByCodeChecksTheLinkServerInOrder pins the wiring the helper test
-// cannot see: in receiveByCode the host rule runs after code.Resolve (so a
+// cannot see: in receiveByCode the host rule runs after code.ResolveLink (so a
 // request link keeps its own sentence) and before the first network call for
 // a link, and ReceiveByCode treats its two refusals as a paste mix-up, with
 // no failure toast. Read from the source, as server.test.js pins the order of
@@ -2404,14 +2456,34 @@ func TestReceiveByCodeChecksTheLinkServerInOrder(t *testing.T) {
 		t.Fatal("receiveByCode not found")
 	}
 	body := s[start:]
-	resolve := strings.Index(body, "code.Resolve(server, codeOrLink)")
+	resolve := strings.Index(body, "code.ResolveLink(server, codeOrLink)")
 	check := strings.Index(body, "linkServerRefusal(codeOrLink, server)")
 	fetch := strings.Index(body, "ice.FetchDetail(server)")
 	if resolve < 0 || check < 0 || fetch < 0 || !(resolve < check && check < fetch) {
-		t.Fatalf("want code.Resolve, then linkServerRefusal, then ice.FetchDetail; offsets %d, %d, %d", resolve, check, fetch)
+		t.Fatalf("want code.ResolveLink, then linkServerRefusal, then ice.FetchDetail; offsets %d, %d, %d", resolve, check, fetch)
 	}
 	wrapper := s[strings.Index(s, "func (a *App) ReceiveByCode("):start]
 	if !strings.Contains(wrapper, "errors.Is(err, errLinkFloeOneOtherServer) || errors.Is(err, errLinkOtherFloeServer)") {
 		t.Fatal("ReceiveByCode no longer keeps the failure toast off a link for another server")
+	}
+}
+
+// A stop past the receiver's first answer never says nothing was sent, and Desktop
+// reads it through errors.ts as the ordinary stop. Before an answer those frames keep
+// their sentences, which are then true (final audit report 27 F1).
+func TestSendEndPastAnAnswer(t *testing.T) {
+	want := (&transfer.PeerStoppedError{Code: transfer.CodeStopped}).Error()
+	for _, code := range []transfer.RefusalCode{transfer.CodeDeclined, transfer.CodeExpired, transfer.CodeUnverified} {
+		stop := &transfer.PeerStoppedError{Code: code}
+		if got := sendEnd(stop, false, true).Error(); got != want {
+			t.Errorf("%s past an answer: %q, want %q", code, got, want)
+		}
+		if got := sendEnd(stop, false, false).Error(); got != stop.Error() {
+			t.Errorf("%s before an answer: %q, want %q", code, got, stop.Error())
+		}
+	}
+	full := &transfer.PeerStoppedError{Code: transfer.CodeDiskFull}
+	if got := sendEnd(full, false, true).Error(); got != full.Error() {
+		t.Errorf("disk-full past an answer: %q", got)
 	}
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import {
     scrubBreadcrumb,
@@ -1147,7 +1148,7 @@ const UNTOUCHED = [
     'div#main.w-1/2',
     'div.w-1/2.bg-[#fff]',
     'div#x.w-1/2.bg-[#fff]',
-    'img[alt="a/b#c"]',
+    'input[name="a/b#c"]',
     'bathroom=3',
     'GET /api/turn-credentials',
     '/a/../b',
@@ -1524,6 +1525,559 @@ describe('breadcrumb url.query and url.fragment (SDK 11)', () => {
             const data = (event.breadcrumbs as { data: Record<string, unknown> }[])[0].data;
             expect(data['url.fragment']).toBeUndefined();
             expect(String(data['url.query']).startsWith('?')).toBe(false);
+        }
+    });
+});
+
+// A link can carry a link key: /?s=<nonce>#k=<k>&room=<id> from the web,
+// /#k=<k>&room=<id> from the CLI, /r/<linkId>#<id>.<k> for a request link. The
+// key proves a peer holds the link, so it gets the room id's treatment
+// everywhere the room id is scrubbed, and in the shapes where the '#' is gone:
+// scrubUrl alone turned "k=<k>&room=<id>" into "/k=<k>&room=<id>", both intact.
+describe('the link key', () => {
+    const KEY = 'AbCdEfGhIjKlMnOpQrStUg';
+    const ROOM_ID = '6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f';
+    const LINK_ID = 'Ab3dE_f9-xY';
+    const SHARE = `https://www.floe.one/?s=n0nce#k=${KEY}&room=${ROOM_ID}`;
+    const CLI = `https://www.floe.one/#k=${KEY}&room=${ROOM_ID}`;
+    const REQUEST = `https://www.floe.one/r/${LINK_ID}#${ROOM_ID}.${KEY}`;
+    const LINKS: [string, string][] = [
+        [SHARE, 'https://www.floe.one/?s=n0nce'],
+        [CLI, 'https://www.floe.one/'],
+        [REQUEST, 'https://www.floe.one/r/redacted'],
+        [`/?s=x#k=${KEY}&room=${ROOM_ID}`, '/?s=x'],
+        [`/#k=${KEY}&room=${ROOM_ID}`, '/'],
+        [`/r/${LINK_ID}#${ROOM_ID}.${KEY}`, '/r/redacted'],
+        // A link cut after the key, the likeliest damaged shape.
+        [`https://www.floe.one/#k=${KEY}`, 'https://www.floe.one/'],
+    ];
+    const secretsIn = (value: unknown) => {
+        const json = JSON.stringify(value);
+        return [KEY, ROOM_ID, LINK_ID].filter((secret) => json.includes(secret));
+    };
+
+    it('scrubUrl drops it with the fragment, on every link shape', () => {
+        for (const [link, want] of LINKS) {
+            expect(scrubUrl(link), link).toBe(want);
+        }
+    });
+
+    it('scrubUrl redacts a key that reached the query, as it does a room id', () => {
+        expect(scrubUrl(`https://www.floe.one/?k=${KEY}&room=${ROOM_ID}&x=1`)).toBe(
+            'https://www.floe.one/?k=redacted&room=redacted&x=1'
+        );
+        expect(scrubUrl(`/path?k=${KEY}`)).toBe('/path?k=redacted');
+    });
+
+    it('scrubUrl redacts it when the URL cannot be parsed', () => {
+        const broken = `https://[/?k=${KEY}&x=1&k=${KEY}#k=${KEY}&room=${ROOM_ID}`;
+        expect(() => new URL(broken, 'http://scrub.invalid')).toThrow();
+        expect(scrubUrl(broken)).toBe('https://[/?k=redacted&x=1&k=redacted');
+        // A fragment with a line break in it still goes, whole.
+        expect(scrubUrl(`https://[/#k=${KEY}\n${KEY}`)).toBe('https://[/');
+    });
+
+    it('free text loses it, with the words around it kept', () => {
+        for (const [link, want] of LINKS) {
+            const value = `failed to load ${link} now`;
+            const event = { exception: { values: [{ value }] }, breadcrumbs: [{ category: 'console', message: value }] };
+            const out = scrubErrorEvent(event);
+            expect(out.exception.values[0].value, link).toBe(`failed to load ${want} now`);
+            expect(secretsIn(out), link).toEqual([]);
+            expect(scrubBreadcrumb({ message: value }).message, link).toBe(`failed to load ${want} now`);
+        }
+    });
+
+    it('free text loses it when the # is gone, in any wrapping', () => {
+        for (const text of [
+            `k=${KEY}&room=${ROOM_ID}`,
+            `room=${ROOM_ID}&k=${KEY}`,
+            `k=${KEY}`,
+            `&k=${KEY}`,
+            `;k=${KEY}`,
+            `&amp;k=${KEY}&amp;room=${ROOM_ID}`,
+            `?k=${KEY}`,
+            `'k=${KEY}&room=${ROOM_ID}'`,
+            `"k=${KEY}&room=${ROOM_ID}"`,
+            `(k=${KEY}&room=${ROOM_ID})`,
+            `[k=${KEY}]`,
+            `hash:k=${KEY}&room=${ROOM_ID}`,
+            `hash=k=${KEY}&room=${ROOM_ID}`,
+            `/k=${KEY}&room=${ROOM_ID}`,
+            `{"hash":"k=${KEY}&room=${ROOM_ID}"}`,
+            `K=${KEY}&ROOM=${ROOM_ID}`,
+            `#k=${KEY}`,
+            `'#k=${KEY}'`,
+            `'#k=${KEY}&room=${ROOM_ID}'`,
+            // The request link's fragment, as location.hash.slice(1) hands it on.
+            `${ROOM_ID}.${KEY}`,
+            `'${ROOM_ID}.${KEY}'`,
+            `fragment=${ROOM_ID}.${KEY},`,
+            `${ROOM_ID.toUpperCase()}.${KEY}`,
+        ]) {
+            const message = `the fragment was ${text} here`;
+            const out = scrubBreadcrumb({ message }).message;
+            expect(out.includes(KEY), text).toBe(false);
+            expect(out.toLowerCase().includes(ROOM_ID), text).toBe(false);
+            expect(out.startsWith('the fragment was '), text).toBe(true);
+            expect(out.endsWith(' here'), text).toBe(true);
+            expect(secretsIn(scrubErrorEvent({ exception: { values: [{ value: message }] } })), text).toEqual([]);
+            expect(scrubSpanJson({ description: message }).description.includes(KEY), text).toBe(false);
+        }
+        expect(scrubBreadcrumb({ message: `k=${KEY}` }).message).toBe('k=redacted');
+        expect(scrubBreadcrumb({ message: `'#k=${KEY}'` }).message).toBe("'#k=redacted'");
+        expect(scrubBreadcrumb({ message: `'${ROOM_ID}.${KEY}' is bad` }).message).toBe("'redacted' is bad");
+    });
+
+    it('free text keeps a k= or room= that is not a parameter of its own, and an id with no key', () => {
+        for (const text of [
+            'bank=1',
+            'task=3',
+            'desk=4&mock=5',
+            'x-k=1',
+            'a.k=1',
+            'bathroom=3',
+            'link=https',
+            'w=64&q=75',
+            ROOM_ID,
+            `${ROOM_ID}.png`,
+            `${ROOM_ID}.${KEY}x`,
+        ]) {
+            const message = `the value ${text} here`;
+            expect(scrubBreadcrumb({ message }).message, text).toBe(message);
+            expect(scrubSpanJson({ description: message }).description, text).toBe(message);
+        }
+    });
+
+    it("Chromium's selector message loses the id and the key, and only them", () => {
+        const value = `Failed to execute 'querySelector' on 'Document': '#${ROOM_ID}.${KEY}' is not a valid selector.`;
+        const kept = "Failed to execute 'querySelector' on 'Document': '#redacted' is not a valid selector.";
+        const event = { exception: { values: [{ value }] }, breadcrumbs: [{ category: 'console', message: value }] };
+        const out = scrubErrorEvent(event);
+        expect(out.exception.values[0].value).toBe(kept);
+        expect(secretsIn(out)).toEqual([]);
+        expect(scrubBreadcrumb({ message: value }).message).toBe(kept);
+        // Whatever follows the dot goes: a key of the wrong length, a cut one,
+        // or one a mail scanner percent-encoded.
+        for (const tail of ['abc', 'abc-_', `${KEY}${KEY}`, `${KEY}%3D`, '']) {
+            const message = `bad '#${ROOM_ID}.${tail}' selector`;
+            expect(scrubBreadcrumb({ message }).message, tail).toBe("bad '#redacted' selector");
+        }
+        // The same fragment outside any quote, and upper-cased.
+        expect(scrubBreadcrumb({ message: `(#${ROOM_ID.toUpperCase()}.${KEY})` }).message).toBe('(#redacted)');
+        // A share link's fragment in the same message.
+        const share = `bad '#k=${KEY}&room=${ROOM_ID}' selector`;
+        expect(secretsIn(scrubBreadcrumb({ message: share }))).toEqual([]);
+    });
+
+    it('a selector with a room id takes the same rule in a span', () => {
+        const out = scrubSpanJson({
+            description: `'#${ROOM_ID}.${KEY}'`,
+            data: { 'custom.note': `a[href="#${ROOM_ID}.${KEY}"]` },
+        });
+        expect(out.description).toBe("'#redacted'");
+        expect(out.data['custom.note']).toBe('a[href="#redacted"]');
+    });
+
+    it('span descriptions, names and attributes lose it', () => {
+        for (const [link, want] of LINKS) {
+            // The navigation-timing span browserTracing names after the document URL.
+            expect(scrubSpanJson({ op: 'browser.request', description: link }).description, link).toBe(want);
+            expect(scrubSpanJson({ description: `GET ${link}` }).description, link).toBe(`GET ${want}`);
+            const span = {
+                data: {
+                    'url.full': link,
+                    'http.url': link,
+                    url: link,
+                    // A long-animation-frame span's script, for an inline script.
+                    'browser.script.invoker': link,
+                    'code.filepath': link,
+                    'custom.list': ['plain', link, 7],
+                },
+            };
+            const out = scrubSpanJson(span);
+            expect(secretsIn(out), link).toEqual([]);
+            expect(out.data['url.full'], link).toBe(want);
+            expect(out.data['code.filepath'], link).toBe(want);
+            expect(out.data['custom.list'], link).toEqual(['plain', want, 7]);
+        }
+    });
+
+    it('the query and fragment attributes lose it, with or without their mark', () => {
+        const span = {
+            data: {
+                'url.fragment': `k=${KEY}&room=${ROOM_ID}`,
+                'http.fragment': `#k=${KEY}&room=${ROOM_ID}`,
+                'url.query': `k=${KEY}&room=${ROOM_ID}&x=1`,
+                'http.query': `?k=${KEY}&room=${ROOM_ID}`,
+            },
+        };
+        const out = scrubSpanJson(span);
+        expect(out.data).toEqual({ 'url.query': 'k=redacted&room=redacted&x=1', 'http.query': '?k=redacted&room=redacted' });
+        const fragment = { data: { 'url.fragment': `${ROOM_ID}.${KEY}` } };
+        expect(scrubSpanJson(fragment).data).toEqual({});
+    });
+
+    it('a transaction carries none of it, whatever it is named', () => {
+        for (const [link] of LINKS) {
+            const event = {
+                transaction: link,
+                request: { url: link, headers: { Referer: `https://www.floe.one/?k=${KEY}&room=${ROOM_ID}` } },
+                contexts: { trace: { data: { 'url.full': link } } },
+                spans: [{ description: link, data: { 'url.full': link } }],
+                breadcrumbs: [{ category: 'navigation', data: { from: link, to: link } }, { category: 'console', message: `at ${link}` }],
+            };
+            const out = scrubTransactionEvent(event);
+            expect(secretsIn(out), link).toEqual([]);
+        }
+    });
+
+    it('breadcrumbs lose it, as they are made and on an event', () => {
+        for (const [link, want] of LINKS) {
+            const crumb = () => ({
+                category: 'navigation',
+                message: `moved to ${link}`,
+                data: { from: link, to: link, url: link, arguments: [link] as unknown[] },
+            });
+            const made = scrubBreadcrumb(crumb());
+            expect(secretsIn(made), link).toEqual([]);
+            expect(made.data.from, link).toBe(want);
+            expect(made.data.arguments[0], link).toBe(want);
+            // The SDK's normalized copy, with a logged object still in it.
+            const logged = { category: 'console', data: { arguments: [{ href: link, nested: { hash: `k=${KEY}&room=${ROOM_ID}` } }] } };
+            for (const event of [
+                scrubErrorEvent({ breadcrumbs: [crumb(), logged] }),
+                scrubTransactionEvent({ breadcrumbs: [crumb(), logged] }),
+                scrubServerErrorEvent({ breadcrumbs: [crumb(), logged] }),
+                scrubServerTransactionEvent({ breadcrumbs: [crumb(), logged] }),
+            ]) {
+                expect(secretsIn(event), link).toEqual([]);
+            }
+        }
+    });
+
+    it('a server event loses it from its query string and request path', () => {
+        const out = scrubServerErrorEvent({
+            request: { query_string: `k=${KEY}&room=${ROOM_ID}` },
+            contexts: { nextjs: { request_path: `/?k=${KEY}&room=${ROOM_ID}` } },
+        });
+        expect(secretsIn(out)).toEqual([]);
+        expect(out.request.query_string).toBe('k=redacted&room=redacted');
+    });
+
+    it('a stack frame loses it', () => {
+        const out = scrubErrorEvent({
+            exception: { values: [{ stacktrace: { frames: [{ filename: SHARE, abs_path: REQUEST }] } }] },
+        });
+        expect(secretsIn(out)).toEqual([]);
+    });
+
+    describe('a throw of anything but an Error', () => {
+        // The SDK's own builder, reached through the package that depends on it,
+        // so a version that moves these fields fails here. A script on the page
+        // that throws a string or rejects with an object gets exactly this.
+        const fromNext = createRequire(createRequire(import.meta.url).resolve('@sentry/nextjs'));
+        const { eventFromException } = fromNext('@sentry/browser') as {
+            eventFromException: (stackParser: () => unknown[], thrown: unknown) => PromiseLike<ScrubbableErrorEvent>;
+        };
+        const build = async (thrown: unknown) => await eventFromException(() => [], thrown);
+        const held = (value: unknown, secret: string) => JSON.stringify(value).includes(secret);
+
+        for (const [link] of LINKS) {
+            it(`a thrown string, ${link}`, async () => {
+                const event = await build(`bad page ${link}`);
+                expect(event.message).toContain(link);
+                const out = scrubErrorEvent(event);
+                expect(secretsIn(out), JSON.stringify(out)).toEqual([]);
+                expect(out.message).toContain('bad page');
+            });
+
+            it(`a thrown object, ${link}`, async () => {
+                const event = await build({ url: link, n: 7 });
+                expect((event.extra as { __serialized__: { url: string } }).__serialized__.url).toBe(link);
+                const out = scrubErrorEvent(event);
+                expect(secretsIn(out), JSON.stringify(out)).toEqual([]);
+                expect((out.extra as { __serialized__: { n: number } }).__serialized__.n).toBe(7);
+            });
+
+            it(`a thrown object with the link as a key, ${link}`, async () => {
+                const event = await build({ [link]: 1 });
+                expect(held(event.extra, link)).toBe(true);
+                expect(secretsIn(scrubErrorEvent(event))).toEqual([]);
+            });
+
+            it(`an Error named after the link, ${link}`, async () => {
+                const event = await build(Object.assign(new Error('x'), { name: link }));
+                expect(held(event.exception, link)).toBe(true);
+                expect(secretsIn(scrubErrorEvent(event))).toEqual([]);
+            });
+
+            it(`a parameterized message, ${link}`, () => {
+                const out = scrubErrorEvent({ logentry: { message: `bad page ${link}`, params: [link] } });
+                expect(secretsIn(out)).toEqual([]);
+            });
+        }
+
+        it('reaches the server hook too, which starts from the browser one', async () => {
+            const out = scrubServerErrorEvent(await build({ url: SHARE, note: `bad page ${REQUEST}` }));
+            expect(secretsIn(out)).toEqual([]);
+        });
+
+        it('leaves everything else in the event as it was', async () => {
+            const out = scrubErrorEvent(await build({ code: 7, deep: { a: ['b', 1, null] } }));
+            expect(out.extra).toEqual({ __serialized__: { code: 7, deep: { a: ['b', 1, null] } } });
+        });
+
+        it('takes an event of any other shape without throwing', () => {
+            for (const event of [
+                { message: 7 },
+                { extra: 'text' },
+                { extra: null },
+                { logentry: 'text' },
+                { exception: { values: [{ type: 7 }] } },
+            ]) {
+                expect(() => scrubErrorEvent(event as unknown as ScrubbableErrorEvent), JSON.stringify(event)).not.toThrow();
+            }
+        });
+    });
+
+    describe('a link percent-encoded in a query value', () => {
+        // A script on the page reporting where it is:
+        // fetch('https://collector.example/hit?u=' + encodeURIComponent(location.href)).
+        for (const [link] of LINKS) {
+            const encoded = encodeURIComponent(link);
+            const url = `https://collector.example/hit?u=${encoded}&x=1`;
+
+            it(`scrubUrl, ${link}`, () => {
+                const out = scrubUrl(url);
+                expect(secretsIn(out), out).toEqual([]);
+                expect(out).toContain('https://collector.example/hit?');
+                expect(out).toContain('x=1');
+            });
+
+            it(`the fetch span the SDK writes, ${link}`, () => {
+                const out = scrubSpanJson({
+                    description: `GET ${url}`,
+                    data: {
+                        'url.full': url,
+                        'http.url': url,
+                        'url.query': `u=${encoded}&x=1`,
+                        'http.query': `?u=${encoded}&x=1`,
+                        'code.filepath': url,
+                    },
+                });
+                expect(secretsIn(out), JSON.stringify(out)).toEqual([]);
+            });
+
+            it(`the fetch breadcrumb the SDK writes, ${link}`, () => {
+                const live = scrubBreadcrumb({ category: 'fetch', data: { url, method: 'GET' } });
+                expect(secretsIn(live), JSON.stringify(live)).toEqual([]);
+                const sent = scrubErrorEvent({ breadcrumbs: [{ category: 'fetch', data: { url, method: 'GET' } }] });
+                expect(secretsIn(sent), JSON.stringify(sent)).toEqual([]);
+            });
+
+            it(`a Referer that holds it, ${link}`, () => {
+                const out = scrubErrorEvent({ request: { url: 'https://www.floe.one/', headers: { Referer: url } } } as ScrubbableErrorEvent);
+                expect(secretsIn(out), JSON.stringify(out)).toEqual([]);
+            });
+        }
+
+        it('a request link fragment on its own', () => {
+            for (const fragment of [`#${ROOM_ID}`, `#${ROOM_ID}.${KEY}`, `${ROOM_ID}.${KEY}`, `k=${KEY}&room=${ROOM_ID}`]) {
+                const out = scrubUrl(`https://collector.example/hit?u=${encodeURIComponent(fragment)}`);
+                expect(secretsIn(out), out).toEqual([]);
+            }
+        });
+
+        it('a value that holds none of a link mark comes back byte for byte', () => {
+            for (const url of [
+                '/_next/image?url=%2Fa.png&w=64&q=75',
+                'https://x.example/?color=%23fff',
+                'https://x.example/?q=bank%3D1',
+                'https://x.example/?next=%2Fabout%3Fa%3D1',
+                'https://x.example/?q=a%20b',
+            ]) {
+                expect(scrubUrl(url)).toBe(url);
+                expect(scrubSpanJson({ description: `GET ${url}` }).description).toBe(`GET ${url}`);
+            }
+        });
+    });
+
+    it('scrubUrl takes a value that is not a string, as its header says', () => {
+        expect(scrubUrl(123 as unknown as string)).toBe('/123');
+        expect(() => scrubTransactionEvent({ request: { url: 123 as unknown as string } })).not.toThrow();
+    });
+
+    it('is idempotent, because a transaction passes two hooks', () => {
+        for (const text of [SHARE, CLI, REQUEST, `k=${KEY}&room=${ROOM_ID}`, `'k=${KEY}'`, `'#${ROOM_ID}.${KEY}'`, `k=${KEY}`]) {
+            const once = scrubSpanJson({ description: text, data: { 'code.filepath': text } });
+            const snapshot = JSON.stringify(once);
+            expect(JSON.stringify(scrubSpanJson(once)), text).toBe(snapshot);
+            const message = scrubBreadcrumb({ message: text }).message;
+            expect(scrubBreadcrumb({ message }).message, text).toBe(message);
+        }
+    });
+});
+
+// The SDK writes a selector with the words of the element's aria-label, title
+// and alt in it, unescaped, so a click on "Remove a.pdf" or on "Download <what
+// the other peer called it>" names the file, against the privacy page. The same
+// selector also lands in lcp.element and cls.source.N on a page load, and in
+// [HTMLElement: ...] when a page logs an element.
+describe('the words of an element in a selector', () => {
+    const CASES: [string, string][] = [
+        ['button.icon[aria-label="Remove a.pdf"][type="button"]', 'button.icon[aria-label]'],
+        // A name that holds a folder path: open PR #838's Remove button.
+        ['button.icon[aria-label="Remove photos/day1/a.jpg"][type="button"]', 'button.icon[aria-label]'],
+        ['div.row > a.save[aria-label="Download holiday photos.zip"]', 'div.row > a.save[aria-label]'],
+        ['span.name[title="a.pdf"]', 'span.name[title]'],
+        ['img.thumb[alt="a.png"]', 'img.thumb[alt]'],
+        ['img[alt="a/b#c"]', 'img[alt]'],
+        // What follows the attribute is the page's own structure.
+        ['li > button[aria-label="Remove a.pdf"] > svg.lucide', 'li > button[aria-label] > svg.lucide'],
+        ['nav[aria-label="Main"] > a.home', 'nav[aria-label] > a.home'],
+        // A name holding the attribute's own end.
+        ['button[aria-label="Remove a"].pdf"][type="button"]', 'button[aria-label]'],
+        ['button[aria-label="Remove a"]"][type="button"]', 'button[aria-label]'],
+        // A name the other peer shaped like the rest of a selector.
+        ['a[aria-label="Download x"] > secret.pdf"]', 'a[aria-label]'],
+        ['a[aria-label="Download x"][type="secret"]', 'a[aria-label]'],
+        ['a[aria-label="Download x"] > secret.pdf[aria-label="y"]', 'a[aria-label]'],
+        // A name with a line break, and one with a link in it.
+        ['a[aria-label="Download a\nb.pdf"]', 'a[aria-label]'],
+        ['a[aria-label="Download https://x.example/#k=1"]', 'a[aria-label]'],
+        // Cut before its end, by anything between here and the SDK.
+        ['button[aria-label="Remove a very long name', 'button[aria-label]'],
+        // Two labeled elements: nothing between them can be told from a name.
+        ['div[title="x"] > button[aria-label="y"]', 'div[title]'],
+        ['div[title="x"] > button[aria-label="y"] > svg.lucide', 'div[title] > svg.lucide'],
+    ];
+    // Parts that are the page's own and name nobody.
+    const KEPT = [
+        'button.icon[type="button"]',
+        'input#file[type="file"][name="upload"]',
+        'body > div#main > a:nth-child(2)',
+        'SelectedFilesList > button',
+        'div.bg-[#fff]',
+    ];
+
+    for (const category of ['ui.click', 'ui.input']) {
+        it(`a ${category} breadcrumb loses them as it is made`, () => {
+            for (const [message, want] of CASES) {
+                expect(scrubBreadcrumb({ category, message }).message, message).toBe(want);
+            }
+            for (const message of KEPT) {
+                expect(scrubBreadcrumb({ category, message }).message, message).toBe(message);
+            }
+        });
+    }
+
+    it('keeps the component name the SDK puts beside the selector', () => {
+        const crumb = { category: 'ui.click', message: 'button[aria-label="Remove a.pdf"]', data: { 'ui.component_name': 'SelectedFilesList' } };
+        expect(scrubBreadcrumb(crumb)).toEqual({
+            category: 'ui.click',
+            message: 'button[aria-label]',
+            data: { 'ui.component_name': 'SelectedFilesList' },
+        });
+    });
+
+    it('an event loses them from a breadcrumb that reached it some other way', () => {
+        for (const [message, want] of CASES) {
+            const crumbs = () => [{ category: 'ui.click', message }];
+            for (const event of [
+                scrubErrorEvent({ breadcrumbs: crumbs() }),
+                scrubTransactionEvent({ breadcrumbs: crumbs() }),
+                scrubServerErrorEvent({ breadcrumbs: crumbs() }),
+                scrubServerTransactionEvent({ breadcrumbs: crumbs() }),
+            ]) {
+                expect(event.breadcrumbs, message).toEqual([{ category: 'ui.click', message: want }]);
+            }
+        }
+    });
+
+    it('a logged element loses them too', () => {
+        // normalize writes a DOM node in an event's data with htmlTreeAsString.
+        const logged = '[HTMLElement: button[aria-label="Remove a.pdf"]]';
+        const event = scrubErrorEvent({ breadcrumbs: [{ category: 'console', data: { arguments: [logged] } }] });
+        expect(JSON.stringify(event)).not.toContain('a.pdf');
+        expect(scrubBreadcrumb({ category: 'console', message: logged }).message).toBe('[HTMLElement: button[aria-label]]');
+    });
+
+    it('the selector attributes of a page load lose them', () => {
+        // _setWebVitalAttributes in @sentry/browser-utils 11.8.0 writes these two
+        // onto the page load's span; the standalone spans use the longer names.
+        const selector = 'li > button[aria-label="Remove a.pdf"][type="button"]';
+        const data = () => ({
+            'lcp.element': selector,
+            'cls.source.1': selector,
+            'browser.web_vital.lcp.element': selector,
+            'browser.web_vital.cls.source.1': selector,
+            'sentry.op': 'pageload',
+        });
+        const want = {
+            'lcp.element': 'li > button[aria-label]',
+            'cls.source.1': 'li > button[aria-label]',
+            'browser.web_vital.lcp.element': 'li > button[aria-label]',
+            'browser.web_vital.cls.source.1': 'li > button[aria-label]',
+            'sentry.op': 'pageload',
+        };
+        expect(scrubSpanJson({ data: data() }).data).toEqual(want);
+        const out = scrubTransactionEvent({ contexts: { trace: { data: data() } }, spans: [{ data: data() }] });
+        expect(out.contexts.trace.data).toEqual(want);
+        expect(out.spans[0].data).toEqual(want);
+        // A standalone web-vital span is named after the selector.
+        expect(scrubSpanJson({ description: selector }).description).toBe('li > button[aria-label]');
+    });
+
+    it("runs on what the SDK really writes, a name holding the attribute's end included", () => {
+        // The SDK's own writer, reached through the package that depends on it,
+        // so a version that changes how it writes these fails here. Node has no
+        // DOM, so an element is its four accessors.
+        const fromNext = createRequire(createRequire(import.meta.url).resolve('@sentry/nextjs'));
+        const { htmlTreeAsString } = fromNext('@sentry/browser-utils') as {
+            htmlTreeAsString: (element: unknown, options?: { maxStringLength?: number }) => string;
+        };
+        const element = (tagName: string, className: string, attributes: Record<string, string>, parentNode: unknown) => ({
+            tagName,
+            id: '',
+            className,
+            parentNode,
+            getAttribute: (name: string) => attributes[name] ?? null,
+        });
+        const peerName = 'x"] > secret.pdf[aria-label="y';
+        const row = element('LI', 'row', {}, element('UL', 'files', {}, null));
+        const button = element('BUTTON', 'icon', { 'aria-label': `Download ${peerName}`, type: 'button' }, row);
+        const written = htmlTreeAsString(button, { maxStringLength: 400 });
+        // Unescaped today; the rule above stands on that.
+        expect(written).toBe(`ul.files > li.row > button.icon[aria-label="Download ${peerName}"][type="button"]`);
+        const out = scrubBreadcrumb({ category: 'ui.click', message: written }).message;
+        expect(out).toBe('ul.files > li.row > button.icon[aria-label]');
+        expect(out).not.toContain('secret');
+        // A long name at the default limit: the deepest element is written
+        // whole, which is why a value is not cut in the middle, and the
+        // ancestors that no longer fit go.
+        const long = element('BUTTON', 'icon', { 'aria-label': `Remove ${'n'.repeat(300)}` }, row);
+        const longWritten = htmlTreeAsString(long);
+        expect(longWritten).toBe(`button.icon[aria-label="Remove ${'n'.repeat(300)}"]`);
+        expect(scrubBreadcrumb({ category: 'ui.click', message: longWritten }).message).toBe('button.icon[aria-label]');
+    });
+
+    it('is idempotent', () => {
+        for (const [message] of CASES) {
+            const once = scrubBreadcrumb({ category: 'ui.click', message }).message;
+            expect(scrubBreadcrumb({ category: 'ui.click', message: once }).message, message).toBe(once);
+        }
+    });
+
+    it('never throws on a breadcrumb of an odd shape', () => {
+        for (const crumb of [
+            { category: 'ui.click', message: 42 },
+            { category: 42, message: 'button[aria-label="a"]' },
+            { category: 'ui.click' },
+            null,
+            'ui.click',
+        ]) {
+            expect(() => scrubBreadcrumb(crumb), JSON.stringify(crumb)).not.toThrow();
         }
     });
 });

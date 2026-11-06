@@ -3,8 +3,10 @@
 // and run.json with schemaVersion 1. Room links and codes are redacted to
 // short hashes so a report can be pasted anywhere: the values are the
 // ones each attempt recorded (attempts[].room), replaced wherever they
-// appear in run.json or audit.md, plus a `#room=` link regex as the
-// safety net. No generic three-word regex: it used to eat harness tokens
+// appear in run.json or audit.md, plus regexes for a share link's fragment
+// (`#room=`, `#k=`, in either order, cut short or not) and a request link's as
+// the safety net: the link key k must never reach either file. No generic
+// three-word regex: it used to eat harness tokens
 // (no-data-after-connect, peer-left-early) and path segments. exitCodeFor()
 // is the single place the exit precedence lives: 2, 4, 3, 1, 5, 6, 0.
 import { createHash } from 'node:crypto';
@@ -43,13 +45,20 @@ export function redact(value) {
     );
 }
 
-const ROOM_LINK_RE = /https?:\/\/\S*#room=[^\s'")\]]+/g;
+const ROOM_LINK_RE = /https?:\/\/\S*[#&](?:room|k)=[^\s'")\]]*/g;
+// The same two parameters where no scheme marks a link: a paste, an argv, a
+// fragment on its own. Only at the start of a parameter or of a word, so risk=1
+// and task=1&rank=2 stay as they are.
+const LINK_PARAM_RE = /(^|[\s'"(<[#&?;])(room|k)=[^\s'")\]<>&]*/g;
+// A room id with a key behind its dot, on no request path.
+const ROOM_AND_KEY_RE =
+    /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[A-Za-z0-9_-]*/gi;
 
 /**
  * redactRooms(text, rooms) -> text with every exact room value in `rooms`
  * (links and three-word codes, as the attempts recorded them) replaced by
- * `<room #hash>` or `<code #hash>`, then any remaining `#room=` link by
- * the regex. Longest values first, so a link is never split by a code
+ * `<room #hash>` or `<code #hash>`, then any remaining link by the
+ * regexes. Longest values first, so a link is never split by a code
  * that happens to be a substring of it.
  */
 export function redactRooms(text, rooms = []) {
@@ -60,19 +69,22 @@ export function redactRooms(text, rooms = []) {
         .sort((a, b) => b.length - a.length);
     for (const v of values) {
         if (!s.includes(v)) continue;
-        const tag = /#room=/.test(v) ? 'room' : 'code';
+        const tag = /[#&](?:room|k)=|\/r\/[^\s#]+#/.test(v) ? 'room' : 'code';
         s = s.split(v).join(`<${tag} ${redact(v)}>`);
     }
     return redactRequestLinks(
         s.replace(ROOM_LINK_RE, (m) => `<room ${redact(m)}>`)
-    );
+    )
+        .replace(LINK_PARAM_RE, '$1$2=<redacted>')
+        .replace(ROOM_AND_KEY_RE, '<room>');
 }
 
 /**
- * A request link (spec 06 4.4: <web>/r/<linkId>#<roomId>) anywhere in a
- * line, with or without its scheme and under any base path. The room after
- * `#` is a secret for the life of the link; the link id before it names the
- * link and stays readable, so a report can still tell two links apart.
+ * A request link (spec 06 4.4: <web>/r/<linkId>#<roomId>, with .<k> behind the
+ * room on a keyed one) anywhere in a line, with or without its scheme and under
+ * any base path. The fragment is a secret for the life of the link; the link id
+ * before it names the link and stays readable, so a report can still tell two
+ * links apart.
  */
 const REQUEST_LINK_ANY_RE =
     /(\/r\/[A-Za-z0-9_-]+)#(?!<room>)[^\s'"`)\]<>]*[^\s'"`)\]<>.,;:!?]/g;

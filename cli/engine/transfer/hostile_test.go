@@ -513,7 +513,7 @@ func TestSenderIncompatibleTextIsDisplaySafe(t *testing.T) {
 	escReason := strings.Repeat("\x1b[2K\n", 75)
 	escPayload, _ := json.Marshal(incompatibleMsg{Type: "incompatible", Reason: escReason, Pv: 1, PvMin: 1})
 	bidiVer := strings.Repeat("v\u202e", 200)
-	bidiPayload, _ := json.Marshal(incompatibleMsg{Type: "incompatible", Reason: "x", Pv: 2, PvMin: 2, Ver: bidiVer})
+	bidiPayload, _ := json.Marshal(incompatibleMsg{Type: "incompatible", Reason: "x", Pv: 3, PvMin: 3, Ver: bidiVer})
 	hugePayload, _ := json.Marshal(incompatibleMsg{Type: "incompatible", Reason: strings.Repeat("evil ", 2048), Pv: 1, PvMin: 1})
 	// A coded frame: the code is what a current sender acts on, and nothing
 	// else on the frame may reach the person, however it is dressed.

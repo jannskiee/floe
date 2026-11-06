@@ -2,14 +2,15 @@
 title: "How your files are encrypted"
 sidebarTitle: "Encryption"
 description: "Every Floe transfer is encrypted end to end with keys that live only on the two devices. What that protects, what it does not, and how it works."
-keywords: ["encryption", "end to end", "dtls", "is floe secure", "can floe read my files"]
+keywords: ["encryption", "end to end", "dtls", "link key", "is floe secure", "can floe read my files"]
 ---
 
 Your files are encrypted on your device and decrypted on the other person's. Nothing in between
 can read them, and that includes Floe's own servers. This is what
-[encrypted end to end](/glossary#encrypted-end-to-end) means. It rests on one piece of trust: Floe's
-server has to introduce the two devices honestly, as
-[What it does not protect against](#what-it-does-not-protect-against) explains.
+[encrypted end to end](/glossary#encrypted-end-to-end) means. It rests on the introduction: each
+device has to get the other's real ID through Floe's server. A [link key](/glossary#link-key) checks
+that on a link that carries one, and
+[What it does not protect against](#what-it-does-not-protect-against) says how far that goes.
 
 There is nothing to switch on. It is not a mode, an upgrade, or a setting. Every transfer works
 this way, direct or relayed, on floe.one or on an instance you run yourself.
@@ -29,8 +30,8 @@ has no way to open.
 
 **Self-hosting does not change any of this.** The encryption is a property of the connection
 between the two devices, not of who runs the server. If you run your own instance you get the same
-guarantee, and you also stop depending on anyone else for the one part that is trusted, which the
-next section explains.
+guarantee, and the introduction then runs on a server you operate. [What the link key cannot see](/how-it-works/known-limitations#what-the-link-key-cannot-see)
+says what that does and does not settle.
 
 ## What it does not protect against
 
@@ -41,14 +42,19 @@ The one that matters most is the introduction. Each device sends the other a sho
 encryption key, and those IDs pass through the signaling server. A server that wanted to could
 hand each side an ID of its own instead, sit in the middle, and read everything.
 
-This is true of every application built on [WebRTC](/glossary#webrtc), the technology Floe
-connects devices with. The usual defense is a short verification code that the two people compare
-over another channel, such as a phone call.
+A link key is Floe's check for that. A link from the web app, from `floe` 1.12 and later, or from
+Floe Desktop 1.1 and later carries one after the `#`, and no server receives it. Once the devices
+connect, each side that holds it proves so, with a proof tied to the certificates actually in use.
+A receiver that holds the link key refuses a sender that cannot prove it, before any file name or
+byte. A server in the middle does not hold the link key, so it cannot pass.
 
 <Warning>
-  Floe has no such code today. No client computes or shows one, so nothing inside Floe can detect
-  that attack. Where it matters, run your own server or encrypt the file yourself before you send
-  it.
+  That check does not cover everything, and the server is still part of what you rely on. A
+  [room code](/glossary#room-code) carries no link key, and neither does an older link. The web app's Send page, `floe send`
+  1.12 and later and **Send** in Floe Desktop 1.1 and later only detect, so a server playing a
+  receiver with no link key gets the whole file. Whoever serves the web app's JavaScript, and anyone
+  who held the whole link, can pass the check. Where it matters, encrypt the file yourself before
+  you send it.
 </Warning>
 
 Read [Known limitations](/how-it-works/known-limitations) for that and the
@@ -60,7 +66,7 @@ alongside it.
 This section is the technical detail, and you can skip it: nothing in it changes what the sections
 above say.
 
-Floe uses WebRTC data channels, which run SCTP, the protocol that carries the data, over
+Floe uses [WebRTC](/glossary#webrtc) data channels, which run SCTP, the protocol that carries the data, over
 [**DTLS**](/glossary#dtls). DTLS is TLS adapted for separate packets (datagrams): the same cipher
 suites and the same handshake, over a transport that does not guarantee ordering. This is distinct
 from DTLS-SRTP, which is what WebRTC uses for audio and video.
@@ -71,6 +77,12 @@ The fingerprints are carried in the connection-setup messages, the SDP offer and
 DTLS handshake verifies the certificate it receives against the fingerprint it was promised. An attacker sitting on the network path cannot substitute a
 certificate, because they cannot also change the fingerprint that arrived through the signaling
 channel. An attacker who controls the signaling channel itself can.
+
+A link key is the check on that last case. Once DTLS is up, each side that holds the link key sends
+an HMAC, a hash made with a secret key, over the [room](/glossary#room) id and the hashes of both
+certificates DTLS actually used. A server in the middle runs two DTLS connections with certificates
+of its own. A proof from one of them fails on the other, and it cannot make a new one without the
+link key. The exact frame is under [`kc`](/reference/transfer-protocol#kc).
 
 Keys are short-lived and per-session. They are created when the connection is created and
 discarded when it closes.

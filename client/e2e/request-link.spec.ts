@@ -16,9 +16,15 @@
  * The over-approved refusal cell (F5-03) has the harness send that refusal
  * frame itself (-stop-after-file), with a hostile reason: an honest browser
  * can never make a host say over-approved.
+ *
+ * The flow's cells run twice, on a keyed link, the one Floe Desktop 1.1 makes, so the whole
+ * flow runs behind the visitor's check of the key, and on a bare one, every link Desktop 1.0.x
+ * makes. Each cell after them runs with a keyed host unless it says bare (key: false). Each
+ * host comes through its own door to the server (signalingDoor in request-helpers.ts),
+ * because the server allows 20 new links per network address a day.
  */
 
-import { test, expect, type BrowserContext, type Page } from '@playwright/test';
+import { test, expect, firefox, type Browser, type BrowserContext, type Dialog, type Page } from '@playwright/test';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -27,20 +33,34 @@ import { visitorCopy, refusalCopy, sendingHeader, statusCopy } from '../lib/requ
 import { initialModel, reduce } from '../lib/request/visitorState';
 import { LOST_KEY } from '../lib/request/lostRecord';
 import { metadataFrameBytes } from '../lib/request/metadataBudget';
-import { CONTROL_MSG_MAX, REQUEST_ACK_TIMEOUT_MS, REQUEST_ACK_GRACE_MS } from '../lib/transfer/protocol';
+import { RELAY_BLOCK_REASON, RELAY_PROBE_DELAY_MS } from '../lib/request/constants';
 import {
+    CONTROL_MSG_MAX,
+    ENFORCE_LINK_KEYS,
+    KEY_CHECK_WAIT_MS,
+    REQUEST_ACK_TIMEOUT_MS,
+    REQUEST_ACK_GRACE_MS,
+    SENDER_UNVERIFIED_REASON,
+} from '../lib/transfer/protocol';
+import { WEB_URL } from './helpers';
+import { startScriptedHost, type ScriptedHost, type ScriptedHostOptions } from './request-scripted-host';
+import {
+    channelSent,
+    channelText,
     countStatsAttempts,
     deliveredMismatch,
     directoriesUnder,
     forwardSocketFrames,
     framesFor,
     outgoingCandidateTypes,
+    partsOfRequestLink,
     requestLink,
     sha256Manifest,
     startRequestHost,
     stunOnlyIce,
     traceRecords,
     waitForHostEvent,
+    watchChannel,
     type RequestHost,
     type RequestHostOptions,
 } from './request-helpers';
@@ -73,8 +93,11 @@ test.afterEach(async () => {
     rmSync(scratch.root, { recursive: true, force: true });
 });
 
+// Set for the whole of one describe block, below: its hosts make bare links.
+let bareHosts = false;
+
 function host(opts: Omit<RequestHostOptions, 'outDir'> = {}): RequestHost {
-    const h = startRequestHost({ outDir: scratch.outDir, ...opts });
+    const h = startRequestHost({ outDir: scratch.outDir, key: !bareHosts, ...opts });
     scratch.hosts.push(h);
     return h;
 }
@@ -123,7 +146,7 @@ function strayLink(): string {
 /** C-111 as the page words it after a discard's reload with these counts,
  *  from the reducer and the copy module the page itself uses. */
 function restoredLostLine(arrived: number, total: number): string {
-    const ready = reduce(initialModel, { type: 'LINK_OK', roomId: randomUUID() }).model;
+    const ready = reduce(initialModel, { type: 'LINK_OK', roomId: randomUUID(), keyed: false }).model;
     const lost = reduce(ready, { type: 'RESTORE_LOST', arrived, total }).model;
     const copy = statusCopy(lost, { pathAt: () => undefined, route: null, now: 0 });
     if (copy?.lines.length !== 1) throw new Error(`no Lost card for ${arrived} of ${total}`);
@@ -151,7 +174,7 @@ async function storedPairs(page: Page): Promise<Array<[string, string]>> {
     });
 }
 
-test.describe('request-link', () => {
+const everyLink = () => {
     test('request-link: host absent, then back', async ({ page, context }) => {
         const stats = await guard(context);
         const sent = makeFiles({ 'a.bin': 64 * 1024 });
@@ -585,10 +608,8 @@ test.describe('request-link', () => {
         // written by the page itself.
         const h = host({ decide: 'accept', holdAfterFile: 20_000 });
         const link = await requestLink(h);
-        const url = new URL(link);
-        const linkId = url.pathname.split('/').pop() ?? '';
-        const room = url.hash.slice(1);
-        expect(linkId.length > 0 && room.length > 0).toBe(true);
+        const { linkId, room, key } = partsOfRequestLink(link);
+        expect(linkId.length > 0 && room.length > 0 && (bareHosts || !!key)).toBe(true);
         await page.goto(link);
         await pickFiles(page, ['a.bin', 'b.bin']);
         await send(page);
@@ -597,13 +618,14 @@ test.describe('request-link', () => {
         const stored = await storedPairs(page);
         // Checked before any value can be printed: a failure message must never
         // carry the link id or the room (describeHarness's rule).
-        for (const [key, value] of stored) {
-            expect(key.includes(linkId) || value.includes(linkId), 'a stored key or value holds the link id').toBe(false);
-            expect(key.includes(room) || value.includes(room), 'a stored key or value holds the room').toBe(false);
-            const named = ['a.bin', 'b.bin'].some((n) => key.includes(n) || value.includes(n));
+        for (const [name, value] of stored) {
+            expect(name.includes(linkId) || value.includes(linkId), 'a stored key or value holds the link id').toBe(false);
+            expect(name.includes(room) || value.includes(room), 'a stored key or value holds the room').toBe(false);
+            if (key) expect(name.includes(key) || value.includes(key), 'a stored key or value holds the link key').toBe(false);
+            const named = ['a.bin', 'b.bin'].some((n) => name.includes(n) || value.includes(n));
             expect(named, 'a stored key or value holds a picked file name').toBe(false);
         }
-        expect(stored.filter(([key]) => key.startsWith('floe:'))).toEqual([[LOST_KEY, '{"v":1,"arrived":0,"total":2}']]);
+        expect(stored.filter(([name]) => name.startsWith('floe:'))).toEqual([[LOST_KEY, '{"v":1,"arrived":0,"total":2}']]);
 
         // A fragment naming another room mid-drop: the drop stays in the room
         // it joined (E29), but Chrome would reload a discarded tab at the
@@ -625,7 +647,7 @@ test.describe('request-link', () => {
             );
         expect(await hashThenRead(randomUUID())).toBeNull();
         await expect(page.getByRole('heading', { name: sendingHeader(1, 2) })).toBeVisible();
-        expect(await hashThenRead(room)).toBe('{"v":1,"arrived":0,"total":2}');
+        expect(await hashThenRead(key ? `${room}.${key}` : room)).toBe('{"v":1,"arrived":0,"total":2}');
 
         // The discard: Chrome reloads the tab at its address with
         // document.wasDiscarded true. The drop is live, so the leave-page
@@ -810,7 +832,7 @@ test.describe('request-link', () => {
         answer = 'accept';
         const outLeave = join(scratch.root, 'out-leave');
         mkdirSync(outLeave);
-        const leave = startRequestHost({ outDir: outLeave, decide: 'accept', holdAfterFile: 10_000 });
+        const leave = startRequestHost({ outDir: outLeave, key: true, decide: 'accept', holdAfterFile: 10_000 });
         scratch.hosts.push(leave);
         await page.goto(await requestLink(leave));
         await pickFiles(page, ['a.bin', 'b.bin']);
@@ -866,5 +888,911 @@ test.describe('request-link', () => {
         expect(route.path).toBe('relay');
         await expect(page.getByText(/, relay\.( |$)/)).toBeVisible();
         expect(await stats()).toBe(0);
+    });
+};
+
+test.describe('request-link', everyLink);
+
+// The same cells on a bare link. Every link floe.one sees until Floe Desktop 1.1, and every
+// one Desktop 1.0.x still makes after it, and the keyed run cannot see a regression that
+// only hits a page with no key (review 24 F1).
+test.describe('request-link: a bare link', () => {
+    test.beforeEach(() => {
+        bareHosts = true;
+    });
+    test.afterEach(() => {
+        bareHosts = false;
+    });
+    everyLink();
+});
+
+// ---------------------------------------------------------------------------
+// The link key on /r. The cells above run on both kinds of link, keyed as Floe Desktop 1.1
+// makes. These are about the check: the visitor names no file until the host has proved
+// the key, and a failed check, bad or silent, sends nothing and says so.
+// ---------------------------------------------------------------------------
+
+const KEYED_REQUEST_LINK = /\/r\/[A-Za-z0-9_-]{11}#[0-9a-f-]{36}\.[A-Za-z0-9_-]{21}[AQgw]$/;
+const newKey = () => randomBytes(16).toString('base64url');
+
+/** V6f, whole: the card, the line, the announcement, and nothing to press. */
+async function expectCheckFailed(page: Page, timeout = 30_000) {
+    await expect(page.getByRole('heading', { name: visitorCopy.keyFailedTitle })).toBeVisible({ timeout });
+    await expect(page.getByText(visitorCopy.keyFailedBody, { exact: true })).toBeVisible();
+    await expect(page.getByRole('status')).toHaveText(visitorCopy.keyFailedTitle);
+    await expect(page.getByRole('main').getByRole('button')).toHaveCount(0);
+}
+
+/** V6g, whole: this browser could not check, so the card says that, and a person is not
+ *  sent to the host for a new link that would not help (D17). */
+async function expectCannotCheck(page: Page, timeout = 30_000) {
+    await expect(page.getByRole('heading', { name: "This browser can't check this link" })).toBeVisible({ timeout });
+    await expect(
+        page.getByText('Nothing was sent. Open this link in a current version of Chrome, Edge, Firefox or Safari.', { exact: true })
+    ).toBeVisible();
+    await expect(page.getByRole('status')).toHaveText("This browser can't check this link");
+    await expect(page.getByText(visitorCopy.keyFailedTitle)).toHaveCount(0);
+    await expect(page.getByRole('main').getByRole('button')).toHaveCount(0);
+}
+
+/** Whether leaving by the footer raises the leave prompt, which is the page holding the
+ *  tab. It navigates away otherwise, so this is a test's last question to its page. */
+async function leaveAsks(page: Page): Promise<boolean> {
+    let asked = false;
+    const onDialog = (dialog: Dialog) => {
+        if (dialog.type() === 'beforeunload') asked = true;
+        void dialog.dismiss();
+    };
+    page.on('dialog', onDialog);
+    try {
+        await page.getByRole('contentinfo').getByRole('link', { name: 'Privacy' }).click({ noWaitAfter: true });
+        await page.waitForTimeout(1_500);
+    } finally {
+        page.off('dialog', onDialog);
+    }
+    return asked;
+}
+
+/** What a host event list says about a visit that must never have reached a decision. */
+function expectNoDecision(h: RequestHost) {
+    const names = h.events.map((e) => e.event);
+    expect(names).not.toContain('deciding');
+    expect(names).not.toContain('accepted');
+    expect(names).not.toContain('file-committed');
+}
+
+/** Selects every local candidate as a relay in what getStats reports, which is all the
+ *  page's probe reads: the transfer itself stays direct, on any machine. */
+function relayRoute(context: BrowserContext) {
+    return context.addInitScript(() => {
+        const real = RTCPeerConnection.prototype.getStats;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        RTCPeerConnection.prototype.getStats = async function (this: RTCPeerConnection, ...args: any[]) {
+            const stats = await real.apply(this, args as []);
+            const out = new Map();
+            stats.forEach((value: { type: string }, id: string) =>
+                out.set(id, value.type === 'local-candidate' ? { ...value, candidateType: 'relay' } : value),
+            );
+            return out as unknown as RTCStatsReport;
+        };
+    });
+}
+
+/** Every pick reads as over the 2 GB relay cap. No file that size has to exist, because
+ *  the cap stops it before a byte of it is read. */
+function overTheCap(context: BrowserContext) {
+    return context.addInitScript(() => {
+        Object.defineProperty(File.prototype, 'size', { configurable: true, get: () => 3 * 1024 ** 3 });
+    });
+}
+
+test.describe('request-link: the link key', () => {
+    // These describe enforcing pages. The rollback lever's own cells are below, and a flip
+    // must not have to fight this file to merge.
+    test.skip(!ENFORCE_LINK_KEYS, 'ENFORCE_LINK_KEYS is off');
+
+    test('a keyed link delivers, its proof ahead of the first file name, and nothing new shows', async ({ page, context }) => {
+        const stats = await guard(context);
+        await watchChannel(context);
+        const sent = makeFiles({ 'a.bin': 256 * 1024 });
+        const h = host({ decide: 'accept' });
+        const link = await requestLink(h);
+        expect(link).toMatch(KEYED_REQUEST_LINK);
+        await page.goto(link);
+        await pickFiles(page, ['a.bin']);
+        await send(page);
+        await expectDelivered(page, h, sent);
+        await expect(page.getByText(visitorCopy.shaMatched)).toBeVisible();
+        const frames = await channelSent(page);
+        expect(frames[0]).toBe('kc');
+        expect(frames[1]).toBe('metadata');
+        expect(frames.filter((f) => f === 'kc')).toHaveLength(1);
+        expect(h.events.map((e) => e.event)).toContain('deciding');
+        await expect(page.getByText(visitorCopy.keyFailedTitle)).toHaveCount(0);
+        expect(await stats()).toBe(0);
+    });
+
+    test('a host under another key: V6f at once, no file named, and the host refuses too', async ({ page, context }) => {
+        const stats = await guard(context);
+        await watchChannel(context);
+        makeFiles({ 'a.bin': 64 * 1024 });
+        const h = host({ kc: 'bad', decide: 'accept' });
+        await page.goto(await requestLink(h));
+        await pickFiles(page, ['a.bin']);
+        await send(page);
+        await expectCheckFailed(page);
+        expect(await waitForHostEvent(h, 'refused', 30_000)).toMatchObject({ code: 'unverified' });
+        await waitForHostEvent(h, 'done', 30_000);
+        expectNoDecision(h);
+        expect(Object.keys(sha256Manifest(scratch.outDir))).toEqual([]);
+        await expect.poll(() => channelSent(page)).toEqual(['kc', 'incompatible']);
+        const [, abort] = await channelText(page);
+        expect(JSON.parse(abort)).toMatchObject({ type: 'incompatible', code: 'unverified', pv: 2, pvMin: 2 });
+
+        // The host's own refusal and the close behind it have landed by now, and neither
+        // talks over the card.
+        await page.waitForTimeout(3_000);
+        await expectCheckFailed(page);
+        await expect(page.getByText(visitorCopy.couldNotConnect)).toHaveCount(0);
+        await expect(page.getByText(visitorCopy.lostTitle)).toHaveCount(0);
+        expect(await channelSent(page)).toEqual(['kc', 'incompatible']);
+        expect(await leaveAsks(page), 'V6f still holds the tab').toBe(false);
+        expect(await stats()).toBe(0);
+    });
+
+    test('a host that shows no proof: V6f after the wait, no file named, and the stop is the code', async ({ page, context }) => {
+        test.setTimeout(KEY_CHECK_WAIT_MS + 60_000);
+        const stats = await guard(context);
+        await watchChannel(context);
+        makeFiles({ 'a.bin': 64 * 1024 });
+        const h = host({ kc: 'none', decide: 'accept' });
+        await page.goto(await requestLink(h));
+        await pickFiles(page, ['a.bin']);
+        const clicked = Date.now();
+        await send(page);
+        await expect(page.getByRole('heading', { name: visitorCopy.connecting })).toBeVisible();
+        await expectCheckFailed(page, KEY_CHECK_WAIT_MS + 30_000);
+        expect(Date.now() - clicked).toBeGreaterThanOrEqual(KEY_CHECK_WAIT_MS);
+        expect(await waitForHostEvent(h, 'refused', 30_000)).toMatchObject({ code: 'unverified' });
+        expectNoDecision(h);
+        expect(Object.keys(sha256Manifest(scratch.outDir))).toEqual([]);
+        await expect.poll(() => channelSent(page)).toEqual(['kc', 'incompatible']);
+        expect(await stats()).toBe(0);
+    });
+
+    test('a bare link, as Floe Desktop 1.0 makes: no key, no proof, no wait, as it always was', async ({ page, context }) => {
+        const stats = await guard(context);
+        await watchChannel(context);
+        const sent = makeFiles({ 'a.bin': 256 * 1024 });
+        const h = host({ key: false, decide: 'accept' });
+        const link = await requestLink(h);
+        expect(partsOfRequestLink(link).key).toBeNull();
+        await page.goto(link);
+        await pickFiles(page, ['a.bin']);
+        await send(page);
+        await expectDelivered(page, h, sent);
+        const frames = await channelSent(page);
+        expect(frames).not.toContain('kc');
+        expect(frames[0]).toBe('metadata');
+        await expect(page.getByText(visitorCopy.keyFailedTitle)).toHaveCount(0);
+        expect(await stats()).toBe(0);
+    });
+
+    test('a bare link is declined as it always was', async ({ page, context }) => {
+        const stats = await guard(context);
+        makeFiles({ 'a.bin': 64 * 1024 });
+        const h = host({ key: false, decide: 'decline' });
+        await page.goto(await requestLink(h));
+        await pickFiles(page, ['a.bin']);
+        await send(page);
+        await expect(page.getByRole('heading', { name: visitorCopy.declined })).toBeVisible({ timeout: 30_000 });
+        expect(await stats()).toBe(0);
+    });
+
+    test('a link cut before its key: the incomplete card once the host refuses, and the whole link then works', async ({ page, context }) => {
+        const stats = await guard(context);
+        await watchChannel(context);
+        const sent = makeFiles({ 'a.bin': 64 * 1024 });
+        const h = host({ decide: 'accept', keepWaiting: true });
+        const link = await requestLink(h);
+        const { room } = partsOfRequestLink(link);
+        await page.goto(link.slice(0, link.lastIndexOf('.')));
+        await pickFiles(page, ['a.bin']);
+        await send(page);
+
+        await expect(page.getByRole('heading', { name: visitorCopy.incompleteTitle })).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByText(visitorCopy.incompleteBody, { exact: true })).toBeVisible();
+        await expect(page.getByRole('status')).toHaveText(visitorCopy.incompleteTitle);
+        await expect(page.getByRole('main').getByRole('button')).toHaveCount(0);
+        expect(await waitForHostEvent(h, 'refused', 30_000)).toMatchObject({ code: 'unverified' });
+        expectNoDecision(h);
+        expect(Object.keys(sha256Manifest(scratch.outDir))).toEqual([]);
+        // A visitor with no key has no proof to give: this is the gap DV1 names.
+        expect(await channelSent(page)).not.toContain('kc');
+        expect(await channelSent(page)).not.toContain('incompatible');
+
+        // What the card says to do, done in this same tab.
+        await waitForHostEvent(h, 'reopened', 30_000);
+        expect(partsOfRequestLink(page.url()).room).toBe(room);
+        await page.evaluate((hash) => {
+            location.hash = hash;
+        }, new URL(link).hash);
+        await expect(page.getByRole('heading', { name: visitorCopy.readyEyebrow })).toBeVisible({ timeout: 20_000 });
+        await pickFiles(page, ['a.bin']);
+        await send(page);
+        await expectDelivered(page, h, sent);
+        expect((await channelSent(page))[0]).toBe('kc');
+        expect(await stats()).toBe(0);
+    });
+
+    test.describe('a fragment that changes while the page is open', () => {
+        const loadsOf = (page: Page) => {
+            let loads = 0;
+            page.on('load', () => {
+                loads += 1;
+            });
+            return () => loads;
+        };
+        const setHash = (page: Page, hash: string) =>
+            page.evaluate((next) => {
+                location.hash = next;
+            }, hash);
+
+        test('another key under the same room reloads, and the page then holds the new one', async ({ page, context }) => {
+            const stats = await guard(context);
+            makeFiles({ 'a.bin': 64 * 1024 });
+            const h = host({ decide: 'accept' });
+            const link = await requestLink(h);
+            const { room, key } = partsOfRequestLink(link);
+            await page.goto(link);
+            await expect(page.getByRole('heading', { name: visitorCopy.readyEyebrow })).toBeVisible();
+            const loads = loadsOf(page);
+
+            let other = newKey();
+            while (other === key) other = newKey();
+            await setHash(page, `${room}.${other}`);
+            await expect.poll(loads, { timeout: 10_000 }).toBeGreaterThan(0);
+            await expect(page.getByRole('heading', { name: visitorCopy.readyEyebrow })).toBeVisible();
+
+            // The host holds the link's own key, so a page on the new one fails its check.
+            await pickFiles(page, ['a.bin']);
+            await send(page);
+            await expectCheckFailed(page);
+            expectNoDecision(h);
+            expect(await stats()).toBe(0);
+        });
+
+        test('the key going away reloads, and the page holds none', async ({ page, context }) => {
+            const stats = await guard(context);
+            await watchChannel(context);
+            makeFiles({ 'a.bin': 64 * 1024 });
+            const h = host({ decide: 'accept' });
+            const link = await requestLink(h);
+            const { room } = partsOfRequestLink(link);
+            await page.goto(link);
+            await expect(page.getByRole('heading', { name: visitorCopy.readyEyebrow })).toBeVisible();
+            const loads = loadsOf(page);
+            await setHash(page, room);
+            await expect.poll(loads, { timeout: 10_000 }).toBeGreaterThan(0);
+            await pickFiles(page, ['a.bin']);
+            await send(page);
+            await expect(page.getByRole('heading', { name: visitorCopy.incompleteTitle })).toBeVisible({ timeout: 30_000 });
+            expect(await channelSent(page)).not.toContain('kc');
+            expect(await stats()).toBe(0);
+        });
+
+        test('a key that came reloads too, and a key cut short lands on the card', async ({ page, context }) => {
+            const stats = await guard(context);
+            const room = randomUUID();
+            await page.goto(`/r/AAAAAAAAAAA#${room}`);
+            await expect(page.getByRole('heading', { name: visitorCopy.readyEyebrow })).toBeVisible();
+            const loads = loadsOf(page);
+            await setHash(page, `${room}.${newKey()}`);
+            await expect.poll(loads, { timeout: 10_000 }).toBe(1);
+            await expect(page.getByRole('heading', { name: visitorCopy.readyEyebrow })).toBeVisible();
+            await setHash(page, `${room}.AAAA`);
+            await expect.poll(loads, { timeout: 10_000 }).toBe(2);
+            await expect(page.getByRole('heading', { name: visitorCopy.incompleteTitle })).toBeVisible();
+            expect(await stats()).toBe(0);
+        });
+
+        test('the same fragment asks nothing', async ({ page, context }) => {
+            await guard(context);
+            const room = randomUUID();
+            const key = newKey();
+            await page.goto(`/r/AAAAAAAAAAA#${room}.${key}`);
+            await expect(page.getByRole('heading', { name: visitorCopy.readyEyebrow })).toBeVisible();
+            const loads = loadsOf(page);
+            // Through another fragment that is not a change of link would be nothing either,
+            // and there is none on this page, so the event is raised by hand.
+            await page.evaluate(() => window.dispatchEvent(new HashChangeEvent('hashchange')));
+            await page.waitForTimeout(1_500);
+            expect(loads()).toBe(0);
+        });
+
+        test('a live drop stays in the link it joined: no reload, and the file arrives', async ({ page, context }) => {
+            test.setTimeout(120_000);
+            const stats = await guard(context);
+            const sent = makeFiles({ 'a.bin': 256 * 1024 });
+            const h = host({ decide: 'delay:6000' });
+            const link = await requestLink(h);
+            const { room } = partsOfRequestLink(link);
+            await page.goto(link);
+            await pickFiles(page, ['a.bin']);
+            await send(page);
+            await expect(page.getByRole('heading', { name: visitorCopy.waitingTitle })).toBeVisible();
+            const loads = loadsOf(page);
+            await setHash(page, `${room}.${newKey()}`);
+            await expectDelivered(page, h, sent);
+            expect(loads()).toBe(0);
+            expect(await stats()).toBe(0);
+        });
+    });
+
+    test.describe('a retry from a state that allows one keeps the key', () => {
+        // Keyless on the second attempt, this page would name the file and meet the host's
+        // refusal on the V1 card.
+        test('Try again after host absent: V6f, not a keyless send', async ({ page, context }) => {
+            const stats = await guard(context);
+            await watchChannel(context);
+            makeFiles({ 'a.bin': 64 * 1024 });
+            const h = host({ kc: 'bad', decide: 'accept', joinOnStdin: true });
+            await page.goto(await requestLink(h));
+            await pickFiles(page, ['a.bin']);
+            await send(page);
+            await expect(page.getByRole('heading', { name: visitorCopy.hostAbsentTitle })).toBeVisible();
+            h.join();
+            await waitForHostEvent(h, 'joined', 30_000);
+            await page.getByRole('button', { name: visitorCopy.tryAgain }).click();
+            await expectCheckFailed(page);
+            await expect.poll(() => channelSent(page)).toEqual(['kc', 'incompatible']);
+            expectNoDecision(h);
+            expect(await stats()).toBe(0);
+        });
+
+        test('Send again after a Cancel: a new proof on the new connection, and the file arrives', async ({ page, context }) => {
+            test.setTimeout(120_000);
+            const stats = await guard(context);
+            await watchChannel(context);
+            const sent = makeFiles({ 'a.bin': 128 * 1024 });
+            const h = host({ decide: 'never,accept', keepWaiting: true });
+            await page.goto(await requestLink(h));
+            await pickFiles(page, ['a.bin']);
+            await send(page);
+            await expect(page.getByRole('heading', { name: visitorCopy.waitingTitle })).toBeVisible();
+            await page.getByRole('button', { name: visitorCopy.cancel, exact: true }).click();
+            await expect(page.getByRole('button', { name: SEND })).toBeVisible();
+            await waitForHostEvent(h, 'reopened', 30_000);
+            await send(page);
+            await expectDelivered(page, h, sent);
+            const frames = await channelSent(page);
+            expect(frames.slice(0, 2)).toEqual(['kc', 'metadata']);
+            // Each connection's proof leads it.
+            expect(frames.filter((f) => f === 'kc')).toHaveLength(2);
+            const second = frames.indexOf('kc', 1);
+            expect(frames[second + 1]).toBe('metadata');
+            expect(frames[second - 1]).toBe('incompatible');
+            expect(await stats()).toBe(0);
+        });
+    });
+
+    test.describe('a browser that cannot read the certificate', () => {
+        test('the SDP fallback carries a whole drop against a Go host', async ({ page, context }) => {
+            const stats = await guard(context);
+            await context.addInitScript(() => {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                delete (RTCDtlsTransport.prototype as any).getRemoteCertificates;
+            });
+            const sent = makeFiles({ 'a.bin': 256 * 1024 });
+            const h = host({ decide: 'accept' });
+            await page.goto(await requestLink(h));
+            expect(await page.evaluate(() => typeof RTCDtlsTransport.prototype.getRemoteCertificates)).toBe('undefined');
+            await pickFiles(page, ['a.bin']);
+            await send(page);
+            await expectDelivered(page, h, sent);
+            await expect(page.getByText(visitorCopy.keyFailedTitle)).toHaveCount(0);
+            await expect(page.getByText(visitorCopy.cantCheckTitle)).toHaveCount(0);
+            expect(await stats()).toBe(0);
+        });
+
+        // The API is gone and the description fails the fallback's strict shape, since a
+        // second m= line is the trick that shape is there to refuse.
+        test('with no way to check, it stops with no proof and no file named', async ({ page, context }) => {
+            const stats = await guard(context);
+            await watchChannel(context);
+            await context.addInitScript(() => {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                delete (RTCDtlsTransport.prototype as any).getRemoteCertificates;
+                const real = Object.getOwnPropertyDescriptor(RTCPeerConnection.prototype, 'remoteDescription')?.get;
+                Object.defineProperty(RTCPeerConnection.prototype, 'remoteDescription', {
+                    configurable: true,
+                    get(this: RTCPeerConnection) {
+                        const held = real?.call(this);
+                        return held ? { type: held.type, sdp: `${held.sdp}m=text 9 UDP/TLS 0\r\n` } : held;
+                    },
+                });
+            });
+            makeFiles({ 'a.bin': 64 * 1024 });
+            const h = host({ decide: 'accept' });
+            await page.goto(await requestLink(h));
+            await pickFiles(page, ['a.bin']);
+            await send(page);
+            await expectCannotCheck(page);
+            expect(await waitForHostEvent(h, 'refused', 30_000)).toMatchObject({ code: 'unverified' });
+            expectNoDecision(h);
+            // A side that cannot prove anything sends no kc at all (DV1, D7).
+            await expect.poll(() => channelSent(page)).toEqual(['incompatible']);
+            expect(await stats()).toBe(0);
+        });
+    });
+
+    test.describe('the relay cap on a keyed link', () => {
+        test('over the cap on a relay: the reason goes behind the proof, to a host that proved the key', async ({ page, context }) => {
+            const stats = await guard(context);
+            await watchChannel(context);
+            await relayRoute(context);
+            await overTheCap(context);
+            makeFiles({ 'a.bin': 1024 });
+            const h = host({ decide: 'accept' });
+            await page.goto(await requestLink(h));
+            await pickFiles(page, ['a.bin']);
+            await send(page);
+            await expect(page.getByRole('heading', { name: visitorCopy.relayLimitTitle })).toBeVisible({ timeout: 30_000 });
+            await expect.poll(() => channelSent(page)).toEqual(['kc', 'incompatible']);
+            expect((await channelText(page))[1]).toContain(RELAY_BLOCK_REASON);
+            expectNoDecision(h);
+            expect(await stats()).toBe(0);
+        });
+
+        // The reason says the drop is over 2 GB, so it is not for a host that proved nothing.
+        // The probe's 2 s is long gone when the wait ends, and the card is V6f, not V9.
+        test('over the cap with a silent host: V6f after the wait, and nothing of the size went', async ({ page, context }) => {
+            test.setTimeout(KEY_CHECK_WAIT_MS + 60_000);
+            const stats = await guard(context);
+            await watchChannel(context);
+            await relayRoute(context);
+            await overTheCap(context);
+            makeFiles({ 'a.bin': 1024 });
+            const h = host({ kc: 'none', decide: 'accept' });
+            await page.goto(await requestLink(h));
+            await pickFiles(page, ['a.bin']);
+            await send(page);
+            await expectCheckFailed(page, KEY_CHECK_WAIT_MS + 30_000);
+            await expect(page.getByRole('heading', { name: visitorCopy.relayLimitTitle })).toHaveCount(0);
+            expect(await waitForHostEvent(h, 'refused', 30_000)).toMatchObject({ code: 'unverified' });
+            await expect.poll(() => channelSent(page)).toEqual(['kc', 'incompatible']);
+            const words = (await channelText(page)).join('\n');
+            expect(words).not.toContain('2 GB');
+            expect(await stats()).toBe(0);
+        });
+
+        test('over the cap on a bare link: V9, as it always was', async ({ page, context }) => {
+            const stats = await guard(context);
+            await watchChannel(context);
+            await relayRoute(context);
+            await overTheCap(context);
+            makeFiles({ 'a.bin': 1024 });
+            const h = host({ key: false, decide: 'accept' });
+            await page.goto(await requestLink(h));
+            await pickFiles(page, ['a.bin']);
+            await send(page);
+            await expect(page.getByRole('heading', { name: visitorCopy.relayLimitTitle })).toBeVisible({ timeout: 30_000 });
+            await expect.poll(() => channelSent(page)).toEqual(['incompatible']);
+            expect(await stats()).toBe(0);
+        });
+    });
+
+    // The moves no honest engine makes, played by a page of the test's own.
+    test.describe('against a scripted host', () => {
+        // Far under the 75 s setup timer a page with no answer would sit behind.
+        const FAST = 30_000;
+        const MIB = 1024 * 1024;
+        let hosts: ScriptedHost[] = [];
+        test.afterEach(async () => {
+            await Promise.all(hosts.map((h) => h.close()));
+            hosts = [];
+        });
+        const scripted = async (browser: Browser, o: ScriptedHostOptions) => {
+            const h = await startScriptedHost(browser, o);
+            hosts.push(h);
+            return h;
+        };
+        const typesFrom = async (h: ScriptedHost) => (await h.state()).frames.map((f) => f.type);
+
+        test('agrees with a third implementation of the tag, both ways', async ({ browser, page, context }) => {
+            const stats = await guard(context);
+            await watchChannel(context);
+            makeFiles({ 'a.bin': 64 * 1024 });
+            const h = await scripted(browser, { proof: 'good', then: 'ack' });
+            await page.goto(h.link);
+            await pickFiles(page, ['a.bin']);
+            await send(page);
+            await expect(page.getByRole('heading', { name: DELIVERED })).toBeVisible({ timeout: 30_000 });
+            await expect.poll(async () => (await h.state()).pageProofGood).toBe(true);
+            const types = await typesFrom(h);
+            expect(types.slice(0, 2)).toEqual(['kc', 'metadata']);
+            expect(types.filter((t) => t === 'kc')).toHaveLength(1);
+            expect(await stats()).toBe(0);
+        });
+
+        // The other order: the relay verdict is in, and the check is not. Nothing is named
+        // until it is. A page that started on the verdict alone fails here on any machine.
+        test('holds the file name for a proof that comes after the relay verdict', async ({ browser, page, context }) => {
+            const stats = await guard(context);
+            makeFiles({ 'a.bin': 64 * 1024 });
+            const h = await scripted(browser, { proof: 'good', then: 'ack', holdProof: true });
+            await page.goto(h.link);
+            await pickFiles(page, ['a.bin']);
+            await send(page);
+            // Its own proof goes at connect, with no frame from the host to prompt it.
+            await expect.poll(() => typesFrom(h), { timeout: 30_000 }).toEqual(['kc']);
+            await page.waitForTimeout(RELAY_PROBE_DELAY_MS + 2_000);
+            expect(await typesFrom(h)).toEqual(['kc']);
+            await expect(page.getByRole('heading', { name: visitorCopy.connecting })).toBeVisible();
+            await h.releaseProof();
+            await expect(page.getByRole('heading', { name: DELIVERED })).toBeVisible({ timeout: 30_000 });
+            expect((await typesFrom(h)).slice(0, 2)).toEqual(['kc', 'metadata']);
+            expect(await stats()).toBe(0);
+        });
+
+        // The other half of that order. The relay verdict is in and the check then fails, so
+        // nothing has been named: V6f, and not a send the engine has to stop on its own.
+        test('a bad proof that comes after the relay verdict is V6f all the same', async ({ browser, page, context }) => {
+            const stats = await guard(context);
+            await watchChannel(context);
+            makeFiles({ 'a.bin': 64 * 1024 });
+            const h = await scripted(browser, { proof: 'bad', then: 'hold', holdProof: true });
+            await page.goto(h.link);
+            await pickFiles(page, ['a.bin']);
+            await send(page);
+            await expect.poll(() => typesFrom(h), { timeout: 30_000 }).toEqual(['kc']);
+            await page.waitForTimeout(RELAY_PROBE_DELAY_MS + 2_000);
+            await h.releaseProof();
+            await expectCheckFailed(page);
+            await expect.poll(() => channelSent(page)).toEqual(['kc', 'incompatible']);
+            expect(await stats()).toBe(0);
+        });
+
+        // A frame the session kept until the send's first subscribe, which replays it inside
+        // the subscribe, before that call returns: nothing it reaches may be declared later.
+        test('a stop that came ahead of the send is read as the send starts', async ({ browser, page, context }) => {
+            const stats = await guard(context);
+            const errors: string[] = [];
+            page.on('pageerror', (e) => errors.push(e.name));
+            makeFiles({ 'a.bin': 64 * 1024 });
+            const h = await scripted(browser, { proof: 'good', then: 'refuse', code: 'stopped' });
+            await page.goto(h.link);
+            await pickFiles(page, ['a.bin']);
+            await send(page);
+            const copy = refusalCopy('stopped', 0, 1);
+            await expect(page.getByRole('heading', { name: copy.title })).toBeVisible({ timeout: 30_000 });
+            await expect(page.getByText('FLOEPEERTEXT', { exact: false })).toHaveCount(0);
+            expect(errors, 'an uncaught error on the page').toEqual([]);
+            expect(await stats()).toBe(0);
+        });
+
+        test('over the cap with a proof held back: the reason waits for it, and then goes', async ({ browser, page, context }) => {
+            const stats = await guard(context);
+            await watchChannel(context);
+            await relayRoute(context);
+            await overTheCap(context);
+            makeFiles({ 'a.bin': 1024 });
+            const h = await scripted(browser, { proof: 'good', then: 'hold', holdProof: true });
+            await page.goto(h.link);
+            await pickFiles(page, ['a.bin']);
+            await send(page);
+            await expect.poll(() => typesFrom(h), { timeout: 30_000 }).toEqual(['kc']);
+            await page.waitForTimeout(RELAY_PROBE_DELAY_MS + 2_000);
+            expect(await typesFrom(h)).toEqual(['kc']);
+            await h.releaseProof();
+            await expect(page.getByRole('heading', { name: visitorCopy.relayLimitTitle })).toBeVisible({ timeout: FAST });
+            await expect.poll(() => typesFrom(h)).toEqual(['kc', 'incompatible']);
+            expect(await stats()).toBe(0);
+        });
+
+        for (const [name, proof] of [['a bad proof', 'bad'], ['a malformed proof', 'malformed']] as const) {
+            test(`${name}: V6f, one abort with the code, nothing behind it, and the connection closes`, async ({ browser, page, context }) => {
+                const stats = await guard(context);
+                await watchChannel(context);
+                makeFiles({ 'a.bin': 64 * 1024 });
+                const h = await scripted(browser, { proof, then: 'hold' });
+                await page.goto(h.link);
+                await pickFiles(page, ['a.bin']);
+                await send(page);
+                await expectCheckFailed(page);
+                await expect.poll(async () => (await h.state()).closed, { timeout: FAST }).toBe(true);
+                const { frames } = await h.state();
+                expect(frames.map((f) => f.type)).toEqual(['kc', 'incompatible']);
+                expect(frames[1]).toMatchObject({ code: 'unverified', pv: 2, pvMin: 2 });
+                // Its words are the sender's own, and name no file.
+                expect(frames[1].reason).toBe(SENDER_UNVERIFIED_REASON);
+                expect(await channelSent(page)).toEqual(['kc', 'incompatible']);
+                expect(await stats()).toBe(0);
+            });
+        }
+
+        test('a bad proof and a close right behind it: V6f stands', async ({ browser, page, context }) => {
+            const stats = await guard(context);
+            makeFiles({ 'a.bin': 64 * 1024 });
+            const h = await scripted(browser, { proof: 'bad', then: 'close' });
+            await page.goto(h.link);
+            await pickFiles(page, ['a.bin']);
+            await send(page);
+            await expectCheckFailed(page);
+            await page.waitForTimeout(3_000);
+            await expectCheckFailed(page);
+            await expect(page.getByText(visitorCopy.couldNotConnect)).toHaveCount(0);
+            expect(await stats()).toBe(0);
+        });
+
+        test('silence: V6f after the wait, one abort with the code', async ({ browser, page, context }) => {
+            test.setTimeout(KEY_CHECK_WAIT_MS + 60_000);
+            const stats = await guard(context);
+            makeFiles({ 'a.bin': 64 * 1024 });
+            const h = await scripted(browser, { proof: 'none', then: 'hold' });
+            await page.goto(h.link);
+            await pickFiles(page, ['a.bin']);
+            await send(page);
+            await expectCheckFailed(page, KEY_CHECK_WAIT_MS + 30_000);
+            await expect.poll(async () => (await h.state()).closed, { timeout: FAST }).toBe(true);
+            expect(await typesFrom(h)).toEqual(['kc', 'incompatible']);
+            expect(await stats()).toBe(0);
+        });
+
+        // A host judges a proof as it lands, and the close behind its refusal can beat this
+        // page's first metadata, and even simple-peer's connect. Then no send is there to read
+        // the frame, and the page would sit on Connecting until its setup timer said it could
+        // not connect. So fast, and in the words of the row that names it.
+        test('a good proof, then a refusal and a close: the refusal card, at once, with no file named', async ({ browser, page, context }) => {
+            const stats = await guard(context);
+            makeFiles({ 'a.bin': 64 * 1024 });
+            const h = await scripted(browser, { proof: 'good', then: 'refuse-close' });
+            await page.goto(h.link);
+            await pickFiles(page, ['a.bin']);
+            await send(page);
+            const copy = refusalCopy('unverified', 0, 1);
+            await expect(page.getByRole('heading', { name: copy.title })).toBeVisible({ timeout: FAST });
+            for (const line of copy.lines) await expect(page.getByText(line, { exact: true })).toBeVisible();
+            await expect(page.getByText(visitorCopy.nothingSent, { exact: true })).toBeVisible();
+            await expect(page.getByText(visitorCopy.askForNewLink, { exact: true })).toBeVisible();
+            await expect(page.getByText('FLOEPEERTEXT', { exact: false })).toHaveCount(0);
+            await page.waitForTimeout(3_000);
+            await expect(page.getByRole('heading', { name: copy.title })).toBeVisible();
+            expect(await typesFrom(h)).toEqual(['kc']);
+            expect(await stats()).toBe(0);
+        });
+
+        test('a refusal with no proof at all: the same card, not a wait', async ({ browser, page, context }) => {
+            const stats = await guard(context);
+            makeFiles({ 'a.bin': 64 * 1024 });
+            const h = await scripted(browser, { proof: 'none', then: 'refuse' });
+            await page.goto(h.link);
+            await pickFiles(page, ['a.bin']);
+            await send(page);
+            const copy = refusalCopy('unverified', 0, 1);
+            await expect(page.getByRole('heading', { name: copy.title })).toBeVisible({ timeout: FAST });
+            await expect(page.getByText('FLOEPEERTEXT', { exact: false })).toHaveCount(0);
+            expect((await typesFrom(h)).filter((t) => t === 'metadata')).toEqual([]);
+            expect(await stats()).toBe(0);
+        });
+
+        // A hostile host that holds the key acks, reads some of the file, and only then says
+        // the check failed, saved 0. The first byte goes right behind the ack, so "Nothing was
+        // sent" is false from there, and it is what such a host would want said.
+        test('a refusal after some of the file never says nothing was sent', async ({ browser, page, context }) => {
+            test.setTimeout(120_000);
+            const stats = await guard(context);
+            makeFiles({ 'big.bin': 32 * MIB });
+            const h = await scripted(browser, { proof: 'good', then: 'read-then-refuse', after: MIB });
+            await page.goto(h.link);
+            await pickFiles(page, ['big.bin']);
+            await send(page);
+            const copy = refusalCopy('unverified', 0, 1, true);
+            await expect(page.getByRole('heading', { name: copy.title })).toBeVisible({ timeout: 60_000 });
+            await expect(page.getByText(visitorCopy.askForNewLink, { exact: true })).toBeVisible();
+            await expect(page.getByText(/nothing was sent/i)).toHaveCount(0);
+            await expect(page.getByText('FLOEPEERTEXT', { exact: false })).toHaveCount(0);
+            expect((await h.state()).fileBytes).toBeGreaterThanOrEqual(MIB);
+            expect(await stats()).toBe(0);
+        });
+
+        // D17: an honest host reaches this too. A disk that fills during file 1 stops the drop
+        // with a count of 0, and by then the bytes it read have gone.
+        test('a host out of space during file 1: its title, and nothing saying nothing was sent', async ({ browser, page, context }) => {
+            test.setTimeout(120_000);
+            const stats = await guard(context);
+            makeFiles({ 'big.bin': 32 * MIB });
+            const h = await scripted(browser, { proof: 'good', then: 'read-then-refuse', after: MIB, code: 'disk-full' });
+            await page.goto(h.link);
+            await pickFiles(page, ['big.bin']);
+            await send(page);
+            await expect(page.getByRole('heading', { name: 'Their computer ran out of space' })).toBeVisible({ timeout: 60_000 });
+            await expect(page.getByText(/nothing was sent/i)).toHaveCount(0);
+            await expect(page.getByText('FLOEPEERTEXT', { exact: false })).toHaveCount(0);
+            expect((await h.state()).fileBytes).toBeGreaterThanOrEqual(MIB);
+            expect(await stats()).toBe(0);
+        });
+
+        test('a host that declines past its first answer: the unknown row, not the sentence', async ({ browser, page, context }) => {
+            test.setTimeout(120_000);
+            const stats = await guard(context);
+            makeFiles({ 'big.bin': 32 * MIB });
+            const h = await scripted(browser, { proof: 'good', then: 'read-then-refuse', after: MIB, code: 'declined' });
+            await page.goto(h.link);
+            await pickFiles(page, ['big.bin']);
+            await send(page);
+            await expect(page.getByRole('heading', { name: 'The drop stopped on their computer.' })).toBeVisible({ timeout: 60_000 });
+            await expect(page.getByText(/nothing was sent/i)).toHaveCount(0);
+            expect(await stats()).toBe(0);
+        });
+
+        // The gate between the server and simple-peer. A signal with no field it knows
+        // destroys the peer, an answer to nothing fails it, and a second description is what
+        // the certificate fallback relies on never seeing.
+        test('drops what the server has no business sending it, and the drop goes on', async ({ browser, page, context }) => {
+            const stats = await guard(context);
+            await context.addInitScript(() => {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const w = window as any;
+                w.__remoteDescriptions = 0;
+                const real = RTCPeerConnection.prototype.setRemoteDescription;
+                RTCPeerConnection.prototype.setRemoteDescription = function (this: RTCPeerConnection, ...args: unknown[]) {
+                    w.__remoteDescriptions += 1;
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    return (real as any).apply(this, args);
+                } as typeof RTCPeerConnection.prototype.setRemoteDescription;
+            });
+            makeFiles({ 'a.bin': 64 * 1024 });
+            const h = await scripted(browser, { proof: 'good', then: 'ack', noise: true });
+            await page.goto(h.link);
+            await pickFiles(page, ['a.bin']);
+            await send(page);
+            await expect(page.getByRole('heading', { name: DELIVERED })).toBeVisible({ timeout: 30_000 });
+            await expect(page.getByText(visitorCopy.couldNotConnect)).toHaveCount(0);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            expect(await page.evaluate(() => (window as any).__remoteDescriptions)).toBe(1);
+            expect(await stats()).toBe(0);
+        });
+    });
+});
+
+// ENFORCE_LINK_KEYS is a one-line deploy for a production problem: the page still proves
+// and checks and reports, and stops nothing. These wake up with the flip, and were run
+// against it for the record of this PR.
+test.describe('request-link: with ENFORCE_LINK_KEYS off', () => {
+    test.skip(ENFORCE_LINK_KEYS, 'ENFORCE_LINK_KEYS is on');
+
+    test('a host with no proof gets the file, with no wait, and the page still sent its own', async ({ page, context }) => {
+        const stats = await guard(context);
+        await watchChannel(context);
+        const sent = makeFiles({ 'a.bin': 64 * 1024 });
+        const h = host({ kc: 'none', decide: 'accept' });
+        await page.goto(await requestLink(h));
+        await pickFiles(page, ['a.bin']);
+        const clicked = Date.now();
+        await send(page);
+        await expectDelivered(page, h, sent);
+        expect(Date.now() - clicked).toBeLessThan(KEY_CHECK_WAIT_MS);
+        expect((await channelSent(page))[0]).toBe('kc');
+        await expect(page.getByText(visitorCopy.keyFailedTitle)).toHaveCount(0);
+        expect(await stats()).toBe(0);
+    });
+
+    test('a bad proof stops nothing on this page: the file name goes, and it is the host that refuses', async ({ browser, page, context }) => {
+        const stats = await guard(context);
+        await watchChannel(context);
+        makeFiles({ 'a.bin': 64 * 1024 });
+        const h = await startScriptedHost(browser, { proof: 'bad', then: 'hold' });
+        try {
+            await page.goto(h.link);
+            await pickFiles(page, ['a.bin']);
+            await send(page);
+            await expect(page.getByRole('heading', { name: visitorCopy.waitingTitle })).toBeVisible({ timeout: 30_000 });
+            await expect(page.getByText(visitorCopy.keyFailedTitle)).toHaveCount(0);
+            expect((await channelSent(page)).slice(0, 2)).toEqual(['kc', 'metadata']);
+        } finally {
+            await h.close();
+        }
+        expect(await stats()).toBe(0);
+    });
+});
+
+test.describe('request-link: a discarded tab and the link key', () => {
+    // The tab's record names a link by its room, and a key that changed under that room is
+    // another link: Chrome would reload a discarded tab at the address it shows.
+    test('a key that changes mid-drop takes the record, and coming back returns it', async ({ page, context }) => {
+        test.setTimeout(120_000);
+        const stats = await guard(context);
+        makeFiles({ 'a.bin': 256 * 1024, 'b.bin': 256 * 1024 });
+        const h = host({ decide: 'accept', holdAfterFile: 20_000 });
+        const link = await requestLink(h);
+        const { room, key } = partsOfRequestLink(link);
+        await page.goto(link);
+        await pickFiles(page, ['a.bin', 'b.bin']);
+        await send(page);
+        await waitForHostEvent(h, 'holding', 60_000);
+        await expect(page.getByRole('heading', { name: sendingHeader(1, 2) })).toBeVisible();
+        const hashThenRead = (next: string) =>
+            page.evaluate(
+                ([k, hash]) =>
+                    new Promise<string | null>((resolve) => {
+                        window.addEventListener('hashchange', () => resolve(sessionStorage.getItem(k)), { once: true });
+                        location.hash = hash;
+                    }),
+                [LOST_KEY, next] as const
+            );
+        expect(await hashThenRead(`${room}.${newKey()}`)).toBeNull();
+        await expect(page.getByRole('heading', { name: sendingHeader(1, 2) })).toBeVisible();
+        expect(await hashThenRead(`${room}.${key}`)).toBe('{"v":1,"arrived":0,"total":2}');
+        // The key stays out of the record.
+        for (const [k, value] of await storedPairs(page)) {
+            expect(k.includes(key as string) || value.includes(key as string), 'a stored key or value holds the link key').toBe(false);
+        }
+        expect(await stats()).toBe(0);
+    });
+});
+
+// Local only, FLOE_E2E_FIREFOX=1, as in link-key.spec.ts: CI installs Chromium alone. The
+// visitor's first proof that Go and Gecko agree on the DER, in the direction Desktop 1.1's
+// links run: the Go host's proof checked by Gecko, and Gecko's proof checked by Go.
+test.describe('request-link: across engines', () => {
+    test.skip(!process.env.FLOE_E2E_FIREFOX, 'set FLOE_E2E_FIREFOX=1 to run the Firefox cells (no CI leg does)');
+
+    let gecko: Browser;
+
+    test.beforeAll(async () => {
+        // The config's project settings do not reach this. Real host addresses, as the
+        // certificate capture ran: Go cannot resolve Gecko's mDNS names on every machine.
+        gecko = await firefox.launch({
+            firefoxUserPrefs: {
+                'media.peerconnection.ice.obfuscate_host_addresses': false,
+                'media.peerconnection.ice.proxy_only_if_behind_proxy': false,
+            },
+        });
+    });
+
+    test.afterAll(async () => {
+        await gecko?.close();
+    });
+
+    const openOnGecko = async () => {
+        const ctx = await gecko.newContext({ baseURL: WEB_URL });
+        const stats = await guard(ctx);
+        return { ctx, stats, page: await ctx.newPage() };
+    };
+
+    test('a keyed link from a Go host delivers to Firefox and back', async () => {
+        const { ctx, stats, page } = await openOnGecko();
+        try {
+            const sent = makeFiles({ 'a.bin': 3 * 1024 * 1024 });
+            const h = host({ decide: 'accept' });
+            const link = await requestLink(h);
+            expect(link).toMatch(KEYED_REQUEST_LINK);
+            await page.goto(link);
+            await pickFiles(page, ['a.bin']);
+            await send(page);
+            await expectDelivered(page, h, sent);
+            await expect(page.getByText(visitorCopy.keyFailedTitle)).toHaveCount(0);
+            expect(await stats()).toBe(0);
+        } finally {
+            await ctx.close();
+        }
+    });
+
+    test('a host under another key ends on Firefox too, with no file named', async () => {
+        const { ctx, stats, page } = await openOnGecko();
+        try {
+            makeFiles({ 'a.bin': 64 * 1024 });
+            const h = host({ kc: 'bad', decide: 'accept' });
+            await page.goto(await requestLink(h));
+            await pickFiles(page, ['a.bin']);
+            await send(page);
+            await expectCheckFailed(page);
+            expect(await waitForHostEvent(h, 'refused', 30_000)).toMatchObject({ code: 'unverified' });
+            expectNoDecision(h);
+            expect(await stats()).toBe(0);
+        } finally {
+            await ctx.close();
+        }
     });
 });

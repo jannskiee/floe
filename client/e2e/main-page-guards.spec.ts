@@ -10,18 +10,13 @@
  */
 
 import { test, expect, type BrowserContext, type Locator, type Page } from '@playwright/test';
-import { rmSync } from 'fs';
-import { basename, join } from 'path';
-import { tmpdir } from 'os';
-import { browserSenderSetup, createFixture, sha256OfBlobUrl } from './helpers';
+import { basename } from 'path';
+import { SHARE_LINK_TEXT, browserSenderSetup, createFixture, fixtureDir, removeFixtureDir, sha256OfBlobUrl } from './helpers';
 
-// One folder per worker process. With --repeat-each the file runs in several
-// workers at once, and a shared folder was rewritten and removed under the
-// others (ENOENT, or a digest that no longer matched the file sent).
-const FIXTURE_DIR = join(tmpdir(), `floe-e2e-main-page-guards-${process.pid}`);
+const FIXTURE_DIR = fixtureDir('floe-e2e-main-page-guards');
 
 test.afterAll(() => {
-    try { rmSync(FIXTURE_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    removeFixtureDir(FIXTURE_DIR);
 });
 
 async function optedOutContext(ctx: BrowserContext): Promise<BrowserContext> {
@@ -106,10 +101,10 @@ test('the page asks before it is left while a link is out or files are unsaved',
         // A link is out and nobody has it yet: leaving cancels it, by a reload
         // or by an in-app link alike.
         expect(await wordmarkAsks(senderPage)).toBe(true);
-        await expect(senderPage.locator('code').filter({ hasText: '#room=' })).toBeVisible();
+        await expect(senderPage.locator('code').filter({ hasText: SHARE_LINK_TEXT })).toBeVisible();
         expect(await downloadPillAsks(senderPage)).toBe(true);
         await expect(senderPage).not.toHaveURL(/\/download/);
-        await expect(senderPage.locator('code').filter({ hasText: '#room=' })).toBeVisible();
+        await expect(senderPage.locator('code').filter({ hasText: SHARE_LINK_TEXT })).toBeVisible();
         expect(await strayDropRefused(senderPage)).toBe(true);
 
         await receiverPage.goto(link);
@@ -250,7 +245,7 @@ test('Back still asks when the page was reached by an in-app link', async ({ pag
     await expect(page).toHaveURL(/\/$/);
     await page.locator('input[type="file"]').setInputFiles(fixturePath);
     await page.locator('button', { hasText: /create secure link/i }).click();
-    const linkEl = page.locator('code').filter({ hasText: '#room=' });
+    const linkEl = page.locator('code').filter({ hasText: SHARE_LINK_TEXT });
     await expect(linkEl).toBeVisible({ timeout: 10_000 });
 
     expect(await traversalAsks(page, () => page.goBack({ timeout: 3_000 }))).toBe(true);
@@ -274,7 +269,7 @@ test('Forward still asks after a hop back to the page', async ({ page }) => {
     await expect(page).toHaveURL(/\/$/);
     await page.locator('input[type="file"]').setInputFiles(fixturePath);
     await page.locator('button', { hasText: /create secure link/i }).click();
-    const linkEl = page.locator('code').filter({ hasText: '#room=' });
+    const linkEl = page.locator('code').filter({ hasText: SHARE_LINK_TEXT });
     await expect(linkEl).toBeVisible({ timeout: 10_000 });
 
     expect(await traversalAsks(page, () => page.goForward({ timeout: 3_000 }))).toBe(true);

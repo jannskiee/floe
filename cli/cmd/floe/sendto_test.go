@@ -60,6 +60,7 @@ type reqServer struct {
 	URL string
 
 	mu       sync.Mutex
+	heard    strings.Builder // every frame on /ws, for a test that a value never reached it
 	answer   string
 	host     *reqConn
 	visitor  *reqConn
@@ -133,6 +134,10 @@ func (s *reqServer) serve(c *reqConn) {
 		if err != nil {
 			return
 		}
+		s.mu.Lock()
+		s.heard.Write(raw)
+		s.heard.WriteByte('\n')
+		s.mu.Unlock()
 		var msg struct {
 			Type   string          `json:"type"`
 			Signal json.RawMessage `json:"signal"`
@@ -600,18 +605,13 @@ func startCLI(t *testing.T, args ...string) *cliRun {
 func startCLIEnv(t *testing.T, env map[string]string, args ...string) *cliRun {
 	t.Helper()
 	resetSharedFlags(t)
-	to := sendCmd.Flags().Lookup("to")
-	if err := to.Value.Set(""); err != nil {
-		t.Fatal(err)
-	}
-	to.Changed = false
+	resetSendFlags(t)
 	sendCmd.SilenceErrors = false
 	t.Cleanup(func() {
 		sendCmd.SilenceErrors = false
-		// cobra keeps --to on the tree: a later plain send in this process
-		// (setup_error_test.go's runAgainst) must not go to this link.
-		_ = to.Value.Set("")
-		to.Changed = false
+		// cobra keeps --to and --link-only on the tree: a later plain send in this
+		// process (setup_error_test.go's runAgainst) must not go to this link.
+		resetSendFlags(t)
 	})
 	t.Setenv("FLOE_NO_STATS", "1")
 	// A request-link send turns pion's pc scope off in the process
@@ -680,6 +680,21 @@ func (r *cliRun) read(o *output) *cliRun {
 func runCLI(t *testing.T, args ...string) *cliRun {
 	t.Helper()
 	return startCLI(t, args...).wait(t, 90*time.Second)
+}
+
+// resetSendFlags puts send's own flags, and the variables bound to them, back.
+func resetSendFlags(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{"to", "link-only"} {
+		f := sendCmd.Flags().Lookup(name)
+		if f == nil {
+			t.Fatalf("flag --%s is not registered on send", name)
+		}
+		if err := f.Value.Set(f.DefValue); err != nil {
+			t.Fatalf("reset --%s: %v", name, err)
+		}
+		f.Changed = false
+	}
 }
 
 // linkFor is a request link on a self-hosted server for a fresh room; the
@@ -1181,7 +1196,7 @@ func TestSendToLinkTypedAsAPathIsNeverPrintedBack(t *testing.T) {
 // each carrying room, the link's key (FU-46, FU-32 F5-3). code.ParseRequestLink
 // takes five of them (a whole link, self-hosted, no scheme, capitals, a
 // percent-encoded fragment); the others still carry the room id after a #,
-// which is the rule code.Resolve refuses a request link by (FT-LINK-ECHO-F2,
+// which is the rule code.ResolveLink refuses a request link by (FT-LINK-ECHO-F2,
 // X1 to X4), or after a # that is percent-encoded, once or twice, as a link
 // pasted from a mail-safety redirector is, or doubled, or followed by a space
 // (FU-46 review 1 L2).
@@ -1699,12 +1714,13 @@ var approvedRefusal = []struct {
 	{"over-approved", []string{"More data arrived than they accepted. If files changed after you chose them, ask them for a new link.", "Nothing was sent."}},
 	{"stopped", []string{"They stopped this drop.", "Nothing was sent."}},
 	{"time-limit", []string{"This drop reached the 24-hour limit, so their Floe stopped it.", "Nothing was sent."}},
+	{"unverified", []string{"Their computer couldn't confirm this link.", "Nothing was sent.", "Ask the person who made this link for a new one."}},
 	{"too-slow", []string{"The drop stopped on their computer.", "Nothing was sent."}},
 	{"not-a-code", []string{"The drop stopped on their computer.", "Nothing was sent."}},
 }
 
 // TestSendToEveryRefusalCodeHasFixedLine: a host that refuses with each of
-// the twelve codes, and with two it does not know, ends the command on that
+// the thirteen codes, and with two it does not know, ends the command on that
 // code's approved block and a non-zero exit, through the wire and the whole
 // command. The saved forms are pinned below in TestSendToOutcomeLines.
 func TestSendToEveryRefusalCodeHasFixedLine(t *testing.T) {
@@ -1717,8 +1733,18 @@ func TestSendToEveryRefusalCodeHasFixedLine(t *testing.T) {
 			s := newReqServer(t, "seat")
 			stubNetwork(t, s.URL)
 			p, _ := oneFile(t, t.TempDir(), "a.bin", 4096)
-			h := startHost(t, s, refuseAtMetadata(`{"type":"incompatible","reason":"receiver stopped the transfer","pv":1,"pvMin":1,"ver":"desktop-test","code":"`+c.code+`","saved":0}`))
-			r := runCLI(t, p, "--to", linkFor(), "--server", s.URL)
+			frame := `{"type":"incompatible","reason":"receiver stopped the transfer","pv":1,"pvMin":1,"ver":"desktop-test","code":"` + c.code + `","saved":0}`
+			// A bare link refused unverified is an incomplete link instead
+			// (TestSendToBareLinkRefusedAsUnverifiedIsAnIncompleteLink): this code's
+			// block belongs to a visitor that held the key.
+			link, part := linkFor(), refuseAtMetadata(frame)
+			if c.code == string(transfer.CodeUnverified) {
+				var kc *transfer.KeyCheck
+				link, kc = keyedLink(t)
+				part = provenRefusalAtMetadata(kc, frame)
+			}
+			h := startHost(t, s, part)
+			r := runCLI(t, p, "--to", link, "--server", s.URL)
 			herr := h.wait(t)
 			r.read(o)
 			if herr != nil {
@@ -2022,7 +2048,7 @@ func TestSendToHostileReasonNeverPrinted(t *testing.T) {
 		{"5,000 characters, over the cap", overCap(`{"type":"incompatible","reason":` + long + `,"pv":1,"pvMin":1,"code":"too-slow"}`),
 			[]string{"Connection lost. Nothing was sent."}},
 		{"unknown code after the last end", atEnd(`{"type":"incompatible","reason":` + short + `,"pv":1,"pvMin":1,"code":"too-slow","saved":0}`),
-			[]string{"The drop stopped on their computer.", "Nothing was sent."}},
+			[]string{"The drop stopped on their computer."}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -2329,6 +2355,41 @@ func TestSendToOutcomeLines(t *testing.T) {
 			want{lines: []string{"The drop stopped on their computer.", "4 of 12 files were saved."}}},
 		{"no known code, 4 of 12", &transfer.PeerEndedError{Saved: 4}, 12, 5,
 			want{lines: []string{"The drop stopped on their computer.", "4 of 12 files were saved."}}},
+		// Past the host's first answer with nothing saved there is no saved line: the
+		// first byte went right behind that answer, so "Nothing was sent." would be false
+		// (the owner, D17). Before it, every row stands.
+		{"disk-full during file 1", &transfer.PeerStoppedError{Code: transfer.CodeDiskFull, Saved: 0}, 12, 1,
+			want{lines: []string{"Their computer ran out of space."}}},
+		{"disk-full during file 1, from a frame past the count", &transfer.PeerStoppedError{Code: transfer.CodeDiskFull, Saved: -1}, 1, 1,
+			want{lines: []string{"Their computer ran out of space."}}},
+		{"hash-mismatch during file 1", &transfer.PeerStoppedError{Code: transfer.CodeHashMismatch, Saved: 0}, 12, 1,
+			want{lines: []string{"A file changed or was damaged on the way, so their Floe deleted it.", "Ask them for a new link to send the rest."}}},
+		{"relay-cap past the answer", &transfer.PeerStoppedError{Code: transfer.CodeRelayCap, Saved: 0}, 12, 1,
+			want{lines: []string{"Relayed drops are capped at 2 GB."}}},
+		{"stopped during file 1", &transfer.PeerStoppedError{Code: transfer.CodeStopped, Saved: 0}, 12, 1,
+			want{lines: []string{"They stopped this drop."}}},
+		{"unverified past the answer", &transfer.PeerStoppedError{Code: transfer.CodeUnverified, Saved: 0}, 12, 1,
+			want{lines: []string{"Their computer couldn't confirm this link.", "Ask the person who made this link for a new one."}}},
+		{"declined past the answer", &transfer.PeerStoppedError{Code: transfer.CodeDeclined, Saved: 0}, 12, 1,
+			want{lines: []string{"The drop stopped on their computer."}}},
+		{"expired past the answer", &transfer.PeerStoppedError{Code: transfer.CodeExpired, Saved: 0}, 12, 1,
+			want{lines: []string{"The drop stopped on their computer."}}},
+		{"declined past the answer, with files saved", &transfer.PeerStoppedError{Code: transfer.CodeDeclined, Saved: 2}, 12, 3,
+			want{lines: []string{"The drop stopped on their computer.", "2 of 12 files were saved."}}},
+		{"a code outside the allowlist, during file 1", &transfer.PeerStoppedError{Code: "too-slow", Saved: 0}, 12, 1,
+			want{lines: []string{"The drop stopped on their computer."}}},
+		{"no known code, during file 1", &transfer.PeerEndedError{Saved: 0}, 12, 1,
+			want{lines: []string{"The drop stopped on their computer."}}},
+		{"disk-full before the answer", &transfer.PeerStoppedError{Code: transfer.CodeDiskFull, Saved: 0}, 12, 0,
+			want{lines: []string{"Their computer ran out of space.", "Nothing was sent."}}},
+		{"relay-cap before the answer", &transfer.PeerStoppedError{Code: transfer.CodeRelayCap, Saved: 0}, 12, 0,
+			want{lines: []string{"Relayed drops are capped at 2 GB.", "Nothing was sent. Send 2 GB or less."}}},
+		{"declined before the answer", &transfer.PeerStoppedError{Code: transfer.CodeDeclined, Saved: 0}, 12, 0,
+			want{lines: []string{"They declined. Nothing was sent."}}},
+		{"expired before the answer", &transfer.PeerStoppedError{Code: transfer.CodeExpired, Saved: 0}, 12, 0,
+			want{lines: []string{"They did not answer in time. Nothing was sent."}}},
+		{"no known code before the answer", &transfer.PeerEndedError{Saved: 0}, 12, 0,
+			want{lines: []string{"The drop stopped on their computer.", "Nothing was sent."}}},
 		{"range miss, host behind", &transfer.CompatError{LocalTooOld: false}, 12, 0,
 			want{lines: []string{"Their Floe needs an update to receive from this link."}}},
 		{"range miss at the first ack, host behind", wrapped(&transfer.CompatError{LocalTooOld: false}), 12, 1,

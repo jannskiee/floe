@@ -6,7 +6,8 @@
 // metadata fixtures (deep paths, absolute Windows paths, huge sizes, an
 // over-cap name), a junk flood, a chosen abort reason, a hostile display name,
 // a malformed SDP answer, relay-only ICE, and a skip of the visitor's own
-// relay-cap gate so the host's refusal is live-tested.
+// relay-cap gate so the host's refusal is live-tested. The link it is given decides
+// the link key: a keyed link enforces, and -kc fails the check honestly.
 //
 // It never ships: .goreleaser.yml builds only cli/cmd/floe, and
 // `go list -deps ./cmd/floe` names no rlvisitor symbol (a package main under
@@ -30,6 +31,8 @@ import (
 	"time"
 
 	"github.com/jannskiee/floe/cli/engine/code"
+	"github.com/jannskiee/floe/cli/engine/linkkey"
+	"github.com/jannskiee/floe/cli/engine/transfer"
 )
 
 // config is the visitor's flags.
@@ -45,6 +48,10 @@ type config struct {
 	hostileMeta string // "", or one of f2 f4b f5 f6
 	skipGate    bool
 	timeout     time.Duration
+	// kc is what this run proves with: the keyed link's key, another key under
+	// -kc=bad, and nil on a bare link or under -kc=none. A pointer, as keycheck.go's
+	// type comment says a struct keeps one.
+	kc *transfer.KeyCheck
 }
 
 // mode is which single behavior a run performs, decided from the flags. Real
@@ -145,6 +152,7 @@ func parseFlags(args []string) (config, error) {
 	badSDP := fs.Bool("bad-sdp", false, "answer with a malformed SDP instead of a real one")
 	hostileMeta := fs.String("hostile-meta", "", "send one D-033 metadata fixture: f2, f4b, f5 or f6")
 	skipGate := fs.Bool("skip-relay-gate", false, "skip the visitor's own relay-cap gate and announce an oversize file")
+	kcMode := fs.String("kc", "", "with a keyed -link, fail the check: bad proves under a different key, none sends no proof")
 	// Default 17 min 15 s: the visitor's own ack clock (10 min 15 s), so a -send
 	// whose Accept is held for the full window is never killed as a timeout
 	// before the host's decision window closes (CELL-05's idle hold relies on
@@ -164,16 +172,37 @@ func parseFlags(args []string) (config, error) {
 	if err != nil {
 		return config{}, err
 	}
+	var kc *transfer.KeyCheck
+	if *kcMode != "" && *kcMode != "bad" && *kcMode != "none" {
+		return config{}, errors.New("rlvisitor: -kc is bad or none")
+	}
 	if *link != "" {
-		_, r, err := code.ParseRequestLink(*link)
+		parsed, err := code.ParseRequestLink(*link)
 		if err != nil {
 			// The error holds no part of the input, so this cannot leak it.
 			return config{}, fmt.Errorf("bad -link: %w", err)
 		}
-		roomID = r
+		roomID = parsed.RoomID
+		if parsed.HasKey {
+			kc = &transfer.KeyCheck{Key: parsed.Key, RoomID: parsed.RoomID, Enforce: true}
+		}
 	}
 	if roomID == "" {
 		return config{}, errors.New("give -link or -room")
+	}
+	// There is a key to fail with only on a keyed link, so -kc goes with nothing else.
+	if *kcMode != "" && kc == nil {
+		return config{}, errors.New("rlvisitor: -kc needs a keyed -link")
+	}
+	switch *kcMode {
+	case "bad":
+		other, err := linkkey.New()
+		if err != nil {
+			return config{}, err
+		}
+		kc.Key = other
+	case "none":
+		kc = nil
 	}
 	if *hostileMeta != "" && !hostileMetaKinds[*hostileMeta] {
 		return config{}, fmt.Errorf("rlvisitor: -hostile-meta names no fixture: %q", *hostileMeta)
@@ -190,6 +219,7 @@ func parseFlags(args []string) (config, error) {
 		hostileMeta: *hostileMeta,
 		skipGate:    *skipGate,
 		timeout:     *timeout,
+		kc:          kc,
 	}
 	if s := strings.TrimSpace(*send); s != "" {
 		for _, p := range strings.Split(s, ",") {
@@ -216,6 +246,7 @@ const (
 	exitHostClosed  = 5 // the host closed without a refusal code: a crafted mode (-bad-sdp: the host left), or -send after the last byte with no received
 	exitBound       = 6 // crafted modes: the wait bound ran out and the host had not ended it
 	exitNotJoined   = 7 // the server did not seat this visitor (host-absent, room-full, refused, ...): CELL-06 tells it from a transport failure by the code
+	exitUnverified  = 8 // the link key's check failed: this visitor could not confirm the host, or the host refused this visitor's proof
 )
 
 // usageText goes to stderr on a usage error. Stdout carries the JSON event
@@ -225,11 +256,15 @@ const (
 const usageText = `floe-rlvisitor: a test-only hostile request-link visitor. It never ships and
 refuses any -server that is not localhost, a loopback or a private IP.
 
-  floe-rlvisitor (-link <url> | -room <uuid>) [-server <url>] [-timeout <d>]
+  floe-rlvisitor (-link <url> [-kc bad|none] | -room <uuid>) [-server <url>] [-timeout <d>]
                  (-send <a,b> [-relay-only] | one hostile flag)
 
 Hostile flags (one per run): -hostile-meta f2|f4b|f5|f6, -hostile-name,
 -abort-reason <text>, -junk-flood, -bad-sdp, -skip-relay-gate.
+
+The link decides the link key: a keyed link holds the host to it and proves this
+visitor holds it, a bare link and -room do neither. -kc fails the check on a keyed
+link: bad proves under a different key, none sends no proof.
 
 -timeout defaults to 17m15s: the visitor's ack clock (10m15s), the host's
 5 min retry of a blocked save (-send waits for the host's received), and
@@ -245,6 +280,7 @@ Exit codes (the last event line names the same word):
      or -send after the last byte and before the host said received
   6  bound: a crafted mode, the wait ran out and the host had not ended it
   7  not-joined: the server did not seat this visitor; "result" is the client's fixed answer word
+  8  unverified: the link key's check failed; "by" names who stopped it, this visitor or the host
 `
 
 func main() {

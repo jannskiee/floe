@@ -474,7 +474,7 @@ func TestAbortWithCodeKeepsCodeWhenReasonShrinks(t *testing.T) {
 	// abortReason's frame is unchanged by the generalization: no code key and
 	// no saved key, byte for byte what shipped peers already read.
 	if got, want := string(incompatibleFrame("v1.10.10", "", "stop", -1)),
-		`{"type":"incompatible","reason":"stop","pv":1,"pvMin":1,"ver":"v1.10.10"}`; got != want {
+		`{"type":"incompatible","reason":"stop","pv":2,"pvMin":1,"ver":"v1.10.10"}`; got != want {
 		t.Fatalf("uncoded frame = %s, want %s", got, want)
 	}
 
@@ -943,11 +943,11 @@ func TestAbortWithCodeFrameFitsCap(t *testing.T) {
 	}
 }
 
-// TestEveryRefusalCodeReachesGoSenderWithin2s: for each of the twelve codes, a
+// TestEveryRefusalCodeReachesGoSenderWithin2s: for each of the thirteen codes, a
 // receiver that refuses from its metadata arm (a coded frame instead of the
 // ack) makes SendFiles return a *PeerStoppedError with that code and its
 // clamped saved count within 2 s, and nothing the peer wrote is in the text.
-// One pair for all twelve rounds: the sender's channel outlives each call.
+// One pair for all thirteen rounds: the sender's channel outlives each call.
 func TestEveryRefusalCodeReachesGoSenderWithin2s(t *testing.T) {
 	sender, recvCh, msgs, _, closeFn := newPumpedPair(t)
 	defer closeFn()

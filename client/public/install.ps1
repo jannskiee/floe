@@ -56,10 +56,14 @@ try {
     Write-Host "Downloading floe $Version (windows/$Arch)..."
     Invoke-WebRequest -Uri $DownloadUrl -OutFile $ArchivePath -UseBasicParsing
 
-    # Verify SHA-256 checksum
+    # Verify SHA-256 checksum. A download that cannot be checked is not installed.
+    # checksums.txt is saved to a file, as the archive is: GitHub serves it as
+    # application/octet-stream, so a response's .Content is a byte array, and
+    # splitting that into lines never finds the archive's line.
     Write-Host "Verifying checksum..."
-    $ChecksumsRaw = (Invoke-WebRequest -Uri $ChecksumsUrl -UseBasicParsing).Content
-    $Lines = $ChecksumsRaw -split "`r?`n"
+    $ChecksumsPath = Join-Path $TmpDir "checksums.txt"
+    Invoke-WebRequest -Uri $ChecksumsUrl -OutFile $ChecksumsPath -UseBasicParsing
+    $Lines = Get-Content -LiteralPath $ChecksumsPath
     $MatchLine = $Lines | Where-Object { $_ -match "\s+$([regex]::Escape($Archive))\s*$" }
 
     if ($MatchLine) {
@@ -71,7 +75,8 @@ try {
         }
         Write-Host "Checksum verified."
     } else {
-        Write-Warning "Checksum not found for $Archive, skipping verification."
+        Write-Error "checksums.txt has no line for $Archive, so the download could not be verified."
+        exit 1
     }
 
     # Extract

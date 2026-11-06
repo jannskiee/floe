@@ -1,0 +1,2 @@
+# The vendored tracker is pinned by its hash, so a checkout must not rewrite a byte of it.
+client/public/vendor/** -text

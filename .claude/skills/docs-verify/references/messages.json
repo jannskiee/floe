@@ -337,6 +337,20 @@
     },
     {
         "surface": "web",
+        "text": "Floe couldn't confirm the person who opened your link, so nothing was sent. Make a new link and send it again.",
+        "source": "client/lib/linkKeyCopy.ts",
+        "anchor": "/troubleshooting#floe-could-not-confirm-the-person-who-opened-your-link",
+        "why_no_home": null
+    },
+    {
+        "surface": "web",
+        "text": "Floe couldn't confirm who sent this link, so nothing was received. Ask them for a new link.",
+        "source": "client/lib/linkKeyCopy.ts",
+        "anchor": "/troubleshooting#floe-could-not-confirm-who-sent-this-link",
+        "why_no_home": null
+    },
+    {
+        "surface": "web",
         "text": "Hide QR",
         "source": "client/components/ShareLinkPanel.tsx",
         "anchor": "/web-app/sending#create-the-link",
@@ -523,6 +537,13 @@
         "source": "cli/engine/transfer/refusal.go",
         "anchor": "/troubleshooting#a-banner-that-starts-with-receiver",
         "why_no_home": null
+    },
+    {
+        "surface": "web",
+        "text": "receiver could not confirm the sender holds this link",
+        "source": "client/lib/transfer/protocol.ts",
+        "anchor": null,
+        "why_no_home": "The reason a browser receiver that holds a link key sends with its unverified code, when the sender's proof failed. No page sends it until a link carries a key, and every current sender reads the code and shows its own sentence."
     },
     {
         "surface": "web",
@@ -806,6 +827,13 @@
     },
     {
         "surface": "web",
+        "text": "The other side couldn't confirm this link, so nothing was sent. Make a new link and send it again.",
+        "source": "client/lib/linkKeyCopy.ts",
+        "anchor": "/troubleshooting#the-other-side-could-not-confirm-this-link",
+        "why_no_home": null
+    },
+    {
+        "surface": "web",
         "text": "The other side discarded a file that did not match what was sent. Try sending again.",
         "source": "client/lib/senderStop.ts",
         "anchor": "/web-app/sending#when-it-finishes",
@@ -918,6 +946,13 @@
     },
     {
         "surface": "web",
+        "text": "sender could not confirm the receiver holds this link",
+        "source": "client/lib/transfer/protocol.ts",
+        "anchor": null,
+        "why_no_home": "The reason a browser sender that holds a link key sends with its unverified code, when the receiver's proof failed. No page sends it until a link carries a key. A receiver that holds the key shows its own sentence. One without it, on a link cut before its key, shows this in the sender's cleaned words, as it does any stop, and only an enforcing sender gets that far."
+    },
+    {
+        "surface": "web",
         "text": "the sender's copy of \"{name}\" changed while it was being sent, so nothing further was sent",
         "source": "cli/engine/transfer/sender.go",
         "anchor": "/troubleshooting#the-sender-ended-the-transfer",
@@ -928,6 +963,20 @@
         "text": "The sender's SHA-256 for a file could not be read, so the file was discarded. Ask the sender to try again.",
         "source": "client/lib/transfer/receiver.ts",
         "anchor": "/troubleshooting#a-file-did-not-match-what-was-sent",
+        "why_no_home": null
+    },
+    {
+        "surface": "web",
+        "text": "This browser can't check this link, so nothing was received. Open it in a current version of Chrome, Edge, Firefox or Safari.",
+        "source": "client/lib/linkKeyCopy.ts",
+        "anchor": "/troubleshooting#this-browser-cannot-check-this-link",
+        "why_no_home": null
+    },
+    {
+        "surface": "web",
+        "text": "This browser can't check this link, so nothing was sent. Open Floe in a current version of Chrome, Edge, Firefox or Safari.",
+        "source": "client/lib/linkKeyCopy.ts",
+        "anchor": "/troubleshooting#this-browser-cannot-check-this-link",
         "why_no_home": null
     },
     {
@@ -1240,6 +1289,13 @@
     },
     {
         "surface": "web-request",
+        "text": "Ask the person who made this link for a new one.",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/web-app/request-links#when-their-floe-stops-the-drop",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
         "text": "Ask them for a new link to send the rest.",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#when-their-floe-stops-the-drop",
@@ -1376,6 +1432,34 @@
         "text": "Couldn't check for a relay. Try again, or turn off Hide my IP to send directly.",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#messages-on-the-senders-page",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "Couldn't confirm their computer",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/troubleshooting#could-not-confirm-their-computer",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "This browser can't check this link",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/troubleshooting#this-browser-cannot-check-this-link",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "Nothing was sent. Open this link in a current version of Chrome, Edge, Firefox or Safari.",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/troubleshooting#this-browser-cannot-check-this-link",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "Couldn't confirm their computer. Nothing was sent. Ask the person who made this link for a new one.",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/troubleshooting#could-not-confirm-their-computer",
         "why_no_home": null
     },
     {
@@ -1530,6 +1614,13 @@
         "text": "Nothing was sent.",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#when-their-floe-stops-the-drop",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "Nothing was sent. Ask the person who made this link for a new one.",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/troubleshooting#could-not-confirm-their-computer",
         "why_no_home": null
     },
     {
@@ -1761,6 +1852,13 @@
         "text": "Their computer could not save a file",
         "source": "client/lib/request/visitorCopy.ts",
         "anchor": "/web-app/request-links#when-their-floe-stops-the-drop",
+        "why_no_home": null
+    },
+    {
+        "surface": "web-request",
+        "text": "Their computer couldn't confirm this link",
+        "source": "client/lib/request/visitorCopy.ts",
+        "anchor": "/troubleshooting#their-computer-could-not-confirm-this-link",
         "why_no_home": null
     },
     {
@@ -3221,7 +3319,7 @@
     },
     {
         "surface": "desktop",
-        "text": "expected sender role, got \"{role}\"",
+        "text": "expected sender role",
         "source": "desktop/transfer.go",
         "anchor": null,
         "why_no_home": "A guard for a server that seats the Send tab in a brand-new random room as a receiver, which a Floe signaling server never does."
@@ -4461,7 +4559,7 @@
     {
         "surface": "desktop",
         "text": "the server answered with an error this version of Floe does not know",
-        "source": "desktop/transfer.go",
+        "source": "cli/engine/signaling/servererror.go",
         "anchor": "/troubleshooting#the-server-answered-with-an-error-floe-does-not-know",
         "why_no_home": null
     },
@@ -4673,6 +4771,13 @@
         "text": "transfer failed: the sender's SHA-256 for a file could not be read, so the file was not kept",
         "source": "cli/engine/transfer/refusal.go",
         "anchor": "/troubleshooting#a-file-did-not-match-the-sha-256",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "the sender stopped the transfer",
+        "source": "cli/engine/transfer/keycheck.go",
+        "anchor": "/troubleshooting#the-sender-stopped-in-floe-desktop",
         "why_no_home": null
     },
     {
@@ -5083,13 +5188,6 @@
     },
     {
         "surface": "cli",
-        "text": "Checksum not found for {archive}, skipping verification.",
-        "source": "client/public/install.ps1",
-        "anchor": "/cli/installation#one-line-installer",
-        "why_no_home": null
-    },
-    {
-        "surface": "cli",
         "text": "Checksum verification failed!",
         "source": "client/public/install.sh",
         "anchor": "/cli/installation#if-the-install-script-stops",
@@ -5107,6 +5205,13 @@
         "text": "Checksum verified.",
         "source": "client/public/install.sh",
         "anchor": "/cli/installation#one-line-installer",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "checksums.txt has no line for {archive}, so the download could not be verified.",
+        "source": "client/public/install.ps1",
+        "anchor": "/cli/installation#if-the-install-script-stops",
         "why_no_home": null
     },
     {
@@ -5328,6 +5433,13 @@
     },
     {
         "surface": "cli",
+        "text": "Error: checksums.txt has no line for {archive}, so the download could not be verified.",
+        "source": "client/public/install.sh",
+        "anchor": "/cli/installation#if-the-install-script-stops",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
         "text": "Error: connection closed after {n} of {n} files",
         "source": "cli/engine/transfer/receiver.go",
         "anchor": "/troubleshooting#connection-closed-before-any-file-arrived",
@@ -5468,7 +5580,7 @@
     },
     {
         "surface": "cli",
-        "text": "Error: expected sender role, got \"{role}\" (room may already have two peers)",
+        "text": "Error: expected sender role (room may already have two peers)",
         "source": "cli/cmd/floe/send.go",
         "anchor": null,
         "why_no_home": "A guard for a server that seats floe send in its brand-new random room as a receiver, which a Floe signaling server never does."
@@ -5534,6 +5646,13 @@
         "text": "Error: installed via {package manager} - run `{command}` to update",
         "source": "cli/cmd/floe/update.go",
         "anchor": "/troubleshooting#installed-via-homebrew-run-brew-upgrade-floe-to-update",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "Error: no SHA-256 tool found (sha256sum or shasum), so the download could not be verified. Install one and run this again.",
+        "source": "client/public/install.sh",
+        "anchor": "/cli/installation#if-the-install-script-stops",
         "why_no_home": null
     },
     {
@@ -5629,6 +5748,20 @@
     },
     {
         "surface": "cli",
+        "text": "extraction failed: {cause}",
+        "source": "cli/internal/selfupdate/selfupdate.go",
+        "anchor": "/cli/update#messages",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "The latest release has an unexpected version name, so floe update stopped. Reinstall with the steps at floe.one/docs/cli/installation instead.",
+        "source": "cli/internal/selfupdate/version.go",
+        "anchor": "/cli/update#messages",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
         "text": "Error: update failed: permission denied writing to {dir}",
         "source": "cli/internal/selfupdate/install.go",
         "anchor": "/cli/update#messages",
@@ -5650,7 +5783,7 @@
     },
     {
         "surface": "cli",
-        "text": "Error: WebRTC setup failed: failed to set remote description: {text from the WebRTC library}",
+        "text": "Error: WebRTC setup failed: failed to set remote description",
         "source": "cli/engine/peer/connection.go",
         "anchor": "/troubleshooting#webrtc-setup-failed",
         "why_no_home": null
@@ -6420,20 +6553,6 @@
     },
     {
         "surface": "cli",
-        "text": "WARNING: Checksum not found for {archive}, skipping verification.",
-        "source": "client/public/install.ps1",
-        "anchor": "/cli/installation#one-line-installer",
-        "why_no_home": null
-    },
-    {
-        "surface": "cli",
-        "text": "Warning: checksum not found for {archive}, skipping verification.",
-        "source": "client/public/install.sh",
-        "anchor": "/cli/installation#one-line-installer",
-        "why_no_home": null
-    },
-    {
-        "surface": "cli",
         "text": "Warning: could not generate short code: {cause}",
         "source": "cli/cmd/floe/send.go",
         "anchor": "/troubleshooting#warning-could-not-generate-short-code",
@@ -6451,13 +6570,6 @@
         "text": "Warning: could not read TURN credentials from the signaling server. Using STUN only.",
         "source": "cli/engine/ice/credentials.go",
         "anchor": "/troubleshooting#warning-could-not-reach-signaling-server-for-turn-credentials-using-stun-only",
-        "why_no_home": null
-    },
-    {
-        "surface": "cli",
-        "text": "Warning: no sha256 tool found, skipping checksum verification.",
-        "source": "client/public/install.sh",
-        "anchor": "/cli/installation#one-line-installer",
         "why_no_home": null
     },
     {
@@ -6590,6 +6702,41 @@
         "surface": "server",
         "text": "Cloudflare TURN mint failed ({reason})",
         "source": "server/turn.js",
+        "anchor": "/self-hosting/operations#the-server-logs-very-little",
+        "why_no_home": null
+    },
+    {
+        "surface": "server",
+        "text": "Only one of TURN_SECRET and TURN_DOMAIN is set, so the coturn relay is off. Set both, or neither.",
+        "source": "server/server.js",
+        "anchor": "/self-hosting/operations#the-server-logs-very-little",
+        "why_no_home": null
+    },
+    {
+        "surface": "server",
+        "text": "Only one of CLOUDFLARE_TURN_KEY_ID and CLOUDFLARE_TURN_KEY_API_TOKEN is set, so Cloudflare TURN is off. Set both, or neither.",
+        "source": "server/server.js",
+        "anchor": "/self-hosting/operations#the-server-logs-very-little",
+        "why_no_home": null
+    },
+    {
+        "surface": "server",
+        "text": "Only one of UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN is set, so the transfer counter is kept in memory and resets to 0 on restart. Set both, or neither.",
+        "source": "server/server.js",
+        "anchor": "/self-hosting/operations#the-server-logs-very-little",
+        "why_no_home": null
+    },
+    {
+        "surface": "server",
+        "text": "TURN_DOMAIN holds more than a host name, so the coturn relay is off. Set it to the host name alone, such as turn.example.com.",
+        "source": "server/server.js",
+        "anchor": "/self-hosting/operations#the-server-logs-very-little",
+        "why_no_home": null
+    },
+    {
+        "surface": "server",
+        "text": "Upstash counter {operation} failed ({reason})",
+        "source": "server/stats.js",
         "anchor": "/self-hosting/operations#the-server-logs-very-little",
         "why_no_home": null
     },
@@ -6864,6 +7011,118 @@
         "text": "{NAME} is not a whole number of at least 1. Using the default, {n}.",
         "source": "server/envlimit.js",
         "anchor": "/self-hosting/operations#the-server-logs-very-little",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "Error: the server answered with an error this version of Floe does not know",
+        "source": "cli/engine/signaling/servererror.go",
+        "anchor": "/troubleshooting#the-server-answered-with-an-error-floe-does-not-know",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "A sender couldn't be confirmed and was disconnected",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/troubleshooting#a-sender-could-not-be-confirmed",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Link closed after 5 senders couldn't be confirmed",
+        "source": "desktop/frontend/src/requestCopy.ts",
+        "anchor": "/desktop/request-links#a-sender-that-fails-the-check",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Couldn't confirm who opened your link. Nothing was sent",
+        "source": "desktop/frontend/src/errors.ts",
+        "anchor": "/troubleshooting#could-not-confirm-who-opened-your-link",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "Couldn't confirm who sent this link. Nothing was received",
+        "source": "desktop/frontend/src/errors.ts",
+        "anchor": "/troubleshooting#could-not-confirm-who-sent-this-link-in-floe-desktop",
+        "why_no_home": null
+    },
+    {
+        "surface": "desktop",
+        "text": "That address redirects to https://. Start it with https:// and test again",
+        "source": "desktop/serverprobe.go",
+        "anchor": "/desktop/settings#test-the-address",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "Couldn't confirm their computer. Nothing was sent.",
+        "source": "cli/cmd/floe/sendto.go",
+        "anchor": "/troubleshooting#could-not-confirm-their-computer",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "Ask the person who made this link for a new one.",
+        "source": "cli/cmd/floe/sendto.go",
+        "anchor": "/troubleshooting#could-not-confirm-their-computer",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "Couldn't confirm the person who opened your link. Nothing was sent. Make a new link and try again.",
+        "source": "cli/cmd/floe/send.go",
+        "anchor": "/cli/send#link-only",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "Couldn't confirm the receiver. They may need to run floe update, or open the link in a browser.",
+        "source": "cli/cmd/floe/send.go",
+        "anchor": "/cli/send#link-only",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "In a terminal, put the link in quotes: floe receive \"<link>\"",
+        "source": "cli/cmd/floe/send.go",
+        "anchor": "/cli/send#put-the-link-in-quotes",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "Couldn't confirm who sent this link. Nothing was saved. Ask them for a new link.",
+        "source": "cli/cmd/floe/receive.go",
+        "anchor": "/cli/receive",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "this connection's certificates could not be read to check the link's key",
+        "source": "cli/engine/transfer/keycheck.go",
+        "anchor": "/troubleshooting#this-connections-certificates-could-not-be-read",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "cannot send {path}: it is a pipe, a socket or a device, not a file",
+        "source": "cli/engine/transfer/collect.go",
+        "anchor": "/cli/send",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "Error: --iface matches no network interface on this computer; check the name, or drop the flag",
+        "source": "cli/cmd/floe/main.go",
+        "anchor": "/cli/flags",
+        "why_no_home": null
+    },
+    {
+        "surface": "cli",
+        "text": "The sender stopped: a file could not be read on their device. Ask them to check it and send again.",
+        "source": "cli/engine/transfer/control.go",
+        "anchor": "/troubleshooting#the-sender-ended-the-transfer",
         "why_no_home": null
     }
 ]

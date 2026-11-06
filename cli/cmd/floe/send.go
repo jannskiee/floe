@@ -13,8 +13,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jannskiee/floe/cli/engine/code"
 	"github.com/jannskiee/floe/cli/engine/ice"
+	"github.com/jannskiee/floe/cli/engine/linkkey"
 	"github.com/jannskiee/floe/cli/engine/peer"
 	"github.com/jannskiee/floe/cli/engine/serverurl"
+	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/jannskiee/floe/cli/engine/transfer"
 	"github.com/pion/webrtc/v4"
 	"github.com/spf13/cobra"
@@ -29,6 +31,23 @@ var sendCmd = &cobra.Command{
 
 // flagTo is the request link a send goes to instead of a new code (sendto.go).
 var flagTo string
+
+// flagLinkOnly is a send with no code, whose link is the only way in, so it can hold
+// its receiver to the link's key: a receiver that shows no proof of it gets no file's
+// name. A decision about one transfer, so no environment twin, as --to has none.
+var flagLinkOnly bool
+
+// The plain send's lines for the link key's check (PLAN.md "New copy"). execute
+// prints them as outcomes, alone on the indent, and main exits 1 on them.
+var (
+	errSendUnverified = errors.New("Couldn't confirm the person who opened your link. Nothing was sent. Make a new link and try again.")
+	errSendSilent     = errors.New("Couldn't confirm the receiver. They may need to run floe update, or open the link in a browser.")
+)
+
+// lineQuoteLink goes under the box: a link holds an &, so a terminal refuses it or
+// cuts it unless it is in quotes (TL-37, the owner's answer of 2026-11-03). <link> is
+// the placeholder, never the link.
+const lineQuoteLink = `  In a terminal, put the link in quotes: floe receive "<link>"`
 
 // errLinkTypedAsPath ends a plain send that was given a request link where a
 // path goes, the likeliest mistake of someone who forgot --to. The stat
@@ -47,6 +66,11 @@ func init() {
 	if err := sendCmd.RegisterFlagCompletionFunc("to", cobra.NoFileCompletions); err != nil {
 		panic(err)
 	}
+	sendCmd.Flags().BoolVar(&flagLinkOnly, "link-only", false,
+		"create no code, and send only to a receiver that proves it holds the link")
+	// A flag group and not a PreRunE: main.go's init sets sendCmd.PreRunE for
+	// --iface and runs before this one, so a PreRunE here would replace it.
+	sendCmd.MarkFlagsMutuallyExclusive("to", "link-only")
 }
 
 func runSend(cmd *cobra.Command, args []string) error {
@@ -69,11 +93,15 @@ func runSend(cmd *cobra.Command, args []string) error {
 	interruptStop.Store(&step)
 
 	// Validate that all paths exist. The sentence quotes the path, so a
-	// request link typed as one (--to forgotten) ends on a fixed line instead.
+	// request link typed as one (--to forgotten) ends on a fixed line instead,
+	// and so does a share link, whose fragment holds the room id and the key.
 	for _, p := range args {
 		if _, err := os.Stat(p); err != nil {
 			if looksLikeRequestLink(p) {
 				return outcomeError{errLinkTypedAsPath}
+			}
+			if pathLooksLikeRoomLink(p) {
+				return outcomeError{errRoomLinkTypedAsCommand}
 			}
 			return fmt.Errorf("cannot read %s: %w", p, err)
 		}
@@ -123,24 +151,35 @@ func runSend(cmd *cobra.Command, args []string) error {
 	select {
 	case role := <-sc.Role:
 		if role != "sender" {
-			return fmt.Errorf("expected sender role, got %q (room may already have two peers)", role)
+			return errors.New("expected sender role (room may already have two peers)")
 		}
 	case <-sc.RoomFull:
 		return fmt.Errorf("room is full")
 	case errMsg := <-sc.Errors:
-		return fmt.Errorf("server error: %s", errMsg)
+		return signaling.ServerFrameError(errMsg)
 	case <-sc.PeerLeft:
 		return roleWaitClosed(sc)
 	case <-time.After(roleAssignTimeout):
 		return fmt.Errorf("timed out waiting for the server to assign a role")
 	}
 
-	// 5. Register a short code phrase for this room
-	codePhrase, err := code.Register(flagServer, roomId)
+	// The link's key, made once this run holds the room. It goes into the link
+	// below and nowhere else that leaves this process.
+	key, err := linkkey.New()
 	if err != nil {
-		// Non-fatal: code registration failure still allows link sharing
-		fmt.Println(shortCodeWarning(err))
-		codePhrase = ""
+		return err
+	}
+
+	// 5. Register a short code phrase for this room. A code carries no key, so a
+	// send that holds its receiver to the key has none to give.
+	var codePhrase string
+	if !flagLinkOnly {
+		codePhrase, err = code.Register(flagServer, roomId)
+		if err != nil {
+			// Non-fatal: code registration failure still allows link sharing
+			fmt.Println(shortCodeWarning(err))
+			codePhrase = ""
+		}
 	}
 
 	// 6. Display sharing info
@@ -151,17 +190,18 @@ func runSend(cmd *cobra.Command, args []string) error {
 	if webURL == "" {
 		webURL = serverurl.Web(flagServer)
 	}
-	// The room id goes in the URL fragment (#room=) so it never reaches the
+	// The key and the room id go in the URL fragment so neither reaches the
 	// web server or its analytics when a browser opens this link. Unlike the
 	// desktop's and the web app's links it has no ?s= nonce: a tab with Floe
 	// already open reloads into the new room when only the fragment changes
 	// (P2PTransfer's hashchange reload), and one that still holds a transfer or
 	// an unsaved file asks first or waits for it, where a new document would
 	// drop the file.
-	link := webURL + "/#room=" + roomId
+	link := webURL + "/#k=" + key.Encode() + "&room=" + roomId
 
 	fmt.Printf("  Sending   %s\n", summary.Label)
 	transfer.PrintBox(shareRows(codePhrase, link))
+	fmt.Println(lineQuoteLink)
 	fmt.Println()
 	fmt.Println("  Waiting for peer...")
 
@@ -179,7 +219,7 @@ func runSend(cmd *cobra.Command, args []string) error {
 		}
 		return peer.ErrPeerLeft
 	case errMsg := <-sc.Errors:
-		return fmt.Errorf("server error: %s", errMsg)
+		return signaling.ServerFrameError(errMsg)
 	}
 
 	// 8. Set up WebRTC as the initiator (sender creates offer + data channel)
@@ -212,17 +252,23 @@ func runSend(cmd *cobra.Command, args []string) error {
 	defer close(quit)
 	closeOnFailed(conn, quit)
 	early := conn.Early()
+	var answered bool
 	err = transfer.SendFilesWithOptions(dc, args, version, transfer.SendOptions{
 		Messages: early.Msgs,
 		Closed:   early.Closed,
+		// Runs on this goroutine, so plainSendEnd reads it with no lock.
+		OnAck: func(int) { answered = true },
 		// Closed by Ctrl+C's stop step: the send then queues nothing more, so
 		// the step's abort frame is the last one on the channel.
 		Stop: r.halt,
+		// A code receiver holds no key, so a send with a code only detects a bad
+		// proof; --link-only has no code, and waits for the proof.
+		KeyCheck: &transfer.KeyCheck{Key: key, RoomID: roomId, Enforce: flagLinkOnly},
 	})
 	if !r.finish(err == nil) {
 		return park()
 	}
-	return plainSendEnd(err)
+	return plainSendEnd(err, answered)
 }
 
 // sendStopSettle bounds how long Ctrl+C's stop step waits for the send to
@@ -367,12 +413,24 @@ func (r *sendRun) finish(delivered bool) bool {
 var errTheyStopped = errors.New("They stopped the transfer.")
 
 // plainSendEnd is the plain send's error as it prints: code stopped becomes
-// errTheyStopped, and every other error, every other code among them, is
-// returned as it came.
-func plainSendEnd(err error) error {
+// errTheyStopped, the link key's check its own two lines, and every other error,
+// every other code among them, is returned as it came. ErrKeyCheckUnavailable
+// is one of those: this side could not read its own connection, the copy has no
+// line for it, and its fixed text blames nobody. answered is this side's own fact,
+// that the receiver has answered a file (PastAnAnswer).
+func plainSendEnd(err error, answered bool) error {
 	var stopped *transfer.PeerStoppedError
-	if errors.As(err, &stopped) && stopped.Code == transfer.CodeStopped {
+	if answered && errors.As(err, &stopped) {
+		err = stopped.PastAnAnswer()
+	}
+	switch {
+	case errors.As(err, &stopped) && stopped.Code == transfer.CodeStopped:
 		return errTheyStopped
+	case errors.As(err, &stopped) && stopped.Code == transfer.CodeUnverified,
+		errors.Is(err, transfer.ErrReceiverNotConfirmed):
+		return outcomeError{errSendUnverified}
+	case errors.Is(err, transfer.ErrReceiverSilent):
+		return outcomeError{errSendSilent}
 	}
 	return err
 }

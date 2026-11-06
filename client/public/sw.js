@@ -27,7 +27,19 @@
 // v6 keeps share links out of Cache Storage, and request links (/r) out from
 // the start; see the guards above the navigate branch. The rename purges the
 // share links v5 already stored.
-const CACHE_NAME = 'floe-cache-v6';
+//
+// v7 makes /_next/static network-first. Cache-first served whatever Cache Storage
+// held for a chunk URL on every load, so one same-origin script run (a tracker,
+// or Mintlify under /docs) could plant a chunk that outlived every deploy, on the
+// page that holds a transfer's link. Now the network's answer is used whenever
+// there is one, a 200 overwrites the stored copy, and the stored copy answers
+// only when fetch itself rejects. The rename purges whatever v6 stored, a planted
+// entry included. Each fallback reads this one cache, never caches.match, which
+// searches every cache on the origin: the store a 200 overwrites has to be the
+// store a rejected fetch reads, or a copy planted under another name would outlive
+// every online load. What stays: a request that fails can still run a stored entry,
+// as it can a stored document, which is what working offline means here.
+const CACHE_NAME = 'floe-cache-v7';
 
 // Navigations only. These are the documents that must still render with no
 // network, served by the fallback in the navigate branch below. /github-mark-white.png
@@ -123,10 +135,15 @@ self.addEventListener('fetch', (event) => {
     // url.hash, which reads '' for a bare trailing '#'; a serialized URL holds
     // '#' only at the fragment delimiter and after it. Older links carried the
     // room id in ?room=<id>, which getRoomFromUrl and the CLI's code.Resolve still
-    // accept; that shape has neither a fragment nor a nonce, so it is named too.
+    // accept; that shape has neither a fragment nor a nonce, so it is named too. A
+    // link key lives in the fragment, and no builder puts one in the query, but a
+    // mangled link can, and a key is never stored in any shape, so k is named as well.
     if (
         request.mode === 'navigate' &&
-        (url.searchParams.has('s') || url.searchParams.has('room') || request.url.includes('#'))
+        (url.searchParams.has('s') ||
+            url.searchParams.has('room') ||
+            url.searchParams.has('k') ||
+            request.url.includes('#'))
     ) {
         return;
     }
@@ -143,18 +160,18 @@ self.addEventListener('fetch', (event) => {
                     // excluded too, since its ok is false.
                     if (response.ok) {
                         const responseClone = response.clone();
-                        caches.open(CACHE_NAME).then((cache) => {
-                            cache.put(request, responseClone);
-                        });
+                        event.waitUntil(
+                            caches.open(CACHE_NAME).then((cache) => cache.put(request, responseClone))
+                        );
                     }
                     return response;
                 })
-                .catch(() => caches.match(request))
+                .catch(() => caches.open(CACHE_NAME).then((cache) => cache.match(request)))
         );
         return;
     }
 
-    // Cache-first is only ever correct for a URL whose bytes cannot change, and
+    // A stored copy is only ever kept for a URL whose bytes cannot change, and
     // /_next/static is the one path where Next guarantees that: the filename
     // carries a hash of the contents, so a changed file gets a new URL instead
     // of a new answer at the old one. That covers the JS chunks, the CSS, and the
@@ -166,20 +183,30 @@ self.addEventListener('fetch', (event) => {
     // exactly as it would with no worker registered at all.
     if (!path.startsWith('/_next/static/')) return;
 
+    // The stored copy is for when there is no answer at all. Asking first costs
+    // little, since these files are immutable and the browser's HTTP cache
+    // usually answers this fetch without the network.
+    //
+    // Two handlers on one then, never then().catch(): only a fetch that rejects
+    // may read the store, not a throw in the success handler. And a 404 or a 5xx
+    // is an answer: it passes through unstored and is never swapped for a stored
+    // copy, or a tab still on an old build, asking for a chunk the last deploy
+    // removed, would run whatever is stored at that old URL. Every 200 is stored,
+    // which is what overwrites a planted entry on the next load that asks for it.
+    // That write is held by waitUntil, here and for a document above: it is what
+    // heals a plant, and a browser may stop the worker once respondWith has settled.
     event.respondWith(
-        caches.match(request).then((cachedResponse) => {
-            if (cachedResponse) {
-                return cachedResponse;
-            }
-            return fetch(request).then((response) => {
+        fetch(request).then(
+            (response) => {
                 if (response.status === 200) {
                     const responseClone = response.clone();
-                    caches.open(CACHE_NAME).then((cache) => {
-                        cache.put(request, responseClone);
-                    });
+                    event.waitUntil(
+                        caches.open(CACHE_NAME).then((cache) => cache.put(request, responseClone))
+                    );
                 }
                 return response;
-            });
-        })
+            },
+            () => caches.open(CACHE_NAME).then((cache) => cache.match(request))
+        )
     );
 });

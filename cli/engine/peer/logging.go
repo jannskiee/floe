@@ -30,8 +30,9 @@ import (
 //
 // The TURN client's lines are not the TURN server's alone either: its ERROR
 // line, "Fail to refresh permissions", quotes the reason phrase of a TURN
-// error response, and pion/turn takes that response from anyone on the UDP
-// path to the server, with no integrity check (FU-32 F2-1). pion/ice v4.4.0's
+// error response. pion/turn checks a response's integrity since v5.1.3 but
+// still takes an unsigned 401, from anyone on the UDP path to the server, and
+// that is a response this line quotes (FU-32 F2-1). pion/ice v4.4.0's
 // WithLoggerFactory set only the agent's own logger and gave those three
 // pion's default factory, so the line reached stderr raw, and the CLI turned
 // the "turnc" scope off at start to stop it. pion/ice v4.4.3 hands them the

@@ -20,12 +20,15 @@ import {
     SEND_FILE_HASHES,
     hashBoundMs,
     END_DIGEST_WAIT_MS,
+    KEY_CHECK_WAIT_MS,
+    SENDER_UNVERIFIED_REASON,
     type Ack,
     type Incompatible,
     type Received,
     type RefusalCode,
 } from './protocol';
 import { hashBlob as workerHashBlob } from './fileHash';
+import type { KeyOutcome, KeySession } from './keySession';
 import { sanitizeDisplayText } from '../download';
 
 // The digest wait's own escape: how often it asks whether the transfer is still
@@ -64,6 +67,13 @@ export interface SenderCallbacks {
     // 1-based file it happened on (the last one for a close after the final
     // end frame). onError keeps firing with today's wording.
     onFailed?: (failure: { kind: 'ack-timeout' | 'closed' | 'unreadable'; index: number }) => void;
+    // The link-key check stopped this send, with the abort already sent. An enum and
+    // a place, and never a peer value, so the caller shows its own fixed words: bad-tag
+    // or malformed for a proof that failed, silent for none in time, unavailable for
+    // certificates this browser could not read. Its own callback and not a kind on
+    // onFailed: that one feeds selfStopOf, which would send the receiver a second
+    // reason, and the visitor page reads an unknown kind as a closed channel.
+    onKeyCheckFailed?: (failure: { outcome: KeyOutcome; where: 'wait' | 'before-metadata' | 'first-ack' }) => void;
 }
 
 export interface FileEntry {
@@ -165,7 +175,27 @@ export interface SendOptions {
     // that simply stalls leaves this wait open, and Cancel, which is
     // isDestroyed going true, is the only way out of it.
     requireReceived?: boolean;
+    // The link-key session of this connection. Absent, or a keyless session, is
+    // today's send exactly. The session owns the proof on the wire (deps.send must
+    // go through it, so its kc leads); this only acts on its verdict, by its mode:
+    //
+    // enforce: no file is named until the receiver's proof checks out. A bad proof,
+    // no proof within KEY_CHECK_WAIT_MS, or certificates this browser cannot read
+    // each end the send with the unverified abort.
+    //
+    // detect: a bad or malformed proof ends the send at the earliest of "before the
+    // first metadata, if it already arrived" and "the first ack", so never after a
+    // file byte. The receiver's kc is ahead of its ack on an ordered channel, so by
+    // the first ack it is here if it is coming at all. Silence goes on: a receiver
+    // that holds no key (a room code, a released peer) sends none, and a file name
+    // and size do go out ahead of the proof in this mode.
+    //
+    // observe: never stops anything.
+    keyCheck?: SenderKeyCheck;
 }
+
+/** What the send loop reads of a link-key session. */
+export type SenderKeyCheck = Pick<KeySession, 'keyed' | 'mode' | 'verdict' | 'outcome' | 'settle' | 'noteSilent'>;
 
 /**
  * Sends all files over the data channel in order.
@@ -188,6 +218,7 @@ export async function sendFiles(
 ): Promise<void> {
     const destroyed = cb.isDestroyed ?? (() => false);
     const totalBytes = files.reduce((s, e) => s + e.file.size, 0);
+    const keyCheck = opts.keyCheck?.keyed ? opts.keyCheck : undefined;
 
     const view: ProgressView = {
         active: false,
@@ -226,6 +257,8 @@ export async function sendFiles(
     let lingering = false;
 
     try {
+        if (keyCheck?.mode === 'enforce' && !(await waitForKeyProof(keyCheck, deps, cb, session))) return;
+
         for (let i = 0; i < files.length; i++) {
             if (destroyed()) return;
             const entry = files[i];
@@ -237,7 +270,8 @@ export async function sendFiles(
                 ok = await sendSingleFile(
                     deps, entry, i + 1, files.length, totalBytes, cb, view, emitView,
                     (i === 0 || opts.requireReceived) ? (opts.ackTimeoutMs ?? ACK_TIMEOUT_MS) : ACK_TIMEOUT_MS, session,
-                    { enabled: opts.sendHashes ?? SEND_FILE_HASHES, hashBlob: deps.hashBlob ?? workerHashBlob, signal: hashAbort.signal }
+                    { enabled: opts.sendHashes ?? SEND_FILE_HASHES, hashBlob: deps.hashBlob ?? workerHashBlob, signal: hashAbort.signal },
+                    keyCheck
                 );
             } finally {
                 hashAbort.abort();
@@ -303,10 +337,11 @@ export const CONTROL_FLUSH_MS = 2000;
 export async function sendAbortReason(
     send: (data: string | Uint8Array) => void,
     channel: BufferChannel | undefined,
-    reason: string
+    reason: string,
+    code?: RefusalCode
 ): Promise<void> {
     try {
-        send(incompatibleMessage(reason));
+        send(incompatibleMessage(reason, code));
     } catch {
         return; // already torn down; the close is all the peer will get
     }
@@ -329,6 +364,55 @@ export async function sendAbortReason(
     ]);
     over = true;
     if (timer) clearTimeout(timer);
+}
+
+// The enforce wait: whether the send may go on. No file has been named yet on any
+// path out of here but 'verified'.
+async function waitForKeyProof(
+    keyCheck: SenderKeyCheck,
+    deps: SenderDeps,
+    cb: SenderCallbacks,
+    session: Session
+): Promise<boolean> {
+    const destroyed = cb.isDestroyed ?? (() => false);
+    const answer = await keyCheck.settle(
+        KEY_CHECK_WAIT_MS,
+        () => destroyed() || session.isStopped() || session.isClosed()
+    );
+    if (answer === 'verified') return true;
+    if (answer === 'stopped') {
+        // The session hears a close before the engine does: simple-peer's own onclose
+        // handler is the channel's first listener, and this runs in the microtask right
+        // after it, ahead of the engine's listener on the same event. So one turn, to
+        // let that listener say the channel closed. Nothing is being sent meanwhile.
+        if (!session.isStopped()) await new Promise((resolve) => setTimeout(resolve, 0));
+        // A refusal has its own account. A channel that closed gets the words the ack
+        // wait uses, and as there a page keeps its own guard for a teardown of its own.
+        if (!session.reportStop() && session.isClosed()) {
+            cb.onError?.('Connection lost. The other device may have closed the tab.');
+            cb.onFailed?.({ kind: 'closed', index: 1 });
+        }
+        return false;
+    }
+    if (answer === 'timeout') keyCheck.noteSilent();
+    await abortUnverified(keyCheck, deps, cb, session, 'wait');
+    return false;
+}
+
+// The stop for a failed check, one frame for a bad proof and for silence (see
+// buildIncompatible for its range). A refusal that lands while the frame leaves has
+// already been reported at receipt, and that account stands: one stop, one story.
+async function abortUnverified(
+    keyCheck: SenderKeyCheck,
+    deps: SenderDeps,
+    cb: SenderCallbacks,
+    session: Session,
+    where: 'wait' | 'before-metadata' | 'first-ack'
+): Promise<void> {
+    await sendAbortReason(deps.send, deps.channel, SENDER_UNVERIFIED_REASON, 'unverified');
+    const destroyed = cb.isDestroyed ?? (() => false);
+    if (destroyed() || session.isStopped()) return;
+    cb.onKeyCheckFailed?.({ outcome: keyCheck.outcome() ?? 'missing', where });
 }
 
 // Resolves once the channel buffer has drained to at most `threshold` bytes
@@ -383,7 +467,8 @@ async function sendSingleFile(
     emitView: () => void,
     ackTimeoutMs: number,
     session: Session,
-    hashing: { enabled: boolean; hashBlob: NonNullable<SenderDeps['hashBlob']>; signal: AbortSignal }
+    hashing: { enabled: boolean; hashBlob: NonNullable<SenderDeps['hashBlob']>; signal: AbortSignal },
+    keyCheck?: SenderKeyCheck
 ): Promise<boolean> {
     const { file, id } = entry;
     const { send, channel } = deps;
@@ -429,6 +514,12 @@ async function sendSingleFile(
         if (session.reportStop()) return false;
     }
 
+    // A bad proof that has already arrived stops the send before it names a file.
+    if (detectFailed(keyCheck, index)) {
+        await abortUnverified(keyCheck, deps, cb, session, 'before-metadata');
+        return false;
+    }
+
     // 1. Send metadata with protocol version fields
     try {
         send(metadataMessage(id, wireName, file.size, index, total, totalBytes));
@@ -465,6 +556,14 @@ async function sendSingleFile(
         cb.onFailed?.({ kind: 'closed', index });
         return false;
     }
+    // The last place a bad proof can stop a detect-mode send: the receiver's kc is
+    // ahead of this ack, and no file byte has gone. Before onAck, because this file
+    // is not going after all.
+    if (detectFailed(keyCheck, index)) {
+        await abortUnverified(keyCheck, deps, cb, session, 'first-ack');
+        return false;
+    }
+
     // The receiver took this file. Reported before the checks below, which are
     // about what it asked for and not about whether it answered.
     cb.onAck?.(index);
@@ -675,6 +774,14 @@ async function sendSingleFile(
     return true;
 }
 
+// Whether a detect-mode send ends here, on the first file only. A verdict that comes
+// later is reported by the session and stops nothing: a receiver that held its proof
+// back past the first ack has shown nothing a silent one has not. A plain read and no
+// await, so a send with no key takes the same ticks it always did.
+function detectFailed(keyCheck: SenderKeyCheck | undefined, index: number): keyCheck is SenderKeyCheck {
+    return index === 1 && keyCheck?.mode === 'detect' && keyCheck.verdict() === 'failed';
+}
+
 // Which of the four things ended the window after the last end frame. Only
 // `received` is a finished transfer; `destroyed` is this page tearing the
 // transfer down, so nothing is reported for it.
@@ -685,6 +792,10 @@ interface Session {
     // Reports the latched refusal once (onError with today's wording, then
     // onStopped) and returns true while the session is stopped.
     reportStop(): boolean;
+    // Whether a refusal is latched, or the channel closed. Reads only: reportStop is
+    // what reports.
+    isStopped(): boolean;
+    isClosed(): boolean;
     close(): void;
     // After the last end frame the listener stays attached until the first of a
     // `received` frame, the channel close, or destroyed() polled at
@@ -796,8 +907,11 @@ function openSession(deps: SenderDeps, cb: SenderCallbacks, fileCount: number): 
     deps.channel.addEventListener('close', onClose);
 
     // Hoisted out of the returned literal so lingerUntilDone can call both
-    // without `this`, and so the teardown body exists exactly once.
-    const reportStop = (): boolean => {
+    // without `this`, and so the teardown body exists exactly once. A function
+    // declaration on purpose: a keyed session replays what came early inside
+    // deps.onData above, so the listener can reach this before this line has run,
+    // and a const there threw a ReferenceError at the page's error handler.
+    function reportStop(): boolean {
         if (!stopped) return false;
         if (!reported) {
             // Everything read off the frame is worked out before the stop is
@@ -829,7 +943,7 @@ function openSession(deps: SenderDeps, cb: SenderCallbacks, fileCount: number): 
             cb.onStopped?.(stop);
         }
         return true;
-    };
+    }
 
     const close = () => {
         // First, so a close from any other path can never strand the linger's
@@ -850,6 +964,8 @@ function openSession(deps: SenderDeps, cb: SenderCallbacks, fileCount: number): 
             });
         },
         reportStop,
+        isStopped: () => stopped !== null,
+        isClosed: () => closed,
         close,
         lingerUntilDone(destroyed) {
             // Everything that could already have ended the window: a refusal

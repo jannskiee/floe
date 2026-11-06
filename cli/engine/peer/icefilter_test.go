@@ -9,14 +9,14 @@ import (
 // list disables the filter (nil), and a non-empty list keeps only interfaces
 // whose name contains an allowed substring (case-insensitive).
 func TestMakeInterfaceAllowFilter(t *testing.T) {
-	if makeInterfaceAllowFilter(nil) != nil {
+	if MakeInterfaceAllowFilter(nil) != nil {
 		t.Fatal("empty allowlist must return a nil filter (default behavior)")
 	}
-	if makeInterfaceAllowFilter([]string{"", "  "}) != nil {
+	if MakeInterfaceAllowFilter([]string{"", "  "}) != nil {
 		t.Fatal("blank-only allowlist must return a nil filter")
 	}
 
-	f := makeInterfaceAllowFilter([]string{"Ethernet", "wi-fi"})
+	f := MakeInterfaceAllowFilter([]string{"Ethernet", "wi-fi"})
 	if f == nil {
 		t.Fatal("non-empty allowlist must return a filter")
 	}

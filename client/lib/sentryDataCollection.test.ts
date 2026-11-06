@@ -9,7 +9,7 @@ import { DATA_COLLECTION } from './sentryDataCollection';
 // (defaultPiiToCollectionOptions.js), as getDataCollectionOptions() handed it
 // back. The commit that added the block showed, on real 10.76.2 clients, that
 // the block resolved to exactly this; 11.8.0 has no sendDefaultPii, and adds
-// queues, which the block sets false.
+// queues, which the block sets false; 11.9.0 adds mcp, which it sets false too.
 const D = ['forwarded', '-ip', 'remote-', 'via', '-user'];
 const SEND_DEFAULT_PII_FALSE = {
     userInfo: false,
@@ -68,6 +68,7 @@ describe('the data collection block', () => {
         expect(await resolvedBy({ dataCollection: DATA_COLLECTION })).toEqual({
             ...SEND_DEFAULT_PII_FALSE,
             queues: false,
+            mcp: { inputs: false, outputs: false },
         });
     });
 

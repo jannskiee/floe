@@ -95,7 +95,7 @@ export class Leg {
         return null;
     }
 
-    /** https?://...#room=<uuid> */
+    /** https?://...#room=<uuid>, or #k=<key>&room=<uuid> on a keyed link */
     async link() {
         throw new PhaseError('link', `${this.surface}: link not implemented`);
     }

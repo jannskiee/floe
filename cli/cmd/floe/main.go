@@ -144,6 +144,11 @@ func init() {
 		panic(err)
 	}
 
+	// PreRunE runs after the root's PersistentPreRunE, so this adds a check
+	// without replacing that hook (see the note on rootCmd).
+	sendCmd.PreRunE = checkIface
+	receiveCmd.PreRunE = checkIface
+
 	rootCmd.AddCommand(sendCmd)
 	rootCmd.AddCommand(receiveCmd)
 	rootCmd.AddCommand(versionCmd)
@@ -152,6 +157,30 @@ func init() {
 	// Enable `floe --version` (and -v) in addition to the `version` subcommand.
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("floe {{.Version}}\n")
+}
+
+var errIfaceNoMatch = errors.New("--iface matches no network interface on this computer; check the name, or drop the flag")
+
+// checkIface fails before any network call when --iface names nothing on this
+// computer. pion would otherwise gather no candidate, and floe would find out
+// only after pairing, which retires the code. It matches names with the
+// engine's own filter, peer.MakeInterfaceAllowFilter; no names, or no
+// readable list, goes ahead as before.
+func checkIface(_ *cobra.Command, _ []string) error {
+	allow := peer.MakeInterfaceAllowFilter(flagIface)
+	if allow == nil {
+		return nil
+	}
+	interfaces, err := listInterfaces()
+	if err != nil {
+		return nil
+	}
+	for _, iface := range interfaces {
+		if allow(iface.Name) {
+			return nil
+		}
+	}
+	return errIfaceNoMatch
 }
 
 // peerOptions translates the shared flags into the engine's connection
@@ -331,9 +360,16 @@ func cutRunes(s string, max int) string {
 
 func main() {
 	// Translate Ctrl+C / SIGTERM into a clean message and exit code 130
-	// instead of an abrupt stop mid-transfer.
+	// instead of an abrupt stop mid-transfer. A closed terminal or a lost SSH
+	// session sends SIGHUP on macOS and Linux, and Go's default for it ends the
+	// process at once, so it takes the same path. Only while SIGHUP is not
+	// ignored: nohup starts a program with it ignored, and Notify would install
+	// a handler and undo that.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	if !signal.Ignored(syscall.SIGHUP) {
+		signal.Notify(sigCh, syscall.SIGHUP)
+	}
 	go handleInterrupts(sigCh, os.Exit)
 
 	// The old binary a Windows `floe update` could not delete while it ran.

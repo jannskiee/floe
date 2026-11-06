@@ -1,9 +1,9 @@
 import { test, expect, type Page } from '@playwright/test';
 import { randomBytes, randomUUID } from 'crypto';
-import { writeFileSync, mkdirSync, rmSync } from 'fs';
+import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
 import { visitorCopy } from '../lib/request/visitorCopy';
+import { SHARE_LINK_TEXT, fixtureDir, removeFixtureDir } from './helpers';
 
 // ---------------------------------------------------------------------------
 // Multi-viewport layout guard: every route must render without horizontal
@@ -229,14 +229,10 @@ test('receiver view: no horizontal overflow at any viewport', async ({ page }) =
 // Interactive sender flow at the two most important phone widths
 // ---------------------------------------------------------------------------
 
-const FIXTURE_DIR = join(tmpdir(), 'floe-e2e-responsive');
+const FIXTURE_DIR = fixtureDir('floe-e2e-responsive');
 
 test.afterAll(() => {
-    try {
-        rmSync(FIXTURE_DIR, { recursive: true, force: true });
-    } catch {
-        /* ignore */
-    }
+    removeFixtureDir(FIXTURE_DIR);
 });
 
 test('sender flow stays inside the viewport at 320 and 390 wide', async ({ page }) => {
@@ -254,7 +250,7 @@ test('sender flow stays inside the viewport at 320 and 390 wide', async ({ page 
         await page.locator('input[type="file"]').setInputFiles(fixturePath);
         await page.locator('button', { hasText: /create secure link/i }).click();
 
-        const linkEl = page.locator('code').filter({ hasText: '#room=' });
+        const linkEl = page.locator('code').filter({ hasText: SHARE_LINK_TEXT });
         await expect(linkEl).toBeVisible({ timeout: 10_000 });
         await expect(page.getByRole('button', { name: 'Copy link' })).toBeVisible();
 
@@ -306,7 +302,7 @@ test('the share panel shows every status sentence whole at phone widths', async 
         await page.goto('/');
         await page.locator('input[type="file"]').setInputFiles(fixturePath);
         await page.locator('button', { hasText: /create secure link/i }).click();
-        await expect(page.locator('code').filter({ hasText: '#room=' })).toBeVisible({ timeout: 10_000 });
+        await expect(page.locator('code').filter({ hasText: SHARE_LINK_TEXT })).toBeVisible({ timeout: 10_000 });
 
         // The status line is the one under the link that says what the send
         // is doing; right after Create that is the waiting sentence.

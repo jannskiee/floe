@@ -9,6 +9,7 @@ import {
     DEFAULT_CHUNK,
     MAX_CHUNK,
     chunkSize,
+    checkCompat,
     classifyControl,
     compatErrorMessage,
     peerCompatErrorMessage,
@@ -25,8 +26,19 @@ import {
     receivedMessage,
     END_DIGEST_WAIT_MS,
     POST_END_HASH_WAIT_MS,
+    MAKE_LINK_KEYS,
+    ENFORCE_LINK_KEYS,
+    ENFORCE_SHARE_LINK_KEY,
+    KEY_CHECK_SDP_FALLBACK,
+    KEY_CHECK_WAIT_MS,
+    RECEIVER_UNVERIFIED_REASON,
+    SENDER_UNVERIFIED_REASON,
+    incompatibleMessage,
+    isAbortReason,
+    metadataProblem,
     type Ack,
     type Incompatible,
+    type Metadata,
     type Received,
     metadataMessage,
     ackMessage,
@@ -49,9 +61,19 @@ describe('constants', () => {
     // cli/engine/transfer/protocol.go, where TestProtocolVersionPinnedToClient
     // holds the same numbers. Bump both sides together, or peers on the two
     // implementations refuse each other before any bytes move.
-    it('PROTOCOL_VERSION is 1', () => expect(PROTOCOL_VERSION).toBe(1));
+    it('PROTOCOL_VERSION is 2', () => expect(PROTOCOL_VERSION).toBe(2));
     it('MIN_PROTOCOL_VERSION is 1', () => expect(MIN_PROTOCOL_VERSION).toBe(1));
     it('SEND_FILE_HASHES is on, with false as the rollback lever', () => expect(SEND_FILE_HASHES).toBe(true));
+    // The link-key levers, each pinned so a flip is a deliberate one-line change
+    // with a test to move. ENFORCE_SHARE_LINK_KEY is the later cutover (owner
+    // decision O2: after adoption), and it stays off until that pull request.
+    it('MAKE_LINK_KEYS is on, with false as the rollback lever', () => expect(MAKE_LINK_KEYS).toBe(true));
+    it('ENFORCE_LINK_KEYS is on, with false as the rollback lever', () => expect(ENFORCE_LINK_KEYS).toBe(true));
+    it('ENFORCE_SHARE_LINK_KEY is off until the cutover', () => expect(ENFORCE_SHARE_LINK_KEY).toBe(false));
+    it('KEY_CHECK_SDP_FALLBACK is on', () => expect(KEY_CHECK_SDP_FALLBACK).toBe(true));
+    // Pinned to KeyCheckWait in cli/engine/transfer, by a Go test that reads this
+    // file for the value and for both reasons below.
+    it('KEY_CHECK_WAIT_MS is 15 s', () => expect(KEY_CHECK_WAIT_MS).toBe(15_000));
     it('CONTROL_MSG_MAX is 1000', () => expect(CONTROL_MSG_MAX).toBe(1000));
     it('HIGH_WATER is 8 MB', () => expect(HIGH_WATER).toBe(8 * 1024 * 1024));
     it('LOW_WATER is 4 MB', () => expect(LOW_WATER).toBe(4 * 1024 * 1024));
@@ -221,14 +243,14 @@ describe('compatErrorFromIncompatible', () => {
         const msg = compatErrorFromIncompatible({
             type: 'incompatible',
             reason:
-                "Cannot transfer: peer's floe is too old.\n  You: protocol 2 (1.11.0)  Peer: protocol 1\n  Ask the other side to update Floe.",
-            pv: 2,
-            pvMin: 2,
+                "Cannot transfer: peer's floe is too old.\n  You: protocol 3 (1.11.0)  Peer: protocol 1\n  Ask the other side to update Floe.",
+            pv: 3,
+            pvMin: 3,
             ver: '1.11.0',
         });
         expect(msg).toContain('your browser is running an older version of Floe');
         expect(msg).toContain('Refresh the page to get the latest version.');
-        expect(msg).toContain('Peer: protocol 2 (1.11.0)');
+        expect(msg).toContain('Peer: protocol 3 (1.11.0)');
         expect(msg).not.toContain('Ask the other side');
     });
 
@@ -275,7 +297,7 @@ describe('refusalCodeOf', () => {
     // The literal RefusalCodes pins in cli/engine/transfer/refusal.go
     // (TestRefusalCodeListMatchesTS), in the byte order of the wire values, so
     // the two lists are compared whole and in order, never sorted first.
-    const TWELVE = [
+    const THIRTEEN = [
         'declined',
         'disk-full',
         'expired',
@@ -287,21 +309,23 @@ describe('refusalCodeOf', () => {
         'save-blocked',
         'stopped',
         'time-limit',
+        'unverified',
         'write-failed',
     ];
 
-    it('REFUSAL_CODES pins the twelve codes in the same order as refusal.go', () => {
-        expect([...REFUSAL_CODES]).toEqual(TWELVE);
-        expect([...TWELVE].sort()).toEqual(TWELVE);
+    it('REFUSAL_CODES pins the thirteen codes in the same order as refusal.go', () => {
+        expect([...REFUSAL_CODES]).toEqual(THIRTEEN);
+        expect([...THIRTEEN].sort()).toEqual(THIRTEEN);
     });
 
     it('refusalCodeOf allowlists and returns null for anything else', () => {
-        for (const code of TWELVE) {
+        for (const code of THIRTEEN) {
             expect(refusalCodeOf(frame(code))).toBe(code);
         }
 
         const hostile: unknown[] = [
             'too-slow', // never a code: the throughput floor it named was cut
+            'UNVERIFIED',
             'WRITE-FAILED',
             'write-failed ',
             '',
@@ -388,7 +412,103 @@ describe('peer-supplied protocol numbers are display-safe', () => {
     });
 });
 
+// The two reasons a failed check sends on the wire. A current peer reads the code
+// and shows its own sentence; these are for a peer that prints the reason. The Go
+// half pins the same text (CodeUnverified.WireReason, senderUnverifiedReason), and a
+// Go test reads both from protocol.ts, which is why each is one literal on one line.
+describe('the unverified wire reasons', () => {
+    it('are these two sentences', () => {
+        expect(RECEIVER_UNVERIFIED_REASON).toBe('receiver could not confirm the sender holds this link');
+        expect(SENDER_UNVERIFIED_REASON).toBe('sender could not confirm the receiver holds this link');
+    });
+
+    it('have the shape every wire reason has, and start with the side that speaks', () => {
+        expect(RECEIVER_UNVERIFIED_REASON.startsWith('receiver ')).toBe(true);
+        expect(SENDER_UNVERIFIED_REASON.startsWith('sender ')).toBe(true);
+        for (const reason of [RECEIVER_UNVERIFIED_REASON, SENDER_UNVERIFIED_REASON]) {
+            expect(reason.length).toBeLessThan(120);
+            // ASCII, no path or format characters, and no surface named.
+            expect(reason).toMatch(/^[\x20-\x7e]+$/);
+            expect(reason).not.toMatch(/[/\\:%]/);
+            expect(reason).not.toMatch(/browser|desktop|cli\b|floe update/i);
+        }
+    });
+
+    it('are written in the source as the Go test reads them', () => {
+        const src = readFileSync(new URL('./protocol.ts', import.meta.url), 'utf8');
+        expect(src).toContain("export const RECEIVER_UNVERIFIED_REASON = 'receiver could not confirm the sender holds this link';");
+        expect(src).toContain("export const SENDER_UNVERIFIED_REASON = 'sender could not confirm the receiver holds this link';");
+        expect(src).toContain('export const KEY_CHECK_WAIT_MS = 15_000;');
+    });
+});
+
+// A side that holds k stops a failed check with pv:2,pvMin:2, one frame for a bad
+// tag and for silence: a released peer ([1,1]) misses that range and prints its own
+// update remedy, and a current one ([1,2]) overlaps and reads the code.
+describe('the frame a failed key check stops with', () => {
+    const parsed = (frame: string) => JSON.parse(frame) as Record<string, unknown>;
+
+    it('carries code unverified and the kc-speaking range, whichever side sends it', () => {
+        expect(incompatibleMessage(SENDER_UNVERIFIED_REASON, 'unverified')).toBe(
+            '{"type":"incompatible","reason":"sender could not confirm the receiver holds this link","pv":2,"pvMin":2,"code":"unverified"}'
+        );
+        expect(incompatibleMessage(RECEIVER_UNVERIFIED_REASON, 'unverified', 0)).toBe(
+            '{"type":"incompatible","reason":"receiver could not confirm the sender holds this link","pv":2,"pvMin":2,"code":"unverified","saved":0}'
+        );
+    });
+
+    it('overlaps a current peer and misses a released one', () => {
+        const frame = classifyControl(incompatibleMessage(SENDER_UNVERIFIED_REASON, 'unverified')) as Incompatible;
+        expect(isAbortReason(frame)).toBe(true);
+        expect(refusalCodeOf(frame)).toBe('unverified');
+        expect(checkCompat(1, 1, frame.pvMin as number, frame.pv as number).ok).toBe(false);
+    });
+
+    it('leaves every other frame on the full range, code or no code', () => {
+        for (const frame of [
+            incompatibleMessage('x'),
+            incompatibleMessage('x', 'hash-mismatch', 2),
+            incompatibleMessage('x', 'stopped'),
+        ]) {
+            expect(parsed(frame).pv).toBe(PROTOCOL_VERSION);
+            expect(parsed(frame).pvMin).toBe(MIN_PROTOCOL_VERSION);
+        }
+    });
+});
+
+// B8: an index above the total used to reach the screen as "Receiving file 9 of 3".
+// The twin is parseMetadata in cli/engine/transfer/control.go, and the
+// index-above-total and index-equals-total rows of the parity table hold both.
+describe('metadataProblem: a position past the end of the batch', () => {
+    const meta = (index: unknown, total: unknown) =>
+        ({ type: 'metadata', id: 'a', fileName: 'a', fileSize: 1, index, total, totalBytes: 1 }) as unknown as Metadata;
+
+    it('refuses an index above the total, in the words the other position problem uses', () => {
+        expect(metadataProblem(meta(2, 1))).toBe('the file index is not a position in a batch');
+        expect(metadataProblem(meta(9, 3))).toBe('the file index is not a position in a batch');
+        expect(metadataProblem(meta(Number.MAX_SAFE_INTEGER, 1))).toBe('the file index is not a position in a batch');
+    });
+
+    it('takes every position up to and including the last', () => {
+        expect(metadataProblem(meta(1, 1))).toBeNull();
+        expect(metadataProblem(meta(2, 2))).toBeNull();
+        expect(metadataProblem(meta(1, 3))).toBeNull();
+        expect(metadataProblem(meta(3, 3))).toBeNull();
+    });
+});
+
 describe('classifyControl', () => {
+    it('classifies kc, in text and in bytes, whatever its tag holds', () => {
+        // A file receiver's tag arrives as a binary frame and the file sender
+        // classifies by content, so both forms have to read as kc.
+        const frame = '{"type":"kc","tag":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}';
+        expect(classifyControl(frame)?.type).toBe('kc');
+        expect(classifyControl(toUint8(frame))?.type).toBe('kc');
+        expect(classifyControl(toArrayBuffer(frame))?.type).toBe('kc');
+        expect(classifyControl('{"type":"kc"}')?.type).toBe('kc');
+        expect(classifyControl('{"type":"KC"}')).toBeNull();
+    });
+
     it('classifies metadata', () => {
         const raw = metadataMessage('id1', 'a.txt', 100, 1, 1, 100);
         const result = classifyControl(toUint8(raw));

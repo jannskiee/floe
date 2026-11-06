@@ -1,9 +1,9 @@
 package main
 
-// pion log scopes turned off from the environment: the packet mux's and the
-// TURN client's for every command, as noise (deep QA QA-07, FU-32 F2-1), and
-// the peer connection's and the data channel's on the request-link send
-// (FU-32 F2-2, FU-46 review 1 L1).
+// pion log scopes turned off from the environment, all for every command: the
+// packet mux's and the TURN client's as noise (deep QA QA-07, FU-32 F2-1), and
+// the peer connection's and the data channel's for the words they quote (FU-32
+// F2-2, FU-46 review 1 L1, final audit report 27 F3).
 
 import (
 	"os"
@@ -18,29 +18,29 @@ import (
 var pionEnablingLevels = [...]string{"ERROR", "WARN", "INFO", "DEBUG", "TRACE"}
 
 // quietPeerConnectionLog disables pion's "pc" and "datachannel" scopes by
-// quietPionScope's rule, on the request-link send only (FU-46, FU-32 F2-2,
-// review 1 L1). runSendTo calls it before it makes its peer: peer.New builds
-// its logger factory from pion's default, which reads the environment then
-// (engine/peer/logging.go), and pion/webrtc hands that factory to the data
-// channels it accepts.
+// quietPionScope's rule (FU-46, FU-32 F2-2, review 1 L1, report 27 F3). It runs
+// at process start, ahead of peer.New, which builds its logger factory from
+// pion's default, which reads the environment then (engine/peer/logging.go), and
+// pion/webrtc hands that factory to the data channels it accepts.
 //
-// The link's host is a stranger, and D-147 (2) keeps every word it chooses
-// off the visitor's terminal. FU-40's escape writes controls visibly, but
-// printable text, ordinary or no-break spaces included, passes, so two lines
-// at pion's default ERROR level printed the host's own sentence:
+// The other side has proved nothing when these lines print, and whoever runs the
+// signaling server can put words there: a link's host on floe send --to (D-147
+// (2)), and a server that steps in on a keyed floe receive or floe send
+// --link-only. FU-40's escape writes controls visibly, but printable text,
+// ordinary or no-break spaces included, passes, so two lines at pion's default
+// ERROR level printed that party's own sentence:
 //   - pion/webrtc v4.2.19 logs a trickled candidate whose ufrag matches
 //     nothing in the remote description as "pc ERROR: dropping candidate
-//     with ufrag <ufrag> ...", the ufrag the host's (Latin-1 passes pion's
+//     with ufrag <ufrag> ...", the ufrag the other side's (Latin-1 passes pion's
 //     candidate reader), up to about 1 KiB a line;
 //   - pion/datachannel v1.6.2 logs any DCEP message but an ACK on an open
 //     channel as "datachannel ERROR: Failed to handle DCEP: ... Label(<label>)
-//     Protocol(<protocol>)", both strings from a DATA_CHANNEL_OPEN the host
-//     wrote, up to 64 KiB a line and once per message (a modified host stack
+//     Protocol(<protocol>)", both strings from a DATA_CHANNEL_OPEN the other
+//     side wrote, up to 64 KiB a line and once per message (a modified stack
 //     can send it; a browser cannot).
 //
-// Both scopes' other lines are pion's diagnostics, which this path never
-// prints anyway: every outcome there is a fixed line. Plain send and receive
-// keep both scopes.
+// Both scopes' other lines are pion's diagnostics, and someone debugging pion
+// turns a level on and gets them back.
 func quietPeerConnectionLog() {
 	quietPionScope("pc")
 	quietPionScope("datachannel")
@@ -102,12 +102,13 @@ func quietPionScope(scope string) {
 // The test binary runs it too, which is what turnlog_test.go reads.
 func init() {
 	// The TURN client's "turnc" scope, by quietPionScope's rule, as noise and
-	// no longer as a security stopgap: since pion/ice 4.4.3 (floe has 4.4.7
-	// since #603) the client logs through newLoggerFactory, so its lines
+	// no longer as a security stopgap: since pion/ice 4.4.3 (floe has 4.4.8
+	// since #844) the client logs through newLoggerFactory, so its lines
 	// arrive escaped (TestNoPionLoggerBypassesTheLoggerFactory pins that). Its
 	// one ERROR line, a failed permission refresh, is relay housekeeping every
 	// 120 s that the person running floe cannot act on. It runs first, as the
 	// stopgap did, so floe sets the same DISABLE value as before.
 	quietPionScope("turnc")
 	quietMuxLog()
+	quietPeerConnectionLog()
 }
