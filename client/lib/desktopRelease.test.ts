@@ -42,11 +42,15 @@ describe('desktopRelease', () => {
         expect(DESKTOP_RELEASE_PAGE_URL).toContain(`/releases/tag/desktop-v${DESKTOP_VERSION}`);
     });
 
-    it('points "release notes" at the changelog, not the generated GitHub body', () => {
+    it('points "release notes" at this release\'s changelog entry, not the generated GitHub body', () => {
         // desktop-release.yml writes the same boilerplate body on every tag, so
         // the GitHub release page carries no account of what changed. The docs
-        // changelog is the only place that does.
-        expect(DESKTOP_RELEASE_NOTES_URL).toBe('https://www.floe.one/docs/changelog');
+        // changelog is the only place that does. The anchor is the entry's
+        // label, the git tag with dots as hyphens, so a newer entry above
+        // never hijacks the link.
+        expect(DESKTOP_RELEASE_NOTES_URL).toBe(
+            `https://www.floe.one/docs/changelog#desktop-v${DESKTOP_VERSION.replaceAll('.', '-')}`
+        );
         expect(DESKTOP_RELEASE_NOTES_URL).not.toContain('github.com');
     });
 
