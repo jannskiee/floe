@@ -147,10 +147,14 @@ export async function sha256OfBlobUrl(page: Page, blobUrl: string): Promise<stri
 /** Load the browser sender page, pick a file, and return the room URL.
  *  `relayFallback: false` unticks Network relay fallback before Create, which
  *  keeps the 2 s wait between the WebRTC connect and the first byte
- *  (lib/relay.ts relayProbeDelayMs) for a test that acts inside it. */
+ *  (lib/relay.ts relayProbeDelayMs) for a test that acts inside it.
+ *
+ *  The fixture is a path, or an in-memory file Playwright's setInputFiles
+ *  takes as { name, mimeType, buffer }, so a spec that fakes a file's size
+ *  in the page (e2e/relay-gate.spec.ts) needs no temp folder. */
 export async function browserSenderSetup(
     page: Page,
-    fixturePath: string,
+    fixturePath: string | { name: string; mimeType: string; buffer: Buffer },
     opts: { relayFallback?: boolean } = {}
 ): Promise<string> {
     await page.goto('/');
