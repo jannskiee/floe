@@ -16,9 +16,10 @@
 # nothing to GitHub.
 #
 # Not a CI job and not in CI green: moderation never gates a merge, and no pull
-# request runs this file. Scheduled runs drift (5-minute crons were measured 6
-# to 27 minutes apart), and GitHub disables the whole workflow after 60 days
-# without repository activity: gh workflow enable pr-intake.yml.
+# request runs this file. Scheduled runs drift (in the dry run this 30-minute
+# cron fired a median 344 minutes apart, at most 624), and GitHub disables the
+# whole workflow after 60 days without repository activity: gh workflow enable
+# pr-intake.yml.
 # To stop it at once: gh workflow disable pr-intake.yml (and gh run cancel <id>
 # for a run in progress), then a revert pull request.
 name: PR intake
