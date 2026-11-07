@@ -271,6 +271,13 @@ export function P2PTransfer() {
     const transferCompleteRef = useRef(false);
     const progressRef = useRef(0);
     const fileListRef = useRef<HTMLDivElement>(null);
+    // Create secure link goes away when it is pressed, and the link panel
+    // mounts above the place it held. focusCopyRef says Create held focus at
+    // the press, so focus moves to Copy once the link shows instead of
+    // falling to the page body (see the generatedLink effect).
+    const createButtonRef = useRef<HTMLButtonElement>(null);
+    const copyButtonRef = useRef<HTMLButtonElement>(null);
+    const focusCopyRef = useRef(false);
 
     // The analytics events and the error reports name the route by the
     // connection they are about, routeOf(peer), never by the badge's state:
@@ -1140,7 +1147,17 @@ export function P2PTransfer() {
         window.dispatchEvent(new CustomEvent('floe-connection-status', { detail: status }));
     }, [isConnected, connectionType]);
 
+    // Moves focus to Copy once the link shows, after the server's answer or
+    // the 3 s fallback, for the press that took it from Create. Only while
+    // the page body holds focus: focus moved elsewhere in the meantime stays.
+    useEffect(() => {
+        if (!generatedLink || !focusCopyRef.current) return;
+        focusCopyRef.current = false;
+        if (document.activeElement === document.body) copyButtonRef.current?.focus();
+    }, [generatedLink]);
+
     const handleCreateLink = () => {
+        focusCopyRef.current = document.activeElement === createButtonRef.current;
         setLinkPending(true);
         const newRoomId = uuidv4();
         // A unique per-link nonce in the query string (not the fragment) makes
@@ -1945,6 +1962,7 @@ export function P2PTransfer() {
                                                 status={status}
                                                 verifiedLine={allVerified ? VERIFIED_LINE : null}
                                                 sendEnd={sendEnd}
+                                                copyRef={copyButtonRef}
                                             />
                                         )}
 
@@ -1977,6 +1995,7 @@ export function P2PTransfer() {
                                                 <RelayFallbackToggle relayEnabled={relayEnabled} onChange={setRelayEnabled} />
 
                                                 <Button
+                                                    ref={createButtonRef}
                                                     onClick={handleCreateLink}
                                                     disabled={reading}
                                                     className="w-full bg-white text-black hover:bg-zinc-200 font-bold text-xs sm:text-sm"
