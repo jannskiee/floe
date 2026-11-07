@@ -59,6 +59,7 @@ Each entry lists the parts it changed. Filter on the right to see only the ones 
   - Desktop: on the Send tab, keyboard focus now stays on Cancel when a send starts, and on the Files or Text tab when it ends or is canceled, instead of falling to the page. Contributed by [@Detoy](https://github.com/Detoy).
   - CLI: `floe receive -o ~/Downloads` now saves into the Downloads folder in your home folder when the `~` reaches `floe` as typed, as it does in Windows PowerShell, in `cmd.exe`, inside quotes and after `--output=`. It used to save into a new folder named `~` in the current folder. Contributed by [@NopeCharon](https://github.com/NopeCharon).
   - CLI: `floe send` now sends a file once when its path is given twice, as in `floe send a.txt a.txt`, `floe send ./a.txt a.txt`, a folder named twice, or a glob that also matches a named file. It used to send it twice, so for one 5-byte file the `Sending` line read `2 files · 10 Bytes` and `floe receive` saved the second copy as `a (1).txt`. Contributed by [@ShahadatTest](https://github.com/ShahadatTest).
+  - Improved keyboard focus visibility for main-page file drop zones and settings toggles. Contributed by [@abhishek8841](https://github.com/abhishek8841).
 </Update>
 
 <Update label="desktop-v1.1.0" description="2026-11-05" tags={["Desktop"]}>
