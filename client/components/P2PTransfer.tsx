@@ -1865,7 +1865,7 @@ export function P2PTransfer() {
                                     // to the start edge, so the moment the hint wraps the
                                     // second line hangs left under a centred first one.
                                     // It wraps below about 430px, which is most phones.
-                                    className={`group relative mt-2 flex flex-col items-center justify-center rounded-xl border border-dashed p-10 text-center transition-all sm:p-14 ${isDragging
+                                    className={`group relative mt-2 flex flex-col items-center justify-center rounded-xl border border-dashed p-10 text-center transition-all sm:p-14 has-[input:focus-visible]:border-ice has-[input:focus-visible]:ring-[3px] has-[input:focus-visible]:ring-ice/50 ${isDragging
                                         ? 'border-ice bg-ice/[0.04]'
                                         : 'border-white/15 hover:border-white/35 hover:bg-white/[0.02]'
                                         } ${reading ? 'opacity-60' : ''}`}
@@ -1906,7 +1906,7 @@ export function P2PTransfer() {
                                     onDragLeave={handleDragLeave}
                                     onDrop={handleDrop}
                                     aria-busy={reading}
-                                    className={`group relative mt-2 flex items-center justify-center gap-2 rounded-lg border border-dashed py-3 transition-all ${isDragging
+                                    className={`group relative mt-2 flex items-center justify-center gap-2 rounded-lg border border-dashed py-3 transition-all has-[input:focus-visible]:border-ice has-[input:focus-visible]:ring-[3px] has-[input:focus-visible]:ring-ice/50 ${isDragging
                                         ? 'border-ice bg-ice/[0.04]'
                                         : 'border-white/15 hover:border-white/35 hover:bg-white/[0.02]'
                                         } ${reading ? 'opacity-60' : ''}`}

@@ -17,9 +17,9 @@ export function StatsContributionToggle({ enabled, onChange }: StatsContribution
                         type="checkbox"
                         checked={enabled}
                         onChange={(e) => onChange(e.target.checked)}
-                        className="sr-only"
+                        className="peer sr-only"
                     />
-                    <div className={`h-4 w-4 rounded-sm border transition-all duration-150 flex items-center justify-center ${enabled
+                    <div className={`h-4 w-4 rounded-sm border transition-all duration-150 flex items-center justify-center peer-focus-visible:ring-[3px] peer-focus-visible:ring-ice/50 ${enabled
                             ? 'bg-white border-white'
                             : 'bg-transparent border-zinc-600 group-hover/report:border-zinc-400'
                         }`}>
