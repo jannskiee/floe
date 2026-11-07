@@ -531,7 +531,7 @@ func receiveInto(t *testing.T, env map[string]string, out string, args ...string
 			_ = f.Value.Set(f.DefValue)
 			f.Changed = false
 		}
-		for _, name := range []string{"output", "yes", "no-report"} {
+		for _, name := range []string{"output", "yes", "no-report", "no-progress"} {
 			if f := receiveCmd.Flags().Lookup(name); f != nil {
 				_ = f.Value.Set(f.DefValue)
 				f.Changed = false
