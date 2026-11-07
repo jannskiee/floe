@@ -329,7 +329,7 @@ func startReceiveCtrlCReport(t *testing.T, url string, report bool, args ...stri
 		parkUntilExit = prevPark
 		resetReceiveStop()
 		close(c.sig)
-		for _, name := range []string{"output", "yes", "no-report"} {
+		for _, name := range []string{"output", "yes", "no-report", "no-progress"} {
 			if f := receiveCmd.Flags().Lookup(name); f != nil {
 				_ = f.Value.Set(f.DefValue)
 				f.Changed = false

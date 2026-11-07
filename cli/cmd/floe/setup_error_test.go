@@ -108,7 +108,7 @@ func runAgainst(t *testing.T, url string, args ...string) string {
 	resetSharedFlags(t)
 	t.Setenv("FLOE_SERVER", url)
 	t.Cleanup(func() {
-		for _, name := range []string{"output", "yes", "no-report"} {
+		for _, name := range []string{"output", "yes", "no-report", "no-progress"} {
 			if f := receiveCmd.Flags().Lookup(name); f != nil {
 				_ = f.Value.Set(f.DefValue)
 				f.Changed = false

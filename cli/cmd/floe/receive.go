@@ -26,9 +26,10 @@ import (
 )
 
 var (
-	flagOutput     string
-	flagAutoAccept bool
-	flagNoReport   bool
+	flagOutput            string
+	flagAutoAccept        bool
+	flagNoReport          bool
+	flagReceiveNoProgress bool
 )
 
 // errFloeLinkOtherServer ends a receive of a room link made on floe.one while
@@ -72,6 +73,8 @@ func init() {
 		"auto-accept incoming files without confirmation")
 	receiveCmd.Flags().BoolVar(&flagNoReport, "no-report", false,
 		"do not report transferred bytes to Floe's public global counter")
+	receiveCmd.Flags().BoolVar(&flagReceiveNoProgress, "no-progress", false,
+		"do not draw the progress bar (for scripts and CI logs)")
 }
 
 func runReceive(cmd *cobra.Command, args []string) error {
@@ -243,8 +246,9 @@ func runReceive(cmd *cobra.Command, args []string) error {
 	// message.
 	early := conn.Early()
 	opts := transfer.ReceiveOptions{
-		Messages: early.Msgs,
-		Closed:   early.Closed,
+		Messages:      early.Msgs,
+		Closed:        early.Closed,
+		NoProgressBar: flagReceiveNoProgress,
 		// For Ctrl+C's stop: a count of the files committed under their final
 		// names, and the engine's word that it has finished.
 		OnFileDone:     func(transfer.FileDone) { r.saved.Add(1) },
