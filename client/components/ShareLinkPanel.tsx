@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import { useId, type Ref } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Check, CheckCircle2, Copy, Loader2, QrCode, Share2 } from 'lucide-react';
 import { shareStatusComplete, shareStatusEnded, verifiedLineShown, type SendEnd } from '@/lib/sendSummary';
@@ -19,6 +19,9 @@ interface ShareLinkPanelProps {
     // verified words follow it, because the status sentence is rewritten
     // after a finished send and the words must not go with it.
     sendEnd: SendEnd;
+    // On the Copy button, so the page can move focus here when the link
+    // appears in place of Create secure link (P2PTransfer).
+    copyRef?: Ref<HTMLButtonElement>;
 }
 
 /**
@@ -36,6 +39,7 @@ export function ShareLinkPanel({
     status,
     verifiedLine,
     sendEnd,
+    copyRef,
 }: ShareLinkPanelProps) {
     const isComplete = shareStatusComplete(status);
     // A status that has ended does not spin: the spinner beside it said the
@@ -67,6 +71,7 @@ export function ShareLinkPanel({
                     </code>
                     <div className="flex items-center justify-center gap-2 mt-2.5">
                         <button
+                            ref={copyRef}
                             onClick={onCopy}
                             className="relative before:absolute before:-inset-y-2 before:-inset-x-1 w-20 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-md bg-white/[0.04] hover:bg-white/10 border border-white/10 text-zinc-400 hover:text-zinc-100 text-xs font-medium transition-all focus-visible:outline-2 focus-visible:outline-ice"
                             aria-label="Copy link"
