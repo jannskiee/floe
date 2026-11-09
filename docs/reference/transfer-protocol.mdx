@@ -1,8 +1,8 @@
 ---
 title: "Data-channel transfer protocol"
 sidebarTitle: "Transfer protocol"
-description: "The wire format Floe peers speak over the WebRTC data channel: message types, framing, refusal codes, protocol versioning, backpressure, and timeouts."
-keywords: ["wire protocol", "data channel", "webrtc", "protocol version", "backpressure", "refusal codes"]
+description: "The wire format Floe peers speak over the WebRTC data channel: message types, the link key's proof, refusal codes, protocol versioning, and timeouts."
+keywords: ["wire protocol", "data channel", "webrtc", "protocol version", "backpressure", "refusal codes", "link key", "kc"]
 ---
 
 This page describes the protocol two Floe peers speak over the [WebRTC](/glossary#webrtc)
@@ -22,15 +22,16 @@ channel.
 
 ## The short version {#the-short-version}
 
-For each file the sender sends a `metadata` frame, waits for the receiver's `ack`, sends the bytes
-as binary frames, and closes the file with `end`. A text frame is a control message and a binary
-frame is file data, whatever it contains. A peer that stops on purpose says why in an
-`incompatible` frame, usually with a fixed `code`, and the receiver confirms the whole batch with
-`received`.
+A side that holds the [link key](/glossary#link-key) proves it first, in a `kc` frame. Then, for
+each file, the sender sends a `metadata` frame, waits for the receiver's `ack`, sends the bytes as
+binary frames, and closes the file with `end`. A text frame is a control message and a binary frame
+is file data, whatever it contains. A peer that stops on purpose says why in an `incompatible`
+frame, usually with a fixed `code`, and the receiver confirms the whole batch with `received`.
 
 ## The sequence
 
-The sender runs this for each file, in order:
+Ahead of everything else, each side that holds the link's link key sends one [`kc`](#kc). The sender
+then runs this for each file, in order:
 
 1. **`metadata`**, sender to receiver, naming the file and its size.
 2. **`ack`**, receiver back to sender, before any bytes move.
@@ -42,6 +43,9 @@ receiver and from the browser.
 
 What that order does not show:
 
+- **A side with no link key sends no `kc`.** That is a transfer joined by room code, a link with no
+  link key, or a peer older than `floe` 1.12, Floe Desktop 1.1 or a web app image of 1.12.0. It drops
+  a `kc` it receives, as it drops any type it does not know.
 - **Step 3 is zero or more frames.** An empty file is `metadata`, `ack`, `end`, with no binary
   frame between them at all.
 - **A person can sit between steps 1 and 2.** `floe receive` prints `Accept? [Y/n]` and waits for
@@ -139,8 +143,8 @@ list for another client. A change to how either side reads `end`, `received`, `a
 
 The other direction, receiver to sender, carries no file data, so nothing there can be confused
 with a chunk and a sender accepts a control message in either framing. It has to: a Go receiver
-sends `ack`, `received`, and `incompatible` as binary, and a browser receiver sends `ack` as a
-string and `received` and `incompatible` as binary. A sender ignores a frame of more than 1000 bytes.
+sends `kc`, `ack`, `received`, and `incompatible` as binary, and a browser receiver sends `ack` as a
+string and `kc`, `received` and `incompatible` as binary. A sender ignores a frame of more than 1000 bytes.
 
 <Warning>
   If you are building another client, every frame you send to a receiver that is not file data has
@@ -148,6 +152,69 @@ string and `received` and `incompatible` as binary. A sender ignores a frame of 
 </Warning>
 
 ## Message types
+
+### kc {#kc}
+
+Either direction, ahead of every other frame the side sends, and at most once. It is the proof that
+this side holds the link's [link key](/glossary#link-key), and only a side that holds one sends it.
+The web app speaks it, and so do `floe` 1.12 and later and Floe Desktop 1.1 and later.
+A file sender sends it as text and a file receiver as binary, the framing of its direction. A browser
+sends it once the connection opens, and a Go peer as its send or receive begins. One frame ahead
+of it is on purpose: `floe send --to` over the relay cap sends its stop first, and that stop says the cap was
+reached and carries no size. A Ctrl+C during the file walk sends an abort with no `kc` at all, because the proof comes after the walk.
+
+```json kc
+{ "type": "kc", "tag": "<43 base64url characters>" }
+```
+
+<ResponseField name="tag" type="string" required>
+  32 bytes as exactly 43 unpadded base64url characters, 65 bytes in the whole frame with `type` first.
+  A tag that is anything else is malformed, and a side holding the link key reads a malformed `kc` as a failed
+  check. The first `kc` stands. A later one is dropped.
+</ResponseField>
+
+The tag is an HMAC-SHA256 under the link key:
+
+```text kc tag
+tag = HMAC-SHA256(k, "floe-kc-v1" || 0x00 || role || len(roomId) || roomId || hS || hR)
+```
+
+- `k` is the link key: 16 random bytes, written in a link as 22 unpadded base64url characters.
+- `role` is `0x73`, the letter `s`, in the file sender's tag and `0x72`, the letter `r`, in the file
+  receiver's. So one side's proof cannot be replayed at it as the other's. The file sender is not
+  always the side that made the offer: a request link's host offers and receives.
+- `len(roomId)` is one byte, and `roomId` is the room id exactly as the link holds it, letter case
+  included.
+- `hS` and `hR` are the SHA-256 of the DTLS certificates of the file sender and the file receiver, as
+  DTLS actually used them. Each side reads the other's certificate off the connection, not from what
+  the signaling server passed along. A browser that cannot read it falls back to the fingerprint in a
+  strictly shaped description, and past that it cannot check at all.
+
+So a proof holds only for the link key, the room and the two certificates of that one connection. A
+server that sits in the middle runs a connection to each side, with certificates of its own, so a
+proof from one fails on the other. A server that also holds the link key can make a proof that
+passes: see [What the link key cannot see](/how-it-works/known-limitations#what-the-link-key-cannot-see).
+
+What a side does while it has no proof, in the web app, `floe` 1.12 and later and Floe Desktop 1.1 and later, depends on who it is:
+
+| Side | Mode | What it does |
+|---|---|---|
+| A receiver holding the link key | Enforces | Parses, asks, acks and writes nothing. A `metadata`, a binary frame or an over-long text frame ahead of the proof gets [`unverified`](#incompatible), and so does a proof that fails. A browser also refuses an `end` there, where a Go receiver ignores it as it ignores any `end` with no file open. |
+| The page a request link opens, and `floe send --to` on a link with a link key | Enforces | Names no file, and waits 15 seconds for the proof. A wrong proof or none ends it with `unverified`. |
+| `floe send --link-only` | Enforces | The same, and it registers no code. |
+| A request link's host holding the link key | Enforces | As any receiver holding it. The check runs ahead of the request, so nobody is asked. |
+| The web app's Send page, a plain `floe send`, and **Send** in Floe Desktop | Detects | Goes on with no proof, because a receiver by room code, or on an older release, has none. It looks for a proof before the first `metadata` and again at the first `ack`. A wrong proof ends it with `unverified`. |
+
+From a side that enforces, a stop ahead of the proof carries no words of the other side's. A keyed
+Go receiver reads the sender's stop as `the sender stopped the transfer`, and a range miss without
+the sender's `ver`. An enforcing Go sender drops the count and the words of a receiver's stop, and a
+keyed browser receiver refuses any `incompatible` ahead of the proof. A side that only detects shows
+a receiver's stop as it did before, in its own words.
+
+A receiver that holds the link key gives a silent sender 30 seconds from the connection opening. A
+browser then refuses with `unverified`. A Go receiver ends on
+`connected, but no data arrived from the sender within 30s`, and frames that mean nothing do not
+restart that clock.
 
 ### metadata
 
@@ -162,9 +229,9 @@ Sender to receiver, before each file.
   "index": 1,
   "total": 3,
   "totalBytes": 11800000,
-  "pv": 1,
+  "pv": 2,
   "pvMin": 1,
-  "ver": "1.11.7"
+  "ver": "1.12.0"
 }
 ```
 
@@ -201,15 +268,15 @@ Sender to receiver, before each file.
   Lowest protocol version this peer still supports.
 </ResponseField>
 <ResponseField name="ver" type="string">
-  The human release string, and its shape depends on the build. The CLI sends `1.11.7` with no
-  leading `v`, because GoReleaser strips it. The desktop app sends the tag verbatim, as
-  `desktop-v1.0.4`. A build from source sends `dev`. Browser peers omit the field entirely. It is
+  The human release string, and its shape depends on the build. The CLI sends a version such as
+  `1.12.0` with no leading `v`, because GoReleaser strips it. The desktop app sends the tag verbatim,
+  as `desktop-v1.1.0`. A build from source sends `dev`. Browser peers omit the field entirely. It is
   informational and never gates a transfer.
 </ResponseField>
 
 A receiver refuses a `metadata` it cannot read and stops the transfer:
 
-- an `index` or `total` that is not a whole number of at least 1
+- an `index` or `total` that is not a whole number of at least 1, or an `index` greater than `total`
 - an `id` or `fileName` that is not a string
 - a `pv` or `pvMin` that is not a whole number
 - a size that is not a byte count, or a total below the file size
@@ -224,7 +291,7 @@ own error starts with `rejected the sender's file description:`.
 Receiver to sender, once per file, before any bytes move.
 
 ```json ack from a browser receiver
-{ "type": "ack", "id": "3f2b9c1e-...", "offset": 0, "pv": 1, "pvMin": 1, "confirms": true }
+{ "type": "ack", "id": "3f2b9c1e-...", "offset": 0, "pv": 2, "pvMin": 1, "confirms": true }
 ```
 
 <ResponseField name="id" type="string" required>
@@ -268,8 +335,8 @@ Receiver to sender, once per file, before any bytes move.
   sender ignore the field, so it needs no protocol version bump.
 </ResponseField>
 
-```json ack from a current Go receiver
-{ "type": "ack", "id": "3f2b9c1e-...", "offset": 0, "pv": 1, "pvMin": 1, "ver": "1.11.7", "confirms": true }
+```json ack from a Go receiver of floe 1.12 or later
+{ "type": "ack", "id": "3f2b9c1e-...", "offset": 0, "pv": 2, "pvMin": 1, "ver": "1.12.0", "confirms": true }
 ```
 
 ### Binary chunks
@@ -359,10 +426,12 @@ as "this is not about versions" and does not rebuild a version remedy from `pv` 
 what lets a side that is stopping on purpose name the cause without a new message type and without
 a `ProtocolVersion` bump.
 
-A sender that stops says why in `reason` alone:
+A sender that stops says why in `reason` alone, apart from a failed [`kc`](#kc), which also carries
+the code `unverified`:
 
 - Every sender does so for the 2 GB [relay](/glossary#relay) cap.
-- A Go sender does so for a source file that changed while it was being sent.
+- A Go sender does so for a source file that changed while it was being sent, and for a file it can no longer
+  read. `floe` 1.11.7 and earlier and Floe Desktop 1.0.4 and earlier close the connection without a word for the second.
 - floe.one's send page does so for a file it can no longer read, for its own 2-minute wait for
   an ack, and for an error of its own. It also does so for a connection that needs the relay while
   [**Network relay fallback**](/glossary#network-relay-fallback) is off.
@@ -374,7 +443,7 @@ request link, shows wording of its own instead. Every other sender stop sends no
 canceling a send in Floe Desktop closes the connection.
 
 A receiver that stops says why in `reason` and, when the cause is in the table below, in two
-optional fields. `code` names the cause from a fixed list of twelve values, so the sender can use
+optional fields. `code` names the cause from a fixed list of thirteen values, so the sender can use
 its own wording instead of the receiver's prose. `saved` is the number of files the receiver had
 already saved under their final names, or, in a browser, handed to the page.
 
@@ -391,6 +460,7 @@ already saved under their final names, or, in a browser, handed to the page.
 | `save-blocked` | A finished file could not be moved to its final name. The complete file stays under its `.part` name. | Go receivers |
 | `stopped` | The person at the receiver stopped the transfer: Ctrl+C on `floe receive`, or **Cancel drop** or **Close link** in Floe Desktop. A request link's host also sends it to a sender that announces no file within 30 seconds. | `floe receive`, and Floe Desktop for a request link |
 | `time-limit` | A drop through a request link ran for 24 hours. | Floe Desktop, for a request link |
+| `unverified` | This side holds the link key, and the other side's [`kc`](#kc) failed or never came where one was owed, or this side could not read the connection's certificates. The one code either side may send. | Browser receivers and senders, and Go receivers and senders of `floe` 1.12 and Floe Desktop 1.1 and later |
 | `write-failed` | The receiver could not create a file or finish writing one, for a reason other than a full drive. A browser receiver sends it when the tab runs out of memory or an internal error stops it. | Go receivers and browser receivers |
 
 `over-approved` covers each way a request-link drop can stray from its first `metadata`:
@@ -406,7 +476,7 @@ A drop refused at its first `metadata` gets `over-approved` before anyone is ask
 data has arrived. Only a client that is not Floe's sends such a drop.
 
 Each code travels with a stock `reason` for peers that show it as written, which floe.one's send
-page does for every code but `hash-mismatch`:
+page does for every code but `hash-mismatch` and `unverified`:
 
 | `code` | Its stock `reason` |
 |---|---|
@@ -421,6 +491,7 @@ page does for every code but `hash-mismatch`:
 | `save-blocked` | `receiver could not move a finished file into place` |
 | `stopped` | `receiver stopped the transfer` |
 | `time-limit` | `receiver stopped the transfer at the 24-hour limit` |
+| `unverified` | `receiver could not confirm the sender holds this link`, or, from a sender, `sender could not confirm the receiver holds this link` |
 | `write-failed` | `receiver could not finish writing a file`, or `receiver could not create a file`. A browser receiver sends `receiver stopped because of an internal error`, or one that starts `receiver ran out of memory after receiving` |
 
 Three receiver stops carry a `reason` and no `code`:
@@ -437,7 +508,8 @@ Older peers ignore both and show `reason`. A reader that does not know a `code` 
 as if it had none. No reader displays either value as sent, and each clamps `saved` to the number
 of files in the transfer. For a `code` it knows, the Go engine and the request-link page show a
 fixed sentence of their own and nothing of the receiver's `reason`. floe.one's send page has its
-own sentence for `hash-mismatch` only, and shows the cleaned `reason` for every other stop.
+own sentences for `hash-mismatch` and `unverified` only, and shows the cleaned `reason` for every
+other stop.
 
 A frame with no usable `reason` gets fallback words. A browser receiver shows "The sender stopped
 the transfer.", and floe.one's send page shows "The other side rejected the transfer." A Go peer
@@ -463,17 +535,38 @@ because it does not close the connection afterward.
 {
   "type": "incompatible",
   "reason": "receiver stopped the transfer",
-  "pv": 1,
+  "pv": 2,
   "pvMin": 1,
-  "ver": "1.11.7",
+  "ver": "1.12.0",
   "code": "stopped",
   "saved": 2
 }
 ```
 
-No two released peers can produce a version mismatch, because every release speaks version 1. A
-Floe Desktop 1.0.4 receiver that was offered a file by a sender announcing only version 2 would
-answer with this:
+An `unverified` stop is the one coded stop whose range is narrower, from either side: `pv` and
+`pvMin` are both 2, the first version that speaks `kc`. A peer that speaks version 2 overlaps that range and reads
+the code. A peer that speaks only version 1 misses it and prints its own update remedy:
+
+```json incompatible for a failed proof
+{
+  "type": "incompatible",
+  "reason": "sender could not confirm the receiver holds this link",
+  "pv": 2,
+  "pvMin": 2,
+  "ver": "1.12.0",
+  "code": "unverified"
+}
+```
+
+Two released peers can miss each other's ranges this way. `floe send --link-only` from `floe` 1.12
+or later sends this frame to a receiver that shows no proof. A `floe receive` from 1.10.8 to 1.11.7
+then prints `Cannot transfer: your floe is too old for this peer.` and the update remedy. Before
+1.10.8 it prints
+`connection closed before any file arrived (the sender canceled, or the transfer was blocked)`.
+
+A receiver would answer a `metadata` in the same way, in place of the ack. No released sender gives it
+cause, since every release still accepts version 1. A Floe Desktop 1.0.4 receiver that was offered a
+file by a sender announcing only version 2 would answer with this:
 
 ```json incompatible for a version mismatch
 {
@@ -492,15 +585,18 @@ what lets peers on different releases interoperate while still catching a genuin
 change cleanly.
 
 - Each peer advertises `pv`, the highest version it speaks, and `pvMin`, the lowest it still
-  supports. **Both are 1 today.**
+  supports. The web app, `floe` 1.12 and later and Floe Desktop 1.1 and later send **`pv` 2 and
+  `pvMin` 1**. Older releases send 1 for both.
 - Two peers are compatible when their ranges overlap:
   `max(localMin, remoteMin) <= min(localMax, remoteMax)`. They operate at the highest common
   version.
-- A peer that omits the fields is treated as version 1, so every release ever shipped stays
-  compatible.
-- When the ranges miss, the receiver sends `incompatible`, and each side prints a remedy for its
-  own surface. That is `floe update` on the CLI, the Microsoft Store or the download page on the
-  desktop, and a page refresh in the browser.
+- A peer that omits the fields is treated as version 1, so this check passes against every release
+  ever shipped. It is not the whole of compatibility: the [Changelog](/changelog) states the floors
+  that were measured.
+- When the ranges miss, a receiver sends `incompatible` in place of the ack, and each side prints a
+  remedy for its own surface. That is `floe update` on the CLI, the Microsoft Store or the download
+  page on the desktop, and a page refresh in the browser. The `unverified` stop misses a version 1
+  peer's range on purpose, with the same result.
 
 Which side is named depends on who is reading. No current peer trusts the wire `reason` for a
 version mismatch: both implementations rebuild the message locally from the frame's `pv` and
@@ -512,8 +608,15 @@ the older one.
 
 Constants live in `cli/engine/transfer/protocol.go` as `ProtocolVersion` and `MinProtocolVersion`,
 and in `client/lib/transfer/protocol.ts` as `PROTOCOL_VERSION` and `MIN_PROTOCOL_VERSION`. Bump
-`ProtocolVersion` only on a breaking wire change, and raise `MinProtocolVersion` only when
-deliberately dropping support for an old format. Keep the two implementations in step. A test on
+`ProtocolVersion` on a breaking wire change, and raise `MinProtocolVersion` only when deliberately
+dropping support for an old format. The move to 2 is the one bump that is not a breaking change, on
+purpose. Version 2 marks a peer that speaks `kc`. An older peer drops a `kc` frame, and its range of
+1 to 1 overlaps 1 to 2, so nothing stops working. A later change that makes every sender refuse an
+unproven receiver needs a stop that misses only the peers that do not speak `kc`, and if every peer
+that does still said 1, it would tell them too that they are too old. No decision reads `pv` to pick a
+check: a side acts on holding the link key.
+
+Keep the two implementations in step. A test on
 each side pins both numbers and names its twin: `TestProtocolVersionPinnedToClient` in
 `cli/engine/transfer/protocol_test.go`, and the `constants` block in
 `client/lib/transfer/protocol.test.ts`. A bump cannot land on one side without a failing test
@@ -580,11 +683,13 @@ See [Known limitations](/how-it-works/known-limitations).
 
 ## Timeouts
 
-These are the waits the Go engine enforces around a transfer. The browser shares three of them. They
+These are the waits the Go engine enforces around a transfer. The browser shares five of them. They
 are the default 120-second ack deadline, the 2-second wait for an abort reason to reach the wire,
-and, on the request-link page, the 10-second wait for the server to answer a `request-join`. The
-request-link page waits its own longer deadline for every file's ack, as `floe send --to` does,
-because the host acks a file only after it has committed the one before.
+the 15-second wait for a [`kc`](#kc) on the request-link page, the 30-second wait for a silent sender
+on a receiving page that holds the link key, and, on the request-link page, the 10-second wait for
+the server to answer a `request-join`. The request-link page waits its own longer deadline for every
+file's ack, as `floe send --to` does, because the host acks a file only after it has committed the one
+before.
 
 ### While connecting {#while-connecting}
 
@@ -594,10 +699,12 @@ because the host acks a file only after it has committed the one before.
 | ICE, [DTLS](/glossary#dtls), and the data channel opening | 30 s | `timed out establishing a connection` |
 | Data channel grace after the peers connect | 10 s | `connected but the data channel did not open` |
 | Server answering a `request-join` | 10 s | `floe send --to` ends with `Request links are not available on this Floe server.` |
+| An enforcing sender waiting for the receiver's [`kc`](#kc), in `floe` 1.12 and later | 15 s | `Couldn't confirm the receiver. They may need to run floe update, or open the link in a browser.` from `floe send --link-only`, or `Couldn't confirm their computer. Nothing was sent.` from `floe send --to` |
 
 Two setup failures are not timeouts. When ICE or DTLS fails before the channel opens, the engine
-reports `connection failed (state: failed)`, with `disconnected` or `closed` in place of `failed`
-as the case may be. The CLI prints it as `WebRTC setup failed: connection failed (state: failed)`.
+reports `connection failed (state: failed)`, with `closed` in place of `failed` as the case may be.
+The CLI prints it as `WebRTC setup failed: connection failed (state: failed)`. A few seconds of
+silence does not end the wait, because ICE recovers from it when the path comes back.
 A setup that this side closed itself ends with `closed before the connection was established`.
 
 ### While sending {#while-sending}
@@ -618,7 +725,7 @@ caller that puts the deciding person behind a link raises it through `SendOption
 
 | Phase | Limit | What happens |
 |---|---|---|
-| Receiver connected, no data yet | 30 s | `connected, but no data arrived from the sender within 30s` |
+| Receiver connected, no data yet | 30 s. In `floe` 1.12 and Floe Desktop 1.1 and later, frames ahead of a link key's proof do not restart it | `connected, but no data arrived from the sender within 30s` |
 | Receiver mid-transfer with no progress | 60 s | `transfer stalled`, and the unfinished file is deleted |
 | Receiver grace before teardown | 5 s, then up to 35 s from sending `received` while that frame is still in its send buffer | Lets the final acknowledgment reach the sender; a sender's close ends it at once |
 

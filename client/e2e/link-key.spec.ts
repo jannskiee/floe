@@ -31,7 +31,7 @@ import {
     KEY_UNAVAILABLE_SENDER,
 } from '../lib/linkKeyCopy';
 import { SENDER_REJECTED } from '../lib/senderStop';
-import { ENFORCE_LINK_KEYS, ENFORCE_SHARE_LINK_KEY, KEY_CHECK_WAIT_MS, MAKE_LINK_KEYS } from '../lib/transfer/protocol';
+import { ENFORCE_LINK_KEYS, ENFORCE_SHARE_LINK_KEY, KEY_CHECK_WAIT_MS, KEY_RECEIVE_WAIT_MS, MAKE_LINK_KEYS } from '../lib/transfer/protocol';
 import {
     KEYED_SHARE_LINK,
     SERVER_URL,
@@ -424,13 +424,14 @@ async function wordmarkAsks(page: Page): Promise<boolean> {
  * A file sender that takes the first seat, with one small file to give.
  *
  * proof: good, bad or none, as above. noise: signals to send the page ahead of the
- * real offer, and one more offer after the connection is up.
+ * real offer, and one more offer after the connection is up. silent: a connection with
+ * nothing on it, which is what a middle that kept the file for itself leaves this page.
  */
 async function scriptedSender(
     page: Page,
-    o: { room: string; key: string; proof: 'good' | 'bad' | 'none'; noise?: boolean; binaryFirst?: boolean },
+    o: { room: string; key: string; proof: 'good' | 'bad' | 'none'; noise?: boolean; binaryFirst?: boolean; silent?: boolean },
 ): Promise<void> {
-    await page.evaluate(({ room, key, proof, noise, binaryFirst, wrong, serverUrl }) => new Promise<void>((resolve, reject) => {
+    await page.evaluate(({ room, key, proof, noise, binaryFirst, silent, wrong, serverUrl }) => new Promise<void>((resolve, reject) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const w = window as any;
         const state: ScriptedState = { frames: [], closed: false, pageProofGood: null };
@@ -475,6 +476,7 @@ async function scriptedSender(
                 }
             });
             p.on('connect', async () => {
+                if (silent) return;
                 if (noise) signal(offer);
                 if (binaryFirst) p.send(FILE);
                 if (proof !== 'none') {
@@ -493,7 +495,7 @@ async function scriptedSender(
                 }));
             });
         });
-    }), { ...o, wrong: newKey(), serverUrl: SERVER_URL });
+    }), { noise: false, binaryFirst: false, silent: false, ...o, wrong: newKey(), serverUrl: SERVER_URL });
 }
 
 // The two rollback levers (protocol.ts) are a one-line deploy for a production problem.
@@ -765,7 +767,7 @@ test.describe('another link in the same tab', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('a keyed receiving page', () => {
-    const open = async (browser: Browser, peer: Page, proof: 'good' | 'bad' | 'none', extra: { noise?: boolean; binaryFirst?: boolean } = {}) => {
+    const open = async (browser: Browser, peer: Page, proof: 'good' | 'bad' | 'none', extra: { noise?: boolean; binaryFirst?: boolean; silent?: boolean } = {}) => {
         const room = randomUUID();
         const key = newKey();
         await scriptedSender(peer, { room, key, proof, ...extra });
@@ -831,6 +833,51 @@ test.describe('a keyed receiving page', () => {
             }
         });
     }
+
+    // What a middle leaves a receiver when it took the file from the real sender and
+    // keeps quiet: a connection with nothing on it. No frame ever arrives to judge, so
+    // this is the page's own clock, the Go receiver's idle clock (final audit report 27 F2).
+    test('refuses a sender that connects and says nothing, once the wait is over', async ({ browser }) => {
+        test.setTimeout(KEY_RECEIVE_WAIT_MS + 45_000);
+        const peer = await scriptedPage(browser);
+        const { ctx, page } = await open(browser, peer.page, 'none', { silent: true });
+        try {
+            await expect(page.getByText('Connected', { exact: false }).first()).toBeVisible({ timeout: 30_000 });
+            await expect(page.getByText(KEY_FAILED_RECEIVER, { exact: true })).toHaveCount(0);
+            await expect(page.getByText(KEY_FAILED_RECEIVER, { exact: true })).toBeVisible({ timeout: KEY_RECEIVE_WAIT_MS + 15_000 });
+            await expect.poll(async () => (await scriptedState(peer.page)).frames.some((f) => f.type === 'incompatible'), { timeout: 10_000 }).toBe(true);
+            const refusal = (await scriptedState(peer.page)).frames.find((f) => f.type === 'incompatible') as ScriptedFrame;
+            expect(refusal.code).toBe('unverified');
+            await expect.poll(async () => (await scriptedState(peer.page)).closed, { timeout: 10_000 }).toBe(true);
+        } finally {
+            await ctx.close();
+            await peer.close();
+        }
+    });
+
+    // A failed check is this page's last word. Whoever runs the server can drop the
+    // socket, and a re-join would clear the banner and put the page back on waiting
+    // (final audit report 27 F5).
+    test('keeps a failed check through a socket that drops and comes back', async ({ browser }) => {
+        const peer = await scriptedPage(browser);
+        const { ctx, page } = await open(browser, peer.page, 'bad');
+        try {
+            const banner = page.getByText(KEY_FAILED_RECEIVER, { exact: true });
+            await expect(banner).toBeVisible({ timeout: 30_000 });
+            await expect(page.getByText('Ready', { exact: true })).toBeVisible({ timeout: 10_000 });
+            await ctx.setOffline(true);
+            await expect(page.getByText('Offline', { exact: true })).toBeVisible({ timeout: 15_000 });
+            await ctx.setOffline(false);
+            await expect(page.getByText('Ready', { exact: true })).toBeVisible({ timeout: 15_000 });
+            // Long enough for a re-join to have cleared it.
+            await page.waitForTimeout(2_000);
+            await expect(banner).toBeVisible();
+            await expect(page.getByText('Waiting for the sender', { exact: false })).toHaveCount(0);
+        } finally {
+            await ctx.close();
+            await peer.close();
+        }
+    });
 
     test('refuses file data ahead of any proof, and keeps none of it', async ({ browser }) => {
         const peer = await scriptedPage(browser);
@@ -998,6 +1045,31 @@ test.describe('a sending page', () => {
         }
     });
 
+    // A failed check is this page's last word. Whoever runs the server can seat someone
+    // else, and a new peer would clear the account of what happened (report 27 F5).
+    test('keeps a failed check when someone else takes the seat', async ({ browser }, testInfo) => {
+        const first = await scriptedPage(browser);
+        const { ctx, page, room, key } = await open(browser, testInfo.outputDir);
+        try {
+            await scriptedReceiver(first.page, { room, key, proof: 'bad', then: 'ack' });
+            const banner = page.getByText(KEY_FAILED_SENDER, { exact: true });
+            await expect(banner).toBeVisible({ timeout: 30_000 });
+            await first.close();
+            const second = await scriptedPage(browser);
+            try {
+                await scriptedReceiver(second.page, { room, key, proof: 'good', then: 'ack' });
+                // Long enough for a new peer to have offered and cleared it.
+                await page.waitForTimeout(3_000);
+                await expect(banner).toBeVisible();
+                expect((await scriptedState(second.page)).frames).toEqual([]);
+            } finally {
+                await second.close();
+            }
+        } finally {
+            await ctx.close();
+        }
+    });
+
     test('lets go of the tab after a failed check', async ({ browser }, testInfo) => {
         const peer = await scriptedPage(browser);
         const { ctx, page, room, key } = await open(browser, testInfo.outputDir);
@@ -1041,7 +1113,7 @@ test.describe('a sending page', () => {
                 await expect.poll(async () => (await readsThenTurnsState(peer.page)).closed, { timeout: 60_000 }).toBe(true);
                 expect((await readsThenTurnsState(peer.page)).bytes).toBeGreaterThanOrEqual(MIB);
                 // The engine or the close handler, whichever hears it first.
-                await expect(page.getByText(/^(Connection lost|The connection closed before the transfer finished)/)).toBeVisible({ timeout: 15_000 });
+                await expect(page.getByText(/^(Connection lost|The connection closed before the transfer finished|Connection failed)/)).toBeVisible({ timeout: 15_000 });
                 await noneOfThatWords(page);
             } finally {
                 await ctx.close();

@@ -32,6 +32,8 @@
 
 Floe sends files directly from one device to another over an encrypted WebRTC connection. There is no account and no upload: files are never stored on a server, so both people need to be online at the same time. The signaling server only helps the two devices find each other. When a direct path is blocked, a TURN relay carries the transfer, still encrypted end to end, up to 2 GB per relayed transfer.
 
+A link also carries a link key that no server receives, so a receiver can catch a signaling server that steps in between. A room code carries no link key, and [Known limitations](https://www.floe.one/docs/how-it-works/known-limitations) says what the check misses.
+
 Each file is checked when it arrives, against its size and, when the sender provides one, its SHA-256. A file that fails is deleted and the transfer stops (see [File checks](https://www.floe.one/docs/how-it-works/file-checks)). Floe does not scan files for malware.
 
 The desktop app and the CLI contain no analytics or telemetry. They send only two things: an anonymous byte count, which the receiving side reports to the public counter, and an update check against GitHub. The desktop app checks at most once a day, and never in the Microsoft Store build. The CLI checks only when you run `floe version` or `floe update`. Both can be turned off. The floe.one website uses cookieless, anonymous analytics and error monitoring, described in [Security and privacy](https://www.floe.one/docs/security-privacy).
@@ -54,7 +56,7 @@ Floe Desktop runs on Windows 10 and 11 (x64). The Microsoft Store build is signe
 
 Prefer a direct download? An installer and a portable build are on the [download page](https://www.floe.one/download). Setup details are in the [desktop installation guide](https://www.floe.one/docs/desktop/installation).
 
-Request links let one person send files straight to your PC. You make a one-time link in Floe Desktop, and they open it in a browser or run `floe send <files> --to <link>`. The browser page is supported in current Chrome and Edge on a computer. Nothing is saved until you accept, unless you turn on Auto-accept for that link. To make a link, see [Request links](https://www.floe.one/docs/desktop/request-links). If someone sent you one, see [Sending through a request link](https://www.floe.one/docs/web-app/request-links).
+Request links let one person send files straight to your PC. You make a one-time link in Floe Desktop, and they open it in a browser or run `floe send <files> --to "<link>"`, which needs `floe` 1.12 or later for a link from Floe Desktop 1.1 or later. The browser page is supported in current Chrome and Edge on a computer. Nothing is saved until you accept, unless you turn on Auto-accept for that link. To make a link, see [Request links](https://www.floe.one/docs/desktop/request-links). If someone sent you one, see [Sending through a request link](https://www.floe.one/docs/web-app/request-links).
 
 ## CLI
 
@@ -68,7 +70,7 @@ curl -fsSL https://floe.one/install.sh | sh   # Linux, or macOS without Homebrew
 
 Send with `floe send photo.jpg`, receive with `floe receive olive-tiger-castle`, and update with `floe update`. An install that Homebrew, Scoop, or winget owns updates through that package manager instead, and `floe update` prints the command to run.
 
-Senders in the CLI and the desktop app produce both a short code and a browser link, so the receiver can join from any client. `floe send <files> --to <link>` sends through a [request link](https://www.floe.one/docs/cli/send#send-through-a-request-link) made in Floe Desktop instead of creating a code. Other install channels, checksum verification, and PATH setup are covered in [Install the CLI](https://www.floe.one/docs/cli/installation).
+Senders in the CLI and the desktop app produce both a short code and a browser link, so the receiver can join from any client. `floe send <files> --to "<link>"` sends through a [request link](https://www.floe.one/docs/cli/send#send-through-a-request-link) made in Floe Desktop instead of creating a code. Other install channels, checksum verification, and PATH setup are covered in [Install the CLI](https://www.floe.one/docs/cli/installation).
 
 ## Self-hosting
 
@@ -91,7 +93,7 @@ The [FAQ](https://www.floe.one/docs/faq) answers the questions that come up most
 
 Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, environment variables, and the pull request process. If you encounter a bug or have a feature suggestion, please open an [issue](https://github.com/jannskiee/floe/issues).
 
-Looking for a first issue? Start a comment with `/take` on one of the [good first issues nobody holds yet](https://github.com/jannskiee/floe/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22%20no%3Aassignee%20-linked%3Apr) to have it assigned to you.
+Looking for a first issue? Start a comment with `/take` on one of the [good first issues nobody holds yet](https://github.com/jannskiee/floe/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22%20no%3Aassignee%20-linked%3Apr) to have it assigned to you. The [help wanted issues nobody holds yet](https://github.com/jannskiee/floe/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22help%20wanted%22%20no%3Aassignee%20-linked%3Apr) work the same way, and they are open to returning contributors too.
 
 This project follows the [Code of Conduct](CODE_OF_CONDUCT.md). To report a vulnerability, see [SECURITY.md](SECURITY.md).
 

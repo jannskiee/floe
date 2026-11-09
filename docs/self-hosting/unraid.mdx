@@ -282,8 +282,14 @@ release. The containers store no files or application settings in volumes, so
 there is no appdata directory to migrate. The one thing to keep is the policy
 folder, if you added one for request links.
 
+Update Floe-Client to 1.12.0 before Floe Desktop 1.1 reaches your users. Every request link Floe
+Desktop 1.1 and later makes holds a [link key](/glossary#link-key), and an older client reads that
+as an incomplete link. The Microsoft Store updates Floe Desktop on its own, and a container here
+moves only when you apply its update. See
+[Keep the client and server on one version](/self-hosting/request-links#matching-versions).
+
 To pin a version, change the tag at the end of each template's **Repository** field, for example
-`ghcr.io/jannskiee/floe-server:latest` to `ghcr.io/jannskiee/floe-server:1.11.7`. Change both
+`ghcr.io/jannskiee/floe-server:latest` to `ghcr.io/jannskiee/floe-server:1.12.0`. Change both
 templates to the same version, because the client and the server should match. The tags you can
 use are in [Container images](/self-hosting/images#tags).
 

@@ -1,1 +1,1 @@
-@{{login}} this issue isn't open for claiming: `/take` works on good first issues only, which are kept for a first pull request. If you'd like to work on this one, ask here first and wait for the maintainer's answer.
+@{{login}} this issue isn't open for claiming: `/take` works only on issues labeled good first issue or help wanted. If you'd like to work on this one, ask here first and wait for the maintainer's answer.

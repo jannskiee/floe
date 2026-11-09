@@ -299,3 +299,102 @@ func TestReceiveDeclinedAtThePromptLeavesNoOutputFolder(t *testing.T) {
 		t.Fatalf("a declined receive left %s behind (stat error %v)", filepath.Join(base, "new"), statErr)
 	}
 }
+
+// TestExpandHome: a leading ~ is the home folder, by Floe Desktop's rule
+// (expandSaveDir in desktop/savedir.go), and anything else is left as typed.
+func TestExpandHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	cases := map[string]string{
+		"~":           home,
+		"~/":          home,
+		"~/Downloads": filepath.Join(home, "Downloads"),
+		"~/a/../b":    filepath.Join(home, "b"),
+		"~user/x":     "~user/x",
+		"~x":          "~x",
+		"./~":         "./~",
+		"a/~/b":       "a/~/b",
+		".":           ".",
+	}
+	if runtime.GOOS == "windows" {
+		// Elsewhere a backslash is a character of a name, not a separator.
+		cases[`~\Downloads`] = filepath.Join(home, "Downloads")
+	}
+	for in, want := range cases {
+		if got, err := expandHome(in); err != nil || got != want {
+			t.Errorf("expandHome(%q) = %q, %v, want %q", in, got, err, want)
+		}
+	}
+
+	// The home folder is read only for a value that starts with ~.
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+	if got, err := expandHome("inbox"); err != nil || got != "inbox" {
+		t.Errorf("expandHome(%q) with no home = %q, %v, want it as typed", "inbox", got, err)
+	}
+	if got, err := expandHome("~/inbox"); err == nil {
+		t.Errorf("expandHome(%q) with no home = %q, want an error", "~/inbox", got)
+	}
+}
+
+// TestReceiveRefusesATildeOutputItCannotMakeBeforeItJoins: ~/taken/sub, with
+// a file at ~/taken, is read from the home folder before the check that keeps
+// a code retryable, so it is refused before any network call, under the path
+// as typed.
+func TestReceiveRefusesATildeOutputItCannotMakeBeforeItJoins(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile(filepath.Join(home, "taken"), []byte("a file, not a folder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const out = "~/taken/sub"
+	calls := stubNetwork(t, "")
+	_, stderr, err := receiveInto(t, nil, out, "https://files.example.com/#room="+uuid.New().String(), "--server", closedServer)
+	if want := "Error: cannot create output directory " + out + ": "; err == nil || !strings.HasPrefix(stderr, want) {
+		t.Fatalf("the receive ended on %q (error %v), want it to begin %q", stderr, err, want)
+	}
+	if n, c := calls.ice.Load(), calls.connect.Load(); n != 0 || c != 0 {
+		t.Fatalf("ICE fetches %d, signaling connects %d before the folder was refused; want none", n, c)
+	}
+	if _, statErr := os.Lstat("~"); !os.IsNotExist(statErr) {
+		t.Fatalf("a folder named ~ is in the current folder (stat error %v)", statErr)
+	}
+}
+
+// TestReceiveSavesATildeOutputInTheHomeFolder: -o ~/inbox, as Windows
+// PowerShell 5.1 or a quoted path passes it on, saves into the home folder's
+// inbox, not into a folder named ~ in the current one.
+func TestReceiveSavesATildeOutputInTheHomeFolder(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Chdir(cwd)
+	url, _ := plainRoom(t)
+	src := filepath.Join(t.TempDir(), "only.txt")
+	if err := os.WriteFile(src, []byte("only file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	room := uuid.New().String()
+	_, result := engineSender(t, url, room, []string{src})
+	_, stderr, err := receiveInto(t, nil, "~/inbox", url+"/#room="+room, "--server", url, "-y")
+	if err != nil {
+		t.Fatalf("the receive failed: %v\nstderr:\n%s", err, stderr)
+	}
+	select {
+	case sendErr := <-result:
+		if sendErr != nil {
+			t.Fatalf("the send failed: %v", sendErr)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the send never ended")
+	}
+	if got, readErr := os.ReadFile(filepath.Join(home, "inbox", "only.txt")); readErr != nil || string(got) != "only file" {
+		t.Fatalf("the file in the home folder's inbox: %q, %v", got, readErr)
+	}
+	if _, statErr := os.Lstat(filepath.Join(cwd, "~")); !os.IsNotExist(statErr) {
+		t.Fatalf("the receive made a folder named ~ in the current folder (stat error %v)", statErr)
+	}
+}

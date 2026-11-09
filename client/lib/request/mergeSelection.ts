@@ -11,12 +11,15 @@ export interface RequestFile {
 /**
  * Merge new files into a selection, keeping the first of any repeat.
  *
- * Two picks of the same folder, or a folder and then a file inside it, produce
- * the same relative path twice. Keeping the first is the answer that matches
- * what the host does with them: it never overwrites, so a duplicate would arrive
- * as a second numbered copy of a file the visitor picked once. Size is part of
- * the key because two genuinely different files share a path only if one changed
- * on disk between picks, and then the visitor does mean both.
+ * A file picked again keeps its relative path, size and modified time, so all
+ * three key the merge, the main page's rule with the path in place of the
+ * name. Two different files can share a path and a size: one name picked from
+ * two folders with Choose files, where the path is the bare name, or two
+ * folders with one name, such as two scanners' Scans. Keeping both is the
+ * answer that matches what the host does with them: it never overwrites, so a
+ * second file of the same path arrives as a numbered copy rather than
+ * replacing the first. Two different files that match in all three still
+ * collapse into one, as the main page accepted (#692).
  *
  * It lives here rather than in hooks/useRequestFiles.ts so that
  * mergeSelection.test.ts covers it: client/vitest.config.ts collects lib/ and
@@ -26,12 +29,15 @@ export function mergeSelection(
     previous: RequestFile[],
     incoming: { file: File; relativePath: string }[]
 ): RequestFile[] {
-    const key = (relativePath: string, size: number) => `${size}\u0000${relativePath}`;
-    const seen = new Set(previous.map((f) => key(f.relativePath, f.file.size)));
+    const key = (relativePath: string, size: number, lastModified: number) =>
+        `${relativePath}\u0000${size}\u0000${lastModified}`;
+    const seen = new Set(
+        previous.map((f) => key(f.relativePath, f.file.size, f.file.lastModified))
+    );
     const merged = [...previous];
 
     for (const candidate of incoming) {
-        const k = key(candidate.relativePath, candidate.file.size);
+        const k = key(candidate.relativePath, candidate.file.size, candidate.file.lastModified);
         if (seen.has(k)) continue;
         seen.add(k);
         merged.push({ id: uuidv4(), file: candidate.file, relativePath: candidate.relativePath });

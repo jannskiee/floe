@@ -18,15 +18,16 @@
 // for it: while the prompt is held, an in-app link becomes a full page load,
 // which does (fullLoadTarget, W2-01).
 //
-// A dropped folder (A8a-B6). The page has no folder send, and the pseudo-file
-// Chromium hands over for a folder was added like any file and failed at its
-// turn mid-batch, after the files before it had gone. It is refused at the
-// drop instead, as the request page refuses one it cannot read.
+// A dropped folder (A8a-B6). The pseudo-file Chromium hands over for a folder
+// was added like any file and failed at its turn mid-batch, after the files
+// before it had gone. A folder is walked from its entries now
+// (lib/folderDrop.ts); where the browser gives none, it is refused at the
+// drop, as the request page refuses one it cannot read.
 
 import type { SendEnd } from './sendSummary';
 
 /** Fixed copy, shown under the drop area. */
-export const FOLDER_DROP_REFUSED = 'Folders cannot be sent from this page. Add the files inside it, or zip it first.';
+export const FOLDER_DROP_REFUSED = 'This browser cannot send a folder. Add the files inside it, or zip it first.';
 
 /**
  * Whether leaving the main page now would cost something. A sending page from
@@ -140,28 +141,6 @@ export function samePageTop(click: LinkClick, here: string): boolean {
     const { to, from } = urls;
     if (to.origin !== from.origin) return false;
     return to.pathname === from.pathname && to.search === from.search && to.hash === '';
-}
-
-interface ItemLike {
-    kind: string;
-    webkitGetAsEntry?: () => { isDirectory: boolean } | null;
-}
-
-/**
- * Whether a drop carries a folder: true or false when the browser hands out
- * entries, null when it does not (the caller then reads the files instead).
- * Must run during the drop event: the item list is empty after it.
- */
-export function dropHasFolder(items: ArrayLike<ItemLike> | null | undefined): boolean | null {
-    if (!items) return null;
-    let sawEntryApi = false;
-    for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        if (item.kind !== 'file' || typeof item.webkitGetAsEntry !== 'function') continue;
-        sawEntryApi = true;
-        if (item.webkitGetAsEntry()?.isDirectory) return true;
-    }
-    return sawEntryApi ? false : null;
 }
 
 /** True when the first byte of every file can be read. A folder's

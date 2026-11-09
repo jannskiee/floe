@@ -45,6 +45,12 @@ export const KEY_CHECK_SDP_FALLBACK = true;
 // receive-idle and request open-channel clocks.
 export const KEY_CHECK_WAIT_MS = 15_000;
 
+// How long a keyed receiving page waits, from the connection opening, for a sender
+// that says nothing at all. Mirrors receiveIdleTimeout in cli/engine/transfer, the Go
+// receiver's clock for the same silence, which a Go test holds to this line. Not
+// KEY_CHECK_WAIT_MS: a Go sender's proof comes after its file walk.
+export const KEY_RECEIVE_WAIT_MS = 30_000;
+
 // The reasons a failed check puts on the wire, one voiced from each side. No current
 // peer shows them: each reads the code and shows its own sentence, and the words are
 // for a peer that prints a reason. CodeUnverified.WireReason and

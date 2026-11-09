@@ -2,12 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { mergeSelection, type RequestFile } from './mergeSelection';
 
 // The dedupe rule mergeSelection argues from the host's behavior: the host
-// never overwrites, so a repeated relative path of the same size would arrive
-// as a second numbered copy of one file. It lived in hooks/, which the vitest
-// globs do not collect, until the S1-WEB-02 review asked for it to move here.
+// never overwrites, so one file picked twice would arrive as a second numbered
+// copy. fileOf fixes lastModified so its picks model that one file. It lived
+// in hooks/, which the vitest globs do not collect, until the S1-WEB-02 review
+// asked for it to move here.
 
 function fileOf(size: number, name = 'f.bin'): File {
-    return new File([new Uint8Array(size)], name);
+    return new File([new Uint8Array(size)], name, { lastModified: 0 });
 }
 
 function pick(relativePath: string, size: number) {
@@ -53,5 +54,22 @@ describe('mergeSelection', () => {
         // "12" + "x" are different keys.
         const merged = mergeSelection([], [pick('2x', 1), pick('x', 12)]);
         expect(merged).toHaveLength(2);
+    });
+
+    it('keeps two different files that share a path and a size', () => {
+        const scanA = new File([new Uint8Array(4)], 'scan0001.tif', { lastModified: 1_000 });
+        const scanB = new File([new Uint8Array(4)], 'scan0001.tif', { lastModified: 2_000 });
+        const first = mergeSelection([], [{ file: scanA, relativePath: 'Scans/scan0001.tif' }]);
+        const merged = mergeSelection(first, [{ file: scanB, relativePath: 'Scans/scan0001.tif' }]);
+        expect(merged).toHaveLength(2);
+        expect(merged[1].file).toBe(scanB);
+    });
+
+    it('still keeps one of a file picked twice', () => {
+        const picked = () => ({
+            file: new File([new Uint8Array(4)], 'a.txt', { lastModified: 5_000 }),
+            relativePath: 'notes/a.txt',
+        });
+        expect(mergeSelection(mergeSelection([], [picked()]), [picked()])).toHaveLength(1);
     });
 });

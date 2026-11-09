@@ -139,6 +139,10 @@ func TestPrecheckDropWalksLikeTheSend(t *testing.T) {
 	if n, total, err := PrecheckDrop([]string{shoot, single}, "1.10.11"); err != nil || n != 4 || total != 22 {
 		t.Fatalf("PrecheckDrop = (%d, %d, %v), want (4, 22, nil)", n, total, err)
 	}
+	// A path given twice is counted once, as the send will send it.
+	if n, total, err := PrecheckDrop([]string{shoot, single, single}, "1.10.11"); err != nil || n != 4 || total != 22 {
+		t.Fatalf("PrecheckDrop with notes.txt twice = (%d, %d, %v), want (4, 22, nil)", n, total, err)
+	}
 
 	var pathErr *fs.PathError
 	if _, _, err := PrecheckDrop([]string{filepath.Join(dir, "missing.mov")}, "1.10.11"); !errors.As(err, &pathErr) {

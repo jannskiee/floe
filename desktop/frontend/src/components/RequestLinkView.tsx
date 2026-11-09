@@ -49,7 +49,7 @@ export const DECLINED_LINE_ID = 'floe-declined-line';
  *  another link, Keep waiting): the auto-repeat of the key that pressed the
  *  control before it must not press this one (R2-07). A first press still
  *  does. */
-function ignoreRepeat(e: KeyboardEvent<HTMLButtonElement>) {
+export function ignoreRepeat(e: KeyboardEvent<HTMLButtonElement>) {
     if (e.repeat) e.preventDefault();
 }
 /** R30, the amber line the Auto-accept check is described by while it is on. */

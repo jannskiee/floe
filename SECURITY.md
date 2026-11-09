@@ -42,6 +42,8 @@ This policy covers everything that ships from this repository:
 
 The signaling server sets up connections and never carries file data. Files go straight between the two devices, encrypted end to end (WebRTC data channels). When a direct path is blocked, a relay (a TURN server) passes the encrypted data along and cannot read it. Floe infrastructure never stores or inspects file data.
 
+What Floe does not protect against, including what the link key misses, is listed in [Known limitations](https://www.floe.one/docs/how-it-works/known-limitations). A way around the link key's check, or the key reaching a server or a log, is in scope.
+
 ## Supported Versions
 
 Security fixes land on `main` and ship in the next release of the affected component. Please make sure you are on the most recent release of the component you are reporting against.
@@ -51,7 +53,7 @@ Floe has two release lines, and each component gets a fix through one of them:
 | Component | How a fix reaches you |
 | --- | --- |
 | `floe` CLI | The next `v*` tag, which becomes the repository's Latest release. |
-| Container images | The same `v*` tag publishes both images under the version number (for example `1.11.7`) and moves `latest`. Pull the new images, and move `FLOE_IMAGE_TAG` if you pinned a version. |
+| Container images | The same `v*` tag publishes both images under the version number (for example `1.12.0`) and moves `latest`. Pull the new images, and move `FLOE_IMAGE_TAG` if you pinned a version. |
 | Floe Desktop, installer and portable builds | The next `desktop-v*` tag, published on GitHub with the Pre-release label, which only keeps the CLI as the repository's Latest release. These builds do not update themselves; they show a notice when a newer release exists. |
 | Floe Desktop, Microsoft Store build | Packed from the same `desktop-v*` tag and delivered by the Microsoft Store, which updates it automatically once the submission has passed Microsoft's certification. It can trail the GitHub release for that reason. |
 | Web client at floe.one, including the request-link page and the install scripts | Always runs the newest `main`. |

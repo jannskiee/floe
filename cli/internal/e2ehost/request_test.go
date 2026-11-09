@@ -1079,6 +1079,47 @@ func TestRequestModeKeepWaitingReopensAfterADecline(t *testing.T) {
 	}
 }
 
+// visitorLeft tells the host its visitor left, as server.js does when a
+// seated visitor's socket closes.
+func (s *fakeRequestServer) visitorLeft() {
+	s.mu.Lock()
+	host := s.host
+	s.mu.Unlock()
+	host.send(map[string]string{"type": "peer-disconnected"})
+}
+
+// A declined page's leave can reach the host after the harness has sent
+// request-reopen. The next visit must not read it as its own visitor leaving.
+func TestRequestModeKeepWaitingIgnoresALateLeave(t *testing.T) {
+	srv := newFakeRequestServer(t)
+	path, _ := payload(t, 64*1024)
+	h := startRequest(t, "-server", srv.url, "-out", t.TempDir(), "-decide", "decline,accept", "-keep-waiting", "-timeout", "60s")
+
+	room := roomFromLink(t, h.until(t, "link")["link"].(string))
+	if err := visit(srv.url, room, path); err == nil {
+		t.Fatal("the first visitor was not declined")
+	}
+	h.until(t, "reopened")
+	if _, _, controls := srv.controlsAfter(2); !equalNames(controls, []string{"request-seal", "request-reopen"}) {
+		t.Fatalf("control frames before the second visit %v, want request-seal, request-reopen", controls)
+	}
+	srv.visitorLeft()
+	visitErr := make(chan error, 1)
+	go func() { visitErr <- visit(srv.url, room, path) }()
+	if _, _, controls := srv.controlsAfter(3); len(controls) > 2 && controls[2] != "request-seal" {
+		t.Fatalf("control frames %v: the second visit ended before its seal", controls)
+	}
+	if d := h.until(t, "done"); d["files"] != float64(1) {
+		t.Fatalf("done = %v, want files 1", d)
+	}
+	if code := h.exitCode(t); code != 0 {
+		t.Fatalf("exit %d, want 0", code)
+	}
+	if err := <-visitErr; err != nil {
+		t.Fatalf("second visitor: %v", err)
+	}
+}
+
 // -corrupt-hash: the engine's own compare refuses the file, nothing stays in
 // the output folder, and the run still closes the room and ends with done.
 func TestRequestModeCorruptHashRefusesTheFile(t *testing.T) {

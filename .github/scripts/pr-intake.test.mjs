@@ -343,9 +343,10 @@ const bodyText = (body) => body.slice(0, body.lastIndexOf(MARKER_PREFIX)).trimEn
 
 // ---------------------------------------------------------------- pure rules
 
-test('the sweep ships as a dry run: LIVE_SINCE is set only by the go-live pull request', () => {
-    assert.equal(LIVE_SINCE, null);
-    assert.equal(DEFAULTS.liveSince, null);
+test('the sweep is live: the go-live pull request set LIVE_SINCE to a time in milliseconds', () => {
+    assert.equal(LIVE_SINCE, Date.parse('2026-11-06T10:00:00Z'));
+    assert.ok(Number.isFinite(LIVE_SINCE));
+    assert.equal(DEFAULTS.liveSince, LIVE_SINCE);
 });
 
 test('titleIsConventional accepts the house style and nothing else', () => {
@@ -819,7 +820,7 @@ test('when a competing pull request closes and the issue stays open, the notes a
     assert.deepEqual(f.node(752).labels.nodes.map((l) => l.name), ['unclaimed']);
 });
 
-test('the claim note follows the claim bot: /take only for a newcomer on a free good first issue', async () => {
+test('the claim note follows the claim bot: /take for a newcomer on a free good first issue, and for anyone on help wanted', async () => {
     const f = fakeGitHub({
         prs: [
             pr(930, { association: 'CONTRIBUTOR', issues: [{ number: 80, assignees: [] }] }),
@@ -835,10 +836,22 @@ test('the claim note follows the claim bot: /take only for a newcomer on a free 
     assert.equal(p[931].notes, 'claim-returner', 'a returner by commit history, though NONE');
     assert.equal(p[932].notes, 'claim-take,first-pr', 'a newcomer, though NONE: the workflow token reads first-timers so');
     assert.equal(p[933].notes, 'claim-take,first-pr');
-    assert.equal(p[934].notes, 'claim-ask,first-pr', 'help wanted is assigned by hand');
+    assert.equal(p[934].notes, 'claim-take,first-pr', 'help wanted is /take for a newcomer');
     assert.deepEqual(f.s.commitCalls, ['user931', 'fresh', 'user934'], 'asked once per login, never for a returner by association');
     const returner = bodyText(f.s.created.find((c) => c.number === 930).body);
     assert.ok(returner.includes(`[help wanted](${HELP_URL})`), 'the same help wanted search the claim bot links');
+    assert.match(returner, /start a comment there with `\/take` to have it assigned\./);
+
+    const others = plans(
+        await fakeGitHub({
+            prs: [
+                pr(936, { association: 'CONTRIBUTOR', issues: [{ number: 86, labels: ['help wanted'], assignees: [] }] }),
+                pr(937, { association: 'CONTRIBUTOR', issues: [{ number: 87, labels: ['bug'], assignees: [] }] }),
+            ],
+        }).run()
+    );
+    assert.equal(others[936].notes, 'claim-take', 'help wanted is /take for a returner too');
+    assert.equal(others[937].notes, 'claim-ask', 'an issue with neither label is assigned by hand');
 
     // An unread history is not guessed: the pull request waits for a run that reads it.
     const g = fakeGitHub({ prs: [pr(935, { association: 'NONE', issues: [{ number: 85, assignees: [] }] })], fail: { listCommits: httpError(502) } });
@@ -849,18 +862,18 @@ test('the claim note follows the claim bot: /take only for a newcomer on a free 
     assert.match(core.warnings.join('\n'), /pull request 935: its author's commit history could not be read \(502\)/);
 });
 
-// What /take would answer, from what the sweep knows. It cannot see the two
+// What /take would answer, from what the sweep knows. It cannot see the three
 // rules that need more reads (released by the maintainer, holds another good
-// first issue), so those are false here; the /take note says the bot may
-// still refuse.
+// first issue, holds the limit of two), so those are false here; the /take
+// note says the bot may still refuse.
 test('the claim note says what the claim bot itself would answer', async () => {
     const cases = [];
-    for (const gfi of [true, false])
+    for (const labels of [['good first issue'], ['help wanted'], ['bug'], ['good first issue', 'help wanted']])
         for (const association of ['FIRST_TIME_CONTRIBUTOR', 'NONE', 'CONTRIBUTOR'])
             for (const commits of [false, true])
-                for (const sibling of [false, true]) cases.push({ gfi, association, commits, sibling });
+                for (const sibling of [false, true]) cases.push({ labels, association, commits, sibling });
     for (const c of cases) {
-        const issue = { number: 1, open: true, title: 't', repo: 'jannskiee/floe', labels: c.gfi ? ['good first issue'] : ['help wanted'], assignees: [], complete: true };
+        const issue = { number: 1, open: true, title: 't', repo: 'jannskiee/floe', labels: c.labels, assignees: [], complete: true };
         const pull = { number: 10, author: { type: 'User', login: 'someone' }, association: c.association, isDraft: true, issues: [issue] };
         const plan = await planFor(pull, {
             siblings: new Map([[1, c.sibling ? [10, 11] : [10]]]),
@@ -871,19 +884,19 @@ test('the claim note says what the claim bot itself would answer', async () => {
         const verdict = await decideTake({
             isAssignee: false,
             hasAssignee: false,
-            isGoodFirstIssue: c.gfi,
-            isHelpWanted: !c.gfi,
+            isGoodFirstIssue: c.labels.includes('good first issue'),
+            isHelpWanted: c.labels.includes('help wanted'),
             returnerByAssociation: ['CONTRIBUTOR', 'COLLABORATOR', 'MEMBER'].includes(c.association),
             hasCommits: async () => c.commits,
             releasedByMaintainer: async () => false,
             otherOpenPullRequest: async () => c.sibling,
             holdsAnotherGoodFirstIssue: async () => false,
+            holdsTheLimit: async () => false,
         });
         const expected = {
             assign: 'claim-take',
             returner: 'claim-returner',
             'has-pr': 'competing',
-            'not-claimable-help': 'claim-ask',
             'not-claimable': 'claim-ask',
         }[verdict];
         // With another pull request on the issue the note is about that, and

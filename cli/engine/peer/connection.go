@@ -251,20 +251,7 @@ func New(iceServers []webrtc.ICEServer, sc *signaling.Client, opts ...Option) (*
 
 	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
 		conn.noteFailed(s)
-		switch s {
-		case webrtc.PeerConnectionStateConnected:
-			select {
-			case conn.connected <- nil:
-			default:
-			}
-		case webrtc.PeerConnectionStateFailed,
-			webrtc.PeerConnectionStateDisconnected,
-			webrtc.PeerConnectionStateClosed:
-			select {
-			case conn.connected <- fmt.Errorf("connection failed (state: %s)", s):
-			default:
-			}
-		}
+		conn.noteSetup(s)
 	})
 
 	go conn.dispatchSignals()
@@ -433,11 +420,11 @@ func (conn *Connection) SetupAsReceiver() (*webrtc.DataChannel, error) {
 	// its error can quote the peer's SDP as the remote-description one can.
 	answer, err := conn.pc.CreateAnswer(nil)
 	if err != nil {
-		return nil, &SetupError{Stage: StageAnswer, Err: fmt.Errorf("failed to create answer: %w", err)}
+		return nil, &SetupError{Stage: StageAnswer, Err: &ownWords{"failed to create answer", err}}
 	}
 
 	if err := conn.pc.SetLocalDescription(answer); err != nil {
-		return nil, &SetupError{Stage: StageAnswer, Err: fmt.Errorf("failed to set local description: %w", err)}
+		return nil, &SetupError{Stage: StageAnswer, Err: &ownWords{"failed to set local description", err}}
 	}
 
 	// The answer goes out with a=max-message-size pinned to 1 GB. Chrome caps
@@ -510,6 +497,31 @@ func (conn *Connection) noteFailed(s webrtc.PeerConnectionState) {
 	}
 }
 
+// noteSetup tells the setup waits how the connection ended up: connected, or
+// failed or closed. It is the part of the state handler a test can drive without
+// waiting out ICE. Disconnected tells them nothing. It is only 5 s of silence, ICE
+// leaves it when the path comes back, and a path that never does reaches failed
+// or the setup's own connectTimeout. Measured 2026-11-03 with a relay answering in
+// seconds: pion sends its checks from the ICE agent's own loop and the TURN
+// client's write blocks on a CreatePermission, so a 4 s answer froze one peer's
+// agent, the other peer heard nothing for 5 s just after it connected, and ending
+// the setup there gave up on a path that was about to work.
+func (conn *Connection) noteSetup(s webrtc.PeerConnectionState) {
+	switch s {
+	case webrtc.PeerConnectionStateConnected:
+		select {
+		case conn.connected <- nil:
+		default:
+		}
+	case webrtc.PeerConnectionStateFailed,
+		webrtc.PeerConnectionStateClosed:
+		select {
+		case conn.connected <- fmt.Errorf("connection failed (state: %s)", s):
+		default:
+		}
+	}
+}
+
 // Close tears down the peer connection and releases the two goroutines New
 // started. Idempotent: the CLI defers this once, but the desktop builds a
 // fresh Connection per transfer, so a leak here is unbounded over a session.
@@ -564,7 +576,7 @@ func (conn *Connection) setRemoteDesc(desc webrtc.SessionDescription) error {
 	conn.mu.Unlock()
 
 	if err := conn.pc.SetRemoteDescription(desc); err != nil {
-		return &SetupError{Stage: StageRemoteDescription, Err: fmt.Errorf("failed to set remote description: %w", err)}
+		return &SetupError{Stage: StageRemoteDescription, Err: &ownWords{"failed to set remote description", err}}
 	}
 
 	conn.mu.Lock()

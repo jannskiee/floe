@@ -16,6 +16,7 @@ yet has no section of its own so far.
 | Message | Explained at |
 | --- | --- |
 | “A file did not match what was sent, so it was discarded. Ask the sender to try again.” | [A file did not match what was sent, so it was discarded. Ask the sender to try again.](/troubleshooting#a-file-did-not-match-what-was-sent) |
+| “A file name or folder path is too long to send. Shorten it or zip it first.” | [Drop a folder](/web-app/sending#drop-a-folder) |
 | “A server bridges the connection when a direct path is unavailable. Your files stay encrypted. 2 GB limit per session. Learn more” | [Watch the connection](/web-app/sending#watch-the-connection) |
 | “A short trail of what happened just before: clicks, page changes, the addresses of network requests, and console lines, with the room link removed from each” | [Error monitoring and analytics](/security-privacy#error-monitoring-and-analytics) |
 | “Add more files” | [Add your files](/web-app/sending#add-your-files) |
@@ -64,12 +65,12 @@ yet has no section of its own so far.
 | “Download \{name\}” | [Saving what arrives](/web-app/receiving#saving-what-arrives) |
 | “Downloading...” | [Saving what arrives](/web-app/receiving#saving-what-arrives) |
 | “Drop files or click to browse” | [Add your files](/web-app/sending#add-your-files) |
+| “Empty folders are not sent.” | [Drop a folder](/web-app/sending#drop-a-folder) |
 | “End-to-end encrypted. Files are never stored on a server.” | [Saving what arrives](/web-app/receiving#saving-what-arrives) |
 | “Files go through it only when a direct connection isn't possible; most transfers stay direct. 2 GB limit when relayed. Learn more” | [Decide whether the relay is allowed](/web-app/sending#decide-whether-the-relay-is-allowed) |
 | “Files stream in below” | [While you wait](/web-app/receiving#while-you-wait) |
-| “Floe couldn't confirm the person who opened your link, so nothing was sent. Make a new link and send it again.” | Not explained yet |
-| “Floe couldn't confirm who sent this link, so nothing was received. Ask them for a new link.” | Not explained yet |
-| “Folders cannot be sent from this page. Add the files inside it, or zip it first.” | [Add your files](/web-app/sending#add-your-files) |
+| “Floe couldn't confirm the person who opened your link, so nothing was sent. Make a new link and send it again.” | [Floe couldn't confirm the person who opened your link](/troubleshooting#floe-could-not-confirm-the-person-who-opened-your-link) |
+| “Floe couldn't confirm who sent this link, so nothing was received. Ask them for a new link.” | [Floe couldn't confirm who sent this link](/troubleshooting#floe-could-not-confirm-who-sent-this-link) |
 | “For machines without Store access: the installer and a portable zip (unzip and run floe-desktop.exe). These builds are not signed, so the first time you run one, Windows SmartScreen shows a warning: choose "More info", then "Run anyway".” | [Choose a channel](/desktop/installation#choose-a-channel) |
 | “From the Microsoft Store it installs with no warnings, and updates arrive automatically.” | [Choose a channel](/desktop/installation#choose-a-channel) |
 | “Get Floe Desktop from the Microsoft Store” | [Choose a channel](/desktop/installation#choose-a-channel) |
@@ -136,12 +137,13 @@ yet has no section of its own so far.
 | “Share” | [Create the link](/web-app/sending#create-the-link) |
 | “Share link” | [Create the link](/web-app/sending#create-the-link) |
 | “Show QR” | [Create the link](/web-app/sending#create-the-link) |
+| “Some files in this folder could not be read. Nothing was added.” | [Drop a folder](/web-app/sending#drop-a-folder) |
 | “Something went wrong” | [Something went wrong with a Reload page button](/troubleshooting#something-went-wrong-reload-page) |
 | “Something went wrong while receiving, so the transfer was stopped. Ask the sender to try again.” | [Something went wrong while receiving](/troubleshooting#something-went-wrong-while-receiving) |
 | “Something went wrong while sending, so the transfer was stopped. Reload the page, add the files again, and share the new link.” | [Something went wrong while sending](/troubleshooting#something-went-wrong-while-sending) |
 | “That link points at nothing here. If you were sent a Floe link, check that you copied the whole thing.” | [Page not found](/troubleshooting#page-not-found) |
 | “The connection closed before the transfer finished.” | [The connection closed before the transfer finished.](/troubleshooting#the-connection-closed-before-the-transfer-finished) |
-| “The other side couldn't confirm this link, so nothing was sent. Make a new link and send it again.” | Not explained yet |
+| “The other side couldn't confirm this link, so nothing was sent. Make a new link and send it again.” | [The other side couldn't confirm this link](/troubleshooting#the-other-side-could-not-confirm-this-link) |
 | “The other side discarded a file that did not match what was sent. Try sending again.” | [When it finishes](/web-app/sending#when-it-finishes) |
 | “The other side rejected the transfer.” | [A banner that starts with receiver](/troubleshooting#a-banner-that-starts-with-receiver) |
 | “The receiver asked to resume "\{name\}" from a position that is not a number, which is not possible. Please try again.” | [The receiver asked to resume](/troubleshooting#the-receiver-asked-to-resume) |
@@ -161,11 +163,13 @@ yet has no section of its own so far.
 | “the sender's copy of "\{name\}" changed while it was being sent, so nothing further was sent” | [The sender ended the transfer before it finished.](/troubleshooting#the-sender-ended-the-transfer) |
 | “The sender's SHA-256 for a file could not be read, so the file was discarded. Ask the sender to try again.” | [A file did not match what was sent, so it was discarded. Ask the sender to try again.](/troubleshooting#a-file-did-not-match-what-was-sent) |
 | “This browser cannot receive files through Floe because WebRTC is missing or turned off. Open the link in a current version of Chrome, Edge, Firefox or Safari.” | [Which browsers work?](/faq#which-browsers-work) |
+| “This browser cannot send a folder. Add the files inside it, or zip it first.” | [Drop a folder](/web-app/sending#drop-a-folder) |
 | “This browser cannot send files through Floe because WebRTC is missing or turned off. Use a current version of Chrome, Edge, Firefox or Safari.” | [Which browsers work?](/faq#which-browsers-work) |
-| “This browser can't check this link, so nothing was received. Open it in a current version of Chrome, Edge, Firefox or Safari.” | Not explained yet |
-| “This browser can't check this link, so nothing was sent. Open Floe in a current version of Chrome, Edge, Firefox or Safari.” | Not explained yet |
+| “This browser can't check this link, so nothing was received. Open it in a current version of Chrome, Edge, Firefox or Safari.” | [This browser can't check this link](/troubleshooting#this-browser-cannot-check-this-link) |
+| “This browser can't check this link, so nothing was sent. Open Floe in a current version of Chrome, Edge, Firefox or Safari.” | [This browser can't check this link](/troubleshooting#this-browser-cannot-check-this-link) |
 | “This browser ran out of memory while receiving, so the transfer was stopped. Receive large files on a computer with Floe Desktop (Windows) or the Floe CLI, which save straight to disk.” | [This browser ran out of memory while receiving](/troubleshooting#this-browser-ran-out-of-memory) |
 | “This browser ran out of room for the files it is receiving, so the transfer was stopped. A private or Incognito window holds much less than a normal one, so receive in a normal window, or receive large files on a computer with Floe Desktop (Windows) or the Floe CLI, which save straight to disk.” | [This browser ran out of room for the files it is receiving](/troubleshooting#this-browser-ran-out-of-room) |
+| “This drop has more than 10,000 files. Zip them first.” | [Drop a folder](/web-app/sending#drop-a-folder) |
 | “This in-app browser has limited support for file transfers. Open Floe in Chrome or Safari for the best experience.” | [If Floe says Open in your browser](/web-app/receiving#if-floe-says-open-in-your-browser) |
 | “This link is incomplete, already in use, or locked to the networks that first used it.” | [Link Invalid](/troubleshooting#link-invalid) |
 | “This link stopped working. Reload the page, add the files again, and share the new link.” | [This link stopped working](/troubleshooting#this-link-stopped-working) |
@@ -207,7 +211,7 @@ yet has no section of its own so far.
 | “\{App\}’s browser has limited support for file transfers. Open the link in current Chrome or Edge on a computer.” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
 | “ARRIVED” | [When the files arrive](/web-app/request-links#when-the-files-arrive) |
 | “Ask for a new link.” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
-| “Ask the person who made this link for a new one.” | Not explained yet |
+| “Ask the person who made this link for a new one.” | [When their Floe stops the drop](/web-app/request-links#when-their-floe-stops-the-drop) |
 | “Ask them for a new link to send the rest.” | [When their Floe stops the drop](/web-app/request-links#when-their-floe-stops-the-drop) |
 | “Ask them for a new link.” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
 | “\{a\} of 1 file arrived. Ask them for a new link to send it.” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
@@ -230,8 +234,8 @@ yet has no section of its own so far.
 | “Could not read a file” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
 | “Could not read a file. "\{your path\}" may have been moved or renamed, or its drive disconnected.” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
 | “Couldn't check for a relay. Try again, or turn off Hide my IP to send directly.” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
-| “Couldn't confirm their computer” | Not explained yet |
-| “Couldn't confirm their computer. Nothing was sent. Ask the person who made this link for a new one.” | Not explained yet |
+| “Couldn't confirm their computer” | [Couldn't confirm their computer](/troubleshooting#could-not-confirm-their-computer) |
+| “Couldn't confirm their computer. Nothing was sent. Ask the person who made this link for a new one.” | [Couldn't confirm their computer](/troubleshooting#could-not-confirm-their-computer) |
 | “Couldn't connect to their computer. Nothing was sent.” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
 | “Couldn’t copy. Press and hold the link above to copy it.” | [Open in your browser](/troubleshooting#open-in-your-browser) |
 | “\{count\} FILES, \{size\}” | [What the page shows](/web-app/request-links#what-the-page-shows) |
@@ -254,8 +258,8 @@ yet has no section of its own so far.
 | “More data arrived than they accepted” | [When their Floe stops the drop](/web-app/request-links#when-their-floe-stops-the-drop) |
 | “More data arrived than they accepted. If files changed after you chose them, ask them for a new link.” | [When their Floe stops the drop](/web-app/request-links#when-their-floe-stops-the-drop) |
 | “Nothing was sent.” | [When their Floe stops the drop](/web-app/request-links#when-their-floe-stops-the-drop) |
-| “Nothing was sent. Ask the person who made this link for a new one.” | Not explained yet |
-| “Nothing was sent. Open this link in a current version of Chrome, Edge, Firefox or Safari.” | Not explained yet |
+| “Nothing was sent. Ask the person who made this link for a new one.” | [Couldn't confirm their computer](/troubleshooting#could-not-confirm-their-computer) |
+| “Nothing was sent. Open this link in a current version of Chrome, Edge, Firefox or Safari.” | [This browser can't check this link](/troubleshooting#this-browser-cannot-check-this-link) |
 | “Nothing was sent. Send 2 GB or less.” | [When their Floe stops the drop](/web-app/request-links#when-their-floe-stops-the-drop) |
 | “Open in your browser” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
 | “Open the link in current Chrome or Edge on a computer.” | [Open in your browser](/troubleshooting#open-in-your-browser) |
@@ -292,7 +296,7 @@ yet has no section of its own so far.
 | “Their app reports every file's SHA-256 matched.” | [When the files arrive](/web-app/request-links#when-the-files-arrive) |
 | “Their computer blocked saving a file” | [When their Floe stops the drop](/web-app/request-links#when-their-floe-stops-the-drop) |
 | “Their computer could not save a file” | [When their Floe stops the drop](/web-app/request-links#when-their-floe-stops-the-drop) |
-| “Their computer couldn't confirm this link” | Not explained yet |
+| “Their computer couldn't confirm this link” | [Their computer couldn't confirm this link](/troubleshooting#their-computer-could-not-confirm-this-link) |
 | “Their computer is not connected right now” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
 | “Their computer is not connected right now. They may have closed Floe. Your files stay selected.” | [Their computer is not connected right now](/troubleshooting#their-computer-is-not-connected-right-now) |
 | “Their computer ran out of space” | [When their Floe stops the drop](/web-app/request-links#when-their-floe-stops-the-drop) |
@@ -308,7 +312,7 @@ yet has no section of its own so far.
 | “This browser cannot pick folders. Drag the folder in, or zip it first.” | [Pick files](/web-app/request-links#pick-files) |
 | “This browser cannot send through Floe” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
 | “This browser cannot send through Floe. Open the link in current Chrome or Edge.” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
-| “This browser can't check this link” | Not explained yet |
+| “This browser can't check this link” | [This browser can't check this link](/troubleshooting#this-browser-cannot-check-this-link) |
 | “This computer may have slept. If the connection drops, the file that was moving starts over.” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
 | “This connection needs a relay, and relayed drops are capped at 2 GB. Send 2 GB or less, or try another network.” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
 | “This drop has more than 10,000 files. Zip them first.” | [Before and while you send](/web-app/request-links#messages-on-the-senders-page) |
@@ -354,6 +358,7 @@ yet has no section of its own so far.
 | “A file name or folder path was too long for Windows” | [On your PC](/desktop/request-links#messages-on-your-pc) |
 | “A file's path is too deep or too long to save in this folder” | [A file's path is too deep or too long to save in this folder](/troubleshooting#a-files-path-is-too-deep-or-too-long) |
 | “A received file couldn't be saved, so it was kept with a .part ending” | [A received file couldn't be saved, so it was kept with a .part ending](/troubleshooting#a-received-file-could-not-be-saved) |
+| “A sender couldn't be confirmed and was disconnected” | [A sender couldn't be confirmed and was disconnected](/troubleshooting#a-sender-could-not-be-confirmed) |
 | “About Auto-accept” | [Auto-accept](/desktop/request-links#auto-accept) |
 | “About \{n\} \{day or days\} at this speed, past the 24-hour limit” | [While files arrive](/desktop/request-links#while-files-arrive) |
 | “Accept” | [Accept or decline](/desktop/request-links#accept-or-decline) |
@@ -414,6 +419,8 @@ yet has no section of its own so far.
 | “Copy code” | [Share the code or link](/desktop/sending#share-the-code-or-link) |
 | “Copy link” | [Share the link](/desktop/request-links#share-the-link) |
 | “could not stage the text: \{reason\}” | [Sending files](/desktop/sending) |
+| “Couldn't confirm who opened your link. Nothing was sent” | [Couldn't confirm who opened your link. Nothing was sent](/troubleshooting#could-not-confirm-who-opened-your-link) |
+| “Couldn't confirm who sent this link. Nothing was received” | [Couldn't confirm who sent this link. Nothing was received](/troubleshooting#could-not-confirm-who-sent-this-link-in-floe-desktop) |
 | “Couldn't connect the two devices” | [Couldn't connect the two devices](/troubleshooting#could-not-connect-the-two-devices) |
 | “Couldn't connect to that server” | [Server](/desktop/settings#server) |
 | “Couldn't make a link” | [On your PC](/desktop/request-links#messages-on-your-pc) |
@@ -489,6 +496,7 @@ yet has no section of its own so far.
 | “Label” | [Make a link](/desktop/request-links#make-a-link) |
 | “\{LABEL\} WANTS TO SEND YOU FILES” | [Accept or decline](/desktop/request-links#accept-or-decline) |
 | “Link closed” | [How a link ends](/desktop/request-links#how-a-link-ends) |
+| “Link closed after 5 senders couldn't be confirmed” | [A sender that fails the check](/desktop/request-links#a-sender-that-fails-the-check) |
 | “Link ended at \{time\}” | [How a link ends](/desktop/request-links#how-a-link-ends) |
 | “Link ends” | [Make a link](/desktop/request-links#make-a-link) |
 | “Make another link” | [When it finishes](/desktop/request-links#when-it-finishes) |
@@ -589,6 +597,7 @@ yet has no section of its own so far.
 | “Text” | [Send a text note](/desktop/sending#send-a-text-note) |
 | “That address answered HTTP \{n\} (likely the web app, not the server)” | [The Test button says it may be the web app rather than the signaling server](/troubleshooting#the-test-button-says-it-may-be-the-web-app-rather-than-the-signaling-server) |
 | “That address isn't a Floe server” | [Server](/desktop/settings#server) |
+| “That address redirects to https://. Start it with https:// and test again” | [Test the address](/desktop/settings#test-the-address) |
 | “That code wasn't recognized” | [That code wasn't recognized](/troubleshooting#that-code-was-not-recognized) |
 | “That link is for another Floe server. Set its address as Server address in Settings, then try again” | [That link is for floe.one or That link is for another Floe server](/troubleshooting#that-link-is-for-another-server-in-floe-desktop) |
 | “That link is for floe.one, but Floe is set to use another server. Clear Server address in Settings, then try again” | [That link is for floe.one or That link is for another Floe server](/troubleshooting#that-link-is-for-another-server-in-floe-desktop) |
@@ -605,6 +614,7 @@ yet has no section of its own so far.
 | “The sender couldn't connect” | [On your PC](/desktop/request-links#messages-on-your-pc) |
 | “The sender couldn't connect: Hide my IP is on and no relay is available” | [On your PC](/desktop/request-links#messages-on-your-pc) |
 | “The sender never started sending” | [The sender never started sending](/troubleshooting#connected-but-the-sender-never-started-sending) |
+| “the sender stopped the transfer” | [transfer failed: The sender stopped and the sender's other reasons](/troubleshooting#the-sender-stopped-in-floe-desktop) |
 | “The sender stopped this drop” | [On your PC](/desktop/request-links#messages-on-your-pc) |
 | “the server answered with an error this version of Floe does not know” | [the server answered with an error this version of Floe does not know](/troubleshooting#the-server-answered-with-an-error-floe-does-not-know) |
 | “The server didn't return usable connection details” | [Server](/desktop/settings#server) |
@@ -673,6 +683,7 @@ yet has no section of its own so far.
 | `Already up to date` | [Script and manual installs](/cli/update#script-and-manual-installs) |
 | `{arrived} of 1 file arrived.` | [Messages](/cli/send#messages-from-floe-send-to) |
 | `` Ask the other side to run `floe update`. `` | [`Cannot transfer: your floe is too old for this peer.`](/troubleshooting#cannot-transfer-your-floe-is-too-old-for-this-peer) |
+| `Ask the person who made this link for a new one.` | [Couldn't confirm their computer](/troubleshooting#could-not-confirm-their-computer) |
 | `Ask them for a new link to send the rest.` | [Messages](/cli/send#messages-from-floe-send-to) |
 | `backpressure stall: peer not draining` | [Timeouts](/reference/transfer-protocol#timeouts) |
 | `Canceled.` | [When a send ends](/cli/send#notes) |
@@ -684,6 +695,7 @@ yet has no section of its own so far.
 | `cannot rename current binary: {reason}` | [Messages](/cli/update#messages) |
 | `cannot resolve executable path` | [Messages](/cli/update#messages) |
 | `cannot send {path}: it is a link to a folder, which Floe does not follow` | [`cannot read` or `cannot send` and a path](/troubleshooting#cannot-read-a-path) |
+| `cannot send {path}: it is a pipe, a socket or a device, not a file` | [floe send](/cli/send) |
 | `Cannot transfer: peer's floe is too old.` | [`Cannot transfer: your floe is too old for this peer.`](/troubleshooting#cannot-transfer-your-floe-is-too-old-for-this-peer) |
 | `` Cannot transfer: peer's floe is too old. You: {rest} Peer: {rest} Ask the other side to run `floe update`. `` | [`Cannot transfer: your floe is too old for this peer.`](/troubleshooting#cannot-transfer-your-floe-is-too-old-for-this-peer) |
 | `Cannot transfer: your floe is too old for this peer.` | [`Cannot transfer: your floe is too old for this peer.`](/troubleshooting#cannot-transfer-your-floe-is-too-old-for-this-peer) |
@@ -714,6 +726,10 @@ yet has no section of its own so far.
 | `Could not determine latest version. Set $env:FLOE_VERSION = 'vX.Y.Z' to install a specific version.` | [If the install script stops](/cli/installation#if-the-install-script-stops) |
 | `Could not install with sudo, so installing to {LOCAL_BIN} instead.` | [One-line installer](/cli/installation#one-line-installer) |
 | `could not register code: {network reason}` | [`Warning: could not generate short code`](/troubleshooting#warning-could-not-generate-short-code) |
+| `Couldn't confirm the person who opened your link. Nothing was sent. Make a new link and try again.` | [Send only to a receiver that proves it holds the link](/cli/send#link-only) |
+| `Couldn't confirm the receiver. They may need to run floe update, or open the link in a browser.` | [Send only to a receiver that proves it holds the link](/cli/send#link-only) |
+| `Couldn't confirm their computer. Nothing was sent.` | [Couldn't confirm their computer](/troubleshooting#could-not-confirm-their-computer) |
+| `Couldn't confirm who sent this link. Nothing was saved. Ask them for a new link.` | [floe receive](/cli/receive) |
 | `Couldn't connect to their computer. Nothing was sent.` | [Messages](/cli/send#messages-from-floe-send-to) |
 | `curl -fsSL https://floe.one/install.sh \| FLOE_VERSION=v1.11.1 sh` | [If the install script stops](/cli/installation#if-the-install-script-stops) |
 | `curl -fsSL https://floe.one/install.sh \| FLOE_VERSION=vX.Y.Z sh` | [If the install script stops](/cli/installation#if-the-install-script-stops) |
@@ -722,6 +738,7 @@ yet has no section of its own so far.
 | `Downloading floe {version} (windows/{arch})...` | [One-line installer](/cli/installation#one-line-installer) |
 | `echo 'export PATH="${HOME}/.local/bin:${PATH}"' >> ~/.profile` | [`floe` is not found after installing](/troubleshooting#floe-is-not-found-after-installing) |
 | `echo 'export PATH="${HOME}/.local/bin:${PATH}"' >> ~/{profile file}` | [`floe` is not found after installing](/troubleshooting#floe-is-not-found-after-installing) |
+| `Error: --iface matches no network interface on this computer; check the name, or drop the flag` | [Flags](/cli/flags) |
 | `Error: --relay-only needs a TURN relay and {server} offers none; drop the flag, or configure a relay on the server` | [`--relay-only needs a TURN relay`](/troubleshooting#relay-only-needs-a-turn-relay) |
 | `Error: --relay-only needs a TURN relay, and the connection details from {server} could not be read; check --server, or drop the flag` | [`--relay-only needs a TURN relay`](/troubleshooting#relay-only-needs-a-turn-relay) |
 | `Error: binary not found after extraction.` | [If the install script stops](/cli/installation#if-the-install-script-stops) |
@@ -765,6 +782,7 @@ yet has no section of its own so far.
 | `Error: sender exceeded the announced size of "{name}"` | [`rejected the sender's file description` and similar lines](/troubleshooting#rejected-the-senders-file-description) |
 | `Error: the file shrank while it was being sent (announced {n} bytes, read {m}); send it again once it stops changing` | [`the file shrank while it was being sent`](/troubleshooting#the-file-shrank-or-grew-while-it-was-being-sent) |
 | `Error: the sender's copy of "{name}" changed while it was being sent, so nothing further was sent` | [`The sender stopped.`](/troubleshooting#the-sender-stopped) |
+| `Error: the server answered with an error this version of Floe does not know` | [the server answered with an error this version of Floe does not know](/troubleshooting#the-server-answered-with-an-error-floe-does-not-know) |
 | `Error: transfer abandoned while completing "{name}"` | [`rejected the sender's file description` and similar lines](/troubleshooting#rejected-the-senders-file-description) |
 | `Error: transfer blocked: relay connections are capped at 2 GB` | [`relay connections are capped at 2 GB`](/troubleshooting#relay-connections-are-capped-at-2-gb) |
 | `Error: transfer blocked: relay connections are capped at {n} GB (selected {size})` | [Messages](/cli/send#messages-from-floe-send-to) |
@@ -773,11 +791,12 @@ yet has no section of its own so far.
 | `Error: update failed: permission denied writing to {dir}` | [Messages](/cli/update#messages) |
 | `Error: WebRTC setup failed: connected but the data channel did not open` | [Timeouts](/reference/transfer-protocol#timeouts) |
 | `Error: WebRTC setup failed: failed to create data channel` | [`WebRTC setup failed:` and another reason](/troubleshooting#webrtc-setup-failed) |
-| `Error: WebRTC setup failed: failed to set remote description: {text from the WebRTC library}` | [`WebRTC setup failed:` and another reason](/troubleshooting#webrtc-setup-failed) |
+| `Error: WebRTC setup failed: failed to set remote description` | [`WebRTC setup failed:` and another reason](/troubleshooting#webrtc-setup-failed) |
 | `Error: WebRTC setup failed: timed out establishing a connection` | [`timed out establishing a connection`](/troubleshooting#timed-out-establishing-a-connection) |
 | `Error: WebRTC setup failed: timed out waiting for the peer to answer` | [`timed out waiting for the peer's offer`](/troubleshooting#timed-out-waiting-for-the-peers-offer) |
 | `Error: WebRTC setup failed: timed out waiting for the peer's offer` | [`timed out waiting for the peer's offer`](/troubleshooting#timed-out-waiting-for-the-peers-offer) |
 | `Extracting...` | [One-line installer](/cli/installation#one-line-installer) |
+| `extraction failed: {cause}` | [Messages](/cli/update#messages) |
 | `failed to create answer` | [`WebRTC setup failed:` and another reason](/troubleshooting#webrtc-setup-failed) |
 | `failed to create offer` | [`WebRTC setup failed:` and another reason](/troubleshooting#webrtc-setup-failed) |
 | `failed to send answer` | [`WebRTC setup failed:` and another reason](/troubleshooting#webrtc-setup-failed) |
@@ -792,6 +811,7 @@ yet has no section of its own so far.
 | `Floe transfers files directly between devices using WebRTC.` | [Help and version flags](/cli/flags#help-and-version-flags) |
 | `floe {FLOE_VERSION} needs macOS 13 or later, and this Mac has macOS {MACOS_VERSION}.` | [If the install script stops](/cli/installation#if-the-install-script-stops) |
 | `go install github.com/jannskiee/floe/cli/cmd/floe@latest` | [Go install](/cli/installation#go-install) |
+| `In a terminal, put the link in quotes: floe receive "<link>"` | [Put the link in quotes](/cli/send#put-the-link-in-quotes) |
 | `incomplete file "{name}": received {n} of {m} bytes` | [`rejected the sender's file description` and similar lines](/troubleshooting#rejected-the-senders-file-description) |
 | `invalid response from code API` | [`invalid response from code API`](/troubleshooting#invalid-response-from-code-api) |
 | `Invalid room ID` | [Architecture](/reference/architecture) |
@@ -834,10 +854,12 @@ yet has no section of its own so far.
 | `The drop stopped on their computer.` | [Messages](/cli/send#messages-from-floe-send-to) |
 | `the file grew while it was being sent (announced {a} bytes); send it again once it stops changing` | [`the file shrank while it was being sent`](/troubleshooting#the-file-shrank-or-grew-while-it-was-being-sent) |
 | `the file shrank while it was being sent (announced {a} bytes, read {b}); send it again once it stops changing` | [`the file shrank while it was being sent`](/troubleshooting#the-file-shrank-or-grew-while-it-was-being-sent) |
+| `The latest release has an unexpected version name, so floe update stopped. Reinstall with the steps at floe.one/docs/cli/installation instead.` | [Messages](/cli/update#messages) |
 | `the other side left before the connection was established` | [`the other side left before the connection was established`](/troubleshooting#the-other-side-left-before-the-connection-was-established) |
 | `the sender left before the transfer was accepted` | [`the sender left before the transfer was accepted`](/troubleshooting#the-sender-left-before-the-transfer-was-accepted) |
 | `the sender stopped the transfer` | [`rejected the sender's file description` and similar lines](/troubleshooting#rejected-the-senders-file-description) |
 | `The sender stopped.` | [`The sender stopped.`](/troubleshooting#the-sender-stopped) |
+| `The sender stopped: a file could not be read on their device. Ask them to check it and send again.` | [The sender ended the transfer before it finished.](/troubleshooting#the-sender-ended-the-transfer) |
 | `the sender's SHA-256 for a file could not be read, so the file was not kept` | [`a file did not match the SHA-256 the sender computed, so it was not kept`](/troubleshooting#a-file-did-not-match-the-sha-256) |
 | `The server is limiting connections from this network. Wait a minute and try again.` | [Messages](/cli/send#messages-from-floe-send-to) |
 | `the server is limiting connections from this network. Wait a minute and try again.` | [`the server is limiting connections from this network`](/troubleshooting#the-server-is-limiting-connections-from-this-network-cli) |
@@ -852,6 +874,7 @@ yet has no section of its own so far.
 | `They stopped the transfer.` | [`Error: They stopped the transfer.`](/troubleshooting#they-stopped-the-transfer) |
 | `They stopped this drop.` | [Messages](/cli/send#messages-from-floe-send-to) |
 | `this code or link is no longer active; ask the sender for a new one` | [`this code or link is no longer active; ask the sender for a new one`](/troubleshooting#this-code-is-no-longer-active-ask-for-a-new-one) |
+| `this connection's certificates could not be read to check the link's key` | [`this connection's certificates could not be read to check the link's key`](/troubleshooting#this-connections-certificates-could-not-be-read) |
 | `This drop has more than 10,000 files. Zip them first.` | [Messages](/cli/send#messages-from-floe-send-to) |
 | `This drop reached the 24-hour limit, so their Floe stopped it.` | [Messages](/cli/send#messages-from-floe-send-to) |
 | `This link has already been used. Ask the person who made it for a new one.` | [Messages](/cli/send#messages-from-floe-send-to) |
@@ -903,6 +926,9 @@ yet has no section of its own so far.
 | `Maximum Connections Per IP` | [Other settings](/self-hosting/unraid#other-settings) |
 | `Maximum Open Connections Per IP` | [Other settings](/self-hosting/unraid#other-settings) |
 | `{NAME} is not a whole number of at least 1. Using the default, {n}.` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |
+| `Only one of CLOUDFLARE_TURN_KEY_ID and CLOUDFLARE_TURN_KEY_API_TOKEN is set, so Cloudflare TURN is off. Set both, or neither.` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |
+| `Only one of TURN_SECRET and TURN_DOMAIN is set, so the coturn relay is off. Set both, or neither.` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |
+| `Only one of UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN is set, so the transfer counter is kept in memory and resets to 0 on restart. Set both, or neither.` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |
 | `Origin not allowed` | [Behavior shared by every endpoint](/reference/http-api#behavior-shared-by-every-endpoint) |
 | `policy file not found, request links off` | [Turn request links on](/self-hosting/request-links#request-links) |
 | `policy file unreadable, keeping previous policy` | [How the server reads the file](/self-hosting/request-links#how-the-server-reads-the-file) |
@@ -924,8 +950,10 @@ yet has no section of its own so far.
 | `Trusted Proxy Count` | [Direct LAN installation](/self-hosting/unraid#direct-lan-installation) |
 | `TRUSTED_PROXY_COUNT is not a whole number, so the default of 0 is in use. Set it to the number of reverse proxies in front of this server, or 0 if there are none.` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |
 | `TRUSTED_PROXY_COUNT is not set, so the default of {n} is in use. Set it to the number of reverse proxies in front of this server, or 0 if there are none.` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |
+| `TURN_DOMAIN holds more than a host name, so the coturn relay is off. Set it to the host name alone, such as turn.example.com.` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |
 | `Unhandled error ({origin}), server still serving:` | [Operations](/self-hosting/operations) |
 | `Unhandled error ({origin}), server still serving: {error}` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |
+| `Upstash counter {operation} failed ({reason})` | [The server logs very little](/self-hosting/operations#the-server-logs-very-little) |
 | `Web client for Floe encrypted peer-to-peer file transfer. Install Floe-Server first, then set that server template's Client URL to this app's exact browser origin.` | [Add the templates to Unraid](/self-hosting/unraid#add-the-templates-to-unraid) |
 | `Web UI Port` | [Direct LAN installation](/self-hosting/unraid#direct-lan-installation) |
 | `WebSocket close {n} Server shutting down` | [Operations](/self-hosting/operations) |

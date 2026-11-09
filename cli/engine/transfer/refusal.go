@@ -355,6 +355,20 @@ func (e *PeerStoppedError) Error() string {
 	return "The drop stopped on their computer."
 }
 
+// PastAnAnswer is the stop a plain send reports once the receiver has answered a
+// file. The first byte goes right behind an answer, and three of the sentences say
+// nothing was sent, so those read as code stopped, with the same count. An honest
+// receiver declines, runs out of time and refuses a proof ahead of its first ack,
+// so only a party playing a receiver gets here (final audit report 27 F1). floe send
+// --to keeps its own lines for this (refusalLines), as the web page does (acked).
+func (e *PeerStoppedError) PastAnAnswer() *PeerStoppedError {
+	switch e.Code {
+	case CodeDeclined, CodeExpired, CodeUnverified:
+		return &PeerStoppedError{Code: CodeStopped, Saved: e.Saved}
+	}
+	return e
+}
+
 // CommitError is the receive-side error for a file that arrived in full and
 // verified but could not be moved from its .part to its final name. The
 // staging file is left in place on purpose (deleting complete bytes over a

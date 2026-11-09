@@ -1,5 +1,6 @@
-// Pure relay-policy helpers. Kept side-effect free so the relay gate (which the
-// e2e suite does not exercise) can be unit-tested directly.
+// Pure relay-policy helpers. Kept side-effect free so the relay gate can be
+// unit-tested directly, and so e2e/relay-gate.spec.ts can read its constants
+// for a route it spoofs into the sender page.
 
 // Mirrors RelaySizeLimit in cli/engine/transfer/relay.go; keep the two in
 // sync. What has to agree is the comparison, not the arithmetic: both sides

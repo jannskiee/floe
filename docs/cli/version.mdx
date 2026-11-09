@@ -25,7 +25,7 @@ When a newer release exists, a third line follows:
 Update available: 1.x.x  run `floe update`, or your package manager's upgrade command
 ```
 
-Neither line carries a leading `v`: the first reads like `floe 1.11.7`. In `floe` 1.11.0 and
+Neither line carries a leading `v`: the first reads like `floe 1.12.0`. In `floe` 1.11.0 and
 earlier the hint named the release by its tag instead, as in
 ``Update available: v1.x.x  run `floe update` to upgrade``.
 
@@ -53,6 +53,10 @@ The hint names both ways to update because on an install that a
 [package manager](/glossary#package-manager) owns, `floe update` installs nothing and names the
 package manager's upgrade command instead: see
 [Update the CLI](/cli/update#package-manager-installs).
+
+In `floe` 1.12 and later the hint ignores a release whose tag is not exactly `vX.Y.Z`, whether the
+name came from GitHub or from the kept answer. `floe update` stops on such a name too: see
+[Messages](/cli/update#messages).
 
 Set `FLOE_NO_UPDATE_CHECK=1` to skip the check and the hint entirely. Binaries built from
 source report `floe dev` and never check.

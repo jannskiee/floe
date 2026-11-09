@@ -14,7 +14,9 @@ import { REQUEST_ACK_TIMEOUT_MS, REQUEST_ACK_GRACE_MS } from '../transfer/protoc
 // is the Playwright privacy spec's.
 
 const CLIENT = fileURLToPath(new URL('../../', import.meta.url));
-const read = (rel: string) => readFileSync(CLIENT + rel, 'utf8');
+// Normalized: a test below matches across a line break, and a Windows checkout with
+// Git's default settings reads CRLF.
+const read = (rel: string) => readFileSync(CLIENT + rel, 'utf8').replace(/\r\n/g, '\n');
 
 /** Every production source reachable only from /r. Test files are left out:
  *  they name the forbidden things on purpose. */

@@ -242,6 +242,39 @@ func namesDamagedKey(params map[string][]string) bool {
 	return false
 }
 
+// A whole key's text: 22 characters, the last with no bits past the sixteenth byte.
+var keyShaped = regexp.MustCompile(`^[A-Za-z0-9_-]{21}[AQgw]$`)
+
+// A k= inside a value, where something encoded the # or & in front of it.
+var keyInValue = regexp.MustCompile(`(?:^|[^A-Za-z0-9_-])k=`)
+
+// holdsLostKey reports whether a link about to be read with no key still holds one
+// somewhere: a fragment parameter, name or value, that is a whole key's text (its name
+// or its = was lost), or a value that holds a k= (its # was encoded). The query's names
+// and values are not read for the key's text: a query can hold anything a sharing tool
+// adds, and a false match there would refuse a good link. No keyless link Floe writes
+// holds either. Twin of holdsLostKey in client/lib/linkKey.ts.
+func holdsLostKey(fragment, query map[string][]string) bool {
+	for name, values := range fragment {
+		if keyShaped.MatchString(name) {
+			return true
+		}
+		for _, value := range values {
+			if keyShaped.MatchString(value) || keyInValue.MatchString(value) {
+				return true
+			}
+		}
+	}
+	for _, values := range query {
+		for _, value := range values {
+			if keyInValue.MatchString(value) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // keyedRoom reads a fragment that holds a k. It is whole only with exactly one key
 // that parses and exactly one room in the fragment that is a room id. Anything else
 // is ErrIncompleteLink with nothing returned, so no caller can drop the key and join:
@@ -339,6 +372,11 @@ func ResolveLink(serverURL, input string) (ResolvedLink, error) {
 		// What was a k before something changed it, or a k moved into the query, is
 		// a key this reading cannot take. The room beside it is not taken without it.
 		if namesDamagedKey(params) || namesDamagedKey(fragmentParams(u.Fragment)) || namesDamagedKey(fragmentParams(u.RawQuery)) {
+			return ResolvedLink{}, ErrIncompleteLink
+		}
+		// A key that lost its name, or a k= inside a value, is a key too.
+		query := fragmentParams(u.RawQuery)
+		if holdsLostKey(params, query) || holdsLostKey(fragmentParams(u.Fragment), query) {
 			return ResolvedLink{}, ErrIncompleteLink
 		}
 		// Newer links keep the room id in the fragment (#room=uuid) so it never

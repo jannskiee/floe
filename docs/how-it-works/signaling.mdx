@@ -22,7 +22,8 @@ file ever goes through it. A [room code](/glossary#room-code) works for 10 minut
 <Steps>
   <Step title="You create a transfer">
     Your device makes up a random room id and joins that room. You share a link containing it, or
-    a three-word room code that maps to it.
+    a three-word room code that maps to it. A link can also hold a [link key](/glossary#link-key),
+    which your device makes too and the server never receives. A room code holds none.
   </Step>
   <Step title="They join the same room">
     The server now has two devices in one room, and tells the first one that someone arrived.
@@ -32,11 +33,14 @@ file ever goes through it. A [room code](/glossary#room-code) works for 10 minut
     addresses, and the server passes these along. Each then tries to find a path to the other.
   </Step>
   <Step title="The connection opens and the server drops out">
-    Every byte of the file travels over that connection. None of it goes back through the server.
+    Each side that holds the link key proves it over that connection, and then every byte of the
+    file travels over it. None of it goes back through the server.
   </Step>
 </Steps>
 
-Steps 1 to 3 all pass through the server. Step 4 does not.
+Steps 1 to 3 all pass through the server. Step 4 does not. Who holds a link key, and what each app
+does with the proof, is under
+[What the link key checks](/how-it-works/known-limitations#the-signaling-server-is-trusted-to-introduce-you-honestly).
 
 A [request link](/glossary#request-link), a link made in Floe Desktop for someone to send you files,
 runs the same steps with the roles the other way around. The Floe Desktop that made the link is in
@@ -66,6 +70,8 @@ carrier's network makes that impossible, the connection runs through an encrypte
 ## What the server never does
 
 - Touch file data. Not in transit, not at rest, not in any form.
+- Receive a link key. It stays in the part of the link after the `#`, and an app joins with the room
+  id alone.
 - Store file names, contents, or a record of what you sent or to whom.
 - Keep a room once its session is over. The room is dropped when the last connection to it
   closes. A room code stops working sooner, as soon as the receiver joins. While a code lasts, it
@@ -110,15 +116,19 @@ A [request link](/desktop/request-links) differs in one way: it is used up. Once
 through it, the room seals, and nobody else can take the seat while their request or their drop
 lasts. When the drop ends, a later sender is told the link has already been used. A request that
 is declined or not answered in time does not use it up: the link can wait again for the next
-sender.
+sender. On Floe Desktop 1.1 and later, a sender that fails the
+[link key](/glossary#link-key) check does not use it up either, until
+[the fifth one closes it](/how-it-works/known-limitations#a-hostile-server-can-close-a-request-link).
 
 For a second recipient, start a second transfer.
 
 ### How long a code and a link last {#code-and-link-lifetime}
 
 A room code is the three words that `floe send` and Floe Desktop show beside their link. The web
-app's Send page makes a link and no code. A code works for 10 minutes at most, counted from the
-moment it is made, and the server retires it sooner when any of these happens first:
+app's Send page makes a link and no code. A code carries no link key, so a receiver who joins with
+one has [no check](/how-it-works/known-limitations#no-link-key-no-check). A code works for 10 minutes
+at most, counted from the moment it is made, and the server retires it sooner when any of these
+happens first:
 
 | What happens | What it does to the code |
 | --- | --- |
@@ -137,8 +147,8 @@ prints
 and Floe Desktop shows
 "[That code wasn't recognized](/troubleshooting#that-code-was-not-recognized)".
 
-A share link has no clock of its own. It carries the room id, so it works for as long as its
-sender is still in the room:
+A share link has no clock of its own. It carries the room id, and a link key when it has one, so it
+works for as long as its sender is still in the room:
 
 - A link from the web app's Send page works while the sender's tab stays open and connected.
 - A link from `floe send` or Floe Desktop works until that send finishes, fails, or is canceled.

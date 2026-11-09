@@ -98,6 +98,9 @@ send it:
   `Error: cannot walk <folder>: cannot read <path>: <reason>`.
 - A file or folder you added that is gone, for example one you moved or deleted after you added it:
   `Error: cannot read <path>: <reason>`.
+- A pipe, a socket or a device you added directly:
+  `Error: cannot send <path>: it is a pipe, a socket or a device, not a file`. Inside a folder, such an entry is
+  left out.
 
 A link to a file inside a folder is sent as that file, at the file's own size. A folder you add directly
 that is itself a link is walked like any folder.
@@ -159,20 +162,21 @@ Press `Ctrl` `Enter` in the box to send without reaching for the button.
 Click **Send**. Floe registers a [room](/glossary#room), the meeting point on Floe's
 [signaling server](/glossary#signaling-server), and shows three ways to hand it over.
 
-<Frame caption="The share panel, with the QR code shown">
+<Frame caption="The share panel, with the QR code shown, from Floe Desktop 1.0.x. A link from 1.1 and later also holds its link key after the #.">
   <img src="/images/desktop/send-share.png" style={{ width: "100%", maxWidth: "476px", borderRadius: "12px" }} alt="The Floe Desktop Send card with a room open: Active, 3 items, Cancel, the room code, the share link, a QR code, and Waiting for the receiver." />
 </Frame>
 
 | | Use it for |
 |---|---|
-| **Room code** | Someone on the `floe` CLI, or another Floe Desktop. Three words. |
-| **Share link** | Anyone with a browser. Opens the web app and joins the room. |
+| **Room code** | Someone on the `floe` CLI, or another Floe Desktop. Three words, and a code has no [link key](/glossary#link-key) check. |
+| **Share link** | Anyone. In a browser it opens the web app and joins the room. `floe receive` 1.12 and later and Floe Desktop 1.1 and later check its link key, so give the link when the check matters. |
 | **QR code** | A phone. Click **Show QR**, then have them point their camera at it. The code holds the share link. |
 
 The small copy icon beside the code, and the one beside the link, put it on your clipboard. Each turns into
-a green check for 1.5 seconds. A share link looks like `https://floe.one/?s=<8 characters>#room=<room id>`.
-The `s` value carries no information: it only makes each link a new page, so a phone that already has Floe
-open joins the new room.
+a green check for 1.5 seconds. In Floe Desktop 1.1 and later, a share link looks like
+`https://floe.one/?s=<8 characters>#k=<link key>&room=<room id>`. In Floe Desktop 1.0.x it has no
+[link key](/glossary#link-key): `https://floe.one/?s=<8 characters>#room=<room id>`. The `s` value carries no
+information: it only makes each link a new page, so a phone that already has Floe open joins the new room.
 
 **Share**, beside **Show QR**, opens the Windows share window with the share link. If sharing fails, Floe
 copies the link instead.
@@ -183,6 +187,13 @@ time, which behaves inconsistently there. See [Receiving files](/web-app/receivi
 The code and the link are all that protect the transfer. Whoever enters the code or opens the link first gets
 the files, and Floe Desktop does not ask you to approve them, so share them only over a channel you trust. See
 [Known limitations](/how-it-works/known-limitations#anyone-with-the-link-or-code-can-receive).
+
+In Floe Desktop 1.1 and later, the link key lets a receiver who opens the link check your side. A room code
+carries none, so whoever joins with the code has no check. **Send** only detects: it stops on a proof that is
+wrong and goes on when no proof comes, because a receiver by code has none to give. So a server that plays
+such a receiver gets the whole file, and Floe still says the files were sent. Floe Desktop has no switch to
+wait for the proof. See
+[What the link key checks](/how-it-works/known-limitations#the-signaling-server-is-trusted-to-introduce-you-honestly).
 
 A room takes exactly one receiver, so send again for a second person. The room code works for 10 minutes at
 most. The link keeps working while Floe waits, so for a longer wait, share the link. See
@@ -332,3 +343,6 @@ list is in [Keyboard shortcuts](/desktop/keyboard-shortcuts).
   the connection broke, or the other side left, before every file was confirmed.
 - [`Error: transfer blocked: relay connections are capped at 2 GB`](/troubleshooting#every-transfer-is-capped-at-2-gb):
   the send was relayed and over the cap.
+- [`Error: Couldn't confirm who opened your link. Nothing was sent`](/troubleshooting#could-not-confirm-who-opened-your-link):
+  in Floe Desktop 1.1 and later, the other side's proof of the link key was wrong, or it could not
+  confirm yours. Make a new link with **Send**.

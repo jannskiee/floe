@@ -1,8 +1,8 @@
-# Claim bot. A contributor starts a comment with /take on a good first issue
-# and is assigned, usually within a minute (a GitHub runner can take longer to
-# start), or gets one fixed reply saying why not; /untake gives the issue
-# back, and a plain "I'd like to work on this" on a good first issue gets one
-# reply: how to claim, or why it can't be claimed.
+# Claim bot. A contributor starts a comment with /take on a good first issue or
+# a help wanted issue and is assigned, usually within a minute (a GitHub runner
+# can take longer to start), or gets one fixed reply saying why not; /untake
+# gives the issue back, and a plain "I'd like to work on this" on either label
+# gets one reply: how to claim, or why it can't be claimed.
 # Every rule lives in .github/scripts/claim.mjs (tested in ci.yml's Repo
 # guardrails job) and every reply is a file in .github/claim/.
 #
@@ -34,7 +34,7 @@ jobs:
     name: Claim
     # Open issues only (issue_comment also fires on pull request
     # conversations), people only, never the owner (who assigns by hand), and
-    # never a fork. Off good first issues only a comment that names a command
+    # never a fork. Off those two labels only a comment that names a command
     # runs, so ordinary bug threads stay quiet. contains() reads the comment as
     # a value, never as code.
     if: >-
@@ -44,6 +44,7 @@ jobs:
       github.event.comment.user.type == 'User' &&
       github.event.comment.author_association != 'OWNER' &&
       (contains(github.event.issue.labels.*.name, 'good first issue') ||
+       contains(github.event.issue.labels.*.name, 'help wanted') ||
        contains(github.event.comment.body, '/take') ||
        contains(github.event.comment.body, '/untake'))
     runs-on: ubuntu-24.04

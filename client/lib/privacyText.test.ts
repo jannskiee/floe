@@ -104,20 +104,25 @@ describe('the privacy page: what the link key does', () => {
         expect(page).not.toContain('no Floe app shows a verification code');
         expect(page).not.toContain('every WebRTC application');
         expect(page).toContain(
-            'A link made in the web app also carries a random link key in its fragment, which no server receives.',
+            'A link made in the web app, <InlineCode>floe</InlineCode> 1.12 or later, or Floe Desktop 1.1 or later also carries a random link key in its fragment, which no server receives.',
         );
         expect(page).toContain('So a server that swaps the fingerprints on such a link is caught.');
     });
 
     it('says where you still trust the server, and that a file name can go ahead of the check', () => {
-        expect(page).toContain('A room code, and a link made by the CLI or Floe Desktop, carries no link key yet,');
+        expect(page).toContain('A room code, and a link made by an older <InlineCode>floe</InlineCode> or Floe Desktop, carries no link key,');
         expect(page).toContain(
-            'and a sender in the browser does not yet refuse a receiver that cannot show the link key, and sends a file&apos;s name and size before that check has finished, so in those cases you are still trusting that server;',
+            'and <InlineCode>floe</InlineCode> before 1.12 and Floe Desktop before 1.1 do not check the link key when receiving.',
+        );
+        expect(page).toContain(
+            "A sender on a share link does not yet refuse a receiver that cannot show the link key, unless you use{' '} <InlineCode>floe send --link-only</InlineCode>, and it sends a file&apos;s name and size before that check has finished, so in those cases you are still trusting that server;",
         );
     });
 
     it('says the fragment holds it, and the signaling server never receives it', () => {
-        expect(page).toContain('The link you share carries its room id, and on a link made in the web app a link key, in the URL fragment');
+        expect(page).toContain(
+            "The link you share carries its room id, and on a link made in the web app,{' '} <InlineCode>floe</InlineCode> 1.12 or later, or Floe Desktop 1.1 or later, a link key, in the URL fragment",
+        );
         expect(page).toContain('Our signaling server never receives the link key,');
     });
 });
@@ -141,8 +146,8 @@ describe('the privacy page: the warning a failed check sends', () => {
 
 describe('the privacy page: a request link and the link key', () => {
     // W2 and T6-3: what the /r page now does with a link that holds one. The sentence says
-    // "a request link that carries one", because no released Floe Desktop makes such a link
-    // yet, which the sentence above it still says (decision D12).
+    // "a request link that carries one", because a link from Floe Desktop 1.0.x holds none,
+    // which the sentence above it says.
     it('names the shape, and calls the part after the # a room id', () => {
         expect(page).not.toContain('#&lt;key&gt;');
         expect(page).toContain('A request link looks like <InlineCode>floe.one/r/&lt;link id&gt;#&lt;room id&gt;</InlineCode>');
@@ -168,8 +173,37 @@ describe('the privacy page: a request link and the link key', () => {
         expect(Object.keys(report?.tags ?? {}).sort()).toEqual(['linkkey.mode', 'linkkey.outcome', 'linkkey.path', 'linkkey.role']);
     });
 
-    it('still says a link Floe Desktop makes carries no key yet', () => {
-        expect(page).toContain('A room code, and a link made by the CLI or Floe Desktop, carries no link key yet,');
+    it('says a link from an older Floe Desktop carries no key', () => {
+        expect(page).toContain('A room code, and a link made by an older <InlineCode>floe</InlineCode> or Floe Desktop, carries no link key,');
+    });
+});
+
+describe('the privacy page: what is logged', () => {
+    // A room code travels in the path of GET /api/code/:code, so the sentence has to speak for
+    // the proxy as well as the server. Read from the VM on 2026-11-05; see the page's header.
+    it('speaks for the server and for the proxy in front of it', () => {
+        expect(page).not.toContain('is written to a log.');
+        expect(page).toContain('Our signaling server does not write either to its log, and the proxy in front of it keeps no request log.');
+    });
+});
+
+// The home page's answer, in the words the owner approved on 2026-11-05. It says what is
+// checked and what is not, so no sentence here may suggest more.
+describe('the home page FAQ: is this secure', () => {
+    const faq = read('../components/layout/FAQSection.tsx')
+        .replace(/&apos;/g, "'")
+        .replace(/<code className=\{ANSWER_CODE\}>|<\/code>/g, '')
+        .replace(/\s+/g, ' ');
+
+    it('says what the link key checks and when you are still trusting the server', () => {
+        expect(faq).toContain(
+            "The two devices find each other through Floe's signaling server. A link now carries a key that no server receives, and the receiving device checks it, so a server that steps in between is caught; request links are checked in both directions. A room code or a link from an older Floe carries no key, and a sender does not yet refuse a receiver that cannot show the key, unless you use floe send --link-only, so in those cases you are still trusting that server."
+        );
+    });
+
+    it('no longer says that no Floe app can check the server', () => {
+        expect(faq).not.toContain('verification code');
+        expect(faq).not.toContain('not to swap them');
     });
 });
 

@@ -145,10 +145,16 @@ function releasedPredatesTheKey(): boolean {
     return m !== null && (Number(m[1]) < 1 || (Number(m[1]) === 1 && Number(m[2]) < 12));
 }
 
+// A local run can set FLOE_RELEASED_CLI alone, and the binary may well be from before
+// the key, so the reason says what is missing and not what it would mean.
+function pinReason(whenNewer: string): string {
+    return process.env.FLOE_RELEASED_VERSION ? whenNewer : 'FLOE_RELEASED_VERSION is not set, so this cannot tell which side of the key the binary is on';
+}
+
 // Its parser takes the whole fragment for a room id and finds none. No network: the
 // server named here answers nothing, and the line is the one a cut link has always had.
 test('released floe send --to a keyed request link: the incomplete line, before any network', async () => {
-    test.skip(!releasedPredatesTheKey(), 'a floe from v1.12.0 on reads the key');
+    test.skip(!releasedPredatesTheKey(), pinReason('a floe from v1.12.0 on reads the key'));
     const { path: fixturePath } = createFixture(FIXTURE_DIR, 4096);
     const key = 'AAECAwQFBgcICQoLDA0ODw';
     const link = `${WEB_URL}/r/AAAAAAAAAAA#${randomUUID()}.${key}`;
@@ -169,7 +175,7 @@ test('released floe send --to a keyed request link: the incomplete line, before 
 // floe that speaks the key overlaps, so the released one prints its own update remedy
 // (1.10.8 and later; review 20 finding 6).
 test('HEAD floe send --link-only → released floe receive: its update remedy, and nothing saved', async () => {
-    test.skip(!releasedPredatesTheKey(), 'a floe from v1.12.0 on proves the key');
+    test.skip(!releasedPredatesTheKey(), pinReason('a floe from v1.12.0 on proves the key'));
     const { path: fixturePath } = createFixture(FIXTURE_DIR, 4096);
     const outputDir = join(FIXTURE_DIR, 'received-link-only');
     mkdirSync(outputDir, { recursive: true });

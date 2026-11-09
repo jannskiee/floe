@@ -388,12 +388,7 @@ func runSendTo(cmd *cobra.Command, args []string) error {
 	}
 	defer sc.Close()
 	// The peer exists before the join (spec 07 4.8): the host offers the
-	// moment the server seats this visitor. pion's pc and datachannel scopes
-	// go off first, since peer.New reads pion's levels from the environment:
-	// pc's "dropping candidate" line quotes a ufrag the host chose, and
-	// datachannel's "Failed to handle DCEP" line a channel label and protocol
-	// it wrote (quietPeerConnectionLog).
-	quietPeerConnectionLog()
+	// moment the server seats this visitor.
 	conn, err := peer.New(iceServers, sc, peerOptions()...)
 	if err != nil {
 		return r.fail(cmd, lineCouldNotConnect)

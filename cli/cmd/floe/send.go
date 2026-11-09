@@ -16,6 +16,7 @@ import (
 	"github.com/jannskiee/floe/cli/engine/linkkey"
 	"github.com/jannskiee/floe/cli/engine/peer"
 	"github.com/jannskiee/floe/cli/engine/serverurl"
+	"github.com/jannskiee/floe/cli/engine/signaling"
 	"github.com/jannskiee/floe/cli/engine/transfer"
 	"github.com/pion/webrtc/v4"
 	"github.com/spf13/cobra"
@@ -150,12 +151,12 @@ func runSend(cmd *cobra.Command, args []string) error {
 	select {
 	case role := <-sc.Role:
 		if role != "sender" {
-			return fmt.Errorf("expected sender role, got %q (room may already have two peers)", role)
+			return errors.New("expected sender role (room may already have two peers)")
 		}
 	case <-sc.RoomFull:
 		return fmt.Errorf("room is full")
 	case errMsg := <-sc.Errors:
-		return fmt.Errorf("server error: %s", errMsg)
+		return signaling.ServerFrameError(errMsg)
 	case <-sc.PeerLeft:
 		return roleWaitClosed(sc)
 	case <-time.After(roleAssignTimeout):
@@ -218,7 +219,7 @@ func runSend(cmd *cobra.Command, args []string) error {
 		}
 		return peer.ErrPeerLeft
 	case errMsg := <-sc.Errors:
-		return fmt.Errorf("server error: %s", errMsg)
+		return signaling.ServerFrameError(errMsg)
 	}
 
 	// 8. Set up WebRTC as the initiator (sender creates offer + data channel)
@@ -251,9 +252,12 @@ func runSend(cmd *cobra.Command, args []string) error {
 	defer close(quit)
 	closeOnFailed(conn, quit)
 	early := conn.Early()
+	var answered bool
 	err = transfer.SendFilesWithOptions(dc, args, version, transfer.SendOptions{
 		Messages: early.Msgs,
 		Closed:   early.Closed,
+		// Runs on this goroutine, so plainSendEnd reads it with no lock.
+		OnAck: func(int) { answered = true },
 		// Closed by Ctrl+C's stop step: the send then queues nothing more, so
 		// the step's abort frame is the last one on the channel.
 		Stop: r.halt,
@@ -264,7 +268,7 @@ func runSend(cmd *cobra.Command, args []string) error {
 	if !r.finish(err == nil) {
 		return park()
 	}
-	return plainSendEnd(err)
+	return plainSendEnd(err, answered)
 }
 
 // sendStopSettle bounds how long Ctrl+C's stop step waits for the send to
@@ -412,9 +416,13 @@ var errTheyStopped = errors.New("They stopped the transfer.")
 // errTheyStopped, the link key's check its own two lines, and every other error,
 // every other code among them, is returned as it came. ErrKeyCheckUnavailable
 // is one of those: this side could not read its own connection, the copy has no
-// line for it, and its fixed text blames nobody.
-func plainSendEnd(err error) error {
+// line for it, and its fixed text blames nobody. answered is this side's own fact,
+// that the receiver has answered a file (PastAnAnswer).
+func plainSendEnd(err error, answered bool) error {
 	var stopped *transfer.PeerStoppedError
+	if answered && errors.As(err, &stopped) {
+		err = stopped.PastAnAnswer()
+	}
 	switch {
 	case errors.As(err, &stopped) && stopped.Code == transfer.CodeStopped:
 		return errTheyStopped

@@ -347,6 +347,11 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 	// so a slow human can never trip it either.
 	stallTimer := time.NewTimer(receiveIdleTimeout)
 	defer stallTimer.Stop()
+	// The proof a key is owed has one clock, from here. Restarting it per frame let
+	// a middle hold a keyed receive open for as long as it kept sending frames that
+	// mean nothing (final audit report 27 F2). An honest sender's proof meets it: it
+	// sends nothing else first, so the idle clock already asked this much of it.
+	proofBy := time.Now().Add(receiveIdleTimeout)
 
 	for {
 		// Prefer draining buffered messages over reacting to a close: a normal
@@ -360,7 +365,9 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 			// timer semantics this module's go directive activates; lowering
 			// the directive (or GODEBUG=asynctimerchan=1) would let a stale
 			// expiry misfire the very next select.
-			if waitingForFirst {
+			if awaitingProof() {
+				stallTimer.Reset(time.Until(proofBy))
+			} else if waitingForFirst {
 				stallTimer.Reset(receiveIdleTimeout)
 			} else {
 				stallTimer.Reset(receiveStallTimeout)

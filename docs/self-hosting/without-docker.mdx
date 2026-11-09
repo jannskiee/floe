@@ -124,6 +124,8 @@ pnpm install --frozen-lockfile
 pnpm build
 ```
 
+A request link from Floe Desktop 1.1 or later needs a client built from 1.12.0 or later, and an older build reads it as an incomplete link, so rebuild the client before Floe Desktop 1.1 reaches your users.
+
 Then restart both processes with whatever supervises them (`pm2 restart <name>`, `systemctl restart <unit>`, or your own runner). `pnpm start` serves whatever `pnpm build` last produced, so skipping the client rebuild leaves the old client running with nothing to indicate it is stale. A server restart forgets every [room](/glossary#room) and [room code](/glossary#room-code), so pick a quiet moment; see [Operations](/self-hosting/operations#common-commands).
 
 <Warning>
@@ -146,5 +148,6 @@ npm --prefix server ls <package-name>
 ## If something goes wrong
 
 - The server prints nothing after `npm start`, or only a line about `TRUSTED_PROXY_COUNT`: that is expected. See [The server logs nothing at all](/troubleshooting#the-server-logs-nothing-at-all).
+- The server prints a line starting `Only one of`, `TURN_DOMAIN holds` or `Upstash counter`: a setting may need fixing. See [The server logs very little](/self-hosting/operations#the-server-logs-very-little).
 - The page loads and the [badge](/glossary#badge) stays on **Offline**: see [The browser cannot connect to my signaling server](/troubleshooting#the-browser-cannot-connect-to-my-signaling-server).
 - The server answers `403` to the browser: `CLIENT_URL` does not match the page's origin. See [Browser requests are blocked, and the server answers HTTP 403](/troubleshooting#browser-requests-are-blocked-and-the-server-answers-http-403).

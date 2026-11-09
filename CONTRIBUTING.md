@@ -6,22 +6,25 @@ Thank you for your interest in contributing! All contributions are welcome. This
 
 ## Your first Floe pull request
 
-1. If your change is for an open issue, claim it first, so nobody else starts the same work. On a good first issue, start a new comment with `/take`: a bot assigns you, usually within a minute, or replies with the reason it can't (the issue is taken, another pull request already targets it, you already hold a good first issue, or you already have a commit here, since good first issues are for a first pull request). On any other issue, comment with your plan, and the maintainer assigns you. A pull request for an issue that is assigned to someone else is closed.
-2. Start once you are assigned. If you can't finish, comment `/untake` so someone else can take the issue. The [good first issues nobody holds yet](https://github.com/jannskiee/floe/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22%20no%3Aassignee%20-linked%3Apr) are the ones free to claim.
+1. If your change is for an open issue, claim it first, so nobody else starts the same work. On a good first issue or a help wanted issue, start a new comment with `/take`: a bot assigns you, usually within a minute, or replies with the reason it can't (the issue is taken, another pull request already targets it, the maintainer unassigned you from it earlier, or you already hold two issues; on a good first issue, also that you already hold a good first issue, or that you already have a commit here, since good first issues are for a first pull request). On any other issue, comment with your plan and wait for the maintainer's answer. A pull request for an issue that is assigned to someone else is closed.
+2. Start once you are assigned. If you can't finish, comment `/untake` so someone else can take the issue, and close your pull request if you opened one. The [good first issues nobody holds yet](https://github.com/jannskiee/floe/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22%20no%3Aassignee%20-linked%3Apr), for a first pull request here, and the [help wanted issues nobody holds yet](https://github.com/jannskiee/floe/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22help%20wanted%22%20no%3Aassignee%20-linked%3Apr), for anyone, are the ones free to claim.
 3. Fork the repository on GitHub, clone your fork, and follow [Development Setup](#development-setup) for the parts you will change.
 4. Make your change on a new branch, with the tests the issue names. A test that guards a fix should fail on `main` and pass with your change; a test that only pins what already works passes on both.
 5. Run the checks for what you touched: see [What CI runs, and how to run it locally](#what-ci-runs-and-how-to-run-it-locally).
 6. Open the pull request with a title in the style of [Pull Request Process](#pull-request-process) step 9, and fill in the template: `Closes #N`, a summary, your test plan and the changelog line.
 
-Good first issues are meant for a first pull request here. Once one of yours is merged, pick an issue labeled [help wanted](https://github.com/jannskiee/floe/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22help%20wanted%22) instead, so the next newcomer still has a first issue to take. An issue that was assigned to you, or a pull request you opened, before this rule was added is reviewed as before.
+Good first issues are meant for a first pull request here. Once one of yours is merged, claim an issue labeled [help wanted](https://github.com/jannskiee/floe/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22help%20wanted%22%20no%3Aassignee%20-linked%3Apr) with `/take` instead, so the next newcomer still has a first issue to take. An issue that was assigned to you, or a pull request you opened, before this rule was added is reviewed as before.
+
+Help wanted issues are open to everyone, newcomers included. You can hold two issues from these two labels at a time, only one of them a good first issue.
 
 You can have at most two open pull requests here at a time, drafts included. Until one of them is merged or closed, GitHub refuses to open another. Its error may read like a permissions problem and not mention the limit, so if a new pull request is refused, count your open ones first.
 
 ### What happens after you open it
 
-- **CI waits for approval at first.** GitHub holds the CI runs of a pull request from a fork until the maintainer approves them, and until your first pull request here is merged, each new push waits for approval again. Until then the only check you see is Vercel's, and it fails, which is expected (see the next point).
-- **The Vercel check fails on forks.** It is expected to fail on a pull request from a fork and is not required: `CI green` is the only check that gates the merge.
-- **Review follows the issue.** The maintainer reviews your change against the issue's own tests and acceptance list, and runs those tests on your branch. Requested changes come as numbered steps.
+- **CI waits for approval at first.** GitHub holds the CI runs of a pull request from a fork until the maintainer approves them, and until your first pull request here is merged, each new push waits for approval again. Until then the only checks you see are Vercel's and, on a change to `docs/`, Mintlify's; see the next point.
+- **The Vercel check fails on forks.** It is expected to fail on a pull request from a fork and is not required, and a change to `docs/` adds a Mintlify Preview (fork) check that shows as neutral: `CI green` is the only check that gates the merge.
+- **A bot may leave notes.** Usually within a few hours, sooner when another change is merged, Floe's intake check adds one comment to your pull request when it has notes for it, such as who holds the linked issue or how the title should read, and updates that comment as things change. It never closes, assigns or approves anything; the maintainer reviews every pull request.
+- **Review follows the issue.** The maintainer reviews your change against the issue's own tests and acceptance list, and CI runs those tests on your latest push, merged with main. Requested changes come as numbered steps.
 - **The first match wins.** When two pull requests target one unassigned issue, the first one that matches the issue is merged, and the other is closed with thanks.
 - **Keep "Allow edits and access to secrets by maintainers" ticked.** The maintainer may push a small fix to your branch instead of asking for another round, or land it in a follow-up pull request after yours is merged (for example the issue's tests or the changelog line).
 - **You stay the author.** Pull requests are squash-merged, and the squash commit names you as its author. When the maintainer added a commit to your branch, it also carries a `Co-authored-by` line for the maintainer.
@@ -35,7 +38,7 @@ AI coding tools are welcome. You are responsible for every line of your pull req
 
 - Understand your change and be able to explain it in review in your own words.
 - Run the issue's tests and the checks for what you touched yourself, before you open the pull request.
-- An agent or an automated pipeline follows the same rules as a person: it claims the issue first (with `/take` on a good first issue), waits to be assigned, and counts toward the two-pull-request limit of the account that opens it.
+- An agent or an automated pipeline follows the same rules as a person: it claims the issue first (with `/take` on a good first issue or a help wanted issue), waits to be assigned, and counts toward the two-pull-request limit of the account that opens it.
 - Answer review comments in your own words.
 - Leave out AI credit lines: no `Co-authored-by` trailer for a tool and no "Generated with" footer, in commits or in the pull request. You do not need to say which tools you used.
 
@@ -302,6 +305,7 @@ A run starts the signaling server on `:3001` and the client on `:3000` (with `ne
 
 - Request links are on, through the policy file `client/e2e/fixtures/request-policy-on.json`.
 - The connection, room-code and TURN rate limits are raised to 1,000 a minute.
+- `TRUSTED_PROXY_COUNT` is pinned to 1, because each request-link host in the suite reaches the server through a small local proxy that names a network of its own (`signalingDoor` in `client/e2e/request-helpers.ts`). Otherwise the suite would pass the server's limit of 20 new links per network per day.
 - The Upstash variables are overridden with a dummy local address and token, so no test byte can reach a real counter.
 
 > **Warning:** Stop your own server and client, anything on `:3001` and `:3000`, before a run. A run refuses to start when something already answers there: Playwright stops before any test and says the address "is already used". Do not follow the hint in that message to set `reuseExistingServer:true`, because a server or client you started yourself has none of the setup above:
@@ -321,8 +325,11 @@ Some tests skip themselves unless you set a variable:
 |----------|------------------|
 | `FLOE_E2E_HEAVY=1` | The heavy request-link cells in `e2e/request-heavy.spec.ts`: a folder of 1,000 files, and one file of 4 GiB plus 1 byte. Never run in CI. |
 | `FLOE_E2E_LOCAL_TURN=1` | The one request-link test that sends through a relay with Hide my IP on. Never run in CI. What it needs is under this table. |
+| `FLOE_E2E_FIREFOX=1` | The cells of `e2e/link-key.spec.ts` and `e2e/request-link.spec.ts` that run Firefox. Never run in CI, which installs Chromium alone, so run `pnpm exec playwright install firefox` once first. |
+| `FLOE_E2E_SLOW=1` | The test in `e2e/reconnect.spec.ts` that holds two seats for a minute. Never run in CI. |
 | `E2E_EXPECT_UMAMI=1` | Extra assertions in `e2e/request-privacy.spec.ts` that only hold for a client built with an Umami website ID. |
-| `FLOE_RELEASED_CLI=<path>` | `e2e/back-compat.spec.ts`, which pairs a released `floe` binary at that path with your working tree. Without it the whole file is skipped. |
+| `E2E_EXPECT_SENTRY=1` | The cells of `e2e/request-privacy.spec.ts` that read what Sentry hears on a request link's page. They need a client with a Sentry DSN, so run them as `E2E_EXPECT_SENTRY=1 NEXT_PUBLIC_SENTRY_DSN=http://floe@127.0.0.1:9/1 pnpm test:e2e request-privacy.spec.ts`. Nothing leaves the machine. |
+| `FLOE_RELEASED_CLI=<path>` | `e2e/back-compat.spec.ts`, which pairs a released `floe` binary at that path with your working tree. Without it the whole file is skipped. Set `FLOE_RELEASED_VERSION=<tag>` with it, as CI does: without the tag, the two cells that depend on which side of the link key the binary is on skip themselves. |
 
 `FLOE_E2E_LOCAL_TURN=1` needs:
 
