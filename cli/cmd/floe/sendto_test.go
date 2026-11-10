@@ -685,7 +685,7 @@ func runCLI(t *testing.T, args ...string) *cliRun {
 // resetSendFlags puts send's own flags, and the variables bound to them, back.
 func resetSendFlags(t *testing.T) {
 	t.Helper()
-	for _, name := range []string{"to", "link-only"} {
+	for _, name := range []string{"to", "link-only", "no-progress"} {
 		f := sendCmd.Flags().Lookup(name)
 		if f == nil {
 			t.Fatalf("flag --%s is not registered on send", name)

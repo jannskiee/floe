@@ -525,6 +525,7 @@ func sendToOptions(early *peer.Early, stop <-chan struct{}, onAck func(int), onD
 		Stop:                   stop,
 		EndBarLine:             true,
 		PeerVersionReleaseOnly: true,
+		NoProgressBar:          flagSendNoProgress,
 		OnAck:                  onAck,
 		OnDelivered:            onDelivered,
 	}

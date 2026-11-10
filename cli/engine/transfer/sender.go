@@ -491,6 +491,10 @@ func parseAckConfirms(raw []byte) bool {
 // the CLI behavior: terminal progress and the CLI update instruction.
 type SendOptions struct {
 	OnProgress ProgressFunc
+	// NoProgressBar hides the terminal progress bar. The CLI --no-progress
+	// flag sets it; GUIs set OnProgress and leave this false. An invisible
+	// bar object is still kept so report closures never call a nil func.
+	NoProgressBar bool
 	// OnDelivered fires exactly once, after the delivery wait ends and before
 	// the summary is printed, with the same numbers the Verified row reads. It
 	// does not fire on any error path. Leave nil for the CLI.
@@ -1300,7 +1304,7 @@ ackLoop:
 	// (CLI) or the callback (GUI, when onProgress is non-nil).
 	var bar *progressbar.ProgressBar
 	if onProgress == nil {
-		bar = newProgressBar(fileSize, index, total, entry.displayName)
+		bar = newProgressBar(fileSize, index, total, entry.displayName, !opts.NoProgressBar)
 		bar.Set64(offset)
 	}
 	// barEnded is set where the finished bar gets its line break below. Any
@@ -1492,7 +1496,10 @@ ackLoop:
 	}
 
 	if bar != nil {
-		fmt.Println()
+		// With --no-progress the bar never drew, so no line to end.
+		if !opts.NoProgressBar {
+			fmt.Println()
+		}
 		barEnded = true
 	}
 

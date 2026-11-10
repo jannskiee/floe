@@ -37,6 +37,9 @@ var flagTo string
 // name. A decision about one transfer, so no environment twin, as --to has none.
 var flagLinkOnly bool
 
+// flagSendNoProgress hides the terminal progress bar on floe send (issue #688).
+var flagSendNoProgress bool
+
 // The plain send's lines for the link key's check (PLAN.md "New copy"). execute
 // prints them as outcomes, alone on the indent, and main exits 1 on them.
 var (
@@ -68,6 +71,8 @@ func init() {
 	}
 	sendCmd.Flags().BoolVar(&flagLinkOnly, "link-only", false,
 		"create no code, and send only to a receiver that proves it holds the link")
+	sendCmd.Flags().BoolVar(&flagSendNoProgress, "no-progress", false,
+		"do not draw the progress bar (for scripts and CI logs)")
 	// A flag group and not a PreRunE: main.go's init sets sendCmd.PreRunE for
 	// --iface and runs before this one, so a PreRunE here would replace it.
 	sendCmd.MarkFlagsMutuallyExclusive("to", "link-only")
@@ -254,8 +259,9 @@ func runSend(cmd *cobra.Command, args []string) error {
 	early := conn.Early()
 	var answered bool
 	err = transfer.SendFilesWithOptions(dc, args, version, transfer.SendOptions{
-		Messages: early.Msgs,
-		Closed:   early.Closed,
+		Messages:      early.Msgs,
+		Closed:        early.Closed,
+		NoProgressBar: flagSendNoProgress,
 		// Runs on this goroutine, so plainSendEnd reads it with no lock.
 		OnAck: func(int) { answered = true },
 		// Closed by Ctrl+C's stop step: the send then queues nothing more, so

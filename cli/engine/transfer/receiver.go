@@ -158,7 +158,11 @@ type FileDone struct {
 // Callbacks run synchronously on the receive loop, so keep them fast.
 type ReceiveOptions struct {
 	OnProgress ProgressFunc
-	OnIncoming func(IncomingInfo)
+	// NoProgressBar hides the terminal progress bar. The CLI --no-progress
+	// flag sets it; GUIs set OnProgress and leave this false. An invisible
+	// bar object is still kept so report closures never call a nil func.
+	NoProgressBar bool
+	OnIncoming    func(IncomingInfo)
 	// OnFileDone fires once per committed file, after the rename and any
 	// numbered-sibling correction, and never for a refused file. It delays the
 	// next ack, so keep it fast, never call back into the engine and never
@@ -712,6 +716,13 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 						// (CLI-06).
 						if in.n == 0 {
 							fmt.Println()
+						} else if opts.NoProgressBar {
+							// A piped answer leaves the prompt's line open; the
+							// bar used to end it. With the bar off, end it here
+							// so the next status line starts fresh. On a real
+							// terminal Enter was already echoed, so this adds a
+							// blank line: acceptable for an opt-in scripts flag.
+							fmt.Println()
 						}
 						answer = strings.TrimSpace(strings.ToLower(answer))
 						// The question the Decide path asks above, for the same
@@ -826,7 +837,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 
 				// Progress bar for this file (CLI). GUIs get callback updates instead.
 				if onProgress == nil {
-					bar = newProgressBar(info.FileSize, info.Index, info.Total, currentSavedName)
+					bar = newProgressBar(info.FileSize, info.Index, info.Total, currentSavedName, !opts.NoProgressBar)
 				}
 
 				// Send ack as BINARY with protocol version fields so the sender
@@ -876,7 +887,10 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					syncErr := syncPart(staged)
 					closeErr := staged.Close()
 					currentFile = nil
-					fmt.Println()
+					// With --no-progress the bar never drew, so no line to end.
+					if !opts.NoProgressBar {
+						fmt.Println()
+					}
 					// os.ErrClosed is the abandon's fingerprint: AbandonPartials
 					// closed the shared handle before we unregistered, so our
 					// Sync and Close find it already closed. The transfer was

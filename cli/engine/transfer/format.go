@@ -149,9 +149,8 @@ func displayText(s string, maxRunes int) string {
 	return string(r[:stem]) + "…" + string(ext)
 }
 
-func newProgressBar(size int64, index, total int, name string) *progressbar.ProgressBar {
-	return progressbar.NewOptions64(
-		size,
+func newProgressBar(size int64, index, total int, name string, visible bool) *progressbar.ProgressBar {
+	opts := []progressbar.Option{
 		progressbar.OptionSetDescription(
 			fmt.Sprintf("  [%d/%d] %s", index, total, truncateName(name, 30)),
 		),
@@ -164,7 +163,7 @@ func newProgressBar(size int64, index, total int, name string) *progressbar.Prog
 		// Default throttle is 0, so the bar re-renders (and fsyncs) on every
 		// chunk. Cap redraws to keep the display smooth and cut I/O; the final
 		// 100% still renders because render() bypasses the throttle at max.
-		progressbar.OptionThrottle(65*time.Millisecond),
+		progressbar.OptionThrottle(65 * time.Millisecond),
 		progressbar.OptionShowBytes(true),
 		progressbar.OptionSetTheme(progressbar.Theme{
 			Saucer:        "█",
@@ -172,7 +171,14 @@ func newProgressBar(size int64, index, total int, name string) *progressbar.Prog
 			BarStart:      "[",
 			BarEnd:        "]",
 		}),
-	)
+	}
+	// CLI --no-progress: keep the bar object (report closures need a non-nil
+	// bar) but never draw it. OptionSetVisibility(false) is in schollz
+	// progressbar v3.19.1; an invisible bar never starts, so EndBarLine stays quiet.
+	if !visible {
+		opts = append(opts, progressbar.OptionSetVisibility(false))
+	}
+	return progressbar.NewOptions64(size, opts...)
 }
 
 const divider = "  ─────────────────────────────────────────────────"
