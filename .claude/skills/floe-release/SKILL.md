@@ -270,6 +270,21 @@ No lever exists for a bad `v1.12.0` beyond the next number. Say so in the messag
   words left the app is reworded or removed (#598 removed twelve), and a new
   line of `requestCopy.ts` or `sendto.go` gets its row. Step 6 writes the file
   again at the tags.
+- Read Umami's live tracker against the pinned copy. floe.one runs a reviewed
+  copy (`client/public/vendor/umami-<hash>.js`, which the browser checks
+  against `UMAMI_INTEGRITY` in `client/lib/umamiPin.ts`), so nothing else
+  notices when Umami changes its file, and analytics would stop in silence on
+  the day its collector stops taking what the old copy sends. A GET only,
+  never a page view:
+  `node -e "fetch('https://cloud.umami.is/script.js').then(async r=>console.log('sha384-'+require('crypto').createHash('sha384').update(Buffer.from(await r.arrayBuffer())).digest('base64')))"`
+  Equal to `UMAMI_INTEGRITY`: nothing to do; say so in the release report.
+  Different: Umami published a new tracker (it did on 2026-11-10, adding the
+  optional `data-salt` attributes and web-vitals fixes, with the same
+  collector). The pinned copy keeps running, so the tag does not wait: diff
+  the two for a changed endpoint or payload, say what changed, and refresh
+  the copy in a PR of its own by the five steps in the header of
+  `client/components/UmamiScript.tsx`, never inside the prep PR, which adds
+  no code.
 - Make the prep edits with the Edit tool or PowerShell. A Git Bash `sed -i`
   rewrites a CRLF working copy to LF: harmless to the commit under autocrlf,
   noisy in the working tree (git warns on every touch, and tools that do not

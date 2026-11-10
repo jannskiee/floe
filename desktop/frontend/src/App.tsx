@@ -2057,8 +2057,10 @@ function App() {
                                     <div className={cardClass}>
                                         {/* The placeholder must stay in step with defaultReceiveDir
                                             in reveal.go and with the receive screen's own field: a
-                                            blank value saves to ~/Downloads, it does NOT prompt.
-                                            An earlier "Ask every time" here was simply false. */}
+                                            blank value saves to the Downloads folder Windows names
+                                            (knownDownloads), else ~/Downloads, else home. It does
+                                            NOT prompt. An earlier "Ask every time" here was simply
+                                            false. */}
                                         <SettingField
                                             htmlFor="floe-save-folder"
                                             label="Save received files to"
