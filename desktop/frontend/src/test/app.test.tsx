@@ -29,6 +29,10 @@ const mount = () => render(<StrictMode><App /></StrictMode>);
 
 const settled = () => waitFor(() => expect(wails.listeners.size).toBe(15));
 
+// A done row's words, as drawn: a live span at the root repeats them for screen
+// readers (the completion announcement, at the end of this file).
+const shown = {ignore: 'script, style, .sr-only'};
+
 describe('the mount effect', () => {
     it('registers every Go listener and tears down every one', async () => {
         const {unmount} = mount();
@@ -369,7 +373,7 @@ describe('the verification line', () => {
         expect(row.querySelector('svg.lucide-check')).toBeNull();
         // Reading order (RC-4): a screen reader hears "Sent 2 items" first and
         // the words after it, while the glyph still leads the row on screen.
-        const sentText = screen.getByText(/^Sent \d+ items?$/);
+        const sentText = screen.getByText(/^Sent \d+ items?$/, shown);
         expect(sentText.compareDocumentPosition(sr) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         expect(glyph.getAttribute('class')).toContain('order-first');
 
@@ -380,7 +384,7 @@ describe('the verification line', () => {
             wails.emit('send:delivered', {files: 2, verified: 1, hasVerified: true});
         });
         await waitFor(() => expect(screen.queryByText('SHA-256 matched')).toBeNull());
-        const quiet = screen.getByText(/^Sent \d+ items?$/).parentElement!;
+        const quiet = screen.getByText(/^Sent \d+ items?$/, shown).parentElement!;
         expect(quiet.querySelector('svg.lucide-circle-check')).toBeNull();
         expect(quiet.querySelector('svg.lucide-check')!.getAttribute('class')).toContain('text-zinc-500');
         expect(quiet.querySelector('svg.lucide-check')!.getAttribute('class')).toContain('order-first');
@@ -424,7 +428,7 @@ describe('the verification line', () => {
         expect(row.querySelector('svg.lucide-check')).toBeNull();
         // Reading order (RC-4): "Saved to ..." comes before the words, and the
         // glyph still leads the row on screen.
-        const savedText = screen.getByText('Saved to C:\\dl');
+        const savedText = screen.getByText('Saved to C:\\dl', shown);
         expect(savedText.compareDocumentPosition(sr) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         expect(row.querySelector('svg.lucide-circle-check')!.getAttribute('class')).toContain('order-first');
 
@@ -452,7 +456,7 @@ describe('the verification line', () => {
             wails.emit('recv:file-done', {savedName: 'b.bin', bytes: 20, verified: false});
         });
         await act(async () => { finish('C:\\dl'); });
-        const saved = await screen.findByText('Saved to C:\\dl');
+        const saved = await screen.findByText('Saved to C:\\dl', shown);
         const row = saved.parentElement!;
         expect(screen.queryByText(/SHA-256/)).toBeNull();
         expect(row.querySelector('svg.lucide-circle-check')).toBeNull();
@@ -499,7 +503,7 @@ describe('the history store', () => {
         await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
         await user.type(screen.getByPlaceholderText('amber-otter-cloud'), 'amber-otter-cloud');
         await user.click(screen.getAllByRole('button', {name: 'Receive'}).find((b) => b.className.includes('w-full'))!);
-        expect(await screen.findByText('Saved to C:\\Users\\test\\Downloads')).toBeTruthy();
+        expect(await screen.findByText('Saved to C:\\Users\\test\\Downloads', shown)).toBeTruthy();
         expect(screen.getByRole('button', {name: 'Start over'})).toBeTruthy();
     });
 
@@ -2462,7 +2466,7 @@ describe('focus across a send', () => {
         const cancel = await screen.findByRole('button', {name: 'Cancel'});
         act(() => cancel.focus());
         act(() => { wails.emit('send:done'); });
-        expect(await screen.findByText('Sent 1 item')).toBeTruthy();
+        expect(await screen.findByText('Sent 1 item', shown)).toBeTruthy();
         await waitFor(() => expect(document.activeElement).toBe(sendKind()));
     });
 
@@ -2480,7 +2484,7 @@ describe('focus across a send', () => {
         await frames();
         expect(document.activeElement).toBe(lockup);
         act(() => { wails.emit('send:done'); });
-        expect(await screen.findByText('Sent 1 item')).toBeTruthy();
+        expect(await screen.findByText('Sent 1 item', shown)).toBeTruthy();
         await frames();
         expect(document.activeElement).toBe(lockup);
     });
@@ -2658,5 +2662,55 @@ describe('the File Explorer entry at launch', () => {
         await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
         expect(wails.go.ContextMenuState).not.toHaveBeenCalled();
         expect(wails.go.EnableContextMenu).not.toHaveBeenCalled();
+    });
+});
+
+/**
+ * A screen reader hears a send or a receive by code finish. A live region
+ * speaks only a change, so it has to be in the DOM, empty, while the transfer
+ * runs, and take the visible line's words once it ends. Go sends no toast
+ * while Floe is in front, so this is the only announcement there is.
+ */
+describe('the completion announcement', () => {
+    // Every live region on the page, and what it says now.
+    const regions = () => new Map(
+        [...document.querySelectorAll('[role="status"], [aria-live]')].map((e) => [e, (e.textContent || '').trim()])
+    );
+    function announced(during: Map<Element, string>, words: string) {
+        const hit = [...regions()].filter(([, text]) => text === words).map(([e]) => e);
+        expect(hit, `one live region says "${words}"`).toHaveLength(1);
+        expect(during.has(hit[0]), 'it was in the DOM while the transfer ran').toBe(true);
+        expect(during.get(hit[0]), 'it was empty while the transfer ran').toBe('');
+    }
+    const progress = (name: string) => ({fileName: name, fileIndex: 1, fileCount: 1, fileBytes: 5, fileSize: 10, totalBytes: 5, grandTotal: 10, savedName: name});
+
+    it('announces a finished send, and the next one too', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        act(() => { wails.emit('files:open', ['C:\\Users\\test\\a.txt']); });
+        for (const n of [1, 2]) {
+            await user.click(await screen.findByRole('button', {name: 'Send 1 item'}));
+            await waitFor(() => expect(wails.go.StartSend).toHaveBeenCalledTimes(n));
+            act(() => { wails.emit('send:progress', progress('a.txt')); });
+            const during = regions();
+            act(() => { wails.emit('send:done'); });
+            await waitFor(() => announced(during, 'Sent 1 item'));
+        }
+    });
+
+    it('announces a finished receive by code', async () => {
+        let finish!: (dir: string) => void;
+        wails.go.ReceiveByCode.mockImplementation(() => new Promise<string>((resolve) => { finish = resolve; }));
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
+        await user.type(screen.getByPlaceholderText('amber-otter-cloud'), 'amber-otter-cloud');
+        await user.click(screen.getAllByRole('button', {name: 'Receive'}).find((b) => b.className.includes('w-full'))!);
+        act(() => { wails.emit('recv:progress', progress('a.bin')); });
+        const during = regions();
+        await act(async () => { finish('C:\\dl'); });
+        await waitFor(() => announced(during, 'Saved to C:\\dl'));
     });
 });
