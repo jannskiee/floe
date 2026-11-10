@@ -707,13 +707,15 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 						// A read that took nothing (stdin closed, Ctrl+D or
 						// Ctrl+Z at the prompt) echoed nothing, so the prompt
 						// ends its own line; it used to share one with the
-						// first progress line (A4-B25). Anything read, even an
-						// empty line, adds nothing: a terminal echoed its Enter,
-						// and a console that echoes typed input through a pipe
-						// (mintty, an IDE's run console) cannot be told from a
-						// pipe, where a line break would follow the echo as a
-						// blank line. A piped answer keeps the shared line
-						// (CLI-06).
+						// first progress line (A4-B25). With the bar drawn,
+						// anything read, even an empty line, adds nothing: a
+						// terminal echoed its Enter, and a console that echoes
+						// typed input through a pipe (mintty, an IDE's run
+						// console) cannot be told from a pipe, where a line
+						// break would follow the echo as a blank line. A piped
+						// answer keeps the shared line (CLI-06). With
+						// NoProgressBar set, any answer read ends the line
+						// (the branch below).
 						if in.n == 0 {
 							fmt.Println()
 						} else if opts.NoProgressBar {
