@@ -2531,6 +2531,84 @@ describe('focus across a send', () => {
 });
 
 /**
+ * Remove on a staged file unmounts its own row, and the last Remove unmounts
+ * the whole list. Focus goes to the Remove of the row that took its place,
+ * else the row before, else the active Files or Text tab, by the rule of the
+ * send above: only when it fell to the page.
+ */
+describe('focus across a Remove', () => {
+    const FILES = ['a', 'b', 'c'].map((n) => `C:\\Users\\test\\${n}.txt`);
+    const remove = (name: string) => screen.getByRole('button', {name: `Remove ${name}`});
+    // A few animation frames, so a focus move a Remove scheduled has run.
+    const frames = () => act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+
+    it('Enter on Remove lands on the row that took its place, which ignores a held key', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        act(() => { wails.emit('files:open', FILES); });
+        expect(await screen.findByRole('button', {name: 'Send 3 items'})).toBeTruthy();
+        act(() => remove('b.txt').focus());
+        await user.keyboard('{Enter}');
+        expect(screen.getByRole('button', {name: 'Send 2 items'})).toBeTruthy();
+        await waitFor(() => expect(document.activeElement).toBe(remove('c.txt')));
+        // The Enter that pressed Remove may still be held: its repeats land here.
+        expect(fireEvent.keyDown(remove('c.txt'), {key: 'Enter', repeat: true})).toBe(false);
+        expect(fireEvent.keyDown(remove('c.txt'), {key: 'Enter'})).toBe(true);
+    });
+
+    it('the last row hands focus to the row before, and the last file to the Files tab', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        act(() => { wails.emit('files:open', FILES.slice(0, 2)); });
+        expect(await screen.findByRole('button', {name: 'Send 2 items'})).toBeTruthy();
+        act(() => remove('b.txt').focus());
+        await user.keyboard('{Enter}');
+        await waitFor(() => expect(document.activeElement).toBe(remove('a.txt')));
+        await user.keyboard('{Enter}');
+        expect(await screen.findByText('Select files to send')).toBeTruthy();
+        const sendKind = document.getElementById('floe-send-kind');
+        await waitFor(() => expect(document.activeElement).toBe(sendKind));
+        expect(sendKind?.textContent).toBe('Files');
+    });
+
+    it('moves nothing when focus is somewhere else', async () => {
+        mount();
+        await settled();
+        act(() => { wails.emit('files:open', FILES.slice(0, 2)); });
+        expect(await screen.findByRole('button', {name: 'Send 2 items'})).toBeTruthy();
+        const lockup = document.getElementById('floe-lockup')!;
+        act(() => lockup.focus());
+        // A click that moves no focus, as a screen reader's can be.
+        fireEvent.click(remove('a.txt'));
+        expect(screen.getByRole('button', {name: 'Send 1 item'})).toBeTruthy();
+        await frames();
+        expect(document.activeElement).toBe(lockup);
+        fireEvent.click(remove('b.txt'));
+        expect(await screen.findByText('Select files to send')).toBeTruthy();
+        await frames();
+        expect(document.activeElement).toBe(lockup);
+    });
+
+    it('a mouse still removes exactly the files it clicks', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        act(() => { wails.emit('files:open', FILES); });
+        expect(await screen.findByRole('button', {name: 'Send 3 items'})).toBeTruthy();
+        await user.click(remove('a.txt'));
+        await frames();
+        await user.click(remove('c.txt'));
+        await frames();
+        expect(screen.getByRole('button', {name: 'Send 1 item'})).toBeTruthy();
+        expect(screen.getAllByRole('button', {name: /^Remove /}).map((b) => b.getAttribute('aria-label'))).toEqual(['Remove b.txt']);
+        await user.click(remove('b.txt'));
+        expect(await screen.findByText('Select files to send')).toBeTruthy();
+    });
+});
+
+/**
  * The File Explorer entry at launch (DSK-04; owner answer 26, "Off by default
  * on portable"). Go says whose the entry is (ContextMenuState): "self" turns
  * the switch on; "other" leaves another copy's entry alone and the switch
