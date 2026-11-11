@@ -1059,6 +1059,22 @@ function App() {
         wasSettingsOpen.current = settingsOpen;
     }, [settingsOpen]);
 
+    // Settings takes the whole window, so closing it by any route unmounts the
+    // control that had focus, and focus falls to the page. It goes back to the
+    // gear that opens Settings, as the Reset dialog hands it back to Reset.
+    // Asked in the frame, so a control that takes focus itself (Receive's Code
+    // field) and a handoff of its own (Review, Start over's dialog) win.
+    const settingsWasOpen = useRef(false);
+    useEffect(() => {
+        const leaving = settingsWasOpen.current && !settingsOpen;
+        settingsWasOpen.current = settingsOpen;
+        if (!leaving) return;
+        requestAnimationFrame(() => {
+            if (document.activeElement && document.activeElement !== document.body) return;
+            document.getElementById('floe-settings-trigger')?.focus();
+        });
+    }, [settingsOpen]);
+
     useEffect(() => { busyRef.current = sending || receiving; }, [sending, receiving]);
     // The close dialog's premise is "a transfer is running". If it finishes or
     // is canceled while the dialog is up, dismiss: the Go hook no longer blocks

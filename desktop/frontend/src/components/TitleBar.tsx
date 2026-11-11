@@ -3,6 +3,7 @@ import {Minus, Settings, Square, X} from 'lucide-react';
 import {WindowMinimise, WindowToggleMaximise, Quit} from '../../wailsjs/runtime/runtime';
 import {BoltMark, cn} from './ui';
 import {Tooltip} from './Tooltip';
+import {ignoreRepeat} from './RequestLinkView';
 
 // Wails turns any element with `--wails-draggable: drag` into a window drag
 // handle; children marked `no-drag` (the window controls) stay clickable.
@@ -47,6 +48,11 @@ export default function TitleBar({onSettings, settingsActive, onStartOver}: {
             <div style={noDrag} onDoubleClick={(e) => e.stopPropagation()} className="flex items-center">
                 <Tooltip label="Settings" keys="Ctrl+,">
                     <button
+                        // App.tsx looks the gear up by this id to hand focus back
+                        // when Settings closes; ignoreRepeat keeps the held Enter
+                        // that pressed Back from opening Settings again.
+                        id="floe-settings-trigger"
+                        onKeyDown={ignoreRepeat}
                         aria-label="Settings"
                         aria-pressed={settingsActive}
                         onClick={onSettings}
