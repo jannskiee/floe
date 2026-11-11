@@ -104,3 +104,21 @@ export function sendProgressLabel(input: { end: SendEnd; currentFileIndex: numbe
     if (end === 'failed') return '';
     return `Sending file ${currentFileIndex + 1} of ${filesCount}...`;
 }
+
+/**
+ * Whether closing the sending tab would cost the person something, which is
+ * what "Keep this tab open and in front. Closing it cancels the transfer."
+ * claims: from the moment the link is shown until its send ends, and not at a
+ * dead end (`deadEnd`), where the page has already said to reload.
+ *
+ * Exactly when the browser's leave prompt is held on a sending page that
+ * shows its link (mainPageHoldsTab in lib/pageGuards.ts). The line used to
+ * read only whether the link existed, and the link is never taken back, so it
+ * stayed after "All Files Sent!" and after a send that failed, while the
+ * prompt had already let go. A new recipient starts the send again from
+ * `open`, and the line comes back with it. The receiving half of the same
+ * line is receiverTabMatters (lib/receiveSummary.ts).
+ */
+export function senderTabMatters(input: { linkShown: boolean; end: SendEnd; deadEnd: boolean }): boolean {
+    return input.linkShown && input.end === 'open' && !input.deadEnd;
+}

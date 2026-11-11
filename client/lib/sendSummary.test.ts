@@ -6,9 +6,11 @@ import {
     sendRowMark,
     shareStatusComplete,
     shareStatusEnded,
+    senderTabMatters,
     verifiedLineShown,
     type SendEnd,
 } from './sendSummary';
+import { mainPageHoldsTab } from './pageGuards';
 
 const marks = (files: number, currentFileIndex: number, progress: number, end: SendEnd) =>
     Array.from({ length: files }, (_, index) => sendRowMark({ index, currentFileIndex, progress, end }));
@@ -254,5 +256,62 @@ describe('the verified line follows the send, not the status sentence', () => {
         expect(panel).toContain("verified ? 'text-green-400 font-medium' : 'text-zinc-300 font-medium'");
         const page = read('../components/P2PTransfer.tsx');
         expect(page).toMatch(/<ShareLinkPanel[\s\S]*?sendEnd=\{sendEnd\}/);
+    });
+});
+
+// "Keep this tab open and in front. Closing it cancels the transfer." is for a
+// sending tab that a send still depends on. The footer read only whether the
+// link existed, and the link is never taken back, so the line stayed after
+// "All Files Sent!", after a send that failed, and under a banner that says
+// to reload, while the leave prompt had already let go. The receiving half of
+// the same line is receiverTabMatters (lib/receiveSummary.ts).
+describe('senderTabMatters', () => {
+    const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
+    const base = { linkShown: true, end: 'open' as SendEnd, deadEnd: false };
+
+    it('matters while the link is shown and its send has not ended', () => {
+        expect(senderTabMatters(base)).toBe(true);
+    });
+
+    it('does not matter before the link is shown', () => {
+        expect(senderTabMatters({ ...base, linkShown: false })).toBe(false);
+    });
+
+    it('does not matter once the send was delivered or failed', () => {
+        expect(senderTabMatters({ ...base, end: 'delivered' })).toBe(false);
+        expect(senderTabMatters({ ...base, end: 'failed' })).toBe(false);
+    });
+
+    it('does not matter at a dead end, where the page has said to reload', () => {
+        expect(senderTabMatters({ ...base, deadEnd: true })).toBe(false);
+    });
+
+    it('holds exactly while the leave prompt does on a sending page that shows its link', () => {
+        for (const end of ['open', 'delivered', 'failed'] as SendEnd[]) {
+            for (const deadEnd of [false, true]) {
+                for (const receiving of [false, true]) {
+                    for (const unsaved of [0, 2]) {
+                        const prompt = mainPageHoldsTab({
+                            isSender: true,
+                            linkOut: true,
+                            sendEnd: end,
+                            deadEnd,
+                            receiveUnderWay: receiving,
+                            unsaved,
+                        });
+                        const input = { linkShown: true, end, deadEnd };
+                        expect(senderTabMatters(input), JSON.stringify(input)).toBe(prompt);
+                        expect(senderTabMatters({ ...input, linkShown: false }), JSON.stringify(input)).toBe(false);
+                    }
+                }
+            }
+        }
+    });
+
+    it('is how the page picks the line under the card', () => {
+        const page = read('../components/P2PTransfer.tsx');
+        expect(page).toContain("const senderTabHeld = senderTabMatters({ linkShown: generatedLink !== '', end: sendEnd, deadEnd });");
+        expect(page).toContain('(isSender && !senderTabHeld) || (!isSender && !receiverTabHeld)');
+        expect(page).not.toContain('(isSender && !generatedLink)');
     });
 });
