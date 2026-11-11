@@ -247,6 +247,128 @@ describe('the settings screen', () => {
     });
 });
 
+/**
+ * Settings takes the whole window, so every way out of it (Back, Escape,
+ * Ctrl+, again, Ctrl+H, files arriving) unmounts the control that had focus.
+ * Focus goes back to the gear that opens Settings, as the Reset dialog hands
+ * it back to Reset, and only when it fell to the page: a control that takes
+ * focus itself, or a handoff of its own, wins.
+ */
+describe('focus leaving Settings', () => {
+    const FILE = 'C:\\Users\\test\\a.txt';
+    const gear = () => screen.getByRole('button', {name: 'Settings'});
+    const hideIP = () => screen.findByRole('checkbox', {name: /^Hide my IP address/});
+    const closed = () => waitFor(() => expect(screen.queryByRole('button', {name: 'Back'})).toBeNull());
+    // A few animation frames, so a focus move the close scheduled has run.
+    const frames = () => act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    const onGear = () => waitFor(() => {
+        expect(document.activeElement, 'focus fell to the page').not.toBe(document.body);
+        expect(document.activeElement).toBe(gear());
+    });
+    // Opens Settings with the gear, then puts focus on one of its controls.
+    async function focusIn(find: () => Promise<HTMLElement>) {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(gear());
+        const el = await find();
+        act(() => el.focus());
+        return user;
+    }
+
+    it('Enter on Back lands on the gear, which ignores a held key', async () => {
+        const user = await focusIn(() => screen.findByRole('button', {name: 'Back'}));
+        await user.keyboard('{Enter}');
+        await closed();
+        await onGear();
+        expect(gear().getAttribute('aria-pressed')).toBe('false');
+        // The Enter that pressed Back may still be held: its repeats land on
+        // the gear and must not open Settings again. A first press still does.
+        expect(fireEvent.keyDown(gear(), {key: 'Enter', repeat: true})).toBe(false);
+        expect(fireEvent.keyDown(gear(), {key: 'Enter'})).toBe(true);
+    });
+
+    it('Escape in a Settings field lands on the gear', async () => {
+        const user = await focusIn(() => screen.findByLabelText('Save received files to'));
+        await user.keyboard('{Escape}');
+        await closed();
+        await onGear();
+    });
+
+    it('Ctrl+, from a switch lands on the gear', async () => {
+        const user = await focusIn(hideIP);
+        await user.keyboard('{Control>},{/Control}');
+        await closed();
+        await onGear();
+    });
+
+    it('Ctrl+H from a switch shows History and lands on the gear', async () => {
+        const user = await focusIn(hideIP);
+        await user.keyboard('{Control>}h{/Control}');
+        expect(await screen.findByText('No transfers yet')).toBeTruthy();
+        await onGear();
+    });
+
+    it('files that arrive while a switch has focus land on the gear', async () => {
+        await focusIn(hideIP);
+        act(() => { wails.emit('files:open', [FILE]); });
+        expect(await screen.findByRole('button', {name: 'Send 1 item'})).toBeTruthy();
+        await onGear();
+    });
+
+    it('Back to Receive leaves focus in the Code field, which takes it itself', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
+        await user.click(gear());
+        act(() => screen.getByRole('button', {name: 'Back'}).focus());
+        await user.keyboard('{Enter}');
+        await closed();
+        await frames();
+        expect(document.activeElement).toBe(screen.getByLabelText('Code or link'));
+    });
+
+    it('Back to Receive > Request link lands on the gear: that view takes no focus', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
+        await user.click(await screen.findByRole('button', {name: 'Request link'}));
+        await user.click(gear());
+        act(() => screen.getByRole('button', {name: 'Back'}).focus());
+        await user.keyboard('{Enter}');
+        await closed();
+        expect(screen.getByRole('button', {name: 'Make link'})).toBeTruthy();
+        await onGear();
+    });
+
+    it('moves nothing when focus is somewhere else', async () => {
+        const user = await focusIn(async () => document.getElementById('floe-lockup')!);
+        await user.keyboard('{Escape}');
+        await closed();
+        await frames();
+        expect(document.activeElement).toBe(document.getElementById('floe-lockup'));
+    });
+
+    it('Start over from Settings still hands focus to the lockup', async () => {
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        // A note in the box is what makes Start over ask first.
+        await user.click(screen.getByRole('button', {name: 'Text'}));
+        await user.type(screen.getByPlaceholderText('Type or paste text to send'), 'a note nobody has received yet');
+        await user.click(gear());
+        expect(await screen.findByRole('button', {name: 'Back'})).toBeTruthy();
+        await user.keyboard('{Control>}r{/Control}');
+        const dialog = await screen.findByRole('dialog');
+        await user.click(within(dialog).getByRole('button', {name: 'Start over'}));
+        await closed();
+        await frames();
+        expect(document.activeElement).toBe(document.getElementById('floe-lockup'));
+    });
+});
+
 describe('the close guard', () => {
     it('raises on close:blocked and does not dismiss itself on confirm', async () => {
         const user = userEvent.setup();
