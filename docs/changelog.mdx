@@ -65,6 +65,7 @@ Each entry lists the parts it changed. Filter on the right to see only the ones 
   - CLI: `floe send` now sends a file once when its path is given twice, as in `floe send a.txt a.txt`, `floe send ./a.txt a.txt`, a folder named twice, or a glob that also matches a named file. It used to send it twice, so for one 5-byte file the `Sending` line read `2 files · 10 Bytes` and `floe receive` saved the second copy as `a (1).txt`. Contributed by [@ShahadatTest](https://github.com/ShahadatTest).
   - CLI: `floe send` and `floe receive` now take `--no-progress` to leave the progress bar out of scripts and CI logs. Contributed by [@Detoy](https://github.com/Detoy).
   - CLI: `floe receive` on macOS and Linux now stops with "a file is larger than the save drive can hold" and tells the sender when a write hits the file system limit, such as a file over 4 GB on a FAT32 drive. It used to fail on a generic write error after 4 GB. Contributed by [@nikshrma](https://github.com/nikshrma).
+  - CLI: `floe receive -o` now refuses a folder it cannot write in, such as another account's or one on a read-only mount, before it joins, so the code can still be used. It used to join, which used up the code, and then fail after Accept with `Error: write error: could not finish writing a file, so it was not kept`. Contributed by [@hskl18](https://github.com/hskl18).
 </Update>
 
 <Update label="desktop-v1.1.0" description="2026-11-05" tags={["Desktop"]}>
