@@ -150,13 +150,13 @@ func runReceive(cmd *cobra.Command, args []string) error {
 		return outcomeError{errOtherLinkFloeServer}
 	}
 
-	// 2. Check that the output directory exists or can be made, and leave it
-	//    unmade: the receive makes it when it saves its first file (the
-	//    engine's claim), so a start that fails, a decline and a sender that
-	//    never sends leave no empty folder behind. Here, before the join,
-	//    because the sender's code is spent once this side takes its seat: an
-	//    -o that cannot be made must end the command while the same code can
-	//    still be tried again.
+	// 2. Check that the output directory exists or can be made, and can be
+	//    written in, and leave it unmade: the receive makes it when it saves
+	//    its first file (the engine's claim), so a start that fails, a
+	//    decline and a sender that never sends leave no empty folder behind.
+	//    Here, before the join, because the sender's code is spent once this
+	//    side takes its seat: an -o that cannot be made or written in must
+	//    end the command while the same code can still be tried again.
 	out, err := expandHome(flagOutput)
 	if err == nil {
 		err = checkOutputDir(out)
@@ -301,6 +301,13 @@ func expandHome(dir string) (string, error) {
 // path is looked at again just before it goes, and only a plain folder is
 // removed: a file or a link that appeared there in between is left alone, and
 // a folder something was put into fails to go because it is not empty.
+//
+// A folder that exists can still refuse a new entry (another account's, or
+// one on a read-only mount), so once dir is there a file is made in it with
+// os.CreateTemp and removed. A file, not a folder as Floe Desktop's probe
+// makes, because a single-file receive writes one straight into dir. When
+// that fails the error is only the system's reason, so the line never names
+// the probe, and the folders the check made are still removed.
 func checkOutputDir(dir string) error {
 	var missing []string
 	p := filepath.Clean(dir)
@@ -316,6 +323,17 @@ func checkOutputDir(dir string) error {
 		p = parent
 	}
 	err := os.MkdirAll(dir, 0755)
+	if err == nil {
+		var probe *os.File
+		if probe, err = os.CreateTemp(dir, ".floe-check-"); err == nil {
+			_ = probe.Close()
+			_ = os.Remove(probe.Name())
+		}
+		var pathErr *fs.PathError
+		if errors.As(err, &pathErr) {
+			err = pathErr.Err
+		}
+	}
 	for _, p := range missing {
 		if fi, lerr := os.Lstat(p); lerr == nil && fi.Mode().IsDir() {
 			_ = os.Remove(p)

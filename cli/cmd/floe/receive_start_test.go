@@ -211,6 +211,27 @@ func TestReceiveRefusesAnOutputFolderItMayNotMakeBeforeItJoins(t *testing.T) {
 	}
 }
 
+// TestReceiveRefusesAnOutputFolderItMayNotWriteInBeforeItJoins: an existing
+// -o this account may not write in ends before the join too. Skipped where a
+// folder's mode does not stop a new entry: on Windows, and for root.
+func TestReceiveRefusesAnOutputFolderItMayNotWriteInBeforeItJoins(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("a folder's mode does not refuse a new entry here")
+	}
+	locked := filepath.Join(t.TempDir(), "locked")
+	if err := os.Mkdir(locked, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	calls := stubNetwork(t, "")
+	_, stderr, err := receiveInto(t, nil, locked, "https://files.example.com/#room="+uuid.New().String(), "--server", closedServer)
+	if want := "Error: cannot create output directory " + locked + ": permission denied\n"; err == nil || stderr != want {
+		t.Fatalf("the receive ended on %q (error %v), want %q", stderr, err, want)
+	}
+	if n, c := calls.ice.Load(), calls.connect.Load(); n != 0 || c != 0 {
+		t.Fatalf("ICE fetches %d, signaling connects %d before the folder was refused; want none", n, c)
+	}
+}
+
 // TestReceiveKeepsFoldersThatWereAlreadyThere: the check before the join
 // removes only what it made itself. An -o that existed, empty, is still
 // there after a receive that could not start, and so is the existing parent
@@ -233,6 +254,9 @@ func TestReceiveKeepsFoldersThatWereAlreadyThere(t *testing.T) {
 		}
 		if _, err := os.Stat(filepath.Join(existing, "today")); !os.IsNotExist(err) {
 			t.Fatalf("a receive that never started left %s behind", filepath.Join(existing, "today"))
+		}
+		if entries, _ := os.ReadDir(existing); len(entries) != 0 {
+			t.Fatalf("-o %s left %d entries in the folder that was there", out, len(entries))
 		}
 	}
 }
