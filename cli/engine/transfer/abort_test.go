@@ -706,7 +706,8 @@ func TestReceiverWriteErrorClassifiesDiskFull(t *testing.T) {
 		{"any other error on sync", errors.New("simulated delayed write failure"), true, CodeWriteFailed},
 	}
 	if runtime.GOOS == "windows" {
-		cases = append(cases,
+		cases = append(
+			cases,
 			tc{"ERROR_DISK_FULL on write", pathErr("write", syscall.Errno(112)), false, CodeDiskFull},
 			tc{"ERROR_HANDLE_DISK_FULL on write", pathErr("write", syscall.Errno(39)), false, CodeDiskFull},
 		)
@@ -780,6 +781,42 @@ func TestReceiverWriteErrorClassifiesDiskFull(t *testing.T) {
 				t.Fatalf("expected only first.bin to remain, found %v", left)
 			}
 		})
+	}
+}
+
+// TestReceiverWriteEFBIGIsFileTooLargeForFolder: macOS and Linux refuse a write
+// past a file system's largest file (FAT32's 4 GiB less one byte) with EFBIG.
+func TestReceiverWriteEFBIGIsFileTooLargeForFolder(t *testing.T) {
+	origWrite := writePart
+	t.Cleanup(func() { writePart = origWrite })
+	writePart = func(f *os.File, b []byte) (int, error) {
+		if filepath.Base(f.Name()) == "second.bin"+partSuffix {
+			return 0, &os.PathError{Op: "write", Path: f.Name(), Err: syscall.EFBIG}
+		}
+		return origWrite(f, b)
+	}
+	h := newHandSender(t)
+	h.meta("first.bin", 4, 1, 2, 8)
+	h.bytes([]byte("data"))
+	h.text(`{"type":"end"}`)
+	h.meta("second.bin", 4, 2, 2, 8)
+	h.bytes([]byte("data"))
+	res := h.finish()
+
+	incompat := findRefusal(t, res.frames)
+	if want := CodeFileTooLargeForFolder; incompat.Code != string(want) || incompat.Reason != want.WireReason() {
+		t.Errorf("the sender was told %q, %q; want %q, %q", incompat.Code, incompat.Reason, want, want.WireReason())
+	}
+	if incompat.Saved == nil || *incompat.Saved != 1 {
+		t.Errorf("saved = %v, want 1 (first.bin was committed)", incompat.Saved)
+	}
+	const tooLarge = "receive stopped: a file is larger than the save drive can hold"
+	var refused *RefusedError
+	if !errors.As(res.err, &refused) || refused.Code != CodeFileTooLargeForFolder || res.err.Error() != tooLarge {
+		t.Errorf("the receive ended on %q, want %q", res.err, tooLarge)
+	}
+	if !errors.Is(res.err, syscall.EFBIG) {
+		t.Errorf("EFBIG is not reachable with errors.Is: %v", res.err)
 	}
 }
 
