@@ -7,8 +7,8 @@
  * is whether App keeps the view mounted across its own re-renders; that is
  * the node-identity case in test/app.test.tsx, and it stays there on purpose.
  */
-import {useState} from 'react';
-import {render, screen, within} from '@testing-library/react';
+import {act, useState} from 'react';
+import {fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {describe, expect, it} from 'vitest';
 import HistoryView from './HistoryView';
@@ -120,6 +120,59 @@ describe('Remove', () => {
         expect(screen.getAllByRole('listitem')).toHaveLength(1);
         expect(rowButton(/photo\.jpg/).getAttribute('aria-expanded')).toBe('false');
         expect(screen.queryByRole('button', {name: 'Remove'})).toBeNull();
+    });
+
+    // Remove unmounts with its row and its panel, so focus goes to the row
+    // that took its place, else the row before, else the empty line Yes lands
+    // on, and only when it fell to the page.
+    const frames = () => act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    const pressRemove = async (user: ReturnType<typeof userEvent.setup>, title: RegExp) => {
+        await user.click(rowButton(title));
+        act(() => screen.getByRole('button', {name: 'Remove'}).focus());
+        await user.keyboard('{Enter}');
+    };
+
+    it('Enter on Remove lands on the row that took its place', async () => {
+        const user = userEvent.setup();
+        mount([received, receivedMany, sent]);
+        await pressRemove(user, /2 files/);
+        expect(screen.getAllByRole('listitem')).toHaveLength(2);
+        await waitFor(() => expect(document.activeElement).toBe(rowButton(/photo\.jpg/)));
+    });
+
+    it('Enter on the last row\'s Remove lands on the row before', async () => {
+        const user = userEvent.setup();
+        mount([received, sent]);
+        await pressRemove(user, /photo\.jpg/);
+        expect(screen.getAllByRole('listitem')).toHaveLength(1);
+        await waitFor(() => expect(document.activeElement).toBe(rowButton(/report\.pdf/)));
+    });
+
+    it('Enter on the only row\'s Remove lands on the empty line, which is not a Tab stop', async () => {
+        const user = userEvent.setup();
+        mount([received]);
+        await pressRemove(user, /report\.pdf/);
+        const empty = screen.getByText('No transfers yet');
+        await waitFor(() => expect(document.activeElement).toBe(empty));
+        expect(empty.getAttribute('tabindex')).toBe('-1');
+    });
+
+    it('moves nothing when focus is somewhere else', async () => {
+        const user = userEvent.setup();
+        mount([received, receivedMany, sent]);
+        await user.click(rowButton(/2 files/));
+        // A stand-in for the title bar keeps focus, and the click moves none,
+        // as a screen reader's click can.
+        const gear = document.body.appendChild(document.createElement('button'));
+        try {
+            gear.focus();
+            fireEvent.click(screen.getByRole('button', {name: 'Remove'}));
+            expect(screen.getAllByRole('listitem')).toHaveLength(2);
+            await frames();
+            expect(document.activeElement).toBe(gear);
+        } finally {
+            gear.remove();
+        }
     });
 });
 

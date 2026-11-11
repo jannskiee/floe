@@ -42,6 +42,7 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
     const clearRef = useRef<HTMLButtonElement>(null);
     const noRef = useRef<HTMLButtonElement>(null);
     const emptyRef = useRef<HTMLParagraphElement>(null);
+    const listRef = useRef<HTMLUListElement>(null);
     const questionId = useId();
     // Clear, Yes and No each unmount the button that was pressed, so focus
     // follows the question, as on the /r page's Cancel (RequestProgress.tsx):
@@ -91,7 +92,7 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
             {history.length === 0 ? (
                 <p ref={emptyRef} tabIndex={-1} className="py-8 text-center text-xs text-zinc-500 outline-none">No transfers yet</p>
             ) : (
-                <ul className="custom-scrollbar max-h-80 divide-y divide-white/[0.04] overflow-y-auto rounded-lg border border-white/[0.06] bg-white/[0.02]">
+                <ul ref={listRef} className="custom-scrollbar max-h-80 divide-y divide-white/[0.04] overflow-y-auto rounded-lg border border-white/[0.06] bg-white/[0.02]">
                     {history.map((h, i) => {
                         const key = histKey(h);
                         const multi = h.count > 1;
@@ -201,7 +202,17 @@ export default function HistoryView({history, setHistory, confirmClear, setConfi
                                             )}
                                             <button
                                                 type="button"
-                                                onClick={() => { setHistory((prev) => prev.filter((_, idx) => idx !== i)); setExpandedRow(null); }}
+                                                onClick={() => {
+                                                    setHistory((prev) => prev.filter((_, idx) => idx !== i));
+                                                    setExpandedRow(null);
+                                                    // This button goes with its row and panel: focus the row
+                                                    // that took its place, else the one before, else the empty line.
+                                                    requestAnimationFrame(() => {
+                                                        if (document.activeElement && document.activeElement !== document.body) return;
+                                                        const rows = listRef.current?.querySelectorAll<HTMLButtonElement>(':scope > li > button');
+                                                        (rows?.[i] ?? rows?.[i - 1] ?? emptyRef.current)?.focus();
+                                                    });
+                                                }}
                                                 className="-mr-2 rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-red-400/10 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice/60"
                                             >
                                                 Remove

@@ -1,11 +1,12 @@
 // The pieces the send and receive consoles are assembled from.
 
-import {useId, type CSSProperties} from 'react';
+import {useId, useRef, type CSSProperties} from 'react';
 import {AlertCircle, ChevronDown, CircleCheck, Files, Folder, Loader2, UploadCloud, X} from 'lucide-react';
 import {Button, cn} from './ui';
 import FileIcon from './FileIcon';
 import {baseName} from '../paths';
 import {VERIFIED_LINE} from '../requestCopy';
+import {ignoreRepeat} from './RequestLinkView';
 
 /** VerifiedMark is the one way the desktop says every file arrived intact
  *  (D-161): a green circle-check, drawn where the words "SHA-256 matched" used
@@ -143,16 +144,31 @@ export function Dropzone({expanded, onPickFiles, onPickFolder}: {
 
 /** FileList is the editable selection: compact rows with a remove control. */
 export function FileList({files, onRemove}: {files: string[]; onRemove: (path: string) => void}) {
+    const listRef = useRef<HTMLUListElement>(null);
+    // Remove unmounts its own row, and the last one unmounts this list, so
+    // focus goes to the Remove that took its place, else the one before, else
+    // the active Files or Text tab. Found by position, since two files can
+    // share a name, and only when focus fell to the page.
+    const remove = (f: string, i: number) => {
+        onRemove(f);
+        requestAnimationFrame(() => {
+            if (document.activeElement && document.activeElement !== document.body) return;
+            const buttons = listRef.current?.querySelectorAll<HTMLButtonElement>(':scope > li > button');
+            const target = buttons?.[i] ?? buttons?.[i - 1] ?? document.getElementById('floe-send-kind');
+            target?.focus();
+        });
+    };
     return (
-        <ul className="custom-scrollbar max-h-40 space-y-1.5 overflow-y-auto">
-            {files.map((f) => (
+        <ul ref={listRef} className="custom-scrollbar max-h-40 space-y-1.5 overflow-y-auto">
+            {files.map((f, i) => (
                 <li key={f} className="flex items-center gap-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02] py-1.5 pl-2 pr-1">
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/[0.04] ring-1 ring-inset ring-white/10">
                         <FileIcon name={f}/>
                     </span>
                     <span className="min-w-0 flex-1 truncate text-sm text-zinc-300">{baseName(f)}</span>
                     <button
-                        onClick={() => onRemove(f)}
+                        onClick={() => remove(f, i)}
+                        onKeyDown={ignoreRepeat}
                         aria-label={`Remove ${baseName(f)}`}
                         className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-600 transition-colors hover:bg-white/10 hover:text-zinc-200"
                     >
