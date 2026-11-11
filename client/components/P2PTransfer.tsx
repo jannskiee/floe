@@ -47,7 +47,7 @@ import {SEND_INTERNAL_ERROR, describeSenderStop, senderCloseInterrupted, senderK
 import {RELAY_OFF_REASON, SELF_STOP_REASONS, selfStopOf, type SelfStop} from '@/lib/senderSelfStop';
 import {verifiedLine, VERIFIED_LINE} from '@/lib/verifiedLine';
 import {receiveSummary, receiverTabMatters} from '@/lib/receiveSummary';
-import type {SendEnd} from '@/lib/sendSummary';
+import {senderTabMatters, type SendEnd} from '@/lib/sendSummary';
 import {INITIAL_SEAT, seatStep, type SeatEvent} from '@/lib/roomSeat';
 import {REJOIN_FAILED_STATUS, REJOINING_STATUS, rejoinAllowed, rejoinDelay, statusOnceSeated} from '@/lib/rejoinRetry';
 import {peerDisconnectAction, teardownClaimsClose} from '@/lib/peerDisconnect';
@@ -208,6 +208,9 @@ export function P2PTransfer() {
         allArrived,
         unsaved,
     });
+    // The same for a sending tab: from the moment the link shows until its
+    // send ends, and not at a dead end, as the leave prompt below.
+    const senderTabHeld = senderTabMatters({ linkShown: generatedLink !== '', end: sendEnd, deadEnd });
     // The browser's own "Leave site?" prompt while leaving would cost
     // something, in-app links always loaded in full so the page stays a
     // document of its own and Back and Forward reach the prompt, and a stray
@@ -2060,12 +2063,16 @@ export function P2PTransfer() {
                         was saved, nothing does: it told a person the card had
                         just told to leave that closing the tab would interrupt
                         a download. The receiver's half is receiverTabMatters,
-                        which holds exactly while the leave prompt does.
+                        which holds exactly while the leave prompt does. The
+                        sender's half is senderTabMatters, the same once the
+                        link shows: the line said closing cancels the transfer
+                        after a send that was delivered or failed, and under a
+                        banner that says to reload.
                         "In front" for the reason the request page says it:
                         Chrome and Edge can discard a background tab to save
                         memory, and a discard ends a send and loses every file
                         this tab holds (lib/request/lostRecord.ts). */}
-                    {(isSender && !generatedLink) || (!isSender && !receiverTabHeld) ? (
+                    {(isSender && !senderTabHeld) || (!isSender && !receiverTabHeld) ? (
                         <p className="text-balance text-[10px] uppercase tracking-wide text-zinc-500 text-center leading-relaxed">
                             End-to-end encrypted. Files are never stored on a server.
                         </p>

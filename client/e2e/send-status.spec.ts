@@ -27,6 +27,9 @@ const FIXTURE_DIR = fixtureDir('floe-e2e-send-status');
 // complete" for a second recipient.
 const WAITING_AGAIN = 'Peer disconnected. Waiting for reconnection';
 const INTERRUPTED_BANNER = 'The connection closed before the transfer finished.';
+// The two lines at the foot of the card (sender-footer.spec.ts).
+const KEEP_OPEN = 'Keep this tab open and in front. Closing it cancels the transfer.';
+const ENCRYPTED = 'End-to-end encrypted. Files are never stored on a server.';
 
 test.afterAll(() => {
     removeFixtureDir(FIXTURE_DIR);
@@ -181,6 +184,9 @@ test('a recipient who stops mid-file is reported as an interruption', async ({ b
         // The send has ended: nothing on its row still claims to be moving.
         await expect(senderPage.getByText(/Sending file [0-9]+ of [0-9]+/)).toHaveCount(0);
         await expect(senderPage.getByText(/[KMG]B[/]s/)).toHaveCount(0);
+        // Nor does the line under the card say closing would cancel it.
+        await expect(senderPage.getByText(ENCRYPTED)).toBeVisible();
+        await expect(senderPage.getByText(KEEP_OPEN)).toHaveCount(0);
 
         await recipientCtx.close();
         await expect(senderPage.getByText(WAITING_AGAIN, { exact: true })).toBeVisible({ timeout: 15_000 });
