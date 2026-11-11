@@ -64,6 +64,7 @@ Each entry lists the parts it changed. Filter on the right to see only the ones 
   - CLI: `floe receive -o ~/Downloads` now saves into the Downloads folder in your home folder when the `~` reaches `floe` as typed, as it does in Windows PowerShell, in `cmd.exe`, inside quotes and after `--output=`. It used to save into a new folder named `~` in the current folder. Contributed by [@NopeCharon](https://github.com/NopeCharon).
   - CLI: `floe send` now sends a file once when its path is given twice, as in `floe send a.txt a.txt`, `floe send ./a.txt a.txt`, a folder named twice, or a glob that also matches a named file. It used to send it twice, so for one 5-byte file the `Sending` line read `2 files · 10 Bytes` and `floe receive` saved the second copy as `a (1).txt`. Contributed by [@ShahadatTest](https://github.com/ShahadatTest).
   - CLI: `floe send` and `floe receive` now take `--no-progress` to leave the progress bar out of scripts and CI logs. Contributed by [@Detoy](https://github.com/Detoy).
+  - CLI: `floe receive` on macOS and Linux now stops with "a file is larger than the save drive can hold" and tells the sender when a write hits the file system limit, such as a file over 4 GB on a FAT32 drive. It used to fail on a generic write error after 4 GB. Contributed by [@nikshrma](https://github.com/nikshrma).
 </Update>
 
 <Update label="desktop-v1.1.0" description="2026-11-05" tags={["Desktop"]}>
