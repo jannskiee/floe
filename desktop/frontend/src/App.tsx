@@ -1954,6 +1954,10 @@ function App() {
     // Three states, not two. See settings.ts and its test.
     const advSummary = advancedSummary(serverAddr, webAddr);
 
+    // The done rows' words, which the two live spans below repeat.
+    const sentLine = `Sent ${sentCount} ${sentCount === 1 ? 'item' : 'items'}`;
+    const savedLine = `Saved to ${recvDir}`;
+
     return (
         <div className="flex h-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100 selection:bg-ice/20">
             {/* The gear waits behind the three dialogs, like Ctrl+, : the title
@@ -1986,6 +1990,19 @@ function App() {
                 erase the other's sentence. */}
             <span className="sr-only" role="status" aria-live="polite">
                 {announce}
+            </span>
+            {/* A finished send and a finished receive by code, in the done
+                rows' own words. Go sends no toast while Floe is in front, so
+                these are all a screen reader hears of the finish. Each is empty
+                while its transfer runs and filled once, when it ends, never
+                with progress. Two spans, not one: a status region is read
+                whole, so one span holding both would repeat a stale send line
+                with a new receive line. */}
+            <span className="sr-only" role="status" aria-live="polite">
+                {sendDone && !sending ? sentLine : ''}
+            </span>
+            <span className="sr-only" role="status" aria-live="polite">
+                {recvDone && !receiving ? savedLine : ''}
             </span>
             {/* The bar, which is not the offer: it comes down on its own after a
                 few seconds while the undo behind it stays good, and it steps
@@ -2644,7 +2661,7 @@ function App() {
                                                     otherwise. The mark follows the text in the
                                                     DOM so a screen reader reads the count first,
                                                     and order-first keeps the glyph leading. */}
-                                                <span>Sent {sentCount} {sentCount === 1 ? 'item' : 'items'}</span>
+                                                <span>{sentLine}</span>
                                                 {sendVerified
                                                     ? <VerifiedMark className="order-first size-4"/>
                                                     : <Check className="order-first size-4 shrink-0 text-zinc-500"/>}
@@ -2753,7 +2770,7 @@ function App() {
                                         {recvProg && <ProgressRow prog={recvProg}/>}
                                         {recvDone && !receiving && (
                                             <div className="animate-floe-in flex items-center gap-2 text-sm text-zinc-300">
-                                                <span className="truncate">Saved to {recvDir}</span>
+                                                <span className="truncate">{savedLine}</span>
                                                 {recvVerified
                                                     ? <VerifiedMark className="order-first size-4"/>
                                                     : <Check className="order-first size-4 shrink-0 text-zinc-500"/>}
