@@ -177,7 +177,8 @@ async function generateCloudflareIceServers() {
     const usable = usableCloudflareCopy(now);
     // Serve stale credentials immediately only if less than one hour old.
     const fresh = usable && now - cfIceCache.mintedAt < CF_FRESH_MS;
-    // Wait for the ongoing refresh when the cached copy is too old.
+    // In flight is checked before the negative window, or a burst of page loads
+    // right after a restart falls through to STUN while the first mint runs.
     if (cfInflight) return fresh ? usable : cfInflight;
     // Preserve the existing fallback after a failed refresh.
     if (now < cfNextMintAt) return usable;
