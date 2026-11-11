@@ -56,7 +56,7 @@ func (c *relayConn) send(msg map[string]interface{}) {
 	_ = c.ws.WriteJSON(msg)
 }
 
-func newRelay(t *testing.T) string {
+func newRelay(t testing.TB) string {
 	t.Helper()
 	r := &relay{rooms: map[string][]*relayConn{}}
 	up := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
@@ -178,7 +178,7 @@ func (s *side) close() {
 	})
 }
 
-func expectRole(t *testing.T, s *side, want string) {
+func expectRole(t testing.TB, s *side, want string) {
 	t.Helper()
 	select {
 	case role := <-s.sc.Role:
@@ -200,7 +200,7 @@ func expectRole(t *testing.T, s *side, want string) {
 // joins FIRST (role "sender"), the visitor joins second (role "receiver"), the
 // host waits for user-connected, both build a peer with no ICE servers (host
 // candidates only), and then the host offers while the visitor answers.
-func pairHostVisitor(t *testing.T, relayURL string) (host, visitor *side) {
+func pairHostVisitor(t testing.TB, relayURL string) (host, visitor *side) {
 	t.Helper()
 	room := uuid.New().String()
 	host = &side{name: "host"}
@@ -297,7 +297,7 @@ func pairHostVisitor(t *testing.T, relayURL string) (host, visitor *side) {
 }
 
 // writeRandom writes size random bytes to dir/name and returns their SHA-256.
-func writeRandom(t *testing.T, dir, name string, size int) [sha256.Size]byte {
+func writeRandom(t testing.TB, dir, name string, size int) [sha256.Size]byte {
 	t.Helper()
 	data := make([]byte, size)
 	if _, err := rand.Read(data); err != nil {
@@ -362,7 +362,7 @@ func waitBoth(t *testing.T, sendErr, recvErr <-chan error) {
 
 // checkTree requires outDir to hold exactly the files in want, each with the
 // source's SHA-256, and so no .part staging file.
-func checkTree(t *testing.T, outDir string, want map[string][sha256.Size]byte) {
+func checkTree(t testing.TB, outDir string, want map[string][sha256.Size]byte) {
 	t.Helper()
 	var got []string
 	err := filepath.WalkDir(outDir, func(path string, d fs.DirEntry, err error) error {
