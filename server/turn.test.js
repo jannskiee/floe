@@ -203,4 +203,28 @@ describe('Cloudflare TURN mint and cache', () => {
         globalThis.fetch = () => Promise.reject(new TypeError('fetch failed'));
         assert.equal(await turn.generateCloudflareIceServers(), null);
     });
+
+    it('serves a copy at once under an hour old, and over an hour waits for its refresh', async () => {
+        let n = 0;
+        globalThis.fetch = async () => iceResponse(`u${++n}`);
+        assert.equal(usernameOf(await turn.generateCloudflareIceServers()), 'u1');
+        clock += 59 * 60 * 1000;
+        assert.equal(usernameOf(await turn.generateCloudflareIceServers()), 'u1');
+        await drain();
+        clock += 61 * 60 * 1000; // the copy minted behind it is 61 minutes old
+        const served = await turn.generateCloudflareIceServers();
+        await drain();
+        assert.equal(usernameOf(served), 'u3');
+    });
+
+    it('while Cloudflare fails, still serves a copy 22 hours old', async () => {
+        globalThis.fetch = async () => iceResponse('u1');
+        await turn.generateCloudflareIceServers();
+        globalThis.fetch = async () => ({ ok: false, status: 503, json: async () => ({}) });
+        clock += 22 * 3600 * 1000;
+        assert.equal(usernameOf(await turn.generateCloudflareIceServers()), 'u1');
+        await drain();
+        clock += 1000; // within 5 minutes of that failure
+        assert.equal(usernameOf(await turn.generateCloudflareIceServers()), 'u1');
+    });
 });

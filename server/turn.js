@@ -121,6 +121,8 @@ const CF_CACHE_MS = 5 * 60 * 1000;
 // becomes a relay outage, and a revoked key stops looking healthy once its last
 // copy ages out.
 const CF_STALE_MS = (CF_TURN_TTL - 3600) * 1000;
+// Maximum age for serving credentials while refreshing in background.
+const CF_FRESH_MS = 60 * 60 * 1000;
 // Node's global fetch has no timeout of its own. Without one, a hung Cloudflare
 // connection hangs every request waiting on the mint (a browser receiver's join
 // waits on it) while /health stays green.
@@ -173,12 +175,15 @@ async function generateCloudflareIceServers() {
     const now = Date.now();
     if (cfIceCache.servers && now < cfIceCache.expires) return cfIceCache.servers;
     const usable = usableCloudflareCopy(now);
+    // Serve stale credentials immediately only if less than one hour old.
+    const fresh = usable && now - cfIceCache.mintedAt < CF_FRESH_MS;
     // In flight is checked before the negative window, or a burst of page loads
     // right after a restart falls through to STUN while the first mint runs.
-    if (cfInflight) return usable || cfInflight;
+    if (cfInflight) return fresh ? usable : cfInflight;
+    // Preserve the existing fallback after a failed refresh.
     if (now < cfNextMintAt) return usable;
     cfInflight = startCloudflareMint();
-    return usable || cfInflight;
+    return fresh ? usable : cfInflight;
 }
 
 // Owns the shared in-flight promise, which must never reject: nothing awaits it
