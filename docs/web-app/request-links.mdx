@@ -61,8 +61,9 @@ Everything you send in one go is one [drop](/glossary#drop), and a link takes on
 A file let go anywhere other than the drop area is not added. A drop can hold up to 10,000 files; for
 more, zip them first. For every limit on a drop, see [Limits](/reference/limits#request-links).
 
-- **Picking again adds to the selection.** A file you already picked, at the same path and size, is
-  kept once. **Clear** empties the selection: there is no way to remove a single file.
+- **Picking again adds to the selection.** A file you already picked, at the same path, size and
+  modified time, is kept once. Two different files that share a path and a size, such as one name
+  picked from two folders with **Choose files**, are both kept. **Clear** empties the selection: there is no way to remove a single file.
 - **After the first pick**, the drop area shrinks to an **Add more files** strip, which opens the file
   picker and still takes a dropped folder. **Choose folder** comes back after **Clear**.
 - **While a dropped folder is still being read**, the drop area dims and **Send** stays off. A large

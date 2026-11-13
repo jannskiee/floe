@@ -172,10 +172,11 @@ Error: --relay-only needs a TURN relay and https://floe.example.com offers none;
 
 [Hide my IP](/glossary#hide-my-ip) address in Floe Desktop makes the same test from the desktop app.
 
-Cloudflare credentials are minted upstream and then cached in memory for 5 minutes. Two consequences are worth planning around:
+Cloudflare credentials are minted upstream and then cached in memory for 5 minutes. Three consequences are worth planning around:
 
 - Both keys are read once at startup, so a changed key takes effect only after `docker compose up -d` (a restart, without Docker). The server starts with an empty cache, so the new key is used at once.
 - If the Cloudflare API starts failing, including after a key is deleted, the server keeps serving the last good copy for up to about 23 hours after it was minted. It logs `Cloudflare TURN mint failed` at most once every 5 minutes. Only then does it fall back to coturn, if that is configured, or to Google STUN. A broken key can look healthy for most of a day.
+- Once the 5 minutes are up, a copy under an hour old is handed out at once while the next one is minted. An older copy is not: a request that finds it waits for the new one, at most the mint's 10 second timeout, and gets the old copy only if the mint fails. So while the API fails, requests can wait up to 10 seconds, at most once every 5 minutes. A server image of 1.12.0 or earlier hands out any copy under about 23 hours old at once, so on a quiet server the first transfer after a night can get credentials with about an hour of their 24 left.
 
 ## What still leaves your server {#what-still-leaves-your-server}
 
