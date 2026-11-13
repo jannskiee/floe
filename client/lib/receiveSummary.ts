@@ -99,3 +99,18 @@ export function receiverTabMatters(input: {
 export function bulkDownloadShown(input: { received: number; busy: boolean }): boolean {
     return input.received > 1 && !input.busy;
 }
+
+/**
+ * Whether the client is an iOS device (iPhone, iPad or iPod).
+ *
+ * Safari on an iPad asks for desktop sites by default and names a Mac in its
+ * user agent (`Macintosh; Intel Mac OS X 10_15_7`), so a user agent match alone
+ * never matches an iPad. Touch points tell the two apart: a Mac reports 0,
+ * Chrome's touch emulation reports 1, and an iPad reports 5.
+ */
+export function isIosDevice(userAgent: string, maxTouchPoints: number): boolean {
+    if (/iPhone|iPad|iPod/i.test(userAgent)) {
+        return true;
+    }
+    return /Macintosh/i.test(userAgent) && maxTouchPoints > 1;
+}

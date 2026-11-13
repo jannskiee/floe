@@ -5,7 +5,7 @@ import { StatsContributionToggle } from '@/components/StatsContributionToggle';
 import { ReceivedFilesList } from '@/components/ReceivedFilesList';
 import { formatBytes } from '@/lib/utils';
 import type { ReceivedFile } from '@/hooks/useDownloadManager';
-import { bulkDownloadShown, joinStepsShown, type ReceiveSummary } from '@/lib/receiveSummary';
+import { bulkDownloadShown, isIosDevice, joinStepsShown, type ReceiveSummary } from '@/lib/receiveSummary';
 
 interface ReceiverPanelProps {
     receivedFiles: ReceivedFile[];
@@ -184,7 +184,7 @@ export function ReceiverPanel({
                 </div>
             )}
 
-            {typeof navigator !== 'undefined' && /iPhone|iPad|iPod/.test(navigator.userAgent) && showBulk && (
+            {typeof navigator !== 'undefined' && isIosDevice(navigator.userAgent, navigator.maxTouchPoints) && showBulk && (
                 <p className="text-[10px] text-zinc-600 text-center mt-1">Tip: Use &quot;Download ZIP&quot; for the best experience on iOS.</p>
             )}
 

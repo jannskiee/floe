@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { bulkDownloadShown, joinStepsShown, receiveSummary, receiverTabMatters } from './receiveSummary';
+import { bulkDownloadShown, isIosDevice, joinStepsShown, receiveSummary, receiverTabMatters } from './receiveSummary';
 import { mainPageHoldsTab, receiveUnderWay } from './pageGuards';
 
 // The transfer audit reads the receiver page with this expression and takes a
@@ -197,5 +197,35 @@ describe('bulkDownloadShown', () => {
         expect(tip.length).toBeGreaterThan(20);
         expect(tip).toContain('showBulk');
         expect(tip).not.toContain('receivedFiles.length > 0');
+    });
+});
+
+// Safari on an iPad names a Mac by default. Touch points tell the two apart.
+describe('isIosDevice', () => {
+    const IPAD_AS_MAC =
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15';
+
+    it('counts an iPad that names a Mac, and never a Mac', () => {
+        expect(isIosDevice(IPAD_AS_MAC, 5)).toBe(true);
+        expect(isIosDevice(IPAD_AS_MAC, 0)).toBe(false);
+        // Chrome's touch emulation reports one point.
+        expect(isIosDevice(IPAD_AS_MAC, 1)).toBe(false);
+    });
+
+    it('still counts a device whose user agent names it', () => {
+        expect(isIosDevice('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)', 0)).toBe(true);
+        expect(isIosDevice('Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X)', 5)).toBe(true);
+    });
+
+    it('never counts Windows or Android, whatever their touch points', () => {
+        expect(isIosDevice('Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 10)).toBe(false);
+        expect(isIosDevice('Mozilla/5.0 (Linux; Android 14; Pixel 8)', 5)).toBe(false);
+    });
+
+    it('is what the card asks before it shows the tip', () => {
+        const card = read('../components/ReceiverPanel.tsx');
+        const tipAt = card.indexOf('Tip: Use');
+        const tip = card.slice(card.lastIndexOf('{typeof navigator', tipAt), tipAt);
+        expect(tip).toContain('isIosDevice(navigator.userAgent, navigator.maxTouchPoints)');
     });
 });
