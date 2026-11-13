@@ -231,7 +231,7 @@ Sender to receiver, before each file.
   "totalBytes": 11800000,
   "pv": 2,
   "pvMin": 1,
-  "ver": "1.12.0"
+  "ver": "1.12.1"
 }
 ```
 
@@ -269,8 +269,8 @@ Sender to receiver, before each file.
 </ResponseField>
 <ResponseField name="ver" type="string">
   The human release string, and its shape depends on the build. The CLI sends a version such as
-  `1.12.0` with no leading `v`, because GoReleaser strips it. The desktop app sends the tag verbatim,
-  as `desktop-v1.1.0`. A build from source sends `dev`. Browser peers omit the field entirely. It is
+  `1.12.1` with no leading `v`, because GoReleaser strips it. The desktop app sends the tag verbatim,
+  as `desktop-v1.1.1`. A build from source sends `dev`. Browser peers omit the field entirely. It is
   informational and never gates a transfer.
 </ResponseField>
 
@@ -336,7 +336,7 @@ Receiver to sender, once per file, before any bytes move.
 </ResponseField>
 
 ```json ack from a Go receiver of floe 1.12 or later
-{ "type": "ack", "id": "3f2b9c1e-...", "offset": 0, "pv": 2, "pvMin": 1, "ver": "1.12.0", "confirms": true }
+{ "type": "ack", "id": "3f2b9c1e-...", "offset": 0, "pv": 2, "pvMin": 1, "ver": "1.12.1", "confirms": true }
 ```
 
 ### Binary chunks
@@ -537,7 +537,7 @@ because it does not close the connection afterward.
   "reason": "receiver stopped the transfer",
   "pv": 2,
   "pvMin": 1,
-  "ver": "1.12.0",
+  "ver": "1.12.1",
   "code": "stopped",
   "saved": 2
 }
@@ -553,7 +553,7 @@ the code. A peer that speaks only version 1 misses it and prints its own update 
   "reason": "sender could not confirm the receiver holds this link",
   "pv": 2,
   "pvMin": 2,
-  "ver": "1.12.0",
+  "ver": "1.12.1",
   "code": "unverified"
 }
 ```
