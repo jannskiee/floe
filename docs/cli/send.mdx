@@ -203,6 +203,12 @@ A file you name directly arrives under its own name only: `floe send a/b/report.
 `report.pdf`. Two files with the same name from different folders arrive on `floe receive` and Floe
 Desktop as `notes.txt` and `notes (1).txt`.
 
+A file you name more than once is sent once: `floe send a.txt a.txt`, `./a.txt` beside `a.txt`, a
+folder named twice, or a glob that also matches a file you named. Only an exact repeat, the same
+file under the same name, is left out, so `album` and `album/`, which name the same files
+differently, both go. `floe` 1.12.0 and earlier send the repeat too, and the receiver saves it as
+`a (1).txt`.
+
 A link inside a folder (a symlink, or a junction on Windows) that points to a file is sent with that
 file's contents and size. A link to a folder, or one that points nowhere, stops the send before it
 connects, because Floe does not follow links to folders. A path you give that is itself a link to a
@@ -445,7 +451,7 @@ lines, never the other side's own words.
 | Flag | With `--to` |
 |---|---|
 | `--relay-only`, or `FLOE_RELAY_ONLY=1` | The same as [Hide my IP](/glossary#hide-my-ip) on the request link's page: everything goes through the relay, so their computer sees the relay's address, not yours. Floe checks that the server has a relay before it joins the link. |
-| `--no-relay` and `--iface` | Work as for any send. |
+| `--no-relay`, `--iface` and `--no-progress` | Work as for any send. |
 | `--web` | Changes nothing, because no link is printed. |
 | `--server`, or `FLOE_SERVER` | Has to name the server the link was made on, as described below. |
 
@@ -558,4 +564,4 @@ A few outcomes print the same `Error:` line as a plain send, described under
 
 ## Flags
 
-See [CLI flags reference](/cli/flags) for `--server`, `--no-relay`, `--relay-only`, `--web`, and `--iface`, and for `--to` and `--link-only`, the two flags of `floe send` itself. To run `floe send` from a script or a CI job, see [In scripts and CI](/cli/flags#in-scripts).
+See [CLI flags reference](/cli/flags) for `--server`, `--no-relay`, `--relay-only`, `--web`, and `--iface`, and for `--to`, `--link-only` and `--no-progress`, the flags of `floe send` itself. To run `floe send` from a script or a CI job, see [In scripts and CI](/cli/flags#in-scripts).

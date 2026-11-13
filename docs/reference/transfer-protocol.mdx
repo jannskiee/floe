@@ -452,7 +452,7 @@ already saved under their final names, or, in a browser, handed to the page.
 | `declined` | The person at the receiver said no, before any file was created. | `floe receive`, and Floe Desktop for a request link |
 | `disk-full` | A write failed because the drive is full, or, on a request link, the drive would not keep 2 GB free after the next file. The partial file is removed. | Go receivers |
 | `expired` | Nobody answered a request within 9 minutes 45 seconds. | Floe Desktop, for a request link |
-| `file-too-large-for-folder` | A file is larger than the save drive can hold: more than 4,294,967,295 bytes on a FAT or FAT32 drive. Checked on Windows receivers. | Go receivers |
+| `file-too-large-for-folder` | A file is larger than the save drive can hold: more than 4,294,967,295 bytes on a FAT or FAT32 drive. A Windows receiver checks before it writes the file; a macOS or Linux receiver of `floe` 1.12.1 and later stops when a write hits the file system's file size limit, and the partial file is removed. | Go receivers |
 | `hash-mismatch` | A file did not match the `sha256` its sender sent, or that digest could not be read. The file is not kept. | Go receivers and browser receivers |
 | `over-approved` | The drop did not match what its first `metadata` announced. The causes are listed under the table. | Floe Desktop, for a request link |
 | `path-too-long` | A file's path is too deep or too long to save, or starts at a drive or a root, or a `metadata` frame is over 1000 bytes. | Go receivers, and browser receivers for the frame over 1000 bytes |

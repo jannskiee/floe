@@ -260,8 +260,10 @@ place of 1204. The fix is the same: zip deeply nested folders before sending.
 
 A USB stick or memory card formatted as FAT32 cannot hold a file of 4 GB or more. On Windows,
 `floe receive` refuses a file too large for the output drive's file system in the same way, with
-`Error: receive stopped: a file is larger than the save drive can hold`. A size that is not a
-possible byte count is refused before anything is written as well.
+`Error: receive stopped: a file is larger than the save drive can hold`. On macOS and Linux,
+`floe` 1.12.1 and later stop with the same line when a write reaches the file system's limit,
+remove the partial file and tell the sender; `floe` 1.12.0 and earlier stopped there on a generic
+write error. A size that is not a possible byte count is refused before anything is written as well.
 
 The path limits apply to every receive, on every platform, and no flag turns them off. `floe`
 1.10.11 and earlier tried to save such paths. A sender can still get the files across by zipping
@@ -322,14 +324,17 @@ empty files sends nothing. Pass `--no-report` or set `FLOE_NO_STATS=1`, and no r
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--output <dir>`<br />`-o` | `.` (current directory) | Directory to save received files. Created when the first file is saved, so a receive that cannot start, or that you decline, leaves nothing behind. Floe checks that it can be created before it joins. |
+| `--output <dir>`<br />`-o` | `.` (current directory) | Directory to save received files. Created when the first file is saved, so a receive that cannot start, or that you decline, leaves nothing behind. Floe checks that it can be created and written in before it joins. |
 | `--yes`<br />`-y` | `false` | Accept incoming files without the confirmation prompt. |
 | `--no-report` | `false` | Do not report the transferred byte count to Floe's public global counter. Set `FLOE_NO_STATS=1` to opt out permanently. |
+| `--no-progress` | `false` | In `floe` 1.12.1 and later: do not draw the progress bar, for scripts and CI logs. Every other line still prints. |
 
 An `-o` that cannot be created, because a file has that name or the folder above it is read-only,
 stops at once with `Error: cannot create output directory` and the reason, while the code still
-works. `floe` 1.11.0 and earlier created the folder before connecting. A folder that exists but
-that you cannot write to passes that check and fails at the first file, after you accepted, with
+works. In `floe` 1.12.1 and later, so does a folder that exists but that you cannot write in, such
+as another account's or one on a read-only mount. `floe` 1.11.0 and earlier created the folder
+before connecting. In `floe` 1.12.0 and earlier, a folder you cannot write in passed that check and
+failed at the first file, after you accepted, with
 `Error: write error: could not finish writing a file, so it was not kept`.
 
 When no network interface matches any `--iface` name, `floe receive` also stops at once, while the code still works, with

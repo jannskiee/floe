@@ -75,6 +75,7 @@ Specific to the `send` command.
 |------|---------|-------------|
 | `--to <link>` | _(none)_ | Send through a [request link](/glossary#request-link) made in Floe Desktop instead of creating a [room code](/glossary#room-code). Put the whole link in quotes, including everything after the `#`. |
 | `--link-only` | `false` | In `floe` 1.12 and later: make no code, and send only to a receiver that proves it holds the link. It has no environment variable. |
+| `--no-progress` | `false` | In `floe` 1.12.1 and later: do not draw the progress bar, for scripts and CI logs. Every other line still prints. It has no environment variable. |
 
 With `--to`, no link is printed, so `--web` has no effect, and the request link has to belong to the
 server in effect. See [Send through a request link](/cli/send#send-through-a-request-link).
@@ -89,9 +90,10 @@ Specific to the `receive` command.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--output <dir>`<br />`-o` | `.` | Directory to save received files. Created when the first file is saved. Floe checks that it can be created before it connects. |
+| `--output <dir>`<br />`-o` | `.` | Directory to save received files. Created when the first file is saved. Floe checks that it can be created and written in before it connects. |
 | `--yes`<br />`-y` | `false` | Accept incoming files without the confirmation prompt. |
 | `--no-report` | `false` | Do not report the transferred byte count to Floe's public global counter. See [Opting out of the global counter](#opting-out-of-the-global-counter) below. |
+| `--no-progress` | `false` | In `floe` 1.12.1 and later: do not draw the progress bar, for scripts and CI logs. Every other line still prints. It has no environment variable. |
 
 ## `floe update` flags {#floe-update-flags}
 
@@ -211,8 +213,9 @@ on, such as `PION_LOG_TRACE=ice`, brings all of them back, so set one only while
 - **Environment variables.** Set the server once with `FLOE_SERVER`. Set `FLOE_NO_STATS=1` on a job that receives, so test transfers do not add to the public counter, and `FLOE_NO_UPDATE_CHECK=1` if the job runs `floe version`. See [Environment variables](#environment-variables).
 - **Streams.** Status lines, the boxes, the prompt, progress and `Warning:` lines go to stdout. Errors, every refusal line and the `Canceled.` line go to stderr.
 - **Progress in a log.** The progress line is written even when stdout is not a terminal: it is
-  redrawn in place with carriage returns, at most once every 65 milliseconds, 80 columns wide. There
-  is no flag that turns it off, so a script that reads stdout has to skip those frames.
+  redrawn in place with carriage returns, at most once every 65 milliseconds, 80 columns wide. Pass
+  `--no-progress` to `floe send` or `floe receive` to leave it out, in `floe` 1.12.1 and later. An
+  older `floe` has no such flag, so a script that reads its stdout has to skip those frames.
 - **Error text.** An error line is cut at 2,000 characters. A control character in text that Floe
   did not write, such as a server's message, prints as a visible escape like `\x0a`.
 
