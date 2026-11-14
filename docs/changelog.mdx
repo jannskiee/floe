@@ -45,11 +45,12 @@ Versions work together down to these floors, as measured against the current cod
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
-<Update label="Unreleased" tags={["Web"]}>
+<Update label="Unreleased" tags={["Web", "CLI"]}>
   **The floe.one download page now offers Floe Desktop 1.1.1, and buttons draw a stronger keyboard focus ring**
 
   - The floe.one download page now offers Floe Desktop 1.1.1, with its installer, zip and checksums.
   - A button with keyboard focus now draws its ring in the ice blue of the file drop zones, about 4:1 against the card. The gray ring it drew before was about 2.7:1, below the 3:1 a focus ring needs.
+  - CLI: `floe send` and `floe receive` now start their error message on a fresh line when a transfer fails mid-file. They used to print the error on the progress bar's line. Contributed by [@vaishaldsza](https://github.com/vaishaldsza).
 </Update>
 
 <Update label="desktop-v1.1.1" description="2026-11-13" tags={["Desktop"]}>

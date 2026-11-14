@@ -2,8 +2,8 @@ package transfer
 
 // SendOptions.EndBarLine (FU-20 round 3, review lens A finding 2): an ending
 // that lands while a file's bar is drawn part way leaves the bar's line
-// ended, so the caller's next line starts on its own, while the plain send's
-// output stays byte for byte what it was and a stop leaves the line to the
+// ended, so the caller's next line starts on its own, while with the engine
+// option left off the bar's line stays open and a stop leaves the line to the
 // caller's Ctrl+C line.
 
 import (
@@ -72,7 +72,7 @@ func TestEndBarLineStartsTheNextLineFresh(t *testing.T) {
 }
 
 // TestEndBarLineOffLeavesThePlainSendAsItWas: without it the bar's line
-// stays open, as the plain send has always left it.
+// stays open, as with the engine option left off.
 func TestEndBarLineOffLeavesThePlainSendAsItWas(t *testing.T) {
 	out, err := barLineRun(t, false, false)
 	var stopped *PeerStoppedError
