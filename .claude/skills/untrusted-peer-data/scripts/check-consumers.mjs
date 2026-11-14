@@ -130,6 +130,10 @@ export const FIELDS = {
 // the other party wrote into a link, as `s`. So is cli/cmd/floe/links.go, which
 // reads a pasted link as `arg`.
 //
+// cli/engine/signaling/servererror.go is the first kind too: ServerFrameError
+// reads the message of the signaling server's error frame as `msg`, and its row
+// records that only the one literal it compares with goes on.
+//
 // desktop/toast_windows.go and desktop/toast_other.go are the second kind:
 // their rows record that pushToast and toastXML carry only the constant strings
 // notify was handed.
@@ -159,6 +163,7 @@ export const TOKEN_FREE = new Set([
     'cli/engine/peer/setuperror.go',
     'cli/engine/linkkey/linkkey.go',
     'cli/cmd/floe/links.go',
+    'cli/engine/signaling/servererror.go',
     'cli/engine/transfer/relay.go',
     'desktop/app.go',
     'desktop/toast_windows.go',
