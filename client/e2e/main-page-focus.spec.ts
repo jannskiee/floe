@@ -17,6 +17,8 @@ interface Seen {
      *  button) shows focus through the browser's outline, colored by the base
      *  outline-ring/50 in globals.css. */
     outline: Rgb | null;
+    /** The --color-ice token, opaque, as sRGB. */
+    ice: Rgb;
 }
 
 /** The colors the eye gets at an element. getComputedStyle hands back oklch,
@@ -83,12 +85,14 @@ async function seen(locator: Locator): Promise<Seen> {
             const color = rgba(style.outlineColor);
             if (color[3] > 0) outline = over(color, surround);
         }
+        const ice = rgba(getComputedStyle(document.documentElement).getPropertyValue('--color-ice').trim());
         return {
             text: over(rgba(style.color), background),
             background,
             surround,
             ring,
             outline,
+            ice: [ice[0], ice[1], ice[2]] as [number, number, number],
         };
     });
 }
@@ -103,10 +107,11 @@ async function tabTo(locator: Locator): Promise<void> {
     expect(await locator.evaluate((el) => el === document.activeElement && el.matches(':focus-visible'))).toBe(true);
 }
 
-/** Ice (oklch(0.87 0.05 220)) is a blue; the gray ring token has equal
- *  channels. Composited at 50% over the card, ice reads about 30 more in blue
- *  than in red, gray about 0. */
-const isIce = ([r, , b]: Rgb) => b - r >= 15;
+/** Whether a drawn color is the ice token at the given strength over the
+ *  surround, within 8 per channel for rounding. The gray ring token at 50%
+ *  misses ice at 50% by about 30 in green and in blue. */
+const isIce = (drawn: Rgb, { ice, surround }: Seen, alpha: number) =>
+    drawn.every((v, i) => Math.abs(v - (ice[i] * alpha + surround[i] * (1 - alpha))) <= 8);
 
 /** WCAG 2 contrast ratio. */
 function contrast(a: Rgb, b: Rgb): number {
@@ -219,8 +224,8 @@ test('Create secure link draws an ice focus ring at 3:1 or more when the keyboar
     await expect
         .poll(
             async () => {
-                const { ring, surround } = await seen(create);
-                return ring && isIce(ring) ? contrast(ring, surround) : 0;
+                const s = await seen(create);
+                return s.ring && isIce(s.ring, s, 0.5) ? contrast(s.ring, s.surround) : 0;
             },
             { message: 'Create secure link focus ring, in ice, against the card', timeout: 5_000 }
         )
@@ -233,7 +238,8 @@ test('a file\'s Remove and the relay Learn more link draw ice focus outlines at 
     // children (app/page.tsx). With the gray :root token the outline color
     // was about 2.7:1. Chromium draws this outline (style auto) with a white
     // outer ring of its own as well, which this reads nothing of: what is
-    // checked is the color the page chose.
+    // checked is the color the page chose. Firefox paints auto outlines in
+    // its own accent color, so this holds for Chromium (the CI project).
     await page.goto('/');
     await page
         .locator('input[type=file]:not([webkitdirectory])')
@@ -248,12 +254,46 @@ test('a file\'s Remove and the relay Learn more link draw ice focus outlines at 
         await expect
             .poll(
                 async () => {
-                    const { outline, surround } = await seen(control);
-                    return outline && isIce(outline) ? contrast(outline, surround) : 0;
+                    const s = await seen(control);
+                    return s.outline && isIce(s.outline, s, 0.5) ? contrast(s.outline, s.surround) : 0;
                 },
                 { message: `${name} focus outline, in ice, against what surrounds it`, timeout: 5_000 }
             )
             .toBeGreaterThanOrEqual(3);
+    }
+});
+
+test('the in-app browser card\'s Copy link draws a solid ice focus outline clear of the button', async ({ browser }) => {
+    // A white button: an auto outline's tinted band falls on the white face
+    // and barely shows there (1.2:1 in ice). Its own outline, 2 px outside the
+    // button, as the Navbar's white pill draws it, sits on the card instead.
+    const ctx = await browser.newContext({
+        userAgent:
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 309.0.0.40.113',
+        viewport: { width: 390, height: 844 },
+    });
+    const page = await ctx.newPage();
+    try {
+        await page.goto('/');
+        await expect(page.getByRole('heading', { name: 'Open in your browser' })).toBeVisible();
+        const copy = page.getByRole('button', { name: /Copy link/ });
+        await tabTo(copy);
+        await expect
+            .poll(
+                async () => {
+                    const s = await seen(copy);
+                    const style = await copy.evaluate((el) => {
+                        const cs = getComputedStyle(el);
+                        return { style: cs.outlineStyle, offset: parseFloat(cs.outlineOffset) };
+                    });
+                    const solidOutside = style.style === 'solid' && style.offset >= 2;
+                    return solidOutside && s.outline && isIce(s.outline, s, 1) ? contrast(s.outline, s.surround) : 0;
+                },
+                { message: 'Copy link focus outline, solid ice outside the button, against the card', timeout: 5_000 }
+            )
+            .toBeGreaterThanOrEqual(3);
+    } finally {
+        await ctx.close();
     }
 });
 

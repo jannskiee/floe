@@ -3,9 +3,9 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 // The main page's root element, read as TEXT: client/vitest.config.ts runs in
-// node, where a page cannot be mounted (next/font is an empty shim outside
-// next build). The ring as drawn is measured by e2e/main-page-focus.spec.ts.
-// The /r twin of this file is lib/request/requestShell.test.ts.
+// node with no `@/` alias, so app/page.tsx cannot be imported or mounted
+// here. The ring as drawn is measured by e2e/main-page-focus.spec.ts. The /r
+// twin of this file is lib/request/requestShell.test.ts.
 
 const PAGE = fileURLToPath(new URL('../app/page.tsx', import.meta.url));
 
@@ -24,11 +24,11 @@ describe('the main page shell', () => {
         // file's Remove) shows focus through the base outline-ring/50: gray
         // at 50% is about 2.7:1 against the card, under the 3:1 WCAG 1.4.11
         // asks of a focus indicator (Chromium adds a white outer ring to that
-        // outline, see e2e/main-page-focus.spec.ts), and ice at 50% about
-        // 4:1, the color the Buttons, drop zones and checkboxes already draw.
-        // It is set on the
-        // children, as RequestShell does, so a .dark on the root could not
-        // override it.
+        // outline, and Firefox paints its own accent color: see
+        // e2e/main-page-focus.spec.ts), and ice at 50% about 4:1, the color
+        // the Buttons, drop zones and checkboxes already draw. It is set on
+        // the children, as RequestShell does, so a .dark on the root could
+        // not override it.
         const classes = homeRootClasses();
         expect(classes).toContain('*:[--ring:var(--color-ice)]');
         expect(classes).not.toContain('[--ring:var(--color-ice)]');

@@ -23,9 +23,10 @@ export default function Home() {
         // outline in the base outline-ring/50: gray is about 2.7:1 against
         // the card, ice about 4:1. Chromium draws that outline (style auto)
         // with a white outer ring of its own, so there the change is the
-        // tint. It is set on the children, as on /r, so it still holds if
-        // this element ever takes .dark, whose unlayered rule would beat any
-        // utility on the element itself.
+        // tint inside it; Firefox paints auto outlines in its own accent
+        // color, so there it changes nothing. It is set on the children, as
+        // on /r, so it still holds if this element ever takes .dark, whose
+        // unlayered rule would beat any utility on the element itself.
         <div className="*:[--ring:var(--color-ice)] flex min-h-dvh flex-col items-center bg-zinc-950 font-sans text-zinc-100 px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-[max(1.5rem,env(safe-area-inset-left),env(safe-area-inset-right))] sm:pb-[max(1.5rem,env(safe-area-inset-bottom))]">
             <Navbar />
 
