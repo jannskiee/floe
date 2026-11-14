@@ -792,8 +792,10 @@ jobs:
 
       - name: Upload Playwright evidence
         # Not failure()-gated: a test that fails once and passes on the CI
-        # retry leaves a green job, and its first-attempt trace plus the CLI
-        # transcripts attached by e2e/helpers.ts live in these directories.
+        # retry leaves a green job, and its first attempt's error, page snapshot
+        # and step timings (trace: 'on-first-retry' records a trace for the
+        # retry alone) plus the CLI transcripts attached by e2e/helpers.ts live
+        # in these directories.
         # Uploading them on every non-cancelled run is what makes flaky
         # attempts investigable at all.
         if: ${{ !cancelled() }}
@@ -951,8 +953,11 @@ jobs:
           FLOE_RELEASED_CLI="$FLOE_BEFORE_KEY_CLI" pnpm exec playwright test e2e/back-compat.spec.ts --output=test-results/before-key
 
       - name: Upload Playwright evidence
-        # Same reasoning as the e2e leg: keep first-attempt traces and CLI
-        # transcripts from retry-passed (green) runs.
+        # Same reasoning as the e2e leg: keep the first attempt's error and page
+        # snapshot, the retry's trace, and the CLI transcripts from retry-passed
+        # (green) runs. The second run's HTML report replaces the first's, so of
+        # the first run only client/test-results/ is kept: its error-context
+        # files and the retry's trace.
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
