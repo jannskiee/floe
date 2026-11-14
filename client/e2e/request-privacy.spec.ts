@@ -8,6 +8,7 @@ import { UMAMI_INTEGRITY, UMAMI_SRC } from '../lib/umamiPin';
 import { E2E_REPORT_EMAIL } from './report-email';
 import { startScriptedHost } from './request-scripted-host';
 import {
+    attachUnsettled,
     channelSent,
     channelText,
     countStatsAttempts,
@@ -199,6 +200,7 @@ test.describe('request privacy', () => {
                 // Not vacuous: the watchers hear the room, which does go to the signaling
                 // server, and a socket did open.
                 const heard = await traffic.everything();
+                await attachUnsettled(traffic, testInfo);
                 expect(heard).toContain(room);
                 expect(traffic.sockets()).toBeGreaterThan(0);
                 expect(heard, 'this page told a server the key').not.toContain(key);
@@ -250,6 +252,7 @@ test.describe('request privacy', () => {
                     await expect.poll(() => channelSent(page)).toEqual(['kc', 'incompatible']);
                     const words = (await channelText(page)).join('\n');
                     const heard = await traffic.everything();
+                    await attachUnsettled(traffic, testInfo);
                     for (const what of [FILE_NAME, String(FILE_SIZE)]) {
                         expect(words, `${what} went down the channel`).not.toContain(what);
                         expect(heard, `${what} went to a server`).not.toContain(what);

@@ -24,7 +24,7 @@
  * because the server allows 20 new links per network address a day.
  */
 
-import { test, expect, firefox, type Browser, type BrowserContext, type Dialog, type Page } from '@playwright/test';
+import { test, expect, firefox, type Browser, type BrowserContext, type Dialog, type Page, type TestInfo } from '@playwright/test';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -961,21 +961,103 @@ function expectNoDecision(h: RequestHost) {
     expect(names).not.toContain('file-committed');
 }
 
+/** The context relayRoute was given in this test, for the afterEach that reads its record. */
+let routedContext: BrowserContext | null = null;
+
 /** Selects every local candidate as a relay in what getStats reports, which is all the
- *  page's probe reads: the transfer itself stays direct, on any machine. */
+ *  page's probe reads: the transfer itself stays direct, on any machine.
+ *
+ *  It also keeps every read on the page, in window.__floeRelayRouteReads, for the
+ *  afterEach of 'request-link: the link key' to attach when a cell fails. #940 (shape A)
+ *  saw the cap let a 3 GB drop through on macOS with the badge reading Relay, and left
+ *  open whether, at the probe's read, no pair was nominated yet, the nominated pair was
+ *  not succeeded, or getStats threw. Each read records its time, the connection's state,
+ *  where it was called from, any exception (rethrown, so the page sees what it saw
+ *  before), and every candidate pair as the page then reads it: after the rewrite. */
 function relayRoute(context: BrowserContext) {
+    routedContext = context;
     return context.addInitScript(() => {
         const real = RTCPeerConnection.prototype.getStats;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const reads: Record<string, unknown>[] = ((window as any).__floeRelayRouteReads = []);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         RTCPeerConnection.prototype.getStats = async function (this: RTCPeerConnection, ...args: any[]) {
-            const stats = await real.apply(this, args as []);
+            const start = performance.now();
+            const read: Record<string, unknown> = {
+                at: Math.round(start),
+                wall: Date.now(),
+                connectionState: this.connectionState,
+                iceConnectionState: this.iceConnectionState,
+                from: (new Error().stack ?? '').split('\n').slice(2, 5).map((line) => line.trim()),
+            };
+            reads.push(read);
+            let stats: RTCStatsReport;
+            try {
+                stats = await real.apply(this, args as []);
+            } catch (e) {
+                read.error = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+                throw e;
+            }
             const out = new Map();
             stats.forEach((value: { type: string }, id: string) =>
                 out.set(id, value.type === 'local-candidate' ? { ...value, candidateType: 'relay' } : value),
             );
+            read.took = Math.round(performance.now() - start);
+            const selected: string[] = [];
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            out.forEach((value: any) => {
+                if (value.type === 'transport' && value.selectedCandidatePairId) selected.push(value.selectedCandidatePairId);
+            });
+            const pairs: Record<string, unknown>[] = [];
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            out.forEach((value: any, id: string) => {
+                if (value.type !== 'candidate-pair') return;
+                pairs.push({
+                    id,
+                    state: value.state ?? null,
+                    nominated: value.nominated ?? null,
+                    selected: selected.includes(id),
+                    local: out.get(value.localCandidateId)?.candidateType ?? null,
+                    remote: out.get(value.remoteCandidateId)?.candidateType ?? null,
+                });
+            });
+            read.selectedCandidatePairIds = selected;
+            read.pairs = pairs;
             return out as unknown as RTCStatsReport;
         };
     });
+}
+
+/** Attaches what relayRoute kept on each page of a context, as relay-route-reads.json in the
+ *  test's folder under test-results/, which CI uploads, whatever the reporter. It never
+ *  throws: the page may be closed by now, and a diagnostic must not trade the failure it
+ *  explains for its own. */
+async function attachRelayReads(context: BrowserContext, testInfo: TestInfo): Promise<void> {
+    const record: { page: string; reads: unknown }[] = [];
+    for (const page of context.pages()) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+            const reads = await Promise.race([
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                page.evaluate(() => (window as any).__floeRelayRouteReads ?? null),
+                new Promise<string>((resolve) => {
+                    timer = setTimeout(() => resolve('the page did not answer in 5 s'), 5_000);
+                }),
+            ]);
+            record.push({ page: page.url().split('#')[0], reads });
+        } catch (e) {
+            record.push({ page: page.url().split('#')[0], reads: `unreadable: ${e instanceof Error ? e.message : String(e)}` });
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+    try {
+        const path = testInfo.outputPath('relay-route-reads.json');
+        writeFileSync(path, JSON.stringify(record, null, 2));
+        await testInfo.attach('relay-route-reads', { path, contentType: 'application/json' });
+    } catch {
+        // Nothing left to say it with.
+    }
 }
 
 /** Every pick reads as over the 2 GB relay cap. No file that size has to exist, because
@@ -990,6 +1072,15 @@ test.describe('request-link: the link key', () => {
     // These describe enforcing pages. The rollback lever's own cells are below, and a flip
     // must not have to fight this file to merge.
     test.skip(!ENFORCE_LINK_KEYS, 'ENFORCE_LINK_KEYS is off');
+
+    // Every relayRoute cell is in this describe. One that fails attaches the getStats reads
+    // it made (#940), and one that passes attaches nothing.
+    test.afterEach(async ({}, testInfo) => {
+        const context = routedContext;
+        routedContext = null;
+        if (!context || testInfo.status === testInfo.expectedStatus) return;
+        await attachRelayReads(context, testInfo);
+    });
 
     test('a keyed link delivers, its proof ahead of the first file name, and nothing new shows', async ({ page, context }) => {
         const stats = await guard(context);

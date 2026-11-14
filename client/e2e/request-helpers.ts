@@ -14,9 +14,9 @@
  * reads, logs or attaches a TURN response.
  */
 
-import type { BrowserContext, Page, PlaywrightWorkerOptions, WebSocketRoute } from '@playwright/test';
+import type { BrowserContext, Page, PlaywrightWorkerOptions, Response, TestInfo, WebSocketRoute } from '@playwright/test';
 import { createHash, randomBytes } from 'crypto';
-import { closeSync, openSync, readdirSync, readSync, statSync } from 'fs';
+import { closeSync, openSync, readdirSync, readSync, statSync, writeFileSync } from 'fs';
 import { connect, createServer, type AddressInfo } from 'net';
 import { join, relative, sep } from 'path';
 import { spawn, type ChildProcess } from 'child_process';
@@ -464,6 +464,46 @@ export const channelSent = (page: Page): Promise<string[]> => page.evaluate(() =
 export const channelText = (page: Page): Promise<string[]> => page.evaluate(() => (window as any).__channelText ?? []);
 
 /**
+ * How long everything() waits for the polling bodies open at the call, counted from the newest one's
+ * response event, as the 2 s on headers in watchTraffic is counted from each request's.
+ *
+ * Engine.io sends a polling answer's headers only once its body is ready, so a healthy body
+ * settles within milliseconds of the event. Issue #940 found request-privacy sitting in an
+ * unbounded everything() until its 90 s timeout on five CI runs (macOS and Windows), its
+ * expects logged only after Close context: a body that has not settled by then settles only
+ * when its context closes. 5 s is far past any healthy body and far inside a test's budget,
+ * and counting from the answers' own events, not the call, gives one that came just before the call its
+ * whole wait, while a stuck old one costs at most the 5 s after the newest.
+ *
+ * What goes unread is only what the server said over polling. Everything the page itself
+ * sent is still read, from postData() and the socket frames, so a test asking whether the
+ * page told a server something keeps its meaning.
+ */
+const ANSWER_WAIT_MS = 5_000;
+
+interface PollingAnswer {
+    /** Its method, URL and status, and who asked for it, for unsettled(). */
+    what: string;
+    /** Date.now() at its response event. */
+    at: number;
+    settled: boolean;
+    body: Promise<void>;
+}
+
+/** Who asked for a response: the page's URL up to its #, or the service worker. Playwright
+ *  throws on frame() for a request with no frame. */
+function askedBy(response: Response): string {
+    const request = response.request();
+    const worker = request.serviceWorker();
+    if (worker) return `the service worker ${worker.url()}`;
+    try {
+        return `the page at ${request.frame().page().url().split('#')[0]}`;
+    } catch {
+        return 'no page Playwright could name';
+    }
+}
+
+/**
  * Every request a context makes and every socket frame it sends or hears, polling included.
  * A navigation's URL is read up to its #: the browser sends no fragment, and Playwright
  * reports it on the request anyway.
@@ -473,7 +513,8 @@ export function watchTraffic(context: BrowserContext) {
     const bodies: string[] = [];
     const headers: Promise<void>[] = [];
     const heardHeaders: string[] = [];
-    const answers: Promise<void>[] = [];
+    const answers: PollingAnswer[] = [];
+    let gaveUpOn: string[] = [];
     const frames: string[] = [];
     let sockets = 0;
     context.on('request', (request) => {
@@ -496,12 +537,24 @@ export function watchTraffic(context: BrowserContext) {
     // What the server said over polling, the half of a socket no frame event reports.
     context.on('response', (response) => {
         if (!/\/socket\.io\/\?.*transport=polling/.test(response.url())) return;
-        answers.push(
-            response.text().then(
+        const answer: PollingAnswer = {
+            what: `${response.request().method()} ${response.url()} ${response.status()}, asked by ${askedBy(response)}${
+                response.fromServiceWorker() ? ', answered by the service worker' : ''
+            }`,
+            at: Date.now(),
+            settled: false,
+            body: Promise.resolve(),
+        };
+        answer.body = response
+            .text()
+            .then(
                 (text) => void bodies.push(text),
                 () => undefined,
-            ),
-        );
+            )
+            .finally(() => {
+                answer.settled = true;
+            });
+        answers.push(answer);
     });
     return {
         /** Call before the page navigates: a socket opened earlier goes unseen. */
@@ -516,12 +569,44 @@ export function watchTraffic(context: BrowserContext) {
             });
         },
         sockets: () => sockets,
-        /** Everything this context said to or heard from a server, as one string. */
+        /** Everything this context said to or heard from a server, as one string. A polling
+         *  body still pending ANSWER_WAIT_MS after the newest open one's response is left out and named by
+         *  unsettled(); one that settles before or during the wait is in. */
         async everything(): Promise<string> {
-            await Promise.all([...headers, ...answers]);
+            const open = answers.filter((a) => !a.settled);
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            const bound = new Promise<void>((resolve) => {
+                const newest = Math.max(0, ...open.map((a) => a.at));
+                timer = setTimeout(resolve, Math.max(0, newest + ANSWER_WAIT_MS - Date.now()));
+            });
+            try {
+                await Promise.all([...headers, Promise.race([Promise.all(open.map((a) => a.body)), bound])]);
+            } finally {
+                clearTimeout(timer);
+            }
+            const now = Date.now();
+            gaveUpOn = open.filter((a) => !a.settled).map((a) => `${a.what}, pending ${now - a.at} ms`);
             return [...urls, ...bodies, ...heardHeaders, ...frames].join('\n');
         },
+        /** The polling answers the last everything() stopped waiting for: empty when it read
+         *  every body. Give it to attachUnsettled. */
+        unsettled: (): string[] => [...gaveUpOn],
     };
+}
+
+/** Attaches what unsettled() names, when it names anything, so a run that met a body that
+ *  never settled says which one (#940). It never fails the test. The file sits in the
+ *  test's own folder under test-results/, which CI uploads, whatever the reporter. */
+export async function attachUnsettled(traffic: { unsettled(): string[] }, testInfo: TestInfo): Promise<void> {
+    const pending = traffic.unsettled();
+    if (pending.length === 0) return;
+    try {
+        const path = testInfo.outputPath('unsettled-polling-answers.json');
+        writeFileSync(path, JSON.stringify(pending, null, 2));
+        await testInfo.attach('unsettled-polling-answers', { path, contentType: 'application/json' });
+    } catch {
+        // A diagnostic, and never the reason a test fails.
+    }
 }
 
 /** What the page keeps in the browser that holds this text, with the count of stored responses. */

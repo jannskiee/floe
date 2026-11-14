@@ -927,9 +927,14 @@ test.describe('a sending page', () => {
             await scriptedReceiver(peer.page, { room, key, proof: 'good', then: 'ack' });
             await expect(page.getByText('All Files Sent!')).toBeVisible({ timeout: 30_000 });
             await expect.poll(async () => (await scriptedState(peer.page)).pageProofGood, { timeout: 10_000 }).toBe(true);
+            // All Files Sent! is the page's own drained buffer (lib/transfer/sender.ts), not
+            // this receiver's word, so the file can still be on its way here: polled, not read
+            // once (#940, where a read 2 ms after the heading found no file-data on Windows).
+            await expect
+                .poll(async () => (await scriptedState(peer.page)).frames.some((f) => f.type === 'file-data'), { timeout: 10_000 })
+                .toBe(true);
             const { frames } = await scriptedState(peer.page);
             expect(frames[0].type).toBe('kc');
-            expect(frames.some((f) => f.type === 'file-data')).toBe(true);
             await expect(page.getByText(/couldn't confirm|can't check/i)).toHaveCount(0);
         } finally {
             await ctx.close();
@@ -946,7 +951,10 @@ test.describe('a sending page', () => {
         try {
             await scriptedReceiver(peer.page, { room, key, proof: 'none', then: 'ack' });
             await expect(page.getByText('All Files Sent!')).toBeVisible({ timeout: 30_000 });
-            expect((await scriptedState(peer.page)).frames.some((f) => f.type === 'file-data')).toBe(true);
+            // Polled, as above: the heading does not wait for this receiver.
+            await expect
+                .poll(async () => (await scriptedState(peer.page)).frames.some((f) => f.type === 'file-data'), { timeout: 10_000 })
+                .toBe(true);
             await expect(page.getByText(/couldn't confirm|can't check/i)).toHaveCount(0);
         } finally {
             await ctx.close();
