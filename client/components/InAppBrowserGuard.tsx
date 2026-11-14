@@ -199,7 +199,7 @@ export function InAppBrowserGuard({
                         {/* Copy link button */}
                         <button
                             onClick={handleCopy}
-                            className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black transition-all duration-150 hover:bg-zinc-100 active:scale-[0.98]"
+                            className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black transition-all duration-150 hover:bg-zinc-100 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ice"
                         >
                             {copied ? (
                                 <>

@@ -14,7 +14,20 @@ import { webApplicationJsonLd } from '@/lib/structuredData';
 
 export default function Home() {
     return (
-        <div className="flex min-h-dvh flex-col items-center bg-zinc-950 font-sans text-zinc-100 px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-[max(1.5rem,env(safe-area-inset-left),env(safe-area-inset-right))] sm:pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        // *:[--ring:...] draws keyboard focus on this page in ice, as
+        // RequestShell does on /r (the owner chose option B, 2026-11-15).
+        // The page has no .dark, so --ring is :root's gray. The Buttons, drop
+        // zones and checkboxes name ice themselves (#913, #942); this reaches
+        // the rest. A control with no focus style of its own (the Learn more
+        // links, a file's Remove, the error's Dismiss) shows the browser's
+        // outline in the base outline-ring/50: gray is about 2.7:1 against
+        // the card, ice about 4:1. Chromium draws that outline (style auto)
+        // with a white outer ring of its own, so there the change is the
+        // tint inside it; Firefox paints auto outlines in its own accent
+        // color, so there it changes nothing. It is set on the children, as
+        // on /r, so it still holds if this element ever takes .dark, whose
+        // unlayered rule would beat any utility on the element itself.
+        <div className="*:[--ring:var(--color-ice)] flex min-h-dvh flex-col items-center bg-zinc-950 font-sans text-zinc-100 px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-[max(1.5rem,env(safe-area-inset-left),env(safe-area-inset-right))] sm:pb-[max(1.5rem,env(safe-area-inset-bottom))]">
             <Navbar />
 
             {/* Near-full-viewport hero: the next section's top hairline peeks at the
