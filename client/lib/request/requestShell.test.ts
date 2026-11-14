@@ -34,8 +34,9 @@ describe('the /r shell', () => {
     });
 
     it('gives every control on /r the ice focus ring', () => {
-        // The dark ring token, oklch(0.556 0 0), drawn at 50% by the Button's
-        // ring-ring/50, is 1.88:1 against the card; WCAG 1.4.11 asks 3:1 of a
+        // The dark ring token, oklch(0.556 0 0), drawn at 50% (ring-ring/50, as
+        // the Add more files strip draws it), is 1.88:1 against the card; WCAG
+        // 1.4.11 asks 3:1 of a
         // focus indicator. Ice at 50% is 3.99:1. It is set on the shell's
         // children, not on the shell: .dark sets --ring on its own element
         // from an unlayered rule, which beats any utility there.
