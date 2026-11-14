@@ -52,10 +52,25 @@ export function SelectedFilesList({
     // The page hands a new function on every render, which would render every
     // row again; the rows get one that never changes and calls the latest.
     const deleteRef = useRef(onDeleteFile);
+    const removedIndexRef = useRef<number | null>(null);
     useEffect(() => {
-        deleteRef.current = onDeleteFile;
+        deleteRef.current = (id: string) => {
+            const index = files.findIndex((f) => f.id === id);
+            removedIndexRef.current =
+                index >= 0 && listRef.current?.children[index]?.contains(document.activeElement) ? index : null;
+            onDeleteFile(id);
+        };
     });
     const onDelete = useCallback((id: string) => deleteRef.current(id), []);
+
+    useEffect(() => {
+        const index = removedIndexRef.current;
+        removedIndexRef.current = null;
+        if (index !== null && files.length > 0 && document.activeElement === document.body) {
+            const row = listRef.current?.children[Math.min(index, files.length - 1)];
+            row?.querySelector('button')?.focus();
+        }
+    }, [files]);
     return (
         <div
             ref={listRef}
