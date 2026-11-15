@@ -84,6 +84,27 @@ export function senderCloseInterrupted(close: {
 }
 
 /**
+ * Whether the sender's close handler sends the page back to waiting: the connection
+ * closed before the send began (no progress and no answer from the receiver), and
+ * neither this side nor a wire reason explains it. With relay fallback off, or more
+ * than 2 GB to send, the send starts 2 s after the connection (lib/relay.ts
+ * relayProbeDelayMs), and a send started on a closed connection stops at once
+ * without a word, so the page stayed on "Peer joined. Starting transfer" (#944).
+ *
+ * The other half of senderCloseInterrupted: the two are never both true, and for a
+ * close nobody explained one of them always is.
+ */
+export function senderCloseBeforeSend(close: {
+    transferComplete: boolean;
+    progress: number;
+    closedByUs: boolean;
+    wireReason: boolean;
+    acked?: boolean;
+}): boolean {
+    return !close.transferComplete && close.progress === 0 && close.acked !== true && !close.closedByUs && !close.wireReason;
+}
+
+/**
  * Whether a connection that went after the link-key check found something owes the
  * page that account, in place of whatever the close or the error would say. For when
  * the send engine never got to act on it: it starts up to 2 s after the connection

@@ -7,6 +7,7 @@ import {
     describeSenderStop,
     SEND_INTERNAL_ERROR,
     SENDER_HASH_STOP,
+    senderCloseBeforeSend,
     senderCloseInterrupted,
     senderKeyFailureAtClose,
 } from './senderStop';
@@ -121,6 +122,50 @@ describe('senderCloseInterrupted', () => {
     });
 });
 
+// A close before the send began. With relay fallback off, or more than 2 GB to send,
+// the send starts 2 s after the connection (lib/relay.ts relayProbeDelayMs), and a
+// send started on a connection that has closed stops at once without a word, so the
+// page stayed on "Peer joined. Starting transfer" with its spinner.
+describe('senderCloseBeforeSend', () => {
+    const base = { transferComplete: false, progress: 0, closedByUs: false, wireReason: false, acked: false };
+
+    it('is true for a close nobody explained, before any progress and before the receiver answered a file', () => {
+        expect(senderCloseBeforeSend(base)).toBe(true);
+        expect(senderCloseBeforeSend({ ...base, acked: undefined })).toBe(true);
+    });
+
+    it('is false once the send has started, where senderCloseInterrupted speaks', () => {
+        expect(senderCloseBeforeSend({ ...base, progress: 1 })).toBe(false);
+        expect(senderCloseBeforeSend({ ...base, acked: true })).toBe(false);
+    });
+
+    it("stays quiet after a finished send, a teardown of this page's own, or a stop the peer named", () => {
+        expect(senderCloseBeforeSend({ ...base, transferComplete: true })).toBe(false);
+        expect(senderCloseBeforeSend({ ...base, closedByUs: true })).toBe(false);
+        expect(senderCloseBeforeSend({ ...base, wireReason: true })).toBe(false);
+    });
+
+    it('never speaks where senderCloseInterrupted does, and one of the two speaks for every close nobody explained', () => {
+        for (const transferComplete of [false, true]) {
+            for (const progress of [0, 0.4, 1, 40, 100]) {
+                for (const closedByUs of [false, true]) {
+                    for (const wireReason of [false, true]) {
+                        for (const acked of [undefined, false, true]) {
+                            const close = { transferComplete, progress, closedByUs, wireReason, acked };
+                            const interrupted = senderCloseInterrupted(close);
+                            const before = senderCloseBeforeSend(close);
+                            expect(interrupted && before, JSON.stringify(close)).toBe(false);
+                            if (!transferComplete && !closedByUs && !wireReason) {
+                                expect(interrupted || before, JSON.stringify(close)).toBe(true);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+});
+
 // The check can find something and the connection go before the send engine gets
 // to act on it: with relay fallback off the send starts 2 s after the connection,
 // the same 2 s a refusing browser waits before it closes. Nothing else speaks at
@@ -202,6 +247,28 @@ describe('how the sender page uses a stop', () => {
         expect(page).toContain('acked: keyState.acked,');
         expect(page).toContain('if (transferCompleteRef.current || keyState.acked) {');
         expect(page).not.toContain('progressRef.current > 0');
+    });
+
+    // The sender's close handler, after its key check and its mid-send branch, goes
+    // back to waiting when the connection closed before the send began. It stops the
+    // send that was about to start on a dead peer, and it takes down only the line
+    // that says a send is starting: a block of the relay gate or an error writes its
+    // own line ahead of the close, and that line stands.
+    it('goes back to waiting when the connection closes before the send began', () => {
+        const from = page.indexOf("peer.on('close', () => {", page.indexOf('const endedOnKeyCheck = (): boolean => {'));
+        const close = page.slice(from, page.indexOf("peer.on('error', (err) => {", from));
+        const keyCheck = close.indexOf('if (endedOnKeyCheck()) return;');
+        const interrupted = close.indexOf('senderCloseInterrupted(');
+        const before = close.indexOf('senderCloseBeforeSend(');
+        expect(keyCheck).toBeGreaterThan(-1);
+        expect(interrupted).toBeGreaterThan(keyCheck);
+        expect(before).toBeGreaterThan(interrupted);
+        const branch = close.slice(close.lastIndexOf('if (', before));
+        expect(branch).toContain('peerRef.current === peer');
+        expect(branch).toContain('clearTimeout(iceProbeRef.current)');
+        expect(branch).toContain("'Peer joined. Starting transfer'");
+        expect(branch).toContain("'Peer disconnected. Waiting for reconnection'");
+        expect(branch).not.toContain("setStatus('Peer disconnected. Waiting for reconnection')");
     });
 });
 

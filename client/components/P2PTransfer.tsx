@@ -43,7 +43,7 @@ import {receiverKeyLine, senderKeyLine} from '@/lib/linkKeyCopy';
 import {reportLinkKey} from '@/lib/keyCheckReport';
 import {classifyPeerError, peerErrorBanner, peerErrorCodeOf, peerErrorReport, senderErrorBlamesRelay} from '@/lib/peerErrors';
 import {decideReceiverClose} from '@/lib/receiverClose';
-import {SEND_INTERNAL_ERROR, describeSenderStop, senderCloseInterrupted, senderKeyFailureAtClose} from '@/lib/senderStop';
+import {SEND_INTERNAL_ERROR, describeSenderStop, senderCloseBeforeSend, senderCloseInterrupted, senderKeyFailureAtClose} from '@/lib/senderStop';
 import {RELAY_OFF_REASON, SELF_STOP_REASONS, selfStopOf, type SelfStop} from '@/lib/senderSelfStop';
 import {verifiedLine, VERIFIED_LINE} from '@/lib/verifiedLine';
 import {receiveSummary, receiverTabMatters} from '@/lib/receiveSummary';
@@ -1512,6 +1512,27 @@ export function P2PTransfer() {
                     setStatus('Connection interrupted');
                     // The file that was moving stops spinning.
                     if (peerRef.current === peer) setSendEnd((end) => (end === 'open' ? 'failed' : end));
+                } else if (
+                    peerRef.current === peer &&
+                    senderCloseBeforeSend({
+                        transferComplete: transferCompleteRef.current,
+                        progress: progressRef.current,
+                        closedByUs: closedByUsRef.current === peer,
+                        wireReason: wireReasonRef.current,
+                        acked: keyState.acked,
+                    })
+                ) {
+                    // The connection closed before the send began, inside the
+                    // wait before the first frame (lib/relay.ts). The send that
+                    // was about to start would stop at once on the dead peer and
+                    // say nothing, so it is not started, and the page goes back
+                    // to waiting in the words the server's notice uses. Only the
+                    // line that says a send is starting is replaced: the relay
+                    // gate and the error handler write their own ahead of this
+                    // close, and those stand. The link still works, so the send
+                    // stays open and the tab stays held.
+                    if (iceProbeRef.current) clearTimeout(iceProbeRef.current);
+                    setStatus((s) => (s === 'Peer joined. Starting transfer' ? 'Peer disconnected. Waiting for reconnection' : s));
                 }
             });
             peer.on('error', (err) => {
