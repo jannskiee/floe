@@ -21,7 +21,7 @@ export function RelayFallbackToggle({ relayEnabled, onChange }: RelayFallbackTog
                         onChange={(e) => onChange(e.target.checked)}
                         className="peer sr-only"
                     />
-                    <div className={`h-4 w-4 rounded-sm border transition-all duration-150 flex items-center justify-center peer-focus-visible:ring-[3px] peer-focus-visible:ring-ice/50 ${relayEnabled
+                    <div className={`h-4 w-4 rounded-sm border transition-all duration-150 flex items-center justify-center peer-focus-visible:ring-[3px] peer-focus-visible:ring-ice/50 peer-focus-visible:outline-hidden ${relayEnabled
                             ? 'bg-white border-white'
                             : 'bg-transparent border-zinc-600 group-hover/relay:border-zinc-400'
                         }`}>

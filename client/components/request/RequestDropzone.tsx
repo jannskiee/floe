@@ -89,7 +89,7 @@ export function RequestDropzone(props: RequestDropzoneProps) {
                 aria-busy={reading}
                 // The input covering the strip is invisible, so the strip
                 // draws its keyboard focus: the Button's own ring.
-                className={`group relative mt-5 flex items-center justify-center gap-2 rounded-lg border border-dashed py-3 transition-all has-[input:focus-visible]:border-ring has-[input:focus-visible]:ring-[3px] has-[input:focus-visible]:ring-ring/50 ${zone} ${reading ? 'opacity-60' : ''}`}
+                className={`group relative mt-5 flex items-center justify-center gap-2 rounded-lg border border-dashed py-3 transition-all has-[input:focus-visible]:border-ring has-[input:focus-visible]:ring-[3px] has-[input:focus-visible]:ring-ring/50 has-[input:focus-visible]:outline-hidden ${zone} ${reading ? 'opacity-60' : ''}`}
             >
                 <Plus className={`h-3.5 w-3.5 transition ${isDragging ? 'text-ice' : 'text-zinc-500 group-hover:text-zinc-300'}`} />
                 <span className="text-xs font-medium text-zinc-400 transition group-hover:text-zinc-200">

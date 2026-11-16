@@ -232,6 +232,60 @@ test('Create secure link draws an ice focus ring at 3:1 or more when the keyboar
         .toBeGreaterThanOrEqual(3);
 });
 
+/** Whether an element draws an outline 2 px or wider. Windows contrast themes
+ *  (forced colors) remove every box-shadow, so a ring alone shows nothing there. */
+const outlined = (locator: Locator) =>
+    locator.evaluate((el) => {
+        const style = getComputedStyle(el);
+        return style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) >= 2;
+    });
+
+/** With keyboard focus held, the control draws no outline outside a contrast
+ *  theme, and one at least 2 px wide inside it. Leaves forced colors on. */
+async function outlinedOnlyInContrastTheme(drawn: Locator, name: string) {
+    const page = drawn.page();
+    await page.emulateMedia({ forcedColors: 'none' });
+    expect(await outlined(drawn), `${name}, outside a contrast theme`).toBe(false);
+    await page.emulateMedia({ forcedColors: 'active' });
+    await expect.poll(() => outlined(drawn), { message: name, timeout: 5_000 }).toBe(true);
+}
+
+test('in a Windows contrast theme, the drop zones, the relay checkbox and Create secure link still show keyboard focus', async ({ page }) => {
+    await page.emulateMedia({ forcedColors: 'active' });
+    await page.goto('/');
+
+    const input = page.getByLabel('Choose files to send');
+    await tabTo(input);
+    await outlinedOnlyInContrastTheme(input.locator('..'), 'empty drop zone');
+
+    await page
+        .locator('input[type=file]:not([webkitdirectory])')
+        .first()
+        .setInputFiles({ name: 'focus.txt', mimeType: 'text/plain', buffer: Buffer.from('focus') });
+    const addMore = page.getByLabel('Add more files to send');
+    await tabTo(addMore);
+    await outlinedOnlyInContrastTheme(addMore.locator('..'), 'Add more files strip');
+
+    const relay = page.getByRole('checkbox', { name: 'Network relay fallback' });
+    await tabTo(relay);
+    await outlinedOnlyInContrastTheme(relay.locator('xpath=following-sibling::div[1]'), 'relay checkbox box');
+
+    const create = page.getByRole('button', { name: /create secure link/i });
+    await tabTo(create);
+    await outlinedOnlyInContrastTheme(create, 'Create secure link');
+    // Only keyboard focus draws it: the button shows no outline once focus leaves.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect.poll(() => outlined(create), { message: 'Create secure link without focus', timeout: 5_000 }).toBe(false);
+});
+
+test('in a Windows contrast theme, the Contribute to global stats checkbox still shows keyboard focus', async ({ page }) => {
+    await page.emulateMedia({ forcedColors: 'active' });
+    await page.goto(`/#room=${randomUUID()}`);
+    const stats = page.getByRole('checkbox', { name: 'Contribute to global stats' });
+    await tabTo(stats);
+    await outlinedOnlyInContrastTheme(stats.locator('xpath=following-sibling::div[1]'), 'stats checkbox box');
+});
+
 test('a file\'s Remove and the relay Learn more link draw ice focus outlines at 3:1 or more', async ({ page }) => {
     // Neither has a focus style of its own: the browser's focus outline takes
     // the base outline-ring/50, and the page sets --ring to ice on its
