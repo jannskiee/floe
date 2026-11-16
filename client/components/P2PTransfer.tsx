@@ -281,6 +281,10 @@ export function P2PTransfer() {
     const createButtonRef = useRef<HTMLButtonElement>(null);
     const copyButtonRef = useRef<HTMLButtonElement>(null);
     const focusCopyRef = useRef(false);
+    const chooseFilesInputRef = useRef<HTMLInputElement>(null);
+    const addMoreInputRef = useRef<HTMLInputElement>(null);
+    const pickHeldFocusRef = useRef(false);
+    const zoneHasFilesRef = useRef(false);
 
     // The analytics events and the error reports name the route by the
     // connection they are about, routeOf(peer), never by the badge's state:
@@ -1159,6 +1163,17 @@ export function P2PTransfer() {
         if (document.activeElement === document.body) copyButtonRef.current?.focus();
     }, [generatedLink]);
 
+    useEffect(() => {
+        const hasFiles = files.length > 0;
+        if (zoneHasFilesRef.current === hasFiles) return;
+        zoneHasFilesRef.current = hasFiles;
+        const fromPick = pickHeldFocusRef.current;
+        pickHeldFocusRef.current = false;
+        if (hasFiles && !fromPick) return;
+        if (document.activeElement !== document.body) return;
+        (hasFiles ? addMoreInputRef.current : chooseFilesInputRef.current)?.focus();
+    }, [files.length > 0]);
+
     const handleCreateLink = () => {
         focusCopyRef.current = document.activeElement === createButtonRef.current;
         setLinkPending(true);
@@ -1930,12 +1945,16 @@ export function P2PTransfer() {
                                         No size limit from Floe over direct connections
                                     </p>
                                     <Input
+                                        ref={chooseFilesInputRef}
                                         type="file"
                                         multiple
                                         // The visible prompt is a sibling <p>, so without this
                                         // the product's primary control is an unnamed input.
                                         aria-label="Choose files to send"
-                                        onChange={handleFileSelection}
+                                        onChange={(e) => {
+                                            pickHeldFocusRef.current = document.activeElement === e.currentTarget;
+                                            handleFileSelection(e);
+                                        }}
                                         className="absolute inset-0 h-full w-full opacity-0 cursor-pointer"
                                     />
                                 </div>
@@ -1957,6 +1976,7 @@ export function P2PTransfer() {
                                         {isDragging ? 'Release to add files' : 'Add more files'}
                                     </span>
                                     <Input
+                                        ref={addMoreInputRef}
                                         type="file"
                                         multiple
                                         aria-label="Add more files to send"
