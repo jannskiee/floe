@@ -11,10 +11,10 @@
  * global stats" toggle stored off.
  */
 
-import { test, expect, type BrowserContext } from '@playwright/test';
+import { test, expect, type Browser, type BrowserContext } from '@playwright/test';
 import { rmSync } from 'fs';
 import { join } from 'path';
-import { SHARE_LINK_TEXT, createFixture, fixtureDir, removeFixtureDir, sha256OfBlobUrl, writeRandomFile } from './helpers';
+import { SHARE_LINK_TEXT, browserSenderSetup, createFixture, fixtureDir, removeFixtureDir, sha256OfBlobUrl, writeRandomFile } from './helpers';
 
 const FIXTURE_DIR = fixtureDir('floe-e2e-sender-stops');
 
@@ -103,5 +103,98 @@ test('a sender whose first read of the relay list failed reads it again before i
     } finally {
         await senderCtx.close();
         await receiverCtx.close();
+    }
+});
+
+interface ClosesEarly {
+    floeFrames: string[];
+    floeClosed: boolean;
+}
+
+/** A receiving context whose page closes its data channel half a second after
+ *  it opens, inside the 2 s the sender waits before its first frame. The
+ *  channel and not the whole peer connection: closing the connection reaches a
+ *  Chromium sender as a "User-Initiated Abort" error, which the error handler
+ *  already answers, while a channel that closes reaches it as a close and
+ *  nothing else. Its signaling socket keeps the seat, so the server never
+ *  tells the sender that it left. The frames that reached it first are kept,
+ *  so the test can see the close came before the send. */
+async function closesBeforeTheFirstFile(browser: Browser): Promise<BrowserContext> {
+    const ctx = await optedOutContext(await browser.newContext());
+    await ctx.addInitScript(() => {
+        const held = window as unknown as ClosesEarly;
+        held.floeFrames = [];
+        held.floeClosed = false;
+        const Native = window.RTCPeerConnection;
+        class Watched extends Native {
+            constructor(config?: RTCConfiguration) {
+                super(config);
+                this.addEventListener('datachannel', ({ channel }) => {
+                    channel.addEventListener('message', ({ data }) => {
+                        held.floeFrames.push(typeof data === 'string' ? data.slice(0, 20) : 'binary');
+                    });
+                    let armed = false;
+                    const arm = () => {
+                        if (armed) return;
+                        armed = true;
+                        setTimeout(() => {
+                            channel.close();
+                            held.floeClosed = true;
+                        }, 500);
+                    };
+                    if (channel.readyState === 'open') arm();
+                    else channel.addEventListener('open', arm);
+                });
+            }
+        }
+        window.RTCPeerConnection = Watched;
+    });
+    return ctx;
+}
+
+test('a receiver whose channel closes before the first file leaves the sender waiting for the next one', async ({ browser }) => {
+    const file = createFixture(join(FIXTURE_DIR, 'closed-before-send'), 64 * 1024);
+
+    const senderCtx = await browser.newContext();
+    const firstCtx = await closesBeforeTheFirstFile(browser);
+    const senderPage = await senderCtx.newPage();
+    const firstPage = await firstCtx.newPage();
+
+    try {
+        // Relay fallback off keeps the 2 s between the connection and the first
+        // frame (lib/relay.ts relayProbeDelayMs), which the close lands inside.
+        const link = await browserSenderSetup(senderPage, file.path, { relayFallback: false });
+        await firstPage.goto(link);
+        await expect
+            .poll(() => firstPage.evaluate(() => (window as unknown as ClosesEarly).floeClosed), { timeout: 30_000 })
+            .toBe(true);
+        // Nothing but the sender's link-key proof reached it: the send had not begun.
+        expect(
+            await firstPage.evaluate(() => (window as unknown as ClosesEarly).floeFrames.filter((f) => !f.startsWith('{"type":"kc"'))),
+        ).toEqual([]);
+
+        // The page goes back to waiting, in the words it uses when the server says
+        // the receiver left, instead of saying a send is starting that never will.
+        await expect(senderPage.getByText('Peer joined. Starting transfer')).toBeHidden({ timeout: 10_000 });
+        await expect(senderPage.getByText('Peer disconnected. Waiting for reconnection', { exact: true })).toBeVisible();
+        // The link still works, so the tab is still held.
+        await expect(senderPage.getByText('Keep this tab open and in front. Closing it cancels the transfer.')).toBeVisible();
+
+        // The first receiver gives its seat up, and the next one gets the whole file.
+        await firstCtx.close();
+        const nextCtx = await optedOutContext(await browser.newContext());
+        try {
+            const nextPage = await nextCtx.newPage();
+            await nextPage.goto(link);
+            const downloadLink = nextPage.locator('a[download]').first();
+            await expect(downloadLink).toBeVisible({ timeout: 30_000 });
+            expect(await sha256OfBlobUrl(nextPage, (await downloadLink.getAttribute('href'))!)).toBe(file.sha256);
+            await expect(senderPage.getByText('All Files Sent!').first()).toBeVisible({ timeout: 10_000 });
+        } finally {
+            await nextCtx.close();
+        }
+    } finally {
+        await senderCtx.close();
+        await firstCtx.close();
     }
 });
