@@ -249,6 +249,8 @@ func runReceive(cmd *cobra.Command, args []string) error {
 		Messages:      early.Msgs,
 		Closed:        early.Closed,
 		NoProgressBar: flagReceiveNoProgress,
+		EndBarLine:    true,
+		Interrupted:   r.wasInterrupted,
 		// For Ctrl+C's stop: a count of the files committed under their final
 		// names, and the engine's word that it has finished.
 		OnFileDone:     func(transfer.FileDone) { r.saved.Add(1) },
@@ -477,4 +479,11 @@ func (r *receiveRun) finish() bool {
 	}
 	r.over = true
 	return true
+}
+
+// wasInterrupted reports whether Ctrl+C took the command's ending.
+func (r *receiveRun) wasInterrupted() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.interrupted
 }

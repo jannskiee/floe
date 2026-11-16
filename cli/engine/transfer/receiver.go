@@ -162,7 +162,18 @@ type ReceiveOptions struct {
 	// flag sets it; GUIs set OnProgress and leave this false. An invisible
 	// bar object is still kept so report closures never call a nil func.
 	NoProgressBar bool
-	OnIncoming    func(IncomingInfo)
+	// EndBarLine ends a file's progress bar line when the receive returns while
+	// that bar is drawn part way (a refusal, a close, a stall or a local failure
+	// inside the file), so what the caller prints next starts on a line of
+	// its own. An Interrupted receive leaves the line alone: a caller's Ctrl+C
+	// line opens with its own line break. False leaves the bar's line open.
+	EndBarLine bool
+	// Interrupted reports whether Ctrl+C took the command's ending: when true,
+	// EndBarLine adds no line break, because the caller's Ctrl+C line opens with
+	// its own. It is asked once, as the receive returns, so it must answer true
+	// before the caller closes the connection for Ctrl+C. Nil behaves as false.
+	Interrupted func() bool
+	OnIncoming  func(IncomingInfo)
 	// OnFileDone fires once per committed file, after the rename and any
 	// numbered-sibling correction, and never for a refused file. It delays the
 	// next ack, so keep it fast, never call back into the engine and never
@@ -301,6 +312,14 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 	var bytesReceived int64
 	var totalReceived int64
 	var bar *progressbar.ProgressBar
+	barOpen := false
+	if opts.EndBarLine {
+		defer func() {
+			if barOpen && bar != nil && bar.IsStarted() && (opts.Interrupted == nil || !opts.Interrupted()) {
+				fmt.Println()
+			}
+		}()
+	}
 	var start time.Time
 	filesReceived := 0
 	// Layer 2 state, read only when opts.Limits is set: every metadata frame
@@ -840,6 +859,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 				// Progress bar for this file (CLI). GUIs get callback updates instead.
 				if onProgress == nil {
 					bar = newProgressBar(info.FileSize, info.Index, info.Total, currentSavedName, !opts.NoProgressBar)
+					barOpen = true
 				}
 
 				// Send ack as BINARY with protocol version fields so the sender
@@ -893,6 +913,7 @@ func ReceiveFilesWithOptions(dc *webrtc.DataChannel, outputDir string, autoAccep
 					if !opts.NoProgressBar {
 						fmt.Println()
 					}
+					barOpen = false
 					// os.ErrClosed is the abandon's fingerprint: AbandonPartials
 					// closed the shared handle before we unregistered, so our
 					// Sync and Close find it already closed. The transfer was

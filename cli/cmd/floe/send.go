@@ -266,7 +266,8 @@ func runSend(cmd *cobra.Command, args []string) error {
 		OnAck: func(int) { answered = true },
 		// Closed by Ctrl+C's stop step: the send then queues nothing more, so
 		// the step's abort frame is the last one on the channel.
-		Stop: r.halt,
+		Stop:       r.halt,
+		EndBarLine: true,
 		// A code receiver holds no key, so a send with a code only detects a bad
 		// proof; --link-only has no code, and waits for the proof.
 		KeyCheck: &transfer.KeyCheck{Key: key, RoomID: roomId, Enforce: flagLinkOnly},

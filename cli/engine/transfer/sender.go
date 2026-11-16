@@ -578,8 +578,7 @@ type SendOptions struct {
 	// that bar is drawn part way (a refusal, a close or a local failure
 	// inside the file), so what the caller prints next starts on a line of
 	// its own. A Stop leaves the line alone: a caller's Ctrl+C line opens
-	// with its own line break. False keeps the plain send's output byte for
-	// byte as it was.
+	// with its own line break. False leaves the bar's line open.
 	EndBarLine bool
 	// PeerVersionReleaseOnly prints the receiver's "Peer version:" line only
 	// when the version it sent is release-shaped (releaseShapedVer), and no
