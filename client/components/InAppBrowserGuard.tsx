@@ -38,6 +38,8 @@ export function InAppBrowserGuard({
     const [copyFailed, setCopyFailed] = useState(false);
     const headingId = useId();
     const heading = useRef<HTMLHeadingElement>(null);
+    const dialogRef = useRef<HTMLDivElement>(null);
+    const pageRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         const ua = navigator.userAgent;
@@ -64,6 +66,73 @@ export function InAppBrowserGuard({
         if (detectedApp && !dismissed) heading.current?.focus();
     }, [detectedApp, dismissed]);
 
+    // While the card shows, make everything outside it inert so keyboard focus
+    // and screen readers cannot reach behind it.
+    useEffect(() => {
+        if (!detectedApp || dismissed) return;
+        const dialog = dialogRef.current;
+        if (!dialog) return;
+
+        const appliedInert: HTMLElement[] = [];
+        for (let cur: HTMLElement | null = dialog; cur && cur !== document.body; cur = cur.parentElement) {
+            const parent: HTMLElement | null = cur.parentElement;
+            if (!parent) break;
+            for (const child of Array.from(parent.children)) {
+                if (child !== cur && child instanceof HTMLElement && !child.hasAttribute('inert')) {
+                    child.setAttribute('inert', '');
+                    appliedInert.push(child);
+                }
+            }
+        }
+
+        return () => {
+            for (const el of appliedInert) {
+                el.removeAttribute('inert');
+            }
+        };
+    }, [detectedApp, dismissed]);
+
+    // When Continue anyway closes the card, move keyboard focus to the first
+    // focusable control in the page's main landmark.
+    useEffect(() => {
+        if (!dismissed) return;
+        const start = Date.now();
+        const timer = setInterval(() => {
+            if (Date.now() - start > 1000) {
+                clearInterval(timer);
+                return;
+            }
+            if (document.activeElement && document.activeElement !== document.body) {
+                clearInterval(timer);
+                return;
+            }
+            const main = pageRef.current?.querySelector('main');
+            if (!main) return;
+            const candidates = main.querySelectorAll<HTMLElement>('a[href], button, input, [tabindex]');
+            for (const el of Array.from(candidates)) {
+                if (
+                    el.hasAttribute('disabled') ||
+                    (el as HTMLButtonElement | HTMLInputElement).disabled ||
+                    el.hasAttribute('hidden') ||
+                    el.hidden ||
+                    el.tabIndex < 0
+                ) {
+                    continue;
+                }
+                const style = window.getComputedStyle(el);
+                if (style.display === 'none' || style.visibility === 'hidden') {
+                    continue;
+                }
+                el.focus();
+                if (document.activeElement && document.activeElement !== document.body) {
+                    clearInterval(timer);
+                    break;
+                }
+            }
+        }, 25);
+        return () => clearInterval(timer);
+    }, [dismissed]);
+
     // This component only ever renders inside a Facebook, Instagram, TikTok
     // or WeChat webview, which is the environment most likely to block the
     // async clipboard API, so it was the worst place to claim "Link copied"
@@ -85,7 +154,8 @@ export function InAppBrowserGuard({
     // mount effect will emit join-room and steal the receiver slot even
     // while the in-app browser overlay is showing.
     if (!ready) return null;
-    if (!detectedApp || dismissed) return <>{children}</>;
+    if (!detectedApp) return <>{children}</>;
+    if (dismissed) return <div className="contents" ref={pageRef}>{children}</div>;
 
     const appName = detectedApp === 'InAppBrowser' ? 'this app' : detectedApp;
 
@@ -98,6 +168,7 @@ export function InAppBrowserGuard({
                 taller than the window off both edges, out of reach, which
                 left Continue anyway unreachable on a phone held sideways. */}
             <div
+                ref={dialogRef}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby={headingId}
@@ -223,7 +294,7 @@ export function InAppBrowserGuard({
                         {/* Continue anyway */}
                         <button
                             onClick={() => setDismissed(true)}
-                            className="w-full py-1 text-center text-xs text-zinc-400 transition-colors hover:text-zinc-300"
+                            className="w-full py-1 text-center text-xs text-zinc-400 transition-colors hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ice"
                         >
                             Continue anyway (some features may not work)
                         </button>

@@ -263,10 +263,11 @@ test('a file\'s Remove and the relay Learn more link draw ice focus outlines at 
     }
 });
 
-test('the in-app browser card\'s Copy link draws a solid ice focus outline clear of the button', async ({ browser }) => {
+test('the in-app browser card\'s Copy link and Continue anyway draw solid ice focus outlines clear of the button', async ({ browser }) => {
     // A white button: an auto outline's tinted band falls on the white face
     // and barely shows there (1.2:1 in ice). Its own outline, 2 px outside the
     // button, as the Navbar's white pill draws it, sits on the card instead.
+    // Continue anyway draws the same outline, so the card's two buttons match.
     const ctx = await browser.newContext({
         userAgent:
             'Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 309.0.0.40.113',
@@ -276,22 +277,86 @@ test('the in-app browser card\'s Copy link draws a solid ice focus outline clear
     try {
         await page.goto('/');
         await expect(page.getByRole('heading', { name: 'Open in your browser' })).toBeVisible();
-        const copy = page.getByRole('button', { name: /Copy link/ });
-        await tabTo(copy);
-        await expect
-            .poll(
-                async () => {
-                    const s = await seen(copy);
-                    const style = await copy.evaluate((el) => {
-                        const cs = getComputedStyle(el);
-                        return { style: cs.outlineStyle, offset: parseFloat(cs.outlineOffset) };
-                    });
-                    const solidOutside = style.style === 'solid' && style.offset >= 2;
-                    return solidOutside && s.outline && isIce(s.outline, s, 1) ? contrast(s.outline, s.surround) : 0;
-                },
-                { message: 'Copy link focus outline, solid ice outside the button, against the card', timeout: 5_000 }
-            )
-            .toBeGreaterThanOrEqual(3);
+        for (const [name, button] of [
+            ['Copy link', page.getByRole('button', { name: /Copy link/ })],
+            ['Continue anyway', page.getByRole('button', { name: /Continue anyway/ })],
+        ] as const) {
+            await tabTo(button);
+            await expect
+                .poll(
+                    async () => {
+                        const s = await seen(button);
+                        const style = await button.evaluate((el) => {
+                            const cs = getComputedStyle(el);
+                            return { style: cs.outlineStyle, offset: parseFloat(cs.outlineOffset) };
+                        });
+                        const solidOutside = style.style === 'solid' && style.offset >= 2;
+                        return solidOutside && s.outline && isIce(s.outline, s, 1) ? contrast(s.outline, s.surround) : 0;
+                    },
+                    { message: `${name} focus outline, solid ice outside the button, against the card`, timeout: 5_000 }
+                )
+                .toBeGreaterThanOrEqual(3);
+        }
+    } finally {
+        await ctx.close();
+    }
+});
+
+test('the in-app browser card keeps keyboard focus inside it, and hands it to the page when it closes', async ({ browser }) => {
+    const ctx = await browser.newContext({
+        userAgent:
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 309.0.0.40.113',
+        viewport: { width: 390, height: 844 },
+    });
+    const page = await ctx.newPage();
+    try {
+        await page.goto('/');
+        const card = page.getByRole('dialog', { name: 'Open in your browser' });
+        await expect(card).toBeVisible();
+
+        // What holds focus when it is on the page but not in the card, or null.
+        const behindTheCard = () =>
+            page.evaluate(() => {
+                const el = document.activeElement;
+                if (!el || el === document.body || document.querySelector('[role="dialog"]')?.contains(el)) return null;
+                return el.getAttribute('aria-label') || el.textContent?.trim().slice(0, 60) || el.tagName;
+            });
+        for (const key of ['Tab', 'Tab', 'Tab', 'Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab']) {
+            await page.keyboard.press(key);
+            expect(await behindTheCard(), `after ${key}, focus is on a control behind the card`).toBeNull();
+        }
+        // Behind the card, nothing takes focus or reaches a screen reader.
+        expect(await page.locator('footer').evaluate((el) => el.closest('[inert]') !== null)).toBe(true);
+
+        await page.getByRole('button', { name: /Continue anyway/ }).focus();
+        await page.keyboard.press('Enter');
+        await expect(card).toHaveCount(0);
+        // The page's own elements only: a locator would also count inside shadow roots.
+        expect(await page.evaluate(() => document.querySelectorAll('[inert]').length)).toBe(0);
+        const choose = page.getByLabel('Choose files to send');
+        await expect(choose).toBeFocused();
+        expect(await choose.evaluate((el) => el.matches(':focus-visible'))).toBe(true);
+
+        // A click or a tap on Continue anyway moves focus the same way, and draws no ring.
+        await page.reload();
+        await expect(card).toBeVisible();
+        await page.getByRole('button', { name: /Continue anyway/ }).click();
+        await expect(choose).toBeFocused();
+        expect(await choose.evaluate((el) => el.matches(':focus-visible'))).toBe(false);
+
+        // On /r the guard wraps the whole page, footer included: focus goes to the card, not the footer.
+        await page.goto('/r/AAAAAAAAAAA#6f1c2b9e-4a5d-4c3b-9f7e-2d1a0b9c8e7f');
+        await expect(card).toBeVisible();
+        await page.getByRole('button', { name: /Continue anyway/ }).focus();
+        await page.keyboard.press('Enter');
+        await expect(page.getByRole('link', { name: 'What is a request link?' })).toBeFocused();
+
+        // On a receiving link, the receiving card's first control takes focus.
+        await page.goto(`/#room=${randomUUID()}`);
+        await expect(card).toBeVisible();
+        await page.getByRole('button', { name: /Continue anyway/ }).focus();
+        await page.keyboard.press('Enter');
+        await expect(page.getByRole('checkbox', { name: 'Contribute to global stats' })).toBeFocused();
     } finally {
         await ctx.close();
     }
