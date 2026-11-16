@@ -160,7 +160,7 @@ export function CliTerminal() {
                     tabIndex={0}
                     role="group"
                     aria-label="Example terminal session, scrollable"
-                    className="custom-scrollbar [@media(min-height:501px)]:min-h-[500px] overflow-x-auto px-4 py-4 focus-visible:outline-2 focus-visible:outline-ice max-sm:[mask-image:linear-gradient(to_right,black_calc(100%_-_24px),transparent)]"
+                    className="custom-scrollbar [@media(min-height:501px)]:min-h-[500px] overflow-x-auto px-4 py-4 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ice max-sm:[mask-image:linear-gradient(to_right,black_calc(100%_-_24px),transparent)]"
                 >
                     <div className="min-w-max whitespace-pre font-mono text-[12.5px] leading-[1.7] text-zinc-300" aria-hidden="true">
                         <div>

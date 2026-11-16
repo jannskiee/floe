@@ -310,3 +310,42 @@ test('mouse click on checkbox draws no focus ring', async ({ page }) => {
     expect(ring, 'no focus ring on checkbox after mouse click').toBeNull();
 });
 
+test('the terminal demo draws its keyboard focus outline inside the frame that clips it', async ({ page }) => {
+    await page.goto('/');
+    const scroller = page.getByRole('group', { name: 'Example terminal session, scrollable' });
+    // A mouse click focuses the scroller too, and draws no outline.
+    await scroller.click();
+    expect(await scroller.evaluate((el) => el === document.activeElement && getComputedStyle(el).outlineStyle === 'none')).toBe(true);
+
+    // The link just before the terminal, so a Tab or two reaches it.
+    await page.getByRole('link', { name: 'Installation guide' }).focus();
+    await tabTo(scroller);
+
+    const { width, outside } = await scroller.evaluate((el) => {
+        const style = getComputedStyle(el);
+        const width = style.outlineStyle === 'none' ? 0 : parseFloat(style.outlineWidth);
+        const grow = parseFloat(style.outlineOffset) + width;
+        const box = el.getBoundingClientRect();
+        // The frame: the scroller's parent, whose overflow-hidden clips it.
+        const frame = el.parentElement;
+        if (!frame) throw new Error('no frame');
+        const f = frame.getBoundingClientRect();
+        const fs = getComputedStyle(frame);
+        const inner = {
+            left: f.left + parseFloat(fs.borderLeftWidth),
+            right: f.right - parseFloat(fs.borderRightWidth),
+            top: f.top + parseFloat(fs.borderTopWidth),
+            bottom: f.bottom - parseFloat(fs.borderBottomWidth),
+        };
+        const outside = Math.max(
+            inner.left - (box.left - grow),
+            box.right + grow - inner.right,
+            inner.top - (box.top - grow),
+            box.bottom + grow - inner.bottom,
+        );
+        return { width, outside };
+    });
+    expect(width, 'px width of the focus outline').toBeGreaterThanOrEqual(2);
+    expect(outside, 'px of the focus outline drawn outside the frame, where it is clipped').toBeLessThanOrEqual(0);
+});
+
