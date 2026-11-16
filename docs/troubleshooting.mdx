@@ -57,7 +57,7 @@ differently: see [What an older web app shows](/self-hosting/operations#older-we
 | [“Connection failed. Ask the sender to try again.”](#could-not-connect-ask-the-sender-to-enable-network-relay-and-try-again), page you receive on | No network path, often because the sender turned the relay off. | Ask for a new link with the relay left on. |
 | [“This link was made with Network relay fallback off”](#connection-failed-enable-network-relay-to-connect-across-restrictive-networks), page you send from | Only a relayed path existed, and you had turned the relay off. | Reload, add the files, leave the box checked, share the new link. |
 | [“Connection lost. The other device may have closed the tab.”](#connection-lost-the-other-device-may-have-closed-the-tab), page you send from | The recipient left or lost their network before the transfer started. | Ask them to open the same link again. |
-| [“Peer disconnected. Waiting for reconnection”](#peer-disconnected-waiting-for-reconnection), status line, page you send from | The recipient dropped off before the devices connected, or left partway through a file. | Keep the page open and ask them to open the link again. |
+| [“Peer disconnected. Waiting for reconnection”](#peer-disconnected-waiting-for-reconnection), status line, page you send from | The recipient dropped off before the devices connected or before the first file started, or left partway through a file. | Keep the page open and ask them to open the link again. |
 | [“Reconnecting to your link”](#reconnecting-to-your-link), status line, page you send from | Your own connection to the server came back. | Nothing. It clears within about a minute. |
 | [“This link stopped working”](#this-link-stopped-working), page you send from | The server would not put your page back in its room. | Reload, add the files again, share the new link. |
 | [“Transfer blocked. Relay limit exceeded.”](#transfer-blocked-relay-limit-exceeded), status line, page you send from | The connection is relayed and the files total more than 2 GB. | Send 2 GB or less, or from a network that connects directly. |
@@ -343,6 +343,11 @@ a fresh connection by itself.
 The same line also replaces "Connection interrupted" when a recipient closes their page partway
 through a file. A red banner then reads "The connection closed before the transfer finished."
 Nothing resumes: when they open the link again, your page sends every file from the start.
+
+It also shows when the connection between the two devices closed before the first file started,
+while the recipient's page still holds its place. That can happen in the 2 seconds your page waits
+before it sends, which it does with **Network relay fallback** unchecked or more than 2 GB to send.
+Ask the recipient to reload their page, or to close it and open the link again.
 
 The page does not recover by itself in these cases:
 
