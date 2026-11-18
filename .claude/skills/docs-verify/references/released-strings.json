@@ -1,6 +1,6 @@
 {
     "refs": {
-        "cli": "62bab52593b3cebe7d39899d27d6013718f1a37c",
+        "cli": "v1.12.2",
         "desktop": "desktop-v1.1.1"
     },
     "cli": {
