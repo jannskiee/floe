@@ -9,7 +9,6 @@ package main
 // computer could not save a file." (QA-H6 N10).
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -946,7 +945,7 @@ func receiveCtrlCMerged(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var buf bytes.Buffer
+	var buf lockedBuffer
 	drained := make(chan struct{})
 	go func() { defer close(drained); _, _ = io.Copy(&buf, r) }()
 	prevOut, prevErr := os.Stdout, os.Stderr
@@ -977,8 +976,17 @@ func receiveCtrlCMerged(t *testing.T) string {
 		}
 		time.Sleep(2 * time.Millisecond)
 	}
-	// Let the bar draw (its throttle is 65 ms).
-	time.Sleep(150 * time.Millisecond)
+	// Wait for the bar to draw before the Ctrl+C. progressbar draws only when
+	// the whole percent changes, so the first draw comes once 1% of the 256 MB
+	// (2.56 MB) is in, and a loaded runner can take longer than a fixed sleep
+	// to get there: three CI runs on 2026-11-18 sent the Ctrl+C before any bar
+	// had drawn. The bar is the only line holding a "%".
+	for !strings.Contains(pionLog.ReplaceAllString(buf.String(), ""), "%") {
+		if time.Now().After(deadline) {
+			t.Fatal("the progress bar never drew")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	c.onExit = func() { fmt.Fprint(w, exitMark) }
 	c.sig <- os.Interrupt
 	if code := c.exits.awaitExit(t, 10*time.Second, "Ctrl+C mid-file"); code != 130 {
