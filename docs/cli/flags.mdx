@@ -104,7 +104,7 @@ Specific to the `update` command.
 | `--check` | `false` | Report whether a newer release exists and exit without installing it. |
 
 **`--check`.** On an up-to-date binary the flag changes nothing: `floe update` prints
-`Already up to date (1.12.1)` and stops either way (the installed version carries no leading `v`).
+`Already up to date (1.12.2)` and stops either way (the installed version carries no leading `v`).
 On a [package manager](/glossary#package-manager) install the update guard runs first, so `--check`
 stops with the upgrade command for your package manager instead of a version report. On a build
 compiled from source, it stops with `Error: Cannot update a dev build.` See
@@ -117,7 +117,7 @@ These come from the CLI framework rather than from Floe itself.
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--help`<br />`-h` | `false` | Print usage and exit. Works on every command, so `floe send --help` and `floe receive --help` each print that command's own flags. |
-| `--version`<br />`-v` | `false` | Print the installed version and exit, for example `floe 1.12.1`. Root only: `floe --version` works, `floe send --version` does not. See [Alternatives](/cli/version#alternatives). |
+| `--version`<br />`-v` | `false` | Print the installed version and exit, for example `floe 1.12.2`. Root only: `floe --version` works, `floe send --version` does not. See [Alternatives](/cli/version#alternatives). |
 
 `floe help` comes from the same place, and so does the `floe completion` command, below.
 
@@ -211,7 +211,7 @@ on, such as `PION_LOG_TRACE=ice`, brings all of them back, so set one only while
   `1`, if its own connection to the signaling server drops while it waits.
 - **Pass the link when the wait may be long.** A room code stops working after 10 minutes at most, and the link works for as long as that `floe send` runs: see [How long a code and a link last](/how-it-works/signaling#code-and-link-lifetime). `floe receive` takes either. In `floe` 1.12 and later the link [holds an `&`](/cli/send#put-the-link-in-quotes) and a link key, so keep it in quotes, and the process list and any log that repeats the command then hold that link key.
 - **Environment variables.** Set the server once with `FLOE_SERVER`. Set `FLOE_NO_STATS=1` on a job that receives, so test transfers do not add to the public counter, and `FLOE_NO_UPDATE_CHECK=1` if the job runs `floe version`. See [Environment variables](#environment-variables).
-- **Streams.** Status lines, the boxes, the prompt, progress and `Warning:` lines go to stdout. Errors, every refusal line and the `Canceled.` line go to stderr.
+- **Streams.** Status lines, the boxes, the prompt, progress and `Warning:` lines go to stdout. Errors, every refusal line and the `Canceled.` line go to stderr. In `floe` 1.12.2 and later, when a plain `floe send` or `floe receive` fails mid-file, the progress line is ended first, so the `Error:` line starts on a line of its own.
 - **Progress in a log.** The progress line is written even when stdout is not a terminal: it is
   redrawn in place with carriage returns, at most once every 65 milliseconds, 80 columns wide. Pass
   `--no-progress` to `floe send` or `floe receive` to leave it out, in `floe` 1.12.1 and later. An
