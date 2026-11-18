@@ -60,7 +60,11 @@ const SIGNAL_MAX_CHARS = 64 * 1024; // server.js
 const SIGNAL_MAX_DEPTH = 8; // server.js
 const MAX_PAYLOAD = 1e6; // server.js: wss maxPayload and Socket.IO maxHttpBufferSize
 const REQUEST_JOINS_PER_MINUTE = 30; // server.js, per socket
-const MAX_CONNECTIONS_PER_IP = 30; // server.js default, left as it is
+// server.js defaults. startServer pins both in the child's environment, so a
+// local server/.env (which dotenv loads) or a shell value cannot lower them
+// under the budget below, which would fail the run with a harness error.
+const MAX_CONNECTIONS_PER_IP = 30;
+const MAX_SOCKETS_PER_IP = 60;
 const REQUEST_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000 + 10 * 60 * 1000; // server.js
 
 // How long any one wait may take before the batch fails.
@@ -163,6 +167,8 @@ async function startServer(extraEnv = {}, { cwd = __dirname } = {}) {
             UPSTASH_REDIS_REST_URL: '',
             UPSTASH_REDIS_REST_TOKEN: '',
             TRUSTED_PROXY_COUNT: '1',
+            MAX_CONNECTIONS_PER_IP: String(MAX_CONNECTIONS_PER_IP),
+            MAX_SOCKETS_PER_IP: String(MAX_SOCKETS_PER_IP),
             ...extraEnv,
         },
     });
