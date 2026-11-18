@@ -241,3 +241,63 @@ func TestCollectFilesListsARepeatOnce(t *testing.T) {
 		})
 	}
 }
+
+// TestCollectFilesNamesADotDotFolderByItsContents: a folder path whose last
+// element is ".." names its files by what is inside the folder, as "." and a
+// trailing separator already do. On main they are named from filepath.Dir of
+// the path, which for ".." is not the folder above it, so they go out as
+// "../b.txt", which a receiver shows as a path out of its folder, and
+// "floe send .. ../" sends each file twice. A folder given by its own name
+// still sends that name.
+func TestCollectFilesNamesADotDotFolderByItsContents(t *testing.T) {
+	dir := t.TempDir()
+	album := filepath.Join(dir, "album")
+	deep := filepath.Join(album, "sub", "deep")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{
+		filepath.Join(album, "a.txt"),
+		filepath.Join(album, "sub", "b.txt"),
+		filepath.Join(deep, "c.txt"),
+	} {
+		if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Chdir(deep)
+	sep := string(os.PathSeparator)
+	inSub := []string{"b.txt", "deep/c.txt"}
+	inAlbum := []string{"a.txt", "sub/b.txt", "sub/deep/c.txt"}
+	inDir := []string{"album/a.txt", "album/sub/b.txt", "album/sub/deep/c.txt"}
+	for _, c := range []struct {
+		name  string
+		paths []string
+		want  []string
+	}{
+		// Each of these names a file "../" something on main.
+		{"up one", []string{".."}, inSub},
+		{"up two", []string{filepath.Join("..", "..")}, inAlbum},
+		{"up three", []string{filepath.Join("..", "..", "..")}, inDir},
+		{"a folder's full path, then up one", []string{deep + sep + ".."}, inSub},
+		{"up one, with and without a trailing separator", []string{"..", ".." + sep}, inSub},
+		// Each of these is named this way on main already.
+		{"the current folder", []string{"."}, []string{"c.txt"}},
+		{"up one with a trailing separator", []string{".." + sep}, inSub},
+		{"a folder by its own name", []string{filepath.Join("..", "..", "..", "album")}, inDir},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			entries, err := collectFiles(c.paths)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			for _, e := range entries {
+				got = append(got, e.displayName)
+			}
+			if strings.Join(got, "|") != strings.Join(c.want, "|") {
+				t.Errorf("collectFiles(%q) names %q, want %q", c.paths, got, c.want)
+			}
+		})
+	}
+}

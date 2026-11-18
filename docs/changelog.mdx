@@ -45,10 +45,11 @@ Versions work together down to these floors, as measured against the current cod
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
-<Update label="Unreleased" tags={["Desktop"]}>
+<Update label="Unreleased" tags={["Desktop", "CLI"]}>
   **Keyboard focus no longer falls to the page when the update notice closes**
 
   - Closing the **Update available** notice with its **X**, **Get update** or **Escape** now moves keyboard focus to the **Files** or **Text** tab, or to the title bar's **Settings** button on a screen without them. Focus used to fall to the page. Contributed by [@tridev-tej](https://github.com/tridev-tej).
+  - CLI: `floe send ..`, `floe send ../..` and a folder path that ends in `..` now send each file under its place inside that folder, as `floe send ../` does. Their names used to start with `../`, a full path such as `~/Downloads/..` dropped `Downloads` from the names of the files in it, and `floe send .. ../` sent every file twice. Contributed by [@Detoy](https://github.com/Detoy).
 </Update>
 
 <Update label="v1.12.2" description="2026-11-18" tags={["Web", "CLI", "Self-hosting"]}>

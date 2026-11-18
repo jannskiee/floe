@@ -75,6 +75,12 @@ func collectFiles(paths []string) ([]fileEntry, error) {
 		// /var to /private/var, a Windows 8.3 name to the long one), so a key
 		// from root would miss the same file named directly.
 		top := absolute(p)
+		// A path whose last element is "." or ".." (floe send .., ~/Downloads/..)
+		// names its files by what is inside the folder, as "." and "../" do:
+		// filepath.Dir of such a path is not the folder that holds it, so the
+		// names would start with "../" and lose folders.
+		base := filepath.Base(p)
+		byContents := base == "." || base == ".."
 		walkErr := filepath.Walk(root, func(path string, fi os.FileInfo, err error) error {
 			if err != nil || fi.IsDir() {
 				return err
@@ -102,10 +108,14 @@ func collectFiles(paths []string) ([]fileEntry, error) {
 			if fi.Mode()&notAFile != 0 {
 				return nil
 			}
-			// Named as before, from the path the person gave: the file's place
-			// under root, seen from the folder that holds p.
+			// Named from the path the person gave: the file's place under root,
+			// seen from the folder that holds p, or just its place under root
+			// when p ends in "." or "..".
 			under, _ := filepath.Rel(root, path)
-			rel, _ := filepath.Rel(filepath.Dir(p), filepath.Join(p, under))
+			rel := under
+			if !byContents {
+				rel, _ = filepath.Rel(filepath.Dir(p), filepath.Join(p, under))
+			}
 			add(filepath.Join(top, under), fileEntry{
 				absPath:     path,
 				displayName: filepath.ToSlash(rel), // use forward slashes in metadata
