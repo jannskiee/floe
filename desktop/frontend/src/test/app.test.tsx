@@ -369,6 +369,85 @@ describe('focus leaving Settings', () => {
     });
 });
 
+/**
+ * The update notice's X, Get update and Escape inside it each close it, which
+ * unmounts the button the keyboard is on. Focus goes to the active Files or
+ * Text tab, else the title bar's Settings button, by the undo bar's rule:
+ * only when it fell to the page.
+ */
+describe('focus leaving the update notice', () => {
+    const notice = () => screen.findByRole('group', {name: 'Update available'});
+    // A few animation frames, so a focus move the close scheduled has run.
+    const frames = () => act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    // Mounts with an update waiting.
+    async function withUpdate() {
+        wails.go.GetVersion.mockImplementation(async () => 'desktop-v0.3.0');
+        wails.go.CheckForUpdate.mockImplementation(async () => ({version: 'desktop-v0.3.1'}));
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        // It takes no focus when it appears: each test puts focus in it.
+        expect((await notice()).contains(document.activeElement)).toBe(false);
+        return user;
+    }
+    async function focusIn(name: 'Dismiss update notice' | 'Get update') {
+        const button = within(await notice()).getByRole('button', {name});
+        act(() => button.focus());
+    }
+    const landsOn = (id: string) => waitFor(() => {
+        expect(screen.queryByRole('group', {name: 'Update available'})).toBeNull();
+        expect(document.activeElement, 'focus fell to the page').not.toBe(document.body);
+        expect(document.activeElement).toBe(document.getElementById(id));
+    });
+
+    it('Enter on its X lands on the Files tab', async () => {
+        const user = await withUpdate();
+        await focusIn('Dismiss update notice');
+        await user.keyboard('{Enter}');
+        await landsOn('floe-send-kind');
+        expect(document.activeElement?.textContent).toBe('Files');
+    });
+
+    it('Enter on Get update lands on the Files tab', async () => {
+        const user = await withUpdate();
+        await focusIn('Get update');
+        await user.keyboard('{Enter}');
+        const open = (window as unknown as {runtime: {BrowserOpenURL: ReturnType<typeof vi.fn>}}).runtime.BrowserOpenURL;
+        expect(open).toHaveBeenCalledTimes(1);
+        await landsOn('floe-send-kind');
+    });
+
+    it('Escape inside it lands on the Files tab', async () => {
+        const user = await withUpdate();
+        await focusIn('Dismiss update notice');
+        await user.keyboard('{Escape}');
+        await landsOn('floe-send-kind');
+    });
+
+    it('on Settings, where the Files tab is not drawn, it lands on the gear, which ignores a held key', async () => {
+        const user = await withUpdate();
+        await user.click(screen.getByRole('button', {name: 'Settings'}));
+        expect(await screen.findByRole('button', {name: 'Back'})).toBeTruthy();
+        await focusIn('Dismiss update notice');
+        await user.keyboard('{Enter}');
+        await landsOn('floe-settings-trigger');
+        // The Enter that pressed the X may still be held: its repeats land
+        // here and must not close Settings. The lockup would start over.
+        expect(fireEvent.keyDown(document.activeElement!, {key: 'Enter', repeat: true})).toBe(false);
+        expect(screen.getByRole('button', {name: 'Back'})).toBeTruthy();
+    });
+
+    it('moves nothing when it steps aside for a dialog, which keeps its own focus', async () => {
+        await withUpdate();
+        await focusIn('Dismiss update notice');
+        act(() => { wails.emit('close:blocked'); });
+        const dialog = await screen.findByRole('dialog');
+        expect(screen.queryByRole('group', {name: 'Update available'})).toBeNull();
+        await frames();
+        expect(document.activeElement).toBe(within(dialog).getByRole('button', {name: 'Keep open'}));
+    });
+});
+
 describe('the close guard', () => {
     it('raises on close:blocked and does not dismiss itself on confirm', async () => {
         const user = userEvent.setup();

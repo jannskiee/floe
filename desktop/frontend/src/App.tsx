@@ -1167,6 +1167,20 @@ function App() {
         });
     }, [sending]);
 
+    // The update notice's X, Get update and Escape each dismiss it, which
+    // unmounts the button the keyboard is on. Focus goes to the active Files
+    // or Text tab, else the gear, never the lockup, which a held Enter would
+    // press into Start over. Keyed on the dismissal, not on showUpdate, so the
+    // notice stepping aside for a dialog or a transfer moves nothing.
+    useEffect(() => {
+        if (!updateDismissed) return;
+        requestAnimationFrame(() => {
+            if (document.activeElement && document.activeElement !== document.body) return;
+            const target = document.getElementById('floe-send-kind') ?? document.getElementById('floe-settings-trigger');
+            target?.focus();
+        });
+    }, [updateDismissed]);
+
     // The undo timer is the one thing here that outlives a render, so it needs an
     // explicit teardown. (Started in the click handler, never in an effect: this
     // app renders under StrictMode, which double-invokes effects in dev.)
