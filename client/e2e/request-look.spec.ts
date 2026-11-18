@@ -203,6 +203,42 @@ test.describe('request look', () => {
             .toBeGreaterThanOrEqual(3);
     });
 
+    test('in a Windows contrast theme, Choose files and Add more files still show keyboard focus', async ({ page }) => {
+        // Forced colors removes every box-shadow, the focus ring above included.
+        await page.emulateMedia({ forcedColors: 'active' });
+        await page.goto(LINK);
+        const button = page.getByRole('button', { name: visitorCopy.chooseFiles, exact: true });
+        await expect(button).toBeVisible();
+        for (let i = 0; i < 20 && !(await button.evaluate((el) => el === document.activeElement)); i++) {
+            await page.keyboard.press('Tab');
+        }
+        expect(await button.evaluate((el) => el.matches(':focus-visible')), 'Choose files has keyboard focus').toBe(true);
+        const outlined = (locator: Locator) =>
+            locator.evaluate((el) => {
+                const style = getComputedStyle(el);
+                return style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) >= 2;
+            });
+        // No outline outside a contrast theme, one inside it.
+        const onlyInContrastTheme = async (drawn: Locator, name: string) => {
+            await page.emulateMedia({ forcedColors: 'none' });
+            expect(await outlined(drawn), `${name}, outside a contrast theme`).toBe(false);
+            await page.emulateMedia({ forcedColors: 'active' });
+            await expect.poll(() => outlined(drawn), { message: name, timeout: 5_000 }).toBe(true);
+        };
+        await onlyInContrastTheme(button, 'Choose files draws an outline');
+
+        await page
+            .locator('input[type=file]:not([webkitdirectory])')
+            .first()
+            .setInputFiles({ name: 'ring.txt', mimeType: 'text/plain', buffer: Buffer.from('ring') });
+        const addMore = page.getByLabel(visitorCopy.addMoreFiles);
+        await expect(addMore).toBeAttached();
+        await page.getByRole('link', { name: visitorCopy.whatIsRequestLink }).focus();
+        await page.keyboard.press('Tab');
+        expect(await addMore.evaluate((el) => el === document.activeElement && el.matches(':focus-visible')), 'Add more files has keyboard focus').toBe(true);
+        await onlyInContrastTheme(addMore.locator('..'), 'Add more files strip draws an outline');
+    });
+
     test('the Hide my IP checkbox draws in the dark scheme', async ({ page }) => {
         await page.goto(LINK);
         const box = page.getByRole('checkbox', { name: visitorCopy.hideIp });
