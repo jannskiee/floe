@@ -284,6 +284,8 @@ Each part has its own unit tests:
 | `desktop/frontend/` | `npm test` | Vitest |
 | `desktop/` | `go test ./...` | The desktop app's Go side. Build the frontend first. |
 
+`server/fuzz.test.js` sends the signaling server a short seeded run of hostile frames inside `npm test`, and its header says how to replay a seed or make the run longer: `FLOE_SERVER_FUZZ_SEED=42 FLOE_SERVER_FUZZ_FRAMES=200000 node --test fuzz.test.js` in `server/` takes about five minutes. Report a seed that fails privately, as [SECURITY.md](SECURITY.md) describes.
+
 ### End-to-end tests
 
 The Playwright suite in `client/e2e/` runs real transfers between browser tabs, the `floe` CLI and a Go test host, through a signaling server on your machine.
