@@ -55,6 +55,10 @@ export function useDownloadManager(
     // download that started on a click; FileSaver.js has waited 40 s for years.
     const zipUrlRef = useRef<HeldObjectUrl | null>(null);
     const unmountedRef = useRef(false);
+    // One run at a time across both buttons. The buttons stay focusable while a
+    // run is on (aria-disabled, not disabled), so a press can reach a handler
+    // mid-run and must start nothing.
+    const runningRef = useRef(false);
 
     useEffect(() => {
         return () => {
@@ -64,34 +68,40 @@ export function useDownloadManager(
     }, []);
 
     const handleDownloadAll = async () => {
-        setIsDownloading(true);
-        setDownloadProgress({ current: 0, total: receivedFiles.length, label: 'Starting download...' });
+        if (runningRef.current) return;
+        runningRef.current = true;
+        try {
+            setIsDownloading(true);
+            setDownloadProgress({ current: 0, total: receivedFiles.length, label: 'Starting download...' });
 
-        for (let i = 0; i < receivedFiles.length; i++) {
-            const file = receivedFiles[i];
-            setDownloadProgress({
-                current: i + 1,
-                total: receivedFiles.length,
-                label: `Downloading: ${sanitizeFileName(file.fileName)}`
-            });
+            for (let i = 0; i < receivedFiles.length; i++) {
+                const file = receivedFiles[i];
+                setDownloadProgress({
+                    current: i + 1,
+                    total: receivedFiles.length,
+                    label: `Downloading: ${sanitizeFileName(file.fileName)}`
+                });
 
-            const link = document.createElement('a');
-            link.href = file.downloadUrl;
-            link.download = sanitizeFileName(file.fileName);
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            onSaved?.([file.id]);
+                const link = document.createElement('a');
+                link.href = file.downloadUrl;
+                link.download = sanitizeFileName(file.fileName);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                onSaved?.([file.id]);
 
-            await new Promise(resolve => setTimeout(resolve, 300));
+                await new Promise(resolve => setTimeout(resolve, 300));
+            }
+        } finally {
+            setIsDownloading(false);
+            setDownloadProgress({ current: 0, total: 0, label: '' });
+            runningRef.current = false;
         }
-
-        setIsDownloading(false);
-        setDownloadProgress({ current: 0, total: 0, label: '' });
     };
 
     const handleDownloadZip = async () => {
-        if (receivedFiles.length === 0) return;
+        if (receivedFiles.length === 0 || runningRef.current) return;
+        runningRef.current = true;
 
         setIsZipping(true);
         setError('');
@@ -145,6 +155,8 @@ export function useDownloadManager(
             setError('ZIP creation failed. Try "Download All" instead.');
             setIsZipping(false);
             setDownloadProgress({ current: 0, total: 0, label: '' });
+        } finally {
+            runningRef.current = false;
         }
     };
 
