@@ -136,8 +136,8 @@ export function ReceiverPanel({
                     <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 gap-2 mb-3 animate-in fade-in slide-in-from-top-2 duration-300">
                         <Button
                             onClick={onDownloadAll}
-                            disabled={isDownloading || isZipping}
-                            className="w-full bg-white text-black hover:bg-zinc-200 font-medium transition-colors border-none"
+                            aria-disabled={isDownloading || isZipping}
+                            className="w-full bg-white text-black hover:bg-zinc-200 font-medium transition-colors border-none aria-disabled:pointer-events-none aria-disabled:opacity-50"
                         >
                             {isDownloading ? (
                                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -148,8 +148,8 @@ export function ReceiverPanel({
                         </Button>
                         <Button
                             onClick={onDownloadZip}
-                            disabled={isZipping || isDownloading}
-                            className="w-full bg-zinc-800 text-white hover:bg-zinc-700 font-medium transition-colors border border-zinc-700"
+                            aria-disabled={isDownloading || isZipping}
+                            className="w-full bg-zinc-800 text-white hover:bg-zinc-700 font-medium transition-colors border border-zinc-700 aria-disabled:pointer-events-none aria-disabled:opacity-50"
                         >
                             {isZipping ? (
                                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
