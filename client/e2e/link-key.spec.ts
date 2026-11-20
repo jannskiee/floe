@@ -529,7 +529,7 @@ test.describe('a link the web app makes', () => {
             const download = receiver.locator('a[download]').first();
             await expect(download).toBeVisible({ timeout: 30_000 });
             expect(await sha256OfBlobUrl(receiver, (await download.getAttribute('href')) as string)).toBe(fixture.sha256);
-            await expect(sender.getByText('All Files Sent!')).toBeVisible({ timeout: 30_000 });
+            await expect(sender.getByText('All Files Sent!').first()).toBeVisible({ timeout: 30_000 });
             await expect(receiver.locator('[data-mark="verified"]')).toBeVisible({ timeout: 15_000 });
 
             // On success the person sees nothing new.
@@ -925,7 +925,7 @@ test.describe('a sending page', () => {
         const { ctx, page, room, key } = await open(browser, testInfo.outputDir);
         try {
             await scriptedReceiver(peer.page, { room, key, proof: 'good', then: 'ack' });
-            await expect(page.getByText('All Files Sent!')).toBeVisible({ timeout: 30_000 });
+            await expect(page.getByText('All Files Sent!').first()).toBeVisible({ timeout: 30_000 });
             await expect.poll(async () => (await scriptedState(peer.page)).pageProofGood, { timeout: 10_000 }).toBe(true);
             // All Files Sent! is the page's own drained buffer (lib/transfer/sender.ts), not
             // this receiver's word, so the file can still be on its way here: polled, not read
@@ -950,7 +950,7 @@ test.describe('a sending page', () => {
         const { ctx, page, room, key } = await open(browser, testInfo.outputDir);
         try {
             await scriptedReceiver(peer.page, { room, key, proof: 'none', then: 'ack' });
-            await expect(page.getByText('All Files Sent!')).toBeVisible({ timeout: 30_000 });
+            await expect(page.getByText('All Files Sent!').first()).toBeVisible({ timeout: 30_000 });
             // Polled, as above: the heading does not wait for this receiver.
             await expect
                 .poll(async () => (await scriptedState(peer.page)).frames.some((f) => f.type === 'file-data'), { timeout: 10_000 })
@@ -1207,7 +1207,7 @@ test.describe(LEVER_CELLS, () => {
             const download = receiver.locator('a[download]').first();
             await expect(download).toBeVisible({ timeout: 30_000 });
             expect(await sha256OfBlobUrl(receiver, (await download.getAttribute('href')) as string)).toBe(fixture.sha256);
-            await expect(sender.getByText('All Files Sent!')).toBeVisible({ timeout: 30_000 });
+            await expect(sender.getByText('All Files Sent!').first()).toBeVisible({ timeout: 30_000 });
             for (const page of [sender, receiver]) {
                 await expect(page.getByText(/couldn't confirm|can't check/i)).toHaveCount(0);
                 expect((await channelSent(page))[0]).toBe('kc');
@@ -1237,7 +1237,7 @@ test.describe('a sending page after the cutover', () => {
         const { ctx, page, room, key } = await open(browser, testInfo.outputDir);
         try {
             await scriptedReceiver(peer.page, { room, key, proof: 'good', then: 'ack' });
-            await expect(page.getByText('All Files Sent!')).toBeVisible({ timeout: 30_000 });
+            await expect(page.getByText('All Files Sent!').first()).toBeVisible({ timeout: 30_000 });
             const types = (await scriptedState(peer.page)).frames.map((f) => f.type);
             expect(types[0]).toBe('kc');
             expect(types).toContain('metadata');
@@ -1332,7 +1332,7 @@ test('the key is in no request, no socket frame and nothing the browser stores',
         await receiver.goto(link);
         const download = receiver.locator('a[download]').first();
         await expect(download).toBeVisible({ timeout: 30_000 });
-        await expect(sender.getByText('All Files Sent!')).toBeVisible({ timeout: 30_000 });
+        await expect(sender.getByText('All Files Sent!').first()).toBeVisible({ timeout: 30_000 });
 
         // Not vacuous: the key is on both pages, and the watchers see the room, which
         // does go to the signaling server, in what they heard.

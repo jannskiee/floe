@@ -435,7 +435,7 @@ test('a finished send still looks finished once its status changes', async ({ br
         // count. Both used to follow the status sentence, so the last file
         // went back to a spinner under "Transfer complete".
         await senderCtx.setOffline(true);
-        await expect(senderPage.getByText('All Files Sent!')).toHaveCount(0, { timeout: 15_000 });
+        await expect(senderPage.getByText('All Files Sent!').and(senderPage.locator(':not([role="status"])'))).toHaveCount(0, { timeout: 15_000 });
         await expect(senderPage.getByText(/^(Transfer complete|Connection interrupted)$/)).toBeVisible();
 
         await expect(senderPage.getByText('Sent 1 file', { exact: true })).toBeVisible();
