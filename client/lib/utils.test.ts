@@ -68,3 +68,39 @@ describe('formatSplitBytes', () => {
         );
     });
 });
+
+// The unit is chosen after rounding. Chosen from the raw count, a count just
+// under the next unit rounded up to 1024 in the unit below: 1048575 bytes is
+// 1023.999 KB, and it read "1024 KB". cli/engine/transfer/format_test.go pins
+// the same rows, and desktop/frontend/src/incoming.test.ts the same boundaries.
+describe('a size just under the next unit', () => {
+    it('reads in that unit', () => {
+        expect(formatBytes(1048571)).toBe('1 MB');
+        expect(formatBytes(1024 ** 2 - 1)).toBe('1 MB');
+        expect(formatBytes(1073736582)).toBe('1 GB');
+        expect(formatBytes(1024 ** 3 - 1)).toBe('1 GB');
+        expect(formatBytes(1099506259067)).toBe('1 TB');
+        expect(formatBytes(1024 ** 4 - 1)).toBe('1 TB');
+    });
+
+    it('splits the same way, for the counter on the home page', () => {
+        expect(splitBytes(1024 ** 2 - 1)).toEqual({ value: 1, unit: 'MB' });
+        expect(splitBytes(1024 ** 3 - 1)).toEqual({ value: 1, unit: 'GB' });
+        expect(splitBytes(1024 ** 4 - 1)).toEqual({ value: 1, unit: 'TB' });
+    });
+
+    it('stays in TB, the last unit, just under a petabyte', () => {
+        expect(formatBytes(1024 ** 5 - 1)).toBe('1024 TB');
+        expect(splitBytes(1024 ** 5 - 1)).toEqual({ value: 1024, unit: 'TB' });
+    });
+
+    it('leaves a count that rounds below 1024 where it was', () => {
+        expect(formatBytes(1000)).toBe('1000 Bytes');
+        expect(formatBytes(1023)).toBe('1023 Bytes');
+        expect(formatBytes(1048570)).toBe('1023.99 KB');
+        expect(formatBytes(1073736581)).toBe('1023.99 MB');
+        expect(formatBytes(1099506259066)).toBe('1023.99 GB');
+        expect(formatBytes(512 * 1024)).toBe('512 KB');
+        expect(formatBytes(1024 ** 4)).toBe('1 TB');
+    });
+});

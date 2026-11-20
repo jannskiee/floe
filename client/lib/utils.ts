@@ -24,13 +24,19 @@ export const formatBytes = (bytes: number) => {
 
 // splitBytes returns the numeric value and unit separately so NumberFlow can
 // animate the number while keeping the unit stable as a suffix.
+//
+// The unit is settled after rounding: 1048575 bytes is 1023.999 KB, which
+// rounds to 1024 KB, so it steps up and reads 1 MB. TB is the last unit, so a
+// count just under a petabyte still reads 1024 TB.
 export const splitBytes = (bytes: number): { value: number; unit: string } => {
     if (!Number.isFinite(bytes) || bytes <= 0) return { value: 0, unit: 'Bytes' };
-    const i = unitIndex(bytes);
-    return {
-        value: parseFloat((bytes / Math.pow(1024, i)).toFixed(2)),
-        unit: BYTE_UNITS[i],
-    };
+    let i = unitIndex(bytes);
+    let value = parseFloat((bytes / Math.pow(1024, i)).toFixed(2));
+    if (value >= 1024 && i < BYTE_UNITS.length - 1) {
+        i += 1;
+        value = parseFloat((bytes / Math.pow(1024, i)).toFixed(2));
+    }
+    return { value, unit: BYTE_UNITS[i] };
 };
 
 // The NumberFlow options GlobalStats animates the global counter with. Shared
