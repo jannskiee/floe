@@ -7,11 +7,15 @@
  * desktop/frontend/src/progress.ts. Keep the three in sync.
  */
 
+// MB/s once the KB/s figure, rounded to the one decimal it is shown with,
+// reaches 1024.0: switching at exactly 1048576 bytes a second left the rates
+// just under it reading "1024.0 KB/s".
 export function formatSpeed(bytesPerSec: number): string {
     if (!Number.isFinite(bytesPerSec) || bytesPerSec <= 0) return '';
-    return bytesPerSec >= 1024 * 1024
+    const kb = (bytesPerSec / 1024).toFixed(1);
+    return parseFloat(kb) >= 1024
         ? `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`
-        : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
+        : `${kb} KB/s`;
 }
 
 export function formatETA(etaSeconds: number): string {

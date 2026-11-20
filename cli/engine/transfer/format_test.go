@@ -181,6 +181,45 @@ func TestFormatBytesNeverPanics(t *testing.T) {
 	}
 }
 
+// TestFormatBytesChoosesTheUnitAfterRounding: chosen from the raw count, the
+// unit left a count just under the next one to round up to 1024 in the unit
+// below, so 1048575 bytes (1023.999 KB) read "1024 KB". TB is the last unit,
+// so a count just under a petabyte still reads in TB.
+// client/lib/utils.test.ts pins the same rows, and
+// desktop/frontend/src/incoming.test.ts the same boundaries.
+func TestFormatBytesChoosesTheUnitAfterRounding(t *testing.T) {
+	for _, tc := range []struct {
+		in   int64
+		want string
+	}{
+		// Just under the next unit: the carry.
+		{1048571, "1 MB"},
+		{1<<20 - 1, "1 MB"},
+		{1073736582, "1 GB"},
+		{1<<30 - 1, "1 GB"},
+		{1099506259067, "1 TB"},
+		{1<<40 - 1, "1 TB"},
+		// TB is the last unit.
+		{1<<50 - 1, "1024 TB"},
+		{1 << 50, "1024 TB"},
+		// Rounds below 1024, or is a power of 1024: unchanged.
+		{1000, "1000 Bytes"},
+		{1023, "1023 Bytes"},
+		{1048570, "1023.99 KB"},
+		{1073736581, "1023.99 MB"},
+		{1099506259066, "1023.99 GB"},
+		{512 << 10, "512 KB"},
+		{1 << 10, "1 KB"},
+		{1 << 20, "1 MB"},
+		{1 << 30, "1 GB"},
+		{1 << 40, "1 TB"},
+	} {
+		if got := formatBytes(tc.in); got != tc.want {
+			t.Errorf("formatBytes(%d) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 // TestTruncateNameCountsRunes: the cut is in runes, so a multi-byte name never
 // loses half a character to the ellipsis.
 func TestTruncateNameCountsRunes(t *testing.T) {
@@ -216,10 +255,13 @@ func TestFormatSpeed(t *testing.T) {
 		{512 * 1024, "512.0 KB/s"},
 		{468 * 1024, "468.0 KB/s"},  // docs/cli/receive.mdx
 		{1000 * 1000, "976.6 KB/s"}, // 1 MB here is 1,048,576 bytes (docs/cli/send.mdx)
-		{1024*1024 - 1, "1024.0 KB/s"},
+		{1048524, "1023.9 KB/s"},
+		{1048525, "1.0 MB/s"},       // the KB/s figure would round to 1024.0
+		{1024*1024 - 1, "1.0 MB/s"}, // read "1024.0 KB/s" when the switch sat at 1048576
 		{1024 * 1024, "1.0 MB/s"},
 		{1.4 * 1024 * 1024, "1.4 MB/s"}, // docs/cli/send.mdx
 		{5.5 * 1024 * 1024, "5.5 MB/s"},
+		{1024 * 1024 * 1024, "1024.0 MB/s"},
 		{1024 * 1024 * 1024 * 1024, "1048576.0 MB/s"}, // there is no GB/s
 	} {
 		if got := formatSpeed(tc.in); got != tc.want {

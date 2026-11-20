@@ -15,6 +15,21 @@ describe('formatSpeed', () => {
         expect(formatSpeed(1024 * 1024)).toBe('1.0 MB/s');
         expect(formatSpeed(5.5 * 1024 * 1024)).toBe('5.5 MB/s');
     });
+
+    // MB/s from the rate whose KB/s figure rounds to 1024.0. The switch sat at
+    // exactly 1048576 bytes a second, so a rate just under it read
+    // "1024.0 KB/s". desktop/frontend/src/progress.test.ts and
+    // cli/engine/transfer/format_test.go pin the same rows.
+    it('formats MB/s once the KB/s figure would round to 1024.0', () => {
+        expect(formatSpeed(1048525)).toBe('1.0 MB/s');
+        expect(formatSpeed(1024 * 1024 - 1)).toBe('1.0 MB/s');
+    });
+
+    it('leaves a rate under that, and every MB/s rate, where it was', () => {
+        expect(formatSpeed(1048524)).toBe('1023.9 KB/s');
+        expect(formatSpeed(1000 * 1000)).toBe('976.6 KB/s');
+        expect(formatSpeed(1024 ** 3)).toBe('1024.0 MB/s'); // there is no GB/s
+    });
 });
 
 describe('formatETA', () => {

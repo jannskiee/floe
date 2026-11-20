@@ -13,9 +13,15 @@ describe('fmtSpeed', () => {
         expect(fmtSpeed(524288)).toBe('512.0 KB/s');
     });
 
-    it('switches to MB/s at exactly one mebibyte', () => {
-        expect(fmtSpeed(1024 * 1024 - 1)).toBe('1024.0 KB/s');
+    // The switch sat at exactly one mebibyte a second, so a rate just under it
+    // read "1024.0 KB/s". It now comes at the rate whose KB/s figure rounds to
+    // 1024.0.
+    it('switches to MB/s once the KB/s figure would round to 1024.0', () => {
+        expect(fmtSpeed(1048524)).toBe('1023.9 KB/s');
+        expect(fmtSpeed(1048525)).toBe('1.0 MB/s');
+        expect(fmtSpeed(1024 * 1024 - 1)).toBe('1.0 MB/s');
         expect(fmtSpeed(1024 * 1024)).toBe('1.0 MB/s');
+        expect(fmtSpeed(1024 ** 3)).toBe('1024.0 MB/s'); // there is no GB/s
     });
 
     it('renders nothing rather than a wrong number', () => {
