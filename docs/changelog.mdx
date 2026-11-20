@@ -50,7 +50,7 @@ Each entry lists the parts it changed. Filter on the right to see only the ones 
 
   - Closing the **Update available** notice with its **X**, **Get update** or **Escape** now moves keyboard focus to the **Files** or **Text** tab, or to the title bar's **Settings** button on a screen without them. Focus used to fall to the page. Contributed by [@tridev-tej](https://github.com/tridev-tej).
   - A folder given as `..` on the command line that starts Floe, or as any folder path that ends in `..`, now sends each file under its place inside that folder. The names used to start with `../`, and a full path such as `C:\Users\you\Downloads\..` dropped `Downloads` from the names of the files in it. Contributed by [@Detoy](https://github.com/Detoy).
-  - Self-hosting: a `CLIENT_URL` written with capital letters, a spelled-out default port (`:443`), a path or a trailing slash now matches the web app it names: the server reads it as a URL, so letter case, a default port, a path and a trailing slash make no difference.
+  - Self-hosting: a `CLIENT_URL` written with capital letters, a spelled-out default port (`:443`), a path or two trailing slashes now matches the web app it names: the server reads it as a URL, so letter case, a default port, a path and a trailing slash make no difference. Contributed by [@bfs2021](https://github.com/bfs2021).
 </Update>
 
 <Update label="v1.12.3" description="2026-11-20" tags={["Web", "CLI", "Self-hosting"]}>

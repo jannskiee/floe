@@ -109,12 +109,14 @@ function rejectBadRoomId(peer, roomId) {
 }
 
 // The one origin CLIENT_URL may add, read the way a browser writes its own
-// Origin: the scheme, the host name in lower case, and the port only when it
+// Origin: the scheme, the hostname in lower case, and the port only when it
 // is not the scheme's default. Letter case, a spelled-out default port, a
 // path and a trailing slash then make no difference, so an address pasted
-// from a location bar still matches. Only http: and https: count, because
-// they are the schemes a page's Origin can arrive with; any other value, and
-// any value that does not parse, lets no browser in, so it adds nothing.
+// from a location bar still matches. Only http: and https: count: new URL()
+// gives a file:, data: or javascript: address the origin "null", and "null"
+// is the Origin a sandboxed iframe sends, so without the scheme check such
+// a value would let that page in. A value that does not parse lets no
+// browser in either, so it adds nothing.
 function clientUrlOrigin(value) {
     if (!value) return null;
     let url;

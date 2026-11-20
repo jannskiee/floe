@@ -1953,96 +1953,86 @@ test('a CLIENT_URL written with a trailing slash still lets its own web app in',
     await assertSurvived(srv, 'a CLIENT_URL with a trailing slash');
 });
 
-test('a CLIENT_URL written with capital letters, a default port, a path or two trailing slashes still lets its own web app in', async (t) => {
-    // A browser writes its Origin as scheme://host[:port]: the host name in
-    // lower case, no path, and no port when it is the scheme's default. Each
-    // of these spellings names that one origin, so each must admit the same
-    // page. The two-hostname layout: the page on app., the server on api., so
-    // the same-host rule cannot let it in and only CLIENT_URL can.
-    const spellings = [
+// A browser's Origin is scheme://host[:port] and nothing more: the hostname in
+// lower case, no path, and no port when it is the scheme's default. A CLIENT_URL
+// written any other way has to come to that form before it can match one. The
+// page is on app. and the server on api., as above, so only CLIENT_URL can let
+// the page in.
+const WEB_APP = 'https://app.example.test';
+const API_HOST = 'api.example.test';
+
+// What a page on `origin` gets from the three ways it reaches the server: the
+// /ws handshake, the Socket.IO polling handshake socket.io-client opens first,
+// and an HTTP read. The browser can read the last two only when they carry
+// Access-Control-Allow-Origin.
+async function reach(srv, origin) {
+    const upgrade = await rawUpgrade(srv, '/ws', `Origin: ${origin}\r\n`, API_HOST);
+    upgrade.socket.destroy();
+    const headers = { Origin: origin, Host: API_HOST };
+    return {
+        ws: upgrade.head.split('\r\n')[0],
+        handshake: await get(srv, '/socket.io/?EIO=4&transport=polling', headers),
+        stats: await get(srv, '/api/stats', headers),
+    };
+}
+
+function assertLetIn(seen, origin, what) {
+    assert.match(seen.ws, /^HTTP\/1\.1 101 /, `${what}: /ws refused ${origin}`);
+    assert.equal(seen.handshake.status, 200, `${what}: the Socket.IO handshake refused ${origin}`);
+    assert.match(seen.handshake.body, /"sid"/, `${what}: no Socket.IO session`);
+    assert.equal(seen.stats.headers['access-control-allow-origin'], origin, `${what}: ${origin} cannot read GET /api/stats`);
+    assert.equal(seen.handshake.headers['access-control-allow-origin'], origin, `${what}: ${origin} cannot read the Socket.IO handshake`);
+}
+
+function assertRefused(seen, origin, what) {
+    assert.match(seen.ws, /^HTTP\/1\.1 403 /, `${what}: /ws let ${origin} in`);
+    assert.equal(seen.handshake.status, 403, `${what}: the Socket.IO handshake let ${origin} in`);
+    assert.equal(seen.handshake.headers['access-control-allow-origin'], undefined, `${what}: ${origin} can read the Socket.IO handshake`);
+    assert.equal(seen.stats.status, 403, `${what}: GET /api/stats answered ${origin}`);
+    assert.equal(seen.stats.headers['access-control-allow-origin'], undefined, `${what}: ${origin} can read GET /api/stats`);
+}
+
+test('a CLIENT_URL with capital letters, a default port, a path or two trailing slashes still lets its own web app in', async (t) => {
+    for (const clientUrl of [
         'https://App.Example.test',
         'https://app.example.test:443',
         'https://app.example.test/floe',
         'https://app.example.test//',
-    ];
-
-    for (const CLIENT_URL of spellings) {
-        const srv = await startServer({ CLIENT_URL });
+    ]) {
+        const srv = await startServer({ CLIENT_URL: clientUrl });
         t.after(() => srv.stop());
-
-        const page = await get(srv, '/health', { Origin: 'https://app.example.test' });
-        assert.equal(page.status, 200, `${CLIENT_URL} refused the web app's own origin over HTTP`);
-        assert.equal(
-            page.headers['access-control-allow-origin'], 'https://app.example.test',
-            `${CLIENT_URL} answered without letting the browser read it`
-        );
-
-        const upgrade = await rawUpgrade(srv, '/ws', 'Origin: https://app.example.test\r\n', 'api.example.test');
-        assert.match(upgrade.head, /^HTTP\/1\.1 101 /, `${CLIENT_URL} refused the web app's own origin on /ws: ${upgrade.head.split('\r\n')[0]}`);
-        upgrade.socket.destroy();
-
-        const handshake = await get(srv, '/socket.io/?EIO=4&transport=polling', {
-            Origin: 'https://app.example.test',
-            Host: 'api.example.test',
-        });
-        assert.equal(handshake.status, 200, `${CLIENT_URL} refused the web app's own origin on Socket.IO`);
-        assert.match(handshake.body, /"sid"/);
-
-        await assertSurvived(srv, `a CLIENT_URL written as ${CLIENT_URL}`);
+        assertLetIn(await reach(srv, WEB_APP), WEB_APP, `CLIENT_URL=${clientUrl}`);
+        await assertSurvived(srv, `CLIENT_URL=${clientUrl}`);
     }
 });
 
-test('a CLIENT_URL admits its one origin, not the addresses written beside it', async (t) => {
-    // What CLIENT_URL names is https://app.example.test once read as a URL. A
-    // different scheme, a host name that merely contains it and a different
-    // port are other origins, and none of them may borrow its entry.
-    const srv = await startServer({ CLIENT_URL: 'https://App.Example.test:443/floe' });
+test('an origin next to CLIENT_URL is still refused: another scheme, a longer hostname or another port', async (t) => {
+    // Every difference the comparison ignores, at once. What is left is
+    // https://app.example.test alone.
+    const clientUrl = 'https://App.Example.test:443/floe';
+    const srv = await startServer({ CLIENT_URL: clientUrl });
     t.after(() => srv.stop());
-
-    const strangers = [
-        'http://app.example.test',
-        'https://app.example.test.evil.test',
-        'https://app.example.test:8443',
-    ];
-
-    for (const origin of strangers) {
-        const page = await get(srv, '/health', { Origin: origin });
-        assert.equal(page.status, 403, `${origin} was let in over HTTP`);
-        assert.equal(page.headers['access-control-allow-origin'], undefined, `${origin} was let to read an answer`);
-
-        const upgrade = await rawUpgrade(srv, '/ws', `Origin: ${origin}\r\n`, 'api.example.test');
-        assert.match(upgrade.head, /^HTTP\/1\.1 403 /, `${origin} was let in on /ws: ${upgrade.head.split('\r\n')[0]}`);
-        upgrade.socket.destroy();
-
-        const handshake = await get(srv, '/socket.io/?EIO=4&transport=polling', { Origin: origin, Host: 'api.example.test' });
-        assert.equal(handshake.status, 403, `${origin} was let in on Socket.IO`);
+    for (const origin of ['http://app.example.test', 'https://app.example.test.evil.test', 'https://app.example.test:8443']) {
+        assertRefused(await reach(srv, origin), origin, `CLIENT_URL=${clientUrl}`);
     }
-
-    await assertSurvived(srv, 'a CLIENT_URL with strangers beside its origin');
+    await assertSurvived(srv, 'origins next to CLIENT_URL');
 });
 
-test('a CLIENT_URL that is not an http or https address lets nothing in, and the server still starts', async (t) => {
-    // file:///x parses as a URL but no browser sends an Origin for it, so it
-    // adds nothing. not-a-url does not even parse: the server starts all the
-    // same, and the built-in origins keep working beside the dead value.
-    for (const CLIENT_URL of ['file:///x', 'not-a-url']) {
-        const srv = await startServer({ CLIENT_URL });
-        t.after(() => srv.stop());
+test('a CLIENT_URL that is not an http or https address lets no page in, and the server still starts', async (t) => {
+    // new URL('file:///x').origin is the string "null", as is the origin of a
+    // data: or javascript: address, and "null" is the Origin a sandboxed
+    // iframe or a page opened from disk sends. It must never be on the list.
+    const file = await startServer({ CLIENT_URL: 'file:///x' });
+    t.after(() => file.stop());
+    assertRefused(await reach(file, 'null'), 'null', 'CLIENT_URL=file:///x');
+    await assertSurvived(file, 'CLIENT_URL=file:///x');
 
-        const stranger = await get(srv, '/health', { Origin: 'https://app.example.test' });
-        assert.equal(stranger.status, 403, `${CLIENT_URL} let https://app.example.test in over HTTP`);
-
-        const upgrade = await rawUpgrade(srv, '/ws', 'Origin: https://app.example.test\r\n', 'api.example.test');
-        assert.match(upgrade.head, /^HTTP\/1\.1 403 /, `${CLIENT_URL} let https://app.example.test in on /ws: ${upgrade.head.split('\r\n')[0]}`);
-        upgrade.socket.destroy();
-
-        const builtin = await get(srv, '/health', { Origin: 'https://floe.one' });
-        assert.equal(builtin.status, 200, `${CLIENT_URL} broke the built-in origins over HTTP`);
-
-        const builtinUpgrade = await rawUpgrade(srv, '/ws', 'Origin: https://floe.one\r\n');
-        assert.match(builtinUpgrade.head, /^HTTP\/1\.1 101 /, `${CLIENT_URL} broke the built-in origins on /ws: ${builtinUpgrade.head.split('\r\n')[0]}`);
-        builtinUpgrade.socket.destroy();
-
-        await assertSurvived(srv, `a CLIENT_URL written as ${CLIENT_URL}`);
-    }
+    // A value new URL() cannot read: the server starts, lets the web app in
+    // nowhere, and keeps the origins it always accepts.
+    const bad = await startServer({ CLIENT_URL: 'not-a-url' })
+        .catch((err) => assert.fail(`CLIENT_URL=not-a-url stopped the server: ${err.message}`));
+    t.after(() => bad.stop());
+    assertRefused(await reach(bad, WEB_APP), WEB_APP, 'CLIENT_URL=not-a-url');
+    assertLetIn(await reach(bad, 'https://floe.one'), 'https://floe.one', 'CLIENT_URL=not-a-url');
+    await assertSurvived(bad, 'CLIENT_URL=not-a-url');
 });
