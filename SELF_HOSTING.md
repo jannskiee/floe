@@ -51,7 +51,7 @@ that matter most:
 | `NEXT_PUBLIC_SOCKET_URL` | URL the browser uses to reach your signaling server. Leave it empty when both services share one domain. |
 | `PORT` | Host port the server is published on. |
 | `CLIENT_PORT` | Host port the client is published on. |
-| `CLIENT_URL` | Your client's origin, matched exactly. The server allows it for browser requests (CORS) and for WebSocket connections, on Socket.IO and on `/ws`. |
+| `CLIENT_URL` | Your client's origin, read as a URL: the scheme, the hostname and the port have to match, while letter case, a default port, a path and a trailing slash make no difference. The server allows it for browser requests (CORS) and for WebSocket connections, on Socket.IO and on `/ws`. |
 | `TRUSTED_PROXY_COUNT` | Reverse-proxy hops in front of the server. `0` direct, `1` behind a proxy. |
 | `CLOUDFLARE_TURN_KEY_ID` / `CLOUDFLARE_TURN_KEY_API_TOKEN` | Optional managed TURN via Cloudflare (see below). |
 | `TURN_SECRET` / `TURN_DOMAIN` | Optional self-hosted coturn credentials (see below). |

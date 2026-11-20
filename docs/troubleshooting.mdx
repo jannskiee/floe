@@ -2271,7 +2271,7 @@ page is dialing the wrong address for the signaling server, or one the browser c
 </Steps>
 
 If the address is right and the badge still reads Offline, the server may be refusing the page's
-origin instead. Set `CLIENT_URL` to the exact origin the page is served from, port included, as
+origin instead. Set `CLIENT_URL` to the origin the page is served from, with its port unless it is the scheme's default, as
 described under
 [Browser requests are blocked, and the server answers HTTP 403](#browser-requests-are-blocked-and-the-server-answers-http-403).
 
@@ -2282,8 +2282,9 @@ In the browser's console as a generic CORS failure, and in the server log as
 server allows. The server answers `403` with `{"error":"Bad request"}`, and the log line does not
 name the refused origin.
 
-Set `CLIENT_URL` to your client's public origin, exactly: with the scheme, with no trailing slash,
-and as one origin only, because a comma-separated list matches nothing. `https://floe.one`,
+Set `CLIENT_URL` to your client's public origin: the scheme, the hostname and the port have to
+match, while letter case, a default port, a path and a trailing slash make no difference, and
+one value adds one origin, because a comma-separated list never adds a second origin. `https://floe.one`,
 `https://www.floe.one`, and `http://localhost:3000` are always allowed in addition. Then restart
 the server, which reads `CLIENT_URL` once at startup: `docker compose up -d`, or a plain restart
 without Docker.

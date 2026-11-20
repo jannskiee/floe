@@ -189,8 +189,8 @@ Your own domain in share previews and the sitemap needs a client you build yours
 published image cannot carry it: see
 [Container images](/self-hosting/images#share-previews-and-canonical-links).
 
-`CLIENT_URL` is matched exactly, including the scheme and with no trailing
-slash. `https://floe.example.com` and `https://www.floe.example.com` are
+`CLIENT_URL` is read as a URL: the scheme, the hostname and the port have to
+match, while letter case, a default port, a path and a trailing slash make no difference. `https://floe.example.com` and `https://www.floe.example.com` are
 different origins to the CORS check, so use whichever one your users actually
 visit.
 

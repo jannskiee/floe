@@ -50,7 +50,7 @@ other machines and that cannot share one domain.
     CLIENT_URL=https://app.your-domain.com
     ```
 
-    This adds your client origin to the server's allow-list. It is matched exactly, including the scheme and with no trailing slash. Without it, HTTP requests from the web app on your domain are refused with a `403`, and its signaling connection is refused too.
+    This adds your client origin to the server's allow-list. It is read as a URL: the scheme, the hostname and the port have to match, while letter case, a default port, a path and a trailing slash make no difference. Without it, HTTP requests from the web app on your domain are refused with a `403`, and its signaling connection is refused too.
   </Step>
   <Step title="Set TRUSTED_PROXY_COUNT">
     Set this to the number of proxy hops in front of the signaling server, so the per-address rate limits read real client addresses instead of the proxy's:
