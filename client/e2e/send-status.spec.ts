@@ -16,7 +16,7 @@
  */
 
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
-import { createFixture, fixtureDir, removeFixtureDir, browserSenderSetup } from './helpers';
+import { SHARE_LINK_TEXT, createFixture, fixtureDir, removeFixtureDir, browserSenderSetup } from './helpers';
 
 const FIXTURE_DIR = fixtureDir('floe-e2e-send-status');
 // What the status reads once a recipient whose connection has already closed
@@ -250,5 +250,106 @@ test('a second recipient who stops mid-file is reported the same way', async ({ 
         await senderCtx.close();
         try { await firstCtx.close(); } catch { /* already closed mid-test */ }
         try { await secondCtx.close(); } catch { /* already closed mid-test */ }
+    }
+});
+
+// The status line under the link is a plain line, so on its own it tells a
+// screen reader nothing when a send ends (WCAG 2.2 SC 4.1.3). The share panel
+// keeps one status region for that: quiet until every file has left, then the
+// line's words, once.
+
+/** A receiving context that keeps out of the stats counter and keeps its peer
+ *  connection within reach, and that sends its `received` frame as every
+ *  receiver does, so the sending page gets its green check. */
+async function confirmingReceiver(browser: Browser): Promise<BrowserContext> {
+    const ctx = await browser.newContext();
+    await ctx.addInitScript(() => {
+        try { localStorage.setItem('floe:report-stats', 'false'); } catch { /* ignore */ }
+        const Native = window.RTCPeerConnection;
+        class Watched extends Native {
+            constructor(config?: RTCConfiguration) {
+                super(config);
+                (window as unknown as Held).floePc = this;
+            }
+        }
+        window.RTCPeerConnection = Watched;
+    });
+    return ctx;
+}
+
+/** Every status region in the transfer card. */
+const regions = (page: Page) => page.getByRole('main').getByRole('status');
+
+/** What each region in the card says, read once and not retried: a retrying
+ *  check could wait out a send and pass on whatever came after it. */
+const regionsNow = (page: Page) => regions(page).allTextContents();
+
+/** The status line under the link, never its words in a status region. */
+const statusLine = (page: Page, text: string | RegExp) =>
+    page.getByText(text, { exact: true }).and(page.locator(':not([role="status"])'));
+
+test('a screen reader hears once that every file left, and never a file name', async ({ browser }) => {
+    const { path: fixturePath } = createFixture(FIXTURE_DIR, 24 * 1024 * 1024);
+    const senderCtx = await senderContext(browser);
+    const firstCtx = await confirmingReceiver(browser);
+    const secondCtx = await receiverContext(browser);
+    const senderPage = await senderCtx.newPage();
+
+    try {
+        // Before the link, the drop zone's own region is the card's one.
+        await senderPage.goto('/');
+        await senderPage.locator('input[type="file"]').setInputFiles(fixturePath);
+        expect(await regionsNow(senderPage), 'files picked, no link yet').toEqual(['']);
+
+        await senderPage.locator('button', { hasText: /create secure link/i }).click();
+        const linkEl = senderPage.locator('code').filter({ hasText: SHARE_LINK_TEXT });
+        await expect(linkEl).toBeVisible({ timeout: 10_000 });
+        const link = (await linkEl.textContent())!.trim();
+        // The region is on the page before anything is sent, and says nothing.
+        expect(await regionsNow(senderPage), 'the link waits').toEqual(['']);
+
+        // A receiver connected and a file on its way: still nothing.
+        await slowDown(senderPage);
+        const firstPage = await firstCtx.newPage();
+        await firstPage.goto(link);
+        await expect(statusLine(senderPage, /^Sending: /)).toBeVisible({ timeout: 45_000 });
+        expect(await regionsNow(senderPage), 'while the file is sent').toEqual(['']);
+        await slowDown(senderPage, false);
+
+        // Every file left: the line's words.
+        await expect(statusLine(senderPage, 'All Files Sent!')).toBeVisible({ timeout: 60_000 });
+        expect(await regionsNow(senderPage), 'every file left').toEqual(['All Files Sent!']);
+        // The receiver's report turns the check green a moment later. Its words
+        // stay out of the region, as on the receiving card.
+        await expect(senderPage.locator('[data-mark="verified"]')).toBeVisible({ timeout: 15_000 });
+        expect(await regionsNow(senderPage), 'every file matched').toEqual(['All Files Sent!']);
+        // Nothing is drawn for the region: the line is what shows.
+        expect(await regions(senderPage).boundingBox(), 'the region is drawn on screen').toMatchObject({ width: 1, height: 1 });
+
+        // The receiver closes its connection, then leaves the room. Each
+        // rewrites the status line, the same result each time, and the region
+        // keeps its words, so nothing is announced again.
+        await firstPage.evaluate(() => (window as unknown as Held).floePc?.close());
+        await expect(statusLine(senderPage, 'Connection interrupted')).toBeVisible({ timeout: 15_000 });
+        expect(await regionsNow(senderPage), 'under Connection interrupted').toEqual(['All Files Sent!']);
+        await firstCtx.close();
+        await expect(statusLine(senderPage, 'Transfer complete')).toBeVisible({ timeout: 15_000 });
+        expect(await regionsNow(senderPage), 'under Transfer complete').toEqual(['All Files Sent!']);
+
+        // The next receiver starts a new send, and stops in the middle of the
+        // file. The red banner says so, and is the one announcement of it.
+        await slowDown(senderPage);
+        const secondPage = await secondCtx.newPage();
+        await secondPage.goto(link);
+        await expect(statusLine(senderPage, /^Sending: /)).toBeVisible({ timeout: 45_000 });
+        expect(await regionsNow(senderPage), 'the next send').toEqual(['']);
+        await stopMidFile(senderPage, secondPage);
+        await expect(senderPage.getByRole('main').getByRole('alert')).toContainText(INTERRUPTED_BANNER, { timeout: 15_000 });
+        await expect(statusLine(senderPage, 'Connection interrupted')).toBeVisible();
+        expect(await regionsNow(senderPage), 'a send that failed').toEqual(['']);
+    } finally {
+        await senderCtx.close();
+        try { await firstCtx.close(); } catch { /* already closed mid-test */ }
+        await secondCtx.close();
     }
 });

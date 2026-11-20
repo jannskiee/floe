@@ -58,9 +58,22 @@ export function ShareLinkPanel({
     // name (WCAG 2.5.3, Label in Name), aria-expanded says whether the QR is
     // open, and aria-controls points at this id while the QR block exists.
     const qrId = useId();
+    // How the send ended, in the status line's words at that moment. Keyed on
+    // the latched end, not the sentence: the line is rewritten after a
+    // delivered send ("Connection interrupted", "Transfer complete"), and the
+    // region keeps its words so the end is announced once. Empty until then,
+    // so "Sending: <name>" is never announced, and empty for a send that
+    // failed, where the red banner says why.
+    const endLine = sendEnd === 'delivered' ? 'All Files Sent!' : '';
 
     return (
         <div className="rounded-xl bg-black/40 p-4 border border-white/[0.08] mb-4">
+            {/* The panel's one status region, mounted with it and empty until
+                every file has left: NVDA and JAWS only announce a change to a
+                region that was already on the page (WCAG 2.2 SC 4.1.3). The
+                status line below stays a plain line, and "SHA-256 matched"
+                stays out of the region. */}
+            <span role="status" className="sr-only">{endLine}</span>
             <div className="group">
                 <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500 mb-2">
                     Share link
