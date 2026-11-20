@@ -281,6 +281,11 @@ export function P2PTransfer() {
     const createButtonRef = useRef<HTMLButtonElement>(null);
     const copyButtonRef = useRef<HTMLButtonElement>(null);
     const focusCopyRef = useRef(false);
+    // Dismiss goes away with the banner it closes. dismissedRef says the error
+    // was cleared by that press, so focus moves to the first control in the
+    // card's content once the banner is gone (see the error effect).
+    const contentRef = useRef<HTMLDivElement>(null);
+    const dismissedRef = useRef(false);
     const chooseFilesInputRef = useRef<HTMLInputElement>(null);
     const addMoreInputRef = useRef<HTMLInputElement>(null);
     const pickHeldFocusRef = useRef(false);
@@ -1163,6 +1168,15 @@ export function P2PTransfer() {
         if (document.activeElement === document.body) copyButtonRef.current?.focus();
     }, [generatedLink]);
 
+    // Hands focus to the control that followed the banner after Dismiss, only
+    // while the page body holds focus.
+    useEffect(() => {
+        if (error || !dismissedRef.current) return;
+        dismissedRef.current = false;
+        if (document.activeElement !== document.body) return;
+        contentRef.current?.querySelector<HTMLElement>('a[href], button:not(:disabled), input:not(:disabled)')?.focus();
+    }, [error]);
+
     useEffect(() => {
         const hasFiles = files.length > 0;
         if (zoneHasFilesRef.current === hasFiles) return;
@@ -1835,7 +1849,7 @@ export function P2PTransfer() {
                     />
                 </CardHeader>
 
-                <CardContent className="space-y-4">
+                <CardContent ref={contentRef} className="space-y-4">
                     {isLinkInvalid(error) ? (
                         <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
                             <div className="h-16 w-16 rounded-full bg-red-500/10 flex items-center justify-center mb-2">
@@ -1868,7 +1882,10 @@ export function P2PTransfer() {
                                     <button
                                         type="button"
                                         aria-label="Dismiss"
-                                        onClick={() => setError('')}
+                                        onClick={() => {
+                                            dismissedRef.current = true;
+                                            setError('');
+                                        }}
                                         className="relative before:absolute before:-inset-3.5 text-red-400 hover:text-red-300"
                                     >
                                         <X className="h-4 w-4" />
