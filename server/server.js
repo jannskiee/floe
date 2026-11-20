@@ -108,11 +108,27 @@ function rejectBadRoomId(peer, roomId) {
     return true;
 }
 
+// The one origin CLIENT_URL may add, read the way a browser writes its own
+// Origin: the scheme, the host name in lower case, and the port only when it
+// is not the scheme's default. Letter case, a spelled-out default port, a
+// path and a trailing slash then make no difference, so an address pasted
+// from a location bar still matches. Only http: and https: count, because
+// they are the schemes a page's Origin can arrive with; any other value, and
+// any value that does not parse, lets no browser in, so it adds nothing.
+function clientUrlOrigin(value) {
+    if (!value) return null;
+    let url;
+    try {
+        url = new URL(value);
+    } catch {
+        return null;
+    }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    return url.origin;
+}
+
 const allowedOrigins = [
-    // One trailing slash dropped: a browser's Origin never ends with one, so
-    // an address copied from the location bar (https://app.example.com/)
-    // matched nothing and refused the operator's own web app.
-    process.env.CLIENT_URL && process.env.CLIENT_URL.replace(/\/$/, ''),
+    clientUrlOrigin(process.env.CLIENT_URL),
     'https://www.floe.one',
     'https://floe.one',
     'http://localhost:3000',

@@ -242,7 +242,7 @@ Both are in the [Configuration reference](https://www.floe.one/docs/self-hosting
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `CLIENT_URL` | Prod | One extra frontend origin, matched exactly. The server allows it for browser requests (CORS) and for WebSocket connections, on Socket.IO and on `/ws`. `http://localhost:3000` is always allowed, so this is only needed for another origin (production). |
+| `CLIENT_URL` | Prod | One extra frontend origin, read as a URL: the scheme, the hostname and the port have to match, while letter case, a default port, a path and a trailing slash make no difference. The server allows it for browser requests (CORS) and for WebSocket connections, on Socket.IO and on `/ws`. `http://localhost:3000` is always allowed, so this is only needed for another origin (production). |
 | `PORT` | No | Signaling server port (default: `3001`) |
 | `NODE_ENV` | No | Standard Node.js runtime flag (`development` or `production`). Floe's own server code never reads it; Express and some dependencies do, and `server/.env.example` sets `production`. |
 | `TRUSTED_PROXY_COUNT` | No | Trusted reverse-proxy hop count for correct client-IP parsing and rate limiting (default: `1`). Set to `0` for direct exposure with no proxy. Docker Compose passes `0` unless you set it. |

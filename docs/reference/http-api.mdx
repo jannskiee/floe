@@ -337,9 +337,10 @@ you set a value and nothing happens. See
 ## Behavior shared by every endpoint {#behavior-shared-by-every-endpoint}
 
 **CORS.** Browser requests are checked against an allow-list: whatever you set as `CLIENT_URL`,
-plus `https://floe.one`, `https://www.floe.one`, and `http://localhost:3000`. The match is exact,
-including the scheme and with no trailing slash, and `CLIENT_URL` holds **one** origin. A
-comma-separated list matches nothing. Requests with no `Origin` header always pass. HTTP has no
+plus `https://floe.one`, `https://www.floe.one`, and `http://localhost:3000`. The match covers the
+scheme, the hostname and the port; letter case, a default port, a path and a trailing slash
+make no difference, and `CLIENT_URL` holds **one** origin. A comma-separated list never adds a
+second origin. Requests with no `Origin` header always pass. HTTP has no
 same-host rule: an `Origin` that names the server's own host is refused unless it is on the list.
 
 An HTTP request from a rejected origin does not come back as a recognizable CORS error. The server
