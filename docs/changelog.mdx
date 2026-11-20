@@ -45,11 +45,20 @@ Versions work together down to these floors, as measured against the current cod
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
-<Update label="Unreleased" tags={["Desktop", "CLI"]}>
+<Update label="Unreleased" tags={["Desktop"]}>
   **Keyboard focus no longer falls to the page when the update notice closes**
 
   - Closing the **Update available** notice with its **X**, **Get update** or **Escape** now moves keyboard focus to the **Files** or **Text** tab, or to the title bar's **Settings** button on a screen without them. Focus used to fall to the page. Contributed by [@tridev-tej](https://github.com/tridev-tej).
+  - A folder given as `..` on the command line that starts Floe, or as any folder path that ends in `..`, now sends each file under its place inside that folder. The names used to start with `../`, and a full path such as `C:\Users\you\Downloads\..` dropped `Downloads` from the names of the files in it. Contributed by [@Detoy](https://github.com/Detoy).
+</Update>
+
+<Update label="v1.12.3" description="2026-11-20" tags={["Web", "CLI", "Self-hosting"]}>
+  **On the web app, screen readers hear how a receive ended and the download buttons keep keyboard focus, and `floe send ..` names each file by its place inside the folder**
+
+  - On the receiving page, screen readers now announce how a receive ended, such as "3 files received" or that the transfer ended before the rest arrived. The completion line was never announced, and the early end was missed by NVDA and JAWS. Contributed by [@cschmertz](https://github.com/cschmertz).
+  - **Download All** and **Download ZIP** on the receiving page now keep keyboard focus while they run and after, and, as before, are dimmed and ignore a press while one runs. Focus used to fall to the page. Contributed by [@redwing509](https://github.com/redwing509).
   - CLI: `floe send ..`, `floe send ../..` and a folder path that ends in `..` now send each file under its place inside that folder, as `floe send ../` does. Their names used to start with `../`, a full path such as `~/Downloads/..` dropped `Downloads` from the names of the files in it, and `floe send .. ../` sent every file twice. Contributed by [@Detoy](https://github.com/Detoy).
+  - Self-hosting: the published images are rebuilt as `1.12.3`, with the web app changes above. If you pinned `FLOE_IMAGE_TAG=1.12.2`, move to `1.12.3`.
 </Update>
 
 <Update label="v1.12.2" description="2026-11-18" tags={["Web", "CLI", "Self-hosting"]}>

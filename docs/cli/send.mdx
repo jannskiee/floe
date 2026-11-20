@@ -197,7 +197,11 @@ floe send ./documents/
 
 The same applies to a trailing backslash on Windows. Shell tab-completion often adds one, so drop it
 if you want the folder's name kept. `floe send .` works the same way: it sends what is in the
-current folder, without that folder's name.
+current folder, without that folder's name. So does `floe send ..`, and any other folder path that
+ends in `..`, such as `~/Downloads/..`: it sends what is in that folder, without the folder's name,
+as `floe send ../` does. `floe` 1.12.2 and earlier sent those files under names that started with
+`../`, except that `~/Downloads/..` sent the files inside `Downloads` without that folder in their
+names.
 
 A file you name directly arrives under its own name only: `floe send a/b/report.pdf` arrives as
 `report.pdf`. Two files with the same name from different folders arrive on `floe receive` and Floe
