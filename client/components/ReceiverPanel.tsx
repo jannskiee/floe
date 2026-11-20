@@ -72,8 +72,18 @@ export function ReceiverPanel({
     // on screen for the length of the check.
     const busy = status.includes('Receiving') || status.includes('Verifying');
     const showBulk = bulkDownloadShown({ received: receivedFiles.length, busy });
+    // How the receive ended, in the words of the line at the foot of the card:
+    // the short sentence, or the completion line once no file is arriving.
+    // Empty until then, so per-file progress is never announced.
+    const endLine = summary.kind === 'short' || (summary.kind === 'complete' && !busy) ? summary.text : '';
     return (
         <div className="space-y-3 pt-2">
+            {/* The card's one status region, mounted with it and empty until
+                the receive ends: NVDA and JAWS only announce a change to a
+                region that was already on the page (WCAG 2.2 SC 4.1.3). First
+                in the card, because space-y-3 gives every child but the last
+                a bottom margin. */}
+            <span role="status" className="sr-only">{endLine}</span>
             {/* Handshake pipeline: what has happened and what comes next, for
                 an attempt that is under way. Not after one that ended with
                 nothing, where the banner is the whole account. */}
@@ -193,7 +203,7 @@ export function ReceiverPanel({
                 check belongs to a full count alone. It used to follow the list,
                 so one file of three with the sender gone read as finished. */}
             {summary.kind === 'short' ? (
-                <div role="status" className="flex w-full items-start justify-center gap-2 text-xs leading-relaxed text-amber-300 pt-2">
+                <div className="flex w-full items-start justify-center gap-2 text-xs leading-relaxed text-amber-300 pt-2">
                     <AlertTriangle className="h-3 w-3 shrink-0 mt-[3px] text-amber-400" />
                     <span>{summary.text}</span>
                 </div>
