@@ -12,23 +12,34 @@ import (
 	"strings"
 )
 
+// startFolder launches a folder-opening command without waiting: explorer.exe
+// in particular can return a non-zero exit code even on success, and we only
+// care that it started.
+var startFolder = func(c *exec.Cmd) error { return c.Start() }
+
+// folderCmd returns the command that opens dir in the OS file manager.
+func folderCmd(goos, dir string) *exec.Cmd {
+	switch goos {
+	case "windows":
+		return exec.Command("explorer", dir)
+	case "darwin":
+		return exec.Command("open", dir)
+	default:
+		return exec.Command("xdg-open", dir)
+	}
+}
+
 // OpenFolder reveals the given path in the OS file manager.
 func (a *App) OpenFolder(path string) error {
 	if path == "" {
 		return fmt.Errorf("no path to open")
 	}
-	var cmd *exec.Cmd
-	switch goruntime.GOOS {
-	case "windows":
-		cmd = exec.Command("explorer", path)
-	case "darwin":
-		cmd = exec.Command("open", path)
-	default:
-		cmd = exec.Command("xdg-open", path)
+	if filepath.IsAbs(path) {
+		if d := nearestDir(path); d != "" {
+			path = d
+		}
 	}
-	// Launch without waiting: explorer.exe in particular can return a non-zero
-	// exit code even on success, and we only care that it started.
-	return cmd.Start()
+	return startFolder(folderCmd(goruntime.GOOS, path))
 }
 
 // fileExists reports whether p exists and is a regular file (not a directory).
