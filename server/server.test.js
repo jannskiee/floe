@@ -2266,6 +2266,47 @@ describe('Socket.IO client files', () => {
     }
 });
 
+describe('ws version floor', () => {
+    // GHSA-37g9-w4hg-h9qr (high, 2026-11-12): before 8.23.0, ws answers every
+    // Ping frame with an automatic pong and queues those pongs with no bound,
+    // so one client that stops reading can run this process out of memory,
+    // with no link or code. The advisory is published in the ws repository
+    // only, so neither npm audit nor Dependabot reports it, and this test is
+    // the check. The "ws": "$ws" override in package.json makes engine.io load
+    // this server's copy; both resolutions are pinned, so a lockfile that
+    // nested an older ws under engine.io fails here too.
+    function packageAt(name, fromDir) {
+        // engine.io's exports map hides its package.json, so walk up from the
+        // resolved entry point to the folder whose package.json names it.
+        let dir = path.dirname(require.resolve(name, { paths: [fromDir] }));
+        for (;;) {
+            const file = path.join(dir, 'package.json');
+            if (fs.existsSync(file)) {
+                const meta = JSON.parse(fs.readFileSync(file, 'utf8'));
+                if (meta.name === name) return { dir, version: meta.version };
+            }
+            const up = path.dirname(dir);
+            assert.notEqual(up, dir, `no package.json found for ${name}`);
+            dir = up;
+        }
+    }
+    function atLeast(version, floor) {
+        const parts = version.split('.').map(Number);
+        for (let i = 0; i < floor.length; i++) {
+            if (parts[i] !== floor[i]) return parts[i] > floor[i];
+        }
+        return true;
+    }
+
+    it('this server and engine.io both load ws 8.23.0 or later', () => {
+        const engine = packageAt('engine.io', packageAt('socket.io', __dirname).dir);
+        for (const [who, from] of [['server.js', __dirname], ['engine.io', engine.dir]]) {
+            const ws = packageAt('ws', from);
+            assert.ok(atLeast(ws.version, [8, 23, 0]), `${who} loads ws ${ws.version}, below 8.23.0`);
+        }
+    });
+});
+
 // ---------------------------------------------------------------------------
 // WebSocket liveness and backpressure
 // ---------------------------------------------------------------------------
