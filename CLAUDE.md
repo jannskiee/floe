@@ -54,7 +54,7 @@ go build ./cmd/floe    # local binary
 go test ./...          # run all tests
 ```
 
-The CLI uses GoReleaser for cross-platform distribution; version is injected via `-ldflags "-X main.version={{ .Version }}"`, which carries NO leading `v` (a v1.12.3 tag produces a binary that prints `floe 1.12.3`). The desktop app differs: desktop-release.yml injects the tag verbatim (`desktop-v1.1.1`).
+The CLI uses GoReleaser for cross-platform distribution; version is injected via `-ldflags "-X main.version={{ .Version }}"`, which carries NO leading `v` (a v1.12.4 tag produces a binary that prints `floe 1.12.4`). The desktop app differs: desktop-release.yml injects the tag verbatim (`desktop-v1.1.2`).
 
 ### Desktop (Wails)
 ```bash
@@ -75,7 +75,7 @@ wails build            # production build -> build/bin/
 
 **Server** - copy `server/.env.example` to `server/.env`. The block says what each variable is for; the example file holds the working values (it sets `NODE_ENV=production`, `TRUSTED_PROXY_COUNT=0` for a direct run, and the six per-IP and code `MAX_*` limits to their defaults):
 ```
-CLIENT_URL=http://localhost:3000   # one extra allowed origin, exact match once one trailing slash is dropped: HTTP CORS and the WebSocket origin check (/ws and Socket.IO)
+CLIENT_URL=http://localhost:3000   # one extra allowed origin, read as a URL and compared by its origin (letter case, a default port, a path and a trailing slash make no difference; only http: and https: count): HTTP CORS and the WebSocket origin check (/ws and Socket.IO)
 PORT=3001
 CLOUDFLARE_TURN_KEY_ID=      # optional, managed Cloudflare Realtime TURN (takes precedence)
 CLOUDFLARE_TURN_KEY_API_TOKEN= # optional, pairs with the key ID above
