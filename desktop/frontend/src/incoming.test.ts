@@ -34,4 +34,33 @@ describe('fmtBytes', () => {
         expect(fmtBytes(1536)).toBe('1.5 KB');
         expect(fmtBytes(1048576)).toBe('1.0 MB');
     });
+
+    // The unit is chosen after rounding. Chosen from the raw count, a count
+    // just under the next unit rounded up to 1024.0 in the unit below: from
+    // 1048525 bytes (1023.95 KB) up, it read "1024.0 KB".
+    // client/lib/utils.test.ts and cli/engine/transfer/format_test.go pin the
+    // same boundaries.
+    it('reads a count just under the next unit in that unit', () => {
+        expect(fmtBytes(1048525)).toBe('1.0 MB');
+        expect(fmtBytes(1024 ** 2 - 1)).toBe('1.0 MB');
+        expect(fmtBytes(1073689396)).toBe('1.0 GB');
+        expect(fmtBytes(1024 ** 3 - 1)).toBe('1.0 GB');
+        expect(fmtBytes(1099457940685)).toBe('1.0 TB');
+        expect(fmtBytes(1024 ** 4 - 1)).toBe('1.0 TB');
+    });
+
+    it('stays in TB, the last unit, just under a petabyte', () => {
+        expect(fmtBytes(1024 ** 5 - 1)).toBe('1024.0 TB');
+        expect(fmtBytes(1024 ** 5)).toBe('1024.0 TB');
+    });
+
+    it('leaves a count that rounds below 1024 where it was', () => {
+        expect(fmtBytes(1000)).toBe('1000 B');
+        expect(fmtBytes(1048524)).toBe('1023.9 KB');
+        expect(fmtBytes(1073689395)).toBe('1023.9 MB');
+        expect(fmtBytes(1099457940684)).toBe('1023.9 GB');
+        expect(fmtBytes(512 * 1024)).toBe('512.0 KB');
+        expect(fmtBytes(1024 ** 3)).toBe('1.0 GB');
+        expect(fmtBytes(1024 ** 4)).toBe('1.0 TB');
+    });
 });

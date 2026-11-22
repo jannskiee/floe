@@ -28,10 +28,10 @@ export function fmtSpeed(bps: number): string {
     if (!isFinite(bps) || bps <= 0) return '';
     // One decimal on BOTH branches. toFixed(0) on the KB branch printed
     // "0 KB/s" while bytes were still moving, and lost a significant digit
-    // at every rate under a megabyte.
-    return bps >= 1024 * 1024
-        ? (bps / 1048576).toFixed(1) + ' MB/s'
-        : (bps / 1024).toFixed(1) + ' KB/s';
+    // at every rate under a megabyte. MB/s once that KB/s figure reaches
+    // 1024.0, so a rate just under a mebibyte no longer reads "1024.0 KB/s".
+    const kb = (bps / 1024).toFixed(1);
+    return parseFloat(kb) >= 1024 ? (bps / 1048576).toFixed(1) + ' MB/s' : kb + ' KB/s';
 }
 
 export function fmtEta(sec: number): string {

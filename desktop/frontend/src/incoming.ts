@@ -13,11 +13,18 @@ export interface IncomingPreview {
 
 // fmtBytes renders a byte count the way the rest of the app does (also used by
 // the progress label and history rows in App.tsx).
+// The unit is settled after rounding, as in client/lib/utils.ts: a count that
+// rounds to 1024.0 in one unit steps up to the next, unless it is already TB.
 export function fmtBytes(n: number): string {
     if (!n || n < 0) return '0 B';
     const u = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.min(u.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
-    return (n / Math.pow(1024, i)).toFixed(i ? 1 : 0) + ' ' + u[i];
+    let i = Math.min(u.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
+    let text = (n / Math.pow(1024, i)).toFixed(i ? 1 : 0);
+    if (parseFloat(text) >= 1024 && i < u.length - 1) {
+        i += 1;
+        text = (n / Math.pow(1024, i)).toFixed(1);
+    }
+    return text + ' ' + u[i];
 }
 
 // formatIncoming renders the pre-transfer preview line, mirroring the CLI's

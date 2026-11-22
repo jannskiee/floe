@@ -3,6 +3,7 @@ package transfer
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -34,23 +35,31 @@ func formatBytes(n int64) string {
 	if i >= len(units) {
 		i = len(units) - 1
 	}
-	val := float64(n) / math.Pow(k, float64(i))
+	text := fmt.Sprintf("%.2f", float64(n)/math.Pow(k, float64(i)))
+	// The unit is settled after rounding: 1048575 bytes is 1023.999 KB, which
+	// rounds to "1024.00", so it steps up and reads "1 MB". TB is the last
+	// unit, so a count just under a petabyte still reads "1024 TB".
+	if val, err := strconv.ParseFloat(text, 64); err == nil && val >= k && i < len(units)-1 {
+		i++
+		text = fmt.Sprintf("%.2f", float64(n)/math.Pow(k, float64(i)))
+	}
 	// Trim trailing zeros after decimal (e.g. "1.20 GB" → "1.2 GB")
-	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.2f", val), "0"), ".") + " " + units[i]
+	return strings.TrimRight(strings.TrimRight(text, "0"), ".") + " " + units[i]
 }
 
-// formatSpeed renders a byte rate for the progress line: one decimal, MB/s at
-// a megabyte and above, KB/s below, "" when the rate is not a positive finite
-// number. formatSpeed in client/lib/transferUtils.ts and fmtSpeed in
+// formatSpeed renders a byte rate for the progress line: one decimal, MB/s
+// once the KB/s figure would round to 1024.0, KB/s below, "" when the rate is
+// not a positive finite number. formatSpeed in client/lib/transferUtils.ts and fmtSpeed in
 // desktop/frontend/src/progress.ts print the same shape; keep the three in step.
 func formatSpeed(bytesPerSec float64) string {
 	if !isFinitePositive(bytesPerSec) {
 		return ""
 	}
-	if bytesPerSec >= 1024*1024 {
+	kb := fmt.Sprintf("%.1f", bytesPerSec/1024)
+	if val, err := strconv.ParseFloat(kb, 64); err == nil && val >= 1024 {
 		return fmt.Sprintf("%.1f MB/s", bytesPerSec/1024/1024)
 	}
-	return fmt.Sprintf("%.1f KB/s", bytesPerSec/1024)
+	return kb + " KB/s"
 }
 
 // formatDuration renders an ETA for the progress line: "Ns" under a minute,
