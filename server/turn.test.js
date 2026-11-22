@@ -228,3 +228,95 @@ describe('Cloudflare TURN mint and cache', () => {
         assert.equal(usernameOf(await turn.generateCloudflareIceServers()), 'u1');
     });
 });
+
+describe('relayState with Cloudflare keys', () => {
+    // The coturn pair could come from the shell that runs the suite; without
+    // it a lapsed Cloudflare copy reads 'stun', as the handler then serves.
+    let savedCoturn;
+    beforeEach(() => {
+        clock = 1_000_000;
+        Date.now = () => clock;
+        console.error = () => {};
+        turn.__resetCfCacheForTests();
+        savedCoturn = { TURN_SECRET: process.env.TURN_SECRET, TURN_DOMAIN: process.env.TURN_DOMAIN };
+        delete process.env.TURN_SECRET;
+        delete process.env.TURN_DOMAIN;
+    });
+
+    afterEach(() => {
+        globalThis.fetch = realFetch;
+        Date.now = realNow;
+        console.error = realConsoleError;
+        for (const [key, value] of Object.entries(savedCoturn)) {
+            if (value === undefined) delete process.env[key];
+            else process.env[key] = value;
+        }
+    });
+
+    const failing = async () => ({ ok: false, status: 503, json: async () => ({}) });
+    // A /health poll must never mint: any fetch while reading fails the test.
+    function readState() {
+        const before = globalThis.fetch;
+        globalThis.fetch = async () => { throw new Error('relayState fetched'); };
+        try { return turn.relayState(); } finally { globalThis.fetch = before; }
+    }
+
+    it('reads cloudflare before anything was minted, without minting', () => {
+        assert.equal(readState(), 'cloudflare');
+    });
+
+    it('walks cloudflare, cloudflare-failing, stun and back as mints fail and recover', async () => {
+        globalThis.fetch = async () => iceResponse('u1');
+        await turn.generateCloudflareIceServers();
+        assert.equal(readState(), 'cloudflare');
+
+        // One failed refresh is noise: the copy is still served.
+        globalThis.fetch = failing;
+        clock += turn.CF_CACHE_MS + 1;
+        await turn.generateCloudflareIceServers();
+        await drain();
+        assert.equal(readState(), 'cloudflare');
+
+        // A second in a row, while the last copy is still served.
+        clock += turn.CF_CACHE_MS + 1;
+        await turn.generateCloudflareIceServers();
+        await drain();
+        assert.equal(readState(), 'cloudflare-failing');
+
+        // Past CF_STALE_MS the copy is no longer served, and the handler
+        // answers with STUN only.
+        clock = 1_000_000 + turn.CF_STALE_MS + 1;
+        assert.equal(readState(), 'stun');
+
+        // The next good mint clears it.
+        globalThis.fetch = async () => iceResponse('u2');
+        clock += turn.CF_CACHE_MS + 1;
+        assert.equal(usernameOf(await turn.generateCloudflareIceServers()), 'u2');
+        assert.equal(readState(), 'cloudflare');
+    });
+
+    it('a quiet server whose last good copy aged out still reads cloudflare', async () => {
+        // Nothing mints without a request, so a self-host nobody used for a
+        // day must not read as a dead relay: its next request mints.
+        globalThis.fetch = async () => iceResponse('u1');
+        await turn.generateCloudflareIceServers();
+        clock += turn.CF_STALE_MS + 1;
+        assert.equal(readState(), 'cloudflare');
+        globalThis.fetch = async () => iceResponse('u2');
+        assert.equal(usernameOf(await turn.generateCloudflareIceServers()), 'u2');
+    });
+
+    it('a first mint that fails reads stun, which is what the handler then serves', async () => {
+        globalThis.fetch = failing;
+        assert.equal(await turn.generateCloudflareIceServers(), null);
+        assert.equal(readState(), 'stun');
+    });
+
+    it('reads coturn once no Cloudflare copy is usable and the coturn pair is set', async () => {
+        process.env.TURN_SECRET = 'test-secret';
+        process.env.TURN_DOMAIN = 'turn.example.com';
+        globalThis.fetch = failing;
+        await turn.generateCloudflareIceServers();
+        assert.equal(readState(), 'coturn');
+    });
+});

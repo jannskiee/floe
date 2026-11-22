@@ -3219,7 +3219,11 @@ describe('policy', () => {
         const body = health();
         assert.equal(body.status, 'healthy');
         assert.equal(typeof body.uptime, 'number');
-        assert.deepEqual(Object.keys(body), ['status', 'uptime', 'features']);
+        // relay last, so status stays first. Its value is pinned in
+        // turn.test.js and turn-fallback.test.js: this file loads server/.env,
+        // so what it reads here depends on the machine.
+        assert.deepEqual(Object.keys(body), ['status', 'uptime', 'features', 'relay']);
+        assert.equal(typeof body.relay, 'string');
     });
 });
 

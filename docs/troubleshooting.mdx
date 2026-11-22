@@ -2425,8 +2425,10 @@ variables gets a line starting `Only one of`, and a `TURN_DOMAIN` that holds mor
 line starting `TURN_DOMAIN holds`. Upstash settings that do not work get one `Upstash counter` line:
 `read failed` at startup, or `update failed` at the first report. A server image of version 1.11.7 or earlier writes none of these last three.
 
-Use `GET /health`, which returns `{"status":"healthy","uptime":<seconds>,"features":[...]}`, to
-confirm the server is alive and to see whether a restart landed.
+Use `GET /health`, which returns `{"status":"healthy","uptime":<seconds>,"features":[...],"relay":"..."}`, to
+confirm the server is alive and to see whether a restart landed. `relay` reads `stun` when clients
+get no relay credentials at all, and `cloudflare-failing` when the last two requests to Cloudflare
+for new ones failed.
 
 ## Still stuck {#still-stuck}
 

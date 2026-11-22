@@ -54,12 +54,19 @@ function coturnDomainOk(domain) {
     return !domain.startsWith('[') || net.isIPv6(domain.slice(1, -1));
 }
 
+// Whether generateCoturnCredentials would answer: both halves of the pair, and
+// a TURN_DOMAIN that is a host name alone. Read at call time, as it is.
+function coturnConfigured() {
+    const turnSecret = process.env.TURN_SECRET;
+    const turnDomain = process.env.TURN_DOMAIN;
+    return Boolean(turnSecret && turnDomain && coturnDomainOk(turnDomain));
+}
+
 function generateCoturnCredentials() {
+    if (!coturnConfigured()) return null;
     const turnSecret = process.env.TURN_SECRET;
     const turnDomain = process.env.TURN_DOMAIN;
     const turnTls = process.env.TURN_TLS;
-    if (!turnSecret || !turnDomain) return null;
-    if (!coturnDomainOk(turnDomain)) return null;
 
     // 24h, matching CF_TURN_TTL below. Do not shorten: every sender fetches ICE
     // credentials BEFORE its wait for a peer, that wait is intentionally
@@ -131,6 +138,11 @@ const CF_FETCH_TIMEOUT_MS = 10_000;
 let cfIceCache = { servers: null, expires: 0, mintedAt: 0 };
 let cfInflight = null;           // the one mint in flight, or null
 let cfNextMintAt = 0;            // no mint starts before this, after a success or a failure
+// Mints that failed in a row, reset by a success. relayState reads it: one
+// failure is noise (a timeout, one 5xx), and two in a row are a key Cloudflare
+// has refused for one whole CF_CACHE_MS window while its last copy is served.
+let cfFailedMints = 0;
+const CF_FAILING_AFTER = 2;
 
 // selectMinimalIceUrls reduces Cloudflare's full URL list (8 entries: STUN on two
 // ports plus TURN duplicated across udp/tcp/tls on :53/:80/:443/:3478/:5349) to
@@ -196,14 +208,37 @@ async function startCloudflareMint() {
     cfNextMintAt = Date.now() + CF_CACHE_MS;
     try {
         const servers = await mintCloudflareIceServers();
-        if (servers) return servers;
+        if (servers) {
+            cfFailedMints = 0;
+            return servers;
+        }
     } catch {
         // mintCloudflareIceServers catches its own errors; this arm only keeps a
         // future change there from turning into a rejection here.
     } finally {
         cfInflight = null;
     }
+    cfFailedMints++;
     return usableCloudflareCopy(Date.now());
+}
+
+// What GET /api/turn-credentials would serve right now, as one word for
+// /health: 'cloudflare' (no mint has failed since the last good one, so the
+// next request is served from Cloudflare whatever the cached copy's age),
+// 'cloudflare-failing' (a copy is still served, but the last CF_FAILING_AFTER
+// mints failed), 'coturn' or 'stun' (the handler's fallbacks, once a mint has
+// failed and no Cloudflare copy is usable). It is the one sign a monitor gets
+// that the relay is going away: status stays "healthy", and a refused key
+// keeps serving its last copy for up to CF_STALE_MS. A quiet server mints
+// nothing, so a copy past CF_STALE_MS with no failure says nothing about the
+// key. Read-only: it never mints, fetches or throws, so a monitor polling
+// /health costs the Cloudflare API nothing.
+function relayState(now = Date.now()) {
+    if (CLOUDFLARE_TURN_KEY_ID && CLOUDFLARE_TURN_KEY_API_TOKEN) {
+        if (cfFailedMints === 0) return 'cloudflare';
+        if (usableCloudflareCopy(now)) return cfFailedMints >= CF_FAILING_AFTER ? 'cloudflare-failing' : 'cloudflare';
+    }
+    return coturnConfigured() ? 'coturn' : 'stun';
 }
 
 // One upstream call. Returns the trimmed server list and caches it, or null
@@ -273,6 +308,7 @@ function __resetCfCacheForTests() {
     cfIceCache = { servers: null, expires: 0, mintedAt: 0 };
     cfInflight = null;
     cfNextMintAt = 0;
+    cfFailedMints = 0;
 }
 
 /** GET /api/turn-credentials. Registered by server.js, before the error handler. */
@@ -300,6 +336,7 @@ module.exports = {
     selectMinimalIceUrls,
     generateCloudflareIceServers,
     turnCredentialsHandler,
+    relayState,
     CF_TURN_TTL,
     CF_CACHE_MS,
     CF_STALE_MS,

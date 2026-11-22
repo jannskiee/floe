@@ -252,11 +252,13 @@ The signaling server exposes two status endpoints:
 
 | Endpoint | Purpose | Response |
 |----------|---------|---------|
-| `GET /health` | Liveness check | `{ "status": "healthy", "uptime": <seconds>, "features": [...] }` |
+| `GET /health` | Liveness check | `{ "status": "healthy", "uptime": <seconds>, "features": [...], "relay": "..." }` |
 | `GET /` | Status and timestamp | `{ "status": "ok", "timestamp": "..." }` |
 
-`features` is `["request-1"]` while request links are on and `[]` while they are off. See
-[HTTP API](/reference/http-api#get-health).
+`features` is `["request-1"]` while request links are on and `[]` while they are off. `relay` says
+where relay credentials come from right now: `cloudflare`, `cloudflare-failing`, `coturn` or `stun`.
+A monitor that checks for `"relay":"cloudflare"` (or `"relay":"coturn"`) hears about a broken relay
+key while `status` still reads `healthy`. See [HTTP API](/reference/http-api#get-health).
 
 Point a monitor at `/health`. It is the only one of the two that survives a
 [one-domain deployment](/self-hosting/reverse-proxy), where `/` belongs to the
