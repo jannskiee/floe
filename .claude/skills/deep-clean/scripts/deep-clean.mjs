@@ -560,11 +560,18 @@ function measure(p) {
     return { bytes, files, newest, capped, sizeIsLowerBound: files > SIZE_CAP };
 }
 
-function human(bytes) {
+// The unit is settled after rounding, as the app's formatters do since #981:
+// 1,048,575 bytes is 1023.999 KB, which prints as 1024.0, so it reads 1.0 MB.
+// GB is the last unit here, so a count just under a terabyte stays in GB.
+export function human(bytes) {
     const u = ['B', 'KB', 'MB', 'GB'];
     let n = bytes;
     let i = 0;
     while (n >= 1024 && i < u.length - 1) {
+        n /= 1024;
+        i += 1;
+    }
+    if (i > 0 && i < u.length - 1 && Number(n.toFixed(1)) >= 1024) {
         n /= 1024;
         i += 1;
     }

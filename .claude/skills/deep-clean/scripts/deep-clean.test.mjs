@@ -29,7 +29,7 @@ import { after, before, describe, it } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import * as deepClean from './deep-clean.mjs';
-import { makeFence, parseFirewall, scanContents } from './deep-clean.mjs';
+import { human, makeFence, parseFirewall, scanContents } from './deep-clean.mjs';
 
 const SCRIPT = fileURLToPath(new URL('./deep-clean.mjs', import.meta.url));
 const DAY = 86400000;
@@ -1737,5 +1737,21 @@ describe('the entry point', () => {
             }
             fs.rmSync(dir, { recursive: true, force: true });
         }
+    });
+});
+
+// The size column chooses its unit after rounding, as the app formatters do
+// since #981, so a count just under the next unit is never printed as 1024.0.
+describe('human', () => {
+    it('reads a count just under the next unit in that unit', () => {
+        assert.equal(human(1024 * 1024 - 1), '1.0 MB');
+        assert.equal(human(1024 ** 3 - 1), '1.0 GB');
+    });
+    it('leaves the rest as it was, and GB as the last unit', () => {
+        assert.equal(human(0), '0 B');
+        assert.equal(human(1023), '1023 B');
+        assert.equal(human(1536), '1.5 KB');
+        assert.equal(human(1048524), '1023.9 KB');
+        assert.equal(human(1024 ** 4 - 1), '1024.0 GB');
     });
 });

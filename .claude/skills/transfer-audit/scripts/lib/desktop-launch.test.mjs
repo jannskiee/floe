@@ -25,6 +25,7 @@ import {
 } from './desktop.mjs';
 import { started } from './proc.mjs';
 import { PhaseError } from './surfaces.mjs';
+import { WINDOWS_ONLY } from './tests/windows-only.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const tmp = () => mkdtempSync(path.join(tmpdir(), 'fu26-launch-'));
@@ -38,7 +39,7 @@ function recorder(pid = 6161) {
     return { calls, detach };
 }
 
-test('launchProcess starts a portable or head exe detached, with its whole planned env and SW_SHOWNOACTIVATE, and notes the launch', async () => {
+test('launchProcess starts a portable or head exe detached, with its whole planned env and SW_SHOWNOACTIVATE, and notes the launch', WINDOWS_ONLY, async () => {
     const dir = tmp();
     try {
         const plan = planLaunch({

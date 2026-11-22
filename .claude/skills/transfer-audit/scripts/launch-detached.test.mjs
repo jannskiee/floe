@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { SPEC_VAR, SW, logWrapped } from './lib/detached.mjs';
 import { main, parseArgs, startsFloe } from './launch-detached.mjs';
+import { WINDOWS_ONLY } from './lib/tests/windows-only.mjs';
 
 function io() {
     const o = { out: [], err: [], calls: [] };
@@ -30,7 +31,7 @@ test('parseArgs: options before --, the command and its args after, usage errors
     assert.match(parseArgs(['wails', 'dev']).error, /unknown argument wails/);
 });
 
-test('startsFloe: the desktop exes and wails dev, nothing else', () => {
+test('startsFloe: the desktop exes and wails dev, nothing else', WINDOWS_ONLY, () => {
     assert.ok(startsFloe('C:\\b\\floe-desktop.exe', []));
     assert.ok(startsFloe('floe-desktop-dev.exe', []));
     assert.ok(startsFloe('wails', ['dev']));
@@ -54,7 +55,7 @@ test('logWrapped: a hidden cmd.exe appending both streams, and no cmd.exe metach
     assert.throws(() => logWrapped('wails', ['dev'], 'C:\\l&x.log'), /cmd\.exe would read/);
 });
 
-test('main: a GUI exe starts directly with the whole env and no spec variable; wails dev with --log goes through the hidden wrapper', async () => {
+test('main: a GUI exe starts directly with the whole env and no spec variable; wails dev with --log goes through the hidden wrapper', WINDOWS_ONLY, async () => {
     const a = io();
     const env = { SystemRoot: 'C:\\Windows', PATH: 'C:\\w', [SPEC_VAR]: 'stale' };
     assert.equal(await main(['--', 'C:\\x\\fg-probe.exe', 'window', '5'], { detach: a.detach, env, out: (s) => a.out.push(s), err: (s) => a.err.push(s) }), 0);

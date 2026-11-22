@@ -73,12 +73,18 @@ function webFor(server) {
 
 const mb = (bytes) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
-// desktop/frontend/src/incoming.ts fmtBytes, for the prompt's P2 line.
+// desktop/frontend/src/incoming.ts fmtBytes, for the prompt's P2 line. Since
+// #981 the unit is settled after rounding, as there.
 function fmtBytes(n) {
     if (!n || n < 0) return '0 B';
     const u = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.min(u.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
-    return (n / Math.pow(1024, i)).toFixed(i ? 1 : 0) + ' ' + u[i];
+    let i = Math.min(u.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
+    let text = (n / Math.pow(1024, i)).toFixed(i ? 1 : 0);
+    if (parseFloat(text) >= 1024 && i < u.length - 1) {
+        i += 1;
+        text = (n / Math.pow(1024, i)).toFixed(1);
+    }
+    return text + ' ' + u[i];
 }
 
 export function fakeRequestDom({

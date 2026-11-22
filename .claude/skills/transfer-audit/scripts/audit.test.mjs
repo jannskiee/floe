@@ -46,6 +46,7 @@ import {
     webHeadRow,
 } from './audit.mjs';
 import { fakeWorld, makeFakeAdapters } from './lib/tests/fake-legs.mjs';
+import { WINDOWS_ONLY } from './lib/tests/windows-only.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url).replace(/\.test\.mjs$/, '.mjs');
 const base = mkdtempSync(path.join(tmpdir(), 'lta-audit-'));
@@ -1837,7 +1838,7 @@ const headArgs = (outDir) => [
     outDir,
 ];
 
-test('head profile --desktop wailsdev calls desktop.buildHead and gates no desktop cell as desktop-unavailable', async () => {
+test('head profile --desktop wailsdev calls desktop.buildHead and gates no desktop cell as desktop-unavailable', WINDOWS_ONLY, async () => {
     const world = fakeWorld();
     const i = headIo(world);
     const outDir = out('head-wailsdev');
@@ -2206,7 +2207,7 @@ test('a desktop adapter without buildHead still logs the pending line and skips 
         );
 });
 
-test('a wailsdev build with no exe path leaves P7 at n/a instead of probing a missing file', async () => {
+test('a wailsdev build with no exe path leaves P7 at n/a instead of probing a missing file', WINDOWS_ONLY, async () => {
     const world = fakeWorld();
     // A release exe staged under --bin-dir is a different build: the
     // wailsdev lane must not adopt it for P2 or P7.

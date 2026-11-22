@@ -56,6 +56,7 @@ import {
     receiverTarget,
     resolveBin,
 } from './cli.mjs';
+import { WINDOWS_ONLY } from './tests/windows-only.mjs';
 
 const FAKE = fileURLToPath(new URL('./tests/fake-floe.mjs', import.meta.url));
 const FIXTURES = fileURLToPath(new URL('./tests/fixtures/', import.meta.url));
@@ -627,7 +628,7 @@ test('CliLeg: route() from the Connected suffix and from the pion trace', async 
     assert.equal(traced.evidence().pion.verdict, 'relay');
 });
 
-test('CliLeg: awaitDone times out on a stall and stop() kills only our pid', async () => {
+test('CliLeg: awaitDone times out on a stall and stop() kills only our pid', WINDOWS_ONLY, async () => {
     const leg = createLeg(
         withMode(fakeOpts({ role: 'sender', files: ['a.bin'] }), 'stall')
     );

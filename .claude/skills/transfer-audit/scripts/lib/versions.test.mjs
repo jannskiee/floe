@@ -29,6 +29,7 @@ import {
     treeShaFor,
     versionStatus,
 } from './versions.mjs';
+import { WINDOWS_ONLY } from './tests/windows-only.mjs';
 
 const root = mkdtempSync(path.join(tmpdir(), 'lta-versions-'));
 after(() => rmSync(root, { recursive: true, force: true }));
@@ -204,7 +205,7 @@ test('commitCurrency, touchesDir, parseWebShaFile, gatingDrift', () => {
     assert.equal(gatingDrift(rows).length, 2);
 });
 
-test('collectVersions with injected gh, exec and fetch', async () => {
+test('collectVersions with injected gh, exec and fetch', WINDOWS_ONLY, async () => {
     mkdirSync(path.join(root, 'cli', 'engine', 'transfer'), {
         recursive: true,
     });
