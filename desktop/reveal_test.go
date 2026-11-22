@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -150,5 +151,45 @@ func TestDefaultReceiveDirFollowsAMovedDownloadsFolder(t *testing.T) {
 	}
 	if got := at(moved); got != moved {
 		t.Errorf("with a Downloads left at home, defaultReceiveDir = %q, want the one Windows names, %q", got, moved)
+	}
+}
+
+func TestFolderCmd(t *testing.T) {
+	dir := `C:\Users\me\Downloads`
+	wantArgs(t, folderCmd("windows", dir).Args, "explorer", dir)
+	wantArgs(t, folderCmd("darwin", dir).Args, "open", dir)
+	wantArgs(t, folderCmd("linux", dir).Args, "xdg-open", dir)
+}
+
+// TestOpenFolderOpensTheNearestFolderThatExists: File Explorer given a gone
+// folder opened Documents when tried. The seam records the command, so no window opens.
+func TestOpenFolderOpensTheNearestFolderThatExists(t *testing.T) {
+	var started []string
+	prev := startFolder
+	startFolder = func(c *exec.Cmd) error { started = c.Args; return nil }
+	t.Cleanup(func() { startFolder = prev })
+	a := &App{}
+	check := func(err error, want []string) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantArgs(t, started, want...)
+		started = nil
+	}
+	root := t.TempDir()
+	want := folderCmd(runtime.GOOS, root).Args
+	gone := filepath.Join(root, "gone")
+	check(a.OpenFolder(root), want)
+	check(a.OpenFolder(gone), want)
+	check(a.OpenFolder(filepath.Join(gone, "deeper")), want)
+	check(a.RevealFile(gone, "a.txt"), want)
+	check(a.OpenFile(gone, "a.txt"), want)
+	// Nothing to walk: a relative path, and on Windows a drive that is not there.
+	rel := filepath.Join("gone", "deeper")
+	check(a.OpenFolder(rel), folderCmd(runtime.GOOS, rel).Args)
+	if runtime.GOOS == "windows" {
+		noDrive := missingDrive() + `\Floe`
+		check(a.OpenFolder(noDrive), folderCmd("windows", noDrive).Args)
 	}
 }
