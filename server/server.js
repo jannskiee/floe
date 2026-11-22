@@ -212,12 +212,15 @@ app.get('/', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISO
 // `features` is read from the policy store on every request, never cached, so
 // it flips in the same cleanup tick as the handlers the store gates. Always
 // present: [] tells a client "new server, request links off" apart from an old
-// server, which has no key at all.
+// server, which has no key at all. `relay` is turn.js's relayState(), last so
+// that status stays first and exactly 'healthy' (Floe Desktop's Test button
+// compares it). Read at request time, after the require below has run.
 function healthHandler(_req, res) {
     res.json({
         status: 'healthy',
         uptime: process.uptime(),
         features: policyStore.requestLinks() ? ['request-1'] : [],
+        relay: relayState(),
     });
 }
 app.get('/health', healthHandler);
@@ -235,6 +238,7 @@ const {
     selectMinimalIceUrls,
     turnCredentialsHandler,
     coturnDomainOk,
+    relayState,
 } = require('./turn');
 
 // A TURN_DOMAIN with a scheme, a port or a path turns the coturn relay off

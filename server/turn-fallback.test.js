@@ -39,6 +39,7 @@ const {
     generateCloudflareIceServers,
     generateCoturnCredentials,
     turnCredentialsHandler,
+    relayState,
 } = require('./turn');
 
 // Tests set TURN_SECRET, TURN_DOMAIN and TURN_TLS at run time; each one gets
@@ -295,5 +296,37 @@ describe('turnCredentialsHandler — without Cloudflare', () => {
 
     it('no handler call above reached the network', () => {
         assert.equal(fetchCalls, 0);
+    });
+});
+
+describe('relayState without Cloudflare keys', () => {
+    beforeEach(saveTurnEnv);
+    afterEach(restoreTurnEnv);
+
+    it('reads stun when nothing is set', () => {
+        assert.equal(relayState(), 'stun');
+    });
+
+    it('reads coturn when both halves of the pair are set', () => {
+        process.env.TURN_SECRET = 'test-secret';
+        process.env.TURN_DOMAIN = 'turn.example.com';
+        assert.equal(relayState(), 'coturn');
+    });
+
+    it('reads stun when only one half is set, or TURN_DOMAIN is more than a host name', () => {
+        process.env.TURN_SECRET = 'test-secret';
+        assert.equal(relayState(), 'stun');
+        delete process.env.TURN_SECRET;
+        process.env.TURN_DOMAIN = 'turn.example.com';
+        assert.equal(relayState(), 'stun');
+        process.env.TURN_SECRET = 'test-secret';
+        process.env.TURN_DOMAIN = 'https://turn.example.com';
+        assert.equal(relayState(), 'stun', 'generateCoturnCredentials turns coturn off for a scheme');
+    });
+
+    it('never reaches the network', () => {
+        const before = fetchCalls;
+        relayState();
+        assert.equal(fetchCalls, before);
     });
 });

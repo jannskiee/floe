@@ -51,7 +51,7 @@ The endpoint to point a monitor at. It survives every deployment layout, includi
 one-domain [reverse proxy](/glossary#reverse-proxy) setup ([Run behind one domain](/self-hosting/reverse-proxy)).
 
 ```json 200 OK
-{ "status": "healthy", "uptime": 1893.4, "features": ["request-1"] }
+{ "status": "healthy", "uptime": 1893.4, "features": ["request-1"], "relay": "cloudflare" }
 ```
 
 <ResponseField name="status" type="string" required>
@@ -67,6 +67,16 @@ one-domain [reverse proxy](/glossary#reverse-proxy) setup ([Run behind one domai
   read fresh on every request, so it follows a policy file edit within a minute. Floe Desktop reads
   it each time you click **Make link**, and makes no request-link call before that. Every server
   from 1.11.0 on sends the field; an older one has no `features` field at all.
+</ResponseField>
+<ResponseField name="relay" type="string">
+  Where relay (TURN) credentials would come from if a client asked now, which `status` never
+  shows: `"cloudflare"`, `"cloudflare-failing"`, `"coturn"` or `"stun"`. `"cloudflare-failing"`
+  means the last two attempts to get new Cloudflare credentials failed while the last good copy is
+  still handed out, which lasts up to about 23 hours. `"stun"` means clients get no relay at all,
+  so a transfer between two networks that block a direct connection fails. Reading it never asks
+  Cloudflare for anything, so a monitor can poll it freely: watch for `"relay":"cloudflare"` (or
+  `"coturn"`) to hear about a broken relay key before it runs out. Older servers have no `relay`
+  field.
 </ResponseField>
 
 Neither endpoint is rate limited, but both pass the same origin check as every other route (see
