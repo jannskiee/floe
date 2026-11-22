@@ -45,12 +45,13 @@ Versions work together down to these floors, as measured against the current cod
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
-<Update label="Unreleased" tags={["Web", "Self-hosting"]}>
-  **The download page offers Floe Desktop 1.1.2**
+<Update label="v1.12.5" description="2026-11-22" tags={["Self-hosting", "Web"]}>
+  **The signaling server limits what it queues for a client that floods it, `/health` reports the relay, and the download page offers Floe Desktop 1.1.2**
 
-  - The floe.one download page now offers Floe Desktop 1.1.2, with its installer, zip and checksums.
-  - Self-hosting: a client that floods the signaling server with pings, asks for a namespace Floe does not have, or starts a binary attachment is now ignored or disconnected, instead of making the server hold a growing queue of replies for it. A page that sends a burst of pings it saved up during an outage keeps its connection.
-  - Self-hosting: `/health` now reports where relay credentials come from (`relay`: `cloudflare`, `cloudflare-failing`, `coturn` or `stun`), so a monitor can catch a broken relay key while `status` still reads `healthy`. See [GET /health](/reference/http-api#get-health).
+  - A client that floods the signaling server with pings, asks for a namespace Floe does not have, or starts a binary attachment is now ignored or disconnected, instead of making the server hold a growing queue of replies for it. A page that sends a burst of pings it saved up during an outage keeps its connection.
+  - `/health` now reports where relay credentials come from (`relay`: `cloudflare`, `cloudflare-failing`, `coturn` or `stun`), so a monitor can catch a broken relay key while `status` still reads `healthy`. See [GET /health](/reference/http-api#get-health).
+  - Web app: the download page now offers Floe Desktop 1.1.2, with its installer, zip and checksums.
+  - The published images are rebuilt as `1.12.5`, with the server and web app changes above. If you pinned `FLOE_IMAGE_TAG=1.12.4`, move to `1.12.5`.
 </Update>
 
 <Update label="desktop-v1.1.2" description="2026-11-22" tags={["Desktop"]}>
