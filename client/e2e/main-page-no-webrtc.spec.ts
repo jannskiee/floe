@@ -96,3 +96,104 @@ test('a sending page without WebRTC keeps its sentence when a receiver joins', a
         await ctx.close();
     }
 });
+
+// Dismiss goes away with the banner it closes. Keyboard focus went with it,
+// to the page body: Enter and Space pressed nothing, and a screen reader had
+// no control. Focus now moves to the control that followed the banner, the
+// first one in the card's content. Only while the page body holds focus, as
+// elsewhere on the page: focus held somewhere else stays there.
+
+const dismiss = (page: Page, sentence: string) =>
+    page.getByRole('alert').filter({ hasText: sentence }).getByRole('button', { name: 'Dismiss', exact: true });
+
+/** Waits for focus to land on a control, and fails with "focus fell to the
+ *  page" while the page body keeps it. */
+const focusNotOnPage = (page: Page) =>
+    expect
+        .poll(() => page.evaluate(() => document.activeElement === document.body), {
+            message: 'focus fell to the page',
+            timeout: 2_000,
+        })
+        .toBe(false);
+
+/** Lets the render that took the banner down run its effects before focus is
+ *  read, so a test that expects no move cannot pass ahead of one. */
+const settle = (page: Page) =>
+    page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(done, 50)))));
+
+/** Whether the focused element draws its focus ring. */
+const focusRingShown = (page: Page) => page.evaluate(() => document.activeElement?.matches(':focus-visible') ?? false);
+
+test('Dismiss hands keyboard focus to the control that followed the banner', async ({ page }) => {
+    await withoutWebRtc(page);
+    const choose = page.getByLabel('Choose files to send');
+
+    // A sending page: the drop zone's Choose files to send.
+    await page.goto('/');
+    await dismiss(page, SENDING).focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByText(SENDING)).toHaveCount(0);
+    await focusNotOnPage(page);
+    await expect(choose, 'after Enter on Dismiss on a sending page').toBeFocused({ timeout: 2_000 });
+    expect(await focusRingShown(page), 'a focus ring after Enter').toBe(true);
+
+    // A mouse click moves focus the same way, and draws no ring.
+    await page.reload();
+    await dismiss(page, SENDING).click();
+    await expect(page.getByText(SENDING)).toHaveCount(0);
+    await focusNotOnPage(page);
+    await expect(choose, 'after a click on Dismiss').toBeFocused({ timeout: 2_000 });
+    expect(await focusRingShown(page), 'a focus ring after a click').toBe(false);
+
+    // A press that leaves focus on another control leaves it there: a click
+    // event with no focus change, as a Safari mouse click gives.
+    await page.reload();
+    const home = page.getByRole('button', { name: 'Floe home' });
+    await home.focus();
+    await dismiss(page, SENDING).dispatchEvent('click');
+    await expect(page.getByText(SENDING)).toHaveCount(0);
+    await settle(page);
+    await expect(home, 'focus held on Floe home').toBeFocused({ timeout: 2_000 });
+
+    // A receiving page: the Contribute to global stats checkbox. A page of its
+    // own, since going from / to /#room= only changes the fragment.
+    const receiving = await page.context().newPage();
+    await withoutWebRtc(receiving);
+    await receiving.goto(`/#room=${randomUUID()}`);
+    await dismiss(receiving, RECEIVING).focus();
+    await receiving.keyboard.press('Enter');
+    await expect(receiving.getByText(RECEIVING)).toHaveCount(0);
+    await focusNotOnPage(receiving);
+    await expect(
+        receiving.getByRole('checkbox', { name: 'Contribute to global stats' }),
+        'after Enter on Dismiss on a receiving page'
+    ).toBeFocused({ timeout: 2_000 });
+});
+
+test('Dismiss over a share link hands focus to Copy link, never to the badge in the card header', async ({ page, browser }) => {
+    await withoutWebRtc(page);
+    const { path } = createFixture(FIXTURE_DIR, 1024);
+    const link = await browserSenderSetup(page, path, { relayFallback: false });
+
+    const ctx = await browser.newContext();
+    try {
+        await ctx.addInitScript(() => {
+            try { localStorage.setItem('floe:report-stats', 'false'); } catch { /* ignore */ }
+        });
+        const receiver = await ctx.newPage();
+        await receiver.goto(link);
+        // The peer connects here, as in the test above, so the banner stands
+        // over a connected card, and the badge in the card's header holds a
+        // Learn more link: the first control in <main>.
+        await expect(page.getByText('All Files Sent!').first()).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByRole('main').getByRole('link', { name: 'Learn more' })).toBeAttached();
+
+        await dismiss(page, SENDING).focus();
+        await page.keyboard.press('Enter');
+        await expect(page.getByText(SENDING)).toHaveCount(0);
+        await focusNotOnPage(page);
+        await expect(page.getByRole('button', { name: 'Copy link' }), 'after Enter on Dismiss over the link').toBeFocused({ timeout: 2_000 });
+    } finally {
+        await ctx.close();
+    }
+});
