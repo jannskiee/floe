@@ -10,6 +10,7 @@
 const { describe, it, before, beforeEach, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { createHash, randomBytes, randomUUID } = require('node:crypto');
+const { EventEmitter } = require('node:events');
 const http = require('node:http');
 const WebSocket = require('ws');
 const fs = require('node:fs');
@@ -72,6 +73,13 @@ const {
     createSocketIOPeer,
     heartbeatTick,
     handlePong,
+    answerPing,
+    answerSocketIOPing,
+    guardSessionBacklog,
+    refuseUnusedPackets,
+    SIO_PING_ACK_QUEUE_MAX,
+    PONG_FRAME,
+    WS_PONGS_IN_FLIGHT_MAX,
     WS_SEND_BUFFER_CEILING,
     SIO_SEND_BUFFER_CEILING,
     SIO_SEND_QUEUE_CEILING,
@@ -2636,6 +2644,215 @@ describe('createSocketIOPeer backpressure', () => {
         assert.equal(SIO_SEND_BUFFER_CEILING, 1e6);
         const source = require('node:fs').readFileSync(require.resolve('./server.js'), 'utf8');
         assert.match(source, /maxHttpBufferSize: 1e6/, 'maxHttpBufferSize must still be the 1 MB the ceiling mirrors');
+    });
+});
+
+describe('answerPing', () => {
+    // fakeWS with a send that keeps its callback, so each test decides when a
+    // frame leaves for the kernel, and a terminate that moves readyState on
+    // as ws's does.
+    function pingSocket(overrides = {}) {
+        const callbacks = [];
+        const ws = fakeWS({
+            send(frame, cb) { this.sent.push(frame); callbacks.push(cb); },
+            terminate() { this.terminated++; this.readyState = 2; },
+            ...overrides,
+        });
+        return { ws, callbacks };
+    }
+
+    it('answers with the frame every released client waits for', () => {
+        const { ws } = pingSocket();
+        answerPing(ws);
+        assert.equal(PONG_FRAME, '{"type":"pong"}');
+        assert.deepEqual(ws.sent, ['{"type":"pong"}']);
+    });
+
+    it('a pong whose write has completed no longer counts', () => {
+        const { ws, callbacks } = pingSocket();
+        for (let i = 0; i < 5000; i++) {
+            answerPing(ws);
+            callbacks.shift()();
+        }
+        assert.equal(ws.sent.length, 5000);
+        assert.equal(ws.terminated, 0);
+        assert.equal(ws.pongsInFlight, 0);
+    });
+
+    // ws completes a write a tick later even when the kernel took the bytes,
+    // so these fakes defer the callback the same way.
+    function deferredSocket() {
+        return fakeWS({
+            send(frame, cb) { this.sent.push(frame); process.nextTick(cb); },
+            terminate() { this.terminated++; this.readyState = 2; },
+        });
+    }
+
+    it(`counts a burst from one read: ${WS_PONGS_IN_FLIGHT_MAX} pings pass, one more ends the socket`, () => {
+        const ws = deferredSocket();
+        for (let i = 0; i < WS_PONGS_IN_FLIGHT_MAX; i++) answerPing(ws);
+        assert.equal(ws.terminated, 0);
+        answerPing(ws);
+        assert.equal(ws.terminated, 1);
+    });
+
+    it('never ends a client that pings at a steady pace', async () => {
+        const ws = deferredSocket();
+        for (let i = 0; i < 500; i++) {
+            answerPing(ws);
+            await new Promise((resolve) => setImmediate(resolve));
+        }
+        assert.equal(ws.terminated, 0);
+        assert.equal(ws.sent.length, 500);
+    });
+
+    it(`terminates once ${WS_PONGS_IN_FLIGHT_MAX} pongs wait unsent, and answers nothing after`, () => {
+        const { ws } = pingSocket();
+        for (let i = 0; i < WS_PONGS_IN_FLIGHT_MAX; i++) answerPing(ws);
+        assert.equal(ws.sent.length, WS_PONGS_IN_FLIGHT_MAX);
+        assert.equal(ws.terminated, 0, 'the ceiling itself is allowed');
+        for (let i = 0; i < 100; i++) answerPing(ws);
+        assert.equal(ws.terminated, 1);
+        assert.equal(ws.sent.length, WS_PONGS_IN_FLIGHT_MAX, 'no pong past the ceiling');
+    });
+
+    it('a pong that leaves makes room for the next', () => {
+        const { ws, callbacks } = pingSocket();
+        for (let i = 0; i < WS_PONGS_IN_FLIGHT_MAX; i++) answerPing(ws);
+        callbacks.shift()();
+        answerPing(ws);
+        assert.equal(ws.terminated, 0);
+        assert.equal(ws.sent.length, WS_PONGS_IN_FLIGHT_MAX + 1);
+    });
+
+    it('a socket that is not open gets no reply', () => {
+        const { ws } = pingSocket({ readyState: 2 }); // CLOSING
+        answerPing(ws);
+        assert.deepEqual(ws.sent, []);
+        assert.equal(ws.terminated, 0);
+    });
+});
+
+describe('guardSessionBacklog', () => {
+    // An engine.io session as the guard sees it: packetCreate, the writeBuffer
+    // it precedes, and close.
+    function fakeConn() {
+        const conn = new EventEmitter();
+        conn.writeBuffer = [];
+        conn.closes = [];
+        conn.close = (discard) => { conn.closes.push(discard); };
+        return conn;
+    }
+    // sendPacket's order: packetCreate first, then the push.
+    function queuePacket(conn) {
+        const packet = { type: 'message', data: '430[]' };
+        conn.emit('packetCreate', packet);
+        if (conn.writeBuffer) conn.writeBuffer.push(packet);
+    }
+    const nextTick = () => new Promise((resolve) => process.nextTick(resolve));
+
+    it(`keeps a session with ${SIO_SEND_QUEUE_CEILING} + 1 packets waiting, so the peer path refuses first`, async () => {
+        // sioSendBacklogOver refuses a partner's send once more than the
+        // ceiling waits; the guard must not end the session before that.
+        const conn = fakeConn();
+        guardSessionBacklog(conn);
+        for (let i = 0; i < SIO_SEND_QUEUE_CEILING + 1; i++) queuePacket(conn);
+        await nextTick();
+        assert.deepEqual(conn.closes, []);
+    });
+
+    it('closes it once, dropping the queue, when one more packet is made past that', async () => {
+        const conn = fakeConn();
+        guardSessionBacklog(conn);
+        for (let i = 0; i < SIO_SEND_QUEUE_CEILING + 50; i++) queuePacket(conn);
+        assert.deepEqual(conn.closes, [], 'never inside sendPacket');
+        await nextTick();
+        assert.deepEqual(conn.closes, [true]);
+        queuePacket(conn);
+        await nextTick();
+        assert.deepEqual(conn.closes, [true], 'closed once');
+    });
+
+    it('never closes a session that drains as it goes', async () => {
+        const conn = fakeConn();
+        guardSessionBacklog(conn);
+        for (let i = 0; i < 5 * SIO_SEND_QUEUE_CEILING; i++) {
+            queuePacket(conn);
+            conn.writeBuffer.length = 0;
+        }
+        await nextTick();
+        assert.deepEqual(conn.closes, []);
+    });
+
+    it('a session whose writeBuffer is missing is never closed', async () => {
+        // A future engine.io may move it; the bound then switches off rather
+        // than cutting off a peer that reads.
+        const conn = fakeConn();
+        delete conn.writeBuffer;
+        guardSessionBacklog(conn);
+        for (let i = 0; i < 2 * SIO_SEND_QUEUE_CEILING; i++) queuePacket(conn);
+        await nextTick();
+        assert.deepEqual(conn.closes, []);
+    });
+});
+
+describe('answerSocketIOPing', () => {
+    function pingSocket(queued) {
+        return { conn: { writeBuffer: new Array(queued).fill({ type: 'message' }) } };
+    }
+
+    it(`acks while ${SIO_PING_ACK_QUEUE_MAX} packets or fewer wait`, () => {
+        let acks = 0;
+        answerSocketIOPing(pingSocket(0), () => acks++);
+        answerSocketIOPing(pingSocket(SIO_PING_ACK_QUEUE_MAX), () => acks++);
+        assert.equal(acks, 2);
+    });
+
+    it('skips the ack once more wait, so a burst queues no more acks and keeps its session', () => {
+        let acks = 0;
+        answerSocketIOPing(pingSocket(SIO_PING_ACK_QUEUE_MAX + 1), () => acks++);
+        assert.equal(acks, 0);
+    });
+
+    it('acks when the engine.io fields are missing, and ignores a ping with no callback', () => {
+        let acks = 0;
+        answerSocketIOPing({}, () => acks++);
+        answerSocketIOPing({ conn: {} }, () => acks++);
+        assert.equal(acks, 2);
+        assert.doesNotThrow(() => answerSocketIOPing(pingSocket(0), undefined));
+        assert.doesNotThrow(() => answerSocketIOPing(pingSocket(0), 'not a function'));
+    });
+});
+
+describe('refuseUnusedPackets', () => {
+    function fakeConn() {
+        const conn = new EventEmitter();
+        conn.closes = [];
+        conn.close = (discard) => { conn.closes.push(discard); };
+        return conn;
+    }
+
+    it('lets through every packet Floe sends', () => {
+        // packet.data is the Socket.IO packet, after engine.io's '4' message
+        // type: '0' connect, '1' disconnect, '2' event, '21[...]' an event
+        // with ack id 1.
+        const conn = fakeConn();
+        refuseUnusedPackets(conn);
+        for (const data of ['0', '0{"token":"x"}', '1', '2["join-room","x"]', '2["request-join","x"]', '2["signal",{"signal":{"type":"offer"}}]', '21["ping"]']) {
+            conn.emit('packet', { type: 'message', data });
+        }
+        conn.emit('packet', { type: 'pong' });
+        conn.emit('packet', { type: 'upgrade' });
+        assert.deepEqual(conn.closes, []);
+    });
+
+    it('closes a session on a binary header or frame, or a connect to another namespace', () => {
+        for (const data of ['51-["x",{"_placeholder":true,"num":0}]', '61-0[{"_placeholder":true,"num":0}]', Buffer.from([1, 2, 3]), '0/x,', '0/admin,{"token":"x"}']) {
+            const conn = fakeConn();
+            refuseUnusedPackets(conn);
+            conn.emit('packet', { type: 'message', data });
+            assert.deepEqual(conn.closes, [true], `kept the session after ${String(data)}`);
+        }
     });
 });
 

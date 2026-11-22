@@ -1443,6 +1443,78 @@ function sioSendBacklogOver(socket) {
     return held > SIO_SEND_BUFFER_CEILING;
 }
 
+// What one engine.io session queues on its own behalf, outside
+// createSocketIOPeer().send and so outside sioSendBacklogOver: the ack of the
+// app-level 'ping', the CONNECT_ERROR a refused connect to '/' gets, and
+// engine.io's own heartbeat ping. engine.io 6 takes any pong as a heartbeat,
+// asked for or not, so a client that stops reading and keeps sending unasked
+// pongs never reaches the ping timeout, and every such reply would wait in its
+// writeBuffer for the life of the connection. The ping ack has a lower bound
+// of its own (answerSocketIOPing); this is the backstop for the rest, and for
+// anything Socket.IO answers on its own later. packetCreate fires just before
+// a packet joins writeBuffer, so the session closes once more than
+// SIO_SEND_QUEUE_CEILING packets wait and one more is made. More than, not at:
+// sioSendBacklogOver refuses at the same count, so a flood aimed at a partner
+// still ends in the peer path's disconnect(true), and only what a session
+// asked for itself ends here. A burst that one read sets off counts as well,
+// since the transport writes one batch at a time. close(true) clears
+// writeBuffer at once, where close() would wait for a 'drain' a stalled client
+// never gives; the batch already handed to ws stays until ws's 30 s close
+// timeout, which bounds it. The page sees a transport close and reconnects by
+// itself, which it does not after socket.disconnect(true). On the next tick,
+// never inside sendPacket, which still pushes and flushes the packet after
+// this returns. writeBuffer is an engine.io 6 internal: missing, it counts as
+// empty, so an upgrade can only switch the bound off.
+function guardSessionBacklog(conn) {
+    let closing = false;
+    conn.on('packetCreate', () => {
+        if (closing) return;
+        const queue = conn.writeBuffer;
+        if (!Array.isArray(queue) || queue.length <= SIO_SEND_QUEUE_CEILING) return;
+        closing = true;
+        process.nextTick(() => conn.close(true));
+    });
+}
+
+// The ack of the app-level 'ping', which feeds the page's latency readout and
+// nothing else (useSignaling.ts). socket.io-client buffers that 2 s ping while
+// the page is offline and sends the whole buffer on reconnect, about 1,000
+// after 33 minutes, and any client can send pings as fast as it likes. Each
+// ack joins writeBuffer while the transport is still writing the last batch,
+// so no ack while more than SIO_PING_ACK_QUEUE_MAX packets already wait: a
+// burst costs those pings their readout, never the session, and a flood
+// queues no more than this many acks. A reading page has none or one waiting.
+const SIO_PING_ACK_QUEUE_MAX = 32;
+
+function answerSocketIOPing(socket, callback) {
+    if (typeof callback !== 'function') return;
+    const queue = socket.conn && socket.conn.writeBuffer;
+    if (Array.isArray(queue) && queue.length > SIO_PING_ACK_QUEUE_MAX) return;
+    callback();
+}
+
+// Packets Floe's pages never send, refused before socket.io acts on them.
+// - A binary frame, or the text header of a BINARY_EVENT (5) or BINARY_ACK (6):
+//   socket.io-parser holds every attachment such a header announces until the
+//   last one arrives, up to its maxAttachments of 10 at up to maxHttpBufferSize
+//   each, about 10 MB one session could park for as long as it stays connected.
+// - A CONNECT to any namespace but '/' (a packet that starts '0/'; the client
+//   writes a bare '0' for '/'): Floe has one namespace, and the CONNECT_ERROR
+//   echoes the name asked for, so each request could make the server queue up
+//   to maxHttpBufferSize of the client's own choosing.
+// engine.io emits 'packet' before 'data', and the close runs socket.io's
+// onclose synchronously, which removes its 'data' listener, so the refused
+// packet never reaches the decoder.
+function refuseUnusedPackets(conn) {
+    conn.on('packet', (packet) => {
+        if (!packet || packet.type !== 'message') return;
+        const data = packet.data;
+        if (typeof data !== 'string' || data[0] === '5' || data[0] === '6' || (data[0] === '0' && data[1] === '/')) {
+            conn.close(true);
+        }
+    });
+}
+
 function createSocketIOPeer(socket, key) {
     return {
         id: socket.id,
@@ -1497,9 +1569,9 @@ function createWSPeer(ws, key) {
             // Checked before every send, so what one peer can aim at another
             // through this path is bounded at the ceiling plus the one frame in
             // flight, about 2 MB. That is the bound on this path alone: the
-            // app-level ping reply further down answers on the socket's own
-            // behalf without coming through here, so a socket's total is that
-            // reply's backlog on top of this. Terminate rather than drop: a peer
+            // app-level ping reply answers on the socket's own behalf without
+            // coming through here, and answerPing bounds that backlog by its
+            // own count. Terminate rather than drop: a peer
             // this far behind has already stopped being a peer, and dropping
             // alone would leave the queued megabyte held for the life of the
             // socket. Silent, though not for a rate reason: terminate() moves
@@ -1516,6 +1588,36 @@ function createWSPeer(ws, key) {
             ws.send(JSON.stringify({ type, ...data }));
         },
     };
+}
+
+// The reply to a /ws app-level ping, byte for byte what every released CLI and
+// Floe Desktop waits for.
+const PONG_FRAME = JSON.stringify({ type: 'pong' });
+// Pongs handed to ws whose writes have not completed. ws runs a send's
+// callback on a later tick even when the kernel took the bytes at once, and it
+// handles a whole read in one go, so this counts the pongs one read can queue
+// before any write completes as well as those a client that stopped reading
+// leaves behind: 61 pings in one read end the socket either way. Honest /ws
+// clients never come near it: only the desktop request lane and e2ehost send
+// app-level pings, one every 25 s, and the CLI sends none. Counted rather
+// than weighed: WS_SEND_BUFFER_CEILING would let about 60,000 of these 15-byte
+// frames through, each held with its own write request. The heartbeat still
+// ends a socket that stops reading within two ticks; this bounds what it can
+// queue meanwhile. The same count and the same answer ws 8.23.0 gives its own
+// automatic pongs to protocol pings (maxPendingAutoPongs,
+// GHSA-37g9-w4hg-h9qr): terminate, and the readyState guard below swallows
+// every later ping.
+const WS_PONGS_IN_FLIGHT_MAX = 60;
+
+function answerPing(ws) {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    const inFlight = ws.pongsInFlight || 0;
+    if (inFlight >= WS_PONGS_IN_FLIGHT_MAX) {
+        ws.terminate();
+        return;
+    }
+    ws.pongsInFlight = inFlight + 1;
+    ws.send(PONG_FRAME, () => { ws.pongsInFlight--; });
 }
 
 function handleJoinRoom(peer, roomId) {
@@ -1756,6 +1858,15 @@ const io = new Server(server, {
     serveClient: false,
 });
 
+// Every engine.io session, in the same synchronous emit as socket.io's own
+// 'connection' listener (registered inside new Server() above, so it runs
+// first): these bound what a session can make this process hold, whether or
+// not it ever joins the namespace.
+io.engine.on('connection', (conn) => {
+    guardSessionBacklog(conn);
+    refuseUnusedPackets(conn);
+});
+
 // Both limits refuse here, not in allowRequest. A middleware refusal reaches
 // the browser as connect_error with this message and leaves the socket
 // inactive, which the main page's banner and retry and /r's SOCKET_REFUSED
@@ -1800,9 +1911,7 @@ io.on('connection', (socket) => {
 
     const peer = createSocketIOPeer(socket, key);
 
-    socket.on('ping', (callback) => {
-        if (typeof callback === 'function') callback();
-    });
+    socket.on('ping', (callback) => answerSocketIOPing(socket, callback));
 
     socket.on('join-room', (roomId) => {
         handleJoinRoom(peer, roomId);
@@ -2001,7 +2110,7 @@ wss.on('connection', (ws, req) => {
                 handleSignal(peer, msg.signal, msg.target || null);
                 break;
             case 'ping':
-                ws.send(JSON.stringify({ type: 'pong' }));
+                answerPing(ws);
                 break;
         }
     });
@@ -2130,6 +2239,13 @@ module.exports = {
     createSocketIOPeer,
     heartbeatTick,
     handlePong,
+    answerPing,
+    answerSocketIOPing,
+    guardSessionBacklog,
+    refuseUnusedPackets,
+    PONG_FRAME,
+    WS_PONGS_IN_FLIGHT_MAX,
+    SIO_PING_ACK_QUEUE_MAX,
     WS_SEND_BUFFER_CEILING,
     SIO_SEND_BUFFER_CEILING,
     SIO_SEND_QUEUE_CEILING,
