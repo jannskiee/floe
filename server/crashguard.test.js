@@ -645,6 +645,207 @@ test('a Socket.IO peer flooding a non-reading peer is cut off, not buffered', as
     await assertSurvived(srv, 'a Socket.IO flood aimed at a peer that is not reading');
 });
 
+// --- replies the server makes on a socket's own behalf ------------------------
+//
+// The floods above aim at a partner. These come from the flooding socket
+// itself: every frame below makes the server answer the sender, outside the
+// send ceilings, so without a bound of their own the answers would wait in this
+// process. Each test pairs the flooder B with a reading peer A, because a paused
+// socket never sees its own reset (as above), and A hears peer-disconnected when
+// the server lets B go. The bounds count replies whose writes have not
+// completed, which a burst from one read fills as surely as a reader that
+// stopped, so B's pause is the attack's shape, not what trips them. A flood
+// stops at FLOOD_FRAMES_MAX frames or after FLOOD_WINDOW_MS, whichever comes
+// first, so a broken bound fails within the window without growing the runner
+// by more than those frames can queue.
+
+const FLOOD_FRAMES_MAX = 200_000;
+const FLOOD_WINDOW_MS = 20_000;
+
+async function floodFromWS(srv, sendOne) {
+    const { a, b } = await pair(srv);
+    a.on('error', () => {});
+    b.on('error', () => {});
+    b.pause();
+    let cutOff = false;
+    const sawCutOff = waitFor(a, 'peer-disconnected', FLOOD_WINDOW_MS + 2000).then(
+        () => { cutOff = true; return true; },
+        () => false
+    );
+    const deadline = Date.now() + FLOOD_WINDOW_MS;
+    let frames = 0;
+    while (frames < FLOOD_FRAMES_MAX && !cutOff && b.readyState === WebSocket.OPEN && Date.now() < deadline) {
+        for (let i = 0; i < 1000 && frames < FLOOD_FRAMES_MAX; i++, frames++) sendOne(b);
+        await new Promise((r) => setTimeout(r, 2));
+    }
+    return { cutOff: await sawCutOff, frames };
+}
+
+async function joinedSocketIOPair(srv) {
+    const roomId = randomUUID();
+    const a = await openSocketIO(srv);
+    const b = await openSocketIO(srv);
+    a.send(`42["join-room","${roomId}"]`);
+    assert.match((await a.events(1))[0] || '', /^42\["room-joined"/);
+    b.send(`42["join-room","${roomId}"]`);
+    assert.match((await b.events(1))[0] || '', /^42\["room-joined"/);
+    assert.match((await a.events(2))[1] || '', /^42\["user-connected"/);
+    return { a, b };
+}
+
+// Resolves true when A hears that its partner left, or false after ms.
+function partnerLost(a, ms) {
+    return new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(false), ms);
+        a.ws.on('message', (raw) => {
+            if (!raw.toString().startsWith('42["peer-disconnected"')) return;
+            clearTimeout(timer);
+            resolve(true);
+        });
+    });
+}
+
+async function floodFromSocketIO(srv, sendOne) {
+    const { a, b } = await joinedSocketIOPair(srv);
+    // B stops reading and keeps its session alive the way engine.io 6 allows,
+    // with pongs nobody asked for, so the ping timeout never ends it.
+    b.ws.pause();
+    let cutOff = false;
+    const sawCutOff = partnerLost(a, FLOOD_WINDOW_MS + 2000).then((lost) => { cutOff = lost; return lost; });
+    const deadline = Date.now() + FLOOD_WINDOW_MS;
+    let frames = 0;
+    while (frames < FLOOD_FRAMES_MAX && !cutOff && b.ws.readyState === WebSocket.OPEN && Date.now() < deadline) {
+        for (let i = 0; i < 1000 && frames < FLOOD_FRAMES_MAX; i++, frames++) sendOne(b);
+        b.send('3');
+        await new Promise((r) => setTimeout(r, 2));
+    }
+    return { cutOff: await sawCutOff, frames };
+}
+
+test('a /ws socket that floods app-level pings is cut off before the server queues their pongs', async (t) => {
+    const srv = await startServer();
+    t.after(() => srv.stop());
+
+    // answerPing's count. Before it, each pong waited unsent until the
+    // heartbeat, a minute in at the default, ended the socket.
+    const frame = JSON.stringify({ type: 'ping' });
+    const { cutOff, frames } = await floodFromWS(srv, (b) => b.send(frame));
+    assert.equal(cutOff, true, `the server answered ${frames} pings with no bound`);
+    assert.ok(frames < FLOOD_FRAMES_MAX, `expected the cut-off before ${FLOOD_FRAMES_MAX} pings, offered all of them`);
+    await assertSurvived(srv, 'an app-level ping flood on /ws');
+});
+
+test('a /ws client that pings at a steady pace hears every pong and is never cut off', async (t) => {
+    const srv = await startServer();
+    t.after(() => srv.stop());
+
+    // The shape of the desktop request lane's liveness ping, sped up: one
+    // ping at a time with room for each write to complete.
+    const ws = await open(srv);
+    let pongs = 0;
+    ws.on('message', (raw) => { if (String(raw) === '{"type":"pong"}') pongs++; });
+    for (let i = 0; i < 200; i++) {
+        ws.send(JSON.stringify({ type: 'ping' }));
+        await new Promise((r) => setTimeout(r, 5));
+    }
+    const deadline = Date.now() + 5000;
+    while (pongs < 200 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+    assert.equal(pongs, 200);
+    assert.equal(ws.readyState, WebSocket.OPEN);
+    await assertSurvived(srv, 'a steady app-level ping on /ws');
+});
+
+test('a /ws socket that floods protocol pings is cut off before the server queues their pongs', async (t) => {
+    const srv = await startServer();
+    t.after(() => srv.stop());
+
+    // ws answers a Ping frame itself; from 8.23.0 it terminates a socket with
+    // 60 of those pongs unsent (GHSA-37g9-w4hg-h9qr).
+    const { cutOff, frames } = await floodFromWS(srv, (b) => b.ping());
+    assert.equal(cutOff, true, `the server answered ${frames} Ping frames with no bound`);
+    assert.ok(frames < FLOOD_FRAMES_MAX, `expected the cut-off before ${FLOOD_FRAMES_MAX} Ping frames, offered all of them`);
+    await assertSurvived(srv, 'a protocol ping flood on /ws');
+});
+
+test('a Socket.IO session that floods protocol pings is cut off before engine.io queues their pongs', async (t) => {
+    const srv = await startServer();
+    t.after(() => srv.stop());
+
+    // engine.io's websocket transport is ws as well, and the same
+    // maxPendingAutoPongs reaches it: engine.io passes its options to ws.
+    const { cutOff, frames } = await floodFromSocketIO(srv, (b) => b.ws.ping());
+    assert.equal(cutOff, true, `engine.io answered ${frames} Ping frames with no bound`);
+    assert.ok(frames < FLOOD_FRAMES_MAX, `expected the cut-off before ${FLOOD_FRAMES_MAX} Ping frames, offered all of them`);
+    await assertSurvived(srv, 'a protocol ping flood on Socket.IO');
+});
+
+test('a Socket.IO page that sends a burst of pings keeps its seat, and the server skips the acks the burst would queue', async (t) => {
+    const srv = await startServer();
+    t.after(() => srv.stop());
+
+    // socket.io-client buffers the main page's 2 s ping while the page is
+    // offline and sends the whole buffer on reconnect: about 1,000 after 33
+    // minutes. B reads throughout. answerSocketIOPing skips an ack while the
+    // session already has more than SIO_PING_ACK_QUEUE_MAX packets waiting, so
+    // the burst costs some pings their latency readout and never the session.
+    const { a, b } = await joinedSocketIOPair(srv);
+    const lost = partnerLost(a, 3000);
+    const BURST = 5000;
+    let acks = 0;
+    let lastAck = false;
+    b.ws.on('message', (raw) => {
+        const text = raw.toString();
+        if (!text.startsWith('43')) return;
+        acks++;
+        if (text === `43${BURST}[]`) lastAck = true;
+    });
+    for (let i = 0; i < BURST; i++) b.send(`42${i}["ping"]`);
+
+    // Once the burst has drained, the next ping is answered as before.
+    await new Promise((r) => setTimeout(r, 500));
+    b.send(`42${BURST}["ping"]`);
+    const deadline = Date.now() + 5000;
+    while (!lastAck && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+    assert.equal(lastAck, true, 'the session answered no ping after the burst');
+    assert.ok(acks <= BURST, `${acks} acks for ${BURST + 1} pings: the burst queued an ack for every one`);
+    assert.equal(await lost, false, 'the burst cost B its seat');
+    await assertSurvived(srv, 'a burst of Socket.IO pings from a reading page');
+});
+
+// guardSessionBacklog has no flood here: socket.io itself closes a session that
+// asks again for a namespace it is in, and what is left for the backstop (a
+// session the limits refused, asking again and again) cannot be watched from
+// a partner. Its unit tests in server.test.js pin it, and the 'connection'
+// listener that attaches it also attaches refuseUnusedPackets, which the next
+// two tests drive end to end.
+
+test('a Socket.IO session that asks for another namespace is closed at once', async (t) => {
+    const srv = await startServer();
+    t.after(() => srv.stop());
+
+    // The CONNECT_ERROR for an unknown namespace echoes the name asked for, up
+    // to 1 MB of the client's choosing, so the request alone ends the session.
+    const { a, b } = await joinedSocketIOPair(srv);
+    const lost = partnerLost(a, 5000);
+    b.send(`40/${'x'.repeat(100_000)},`);
+    assert.equal(await lost, true, 'a session that asked for another namespace was kept open');
+    await assertSurvived(srv, 'a connect to another namespace over Socket.IO');
+});
+
+test('a Socket.IO peer that starts a binary packet is closed at once, before socket.io holds any of it', async (t) => {
+    const srv = await startServer();
+    t.after(() => srv.stop());
+
+    // socket.io-parser would hold the announced attachments until the last one
+    // came, up to 10 of 1 MB each, for as long as the session lived. Floe's
+    // pages never send one, so the header alone ends the session.
+    const { a, b } = await joinedSocketIOPair(srv);
+    const lost = partnerLost(a, 5000);
+    b.send('451-["signal",{"_placeholder":true,"num":0}]');
+    assert.equal(await lost, true, 'a session that announced a binary attachment was kept open');
+    await assertSurvived(srv, 'a binary packet header over Socket.IO');
+});
+
 // --- request-link helpers -----------------------------------------------------
 
 function newToken() {
