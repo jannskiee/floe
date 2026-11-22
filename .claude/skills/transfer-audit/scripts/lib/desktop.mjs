@@ -451,12 +451,20 @@ export const REQUEST_COPY = Object.freeze({
  * desktop/frontend/src/incoming.ts fmtBytes: 1024-based, KB MB GB TB with
  * one decimal. The UIA lane can read only this rendering of a drop's size, so
  * the prompt check compares it with the fixture's total in the same form.
+ * Since #981 the unit is settled after rounding: a count that rounds to
+ * 1024.0 in one unit reads in the next (1,048,575 bytes is 1.0 MB), unless it
+ * is already TB. Keep this a copy of the app's function.
  */
 export function desktopFmtBytes(n) {
     if (!n || n < 0) return '0 B';
     const u = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.min(u.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
-    return (n / Math.pow(1024, i)).toFixed(i ? 1 : 0) + ' ' + u[i];
+    let i = Math.min(u.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
+    let text = (n / Math.pow(1024, i)).toFixed(i ? 1 : 0);
+    if (parseFloat(text) >= 1024 && i < u.length - 1) {
+        i += 1;
+        text = (n / Math.pow(1024, i)).toFixed(1);
+    }
+    return text + ' ' + u[i];
 }
 
 const isAbsWin = (p) =>

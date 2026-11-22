@@ -24,6 +24,7 @@ import {
 import { ownerStateFor } from './ownerstate.mjs';
 import { FAKE_LINK, fakeRequestDom } from './tests/fake-request-dom.mjs';
 import { fakeRequestUiaClient } from './tests/fake-request-uia.mjs';
+import { WINDOWS_ONLY } from './tests/windows-only.mjs';
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), 'uia-request-'));
 const MiB = 1024 * 1024;
@@ -405,7 +406,7 @@ test('UIA readRequestResult and requestSnapshot on the done view: the heading, t
     }
 });
 
-test('requestStateFromItems names every view from its buttons and fixed copy', () => {
+test('requestStateFromItems names every view from its buttons and fixed copy', WINDOWS_ONLY, () => {
     const B = (name, extra = {}) => ({ type: 'Button', name, ...extra });
     const T = (name) => ({ type: 'Text', name });
     const cases = [
@@ -466,6 +467,11 @@ test('requestStateFromItems names every view from its buttons and fixed copy', (
     assert.equal(desktopFmtBytes(64 * MiB), '64.0 MB');
     assert.equal(desktopFmtBytes(4 * MiB), '4.0 MB');
     assert.equal(desktopFmtBytes(512), '512 B');
+    // #981: the unit is settled after rounding, as the app's fmtBytes does.
+    assert.equal(desktopFmtBytes(MiB - 1), '1.0 MB');
+    assert.equal(desktopFmtBytes(1048525), '1.0 MB');
+    assert.equal(desktopFmtBytes(1048524), '1023.9 KB');
+    assert.equal(desktopFmtBytes(1024 ** 5 - 1), '1024.0 TB');
 });
 
 // Three request link lines changed after desktop-v0.3.0 (the owner,

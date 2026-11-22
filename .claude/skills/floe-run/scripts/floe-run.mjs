@@ -269,12 +269,14 @@ function processImage(pid) {
 }
 
 // Windows names the exact image this run spawned; POSIX comm names vary with
-// the shebang, so anything from the node / sh / pnpm family counts.
+// the shebang, so anything from the node / sh / pnpm family counts. On Linux,
+// `ps -o comm=` gives the main thread's name, which Node 24 sets to
+// MainThread (measured in node:24), so that name counts as node too.
 function imageMatches(expected, actual) {
     if (!actual) return false;
     return WIN
         ? actual === String(expected).toLowerCase()
-        : /node|sh|pnpm/.test(actual);
+        : /node|sh|pnpm|MainThread/.test(actual);
 }
 
 function httpGet(url, timeoutMs = 2000) {

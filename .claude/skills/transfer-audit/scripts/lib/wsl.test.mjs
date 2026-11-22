@@ -36,6 +36,7 @@ import {
     toWslPath,
     createLeg,
 } from './wsl.mjs';
+import { WINDOWS_ONLY } from './tests/windows-only.mjs';
 
 // Measured `wsl.exe -l -v` on 2026-08-29 (UTF-16LE with a BOM).
 const LIST_TEXT =
@@ -250,7 +251,7 @@ test('preflight is green for a running distro and names the other failures', asy
     assert.equal(none.reason, 'wsl-missing');
 });
 
-test('sideload downloads once, runs the script through sh, and checks the verify line', async () => {
+test('sideload downloads once, runs the script through sh, and checks the verify line', WINDOWS_ONLY, async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'wsl-sideload-'));
     try {
         const asset = 'floe_1.10.5_linux_amd64.tar.gz';
@@ -460,7 +461,7 @@ test('needsHostIp: only a loopback server or web URL needs the Windows host IP',
     );
 });
 
-test('the side-load passes one pre-quoted command, so an awkward dir still works', async () => {
+test('the side-load passes one pre-quoted command, so an awkward dir still works', WINDOWS_ONLY, async () => {
     // The gate that rejected a space is gone: the transport that carries the
     // leg's argv carries this one too, and a temp path with a space is
     // ordinary on Windows.

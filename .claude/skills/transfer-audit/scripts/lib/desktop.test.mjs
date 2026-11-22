@@ -87,6 +87,7 @@ import {
     xpathLiteral,
 } from './desktop.mjs';
 import { ownerStateFor } from './ownerstate.mjs';
+import { WINDOWS_ONLY } from './tests/windows-only.mjs';
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), 'desktop-test-'));
 const INTERRUPT_CHILD = fileURLToPath(
@@ -308,7 +309,7 @@ test('parseTasklist and listDesktopProcesses with an injected lister', async () 
     assert.deepEqual(rows, [{ image: EXE_NAME, pid: 1234 }]);
 });
 
-test('resolveMode and planLaunch per mode', () => {
+test('resolveMode and planLaunch per mode', WINDOWS_ONLY, () => {
     assert.deepEqual(LAUNCH_MODES, ['store', 'portable', 'head', 'wailsdev']);
     assert.equal(
         resolveMode({ build: { kind: 'shipped', launch: 'store' } }),
@@ -983,7 +984,7 @@ test('sender flow: waits for the staged button, clicks it, reads code and link, 
     assert.ok(Date.now() - t0 < 5000);
 });
 
-test('--user-away stages only after 120 s of input idle; otherwise SKIP present without a stage call', async () => {
+test('--user-away stages only after 120 s of input idle; otherwise SKIP present without a stage call', WINDOWS_ONLY, async () => {
     const mk = (idleSeconds) => {
         const state = {
             values: {},

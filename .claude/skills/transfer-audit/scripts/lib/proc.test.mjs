@@ -36,6 +36,7 @@ import {
     started,
     tail,
 } from './proc.mjs';
+import { WINDOWS_ONLY } from './tests/windows-only.mjs';
 
 const FAKE = fileURLToPath(new URL('./tests/fake-floe.mjs', import.meta.url));
 const WIN = process.platform === 'win32';
@@ -118,7 +119,7 @@ test('waitLine resolves on a buffered line and on a future line', async () => {
     await h.waitExit(10_000);
 });
 
-test('waitLine times out with the tail of both streams', async () => {
+test('waitLine times out with the tail of both streams', WINDOWS_ONLY, async () => {
     const h = fake('stall', ['send', 'a.bin']);
     await h.waitLine(/Connected/, 5000);
     await assert.rejects(h.waitLine(/never printed/, 300), (err) => {
@@ -148,7 +149,7 @@ test('waitLine rejects on exit, or resolves null with exitIsError false', async 
     assert.equal(await h.waitLine(/Sent/, 5000, { exitIsError: false }), null);
 });
 
-test('waitExit returns null on timeout and the exit record after a kill', async () => {
+test('waitExit returns null on timeout and the exit record after a kill', WINDOWS_ONLY, async () => {
     const h = fake('stall', ['receive', 'amber-otter-cloud']);
     await h.waitLine(/Connected/, 5000);
     assert.equal(await h.waitExit(300), null);
@@ -172,7 +173,7 @@ test('killTree refuses a pid this run did not start', () => {
     assert.throws(() => killTree(999999), /not started by this run/);
 });
 
-test('killTree refuses when the image behind the pid changed', async () => {
+test('killTree refuses when the image behind the pid changed', WINDOWS_ONLY, async () => {
     const h = fake('stall', ['send', 'a.bin']);
     await h.waitLine(/Connected/, 5000);
     const meta = started.get(h.pid);
@@ -210,7 +211,7 @@ test('killTree reports an exited pid as gone without consulting tasklist', async
     meta.exited = h.exit;
 });
 
-test('the registry marks an exited pid and never kills a recycled one under a stale entry', async () => {
+test('the registry marks an exited pid and never kills a recycled one under a stale entry', WINDOWS_ONLY, async () => {
     const a = fake('normal', ['send', 'a.bin']);
     await a.waitExit(10_000);
     const stale = started.get(a.pid);
@@ -244,7 +245,7 @@ test('the registry marks an exited pid and never kills a recycled one under a st
     assert.ok(await decoy.waitExit(5000));
 });
 
-test('creation time: recorded after the spawn, and a changed stamp refuses the kill', async () => {
+test('creation time: recorded after the spawn, and a changed stamp refuses the kill', WINDOWS_ONLY, async () => {
     const h = fake('stall', ['send', 'a.bin']);
     await h.waitLine(/Connected/, 5000);
     const meta = started.get(h.pid);
@@ -273,7 +274,7 @@ test('creation time: recorded after the spawn, and a changed stamp refuses the k
     assert.equal(await creationTimeAsync(-1), null);
 });
 
-test('registerPid records a pid the run caused but did not spawn, once per incarnation', async () => {
+test('registerPid records a pid the run caused but did not spawn, once per incarnation', WINDOWS_ONLY, async () => {
     const decoy = fake('stall', ['receive', 'x']);
     await decoy.waitLine(/Connected/, 5000);
     const own = started.get(decoy.pid);
@@ -503,7 +504,7 @@ test('classifyExit: the three setup stops the CLI prints instead of a connect ti
     );
 });
 
-test('imageOf names what tasklist will report', () => {
+test('imageOf names what tasklist will report', WINDOWS_ONLY, () => {
     assert.equal(imageOf('C:\\Users\\x\\scoop\\shims\\floe.exe'), 'floe.exe');
     assert.equal(imageOf('/usr/local/bin/floe'), WIN ? 'floe.exe' : 'floe');
     assert.equal(imageOf('FLOE.EXE'), 'floe.exe');
