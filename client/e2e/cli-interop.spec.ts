@@ -155,10 +155,14 @@ test('Direction 2: browser send → CLI receive (SHA-256 integrity)', async ({ b
                 return (await page.locator('[data-mark="verified"]').count()) === 1 ? 'verified' : 'none';
             })
             .not.toBe('none');
-        const ending = (await page.locator('body').innerText()).match(
-            /All Files Sent!|Transfer complete|Connection interrupted/
-        );
-        test.info().annotations.push({ type: 'sender-ending', description: ending ? ending[0] : 'none read' });
+        // The status line's own words, not the share panel's screen-reader
+        // region (#980), which comes first and keeps "All Files Sent!" once
+        // a send is delivered, so a read of the whole page always found it.
+        const line = page
+            .getByText(/^(All Files Sent!|Transfer complete|Connection interrupted)$/)
+            .and(page.locator(':not([role="status"])'));
+        const ending = (await line.count()) > 0 ? ((await line.first().textContent()) ?? '').trim() : '';
+        test.info().annotations.push({ type: 'sender-ending', description: ending || 'none read' });
 
         // Verify the file landed on disk with correct content.
         const expectedName = basename(fixturePath);
