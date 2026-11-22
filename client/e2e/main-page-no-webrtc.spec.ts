@@ -185,7 +185,7 @@ test('Dismiss over a share link hands focus to Copy link, never to the badge in 
         // The peer connects here, as in the test above, so the banner stands
         // over a connected card, and the badge in the card's header holds a
         // Learn more link: the first control in <main>.
-        await expect(page.getByText('All Files Sent!')).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByText('All Files Sent!').first()).toBeVisible({ timeout: 30_000 });
         await expect(page.getByRole('main').getByRole('link', { name: 'Learn more' })).toBeAttached();
 
         await dismiss(page, SENDING).focus();
