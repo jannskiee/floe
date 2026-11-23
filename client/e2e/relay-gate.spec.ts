@@ -161,6 +161,10 @@ test('an over-cap send on a relayed route is blocked, and its notice outlives th
 
     try {
         const link = await browserSenderSetup(senderPage, { name: OVER_CAP, mimeType: 'application/octet-stream', buffer });
+        // While the link waits, the card holds no alert: the notice is one
+        // only once it shows. Looked for in <main>, because Next.js's route
+        // announcer is an alert too.
+        await expect(senderPage.getByRole('main').getByRole('alert')).toHaveCount(0);
         await receiverPage.goto(link);
 
         // The status comes from the block itself, ahead of the teardown the
@@ -176,6 +180,17 @@ test('an over-cap send on a relayed route is blocked, and its notice outlives th
         // that says it.
         await expect(senderPage.getByText('Relay', { exact: true })).toBeHidden({ timeout: 30_000 });
         await expect(senderPage.getByText('Transfer limit exceeded.')).toBeVisible();
+
+        // The notice is announced when it appears, as the red banner is: it
+        // is the card's one alert, and it holds the notice's own words and
+        // its Learn more link.
+        const notice = senderPage.getByRole('main').getByRole('alert');
+        await expect(notice).toHaveCount(1);
+        await expect(notice).toHaveText(
+            'Transfer limit exceeded. Relay connections are capped at 2 GB. Reload the page to send 2 GB or less, ' +
+                'or to send from a network that supports a direct connection. Learn more'
+        );
+        await expect(notice.getByRole('link', { name: 'Learn more' })).toHaveAttribute('href', '/how-it-works#size-limit');
 
         // The count row reads the total the page itself computed, which is
         // the spoofed one, against the cap the page knows: 1 file, its size,

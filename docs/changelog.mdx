@@ -45,6 +45,12 @@ Versions work together down to these floors, as measured against the current cod
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
+<Update label="Unreleased" tags={["Web"]}>
+  **On the web app, screen readers now hear when the 2 GB relay cap blocks a send**
+
+  - On the sending page, the amber notice that appears when a relayed send exceeds the 2 GB cap is now announced as an alert, with its message and **Learn more** link. Previously it was a plain element that screen readers did not announce when the transfer stopped. Contributed by [@saadBinMumtaz](https://github.com/saadBinMumtaz).
+</Update>
+
 <Update label="v1.12.5" description="2026-11-22" tags={["Self-hosting", "Web"]}>
   **The signaling server limits what it queues for a client that floods it, `/health` reports the relay, and the download page offers Floe Desktop 1.1.2**
 
