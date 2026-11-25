@@ -109,7 +109,7 @@ Client to server:
 | `join-room` | `roomId: string` | Join an ordinary room, or make it. Must be a UUID. |
 | `request-join` | `roomId: string` | Ask for the sending seat of a request room. The page a request link opens sends it. See [Request rooms](#request-rooms). |
 | `signal` | `{ signal, target?, roomId? }` | Forward an SDP message or ICE candidate to the other peer. `target`, when set, must be that peer's id. `roomId` is sent but ignored; routing uses the room the server already has this peer in. |
-| `ping` | callback | A round-trip latency probe, not a keepalive. The web app's transfer page sends one every 2 seconds, and the sender's view shows the result as the ping readout beside the connection dot. |
+| `ping` | callback | A round-trip latency probe, not a keepalive. The web app's transfer page sends one every 2 seconds, and the sender's view shows the result as the ping readout beside the connection dot. The server skips the answer while more than 32 packets are already waiting to go out on that connection, so a burst of pings gets only some answers. |
 
 Server to client:
 
@@ -232,7 +232,16 @@ this `pong` included, as a lost connection. `floe send`, `floe receive`, and Flo
 transfers never send it.
 
 A `/ws` client that stops reading is cut off as well: once more than 1 MB of output is waiting for
-it, the server terminates the connection instead of sending more.
+it, the server terminates the connection instead of sending more. It also terminates a `/ws`
+connection that sends a `ping` while 60 `pong` answers are still waiting to be written. A client
+that sends `ping` every 25 seconds never comes near that.
+
+A Socket.IO connection that stops reading is cut off too: once more than 1 MB, or more than 1,000
+packets, are waiting for it, the server disconnects it instead of sending more. Past 1,000 waiting
+packets, the server closes the connection's transport at once, and drops what is still queued,
+when it makes one more packet of its own for that connection, such as that disconnect or a
+heartbeat ping. The server also closes a Socket.IO connection at once when it asks for any
+namespace but `/`, or sends a binary packet. Floe's pages send neither.
 
 ### How a /ws connection is closed {#how-a-ws-connection-is-closed}
 
