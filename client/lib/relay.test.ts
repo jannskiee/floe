@@ -209,6 +209,95 @@ describe('readConnectionType', () => {
     });
 });
 
+// #940, shape A. Chromium marks a candidate pair in-progress each time it sends
+// a connectivity check on it, and succeeded when the answer comes back, so the
+// pair carrying the connection reads in-progress for a round trip after every
+// keepalive check. The request link's probe read in that window on macOS CI:
+// the one nominated and selected pair, a relay pair as the page read it, was
+// in-progress, nothing counted, and a 3 GB drop went past the 2 GB cap. The
+// pair a transport report names as selected counts whatever its state.
+describe('the pair the transport selected', () => {
+    const report = (entries: Record<string, unknown>) =>
+        new Map(Object.entries(entries)) as unknown as RTCStatsReport;
+
+    const pair = (id: string, local: string, remote: string, over: Record<string, unknown> = {}) => ({
+        [`p-${id}`]: {
+            id: `p-${id}`,
+            type: 'candidate-pair',
+            state: 'succeeded',
+            nominated: true,
+            localCandidateId: `l-${id}`,
+            remoteCandidateId: `r-${id}`,
+            ...over,
+        },
+        [`l-${id}`]: { id: `l-${id}`, type: 'local-candidate', candidateType: local },
+        [`r-${id}`]: { id: `r-${id}`, type: 'remote-candidate', candidateType: remote },
+    });
+
+    const transport = (selected: string) => ({
+        t: { id: 't', type: 'transport', selectedCandidatePairId: selected },
+    });
+
+    it('reads relay while the selected relay pair is in-progress', () => {
+        // What #940's two artifacts hold at the probe's read.
+        const stats = report({ ...pair('a', 'relay', 'host', { state: 'in-progress' }), ...transport('p-a') });
+        expect(probeIsRelay(stats)).toBe(true);
+        expect(readConnectionType(stats)).toBe('relay');
+    });
+
+    it('reads direct while the selected direct pair is in-progress', () => {
+        const stats = report({ ...pair('a', 'host', 'srflx', { state: 'in-progress' }), ...transport('p-a') });
+        expect(probeIsRelay(stats)).toBe(false);
+        expect(readConnectionType(stats)).toBe('direct');
+    });
+
+    it('counts the selected pair before it reads nominated', () => {
+        const stats = report({ ...pair('a', 'relay', 'host', { nominated: false }), ...transport('p-a') });
+        expect(probeIsRelay(stats)).toBe(true);
+        expect(readConnectionType(stats)).toBe('relay');
+    });
+
+    it('reads a report with no transport as before', () => {
+        const inProgress = report(pair('a', 'relay', 'host', { state: 'in-progress' }));
+        expect(probeIsRelay(inProgress)).toBe(false);
+        expect(readConnectionType(inProgress)).toBeNull();
+        const succeeded = report(pair('a', 'relay', 'host'));
+        expect(probeIsRelay(succeeded)).toBe(true);
+        expect(readConnectionType(succeeded)).toBe('relay');
+    });
+
+    it('ignores a selectedCandidatePairId that names no candidate pair in the report', () => {
+        for (const selected of ['p-gone', 'l-a', '']) {
+            const stats = report({ ...pair('a', 'relay', 'host', { state: 'in-progress' }), ...transport(selected) });
+            expect(probeIsRelay(stats), selected).toBe(false);
+            expect(readConnectionType(stats), selected).toBeNull();
+        }
+    });
+
+    it('LATCHES: a selected direct pair beside a succeeded nominated relay pair reads relay', () => {
+        for (const entries of [
+            { ...pair('d', 'host', 'host', { state: 'in-progress' }), ...pair('r', 'relay', 'host'), ...transport('p-d') },
+            { ...transport('p-d'), ...pair('r', 'relay', 'host'), ...pair('d', 'host', 'host', { state: 'in-progress' }) },
+        ]) {
+            const stats = report(entries);
+            expect(probeIsRelay(stats)).toBe(true);
+            expect(readConnectionType(stats)).toBe('relay');
+        }
+    });
+
+    it('a relay pair under a check is not the route while the transport selected a direct one', () => {
+        // Any pair reads in-progress while a check on it is in flight, so the
+        // state alone says nothing about which pair carries the connection.
+        const stats = report({
+            ...pair('d', 'host', 'host'),
+            ...pair('r', 'relay', 'host', { state: 'in-progress', nominated: false }),
+            ...transport('p-d'),
+        });
+        expect(probeIsRelay(stats)).toBe(false);
+        expect(readConnectionType(stats)).toBe('direct');
+    });
+});
+
 // The request link visitor duplicates the main page's relay probe and abort
 // rather than sharing a function with it (OD-13: the main page's inline relay
 // block is never edited). What keeps the two copies from drifting apart is

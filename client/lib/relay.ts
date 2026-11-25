@@ -83,14 +83,14 @@ export function relayProbeDelayMs(opts: { relayEnabled: boolean; totalSize: numb
  *  `(peer as any)._pc` cast stay at the call site and this stays testable under
  *  client/vitest.config.ts, which has no DOM.
  *
- *  The verdict LATCHES: one nominated succeeded pair that is relay makes the
- *  answer relay, whatever the other pairs say. WebRTC normally nominates a
- *  single pair, but more than one can be nominated during an ICE restart or
- *  across m-lines, and the two readings this replaces disagreed in exactly that
- *  case. Latching is the conservative direction, because the reading gates the
- *  2 GB relay cap: calling a relayed connection direct would let an oversized
- *  transfer start on the relay, while the reverse only shows a cap that does
- *  not bind. */
+ *  The verdict LATCHES: one pair that counts (scanPairs below says which do)
+ *  and is relay makes the answer relay, whatever the other pairs say. WebRTC
+ *  normally nominates a single pair, but more than one can be nominated during
+ *  an ICE restart or across m-lines, and the two readings this replaces
+ *  disagreed in exactly that case. Latching is the conservative direction,
+ *  because the reading gates the 2 GB relay cap: calling a relayed connection
+ *  direct would let an oversized transfer start on the relay, while the
+ *  reverse only shows a cap that does not bind. */
 export function probeIsRelay(stats: RTCStatsReport): boolean {
     return scanPairs(stats).relay;
 }
@@ -111,18 +111,35 @@ export function readConnectionType(stats: RTCStatsReport): 'direct' | 'relay' | 
 }
 
 /** One scan, two questions. `nominated` is whether ICE has settled on anything
- *  at all; `relay` LATCHES across every nominated succeeded pair. */
+ *  at all; `relay` LATCHES across every pair that counts.
+ *
+ *  Two kinds of pair count. One is a pair that is both succeeded and
+ *  nominated. The other is the pair a transport report names in
+ *  selectedCandidatePairId, whatever its state: Chromium marks a pair
+ *  in-progress each time it sends a connectivity check on it, and succeeded
+ *  again when the answer comes back, so the pair carrying the connection reads
+ *  in-progress for a round trip after every keepalive check. With only the
+ *  first rule, a probe that read in that window counted no pair, the gate saw
+ *  no relay, and a send over the 2 GB cap started on the relay (#940). A
+ *  report with no transport is read by the first rule alone, and an id that
+ *  names no candidate pair in the report adds nothing. */
 function scanPairs(stats: RTCStatsReport): { nominated: boolean; relay: boolean } {
     let nominated = false;
     let relay = false;
+    const count = (pair: RTCIceCandidatePairStats) => {
+        nominated = true;
+        const local = stats.get(pair.localCandidateId);
+        const remote = stats.get(pair.remoteCandidateId);
+        if (isRelayPair(local?.candidateType, remote?.candidateType)) {
+            relay = true;
+        }
+    };
     stats.forEach((report) => {
         if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.nominated) {
-            nominated = true;
-            const local = stats.get(report.localCandidateId);
-            const remote = stats.get(report.remoteCandidateId);
-            if (isRelayPair(local?.candidateType, remote?.candidateType)) {
-                relay = true;
-            }
+            count(report);
+        } else if (report.type === 'transport' && report.selectedCandidatePairId) {
+            const selected = stats.get(report.selectedCandidatePairId);
+            if (selected?.type === 'candidate-pair') count(selected);
         }
     });
     return { nominated, relay };
