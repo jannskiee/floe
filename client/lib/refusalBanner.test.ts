@@ -8,8 +8,10 @@ import {
     isLinkInvalid,
     peerBanner,
     withRefusalBanner,
+    withoutOwnMessage,
     withoutRefusalBanner,
 } from './refusalBanner';
+import { OUT_OF_MEMORY_MESSAGE } from './transfer/receiver';
 
 describe('the refusal banner', () => {
     // The docs quote it as a heading and the transfer audit matches it.
@@ -176,5 +178,66 @@ describe('the Link Invalid card answers to one value only', () => {
         const page = readFileSync(fileURLToPath(new URL('../components/P2PTransfer.tsx', import.meta.url)), 'utf8');
         expect(page).toContain('<Link2Off className="h-8 w-8 text-red-500" />');
         expect(page).not.toContain('ShieldCheck');
+    });
+});
+
+// Download ZIP cleared the whole banner state as each run began. On a receive
+// that stopped, that state is the only account of why (the tab ran out of
+// memory, a file failed its SHA-256, the sender gave a reason), and the two
+// bulk buttons are on the card in exactly that state. A run now takes down the
+// sentence the last run put up, whole, and nothing else.
+describe('a sentence the page put up itself', () => {
+    const failed = 'ZIP creation failed. Try "Download All" instead.';
+
+    it('comes down while it is still the banner', () => {
+        expect(withoutOwnMessage(failed, failed)).toBe('');
+        expect(withoutOwnMessage('3 file(s) could not be included in ZIP.', '3 file(s) could not be included in ZIP.')).toBe('');
+    });
+
+    it('takes no other message down with it', () => {
+        for (const other of [
+            OUT_OF_MEMORY_MESSAGE,
+            'A file did not match what was sent, so it was discarded. Ask the sender to try again.',
+            REFUSAL_BANNER,
+            LINK_INVALID,
+            '',
+        ]) {
+            expect(withoutOwnMessage(other, failed)).toBe(other);
+        }
+    });
+
+    // The banner state also holds the other peer's words: a stop reason is
+    // the whole banner. One that quotes the sentence is still the sender's.
+    it('keeps a message that only quotes it', () => {
+        for (const quoted of [`The sender says: ${failed}`, `${failed} `, failed.slice(0, -1), failed.toLowerCase()]) {
+            expect(withoutOwnMessage(quoted, failed)).toBe(quoted);
+        }
+    });
+
+    it('takes nothing down when the page put nothing up', () => {
+        expect(withoutOwnMessage(OUT_OF_MEMORY_MESSAGE, null)).toBe(OUT_OF_MEMORY_MESSAGE);
+        expect(withoutOwnMessage(failed, null)).toBe(failed);
+    });
+});
+
+// The hook cannot be mounted here either, so its wiring is read as text.
+// client/e2e/partial-receive.spec.ts and receiver-download-focus.spec.ts
+// drive the real page.
+describe('how Download ZIP clears the banner', () => {
+    const hook = readFileSync(fileURLToPath(new URL('../hooks/useDownloadManager.ts', import.meta.url)), 'utf8');
+
+    // What the last run put up is read before the update is queued: React
+    // can run an updater during the next render, after the ref has moved on.
+    it('takes down only what its last run put up', () => {
+        expect(hook).toContain("import { withoutOwnMessage } from '@/lib/refusalBanner';");
+        expect(hook).toMatch(/^\s+setError\(\(current\) => withoutOwnMessage\(current, shown\)\);$/m);
+        expect(hook).not.toMatch(/setError\(\s*(''|"")\s*\)/);
+    });
+
+    // docs-check holds each web message to the file that types it.
+    it('still types its three sentences itself', () => {
+        expect(hook).toContain(`'Could not prepare files for ZIP. Try "Download All" instead.'`);
+        expect(hook).toContain('`${failedCount} file(s) could not be included in ZIP.`');
+        expect(hook).toContain(`'ZIP creation failed. Try "Download All" instead.'`);
     });
 });

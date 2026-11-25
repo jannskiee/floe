@@ -178,3 +178,60 @@ test('a ZIP with no file it can read ends the run too', async ({ browser }) => {
         await close();
     }
 });
+
+// Each run of Download ZIP still takes down the sentence the last run put up,
+// once it is no longer true: after a run that works, the card holds no banner.
+test('a ZIP that works takes down what the last ZIP put up, each of its three sentences', async ({ browser }) => {
+    const { receiver, downloads, close } = await received(browser);
+    try {
+        // In <main>: Next.js's route announcer is an alert too.
+        const banner = receiver.getByRole('main').getByRole('alert');
+        await receiver.evaluate(() => {
+            (window as unknown as { realRead: typeof Blob.prototype.arrayBuffer }).realRead = Blob.prototype.arrayBuffer;
+        });
+        const zipThatWorks = async (after: string) => {
+            await receiver.evaluate(() => {
+                Blob.prototype.arrayBuffer = (window as unknown as { realRead: typeof Blob.prototype.arrayBuffer }).realRead;
+            });
+            const before = downloads.length;
+            await zip(receiver).click();
+            await expect.poll(() => downloads.length, { message: `the ZIP after ${after}`, timeout: 5_000 }).toBe(before + 1);
+            await expect(zip(receiver)).toHaveText('Download ZIP');
+            await expect(banner, `after ${after}, then a ZIP that works`).toHaveCount(0);
+        };
+
+        // The first read fails, so one file is left out of an archive that is saved.
+        await receiver.evaluate(() => {
+            const read = Blob.prototype.arrayBuffer;
+            let first = true;
+            Blob.prototype.arrayBuffer = function (this: Blob) {
+                if (!first) return read.call(this);
+                first = false;
+                return Promise.reject(new Error('unreadable'));
+            };
+        });
+        await zip(receiver).click();
+        await expect(banner).toHaveText('1 file(s) could not be included in ZIP.');
+        await zipThatWorks('a ZIP that left a file out');
+
+        // No received file can be read; the archive's own 1-byte read-back can.
+        await receiver.evaluate(() => {
+            const read = Blob.prototype.arrayBuffer;
+            Blob.prototype.arrayBuffer = function (this: Blob) {
+                return this.size === 1 ? read.call(this) : Promise.reject(new Error('unreadable'));
+            };
+        });
+        await zip(receiver).click();
+        await expect(banner).toHaveText('Could not prepare files for ZIP. Try "Download All" instead.');
+        await zipThatWorks('a ZIP with no file it could read');
+
+        await receiver.evaluate(() => {
+            Blob.prototype.arrayBuffer = () => Promise.reject(new Error('unreadable'));
+        });
+        await zip(receiver).click();
+        await expect(banner).toHaveText('ZIP creation failed. Try "Download All" instead.');
+        await zipThatWorks('a ZIP that failed');
+    } finally {
+        await close();
+    }
+});

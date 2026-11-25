@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { buildZipEntries, sanitizeFileName } from '@/lib/download';
 import { holdObjectUrl, type HeldObjectUrl } from '@/lib/heldObjectUrl';
+import { withoutOwnMessage } from '@/lib/refusalBanner';
 import { writeZip } from '@/lib/zipWriter';
 
 /** How long a finished archive's object URL is kept after its click. */
@@ -43,7 +44,7 @@ export interface ReceivedFile {
  */
 export function useDownloadManager(
     receivedFiles: ReceivedFile[],
-    setError: (message: string) => void,
+    setError: Dispatch<SetStateAction<string>>,
     onSaved?: (ids: readonly string[]) => void
 ) {
     const [isZipping, setIsZipping] = useState(false);
@@ -59,6 +60,8 @@ export function useDownloadManager(
     // run is on (aria-disabled, not disabled), so a press can reach a handler
     // mid-run and must start nothing.
     const runningRef = useRef(false);
+    // The sentence the last ZIP run put in the banner, or null.
+    const zipMessageRef = useRef<string | null>(null);
 
     useEffect(() => {
         return () => {
@@ -99,12 +102,21 @@ export function useDownloadManager(
         }
     };
 
+    const showZipMessage = (message: string) => {
+        zipMessageRef.current = message;
+        setError(message);
+    };
+
     const handleDownloadZip = async () => {
         if (receivedFiles.length === 0 || runningRef.current) return;
         runningRef.current = true;
 
         setIsZipping(true);
-        setError('');
+        // Read before the update is queued: React can run the updater during
+        // the next render, after the ref has been cleared.
+        const shown = zipMessageRef.current;
+        zipMessageRef.current = null;
+        setError((current) => withoutOwnMessage(current, shown));
         setDownloadProgress({ current: 0, total: receivedFiles.length, label: 'Preparing files...' });
 
         try {
@@ -130,7 +142,7 @@ export function useDownloadManager(
             const failedCount = skipped.length;
 
             if (zipped.length === 0) {
-                setError('Could not prepare files for ZIP. Try "Download All" instead.');
+                showZipMessage('Could not prepare files for ZIP. Try "Download All" instead.');
                 setIsZipping(false);
                 setDownloadProgress({ current: 0, total: 0, label: '' });
                 return;
@@ -149,10 +161,10 @@ export function useDownloadManager(
             setIsZipping(false);
             setDownloadProgress({ current: 0, total: 0, label: '' });
             if (failedCount > 0) {
-                setError(`${failedCount} file(s) could not be included in ZIP.`);
+                showZipMessage(`${failedCount} file(s) could not be included in ZIP.`);
             }
         } catch {
-            setError('ZIP creation failed. Try "Download All" instead.');
+            showZipMessage('ZIP creation failed. Try "Download All" instead.');
             setIsZipping(false);
             setDownloadProgress({ current: 0, total: 0, label: '' });
         } finally {
