@@ -45,11 +45,19 @@ Versions work together down to these floors, as measured against the current cod
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
-<Update label="Unreleased" tags={["Web"]}>
-  **On the web app, screen readers now hear when the 2 GB relay cap blocks a send**
+<Update label="desktop-v1.1.3" description="2026-11-25" tags={["Desktop"]}>
+  **Keyboard focus no longer falls to the page after the first pick from the Send tab's drop zone**
 
-  - On the sending page, the amber notice that appears when a relayed send exceeds the 2 GB cap is now announced as an alert, with its message and **Learn more** link. Previously it was a plain element that screen readers did not announce when the transfer stopped. Contributed by [@saadBinMumtaz](https://github.com/saadBinMumtaz).
+  - Picking files with the drop zone's **Files** button, or a folder with **Folder**, now moves keyboard focus to **Add files** or **Add a folder** once the picked items are listed. Focus used to fall to the page, so Enter and Space did nothing until the next Tab. Contributed by [@Martin-e60](https://github.com/Martin-e60).
+</Update>
+
+<Update label="v1.12.6" description="2026-11-25" tags={["Web", "Self-hosting"]}>
+  **The 2 GB relay cap no longer misses a relayed connection now and then, screen readers hear when it blocks a send, and the download page's Release notes link opens the entry of the Floe Desktop version it offers**
+
   - The 2 GB limit on relayed transfers no longer misses a relayed connection now and then. The sending page reads the route once, two seconds after the devices connect, and a read that came while the browser was checking the connection found no relay and let a larger send start.
+  - On the sending page, the amber notice that appears when a relayed send exceeds the 2 GB cap is now announced as an alert, with its message and **Learn more** link. Previously it was a plain element that screen readers did not announce when the transfer stopped. Contributed by [@saadBinMumtaz](https://github.com/saadBinMumtaz).
+  - The **Release notes** link under the Microsoft Store badge on the download page now opens the changelog at the entry for the Floe Desktop version the page offers. It used to open at the top of the changelog, which can be a newer release or the Unreleased entry. Contributed by [@EObed](https://github.com/EObed).
+  - Self-hosting: the published images are rebuilt as `1.12.6`, with the web app changes above. If you pinned `FLOE_IMAGE_TAG=1.12.5`, move to `1.12.6`.
 </Update>
 
 <Update label="v1.12.5" description="2026-11-22" tags={["Self-hosting", "Web"]}>
