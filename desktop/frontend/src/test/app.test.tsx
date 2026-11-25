@@ -2810,6 +2810,129 @@ describe('focus across a Remove', () => {
 });
 
 /**
+ * The first pick swaps the full drop zone for the slim Add files row, and the
+ * Files or Folder button the keyboard pressed goes with it. Focus goes to its
+ * twin in the slim row, Files to Add files and Folder to Add a folder, by the
+ * rule of the two blocks above: only when it fell to the page. Only a pick
+ * made with the zone's own two buttons moves it: a cancelled pick changes
+ * nothing, and files that arrive another way move nothing.
+ */
+describe('focus across the first pick', () => {
+    const FILE = 'C:\\Users\\test\\a.txt';
+    // The Send tab's Files choice shares its name with the zone's Files
+    // button, so the zone's two buttons are found inside the zone.
+    const zone = () => within(screen.getByText('Select files to send').parentElement!);
+    // A few animation frames, so a focus move the pick scheduled has run.
+    const frames = () => act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+
+    it('Enter on Files lands on Add files, which ignores a held key', async () => {
+        wails.go.SelectFiles.mockImplementation(async () => [FILE]);
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        act(() => zone().getByRole('button', {name: 'Files'}).focus());
+        await user.keyboard('{Enter}');
+        expect(await screen.findByRole('button', {name: 'Send 1 item'})).toBeTruthy();
+        const addFiles = screen.getByRole('button', {name: 'Add files'});
+        await waitFor(() => expect(document.activeElement).toBe(addFiles));
+        // The Enter that chose the file in the dialog may still be held: its
+        // repeats land here, and must not open the dialog again.
+        expect(fireEvent.keyDown(addFiles, {key: 'Enter', repeat: true})).toBe(false);
+        expect(fireEvent.keyDown(addFiles, {key: 'Enter'})).toBe(true);
+    });
+
+    it('Enter on Folder lands on Add a folder, which ignores a held key', async () => {
+        wails.go.SelectFolder.mockImplementation(async () => 'C:\\Users\\test\\Photos');
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        act(() => zone().getByRole('button', {name: 'Folder'}).focus());
+        await user.keyboard('{Enter}');
+        expect(await screen.findByRole('button', {name: 'Send 1 item'})).toBeTruthy();
+        const addFolder = screen.getByRole('button', {name: 'Add a folder'});
+        await waitFor(() => expect(document.activeElement).toBe(addFolder));
+        expect(fireEvent.keyDown(addFolder, {key: 'Enter', repeat: true})).toBe(false);
+        expect(fireEvent.keyDown(addFolder, {key: 'Enter'})).toBe(true);
+    });
+
+    it('waits for the slim row when a frame comes before React draws the pick', async () => {
+        // The pick comes back from Go after the key press is over, so React
+        // draws the picked files in a task of its own, and the browser can run
+        // a frame before that task. Here every frame runs at once.
+        vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((cb) => {
+            queueMicrotask(() => cb(performance.now()));
+            return 0;
+        });
+        wails.go.SelectFiles.mockImplementation(async () => [FILE]);
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        act(() => zone().getByRole('button', {name: 'Files'}).focus());
+        await user.keyboard('{Enter}');
+        expect(await screen.findByRole('button', {name: 'Send 1 item'})).toBeTruthy();
+        await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', {name: 'Add files'})));
+    });
+
+    it('a cancelled pick leaves focus on Files, and files that come later another way move nothing', async () => {
+        // SelectFiles answers [] unless a test says otherwise: the dialog was
+        // cancelled.
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        const files = zone().getByRole('button', {name: 'Files'});
+        act(() => files.focus());
+        await user.keyboard('{Enter}');
+        await waitFor(() => expect(wails.go.SelectFiles).toHaveBeenCalledTimes(1));
+        await frames();
+        expect(document.activeElement).toBe(files);
+        // A click on empty space: focus on no control, as a mouse leaves it.
+        act(() => files.blur());
+        act(() => { wails.emit('files:open', [FILE]); });
+        expect(await screen.findByRole('button', {name: 'Send 1 item'})).toBeTruthy();
+        await frames();
+        expect(document.activeElement).toBe(document.body);
+    });
+
+    it('files dropped on the window move nothing', async () => {
+        mount();
+        await settled();
+        expect(document.activeElement).toBe(document.body);
+        act(() => { wails.drop?.(0, 0, [FILE]); });
+        expect(await screen.findByRole('button', {name: 'Send 1 item'})).toBeTruthy();
+        await frames();
+        expect(document.activeElement).toBe(document.body);
+    });
+
+    it.each([['o', 'SelectFiles'], ['v', 'PasteFiles']])('files that Ctrl+%s brings through %s move nothing', async (key, binding) => {
+        wails.go[binding].mockImplementation(async () => [FILE]);
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.keyboard(`{Control>}${key}{/Control}`);
+        expect(await screen.findByRole('button', {name: 'Send 1 item'})).toBeTruthy();
+        await frames();
+        expect(document.activeElement).toBe(document.body);
+    });
+
+    it('focus that another control took before the pick came back stays there', async () => {
+        let answer: (paths: string[]) => void = () => {};
+        wails.go.SelectFiles.mockImplementation(() => new Promise<string[]>((resolve) => { answer = resolve; }));
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        act(() => zone().getByRole('button', {name: 'Files'}).focus());
+        await user.keyboard('{Enter}');
+        await waitFor(() => expect(wails.go.SelectFiles).toHaveBeenCalledTimes(1));
+        const lockup = document.getElementById('floe-lockup')!;
+        act(() => lockup.focus());
+        await act(async () => { answer([FILE]); });
+        expect(await screen.findByRole('button', {name: 'Send 1 item'})).toBeTruthy();
+        await frames();
+        expect(document.activeElement).toBe(lockup);
+    });
+});
+
+/**
  * The File Explorer entry at launch (DSK-04; owner answer 26, "Off by default
  * on portable"). Go says whose the entry is (ContextMenuState): "self" turns
  * the switch on; "other" leaves another copy's entry alone and the switch

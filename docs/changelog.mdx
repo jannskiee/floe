@@ -45,6 +45,12 @@ Versions work together down to these floors, as measured against the current cod
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
+<Update label="Unreleased" tags={["Desktop"]}>
+  **Keyboard focus no longer falls to the page after the first pick from the Send tab's drop zone**
+
+  - Picking files with the drop zone's **Files** button, or a folder with **Folder**, now moves keyboard focus to **Add files** or **Add a folder** once the picked items are listed. Focus used to fall to the page, so Enter and Space did nothing until the next Tab. Contributed by [@Martin-e60](https://github.com/Martin-e60).
+</Update>
+
 <Update label="v1.12.5" description="2026-11-22" tags={["Self-hosting", "Web"]}>
   **The signaling server limits what it queues for a client that floods it, `/health` reports the relay, and the download page offers Floe Desktop 1.1.2**
 
