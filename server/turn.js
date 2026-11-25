@@ -182,6 +182,22 @@ function logMintFailure(reason) {
     console.error(`Cloudflare TURN mint failed (${reason})`);
 }
 
+// Node's fetch rejects every failure to reach a host with a TypeError and
+// keeps the reason in its cause, as the Upstash line in stats.js does.
+function mintFailureReason(error) {
+    const code = error?.cause?.code;
+    if (typeof code === 'string' && /^[A-Z][A-Z0-9_]*$/.test(code)) {
+        return code;
+    }
+
+    const name = error?.name;
+    if (typeof name === 'string' && /^[A-Za-z][A-Za-z0-9_]*$/.test(name)) {
+        return name;
+    }
+
+    return 'error';
+}
+
 async function generateCloudflareIceServers() {
     if (!CLOUDFLARE_TURN_KEY_ID || !CLOUDFLARE_TURN_KEY_API_TOKEN) return null;
     const now = Date.now();
@@ -298,7 +314,7 @@ async function mintCloudflareIceServers() {
         cfIceCache = { servers, expires: mintedAt + CF_CACHE_MS, mintedAt };
         return servers;
     } catch (err) {
-        logMintFailure(err && err.name ? err.name : 'error');
+        logMintFailure(mintFailureReason(err));
         return null;
     }
 }

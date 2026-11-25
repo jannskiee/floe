@@ -196,6 +196,43 @@ describe('Cloudflare TURN mint and cache', () => {
         assert.match(lines[1], /status 502/);
     });
 
+    // Node's fetch rejects every failure to reach a host the same way, with a
+    // TypeError whose message is 'fetch failed', and keeps what went wrong in
+    // its cause: a code such as ENOTFOUND, and a message that names the host.
+    // The reason is the code when it is a plain code, else the error's name
+    // when it is a plain word, else the word error, as for the Upstash line.
+    it('a network failure logs its error code, never a message or the host', async () => {
+        const lines = [];
+        console.error = (...args) => lines.push(args.join(' '));
+        globalThis.fetch = () => Promise.reject(Object.assign(new TypeError('fetch failed'), {
+            cause: Object.assign(new Error('getaddrinfo ENOTFOUND rtc.live.cloudflare.com'), { code: 'ENOTFOUND' }),
+        }));
+        assert.equal(await turn.generateCloudflareIceServers(), null);
+        await drain();
+        assert.deepEqual(lines, ['Cloudflare TURN mint failed (ENOTFOUND)']);
+        assert.doesNotMatch(lines.join('\n'), /fetch failed|getaddrinfo|rtc\.live|test-api-token|test-key-id/);
+    });
+
+    it('a code that is not a plain code falls back to the error name', async () => {
+        const lines = [];
+        console.error = (...args) => lines.push(args.join(' '));
+        globalThis.fetch = () => Promise.reject(Object.assign(new TypeError('fetch failed'), {
+            cause: { code: 'ENOTFOUND) token=ABC' },
+        }));
+        assert.equal(await turn.generateCloudflareIceServers(), null);
+        await drain();
+        assert.deepEqual(lines, ['Cloudflare TURN mint failed (TypeError)']);
+    });
+
+    it('a name that is not a plain word logs the word error', async () => {
+        const lines = [];
+        console.error = (...args) => lines.push(args.join(' '));
+        globalThis.fetch = () => Promise.reject(Object.assign(new Error('boom'), { name: 'x) token=abc' }));
+        assert.equal(await turn.generateCloudflareIceServers(), null);
+        await drain();
+        assert.deepEqual(lines, ['Cloudflare TURN mint failed (error)']);
+    });
+
     it('the mint never rejects', async () => {
         globalThis.fetch = () => { throw new TypeError('synchronous throw'); };
         assert.equal(await turn.generateCloudflareIceServers(), null);
