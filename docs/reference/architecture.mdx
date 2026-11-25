@@ -237,12 +237,11 @@ connection that sends a `ping` while 60 `pong` answers are still waiting to be w
 that sends `ping` every 25 seconds never comes near that.
 
 A Socket.IO connection that stops reading is cut off too: once more than 1 MB, or more than 1,000
-packets, are waiting for it, the server disconnects it instead of sending more, and the page stays
-disconnected until it is reloaded. What the server queues on the connection's own behalf, such as
-the answers to its `ping` messages, has a bound of its own: once more than 1,000 packets are
-waiting, the server closes the connection's transport, and the page reconnects by itself. The
-server also closes a Socket.IO connection at once when it asks for any namespace but `/`, or sends
-a binary packet. Floe's pages send neither.
+packets, are waiting for it, the server disconnects it instead of sending more. Past 1,000 waiting
+packets, the server closes the connection's transport at once, and drops what is still queued,
+when it makes one more packet of its own for that connection, such as that disconnect or a
+heartbeat ping. The server also closes a Socket.IO connection at once when it asks for any
+namespace but `/`, or sends a binary packet. Floe's pages send neither.
 
 ### How a /ws connection is closed {#how-a-ws-connection-is-closed}
 
