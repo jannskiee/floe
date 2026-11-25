@@ -49,6 +49,7 @@ Each entry lists the parts it changed. Filter on the right to see only the ones 
   **On the web app, screen readers now hear when the 2 GB relay cap blocks a send**
 
   - On the sending page, the amber notice that appears when a relayed send exceeds the 2 GB cap is now announced as an alert, with its message and **Learn more** link. Previously it was a plain element that screen readers did not announce when the transfer stopped. Contributed by [@saadBinMumtaz](https://github.com/saadBinMumtaz).
+  - The 2 GB limit on relayed transfers no longer misses a relayed connection now and then. The sending page reads the route once, two seconds after the devices connect, and a read that came while the browser was checking the connection found no relay and let a larger send start.
 </Update>
 
 <Update label="v1.12.5" description="2026-11-22" tags={["Self-hosting", "Web"]}>
