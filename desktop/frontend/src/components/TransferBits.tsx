@@ -1,6 +1,6 @@
 // The pieces the send and receive consoles are assembled from.
 
-import {useId, useRef, type CSSProperties} from 'react';
+import {useEffect, useId, useRef, useState, type CSSProperties} from 'react';
 import {AlertCircle, ChevronDown, CircleCheck, Files, Folder, Loader2, UploadCloud, X} from 'lucide-react';
 import {Button, cn} from './ui';
 import FileIcon from './FileIcon';
@@ -102,21 +102,43 @@ const dropVar = {['--wails-drop-target' as never]: 'drop'} as CSSProperties;
  *  a slim "Add files" row once files are picked. */
 export function Dropzone({expanded, onPickFiles, onPickFolder}: {
     expanded: boolean;
-    onPickFiles: () => void;
-    onPickFolder: () => void;
+    onPickFiles: () => Promise<void>;
+    onPickFolder: () => Promise<void>;
 }) {
+    const rootRef = useRef<HTMLDivElement>(null);
+    // The first pick swaps the full zone for the slim row, and the Files or
+    // Folder button that made it goes with the zone, so focus would fall to the
+    // page. This keeps which of the two made a pick (0 Files, 1 Folder), set
+    // only once the pick is over: by then the picked files are staged, and a
+    // cancelled pick sets it over a zone that is still full. Tested against
+    // null, never for truth, since 0 is Files.
+    const [picked, setPicked] = useState<0 | 1 | null>(null);
+    useEffect(() => {
+        if (picked === null) return;
+        setPicked(null);
+        // Still full: the dialog was cancelled, and nothing moves.
+        if (expanded) return;
+        // The slim row's two buttons open the same two dialogs, in the same
+        // order, so focus goes to the twin of the one that was pressed, and only
+        // when it fell to the page. Asked in a frame, as the other handoffs do,
+        // so that a handoff of its own wins.
+        requestAnimationFrame(() => {
+            if (document.activeElement && document.activeElement !== document.body) return;
+            rootRef.current?.querySelectorAll<HTMLButtonElement>('button')[picked]?.focus();
+        });
+    }, [picked, expanded]);
     if (!expanded) {
         return (
-            <div style={dropVar} className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-white/40 bg-white/[0.02] py-1.5 pl-3 pr-1.5 transition-colors hover:border-white/70">
+            <div ref={rootRef} style={dropVar} className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-white/40 bg-white/[0.02] py-1.5 pl-3 pr-1.5 transition-colors hover:border-white/70">
                 <span className="flex min-w-0 items-baseline gap-2.5">
                     <span className="text-sm font-medium text-zinc-200">Add files</span>
                     <span className="truncate font-mono text-[10px] uppercase tracking-[0.15em] text-zinc-600">or drop anywhere</span>
                 </span>
                 <span className="flex shrink-0 gap-1">
-                    <Button variant="ghost" className="px-2 py-1.5" onClick={onPickFiles} aria-label="Add files">
+                    <Button variant="ghost" className="px-2 py-1.5" onClick={onPickFiles} onKeyDown={ignoreRepeat} aria-label="Add files">
                         <Files/>
                     </Button>
-                    <Button variant="ghost" className="px-2 py-1.5" onClick={onPickFolder} aria-label="Add a folder">
+                    <Button variant="ghost" className="px-2 py-1.5" onClick={onPickFolder} onKeyDown={ignoreRepeat} aria-label="Add a folder">
                         <Folder/>
                     </Button>
                 </span>
@@ -124,17 +146,17 @@ export function Dropzone({expanded, onPickFiles, onPickFolder}: {
         );
     }
     return (
-        <div style={dropVar} className="group rounded-xl border border-dashed border-white/40 bg-white/[0.02] p-5 text-center transition-colors hover:border-white/70 hover:bg-white/[0.03]">
+        <div ref={rootRef} style={dropVar} className="group rounded-xl border border-dashed border-white/40 bg-white/[0.02] p-5 text-center transition-colors hover:border-white/70 hover:bg-white/[0.03]">
             <span className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] transition group-hover:border-white/25">
                 <UploadCloud className="h-5 w-5 text-white/70 transition group-hover:text-white"/>
             </span>
             <p className="text-sm font-medium text-zinc-200">Select files to send</p>
             <p className="mt-1 font-mono text-[11px] text-zinc-500">or drag them onto the window</p>
             <div className="mt-3 flex gap-2">
-                <Button variant="outline" className="flex-1" onClick={onPickFiles}>
+                <Button variant="outline" className="flex-1" onClick={async () => { await onPickFiles(); setPicked(0); }}>
                     <Files/> Files
                 </Button>
-                <Button variant="outline" className="flex-1" onClick={onPickFolder}>
+                <Button variant="outline" className="flex-1" onClick={async () => { await onPickFolder(); setPicked(1); }}>
                     <Folder/> Folder
                 </Button>
             </div>
