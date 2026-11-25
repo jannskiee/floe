@@ -324,10 +324,11 @@ receiver, which is deliberate (share a link and wait) and cancelable.
 
 ## Release history
 
-Current release: `desktop-v1.1.2`, tagged 2026-11-22: a GitHub pre-release at
+Current release: `desktop-v1.1.3`, tagged 2026-11-25: a GitHub pre-release at
 once, and the Microsoft Store build (9NBQ8ZQ1065L) once it passes certification.
-Cut from the same commit as CLI `v1.12.4`: `cli/engine` changed (#981, and #969,
-which CLI `v1.12.3` already carries), so both version lines carry it.
+Cut from the same commit as CLI `v1.12.6`, but not paired by need: every
+user-visible change since the previous desktop release is in `desktop/frontend`
+(#998), and `cli/engine` is unchanged.
 
 The list below is the verified order the first public release (0.1.0 Beta)
 actually followed. Steps 1-3 shipped the GitHub Beta; the plan then pivoted
