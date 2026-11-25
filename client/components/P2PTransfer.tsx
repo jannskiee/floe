@@ -1893,7 +1893,7 @@ export function P2PTransfer() {
                                 </div>
                             )}
                             {isSender && showRelayLimitNotice && (
-                                <div className="mt-2 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 flex items-start gap-3">
+                                <div role="alert" className="mt-2 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 flex items-start gap-3">
                                     <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />
                                     <div className="flex-1 text-xs text-amber-300 leading-relaxed">
                                         Transfer limit exceeded. Relay connections are capped at 2 GB. Reload the page to send 2 GB or less, or to send from a network that supports a direct connection.{' '}
