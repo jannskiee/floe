@@ -99,3 +99,15 @@ export function receiverTabMatters(input: {
 export function bulkDownloadShown(input: { received: number; busy: boolean }): boolean {
     return input.received > 1 && !input.busy;
 }
+
+
+/**
+ * Whether the device is an iOS device, for the Download ZIP tip.
+ *
+ * Safari on an iPad asks for desktop sites by default, so its user agent
+ * names a Mac instead of an iPad. An iPad reports more than one touch
+ * point, a Mac reports none, so touch points tell the two apart.
+ */
+export function isIosDevice(userAgent: string, maxTouchPoints: number): boolean {
+    return /iPhone|iPad|iPod/.test(userAgent) || (/Mac/.test(userAgent) && maxTouchPoints > 1);
+}
