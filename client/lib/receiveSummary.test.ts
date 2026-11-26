@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { bulkDownloadShown, joinStepsShown, receiveSummary, receiverTabMatters } from './receiveSummary';
+import { bulkDownloadShown, isIosDevice, joinStepsShown, receiveSummary, receiverTabMatters } from './receiveSummary';
 import { mainPageHoldsTab, receiveUnderWay } from './pageGuards';
 
 // The transfer audit reads the receiver page with this expression and takes a
@@ -197,5 +197,33 @@ describe('bulkDownloadShown', () => {
         expect(tip.length).toBeGreaterThan(20);
         expect(tip).toContain('showBulk');
         expect(tip).not.toContain('receivedFiles.length > 0');
+    });
+});
+
+describe('isIosDevice', () => {
+    const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+    const IPAD_AS_MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
+    const MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    const WINDOWS = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    const ANDROID = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
+
+    it('returns true for an iPhone', () => {
+        expect(isIosDevice(IPHONE, 5)).toBe(true);
+    });
+
+    it('returns true for an iPad that reports itself as a Mac', () => {
+        expect(isIosDevice(IPAD_AS_MAC, 5)).toBe(true);
+    });
+
+    it('returns false for a Mac without touch', () => {
+        expect(isIosDevice(MAC, 0)).toBe(false);
+    });
+
+    it('returns false for Windows', () => {
+        expect(isIosDevice(WINDOWS, 0)).toBe(false);
+    });
+
+    it('returns false for Android', () => {
+        expect(isIosDevice(ANDROID, 0)).toBe(false);
     });
 });
