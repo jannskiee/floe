@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -192,4 +193,112 @@ func TestOpenFolderOpensTheNearestFolderThatExists(t *testing.T) {
 		noDrive := missingDrive() + `\Floe`
 		check(a.OpenFolder(noDrive), folderCmd("windows", noDrive).Args)
 	}
+}
+
+// TestRevealAndOpenFindAFileThatArrivedInAFolder: the one file of a receive
+// can arrive inside a folder, and its saved name then keeps that folder
+// ("Invoices/report.pdf", relative to the save folder and slash-separated).
+// RevealFile and OpenFile cut the name to its last part, so they selected or
+// opened report.pdf in the save folder, an older file that only shares the
+// name, or opened the save folder with nothing selected. They now act on the
+// file where it is and never on a namesake, and a name that would leave the
+// save folder still opens the save folder. The seams record instead of
+// opening anything, and PATH holds no program, so a command started past
+// startFolder fails instead of opening a window.
+func TestRevealAndOpenFindAFileThatArrivedInAFolder(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the shell open is Windows only")
+	}
+	t.Setenv("PATH", t.TempDir())
+	var started, shelled []string
+	prevStart, prevShell := startFolder, shellOpenFn
+	startFolder = func(c *exec.Cmd) error { started = c.Args; return nil }
+	shellOpenFn = func(p string) error { shelled = append(shelled, p); return nil }
+	t.Cleanup(func() { startFolder, shellOpenFn = prevStart, prevShell })
+
+	root := t.TempDir()
+	dir := filepath.Join(root, "save")
+	nested := filepath.Join(dir, "Invoices", "report.pdf")
+	write := func(t *testing.T, p string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The messages name the temporary folder <root>, whose path changes
+	// every run.
+	show := func(s string) string { return strings.ReplaceAll(s, root, "<root>") }
+	// did makes one call and says what it did.
+	did := func(call func() error) string {
+		started, shelled = nil, nil
+		err := call()
+		var out []string
+		for _, p := range shelled {
+			out = append(out, "asked the shell for "+p)
+		}
+		if started != nil {
+			out = append(out, "started "+strings.Join(started, " "))
+		}
+		if err != nil {
+			out = append(out, "failed: "+err.Error())
+		}
+		if out == nil {
+			return "did nothing"
+		}
+		return show(strings.Join(out, ", "))
+	}
+	selects := show("started " + strings.Join(revealCmd("windows", dir, nested).Args, " "))
+	opens := show("asked the shell for " + nested)
+	folder := show("started " + strings.Join(folderCmd("windows", dir).Args, " "))
+	a := &App{}
+	expect := func(t *testing.T, name, reveal, open string) {
+		t.Helper()
+		if got := did(func() error { return a.RevealFile(dir, name) }); got != reveal {
+			t.Errorf("RevealFile(%s, %#q) %s, want %s", show(dir), show(name), got, reveal)
+		}
+		if got := did(func() error { return a.OpenFile(dir, name) }); got != open {
+			t.Errorf("OpenFile(%s, %#q) %s, want %s", show(dir), show(name), got, open)
+		}
+	}
+
+	// The first three fail on main, and the last passes there already.
+	t.Run("the file in its folder", func(t *testing.T) {
+		write(t, nested)
+		expect(t, "Invoices/report.pdf", selects, opens)
+	})
+	t.Run("beside an older file of the same name in the save folder", func(t *testing.T) {
+		write(t, filepath.Join(dir, "report.pdf"))
+		expect(t, "Invoices/report.pdf", selects, opens)
+	})
+	t.Run("gone from its folder, with the older file still there", func(t *testing.T) {
+		if err := os.Remove(nested); err != nil {
+			t.Fatal(err)
+		}
+		expect(t, "Invoices/report.pdf", folder, folder)
+		// And with its folder gone too.
+		if err := os.Remove(filepath.Dir(nested)); err != nil {
+			t.Fatal(err)
+		}
+		expect(t, "Invoices/report.pdf", folder, folder)
+	})
+	t.Run("a name that would leave the save folder", func(t *testing.T) {
+		outside := filepath.Join(root, "outside.txt")
+		write(t, outside)
+		// A sibling folder whose path starts with the save folder's.
+		write(t, filepath.Join(root, "save2", "x.txt"))
+		for _, name := range []string{
+			"../outside.txt",
+			`..\outside.txt`,
+			"../save2/x.txt",
+			"Invoices/../../outside.txt",
+			// Localize takes this one, and Windows does not read ".. " as "..".
+			".. /outside.txt",
+			outside,
+		} {
+			expect(t, name, folder, folder)
+		}
+	})
 }

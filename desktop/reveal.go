@@ -103,6 +103,25 @@ func openCmd(goos, path string) *exec.Cmd {
 // without opening anything.
 var shellOpenFn = shellOpen
 
+// receivedPath returns the path of the received file dir/name. A saved name is
+// relative to the save folder and slash-separated, and keeps the folder a file
+// arrived in ("Invoices/report.pdf"), so it is joined whole when
+// filepath.Localize takes it as a local path: no . or .. part, no root, drive,
+// backslash, colon or reserved name, so the path stays inside dir. Any other
+// name is cut to its last part by safeLeaf, as before. That fallback still
+// finds a file that Floe Desktop 0.3.1 and older saved under a reserved name
+// such as COM¹, which a History row they wrote can still hold.
+func receivedPath(dir, name string) (string, bool) {
+	if rel, err := filepath.Localize(name); err == nil {
+		return filepath.Join(dir, rel), true
+	}
+	leaf, ok := safeLeaf(name)
+	if !ok {
+		return "", false
+	}
+	return filepath.Join(dir, leaf), true
+}
+
 // RevealFile opens the OS file manager with the received file dir/name selected.
 // If the exact file is missing it falls back to opening the folder, so the
 // action is never broken. Live transfers pass the engine's SavedName (the real
@@ -113,13 +132,8 @@ func (a *App) RevealFile(dir, name string) error {
 	if dir == "" {
 		return fmt.Errorf("no folder to open")
 	}
-	leaf, ok := safeLeaf(name)
-	if !ok {
-		return a.OpenFolder(dir)
-	}
-	p := filepath.Join(dir, leaf)
-	if fileExists(p) {
-		return revealCmd(goruntime.GOOS, dir, p).Start()
+	if p, ok := receivedPath(dir, name); ok && fileExists(p) {
+		return startFolder(revealCmd(goruntime.GOOS, dir, p))
 	}
 	return a.OpenFolder(dir)
 }
@@ -130,12 +144,7 @@ func (a *App) OpenFile(dir, name string) error {
 	if dir == "" {
 		return fmt.Errorf("no file to open")
 	}
-	leaf, ok := safeLeaf(name)
-	if !ok {
-		return a.OpenFolder(dir)
-	}
-	p := filepath.Join(dir, leaf)
-	if fileExists(p) {
+	if p, ok := receivedPath(dir, name); ok && fileExists(p) {
 		if goruntime.GOOS == "windows" {
 			return shellOpenFn(p)
 		}

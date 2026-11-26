@@ -22,7 +22,7 @@ const DIR_MAX = 47;
  *  confirmation, and Start over resets both confirmClear and expandedRow, so
  *  both writers live outside this view. The names in each row came from the
  *  other machine (see the floe:history row of the consumer map); they reach
- *  React as text nodes only, and RevealFile is gated by safeLeaf in reveal.go.
+ *  React as text nodes only, and RevealFile is gated by receivedPath in reveal.go.
  *
  *  A request drop's row (via 'request', S1-DSK-09) is titled with the owner's
  *  own label, carries the verified, renamed and stop lines its Done or Stopped
