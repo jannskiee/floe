@@ -341,6 +341,52 @@ describe('request rows', () => {
         expect(wails.go.OpenFolder).toHaveBeenCalledWith(FOLDER);
     });
 
+    // Cancel, Escape and the question's own Show in folder each take away the
+    // button the keyboard is on: focus goes back to the row's Show in folder,
+    // which asked, and only when it fell to the page.
+    type User = ReturnType<typeof userEvent.setup>;
+    const exits: [string, (user: User) => Promise<void>][] = [
+        ['Escape', (user) => user.keyboard('{Escape}')],
+        ['Cancel', (user) => user.keyboard('{Enter}')],
+        ['its own Show in folder', async (user) => { await user.tab(); await user.keyboard('{Enter}'); }],
+    ];
+
+    it.each(exits)('the renamed-files question closed by %s puts focus back on the row\'s Show in folder', async (exit, close) => {
+        const user = userEvent.setup();
+        mount([request({renamed: 2, names: ['a.url.floe-blocked', 'b.lnk.floe-blocked']})]);
+        await openRow();
+        const opener = screen.getByRole('button', {name: 'Show in folder'});
+        act(() => opener.focus());
+        await user.keyboard('{Enter}');
+        const dialog = screen.getByRole('dialog');
+        expect(document.activeElement).toBe(within(dialog).getByRole('button', {name: 'Cancel'}));
+        await close(user);
+        expect(screen.queryByRole('dialog')).toBeNull();
+        expect(wails.go.OpenFolder).toHaveBeenCalledTimes(exit === 'its own Show in folder' ? 1 : 0);
+        await waitFor(() => expect(document.activeElement).toBe(opener));
+    });
+
+    it('the renamed-files question moves nothing when focus is somewhere else as it closes', async () => {
+        mount([request({renamed: 2, names: ['a.url.floe-blocked', 'b.lnk.floe-blocked']})]);
+        await openRow();
+        const opener = screen.getByRole('button', {name: 'Show in folder'});
+        act(() => opener.focus());
+        fireEvent.click(opener);
+        const cancel = within(screen.getByRole('dialog')).getByRole('button', {name: 'Cancel'});
+        // A stand-in for the title bar keeps focus, and the click moves none,
+        // as a screen reader's click can.
+        const gear = document.body.appendChild(document.createElement('button'));
+        try {
+            act(() => gear.focus());
+            fireEvent.click(cancel);
+            expect(screen.queryByRole('dialog')).toBeNull();
+            await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+            expect(document.activeElement).toBe(gear);
+        } finally {
+            gear.remove();
+        }
+    });
+
     it('request rows never call RevealFile or OpenFile', async () => {
         // A one-file request row: the path a plain receive row would take to
         // RevealFile. A request row opens the folder instead, every time.
