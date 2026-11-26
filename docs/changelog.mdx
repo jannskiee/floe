@@ -45,11 +45,22 @@ Versions work together down to these floors, as measured against the current cod
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
-<Update label="Unreleased" tags={["Web", "Desktop"]}>
-  **The download page offers Floe Desktop 1.1.3**
+<Update label="desktop-v1.1.4" description="2026-11-26" tags={["Desktop"]}>
+  **Open and Show in folder find a received file inside the folder it arrived in, and closing the renamed-files question gives keyboard focus back to Show in folder**
 
+  - When the one file of a receive arrived inside a folder, such as `Invoices/report.pdf`, **Open** on the done card now opens that file, and **Show in folder** selects it there and in History. Both used to look for `report.pdf` directly in the save folder, so they opened the folder with nothing selected, or an older file of the same name there. Contributed by [@Detoy](https://github.com/Detoy).
+  - Closing the renamed-files confirmation from **Show in folder** now returns keyboard focus to the **Show in folder** button that opened it. Contributed by [@rajverrr](https://github.com/rajverrr).
+</Update>
+
+<Update label="v1.12.7" description="2026-11-26" tags={["Web", "Self-hosting"]}>
+  **On the web app, Download ZIP keeps the reason a receive stopped, Copy keeps keyboard focus without the clipboard API and the ping readout no longer counts an outage, and a Cloudflare TURN mint that cannot reach Cloudflare names its error code**
+
+  - On a receive that stopped partway, Download ZIP no longer takes down the red banner that says why it stopped, so the reason stays on the page while you save what arrived. Contributed by [@redwing509](https://github.com/redwing509).
+  - Pressing **Copy** on a page that cannot use the browser's clipboard API, such as a self-hosted server opened over plain HTTP from another device or an in-app browser that refuses it, now leaves keyboard focus on the button you pressed, whether or not the copy worked. Focus used to fall to the page, so the next Tab started again from the top. Contributed by [@Aadithya-kl](https://github.com/Aadithya-kl).
+  - The sending card's ping readout no longer shows how long the page was offline after reconnecting, and the page no longer sends queued pings from the outage all at once. Contributed by [@rajverrr](https://github.com/rajverrr).
   - The floe.one download page now offers Floe Desktop 1.1.3, with its installer, zip and checksums.
-  - Desktop: when the one file of a receive arrived inside a folder, such as `Invoices/report.pdf`, **Open** now opens that file and **Show in folder** selects it, on the done card and in History. Both used to look for `report.pdf` directly in the save folder, so they opened the folder with nothing selected, or an older file of the same name there. Contributed by [@Detoy](https://github.com/Detoy).
+  - Self-hosting: when a Cloudflare TURN mint cannot reach Cloudflare, the log line names the error code, such as `ENOTFOUND` or `ECONNREFUSED`, instead of `TypeError`. Contributed by [@ege-arhan](https://github.com/ege-arhan).
+  - Self-hosting: the published images are rebuilt as `1.12.7`, with the web app and server changes above. If you pinned `FLOE_IMAGE_TAG=1.12.6`, move to `1.12.7`.
 </Update>
 
 <Update label="desktop-v1.1.3" description="2026-11-25" tags={["Desktop"]}>
