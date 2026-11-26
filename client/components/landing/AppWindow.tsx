@@ -72,6 +72,8 @@ export function AppWindow({
     const [playToken, setPlayToken] = useState(0);
     const [stage, setStage] = useState(0);
     const [done, setDone] = useState(false);
+    // A press of Replay starts a new run with focus still on the button.
+    const [replayFocused, setReplayFocused] = useState(false);
 
     useEffect(() => {
         if (reduced) return;
@@ -123,6 +125,10 @@ export function AppWindow({
     // With reduced motion the finished session renders statically, no timers.
     const shownStage = reduced ? FINAL : stage;
     const isDone = reduced || done;
+    // Replay is there to press once a run has ended, and stays while it holds
+    // focus, so focus never sits on a button that has been hidden. Never with
+    // reduced motion, where nothing replays.
+    const replayShown = !reduced && (done || replayFocused);
     // The frame painted first, and therefore the one worth preloading.
     const heroIndex = reduced ? FINAL : 0;
 
@@ -136,13 +142,18 @@ export function AppWindow({
                     <button
                         type="button"
                         onClick={replay}
+                        onFocus={() => setReplayFocused(true)}
+                        onBlur={() => setReplayFocused(false)}
                         aria-label="Replay the desktop demo"
-                        tabIndex={isDone && !reduced ? 0 : -1}
+                        tabIndex={replayShown ? 0 : -1}
                         // Hidden from AT while it is invisible and pointer-events:none,
                         // otherwise screen readers offer a button nothing can activate.
-                        aria-hidden={!(isDone && !reduced)}
+                        // Never while it holds focus.
+                        aria-hidden={!replayShown}
+                        // During a run only keyboard focus draws it: a mouse click focuses
+                        // it too, and the pointer needs no button over the demo.
                         className={`relative before:absolute before:-inset-3 rounded p-1 text-zinc-600 transition hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-ice ${
-                            isDone && !reduced ? 'opacity-100' : 'pointer-events-none opacity-0'
+                            isDone && !reduced ? 'opacity-100' : 'pointer-events-none opacity-0 focus-visible:opacity-100'
                         }`}
                     >
                         <RotateCcw className="h-3.5 w-3.5" />
