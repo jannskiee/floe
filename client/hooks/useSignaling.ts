@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import io, { Socket } from 'socket.io-client';
 import { resolveSocketUrl } from '@/lib/socketUrl';
 import { createReconnectBackoff } from '@/lib/reconnectBackoff';
+import { sendLatencyPing } from '@/lib/latencyPing';
 
 // Module-level singleton, created lazily on first use rather than at import.
 // Keep getSocket() the ONLY io() call in the app so the whole client shares one
@@ -127,13 +128,7 @@ export function useSignaling(callbacks: UseSignalingCallbacks) {
             // `reconnect` is a Manager-level event, note the `.io` namespace.
             socket.io.on('reconnect', () => cbRef.current.onReconnect());
 
-            pingInterval = setInterval(() => {
-                const start = performance.now();
-                socket.emit('ping', () => {
-                    const duration = performance.now() - start;
-                    setPing(Number(duration.toFixed(2)));
-                });
-            }, 2000);
+            pingInterval = setInterval(() => sendLatencyPing(socket, setPing), 2000);
 
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             socket.on('signal', (data: any) => cbRef.current.onSignal(data));
