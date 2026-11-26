@@ -19,13 +19,13 @@ const FAQItem = ({ question, answer }: { question: string; answer: ReactNode }) 
                 >
                     {question}
                     <ChevronDown
-                        className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+                        className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform duration-200 motion-reduce:transition-none ${isOpen ? 'rotate-180' : ''}`}
                     />
                 </button>
             </h3>
             {/* 0fr -> 1fr grid rows track the answer's true height at every viewport width,
                 unlike a fixed max-h cap that silently clips long answers on narrow screens */}
-            <div className={`grid transition-[grid-template-rows] duration-300 ${isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+            <div className={`grid transition-[grid-template-rows] duration-300 motion-reduce:transition-none ${isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
                 {/* invisible, not just clipped: a 0fr row still leaves its links in the
                     tab order and in the accessibility tree, so keyboard users could land
                     on a link inside a collapsed answer and screen readers read every
