@@ -51,6 +51,13 @@ export function withoutRefusalBanner(current: string): string {
     return current === REFUSAL_BANNER ? '' : current;
 }
 
+/** A sentence this page put up comes down, and only while it is still the
+ *  whole banner: anything that arrived since, such as why a receive stopped,
+ *  stays. `own` is null when the page put nothing up. */
+export function withoutOwnMessage(current: string, own: string | null): string {
+    return own !== null && current === own ? '' : current;
+}
+
 /** What a reconnect leaves of the banner state. It clears it, as it always
  *  has: a new socket is a new attempt, and a message about the last one must
  *  not sit over it. The exception is the Link Invalid card's value on a page

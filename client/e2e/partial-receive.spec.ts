@@ -36,8 +36,9 @@ interface Step {
     sent: number;
     // false: the end marker carries no SHA-256, as from a floe older than
     // 1.11.0 or a browser whose hash was not ready, so the file is checked
-    // by size only.
-    hash?: boolean;
+    // by size only. 'wrong': it carries one that does not match the bytes,
+    // so the receiver discards the file and stops the transfer.
+    hash?: boolean | 'wrong';
 }
 
 interface Rig {
@@ -171,7 +172,11 @@ async function sendSteps(sender: Page, steps: Step[]): Promise<void> {
             await drained(0);
             if (step.sent < step.announced) return;
             peer.send(w.floeLoopback.endMessage(
-                step.hash === false ? null : hex(await crypto.subtle.digest('SHA-256', body)),
+                step.hash === false
+                    ? null
+                    : step.hash === 'wrong'
+                        ? '0'.repeat(64)
+                        : hex(await crypto.subtle.digest('SHA-256', body)),
             ));
         }
         await drained(0);
@@ -274,6 +279,54 @@ test('a full receive with a file checked by size only ends on the gray check', a
         await expect(rig.receiver.locator('[data-mark="verified"]')).toHaveCount(0);
         await expect(rig.receiver.getByText('SHA-256 matched', { exact: true })).toHaveCount(0);
         await expect(rig.receiver.locator('a[download]')).toHaveCount(2);
+    } finally {
+        await rig.close();
+    }
+});
+
+// The red banner is the only place a stopped receive says why, and the two
+// bulk buttons are on the card in exactly that state. Download ZIP cleared the
+// whole banner as each run began, so the reason was gone for good once the
+// person saved what had arrived. Download All never touched it.
+test('a receive stopped by a file that failed its SHA-256 keeps its banner through Download ZIP and Download All', async ({ browser }) => {
+    const rig = await openRig(browser, randomUUID());
+    try {
+        await sendSteps(rig.sender, [
+            { announced: KIB, sent: KIB },
+            { announced: KIB, sent: KIB },
+            { announced: KIB, sent: KIB, hash: 'wrong' },
+        ]);
+        const reason = 'A file did not match what was sent, so it was discarded. Ask the sender to try again.';
+        // In <main>: Next.js's route announcer is an alert too.
+        const banner = rig.receiver.getByRole('main').getByRole('alert');
+        await expect(banner).toHaveText(reason);
+        await expect(footLine(rig.receiver, 'Received 2 of 3 files. The transfer ended before the rest arrived.')).toBeVisible();
+        const downloads: string[] = [];
+        rig.receiver.on('download', (d) => downloads.push(d.suggestedFilename()));
+
+        // Every read of a file waits 500 ms, so the run can be looked at.
+        await rig.receiver.evaluate(() => {
+            const read = Blob.prototype.arrayBuffer;
+            Blob.prototype.arrayBuffer = function (this: Blob) {
+                return new Promise<ArrayBuffer>((done) => setTimeout(() => done(read.call(this)), 500));
+            };
+        });
+        const zip = rig.receiver.getByRole('button', { name: /^(Download ZIP|Zipping\.\.\.)$/ });
+        await zip.click();
+        await expect(zip).toHaveText('Zipping...');
+        // Read once, without waiting, while the run is on.
+        expect(await banner.allTextContents(), 'while Download ZIP runs').toEqual([reason]);
+        await expect(zip).toHaveText('Zipping...');
+        await expect(zip).toHaveText('Download ZIP', { timeout: 10_000 });
+        await expect.poll(() => downloads, { timeout: 5_000 }).toEqual([expect.stringMatching(/^floe_transfer_\d+\.zip$/)]);
+        await expect(banner, 'after Download ZIP').toHaveText(reason);
+
+        const all = rig.receiver.getByRole('button', { name: /^(Download All|Downloading\.\.\.)$/ });
+        await all.click();
+        await expect(all).toHaveText('Downloading...');
+        await expect(all).toHaveText('Download All', { timeout: 10_000 });
+        await expect.poll(() => downloads.slice(1).sort(), { timeout: 5_000 }).toEqual(['part-1.bin', 'part-2.bin']);
+        await expect(banner, 'after Download All').toHaveText(reason);
     } finally {
         await rig.close();
     }
