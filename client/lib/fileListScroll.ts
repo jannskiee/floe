@@ -26,3 +26,12 @@ const FILE_LIST_ROWS_BEFORE_SCROLL = 4;
 export function fileListScrolls(rows: number): boolean {
     return rows > FILE_LIST_ROWS_BEFORE_SCROLL;
 }
+
+// How the receiving list moves to the file that just landed: smoothly, or at
+// once when the system asks for reduced motion, as the page's own scrolling
+// does (motion-safe:scroll-smooth in app/layout.tsx, #858). A behavior passed
+// to scrollTo outranks the list's CSS, which is why it is chosen here; 'auto'
+// defers to that CSS, which sets none, so the list jumps.
+export function newestFileScroll(reducedMotion: boolean): ScrollBehavior {
+    return reducedMotion ? 'auto' : 'smooth';
+}
