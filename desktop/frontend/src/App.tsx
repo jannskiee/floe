@@ -2771,11 +2771,11 @@ function App() {
                                         </div>
 
                                         {receiving ? (
-                                            <Button variant="outline" className="w-full" onClick={cancel}>
+                                            <Button variant="outline" className="w-full" onKeyDown={ignoreRepeat} onClick={cancel}>
                                                 <X/> Cancel
                                             </Button>
                                         ) : (
-                                            <Button className="w-full" onClick={receive} disabled={busy}>
+                                            <Button className="w-full" onKeyDown={ignoreRepeat} onClick={receive} disabled={busy}>
                                                 <Download/> Receive
                                             </Button>
                                         )}

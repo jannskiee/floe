@@ -2933,6 +2933,72 @@ describe('focus across the first pick', () => {
 });
 
 /**
+ * The Receive tab's action slot is one button in both states, Receive and
+ * Cancel while receiving, so the key that pressed it is still on it after it
+ * changes. The repeats of a held Enter must not press it again; a first
+ * press, and a quick second one, still do.
+ */
+describe('a held Enter on the Receive tab', () => {
+    // The slot is the full-width button: the Receive tab above shares its name.
+    const slot = () => screen.getAllByRole('button', {name: /^(Receive|Cancel)$/}).find((b) => b.className.includes('w-full'))!;
+    const ready = async () => {
+        // A receive that runs until it is canceled.
+        wails.go.ReceiveByCode.mockImplementation(() => new Promise<string>(() => {}));
+        const user = userEvent.setup();
+        mount();
+        await settled();
+        await user.click(screen.getAllByRole('button', {name: 'Receive'})[0]);
+        await user.type(await screen.findByPlaceholderText('amber-otter-cloud'), 'amber-otter-cloud');
+        return user;
+    };
+
+    it('on Receive starts one receive and cancels nothing', async () => {
+        const user = await ready();
+        const button = slot();
+        act(() => button.focus());
+        await user.keyboard('{Enter>4}');
+        expect(wails.go.ReceiveByCode).toHaveBeenCalledTimes(1);
+        expect(wails.go.CancelTransfer).not.toHaveBeenCalled();
+        // The same button, now Cancel, keeps focus.
+        expect(slot()).toBe(button);
+        expect(button.textContent?.trim()).toBe('Cancel');
+        expect(document.activeElement).toBe(button);
+    });
+
+    it('on Cancel cancels once and starts nothing', async () => {
+        const user = await ready();
+        await user.click(slot());
+        await waitFor(() => expect(wails.go.ReceiveByCode).toHaveBeenCalledTimes(1));
+        act(() => slot().focus());
+        await user.keyboard('{Enter>4}');
+        expect(wails.go.CancelTransfer).toHaveBeenCalledTimes(1);
+        expect(wails.go.ReceiveByCode).toHaveBeenCalledTimes(1);
+        expect(screen.getByText('Canceled')).toBeTruthy();
+    });
+
+    it('refuses only a repeated key, in both states', async () => {
+        const user = await ready();
+        expect(fireEvent.keyDown(slot(), {key: 'Enter', repeat: true})).toBe(false);
+        expect(fireEvent.keyDown(slot(), {key: 'Enter'})).toBe(true);
+        await user.click(slot());
+        await waitFor(() => expect(wails.go.ReceiveByCode).toHaveBeenCalledTimes(1));
+        expect(fireEvent.keyDown(slot(), {key: 'Enter', repeat: true})).toBe(false);
+        expect(fireEvent.keyDown(slot(), {key: 'Enter'})).toBe(true);
+        // Only the slot: a repeat on another control, the Receive tab here, still goes through.
+        expect(fireEvent.keyDown(screen.getAllByRole('button', {name: 'Receive'})[0], {key: 'Enter', repeat: true})).toBe(true);
+    });
+
+    it('a quick click on Receive, then on Cancel, still does both', async () => {
+        const user = await ready();
+        await user.click(slot());
+        await user.click(slot());
+        expect(wails.go.ReceiveByCode).toHaveBeenCalledTimes(1);
+        expect(wails.go.CancelTransfer).toHaveBeenCalledTimes(1);
+        expect(screen.getByText('Canceled')).toBeTruthy();
+    });
+});
+
+/**
  * The File Explorer entry at launch (DSK-04; owner answer 26, "Off by default
  * on portable"). Go says whose the entry is (ContextMenuState): "self" turns
  * the switch on; "other" leaves another copy's entry alone and the switch
