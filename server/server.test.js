@@ -2751,9 +2751,11 @@ describe('guardSessionBacklog', () => {
     }
     const nextTick = () => new Promise((resolve) => process.nextTick(resolve));
 
-    it(`keeps a session with ${SIO_SEND_QUEUE_CEILING} + 1 packets waiting, so the peer path refuses first`, async () => {
+    it(`keeps a session with ${SIO_SEND_QUEUE_CEILING} + 1 packets waiting until one more is made`, async () => {
         // sioSendBacklogOver refuses a partner's send once more than the
         // ceiling waits; the guard must not end the session before that.
+        // If the page has stopped reading, the DISCONNECT that refusal makes
+        // is then the one more packet, the case below.
         const conn = fakeConn();
         guardSessionBacklog(conn);
         for (let i = 0; i < SIO_SEND_QUEUE_CEILING + 1; i++) queuePacket(conn);
