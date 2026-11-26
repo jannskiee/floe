@@ -701,6 +701,14 @@ function Result({phase, snap, onMakeAnother, onShowInFolder}: RequestLinkViewPro
  *  with the safe choice (Cancel) focused. Exported for History (S1-DSK-09),
  *  which asks the same question from a request row. */
 export function RenamedConfirm({onCancel, onConfirm}: {onCancel: () => void; onConfirm: () => void}) {
+    const [opener] = useState(() => document.activeElement as HTMLElement | null);
+    useEffect(() => () => {
+        requestAnimationFrame(() => {
+            if (document.activeElement && document.activeElement !== document.body) return;
+            opener?.focus();
+        });
+    }, [opener]);
+
     return (
         <DialogShell labelledBy="floe-renamed-title" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancel(); } }}>
                 <h2 id="floe-renamed-title" className="text-sm font-semibold text-white">{copy.RENAMED_CONFIRM_TITLE}</h2>

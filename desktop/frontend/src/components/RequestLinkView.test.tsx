@@ -4,6 +4,7 @@
  * the fixed Close link box, and the rule that a visitor's words reach the
  * screen only as text and never reach a binding.
  */
+import {StrictMode} from 'react';
 import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
@@ -395,6 +396,78 @@ describe('the result card', () => {
             expect(p.onShowInFolder).toHaveBeenCalledWith(result.folder);
             r.unmount();
         }
+    });
+
+    /**
+     * Cancel, Escape and the question's own Show in folder each take away the
+     * button the keyboard is on. Focus goes back to the card's Show in folder,
+     * which asked, on the Done card and the Stopped card alike, and only when
+     * it fell to the page.
+     */
+    describe('focus after the renamed-files question', () => {
+        const cards = [
+            snap({state: 'done', result: {...result, renamed: 2}}),
+            snap({state: 'stopped', code: 'disk-full', result: {...result, saved: 4, renamed: 1}}),
+        ];
+        type User = ReturnType<typeof userEvent.setup>;
+        const exits: [string, (user: User) => Promise<void>][] = [
+            ['Escape', (user) => user.keyboard('{Escape}')],
+            ['Cancel', (user) => user.keyboard('{Enter}')],
+            ['its own Show in folder', async (user) => { await user.tab(); await user.keyboard('{Enter}'); }],
+        ];
+
+        it.each(exits)('%s puts focus back on the card\'s Show in folder', async (exit, close) => {
+            const user = userEvent.setup();
+            for (const s of cards) {
+                const p = props({phase: s.state as Phase, snap: s});
+                const r = render(<RequestLinkView {...p}/>);
+                const opener = screen.getByRole('button', {name: 'Show in folder'});
+                act(() => opener.focus());
+                await user.keyboard('{Enter}');
+                const dialog = screen.getByRole('dialog');
+                expect(document.activeElement).toBe(within(dialog).getByRole('button', {name: 'Cancel'}));
+                await close(user);
+                expect(screen.queryByRole('dialog')).toBeNull();
+                expect(p.onShowInFolder).toHaveBeenCalledTimes(exit === 'its own Show in folder' ? 1 : 0);
+                await waitFor(() => expect(document.activeElement, s.state).toBe(opener));
+                r.unmount();
+            }
+        });
+
+        it('moves nothing when focus is somewhere else as the question closes', async () => {
+            render(<RequestLinkView {...props({phase: 'done', snap: cards[0]})}/>);
+            const opener = screen.getByRole('button', {name: 'Show in folder'});
+            act(() => opener.focus());
+            fireEvent.click(opener);
+            const cancel = within(screen.getByRole('dialog')).getByRole('button', {name: 'Cancel'});
+            // A stand-in for the title bar keeps focus, and the click moves
+            // none, as a screen reader's click can.
+            const gear = document.body.appendChild(document.createElement('button'));
+            try {
+                act(() => gear.focus());
+                fireEvent.click(cancel);
+                expect(screen.queryByRole('dialog')).toBeNull();
+                await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+                expect(document.activeElement).toBe(gear);
+            } finally {
+                gear.remove();
+            }
+        });
+
+        it('under StrictMode, as main.tsx renders the app, Cancel keeps focus while the question is open', async () => {
+            // StrictMode runs the question's effect cleanup once more right
+            // after it opens. That must move nothing: Cancel has focus then.
+            const user = userEvent.setup();
+            render(<StrictMode><RequestLinkView {...props({phase: 'done', snap: cards[0]})}/></StrictMode>);
+            const opener = screen.getByRole('button', {name: 'Show in folder'});
+            act(() => opener.focus());
+            await user.keyboard('{Enter}');
+            const cancel = within(screen.getByRole('dialog')).getByRole('button', {name: 'Cancel'});
+            await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+            expect(document.activeElement, 'a frame after the question opened').toBe(cancel);
+            await user.keyboard('{Escape}');
+            await waitFor(() => expect(document.activeElement).toBe(opener));
+        });
     });
 
     it('marks a drop verified only when every file verified', () => {
