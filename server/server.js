@@ -1457,18 +1457,27 @@ function sioSendBacklogOver(socket) {
 // of its own (answerSocketIOPing); this is the backstop for the rest, and for
 // anything Socket.IO answers on its own later. packetCreate fires just before
 // a packet joins writeBuffer, so the session closes once more than
-// SIO_SEND_QUEUE_CEILING packets wait and one more is made. More than, not at:
-// sioSendBacklogOver refuses at the same count, so a flood aimed at a partner
-// still ends in the peer path's disconnect(true), and only what a session
-// asked for itself ends here. A burst that one read sets off counts as well,
-// since the transport writes one batch at a time. close(true) clears
-// writeBuffer at once, where close() would wait for a 'drain' a stalled client
-// never gives; the batch already handed to ws stays until ws's 30 s close
-// timeout, which bounds it. The page sees a transport close and reconnects by
-// itself, which it does not after socket.disconnect(true). On the next tick,
-// never inside sendPacket, which still pushes and flushes the packet after
-// this returns. writeBuffer is an engine.io 6 internal: missing, it counts as
-// empty, so an upgrade can only switch the bound off.
+// SIO_SEND_QUEUE_CEILING packets wait and one more is made. A burst that one
+// read sets off counts as well, since the transport writes one batch at a
+// time. More than, not at: sioSendBacklogOver refuses at the same count, so a
+// flood aimed at a page reaches the peer path's disconnect(true) first, which
+// frees that page's seat and tells its partner. If the page has stopped
+// reading, the DISCONNECT packet disconnect(true) makes is then the one more,
+// so the session closes here too and the page never receives that packet. A
+// page that still reads, cut off by a partner's burst that arrived in one
+// read, has handed its queue to the transport by then and receives it (both
+// measured with engine.io 6.6.11). close(true) clears writeBuffer at once,
+// where close() would wait for a 'drain' a stalled client never gives; the
+// batch already handed to ws stays until ws's 30 s close timeout, which bounds
+// it. A page closed here sees a transport close, or "ping timeout" if it reads
+// again only after the ping timeout, and its socket reconnects by itself
+// (socket.io-client 4.8.4 with getSocket()'s options in useSignaling.ts),
+// except on /r before its channel opens, where the attempt ends and the
+// socket stays down until Try again. What a page the peer path cut off sees
+// is in createSocketIOPeer. On the next tick, never inside sendPacket, which
+// still pushes and flushes the packet after this returns. writeBuffer is an
+// engine.io 6 internal: missing, it counts as empty, so an upgrade can only
+// switch the bound off.
 function guardSessionBacklog(conn) {
     let closing = false;
     conn.on('packetCreate', () => {
@@ -1529,9 +1538,24 @@ function createSocketIOPeer(socket, key) {
             // same way: a peer this far behind has stopped being a peer.
             // disconnect(true) leaves the namespace and closes the engine.io
             // session too (which first drains what it already holds, for at most
-            // the ping timeout), so handleDisconnect frees the seat and tells the
-            // partner, and nothing more is queued for it. The page is told
-            // "io server disconnect" and does not reconnect by itself. Silent, as
+            // the ping timeout, unless guardSessionBacklog drops it), so
+            // handleDisconnect frees the seat and tells the partner, and nothing
+            // more is queued for it. What the page sees depends on whether the
+            // DISCONNECT this makes reaches it (measured with engine.io 6.6.11
+            // and socket.io-client 4.8.4). If the page has stopped reading: past
+            // SIO_SEND_QUEUE_CEILING packets it is one packet too many for
+            // guardSessionBacklog, which drops it with the queue, and the page
+            // sees a transport close, or "ping timeout" if it reads again only
+            // after the ping timeout; past SIO_SEND_BUFFER_CEILING bytes it
+            // waits behind the queue, and the page is told "io server
+            // disconnect" if it reads again before the ping timeout, or sees
+            // "ping timeout" if it reads later. A page that still reads, cut off
+            // by a partner's burst that arrived in one read, is told "io server
+            // disconnect": its queue has gone to the transport by the next tick.
+            // After "io server disconnect" neither the main page nor /r
+            // reconnects by itself; after a transport close or "ping timeout"
+            // the socket does, except on /r before its channel opens, where the
+            // attempt ends and the socket stays down until Try again. Silent, as
             // on /ws. On the next tick,
             // never inside send: socket.io runs handleDisconnect inside
             // disconnect(true), and a send can come from inside the partner's
