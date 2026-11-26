@@ -53,6 +53,7 @@ import {REJOIN_FAILED_STATUS, REJOINING_STATUS, rejoinAllowed, rejoinDelay, stat
 import {peerDisconnectAction, teardownClaimsClose} from '@/lib/peerDisconnect';
 import {LINK_INVALID, afterReconnect, isLinkInvalid, peerBanner, withRefusalBanner, withoutRefusalBanner} from '@/lib/refusalBanner';
 import {copyText} from '@/lib/clipboard';
+import {newestFileScroll} from '@/lib/fileListScroll';
 import {mainPageHoldsTab, receiveUnderWay, unsavedCount} from '@/lib/pageGuards';
 import {reloadGate} from '@/lib/reloadGate';
 import {routeLabel} from '@/lib/routeLog';
@@ -562,7 +563,7 @@ export function P2PTransfer() {
             if (container && !isSender) {
                 container.scrollTo({
                     top: container.scrollHeight,
-                    behavior: 'smooth',
+                    behavior: newestFileScroll(window.matchMedia('(prefers-reduced-motion: reduce)').matches),
                 });
             }
         }, 100);
