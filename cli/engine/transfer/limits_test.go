@@ -237,8 +237,9 @@ func TestCheckFrame(t *testing.T) {
 }
 
 // TestDiskQueries: Windows answers both questions for a real folder (the test
-// temp folder is NTFS, which has no maximum this code knows); every other GOOS
-// answers "unknown", which makes the checks skip.
+// temp folder is NTFS, which has no maximum this code knows). Off Windows,
+// free space is still "unknown", and the temp folder, which is not on FAT,
+// has no known maximum.
 func TestDiskQueries(t *testing.T) {
 	if fat32MaxFileSize != fat32Max {
 		t.Fatalf("fat32MaxFileSize = %d, want %d", fat32MaxFileSize, fat32Max)
