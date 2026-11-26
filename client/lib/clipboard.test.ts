@@ -9,7 +9,11 @@ import { copyText } from './clipboard';
  * implying coverage this does not have.
  */
 
-/** A document.body stand-in that records what is attached to it. */
+/**
+ * A document stand-in that records what is attached to document.body and
+ * tracks focus the way a browser does on this path: select() moves focus into
+ * the textarea, and removing the focused textarea drops focus to the body.
+ */
 function stubDom(opts: {
     exec?: () => boolean;
     onAppend?: () => void;
@@ -23,6 +27,7 @@ function stubDom(opts: {
             attached.push(node);
         },
     };
+    const focus = { active: body as unknown };
     vi.stubGlobal('document', {
         createElement() {
             opts.onCreate?.();
@@ -30,18 +35,36 @@ function stubDom(opts: {
                 value: '',
                 style: {} as Record<string, string>,
                 parent: null as unknown,
-                select() {},
+                select() {
+                    focus.active = node;
+                },
                 remove() {
                     const i = attached.indexOf(node);
                     if (i !== -1) attached.splice(i, 1);
+                    if (focus.active === node) focus.active = body;
                 },
             };
             return node;
         },
         body,
+        get activeElement() {
+            return focus.active;
+        },
         execCommand: opts.exec ?? (() => true),
     });
-    return attached;
+    return { attached, focus, body };
+}
+
+/** A button that takes focus when asked, and counts how often it was asked. */
+function control(focus: { active: unknown }) {
+    const button: { calls: number; focus: () => void } = {
+        calls: 0,
+        focus() {
+            button.calls += 1;
+            focus.active = button;
+        },
+    };
+    return button;
 }
 
 afterEach(() => {
@@ -60,7 +83,7 @@ describe('copyText, async clipboard path', () => {
         vi.stubGlobal('navigator', {
             clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) },
         });
-        const attached = stubDom({ exec: () => true });
+        const { attached } = stubDom({ exec: () => true });
         expect(await copyText('x')).toBe(true);
         expect(attached).toEqual([]);
     });
@@ -144,9 +167,101 @@ describe('copyText leaves no node behind', () => {
     for (const [name, opts] of paths) {
         it(name, async () => {
             vi.stubGlobal('navigator', {});
-            const attached = stubDom(opts);
+            const { attached } = stubDom(opts);
             await copyText('x');
             expect(attached).toEqual([]);
         });
     }
+});
+
+describe('copyText gives focus back to the button that held it', () => {
+    // A keyboard user presses Copy; the textarea fallback used to leave focus
+    // on the page body, so the next Tab started from the top of the page.
+    function pressedControl(opts: Parameters<typeof stubDom>[0] = {}) {
+        const dom = stubDom(opts);
+        const button = control(dom.focus);
+        dom.focus.active = button;
+        return { button, dom };
+    }
+
+    const outcomes: Array<[string, Parameters<typeof stubDom>[0], boolean]> = [
+        ['execCommand returns true', { exec: () => true }, true],
+        ['execCommand returns false', { exec: () => false }, false],
+        [
+            'execCommand throws',
+            {
+                exec: () => {
+                    throw new Error('SecurityError');
+                },
+            },
+            false,
+        ],
+    ];
+
+    for (const [name, opts, result] of outcomes) {
+        it(`when ${name}`, async () => {
+            vi.stubGlobal('navigator', {});
+            const { button, dom } = pressedControl(opts);
+            expect(await copyText('x')).toBe(result);
+            expect(dom.focus.active).toBe(button);
+        });
+    }
+
+    it('when writeText rejects and the fallback runs', async () => {
+        vi.stubGlobal('navigator', {
+            clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) },
+        });
+        const { button, dom } = pressedControl({ exec: () => true });
+        expect(await copyText('x')).toBe(true);
+        expect(dom.focus.active).toBe(button);
+    });
+
+    it('the textarea holds focus and the text while the copy runs', async () => {
+        vi.stubGlobal('navigator', {});
+        let during: { active: unknown; value: unknown } | null = null;
+        const { button, dom } = pressedControl({
+            exec: () => {
+                const active = document.activeElement as { value?: string } | null;
+                during = { active, value: active?.value };
+                return true;
+            },
+        });
+        expect(await copyText('the link')).toBe(true);
+        expect(during).not.toBeNull();
+        expect(during!.active).not.toBe(button);
+        expect(during!.value).toBe('the link');
+        expect(dom.focus.active).toBe(button);
+    });
+
+    it('moves no focus when the clipboard API copies', async () => {
+        vi.stubGlobal('navigator', {
+            clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
+        });
+        const { button } = pressedControl();
+        expect(await copyText('x')).toBe(true);
+        expect(button.calls).toBe(0);
+    });
+
+    it('moves no focus when only the page held it', async () => {
+        vi.stubGlobal('navigator', {});
+        const dom = stubDom({ exec: () => true });
+        expect(await copyText('x')).toBe(true);
+        expect(dom.focus.active).toBe(dom.body);
+    });
+
+    it('resolves with the copy result when focus() throws', async () => {
+        vi.stubGlobal('navigator', {});
+        const { button } = pressedControl({ exec: () => true });
+        button.focus = () => {
+            throw new Error('focus blew up');
+        };
+        await expect(copyText('x')).resolves.toBe(true);
+    });
+
+    it('resolves when the focus holder has no focus method', async () => {
+        vi.stubGlobal('navigator', {});
+        const dom = stubDom({ exec: () => true });
+        dom.focus.active = {};
+        await expect(copyText('x')).resolves.toBe(true);
+    });
 });

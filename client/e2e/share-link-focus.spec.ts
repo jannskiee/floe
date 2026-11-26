@@ -77,3 +77,37 @@ test('a mouse click on Create draws no focus ring', async ({ page }) => {
     await settle(page);
     expect(await focusRingShown(page)).toBe(false);
 });
+
+test('Copy link keeps focus when the page has no clipboard API', async ({ page }) => {
+    // A self-hosted page over plain HTTP from another device has no
+    // navigator.clipboard, so the copy goes through a hidden textarea. Removing
+    // it used to drop focus to the page body.
+    await page.addInitScript(() => {
+        Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+        const copied: string[] = [];
+        (window as unknown as { __copied: string[] }).__copied = copied;
+        document.execCommand = (command: string) => {
+            const el = document.activeElement as HTMLTextAreaElement | null;
+            if (command === 'copy' && el?.tagName === 'TEXTAREA') {
+                copied.push(el.value.slice(el.selectionStart, el.selectionEnd));
+                return true;
+            }
+            return false;
+        };
+    });
+    await page.goto('/');
+    await page.locator('input[type="file"]').setInputFiles(FILE);
+    await createButton(page).focus();
+    await page.keyboard.press('Enter');
+
+    const copyLink = page.getByRole('button', { name: 'Copy link' });
+    await expect(shareLink(page)).toBeVisible({ timeout: 10_000 });
+    await expect(copyLink).toBeFocused({ timeout: 2_000 });
+    await page.keyboard.press('Enter');
+
+    await expect
+        .poll(() => page.evaluate(() => (window as unknown as { __copied: string[] }).__copied))
+        .toEqual([await shareLink(page).innerText()]);
+    await expect(copyLink).toBeFocused();
+    expect(await focusRingShown(page)).toBe(true);
+});

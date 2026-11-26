@@ -360,6 +360,37 @@ test('the in-app browser card shows the link and says when Copy fails', async ({
     }
 });
 
+test('the in-app browser card gives focus back to Copy when Copy fails', async ({ browser }) => {
+    const ctx = await browser.newContext({
+        userAgent:
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 309.0.0.40.113',
+        viewport: { width: 390, height: 844 },
+    });
+    // A webview that blocks both ways of copying, so the hidden textarea runs
+    // and fails.
+    await ctx.addInitScript(() => {
+        Object.defineProperty(navigator, 'clipboard', {
+            value: { writeText: () => Promise.reject(new Error('blocked')) },
+            configurable: true,
+        });
+        document.execCommand = () => false;
+    });
+    const page = await ctx.newPage();
+
+    try {
+        await page.goto('/?s=e2e#room=00000000-0000-4000-8000-000000000000');
+        await expect(page.getByRole('heading', { name: 'Open in your browser' })).toBeVisible();
+
+        const copy = page.getByRole('button', { name: /Copy link/ });
+        await copy.focus();
+        await page.keyboard.press('Enter');
+        await expect(page.getByText('Couldn’t copy. Press and hold the link above to copy it.')).toBeVisible();
+        await expect(copy).toBeFocused();
+    } finally {
+        await ctx.close();
+    }
+});
+
 test('each selected file has a named remove button', async ({ page }) => {
     // The button holds only an X icon, which lucide hides from screen readers,
     // so without aria-label every row was announced as just "button" (#691).
