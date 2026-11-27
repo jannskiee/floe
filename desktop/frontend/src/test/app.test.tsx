@@ -2729,6 +2729,83 @@ describe('focus across a send', () => {
         await frames();
         expect(document.activeElement).toBe(document.body);
     });
+
+    // The share panel (Copy code, Copy link, Show QR or Hide QR) comes up
+    // while the send waits for its receiver. It goes when the receiver joins,
+    // and the send goes on with Cancel in the slot.
+    const SHARE = {code: 'amber-otter-cloud', link: 'http://localhost:3000/#room=x'};
+    const startSend = async (user: ReturnType<typeof userEvent.setup>) => {
+        mount();
+        await settled();
+        act(() => { wails.emit('files:open', [FILE]); });
+        await user.click(await screen.findByRole('button', {name: 'Send 1 item'}));
+        await waitFor(() => expect(wails.go.StartSend).toHaveBeenCalledTimes(1));
+        // The Send click's own handoff to Cancel has run.
+        await frames();
+    };
+    const panelComesUp = async () => {
+        act(() => { wails.emit('send:code', SHARE); });
+        expect(await screen.findByRole('button', {name: 'Copy link'})).toBeTruthy();
+    };
+    const receiverJoins = async () => {
+        act(() => { wails.emit('send:status', 'Sending...'); });
+        await waitFor(() => expect(screen.queryByRole('button', {name: 'Copy link'})).toBeNull());
+    };
+
+    it.each(['Copy code', 'Copy link', 'Show QR', 'Hide QR'])('focus on %s lands on Cancel when the receiver joins', async (name) => {
+        const user = userEvent.setup();
+        await startSend(user);
+        await panelComesUp();
+        if (name === 'Hide QR') await user.click(screen.getByRole('button', {name: 'Show QR'}));
+        act(() => screen.getByRole('button', {name}).focus());
+        await receiverJoins();
+        const cancel = screen.getByRole('button', {name: 'Cancel'});
+        await waitFor(() => expect(document.activeElement).toBe(cancel));
+    });
+
+    it('focus elsewhere stays where it is when the receiver joins', async () => {
+        const user = userEvent.setup();
+        await startSend(user);
+        await panelComesUp();
+        const lockup = document.getElementById('floe-lockup')!;
+        act(() => lockup.focus());
+        await receiverJoins();
+        await frames();
+        expect(document.activeElement).toBe(lockup);
+    });
+
+    it('the panel coming up moves nothing', async () => {
+        const user = userEvent.setup();
+        await startSend(user);
+        // A click on empty space: focus on no control, as a mouse leaves it.
+        act(() => { (document.activeElement as HTMLElement | null)?.blur(); });
+        await panelComesUp();
+        await frames();
+        expect(document.activeElement).toBe(document.body);
+    });
+
+    it('the receiver joining while History is open moves nothing', async () => {
+        const user = userEvent.setup();
+        await startSend(user);
+        await panelComesUp();
+        await user.click(screen.getByRole('button', {name: 'History'}));
+        act(() => { (document.activeElement as HTMLElement | null)?.blur(); });
+        expect(document.activeElement).toBe(document.body);
+        act(() => { wails.emit('send:status', 'Sending...'); });
+        await frames();
+        expect(document.activeElement).toBe(document.body);
+    });
+
+    it('a send that fails while the panel is up still lands on Files', async () => {
+        const user = userEvent.setup();
+        await startSend(user);
+        await panelComesUp();
+        act(() => screen.getByRole('button', {name: 'Copy link'}).focus());
+        act(() => { wails.emit('send:error', 'the connection to the server was lost before the peer connected'); });
+        expect(screen.queryByRole('button', {name: 'Copy link'})).toBeNull();
+        await waitFor(() => expect(document.activeElement).toBe(sendKind()));
+        expect(sendKind()?.textContent).toBe('Files');
+    });
 });
 
 /**

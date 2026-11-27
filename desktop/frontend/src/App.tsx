@@ -1167,6 +1167,22 @@ function App() {
         });
     }, [sending]);
 
+    // The share panel leaves when the receiver joins while the send goes on,
+    // which would drop focus from Copy code, Copy link, Show QR or Share to the
+    // page. Focus goes to Cancel right above where the panel was, only when it
+    // fell to the page, and only in the frame so another handoff wins.
+    const shareUp = sending && !!sendLink && !peerConnected && !sendProg;
+    const shareUpWasUp = useRef(false);
+    useEffect(() => {
+        const leaving = shareUpWasUp.current && !shareUp;
+        shareUpWasUp.current = shareUp;
+        if (!leaving) return;
+        requestAnimationFrame(() => {
+            if (document.activeElement && document.activeElement !== document.body) return;
+            document.getElementById('floe-send-cancel')?.focus();
+        });
+    }, [shareUp]);
+
     // The update notice's X, Get update and Escape each dismiss it, which
     // unmounts the button the keyboard is on. Focus goes to the active Files
     // or Text tab, else the gear, never the lockup, which a held Enter would
@@ -2677,7 +2693,7 @@ function App() {
 
                                         {/* share surface: waiting stage only — the 1:1 room is consumed
                                             once the receiver joins, so the code is dead from then on */}
-                                        {sending && sendLink && !peerConnected && !sendProg && (
+                                        {shareUp && (
                                             <SharePanel code={sendCode} link={sendLink}/>
                                         )}
 
