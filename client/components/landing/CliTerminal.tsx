@@ -51,6 +51,8 @@ export function CliTerminal() {
     const [stage, setStage] = useState(0);
     const [progress, setProgress] = useState<number[]>([0, 0, 0]);
     const [done, setDone] = useState(false);
+    // A press of Replay starts a new run with focus still on the button.
+    const [replayFocused, setReplayFocused] = useState(false);
 
     useEffect(() => {
         if (reduced) return;
@@ -120,6 +122,10 @@ export function CliTerminal() {
     const shownStage = reduced ? FINAL_STAGE : stage;
     const shownProgress = reduced ? [1, 1, 1] : progress;
     const isDone = reduced || done;
+    // Replay is there to press once a run has ended, and stays while it holds
+    // focus, so focus never sits on a button that has been hidden. Never with
+    // reduced motion, where nothing replays.
+    const replayShown = !reduced && (done || replayFocused);
 
     return (
         <div ref={containerRef} className="w-full">
@@ -131,12 +137,17 @@ export function CliTerminal() {
                     <button
                         type="button"
                         onClick={replay}
+                        onFocus={() => setReplayFocused(true)}
+                        onBlur={() => setReplayFocused(false)}
                         aria-label="Replay the transfer demo"
-                        tabIndex={done && !reduced ? 0 : -1}
+                        tabIndex={replayShown ? 0 : -1}
                         // Hidden from AT while it is invisible and pointer-events:none.
-                        aria-hidden={!(done && !reduced)}
+                        // Never while it holds focus.
+                        aria-hidden={!replayShown}
+                        // During a run only keyboard focus draws it: a mouse click focuses
+                        // it too, and the pointer needs no button over the demo.
                         className={`relative before:absolute before:-inset-3 rounded p-1 text-zinc-600 transition hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-ice ${
-                            done && !reduced ? 'opacity-100' : 'pointer-events-none opacity-0'
+                            done && !reduced ? 'opacity-100' : 'pointer-events-none opacity-0 focus-visible:opacity-100'
                         }`}
                     >
                         <RotateCcw className="h-3.5 w-3.5" />
