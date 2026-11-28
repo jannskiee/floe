@@ -97,6 +97,18 @@ describe('sanitizeFileName', () => {
         expect(sanitizeFileName('COM10')).toBe('COM10');
     });
 
+    it('renames a name whose stem is a device name, which Windows 10 opens as the device', () => {
+        expect(sanitizeFileName('aux.h')).toBe('_aux.h');
+        expect(sanitizeFileName('a/nul .txt')).toBe('_nul .txt');
+        expect(sanitizeFileName('LPT³')).toBe('_LPT³');
+    });
+
+    it('keeps a name that only starts with a device name', () => {
+        for (const kept of ['CONTRACT.pdf', 'COM10.txt', 'console.log', 'auxiliary.h', '.aux', 'COM0.txt', 'COM⁴.txt']) {
+            expect(sanitizeFileName(kept)).toBe(kept);
+        }
+    });
+
     it('caps a very long name, keeping the extension', () => {
         // An archive refuses an entry name too long for its header, so an
         // uncapped name would deny the ZIP to every other file in the transfer.
@@ -159,6 +171,32 @@ describe('sanitizeZipEntryName', () => {
         ]) {
             expect(sanitizeZipEntryName(decorated)).toBe('_proto_');
         }
+    });
+
+    it('renames a segment whose stem is a device name, folders included', () => {
+        expect(sanitizeZipEntryName('src/aux.h')).toBe('src/_aux.h');
+        expect(sanitizeZipEntryName('con.txt')).toBe('_con.txt');
+        expect(sanitizeZipEntryName('nul .txt')).toBe('_nul .txt');
+        expect(sanitizeZipEntryName('nul.d/a.txt')).toBe('_nul.d/a.txt');
+        expect(sanitizeZipEntryName('COM¹.txt')).toBe('_COM¹.txt');
+        // The first dot, not the last.
+        expect(sanitizeZipEntryName('aux.tar.gz')).toBe('_aux.tar.gz');
+        // After the trailing dot and space trim.
+        expect(sanitizeZipEntryName('src/aux.h. ')).toBe('src/_aux.h');
+    });
+
+    it('keeps a segment that only starts with a device name', () => {
+        for (const kept of ['CONTRACT.pdf', 'COM10.txt', 'console.log', 'auxiliary.h', '.aux', 'COM0.txt', 'COM⁴.txt']) {
+            expect(sanitizeZipEntryName(kept)).toBe(kept);
+            expect(sanitizeZipEntryName(`d/${kept}`)).toBe(`d/${kept}`);
+        }
+    });
+
+    it('caps a long name after prefixing a device stem', () => {
+        // An entry name over 65,535 bytes makes planZip refuse the whole ZIP.
+        const got = sanitizeZipEntryName('aux.' + 'x'.repeat(70000));
+        expect(got.startsWith('_aux.')).toBe(true);
+        expect(got.length).toBeLessThanOrEqual(200);
     });
 
     it('strips the arabic letter mark, the fourth bidi control', () => {
@@ -315,6 +353,13 @@ describe('buildZipEntries', () => {
             { fileName: 'a:b.txt', blob: blob(1) },
             { fileName: 'a?b.txt', blob: blob(2) },
         ])).toEqual(['a_b.txt', 'a_b (1).txt']);
+    });
+
+    it('numbers a renamed device stem that meets the name it became', () => {
+        expect(names([
+            { fileName: 'aux.h', blob: blob(1) },
+            { fileName: '_aux.h', blob: blob(2) },
+        ])).toEqual(['_aux.h', '_aux (1).h']);
     });
 
     it('de-duplicates the file, never the directory', () => {

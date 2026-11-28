@@ -170,6 +170,9 @@ The names in the list are made safe to save, so they can differ from what the se
 - Only the file's own name shows, without its folders. Two files of the same name from different
   folders look the same in the list.
 - Characters that Windows does not allow in a name, such as `:` and `?`, become `_`.
+- A name that is a reserved Windows device name, such as `NUL`, or that begins with one and a dot,
+  such as `aux.h`, gets `_` in front (`_aux.h`) on every system. So does a folder name such as
+  `nul.d` inside a ZIP.
 - A name with nothing usable in it is saved as `received_file`.
 
 A file that fails a check never reaches the list. Floe discards a file whose size does not match
