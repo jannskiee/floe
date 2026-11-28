@@ -223,7 +223,7 @@ export function FileSummary({files, open, onToggle}: {files: string[]; open: boo
                     <Files className="size-4 text-zinc-400"/>
                     <span className="text-sm text-zinc-300">{files.length} {files.length === 1 ? 'item' : 'items'}</span>
                 </span>
-                <ChevronDown className={cn('size-4 text-zinc-500 transition-transform', open && 'rotate-180')}/>
+                <ChevronDown className={cn('size-4 text-zinc-500 transition-transform motion-reduce:transition-none', open && 'rotate-180')}/>
             </button>
             {open && (
                 <ul id={SUMMARY_LIST_ID} className="custom-scrollbar max-h-32 space-y-1.5 overflow-y-auto">
