@@ -2786,12 +2786,16 @@ function App() {
                                             </div>
                                         </div>
 
+                                        {/* One button in both states, so a key held on Receive
+                                            repeats onto Cancel, and one held on Cancel onto
+                                            Receive: both refuse a repeat, as the Send tab's
+                                            Cancel does. A first press still works. */}
                                         {receiving ? (
-                                            <Button variant="outline" className="w-full" onClick={cancel}>
+                                            <Button variant="outline" className="w-full" onKeyDown={ignoreRepeat} onClick={cancel}>
                                                 <X/> Cancel
                                             </Button>
                                         ) : (
-                                            <Button className="w-full" onClick={receive} disabled={busy}>
+                                            <Button className="w-full" onKeyDown={ignoreRepeat} onClick={receive} disabled={busy}>
                                                 <Download/> Receive
                                             </Button>
                                         )}
