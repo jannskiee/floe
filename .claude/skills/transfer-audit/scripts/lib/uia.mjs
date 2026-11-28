@@ -540,8 +540,9 @@ export class UiaClient {
      * { texts[], count, joined, nodes, rects }; re is a RegExp or a .NET
      * regex string. join:true also matches each run of Text nodes that
      * render on one text line joined into one string (Chromium exposes
-     * every DOM text node on its own, so `Sent {n} {item}` is three or four
-     * nodes and their UIA parents need not agree; MEASURED 8 and INFERRED 9
+     * every DOM text node on its own, so the file count `1 ITEM` is three
+     * nodes, as `Sent {n} {item}` was before desktop-v1.1.1, and their UIA
+     * parents need not agree; MEASURED 8 and INFERRED 9
      * in the helper header: the run is geometric, from the cached
      * BoundingRectangle, with the raw-view parent as the fallback for a
      * node without a rect). A run is tried as its raw concatenation, its

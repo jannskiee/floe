@@ -148,6 +148,12 @@
 #      leaves are not one run. So read-text join:true now groups by
 #      geometry instead (INFERRED 9) and keeps the parent grouping only for
 #      a node without a usable rect.
+#      Re-measured 2026-11-28 on the Store build 2.1.4.0 (desktop-v1.1.4,
+#      S-DIR-D2C): since #920 (desktop-v1.1.1) the done row is drawn from
+#      one string, so `Sent 1 item` is one Text node, and a second, sr-only
+#      node (the live region) holds the same words: a read finds both, with
+#      or without join. The file count beside FILES is still three leaves
+#      (`1`, ` `, `ITEM`), so the join keeps its job.
 # INFERRED 9 (the thresholds wait for a live rerun to confirm them):
 #      join walks the Text nodes in tree order with their cached
 #      BoundingRectangle and starts a new run whenever the next leaf is not
