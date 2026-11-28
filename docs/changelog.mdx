@@ -45,11 +45,23 @@ Versions work together down to these floors, as measured against the current cod
 
 Each entry lists the parts it changed. Filter on the right to see only the ones you use.
 
-<Update label="Unreleased" tags={["Web", "Desktop"]}>
-  **The download page offers Floe Desktop 1.1.4**
+<Update label="desktop-v1.1.5" description="2026-11-28" tags={["Desktop"]}>
+  **Keyboard focus moves to Cancel when the receiver joins a waiting send, and holding Enter on the Receive tab presses its button once**
 
+  - When a receiver joins a waiting send while keyboard focus is on **Copy code**, **Copy link**, **Show QR**, **Hide QR** or **Share**, focus now moves to **Cancel** instead of falling to the page. Contributed by [@rajverrr](https://github.com/rajverrr).
+  - Holding Enter on the Receive tab's **Receive** or **Cancel** button now presses it once. Key repeat used to press it again and again, so a receive was canceled right after it started, or started again right after it was canceled. Contributed by [@playlikeboy](https://github.com/playlikeboy).
+</Update>
+
+<Update label="v1.12.8" description="2026-11-28" tags={["Web", "CLI", "Self-hosting"]}>
+  **On the web app, a file named like a Windows device gets a safe name, Replay keeps keyboard focus and two animations honor reduced motion, and on macOS and Linux `floe receive` refuses a file too big for a FAT32 drive before it starts**
+
+  - A received file whose name, before its first dot, is a Windows device name, such as `aux.h`, `con.txt` or `nul .txt`, now gets `_` in front (`_aux.h`) on every system, and so does a folder such as `nul.d` inside a **Download ZIP** archive. Windows 10 opens the device for such a name, so the archive did not extract there. `COM¹` to `COM³` and `LPT¹` to `LPT³` now count as device names too, as they already do when `floe` or Floe Desktop saves on Windows. Contributed by [@NopeCharon](https://github.com/NopeCharon).
+  - Pressing **Replay** from the keyboard on a demo on the home page or the download page now keeps the button shown, with its focus ring, until focus leaves it. It used to vanish at once with keyboard focus still on it, hidden from screen readers until the run ended. A mouse click still fades it. Contributed by [@Mittalnew](https://github.com/Mittalnew).
+  - The home page FAQ now honors the system's reduced motion setting: an answer opens and closes at once, and its chevron turns at once, for visitors who ask for less motion. Contributed by [@ChaseZhang-ai](https://github.com/ChaseZhang-ai).
+  - With reduced motion on, the receiving page's file list now jumps to the newest file instead of gliding to it. Contributed by [@tarekooooooo](https://github.com/tarekooooooo).
   - The floe.one download page now offers Floe Desktop 1.1.4, with its installer, zip and checksums.
-  - Desktop: when a receiver joins a waiting send while keyboard focus is on **Copy code**, **Copy link**, **Show QR**, **Hide QR** or **Share**, focus now moves to **Cancel** instead of falling to the page. Contributed by [@rajverrr](https://github.com/rajverrr).
+  - CLI: on macOS and Linux, `floe receive` now refuses a file too large for the FAT or FAT32 drive it saves to, 4 GB or more, before the `Accept?` prompt and before any of it arrives, as on Windows, and tells the sender why. It used to accept the file and stop only once 4 GB had arrived. Contributed by [@redwing509](https://github.com/redwing509).
+  - Self-hosting: the published images are rebuilt as `1.12.8`, with the web app changes above. If you pinned `FLOE_IMAGE_TAG=1.12.7`, move to `1.12.8`.
 </Update>
 
 <Update label="desktop-v1.1.4" description="2026-11-26" tags={["Desktop"]}>

@@ -104,7 +104,7 @@ of the file's contents, with every file, and each one matched as it was written.
 nor the average speed. In `floe` 1.11.0 and earlier it counted from the sender's first announcement.
 
 When the sender runs a different Floe release from yours, one extra line above the `Incoming` box
-names it, for example `Peer version: desktop-v1.1.4`. A browser sends no version, so the line never
+names it, for example `Peer version: desktop-v1.1.5`. A browser sends no version, so the line never
 appears for one. Versions do not need to match.
 
 ## The link key check {#the-link-key-check}
@@ -258,12 +258,14 @@ A path long enough to make the file's description longer than 1,000 bytes stops 
 with `Error: rejected the sender's control message: 1204 bytes, limit 1000` and the real size in
 place of 1204. The fix is the same: zip deeply nested folders before sending.
 
-A USB stick or memory card formatted as FAT32 cannot hold a file of 4 GB or more. On Windows,
-`floe receive` refuses a file too large for the output drive's file system in the same way, with
-`Error: receive stopped: a file is larger than the save drive can hold`. On macOS and Linux,
-`floe` 1.12.1 and later stop with the same line when a write reaches the file system's limit,
-remove the partial file and tell the sender; `floe` 1.12.0 and earlier stopped there on a generic
-write error. A size that is not a possible byte count is refused before anything is written as well.
+A USB stick or memory card formatted as FAT32 cannot hold a file of 4 GB or more. `floe receive`
+refuses a file too large for the output drive's file system in the same way, with
+`Error: receive stopped: a file is larger than the save drive can hold`: on Windows, and on macOS
+and Linux from `floe` 1.12.8. On macOS and Linux, `floe` 1.12.1 to 1.12.7 stop with the same line
+only when a write reaches the file system's limit, remove the partial file and tell the sender, and
+`floe` 1.12.0 and earlier stopped there on a generic write error. That stop at the write is still
+there for a drive whose file system Floe cannot name. A size that is not a possible byte count is
+refused before anything is written as well.
 
 The path limits apply to every receive, on every platform, and no flag turns them off. `floe`
 1.10.11 and earlier tried to save such paths. A sender can still get the files across by zipping

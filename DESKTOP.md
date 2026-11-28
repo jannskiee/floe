@@ -324,11 +324,11 @@ receiver, which is deliberate (share a link and wait) and cancelable.
 
 ## Release history
 
-Current release: `desktop-v1.1.4`, tagged 2026-11-26: a GitHub pre-release at
+Current release: `desktop-v1.1.5`, tagged 2026-11-28: a GitHub pre-release at
 once, and the Microsoft Store build (9NBQ8ZQ1065L) once it passes certification.
-Cut from the same commit as CLI `v1.12.7`, but not paired by need: every
-user-visible change since the previous desktop release is in `desktop/`
-(#1011, #1016), and `cli/engine` changed only in a test (#1020).
+Cut from the same commit as CLI `v1.12.8`, but not paired by need: every
+user-visible change since the previous desktop release is in `desktop/frontend`
+(#1029, #1035), and `cli/engine` changed only for macOS and Linux (#1033).
 
 The list below is the verified order the first public release (0.1.0 Beta)
 actually followed. Steps 1-3 shipped the GitHub Beta; the plan then pivoted
