@@ -264,8 +264,8 @@ refuses a file too large for the output drive's file system in the same way, wit
 and Linux from `floe` 1.12.8. On macOS and Linux, `floe` 1.12.1 to 1.12.7 stop with the same line
 only when a write reaches the file system's limit, remove the partial file and tell the sender, and
 `floe` 1.12.0 and earlier stopped there on a generic write error. That stop at the write is still
-there for a drive whose file system Floe cannot name. A size that is not a possible byte count is
-refused before anything is written as well.
+there when Floe cannot tell that the drive is FAT or FAT32. A size that is not a possible byte
+count is refused before anything is written as well.
 
 The path limits apply to every receive, on every platform, and no flag turns them off. `floe`
 1.10.11 and earlier tried to save such paths. A sender can still get the files across by zipping
