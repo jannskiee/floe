@@ -25,7 +25,9 @@ func TestDropTimeLimitIs24Hours(t *testing.T) {
 
 // TestDiskFreeAndVolumeMaxOnThisPlatform: DiskFree and the volume's largest
 // file (layer 1's volumeMaxFileSize) answer for a real folder on Windows (free
-// space positive, a maximum of 0 or FAT32's) and "unknown" everywhere else.
+// space positive, a maximum of 0 or FAT32's). Off Windows, free space is
+// still "unknown", and the temp folder, which is not on FAT, has no known
+// maximum.
 func TestDiskFreeAndVolumeMaxOnThisPlatform(t *testing.T) {
 	dir := t.TempDir()
 	free, freeErr := DiskFree(dir)

@@ -2,16 +2,16 @@
 
 package transfer
 
-// diskFree and volumeMaxFileSize off Windows. The file name carries no GOOS
-// suffix, so the constraint above is what keeps this twin off Windows.
+// diskFree and volumeNamedStreams off Windows. The file name carries no GOOS
+// suffix, so the constraint above is what keeps this twin off Windows. The
+// volume's largest file is asked in volmax_statfs.go on macOS and Linux, and
+// volmax_other.go answers it everywhere else.
 //
-// Both answer "unknown" and no error, which makes every check that reads them
-// skip: -1 free bytes and 0 (no known limit) for the largest file. The receive
-// limits never guess a figure they cannot read.
+// diskFree answers "unknown" and no error, which makes every check that reads
+// it skip: -1 free bytes. The receive limits never guess a figure they cannot
+// read.
 
 func diskFree(dir string) (int64, error) { return -1, nil }
-
-func volumeMaxFileSize(dir string) (int64, error) { return 0, nil }
 
 // volumeNamedStreams off Windows answers no: applyMOTW is a no-op there, so
 // no volume carries a mark Floe wrote.

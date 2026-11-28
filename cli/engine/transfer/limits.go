@@ -89,8 +89,8 @@ type ReceiveLimits struct {
 }
 
 // The volume questions, as seams so a test can stand in any file system and
-// any free space. diskfree_windows.go answers them for real; every other GOOS
-// answers "unknown" (-1 free, 0 max), which makes the checks skip.
+// any free space. diskfree_windows.go answers both questions on Windows.
+// volmax_statfs.go answers the largest-file question on macOS and Linux.
 var (
 	diskFreeFn  = diskFree
 	volumeMaxFn = volumeMaxFileSize
