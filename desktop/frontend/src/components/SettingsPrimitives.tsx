@@ -39,7 +39,7 @@ export function Switch({checked, onChange, disabled, describedBy}: {
             >
                 <span
                     className={cn(
-                        'absolute left-0.5 top-0.5 size-3.5 rounded-full transition-transform duration-150 ease-out',
+                        'absolute left-0.5 top-0.5 size-3.5 rounded-full transition-transform duration-150 ease-out motion-reduce:transition-none',
                         checked ? 'translate-x-3.5 bg-zinc-950' : 'bg-zinc-400',
                     )}
                 />

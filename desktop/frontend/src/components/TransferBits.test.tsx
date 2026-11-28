@@ -52,6 +52,28 @@ describe('FileSummary', () => {
         expect(row.getAttribute('type')).toBe('button');
         expect(row.getAttribute('aria-expanded')).toBe('false');
     });
+
+    // The chevron turns as the list opens and closes. With reduced motion on
+    // (Windows: Animation effects off) it flips at once, as the History row's
+    // chevron and the Settings Advanced chevron do. jsdom evaluates no media
+    // query, so the classes are the assertion.
+    it('turns its chevron at once under reduced motion, opening and closing', async () => {
+        const user = userEvent.setup();
+        render(<Harness files={THREE}/>);
+        const row = screen.getByRole('button', {name: '3 items'});
+        const chevron = () => row.querySelector('svg.lucide-chevron-down')!;
+        const classes = () => [...chevron().classList].sort();
+        const closed = ['lucide', 'lucide-chevron-down', 'size-4', 'text-zinc-500', 'transition-transform', 'motion-reduce:transition-none'];
+
+        expect(classes()).toEqual([...closed].sort());
+        await user.click(row);
+        expect(classes()).toEqual([...closed, 'rotate-180'].sort());
+        await user.click(row);
+        expect(classes()).toEqual([...closed].sort());
+        // A hover fill is not motion: the row keeps its color fade for everyone.
+        expect(row.classList).toContain('transition-colors');
+        expect(row.className).not.toMatch(/motion-/);
+    });
 });
 
 // ProgressRow is the send and receive bar; App.tsx passes it what track() built.
