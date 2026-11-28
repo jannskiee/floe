@@ -164,9 +164,10 @@ test('fake helper: open, ping, typed helper, UTF-8 echo, close', async () => {
 
 test('fake helper: readText carries join and the helper joins the leaves of one text line', async () => {
     // Chromium exposes each DOM text node as its own Text element, so the
-    // completion line `Sent 1 item` is three or four leaves (helper
-    // MEASURED 8), and the count sits in its own element, so their parents
-    // differ (INFERRED 9: the run is geometric).
+    // completion line `Sent 1 item` was three or four leaves before
+    // desktop-v1.1.1 (helper MEASURED 8; the fake keeps that shape), and the
+    // count sits in its own element, so their parents differ (INFERRED 9:
+    // the run is geometric).
     const c = fakeClient();
     await c.open();
     try {

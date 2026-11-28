@@ -12,10 +12,11 @@
 //   wedge   -> from now on ignores quit and a closed stdin (the client
 //              must kill the helper and still report its exit)
 // read-text answers from a fixed tree in the measured shape (the pill is one
-// leaf, the completion line four leaves whose count sits in its own element,
-// a rectless pair that only the parent rule can group) and honors join the
-// way the real helper does (helper MEASURED 8, INFERRED 9: runs are
-// geometric, the raw-view parent is the fallback for a node without a
+// leaf; the completion line four leaves whose count sits in its own element,
+// as builds before desktop-v1.1.1 drew it and as the file count `1 ITEM`
+// still is; a rectless pair that only the parent rule can group) and honors
+// join the way the real helper does (helper MEASURED 8, INFERRED 9: runs
+// are geometric, the raw-view parent is the fallback for a node without a
 // rect), so lib/uia.mjs's join option is proven end to end.
 import { createInterface } from 'node:readline';
 
