@@ -49,6 +49,7 @@ Each entry lists the parts it changed. Filter on the right to see only the ones 
   **The download page offers Floe Desktop 1.1.4**
 
   - The floe.one download page now offers Floe Desktop 1.1.4, with its installer, zip and checksums.
+  - A received file whose name begins with a Windows device name and a dot, such as `aux.h`, `con.txt` or `nul .txt`, now gets `_` in front (`_aux.h`) on every system, and so does a folder such as `nul.d` inside a **Download ZIP** archive. Windows 10 opens the device for such a name, so the archive did not extract there. `COM¹` to `COM³` and `LPT¹` to `LPT³` now count as device names too, as they do in the CLI and Floe Desktop. Contributed by [@NopeCharon](https://github.com/NopeCharon).
 </Update>
 
 <Update label="desktop-v1.1.4" description="2026-11-26" tags={["Desktop"]}>

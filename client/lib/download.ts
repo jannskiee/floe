@@ -22,6 +22,13 @@
  * the Go receiver writes to a disk whose OS it knows, while a ZIP built here is
  * portable and may be extracted on Windows no matter where it was downloaded, so
  * entry names have to satisfy the strictest target.
+ *
+ * That includes the Windows 10 device stem rule, which the Go receiver applies
+ * only below Windows 11: a name whose part before the first dot is a device
+ * name, such as `aux.h`, opens the device there instead of a file. A ZIP can be
+ * extracted on any Windows, and the browser's own rule for a single download
+ * does not cover it either: Chromium on Windows saves `aux.h` as `_aux.h`, but
+ * saves `nul .txt` and `COM¹.txt` unchanged.
  */
 
 /** Characters Win32 reserves in a file name. */
@@ -39,11 +46,19 @@ const WINDOWS_RESERVED = /[<>:"|?*]/g;
 const INVISIBLE =
     /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
 
-/** Win32 device names, matched against the whole segment, case-insensitively. */
+/**
+ * Win32 device names, the same list as `reservedDeviceNames` in
+ * cli/engine/transfer/sanitize.go. Matched case-insensitively against the
+ * whole segment and against its stem, the part before the first dot less
+ * trailing spaces (`deviceStem`, as in the Go file), so `CON`, `aux.h` and
+ * `nul .txt` all match while `CONTRACT.pdf` and `COM10.txt` do not.
+ */
 const DEVICE_NAMES = new Set([
     'CON', 'PRN', 'AUX', 'NUL',
     'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+    'COM¹', 'COM²', 'COM³',
     'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9',
+    'LPT¹', 'LPT²', 'LPT³',
     'CONIN$', 'CONOUT$',
 ]);
 
@@ -84,6 +99,20 @@ export function sanitizeDisplayText(text: unknown, max = MAX_DISPLAY): string {
     return stem + '…' + ext;
 }
 
+/** Whether `s` is one of DEVICE_NAMES, in any case. */
+function isDeviceName(s: string): boolean {
+    return DEVICE_NAMES.has(s.toUpperCase());
+}
+
+/**
+ * The part of a trimmed segment that Windows 10 compares with the device
+ * names: everything before the first dot, less trailing spaces. A colon, the
+ * other character Windows ends it at, is already `_` by then.
+ */
+function deviceStem(trimmed: string): string {
+    return trimmed.split('.', 1)[0].replace(/ +$/, '');
+}
+
 /**
  * Cleans one path segment. Returns '' when nothing survives; callers decide
  * whether that means "drop it" or "use the fallback".
@@ -97,7 +126,10 @@ function sanitizeSegment(segment: string): string {
     out = out.replace(/[. ]+$/, '');
     if (out === '') return '';
 
-    if (DEVICE_NAMES.has(out.toUpperCase())) return `_${out}`;
+    // A device name, as the whole segment or as its stem, gets `_` in front.
+    // Prefix, then cap: an early return here would let `con.` plus 70,000
+    // characters skip the cap below, and the whole ZIP would be refused.
+    if (isDeviceName(out) || isDeviceName(deviceStem(out))) out = `_${out}`;
 
     // Cap the length. An archive refuses an entry name too long for its header
     // (planZip in lib/zipWriter.ts), so without this a single hostile name
